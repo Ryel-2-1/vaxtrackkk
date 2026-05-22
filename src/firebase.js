@@ -3,13 +3,13 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDQfnN4cg58Ym7M4IqWRnapK-k_k_wbqCg",
-  authDomain: "vaxtrack-bef1b.firebaseapp.com",
-  projectId: "vaxtrack-bef1b",
-  storageBucket: "vaxtrack-bef1b.firebasestorage.app",
-  messagingSenderId: "1023801727166",
-  appId: "1:1023801727166:web:1f265e5766b35c5eb166ef",
-  measurementId: "G-24PNWHK97G",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 const app = initializeApp(firebaseConfig);
