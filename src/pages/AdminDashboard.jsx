@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+
 import { signOut, onAuthStateChanged } from "firebase/auth";
 import {
   collection,
@@ -88,10 +89,10 @@ function AdminDashboard() {
             <LayoutDashboard size={16} />
             Dashboard
           </a>
-          <a>
-            <Package size={16} />
-            Inventory
-          </a>
+         <Link to="/inventory">
+  <Package size={16} />
+  Inventory
+</Link>
           <a>
             <Truck size={16} />
             Deliveries

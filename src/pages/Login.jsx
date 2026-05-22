@@ -78,13 +78,21 @@ function Login() {
       showMessage("Login successful. Redirecting...", "success");
 
       setTimeout(() => {
-        if (userData.role === "admin") {
-          navigate("/admin");
-        } else if (userData.role === "rider") {
-          showMessage("Rider dashboard will be added next.", "info");
-        } else {
-          showMessage("Invalid user role. Please contact the system administrator.");
-        }
+      if (userData.status === "pending" || userData.role === "pending") {
+  navigate("/pending");
+} else if (userData.role === "admin") {
+  navigate("/admin");
+} else if (
+  userData.role === "sales_rep" &&
+  userData.department === "sales" &&
+  userData.status === "approved"
+) {
+  navigate("/sales");
+} else if (userData.role === "rider") {
+  setError("Rider accounts should use the mobile app.");
+} else {
+  setError("Invalid role or account access is not yet approved.");
+}
       }, 700);
     } catch (err) {
       console.error(err);
@@ -100,7 +108,7 @@ function Login() {
       } else if (err.code === "auth/invalid-credential") {
         showMessage("Invalid email or password.");
       } else {
-        showMessage("Login failed. Please check your credentials.");
+       showMessage(`Login failed: ${err.code}`, "error");
       }
     } finally {
       setLoading(false);
@@ -220,6 +228,13 @@ function Login() {
   Don&apos;t have an Account?{" "}
   <button className="inline-link" onClick={() => navigate("/register")}>
     Register here →
+  </button>
+</p>
+
+<p className="auth-footer">
+  Applying as Sales Rep?{" "}
+  <button className="inline-link" onClick={() => navigate("/sales-register")}>
+    Create sales account →
   </button>
 </p>
 
