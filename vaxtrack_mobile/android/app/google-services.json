@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1023801727166",
+    "project_id": "vaxtrack-bef1b",
+    "storage_bucket": "vaxtrack-bef1b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1023801727166:android:109c0158307151f5b166ef",
+        "android_client_info": {
+          "package_name": "com.example.vaxtrack_mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCVRckmGWwBP9ts9uMWK4IQ4dFK-OSWut4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
