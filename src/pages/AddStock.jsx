@@ -7,8 +7,9 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  where,
 } from "firebase/firestore";
-import { ClipboardList, Minus, Plus, Truck } from "lucide-react";
+import { ClipboardList, Truck } from "lucide-react";
 import { db } from "../firebase";
 import { AdminSidebar } from "./Inventory";
 
@@ -22,99 +23,217 @@ function AddStock() {
   const [arrivalDate, setArrivalDate] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
   const [quantity, setQuantity] = useState(1000);
-  const [storageTemp, setStorageTemp] = useState("-80°C");
+  const [storageTemp, setStorageTemp] = useState("-80");
+
+  const [loadingVaccines, setLoadingVaccines] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState("error");
+
+  const showMessage = (text, type = "error") => {
+    setMessage(text);
+    setMessageType(type);
+  };
 
   useEffect(() => {
     const loadVaccines = async () => {
-      const vaccineQuery = query(
-        collection(db, "vaccines"),
-        orderBy("createdAt", "desc")
-      );
+      try {
+        setLoadingVaccines(true);
 
-      const snap = await getDocs(vaccineQuery);
+        const vaccineQuery = query(
+          collection(db, "vaccines"),
+          orderBy("createdAt", "desc")
+        );
 
-      setVaccines(
-        snap.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }))
-      );
+        const snap = await getDocs(vaccineQuery);
+
+        setVaccines(
+          snap.docs.map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }))
+        );
+      } catch (error) {
+        console.error("Load vaccines error:", error);
+        showMessage("Unable to load registered vaccines.");
+      } finally {
+        setLoadingVaccines(false);
+      }
     };
 
     loadVaccines();
   }, []);
 
-  const selectedVaccine = vaccines.find((item) => item.id === selectedVaccineId);
+  const selectedVaccine = vaccines.find(
+    (item) => item.id === selectedVaccineId
+  );
 
   const handleVaccineChange = (value) => {
     setSelectedVaccineId(value);
+    setMessage("");
 
     const vaccine = vaccines.find((item) => item.id === value);
 
     if (vaccine) {
       setManufacturer(vaccine.manufacturer || "");
+    } else {
+      setManufacturer("");
     }
+  };
+
+  const validateForm = async () => {
+    const cleanedBatchId = batchId.trim().toUpperCase();
+    const quantityNumber = Number(quantity);
+    const cleanedTemp = cleanTemperatureInput(storageTemp).trim();
+
+    if (!selectedVaccine) {
+      showMessage("Please select a registered vaccine.");
+      return false;
+    }
+
+    if (!selectedVaccine.vaccineName || !selectedVaccine.vaccineType) {
+      showMessage(
+        "Selected vaccine is missing required details. Please check the vaccine record."
+      );
+      return false;
+    }
+
+    if (!manufacturer.trim()) {
+      showMessage("Manufacturer is required.");
+      return false;
+    }
+
+    if (!cleanedBatchId) {
+      showMessage("Batch ID is required.");
+      return false;
+    }
+
+    if (cleanedBatchId.length < 3) {
+      showMessage("Batch ID must be at least 3 characters.");
+      return false;
+    }
+
+    if (!arrivalDate) {
+      showMessage("Arrival date is required.");
+      return false;
+    }
+
+    if (!expiryDate) {
+      showMessage("Expiry date is required.");
+      return false;
+    }
+
+    const today = normalizeDate(new Date());
+    const arrival = normalizeDate(new Date(arrivalDate));
+    const expiry = normalizeDate(new Date(expiryDate));
+
+    if (Number.isNaN(arrival.getTime())) {
+      showMessage("Arrival date is invalid.");
+      return false;
+    }
+
+    if (Number.isNaN(expiry.getTime())) {
+      showMessage("Expiry date is invalid.");
+      return false;
+    }
+
+    const maxFutureArrivalDate = new Date(today);
+    maxFutureArrivalDate.setDate(maxFutureArrivalDate.getDate() + 30);
+
+    if (arrival > maxFutureArrivalDate) {
+      showMessage("Arrival date cannot be more than 30 days in the future.");
+      return false;
+    }
+
+    if (expiry <= arrival) {
+      showMessage("Expiry date must be after the arrival date.");
+      return false;
+    }
+
+    if (expiry <= today) {
+      showMessage("Expired stock cannot be added to inventory.");
+      return false;
+    }
+
+    if (!Number.isInteger(quantityNumber)) {
+      showMessage("Quantity must be a whole number.");
+      return false;
+    }
+
+    if (quantityNumber <= 0) {
+      showMessage("Quantity must be greater than zero.");
+      return false;
+    }
+
+    if (quantityNumber > 1000000) {
+      showMessage("Quantity is too large. Please check the encoded amount.");
+      return false;
+    }
+
+    if (!cleanedTemp) {
+      showMessage("Storage temperature is required.");
+      return false;
+    }
+
+    if (!isValidTemperature(cleanedTemp)) {
+      showMessage("Storage temperature must be a valid number.");
+      return false;
+    }
+
+    const batchQuery = query(
+      collection(db, "inventory"),
+      where("batchId", "==", cleanedBatchId)
+    );
+
+    const batchSnap = await getDocs(batchQuery);
+
+    if (!batchSnap.empty) {
+      showMessage("This Batch ID already exists in inventory.");
+      return false;
+    }
+
+    return true;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setMessage("");
+    setMessageType("error");
 
-    if (!selectedVaccine) {
-      setMessage("Please select a vaccine type.");
-      return;
-    }
-
-    if (!batchId.trim()) {
-      setMessage("Batch ID is required.");
-      return;
-    }
-
-    if (!arrivalDate) {
-      setMessage("Arrival date is required.");
-      return;
-    }
-
-    if (!expiryDate) {
-      setMessage("Expiry date is required.");
-      return;
-    }
-
-    if (Number(quantity) <= 0) {
-      setMessage("Quantity must be greater than zero.");
-      return;
-    }
-
-    if (!storageTemp.trim()) {
-      setMessage("Storage temperature is required.");
-      return;
-    }
+    const isValid = await validateForm();
+    if (!isValid) return;
 
     setSaving(true);
 
     try {
+      const cleanedBatchId = batchId.trim().toUpperCase();
+      const cleanedStorageTemp = formatTemperature(storageTemp);
+      const cleanedManufacturer = manufacturer.trim();
       const status = getBatchStatus(expiryDate);
 
       await addDoc(collection(db, "inventory"), {
         vaccineId: selectedVaccine.id,
         vaccineName: selectedVaccine.vaccineName,
         vaccineType: selectedVaccine.vaccineType,
-        manufacturer,
-        batchId: batchId.trim(),
+        manufacturer: cleanedManufacturer,
+        internalSku: selectedVaccine.internalSku || "",
+        batchId: cleanedBatchId,
         arrivalDate,
         expiryDate,
         quantity: Number(quantity),
-        storageTemp,
+        storageTemp: cleanedStorageTemp,
         status,
         createdAt: serverTimestamp(),
       });
 
-      navigate("/inventory");
+      showMessage("Stock added successfully.", "success");
+
+      setTimeout(() => {
+        navigate("/inventory");
+      }, 700);
     } catch (error) {
-      console.error(error);
-      setMessage("Failed to add stock.");
+      console.error("Add stock error:", error);
+      showMessage("Failed to add stock. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -127,9 +246,14 @@ function AddStock() {
       <main className="inventory-main">
         <header className="form-page-header">
           <div>
-            <p>Inventory / <span>Add New Stock</span></p>
+            <p>
+              Inventory / <span>Add New Stock</span>
+            </p>
             <h1>Register Vaccine Batch</h1>
-            <small>Enter vaccine batch details accurately to maintain supply chain integrity.</small>
+            <small>
+              Enter vaccine batch details accurately to maintain supply chain
+              integrity.
+            </small>
           </div>
         </header>
 
@@ -147,29 +271,49 @@ function AddStock() {
 
             <div className="two-col-form">
               <div>
-                <label>Vaccine Type</label>
+                <label>Vaccine</label>
                 <select
                   value={selectedVaccineId}
                   onChange={(e) => handleVaccineChange(e.target.value)}
+                  disabled={loadingVaccines}
                 >
-                  <option value="">Select vaccine type...</option>
+                  <option value="">
+                    {loadingVaccines
+                      ? "Loading vaccines..."
+                      : "Select registered vaccine..."}
+                  </option>
+
                   {vaccines.map((vaccine) => (
                     <option key={vaccine.id} value={vaccine.id}>
-                      {vaccine.vaccineName}
+                      {vaccine.vaccineName}{" "}
+                      {vaccine.vaccineType ? `(${vaccine.vaccineType})` : ""}
                     </option>
                   ))}
                 </select>
+
+                {!loadingVaccines && vaccines.length === 0 && (
+                  <small className="input-helper">
+                    No vaccines registered yet. Please add a vaccine first.
+                  </small>
+                )}
               </div>
 
               <div>
                 <label>Manufacturer</label>
                 <input
-                  placeholder="e.g. BioTech Solutions"
+                  placeholder="e.g. Pfizer-BioNTech"
                   value={manufacturer}
                   onChange={(e) => setManufacturer(e.target.value)}
                 />
               </div>
             </div>
+
+            {selectedVaccine && (
+              <small className="input-helper">
+                Type: {selectedVaccine.vaccineType || "N/A"} | SKU:{" "}
+                {selectedVaccine.internalSku || "N/A"}
+              </small>
+            )}
           </section>
 
           <section className="form-section-card">
@@ -182,9 +326,9 @@ function AddStock() {
               <div>
                 <label>Batch ID</label>
                 <input
-                  placeholder="BT-2024-X90"
+                  placeholder="BT-2026-X90"
                   value={batchId}
-                  onChange={(e) => setBatchId(e.target.value)}
+                  onChange={(e) => setBatchId(e.target.value.toUpperCase())}
                 />
               </div>
 
@@ -204,60 +348,94 @@ function AddStock() {
                   value={expiryDate}
                   onChange={(e) => setExpiryDate(e.target.value)}
                 />
-                <small className="valid-note">Valid lifecycle detected</small>
+
+                {arrivalDate &&
+                  expiryDate &&
+                  isExpiryAfterArrival(arrivalDate, expiryDate) && (
+                    <small className="valid-note">
+                      Valid lifecycle detected
+                    </small>
+                  )}
               </div>
             </div>
 
             <div className="two-col-form stock-controls">
               <div>
                 <label>Unit Quantity (Doses)</label>
+
                 <div className="number-stepper">
                   <button
                     type="button"
-                    onClick={() => setQuantity(Math.max(0, Number(quantity) - 100))}
+                    onClick={() =>
+                      setQuantity(Math.max(1, Number(quantity || 0) - 100))
+                    }
                   >
-                    <Minus size={15} />
+                    −
                   </button>
+
                   <input
                     type="number"
+                    min="1"
+                    step="1"
                     value={quantity}
                     onChange={(e) => setQuantity(e.target.value)}
                   />
+
                   <button
                     type="button"
-                    onClick={() => setQuantity(Number(quantity) + 100)}
+                    onClick={() => setQuantity(Number(quantity || 0) + 100)}
                   >
-                    <Plus size={15} />
+                    +
                   </button>
                 </div>
               </div>
 
               <div>
                 <label>Storage Temperature Requirements</label>
-                <div className="number-stepper">
-                  <button type="button">−</button>
-                  <input
-                    value={storageTemp}
-                    onChange={(e) => setStorageTemp(e.target.value)}
-                  />
-                  <button type="button">+</button>
-                </div>
+
+                <input
+                  placeholder="e.g. -80"
+                  value={storageTemp}
+                  onChange={(e) =>
+                    setStorageTemp(cleanTemperatureInput(e.target.value))
+                  }
+                  onBlur={() => setStorageTemp(formatTemperature(storageTemp))}
+                />
+
+                <small className="input-helper">
+                  Enter numbers only. The system will automatically add °C.
+                </small>
               </div>
             </div>
           </section>
 
-          {message && <p className="form-error">{message}</p>}
+          {message && (
+            <p
+              className={
+                messageType === "success"
+                  ? "form-response success"
+                  : "form-error"
+              }
+            >
+              {message}
+            </p>
+          )}
 
           <div className="stock-form-footer">
             <button
               type="button"
               className="outline-btn"
               onClick={() => navigate("/inventory")}
+              disabled={saving}
             >
               Cancel
             </button>
 
-            <button type="submit" className="blue-btn" disabled={saving}>
+            <button
+              type="submit"
+              className="blue-btn"
+              disabled={saving || loadingVaccines || vaccines.length === 0}
+            >
               {saving ? "Adding..." : "+ Add Stock"}
             </button>
           </div>
@@ -267,15 +445,47 @@ function AddStock() {
   );
 }
 
+function normalizeDate(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function isExpiryAfterArrival(arrivalDate, expiryDate) {
+  const arrival = normalizeDate(new Date(arrivalDate));
+  const expiry = normalizeDate(new Date(expiryDate));
+
+  if (Number.isNaN(arrival.getTime()) || Number.isNaN(expiry.getTime())) {
+    return false;
+  }
+
+  return expiry > arrival;
+}
+
 function getBatchStatus(expiryDate) {
-  const today = new Date();
-  const expiry = new Date(expiryDate);
+  const today = normalizeDate(new Date());
+  const expiry = normalizeDate(new Date(expiryDate));
+
   const diffTime = expiry.getTime() - today.getTime();
-  const diffDays = diffTime / (1000 * 60 * 60 * 24);
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
   if (diffDays <= 30) return "Critical";
   if (diffDays <= 90) return "Warning";
   return "Stable";
+}
+
+function cleanTemperatureInput(value) {
+  return String(value || "").replace(/[^0-9.-]/g, "");
+}
+
+function isValidTemperature(value) {
+  return /^-?\d+(\.\d+)?$/.test(value);
+}
+
+function formatTemperature(value) {
+  const cleaned = cleanTemperatureInput(value).trim();
+
+  if (!cleaned) return "";
+
+  return `${cleaned}°C`;
 }
 
 export default AddStock;

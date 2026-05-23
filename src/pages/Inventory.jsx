@@ -200,52 +200,63 @@ function Inventory() {
 
           <table className="inventory-table">
             <thead>
-              <tr>
-                <th>Vaccine Type</th>
-                <th>Batch ID</th>
-                <th>Quantity</th>
-                <th>Storage Temp</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
+             <tr>
+  <th>Vaccine</th>
+  <th>Type</th>
+  <th>Batch ID</th>
+  <th>Expiry Date</th>
+  <th>Quantity</th>
+  <th>Storage Temp</th>
+  <th>Status</th>
+  <th>Action</th>
+</tr>
             </thead>
 
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="6">Loading inventory...</td>
+                  <td colSpan="8">Loading inventory...</td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan="6">No inventory records yet. Add stock first.</td>
+                  <td colSpan="8">No inventory records yet. Add stock first.</td>
                 </tr>
               ) : (
                 items.map((item) => (
                   <tr key={item.id}>
-                    <td>
-                      <div className="vaccine-cell">
-                        <span>💉</span>
-                        <div>
-                          <h3>{item.vaccineName}</h3>
-                          <p>{item.manufacturer || "No manufacturer"}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td>{item.batchId}</td>
-                    <td>{Number(item.quantity || 0).toLocaleString()}</td>
-                    <td>
-                      <span className={`temp-pill ${getTempClass(item.storageTemp)}`}>
-                        {item.storageTemp}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`status-pill ${getStatusClass(item.status)}`}>
-                        {item.status}
-                      </span>
-                    </td>
-                    <td>
-                      <button className="view-all-btn">VIEW ALL</button>
-                    </td>
+                   <td>
+  <div className="vaccine-cell">
+    <span>💉</span>
+    <div>
+      <h3>{item.vaccineName}</h3>
+      <p>{item.manufacturer || "No manufacturer"}</p>
+    </div>
+  </div>
+</td>
+
+<td>{item.vaccineType || "N/A"}</td>
+
+<td>{item.batchId}</td>
+
+<td>{item.expiryDate || "N/A"}</td>
+
+<td>{Number(item.quantity || 0).toLocaleString()}</td>
+
+<td>
+  <span className={`temp-pill ${getTempClass(item.storageTemp)}`}>
+    {item.storageTemp}
+  </span>
+</td>
+
+<td>
+  <span className={`status-pill ${getStatusClass(item.status)}`}>
+    {item.status}
+  </span>
+</td>
+
+<td>
+  <button className="view-all-btn">VIEW ALL</button>
+</td>
                   </tr>
                 ))
               )}

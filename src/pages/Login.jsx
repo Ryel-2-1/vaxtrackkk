@@ -78,7 +78,7 @@ function Login() {
       showMessage("Login successful. Redirecting...", "success");
 
       setTimeout(() => {
-      if (userData.status === "pending" || userData.role === "pending") {
+    if (userData.status === "pending" || userData.role === "pending") {
   navigate("/pending");
 } else if (userData.role === "admin") {
   navigate("/admin");
@@ -89,9 +89,9 @@ function Login() {
 ) {
   navigate("/sales");
 } else if (userData.role === "rider") {
-  setError("Rider accounts should use the mobile app.");
+  showMessage("Rider accounts should use the mobile app.", "info");
 } else {
-  setError("Invalid role or account access is not yet approved.");
+  showMessage("Invalid role or account access is not yet approved.", "error");
 }
       }, 700);
     } catch (err) {
