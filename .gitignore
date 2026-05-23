@@ -1,1 +1,6 @@
 vaxtrack_mobile/android/app/google-services.json
+# Firebase config files
+
+vaxtrack-web/src/firebase.js
+.env
+.env.local
