@@ -10,7 +10,7 @@ import {
   where,
 } from "firebase/firestore";
 import { ClipboardList, Truck } from "lucide-react";
-import { db } from "../firebase";
+import { db } from "../../firebase";
 import { AdminSidebar } from "./Inventory";
 
 function AddStock() {
@@ -84,7 +84,7 @@ function AddStock() {
   const validateForm = async () => {
     const cleanedBatchId = batchId.trim().toUpperCase();
     const quantityNumber = Number(quantity);
-    const cleanedTemp = cleanTemperatureInput(storageTemp).trim();
+    const cleanedTemp = String(storageTemp).trim();
 
     if (!selectedVaccine) {
       showMessage("Please select a registered vaccine.");
@@ -207,7 +207,7 @@ function AddStock() {
 
     try {
       const cleanedBatchId = batchId.trim().toUpperCase();
-      const cleanedStorageTemp = formatTemperature(storageTemp);
+      const cleanedStorageTemp = String(storageTemp).trim();
       const cleanedManufacturer = manufacturer.trim();
       const status = getBatchStatus(expiryDate);
 
@@ -221,7 +221,8 @@ function AddStock() {
         arrivalDate,
         expiryDate,
         quantity: Number(quantity),
-        storageTemp: cleanedStorageTemp,
+        storageTemp: Number(cleanedStorageTemp),
+        storageTempDisplay: `${cleanedStorageTemp}°C`,
         status,
         createdAt: serverTimestamp(),
       });
@@ -394,13 +395,22 @@ function AddStock() {
                 <label>Storage Temperature Requirements</label>
 
                 <input
-                  placeholder="e.g. -80"
-                  value={storageTemp}
-                  onChange={(e) =>
-                    setStorageTemp(cleanTemperatureInput(e.target.value))
-                  }
-                  onBlur={() => setStorageTemp(formatTemperature(storageTemp))}
-                />
+                  type="text"
+                    placeholder="e.g. -80"
+                   value={storageTemp}
+                  onChange={(e) => {
+                   const value = e.target.value;
+
+                   if (/^-?\d*\.?\d*$/.test(value)) {
+                    setStorageTemp(value);
+                     }
+            }}
+          />
+
+<small className="input-helper">
+  Enter numbers only. The system will automatically display °C.
+  {storageTemp && ` Current value: ${storageTemp}°C`}
+</small>
 
                 <small className="input-helper">
                   Enter numbers only. The system will automatically add °C.
@@ -471,21 +481,8 @@ function getBatchStatus(expiryDate) {
   if (diffDays <= 90) return "Warning";
   return "Stable";
 }
-
-function cleanTemperatureInput(value) {
-  return String(value || "").replace(/[^0-9.-]/g, "");
-}
-
 function isValidTemperature(value) {
   return /^-?\d+(\.\d+)?$/.test(value);
-}
-
-function formatTemperature(value) {
-  const cleaned = cleanTemperatureInput(value).trim();
-
-  if (!cleaned) return "";
-
-  return `${cleaned}°C`;
 }
 
 export default AddStock;

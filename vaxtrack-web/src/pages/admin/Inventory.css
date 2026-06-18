@@ -1,0 +1,304 @@
+/* Inventory.css */
+
+.v2-inventory-main {
+  flex: 1;
+  min-height: 100vh;
+  background: #f6f8ff;
+  padding: 28px 34px;
+}
+
+.v2-inventory-topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.v2-inventory-topbar h1 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+}
+
+.v2-inventory-topbar p {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.v2-inventory-icons {
+  display: flex;
+  gap: 8px;
+}
+
+.v2-inventory-icons button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: #334155;
+  display: grid;
+  place-items: center;
+}
+
+.v2-hub-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 20px;
+}
+
+.v2-hub-card,
+.v2-inventory-table-card {
+  background: #ffffff;
+  border: 1px solid #dbe3f3;
+  border-radius: 14px;
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.04);
+}
+
+.v2-hub-card {
+  padding: 18px;
+}
+
+.v2-hub-card h2 {
+  margin: 0 0 16px;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.v2-hub-bars {
+  height: 155px;
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+}
+
+.v2-hub-bar-item {
+  flex: 1;
+  text-align: center;
+}
+
+.v2-hub-bar-item div {
+  height: 125px;
+  display: flex;
+  align-items: flex-end;
+  background: #f1f5f9;
+  border-radius: 4px 4px 0 0;
+  overflow: hidden;
+}
+
+.v2-hub-bar-item span {
+  display: block;
+  width: 100%;
+}
+
+.v2-hub-bar-item span.blue {
+  background: #0057d8;
+}
+
+.v2-hub-bar-item span.green {
+  background: #10b981;
+}
+
+.v2-hub-bar-item span.amber {
+  background: #8a5a00;
+}
+
+.v2-hub-bar-item span.light {
+  background: #cfe0ff;
+}
+
+.v2-hub-bar-item small {
+  display: block;
+  margin-top: 7px;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.v2-inventory-table-card {
+  padding: 18px;
+}
+
+.v2-inventory-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.v2-inventory-search {
+  width: 270px;
+  height: 36px;
+  border: 1px solid #dbe3f3;
+  background: #ffffff;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  color: #64748b;
+}
+
+.v2-inventory-search input {
+  border: 0;
+  outline: 0;
+  height: 34px;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  font-size: 12px;
+  box-shadow: none;
+}
+
+.v2-inventory-filters {
+  display: flex;
+  gap: 8px;
+}
+
+.v2-inventory-filters button {
+  height: 36px;
+  border: 1px solid #dbe3f3;
+  background: #ffffff;
+  border-radius: 8px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.v2-vaccine-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.v2-vaccine-table th {
+  text-align: left;
+  padding: 13px 10px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 11px;
+  text-transform: uppercase;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.v2-vaccine-table td {
+  padding: 14px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  color: #0f172a;
+  font-size: 12px;
+}
+
+.v2-vaccine-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.v2-vaccine-cell span {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: #eff6ff;
+  color: #0057d8;
+}
+
+.v2-vaccine-cell strong {
+  display: block;
+  color: #0f172a;
+  font-size: 12px;
+}
+
+.v2-vaccine-cell small {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.v2-temp-pill,
+.v2-stock-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.v2-temp-pill {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.v2-stock-status.critical {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.v2-stock-status.warning {
+  background: #eef2ff;
+  color: #4f46e5;
+}
+
+.v2-stock-status.stable {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.v2-inventory-footer {
+  padding-top: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.v2-inventory-footer p {
+  margin: 0;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.v2-inventory-footer div {
+  display: flex;
+  gap: 8px;
+}
+
+.v2-inventory-footer button {
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: #0057d8;
+  color: #ffffff;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (max-width: 1100px) {
+  .v2-hub-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .v2-inventory-toolbar,
+  .v2-inventory-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .v2-inventory-search {
+    width: 100%;
+  }
+}

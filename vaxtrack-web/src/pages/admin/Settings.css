@@ -1,0 +1,499 @@
+.settings-v2-main {
+  flex: 1;
+  min-height: 100vh;
+  background: #f5f7ff;
+  padding: 18px 34px 34px;
+}
+
+.settings-v2-topbar {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 26px;
+}
+
+.settings-search {
+  width: 315px;
+  height: 32px;
+  border: 1px solid #dbe3f3;
+  border-radius: 999px;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  color: #64748b;
+}
+
+.settings-search input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  outline: none;
+  height: 30px;
+  padding: 0;
+  font-size: 12px;
+  box-shadow: none;
+}
+
+.settings-top-icons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-top-icons button {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: #334155;
+  display: grid;
+  place-items: center;
+}
+
+.settings-v2-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.settings-v2-header h1 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+}
+
+.settings-v2-header p {
+  margin: 5px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.settings-tabs {
+  margin-top: 16px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid #dbe3f3;
+  display: flex;
+  gap: 18px;
+}
+
+.settings-tabs button {
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 0 0 10px;
+}
+
+.settings-tabs button.active {
+  color: #0057d8;
+  border-bottom: 2px solid #0057d8;
+}
+
+.settings-v2-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) 0.7fr;
+  gap: 22px;
+  max-width: 980px;
+}
+
+.settings-v2-left {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-v2-card,
+.user-management-card {
+  background: #ffffff;
+  border: 1px solid #dbe3f3;
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.035);
+}
+
+.settings-card-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 16px;
+  color: #0057d8;
+}
+
+.settings-card-title h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.settings-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.settings-form-grid.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.settings-form-grid label {
+  display: block;
+  margin-bottom: 6px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.settings-form-grid input,
+.settings-form-grid select {
+  width: 100%;
+  height: 38px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #f8fafc;
+  padding: 0 10px;
+  color: #0f172a;
+  font-size: 12px;
+  outline: none;
+}
+
+.settings-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+}
+
+.discard-btn {
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.save-settings-btn {
+  height: 36px;
+  border: none;
+  border-radius: 6px;
+  background: #0057d8;
+  color: #ffffff;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.system-card {
+  align-self: start;
+}
+
+.feature-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.feature-toggle-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.feature-toggle-row h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.feature-toggle-row p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.settings-toggle {
+  width: 36px;
+  min-width: 36px;
+  height: 20px;
+  border: none;
+  border-radius: 999px;
+  background: #cbd5e1;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+}
+
+.settings-toggle span {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #ffffff;
+  display: block;
+  transition: transform 0.2s ease;
+}
+
+.settings-toggle.enabled {
+  background: #0057d8;
+}
+
+.settings-toggle.enabled span {
+  transform: translateX(16px);
+}
+
+/* User Management */
+
+.user-management-card {
+  max-width: 980px;
+}
+
+.staff-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.staff-card-header .settings-card-title {
+  margin-bottom: 0;
+}
+
+.staff-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.staff-actions button {
+  height: 30px;
+  border: 1px solid #dbe3f3;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #475569;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.staff-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.staff-table th {
+  text-align: left;
+  padding: 12px 10px;
+  color: #64748b;
+  font-size: 11px;
+  text-transform: uppercase;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.staff-table td {
+  padding: 14px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  color: #0f172a;
+  font-size: 12px;
+}
+
+.staff-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.staff-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #0057d8;
+  display: grid;
+  place-items: center;
+}
+
+.staff-profile strong {
+  display: block;
+  color: #0f172a;
+  font-size: 12px;
+}
+
+.staff-profile small {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.staff-status {
+  display: inline-flex;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.staff-status.active {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.staff-status.pending {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.table-action-btn {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: #475569;
+  display: grid;
+  place-items: center;
+}
+
+.staff-pagination {
+  padding-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.staff-pagination p {
+  margin: 0;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.staff-pagination div {
+  display: flex;
+  gap: 7px;
+}
+
+.staff-pagination button {
+  height: 30px;
+  border: 1px solid #dbe3f3;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 0 10px;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.staff-pagination button.active {
+  background: #0057d8;
+  color: #ffffff;
+  border-color: #0057d8;
+}
+
+@media (max-width: 1100px) {
+  .settings-v2-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-v2-main {
+    padding: 22px;
+  }
+}
+
+@media (max-width: 700px) {
+  .settings-v2-topbar,
+  .staff-card-header,
+  .staff-pagination {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .settings-search {
+    width: 100%;
+  }
+
+  .settings-form-grid,
+  .settings-form-grid.three {
+    grid-template-columns: 1fr;
+  }
+
+  .staff-actions {
+    flex-wrap: wrap;
+  }
+}
+/* Fix System Features text alignment */
+.feature-toggle-row {
+  text-align: left;
+}
+
+.feature-toggle-row > div {
+  text-align: left;
+  flex: 1;
+}
+
+.feature-toggle-row h3,
+.feature-toggle-row p {
+  text-align: left;
+}
+/* =========================================
+   FORCE: Settings header left alignment
+========================================= */
+
+.settings-v2-header.settings-title-left {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 24px 0 20px 0 !important;
+  padding: 0 !important;
+  display: flex !important;
+  justify-content: flex-start !important;
+  align-items: flex-start !important;
+  text-align: left !important;
+}
+
+.settings-v2-header.settings-title-left > div {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  text-align: left !important;
+}
+
+.settings-v2-header.settings-title-left h1 {
+  margin: 0 0 8px 0 !important;
+  padding: 0 !important;
+  text-align: left !important;
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.settings-v2-header.settings-title-left p {
+  margin: 0 !important;
+  padding: 0 !important;
+  text-align: left !important;
+}
+
+/* Remove orange focus outline on tabs/buttons */
+.settings-tabs button,
+.settings-tabs button:focus,
+.settings-tabs button:focus-visible,
+.settings-tabs button.active,
+.settings-tabs button.active:focus,
+.settings-tabs button.active:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}

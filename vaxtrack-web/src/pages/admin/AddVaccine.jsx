@@ -17,7 +17,7 @@ import {
   Syringe,
   X,
 } from "lucide-react";
-import { db } from "../firebase";
+import { db } from "../../firebase";
 import { AdminSidebar } from "./Inventory";
 
 function AddVaccine() {

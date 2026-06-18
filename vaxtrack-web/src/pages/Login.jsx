@@ -1,250 +1,183 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-import { Lock, Mail, Eye, EyeOff, ArrowRight } from "lucide-react";
-import { auth, db } from "../firebase";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+} from "firebase/auth";
+import { Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
+import { auth } from "../firebase";
+import "./Auth.css";
 
 function Login() {
   const navigate = useNavigate();
+  const provider = new GoogleAuthProvider();
 
-  const [email, setEmail] = useState("admin@vaxtrack.com");
-  const [password, setPassword] = useState("admin123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState("");
-
-  const showMessage = (text, type = "error") => {
-    setMessage(text);
-    setMessageType(type);
-  };
-
-  const validateForm = () => {
-    if (!email.trim()) {
-      showMessage("Email is required.");
-      return false;
-    }
-
-    if (!email.includes("@")) {
-      showMessage("Please enter a valid email address.");
-      return false;
-    }
-
-    if (!password.trim()) {
-      showMessage("Password is required.");
-      return false;
-    }
-
-    if (password.length < 6) {
-      showMessage("Password must be at least 6 characters.");
-      return false;
-    }
-
-    return true;
-  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setMessage("");
-    setMessageType("");
+    setError("");
 
-    if (!validateForm()) return;
-
-    setLoading(true);
+    if (!email.trim() || !password.trim()) {
+      setError("Please fill in your email and password.");
+      return;
+    }
 
     try {
-      const userCredential = await signInWithEmailAndPassword(
-        auth,
-        email.trim(),
-        password
-      );
+      setLoading(true);
 
-      const uid = userCredential.user.uid;
-      const userRef = doc(db, "users", uid);
-      const userSnap = await getDoc(userRef);
+      await signInWithEmailAndPassword(auth, email, password);
 
-      if (!userSnap.exists()) {
-        showMessage(
-          "Login successful, but no role record was found in Firestore. Please check the users collection."
-        );
-        setLoading(false);
-        return;
-      }
-
-      const userData = userSnap.data();
-
-      showMessage("Login successful. Redirecting...", "success");
-
-      setTimeout(() => {
-    if (userData.status === "pending" || userData.role === "pending") {
-  navigate("/pending");
-} else if (userData.role === "admin") {
-  navigate("/admin");
-} else if (
-  userData.role === "sales_rep" &&
-  userData.department === "sales" &&
-  userData.status === "approved"
-) {
-  navigate("/sales");
-} else if (userData.role === "rider") {
-  showMessage("Rider accounts should use the mobile app.", "info");
-} else {
-  showMessage("Invalid role or account access is not yet approved.", "error");
-}
-      }, 700);
+      // Admin page route
+      navigate("/admin");
     } catch (err) {
-      console.error(err);
-
-      if (err.code === "auth/user-not-found") {
-        showMessage("No account found with this email.");
-      } else if (err.code === "auth/wrong-password") {
-        showMessage("Incorrect password. Please try again.");
-      } else if (err.code === "auth/invalid-email") {
-        showMessage("Invalid email format.");
-      } else if (err.code === "auth/too-many-requests") {
-        showMessage("Too many failed attempts. Please try again later.");
-      } else if (err.code === "auth/invalid-credential") {
-        showMessage("Invalid email or password.");
-      } else {
-       showMessage(`Login failed: ${err.code}`, "error");
-      }
+      setError("Invalid login credentials. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleForgotPassword = async () => {
-    setMessage("");
-    setMessageType("");
-
-    if (!email.trim()) {
-      showMessage("Enter your email first before resetting your password.");
-      return;
-    }
+  const handleGoogleLogin = async () => {
+    setError("");
 
     try {
-      await sendPasswordResetEmail(auth, email.trim());
-      showMessage("Password reset email sent. Please check your inbox.", "success");
+      setLoading(true);
+
+      await signInWithPopup(auth, provider);
+
+      // Admin page route
+      navigate("/admin");
     } catch (err) {
-      console.error(err);
-      showMessage("Unable to send password reset email.");
+      setError("Google sign in failed. Please try again.");
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <div className="auth-page">
-      <div className="auth-card refined-auth-card">
-        <div className="auth-logo">
-          <div className="logo-circle">
-            <span className="dot dot-yellow"></span>
-            <span className="dot dot-orange"></span>
-            <span className="dot dot-red"></span>
-          </div>
+      <div className="auth-card login-card">
+        <div className="auth-brand">
+          <h1>VaxTrack Portal</h1>
         </div>
-
-        <h1 className="brand-title">VaxTrack Portal</h1>
-        <p className="brand-subtitle">
-          Authorized access for logistics staff and riders
-        </p>
 
         <form onSubmit={handleLogin} className="auth-form">
           <label>Email or Employee ID</label>
-          <div className="input-group">
-            <Mail size={18} />
+
+          <div className="auth-input">
+            <Mail size={16} />
             <input
-              type="email"
+              type="text"
               placeholder="e.g. admin@vaxtrack.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
           </div>
 
-          <div className="label-row">
+          <div className="auth-label-row">
             <label>Password</label>
-            <button
-              type="button"
-              className="link-button"
-              onClick={handleForgotPassword}
-            >
+
+            <Link to="/forgot-password" className="text-link small-link">
               Forgot Password?
-            </button>
+            </Link>
           </div>
 
-          <div className="input-group">
-            <Lock size={18} />
+          <div className="auth-input">
+            <Lock size={16} />
             <input
               type={showPassword ? "text" : "password"}
-              placeholder="Enter your password"
+              placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
 
             <button
               type="button"
-              className="icon-button"
-              onClick={() => setShowPassword(!showPassword)}
-              aria-label="Toggle password visibility"
+              className="icon-ghost"
+              onClick={() => setShowPassword((prev) => !prev)}
             >
-              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
           </div>
 
-          <label className="remember-row">
-            <input type="checkbox" />
-            <span>Remember me</span>
-          </label>
+          <div className="auth-check-row">
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={() => setRemember((prev) => !prev)}
+              />
+              <span>Remember me</span>
+            </label>
+          </div>
 
-          {message && (
-            <p className={`form-message ${messageType}`}>
-              {message}
-            </p>
-          )}
+          {error && <div className="auth-error">{error}</div>}
 
-          <button className="primary-button" type="submit" disabled={loading}>
-            {loading ? (
-              "Verifying account..."
-            ) : (
-              <>
-                Login to Portal <ArrowRight size={16} />
-              </>
-            )}
+          <button type="submit" className="primary-auth-btn" disabled={loading}>
+            {loading ? "Signing in..." : "Login to Portal"}
+            {!loading && <ArrowRight size={16} />}
           </button>
+
+          <div className="auth-divider">
+            <span></span>
+            <p>or</p>
+            <span></span>
+          </div>
+
+          <button
+            type="button"
+            className="google-auth-btn"
+            onClick={handleGoogleLogin}
+            disabled={loading}
+          >
+            <GoogleIcon />
+            Continue with Google
+          </button>
+
+          <p className="auth-footer-text">
+            Don&apos;t have an Account?{" "}
+            <Link to="/register" className="text-link">
+              Register here
+            </Link>
+          </p>
+
+          <small className="auth-copyright">
+            © 2026 VaxTrack Philippines Medical Logistics.
+            <br />
+            Authorized Access Only.
+          </small>
         </form>
-
-        <div className="divider">
-          <span></span>
-          <p>or</p>
-          <span></span>
-        </div>
-
-        <button className="google-button" type="button" disabled>
-          <span>G</span>
-          Sign in with Google
-        </button>
-
-        <p className="auth-footer">
-  Don&apos;t have an Account?{" "}
-  <button className="inline-link" onClick={() => navigate("/register")}>
-    Register here →
-  </button>
-</p>
-
-<p className="auth-footer">
-  Applying as Sales Rep?{" "}
-  <button className="inline-link" onClick={() => navigate("/sales-register")}>
-    Create sales account →
-  </button>
-</p>
-
-        <p className="copyright">
-          © 2026 VaxTrack Philippines Medical Logistics.
-          <br />
-          Authorized Access Only.
-        </p>
       </div>
     </div>
+  );
+}
+
+function GoogleIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 48 48">
+      <path
+        fill="#FFC107"
+        d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"
+      />
+      <path
+        fill="#FF3D00"
+        d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 16.3 4 9.6 8.3 6.3 14.7z"
+      />
+      <path
+        fill="#4CAF50"
+        d="M24 44c5.1 0 9.8-1.9 13.3-5.1l-6.2-5.2C29.1 35.2 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.5 16.2 44 24 44z"
+      />
+      <path
+        fill="#1976D2"
+        d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.2-4.2 5.7l6.2 5.2C36.9 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"
+      />
+    </svg>
   );
 }
 

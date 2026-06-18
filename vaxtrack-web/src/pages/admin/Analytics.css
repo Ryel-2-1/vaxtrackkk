@@ -1,0 +1,328 @@
+.compact-analytics {
+  background: #f7f9ff;
+  min-height: 100vh;
+  padding: 28px 36px;
+  flex: 1;
+}
+
+.compact-analytics .analytics-compact-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.compact-analytics .analytics-compact-header h1 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+}
+
+.compact-analytics .analytics-compact-header p {
+  margin: 5px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.compact-analytics .analytics-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.compact-analytics .analytics-filter-row select {
+  width: auto;
+  height: 34px;
+  border: 1px solid #dbeafe;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 12px;
+  padding: 0 10px;
+}
+
+.compact-analytics .analytics-summary-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.compact-analytics .mini-metric-card {
+  width: 180px;
+  min-height: 130px;
+  background: #ffffff;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
+}
+
+.compact-analytics .mini-metric-card p {
+  margin: 0;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.compact-analytics .mini-metric-card h2 {
+  margin: 7px 0;
+  color: #0f172a;
+  font-size: 23px;
+}
+
+.compact-analytics .mini-metric-card small {
+  color: #16a34a;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.compact-analytics .mini-metric-card span {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+}
+
+.compact-analytics .analytics-main-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(260px, 0.85fr);
+  gap: 16px;
+}
+
+.compact-analytics .analytics-chart-card,
+.compact-analytics .region-card,
+.compact-analytics .hub-ranking-card,
+.compact-analytics .heatmap-card {
+  background: #ffffff;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
+}
+
+.compact-analytics .analytics-chart-card {
+  min-height: 260px;
+}
+
+.compact-analytics .compact-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.compact-analytics .compact-card-header h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.compact-analytics .compact-card-header button {
+  border: 0;
+  background: transparent;
+  color: #0057d8;
+  font-weight: 800;
+}
+
+.compact-analytics .area-chart-mock {
+  height: 210px;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 22px;
+  padding: 26px 20px 20px;
+  background: #ffffff;
+}
+
+.compact-analytics .chart-grid-lines {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(rgba(226, 232, 240, 0.7) 1px, transparent 1px);
+  background-size: 100% 42px;
+}
+
+.compact-analytics .area-bar-group {
+  flex: 1;
+  height: 100%;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.compact-analytics .area-bar {
+  width: 100%;
+  max-width: 74px;
+  background: #cfe0ff;
+  border-radius: 3px 3px 0 0;
+  z-index: 2;
+}
+
+.compact-analytics .area-bar-group small {
+  position: absolute;
+  bottom: -16px;
+  color: #94a3b8;
+  font-size: 10px;
+}
+
+.compact-analytics .region-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.compact-analytics .region-item div:first-child {
+  display: flex;
+  justify-content: space-between;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.compact-analytics .region-progress {
+  height: 7px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.compact-analytics .region-progress span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: #0057d8;
+}
+
+.compact-analytics .hub-ranking-card,
+.compact-analytics .heatmap-card {
+  margin-top: 16px;
+}
+
+.compact-analytics .hub-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.compact-analytics .hub-table th {
+  text-align: left;
+  color: #64748b;
+  font-size: 11px;
+  padding: 10px;
+  background: #f8fbff;
+}
+
+.compact-analytics .hub-table td {
+  padding: 11px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 12px;
+  color: #0f172a;
+}
+
+.compact-analytics .hub-status {
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.compact-analytics .hub-status.optimal {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.compact-analytics .hub-status.review {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.compact-analytics .hub-status.critical {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.compact-analytics .heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.compact-analytics .heatmap-legend i {
+  width: 40px;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #dbeafe, #0057d8);
+}
+
+.compact-analytics .heatmap-labels {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 5px;
+  margin-bottom: 6px;
+}
+
+.compact-analytics .heatmap-labels span {
+  color: #64748b;
+  font-size: 10px;
+  text-align: center;
+}
+
+.compact-analytics .heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+
+.compact-analytics .heat-cell {
+  height: 42px;
+  border-radius: 3px;
+}
+
+.compact-analytics .heat-cell.level-1 {
+  background: #dbeafe;
+}
+
+.compact-analytics .heat-cell.level-2 {
+  background: #93c5fd;
+}
+
+.compact-analytics .heat-cell.level-3 {
+  background: #3b82f6;
+}
+
+.compact-analytics .heat-cell.level-4 {
+  background: #0057d8;
+}
+
+@media (max-width: 1200px) {
+  .compact-analytics .analytics-main-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .compact-analytics .analytics-compact-header,
+  .compact-analytics .analytics-filter-row,
+  .compact-analytics .analytics-summary-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .compact-analytics .mini-metric-card {
+    width: 100%;
+  }
+}
