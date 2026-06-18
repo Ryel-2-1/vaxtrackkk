@@ -5009,3 +5009,103 @@ select:focus {
   width: 16px !important;
   height: 16px !important;
 }
+/* =========================================================
+   GLOBAL LAYOUT FIX - remove Vite default page centering
+========================================================= */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 100%;
+  min-height: 100vh;
+  margin: 0 !important;
+  padding: 0 !important;
+  max-width: none !important;
+  text-align: left !important;
+  overflow-x: hidden;
+}
+
+body {
+  background: #f6f8ff;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Makes admin pages full screen */
+.inventory-page {
+  width: 100vw !important;
+  min-height: 100vh !important;
+  display: flex !important;
+  align-items: stretch !important;
+  background: #f6f8ff !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Fixed admin sidebar */
+.inventory-sidebar {
+  width: 280px !important;
+  min-width: 280px !important;
+  height: 100vh !important;
+  position: sticky !important;
+  top: 0 !important;
+  align-self: flex-start !important;
+}
+
+/* Main content pages */
+.v2-admin-main,
+.v2-inventory-main,
+.deliveries-v4-page,
+.riders-main,
+.analytics-main,
+.settings-v2-main,
+.clinics-main,
+.alerts-main {
+  flex: 1 !important;
+  min-width: 0 !important;
+  width: calc(100vw - 280px) !important;
+  max-width: none !important;
+  margin: 0 !important;
+  text-align: left !important;
+}
+/* =========================================================
+   FIX: Remove gray autofill background in Login/Register
+========================================================= */
+
+input,
+textarea,
+select {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* Chrome / Edge autofill fix */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+  box-shadow: 0 0 0 1000px #ffffff inset !important;
+  -webkit-text-fill-color: #0f172a !important;
+  caret-color: #0f172a !important;
+  transition: background-color 9999s ease-in-out 0s !important;
+}
+
+/* Make login/register input boxes clean white */
+.auth-input,
+.login-input,
+.register-input,
+.input-wrapper {
+  background: #ffffff !important;
+}
+
+.auth-input input,
+.login-input input,
+.register-input input,
+.input-wrapper input {
+  background: #ffffff !important;
+}

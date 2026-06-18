@@ -4123,3 +4123,268 @@
   font-size: 12px;
   line-height: 1.4;
 }
+/* =========================================================
+   FIX: Dispatcher pages full layout + readable text
+========================================================= */
+
+.dispatcher-page {
+  width: 100vw !important;
+  min-height: 100vh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: #f5f7ff !important;
+  overflow-x: hidden !important;
+}
+
+.dispatcher-sidebar {
+  width: 250px !important;
+  min-width: 250px !important;
+  height: 100vh !important;
+  position: sticky !important;
+  top: 0 !important;
+}
+
+.dispatcher-main {
+  flex: 1 !important;
+  min-width: 0 !important;
+  width: calc(100vw - 250px) !important;
+}
+
+.dispatcher-content {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 34px 36px 36px !important;
+  text-align: left !important;
+}
+
+/* Keep each dispatcher page clean and not too stretched */
+.dispatcher-v2-page,
+.geo2-wrap,
+.dispatcher-settings-page {
+  width: 100% !important;
+  max-width: 1220px !important;
+  margin: 0 !important;
+}
+
+/* Topbar alignment */
+.dispatcher-topbar {
+  width: 100% !important;
+  grid-template-columns: 210px minmax(360px, 560px) 40px 170px !important;
+  justify-content: space-between !important;
+}
+
+.dispatcher-search {
+  max-width: 560px !important;
+  width: 100% !important;
+}
+
+/* Make all page titles readable */
+.dispatcher-v2-header h1,
+.assign-header h1,
+.geo2-header h1,
+.cargo-header-grid h1,
+.dispatcher-page-title h1,
+.dispatcher-settings-card h2,
+.settings-card-heading h2,
+.available-riders-card h2,
+.order-details-panel h2 {
+  color: #0f172a !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+/* Make subtitles readable */
+.dispatcher-v2-header p,
+.geo2-header p,
+.cargo-header-grid p,
+.dispatcher-page-title p {
+  color: #334155 !important;
+  opacity: 1 !important;
+}
+
+/* =========================================================
+   FIX: Dispatcher Dashboard
+========================================================= */
+
+.dispatcher-live-card,
+.dispatcher-v2-monitor-card {
+  width: 100% !important;
+}
+
+.dispatcher-live-map,
+.dispatcher-v2-monitor-map {
+  height: 420px !important;
+}
+
+.dispatcher-v2-summary-grid {
+  width: 100% !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 18px !important;
+}
+
+.dispatcher-v2-table-card {
+  width: 100% !important;
+}
+
+/* =========================================================
+   FIX: Assign Rider page
+========================================================= */
+
+.assign-header {
+  margin-top: 4px !important;
+  margin-bottom: 24px !important;
+}
+
+.assign-grid {
+  width: 100% !important;
+  max-width: 1180px !important;
+  grid-template-columns: minmax(0, 1fr) 360px !important;
+  gap: 26px !important;
+  align-items: start !important;
+}
+
+.available-riders-card,
+.order-details-panel {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+.rider-option {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+.rider-option.selected {
+  background: #f8fbff !important;
+  color: #0f172a !important;
+}
+
+.rider-info strong,
+.rider-info small,
+.order-summary-card h3,
+.order-summary-card p,
+.order-summary-card small,
+.delivery-route-info strong {
+  color: #0f172a !important;
+  opacity: 1 !important;
+}
+
+.rider-info small,
+.order-summary-card p {
+  color: #475569 !important;
+}
+
+.route-preview-map {
+  width: 100% !important;
+  height: 300px !important;
+}
+
+/* =========================================================
+   FIX: Shipments page
+========================================================= */
+
+.dispatcher-shipments-grid {
+  width: 100% !important;
+  max-width: 1180px !important;
+  grid-template-columns: minmax(0, 1fr) 290px !important;
+  gap: 24px !important;
+}
+
+.pending-load-card {
+  width: 100% !important;
+}
+
+.cargo-header-grid {
+  width: 100% !important;
+  max-width: 1180px !important;
+}
+
+/* =========================================================
+   FIX: Geofence page
+========================================================= */
+
+.geo2-header {
+  width: 100% !important;
+  max-width: 1180px !important;
+  grid-template-columns: minmax(0, 1fr) 430px !important;
+  gap: 24px !important;
+  margin-top: 10px !important;
+}
+
+.geo2-main-grid {
+  width: 100% !important;
+  max-width: 1180px !important;
+  grid-template-columns: minmax(0, 1fr) 330px !important;
+  gap: 24px !important;
+}
+
+.geo2-map {
+  height: 540px !important;
+}
+
+/* =========================================================
+   FIX: Dispatcher Settings page
+========================================================= */
+
+.dispatcher-settings-grid {
+  width: 100% !important;
+  max-width: 1180px !important;
+  grid-template-columns: minmax(0, 1fr) 390px !important;
+  gap: 26px !important;
+  align-items: start !important;
+}
+
+.dispatcher-settings-card {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+.settings-card-heading {
+  color: #0f172a !important;
+}
+
+.dispatcher-form-grid label,
+.dispatcher-toggle-row strong,
+.dispatcher-toggle-row span,
+.dispatcher-toggle-row div {
+  color: #0f172a !important;
+  opacity: 1 !important;
+}
+
+.dispatcher-toggle-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  gap: 18px !important;
+  align-items: center !important;
+}
+
+.dispatcher-toggle-row div {
+  min-width: 0 !important;
+}
+
+.dispatcher-toggle-row strong {
+  display: block !important;
+  font-size: 16px !important;
+  line-height: 1.15 !important;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .assign-grid,
+  .dispatcher-shipments-grid,
+  .geo2-header,
+  .geo2-main-grid,
+  .dispatcher-settings-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .dispatcher-sidebar {
+    width: 230px !important;
+    min-width: 230px !important;
+  }
+
+  .dispatcher-main {
+    width: calc(100vw - 230px) !important;
+  }
+}

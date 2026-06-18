@@ -585,3 +585,49 @@
   margin-right: auto;
   justify-content: flex-start;
 }
+
+/* =========================================================
+   ADMIN DASHBOARD SCREEN FIT FIX
+========================================================= */
+
+.v2-admin-main {
+  padding: 20px 28px 28px !important;
+}
+
+.v2-admin-topbar {
+  width: 100% !important;
+}
+
+.v2-alert-banner {
+  width: 100% !important;
+}
+
+.v2-admin-grid {
+  width: 100% !important;
+  grid-template-columns: minmax(0, 1fr) 330px !important;
+  gap: 20px !important;
+}
+
+.v2-live-map {
+  height: 420px !important;
+}
+
+.v2-rider-panel {
+  height: fit-content !important;
+  max-height: calc(100vh - 130px) !important;
+  overflow-y: auto !important;
+}
+
+.v2-stats-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+@media (max-width: 1200px) {
+  .v2-admin-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .v2-rider-panel {
+    max-height: none !important;
+  }
+}
