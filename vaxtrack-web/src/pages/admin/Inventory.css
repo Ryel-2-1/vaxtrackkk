@@ -807,3 +807,203 @@
     grid-template-columns: 1fr;
   }
 }
+/* =========================================================
+   Inventory Layout Update
+   Central Hub Capacity full-width
+   Cold Storage + Inventory Alerts below side-by-side
+========================================================= */
+
+.v2-hub-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 18px !important;
+  margin-bottom: 20px !important;
+  align-items: stretch !important;
+}
+
+/* Make Central Hub Capacity full-width */
+.v2-hub-grid > .v2-hub-card:first-child {
+  grid-column: 1 / -1 !important;
+  min-height: 300px !important;
+}
+
+/* Make the Central Hub Capacity chart feel wider and balanced */
+.v2-hub-grid > .v2-hub-card:first-child .v2-hub-bars {
+  height: 210px !important;
+  gap: 34px !important;
+  padding: 0 22px !important;
+  align-items: flex-end !important;
+}
+
+/* Wider bar containers for the full-width capacity card */
+.v2-hub-grid > .v2-hub-card:first-child .v2-hub-bar-item div {
+  height: 160px !important;
+  border-radius: 10px 10px 5px 5px !important;
+}
+
+/* Keep labels readable */
+.v2-hub-grid > .v2-hub-card:first-child .v2-hub-bar-item small {
+  font-size: 13px !important;
+  margin-top: 10px !important;
+}
+
+.v2-hub-grid > .v2-hub-card:first-child .v2-hub-bar-item b {
+  font-size: 12px !important;
+}
+
+/* Cold Storage Status and Inventory Alerts stay below, side by side */
+.v2-cold-card,
+.v2-alert-summary-card {
+  grid-column: auto !important;
+  min-height: 250px !important;
+}
+
+/* Responsive: stack them on smaller screens */
+@media (max-width: 1100px) {
+  .v2-hub-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .v2-hub-grid > .v2-hub-card:first-child {
+    grid-column: auto !important;
+  }
+
+  .v2-hub-grid > .v2-hub-card:first-child .v2-hub-bars {
+    padding: 0 !important;
+    gap: 16px !important;
+  }
+}
+/* =========================================================
+   Inventory Table Search + Expiry + Pagination Fix
+========================================================= */
+
+.v2-inventory-toolbar {
+  align-items: center !important;
+}
+
+.v2-inventory-search {
+  width: 390px !important;
+  max-width: 100% !important;
+  height: 44px !important;
+  overflow: hidden !important;
+  flex-shrink: 0 !important;
+}
+
+.v2-inventory-search input {
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+  height: 40px !important;
+  border: 0 !important;
+  outline: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #0f172a !important;
+  font-size: 14px !important;
+  font-weight: 650 !important;
+}
+
+.v2-inventory-search input::placeholder {
+  color: #8da0ba !important;
+  font-weight: 500 !important;
+}
+
+.v2-expiry-select {
+  height: 40px !important;
+  border: 1px solid #dbe3f3 !important;
+  background: #ffffff !important;
+  border-radius: 12px !important;
+  color: #334155 !important;
+  font-size: 13px !important;
+  font-weight: 900 !important;
+  padding: 0 12px !important;
+  cursor: pointer !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.v2-expiry-select:focus {
+  border-color: #0057d8 !important;
+  box-shadow: 0 0 0 4px rgba(0, 87, 216, 0.12) !important;
+}
+
+.v2-pagination button {
+  cursor: pointer !important;
+}
+
+.v2-pagination button:disabled {
+  opacity: 0.45 !important;
+  cursor: not-allowed !important;
+}
+
+@media (max-width: 900px) {
+  .v2-inventory-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .v2-inventory-search {
+    width: 100% !important;
+  }
+}
+/* =========================================================
+   Final Inventory Checkbox Fix
+   Clean square checkbox, centered in table column
+========================================================= */
+
+.v2-vaccine-table th:first-child,
+.v2-vaccine-table td:first-child {
+  width: 48px !important;
+  min-width: 48px !important;
+  max-width: 48px !important;
+  text-align: center !important;
+  vertical-align: middle !important;
+  padding-left: 14px !important;
+  padding-right: 14px !important;
+}
+
+.v2-vaccine-table th:first-child input[type="checkbox"],
+.v2-vaccine-table td:first-child input[type="checkbox"] {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  min-height: 20px !important;
+  max-width: 20px !important;
+  max-height: 20px !important;
+
+  margin: 0 auto !important;
+  padding: 0 !important;
+
+  display: block !important;
+
+  border: 2px solid #9fb2ce !important;
+  border-radius: 6px !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  background-repeat: no-repeat !important;
+  background-position: center !important;
+  background-size: 13px 13px !important;
+
+  box-shadow: none !important;
+  outline: none !important;
+  cursor: pointer !important;
+  box-sizing: border-box !important;
+}
+
+.v2-vaccine-table th:first-child input[type="checkbox"]:checked,
+.v2-vaccine-table td:first-child input[type="checkbox"]:checked {
+  border-color: #0057d8 !important;
+  background-color: #0057d8 !important;
+  background-image: url("data:image/svg+xml,%3Csvg width='14' height='14' viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7.2L5.7 9.8L11 4.2' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+}
+
+/* Remove any old duplicate checkmark effects */
+.v2-vaccine-table input[type="checkbox"]::before,
+.v2-vaccine-table input[type="checkbox"]::after {
+  content: none !important;
+  display: none !important;
+}

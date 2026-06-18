@@ -968,3 +968,82 @@
     width: 100%;
   }
 }
+/* =========================================================
+   Deliveries Text Box Overlap Fix
+   Search bar + New Delivery form inputs
+========================================================= */
+
+/* Search box fix */
+.deliveries-v4-search {
+  height: 44px !important;
+  overflow: hidden !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 9px !important;
+}
+
+.deliveries-v4-search input {
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+  height: 40px !important;
+
+  border: 0 !important;
+  outline: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+
+  background: transparent !important;
+  box-shadow: none !important;
+
+  color: #0f172a !important;
+  font-size: 14px !important;
+  font-weight: 650 !important;
+  line-height: 40px !important;
+}
+
+.deliveries-v4-search input::placeholder {
+  color: #8da0ba !important;
+  font-weight: 500 !important;
+}
+
+/* New Delivery modal input fix */
+.deliveries-form-grid input,
+.deliveries-form-grid select {
+  width: 100% !important;
+  height: 46px !important;
+
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 12px !important;
+
+  padding: 0 14px !important;
+  margin: 0 !important;
+
+  background: #ffffff !important;
+  box-shadow: none !important;
+
+  color: #0f172a !important;
+  font-size: 14px !important;
+  font-weight: 650 !important;
+  line-height: 46px !important;
+
+  box-sizing: border-box !important;
+}
+
+.deliveries-form-grid input::placeholder {
+  color: #8da0ba !important;
+  font-weight: 600 !important;
+}
+
+.deliveries-form-grid input:focus,
+.deliveries-form-grid select:focus {
+  border-color: #0057d8 !important;
+  box-shadow: 0 0 0 4px rgba(0, 87, 216, 0.13) !important;
+  outline: none !important;
+}
+
+/* Prevent old global input styles from affecting delivery page */
+.deliveries-v4-page input,
+.deliveries-v4-page select {
+  appearance: auto !important;
+  -webkit-appearance: auto !important;
+}

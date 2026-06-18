@@ -162,8 +162,8 @@ function Deliveries() {
         .slice(0, 2)
         .toUpperCase(),
       rider: newDelivery.rider,
-      vehicle: newDelivery.vehicle,
-      plate: newDelivery.plate,
+      vehicle: "Not specified",
+      plate: "Not specified",
       destination: newDelivery.destination,
       address: newDelivery.address,
       region: newDelivery.region,
@@ -178,15 +178,13 @@ function Deliveries() {
     setNewDelivery({
       id: "",
       rider: "",
-      vehicle: "Van",
-      plate: "",
       destination: "",
       address: "",
       region: "Manila",
       statusType: "loading",
       temp: "2-8°C",
       priority: "Normal",
-    });
+  });
 
     setShowNewDeliveryModal(false);
     showToast(`${createdDelivery.id} has been added to deliveries.`);
@@ -566,38 +564,6 @@ function Deliveries() {
                     setNewDelivery((prev) => ({
                       ...prev,
                       rider: e.target.value,
-                    }))
-                  }
-                />
-              </label>
-
-              <label>
-                Vehicle
-                <select
-                  value={newDelivery.vehicle}
-                  onChange={(e) =>
-                    setNewDelivery((prev) => ({
-                      ...prev,
-                      vehicle: e.target.value,
-                    }))
-                  }
-                >
-                  <option>Van</option>
-                  <option>Truck</option>
-                  <option>Bike</option>
-                </select>
-              </label>
-
-              <label>
-                Plate Number
-                <input
-                  type="text"
-                  placeholder="ABC-1234"
-                  value={newDelivery.plate}
-                  onChange={(e) =>
-                    setNewDelivery((prev) => ({
-                      ...prev,
-                      plate: e.target.value,
                     }))
                   }
                 />

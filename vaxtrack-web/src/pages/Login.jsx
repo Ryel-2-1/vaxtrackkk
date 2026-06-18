@@ -4,9 +4,18 @@ import {
   signInWithEmailAndPassword,
   signInWithPopup,
   GoogleAuthProvider,
+  signOut,
 } from "firebase/auth";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore";
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
-import { auth } from "../firebase";
+import { auth, db } from "../firebase";
 import "./Auth.css";
 
 function Login() {
@@ -20,21 +29,122 @@ function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const redirectUserByRole = async (user) => {
+    const userRef = doc(db, "users", user.uid);
+    const userSnap = await getDoc(userRef);
+
+    if (!userSnap.exists()) {
+      await signOut(auth);
+      setError("No user profile found. Please contact the administrator.");
+      return;
+    }
+
+    const userData = userSnap.data();
+
+    const role = (userData.role || "").toLowerCase().trim();
+    const status = (userData.status || "approved").toLowerCase().trim();
+
+    if (status === "pending" || status === "pending_approval") {
+      navigate("/pending");
+      return;
+    }
+
+    if (status === "rejected") {
+      await signOut(auth);
+      setError("Your account was rejected. Please contact the administrator.");
+      return;
+    }
+
+    if (status === "disabled") {
+      await signOut(auth);
+      setError("Your account is disabled. Please contact the administrator.");
+      return;
+    }
+
+    if (role === "admin") {
+      navigate("/admin");
+      return;
+    }
+
+    if (role === "dispatcher") {
+      navigate("/dispatcher");
+      return;
+    }
+
+    if (
+      role === "salesrep" ||
+      role === "sales_rep" ||
+      role === "sales-rep" ||
+      role === "sales representative"
+    ) {
+      navigate("/sales-rep");
+      return;
+    }
+
+    if (role === "rider") {
+      navigate("/rider");
+      return;
+    }
+
+    await signOut(auth);
+    setError("Unknown account role. Please contact the administrator.");
+  };
+
+  const getEmailFromEmployeeId = async (loginInput) => {
+    if (loginInput.includes("@")) {
+      return loginInput;
+    }
+
+    const usersRef = collection(db, "users");
+    const employeeQuery = query(
+      usersRef,
+      where("employeeId", "==", loginInput)
+    );
+
+    const querySnapshot = await getDocs(employeeQuery);
+
+    if (querySnapshot.empty) {
+      throw new Error("employee-id-not-found");
+    }
+
+    const userData = querySnapshot.docs[0].data();
+
+    if (!userData.email) {
+      throw new Error("employee-email-not-found");
+    }
+
+    return userData.email;
+  };
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setError("");
 
     if (!email.trim() || !password.trim()) {
-      setError("Please fill in your email and password.");
+      setError("Please fill in your email or employee ID and password.");
       return;
     }
 
     try {
       setLoading(true);
-      await signInWithEmailAndPassword(auth, email, password);
-      navigate("/admin");
+
+      const loginEmail = await getEmailFromEmployeeId(email.trim());
+
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        loginEmail,
+        password
+      );
+
+      await redirectUserByRole(userCredential.user);
     } catch (err) {
-      setError("Invalid login credentials. Please try again.");
+      console.error("Login error:", err);
+
+      if (err.message === "employee-id-not-found") {
+        setError("Employee ID not found. Please check and try again.");
+      } else {
+        setError("Invalid login credentials. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -45,9 +155,12 @@ function Login() {
 
     try {
       setLoading(true);
-      await signInWithPopup(auth, provider);
-      navigate("/admin");
+
+      const result = await signInWithPopup(auth, provider);
+
+      await redirectUserByRole(result.user);
     } catch (err) {
+      console.error("Google login error:", err);
       setError("Google sign in failed. Please try again.");
     } finally {
       setLoading(false);

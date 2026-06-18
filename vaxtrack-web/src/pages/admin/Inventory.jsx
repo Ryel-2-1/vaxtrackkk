@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
@@ -8,7 +8,6 @@ import {
   Box,
   Building2,
   CheckCircle2,
-  ChevronDown,
   FileDown,
   LayoutDashboard,
   LogOut,
@@ -25,6 +24,78 @@ import { auth } from "../../firebase";
 import "./Inventory.css";
 
 const vaccines = [
+  {
+    name: "HepaShield-B",
+    type: "Injectable",
+    batch: "HB-2026-118",
+    expiry: "Jul 15, 2026",
+    qty: "6,200",
+    temp: "2-8°C",
+    status: "Warning",
+    level: "warning",
+    location: "Cold Room A-02",
+    manufacturer: "MediCore Labs",
+  },
+  {
+    name: "BCG-Pro",
+    type: "Routine",
+    batch: "BCG-2026-220",
+    expiry: "Jul 28, 2026",
+    qty: "9,750",
+    temp: "2-8°C",
+    status: "Stable",
+    level: "stable",
+    location: "Cold Room B-01",
+    manufacturer: "GlobalVax Pharma",
+  },
+  {
+    name: "RotaVax-Kids",
+    type: "Oral",
+    batch: "RV-2026-302",
+    expiry: "Aug 10, 2026",
+    qty: "4,900",
+    temp: "2-8°C",
+    status: "Stable",
+    level: "stable",
+    location: "Cold Room B-04",
+    manufacturer: "PediaVax Inc.",
+  },
+  {
+    name: "TetraVax",
+    type: "Combination",
+    batch: "TV-2026-044",
+    expiry: "Aug 18, 2026",
+    qty: "3,500",
+    temp: "2-8°C",
+    status: "Critical",
+    level: "critical",
+    location: "Cold Room C-03",
+    manufacturer: "TetraHealth Bio",
+  },
+  {
+    name: "MeaslesGuard",
+    type: "Injectable",
+    batch: "MG-2026-771",
+    expiry: "Sep 02, 2026",
+    qty: "11,800",
+    temp: "2-8°C",
+    status: "Stable",
+    level: "stable",
+    location: "Cold Room A-03",
+    manufacturer: "GlobalVax Pharma",
+  },
+  {
+    name: "RabiesSafe",
+    type: "Injectable",
+    batch: "RB-2026-650",
+    expiry: "Sep 12, 2026",
+    qty: "2,100",
+    temp: "2-8°C",
+    status: "Warning",
+    level: "warning",
+    location: "Cold Room C-02",
+    manufacturer: "SafeDose Biologics",
+  },
   {
     name: "VaxCora-19",
     type: "mRNA",
@@ -63,14 +134,26 @@ const vaccines = [
   },
 ];
 
+const demoToday = new Date("2026-06-18T00:00:00");
+
+function getDaysUntilExpiry(expiryDate) {
+  const expiry = new Date(expiryDate);
+  const diffTime = expiry.getTime() - demoToday.getTime();
+  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+}
+
 function Inventory() {
   const navigate = useNavigate();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [expiryFilter, setExpiryFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
   const [selectedBatches, setSelectedBatches] = useState([]);
   const [selectedVaccine, setSelectedVaccine] = useState(null);
   const [toast, setToast] = useState("");
+
+  const pageSize = 3;
 
   const handleLogout = async () => {
     await signOut(auth);
@@ -84,26 +167,55 @@ function Inventory() {
 
   const filteredVaccines = useMemo(() => {
     return vaccines.filter((item) => {
-      const searchValue = `${item.name} ${item.type} ${item.batch} ${item.status}`.toLowerCase();
+      const searchValue =
+        `${item.name} ${item.type} ${item.batch} ${item.status}`.toLowerCase();
+
       const matchesSearch = searchValue.includes(searchTerm.toLowerCase());
+
       const matchesStatus =
         statusFilter === "all" || item.level === statusFilter;
 
-      return matchesSearch && matchesStatus;
+      const daysUntilExpiry = getDaysUntilExpiry(item.expiry);
+
+      const matchesExpiry =
+        expiryFilter === "all" ||
+        (daysUntilExpiry >= 0 && daysUntilExpiry <= Number(expiryFilter));
+
+      return matchesSearch && matchesStatus && matchesExpiry;
     });
-  }, [searchTerm, statusFilter]);
+  }, [searchTerm, statusFilter, expiryFilter]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, expiryFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredVaccines.length / pageSize));
+
+  const paginatedVaccines = filteredVaccines.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+
+  const startItem =
+    filteredVaccines.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+
+  const endItem = Math.min(currentPage * pageSize, filteredVaccines.length);
 
   const isAllSelected =
-    filteredVaccines.length > 0 &&
-    filteredVaccines.every((item) => selectedBatches.includes(item.batch));
+    paginatedVaccines.length > 0 &&
+    paginatedVaccines.every((item) => selectedBatches.includes(item.batch));
 
   const toggleAll = () => {
+    const visibleBatchIds = paginatedVaccines.map((item) => item.batch);
+
     if (isAllSelected) {
-      setSelectedBatches([]);
+      setSelectedBatches((prev) =>
+        prev.filter((batch) => !visibleBatchIds.includes(batch))
+      );
       return;
     }
 
-    setSelectedBatches(filteredVaccines.map((item) => item.batch));
+    setSelectedBatches((prev) => Array.from(new Set([...prev, ...visibleBatchIds])));
   };
 
   const toggleBatch = (batch) => {
@@ -264,10 +376,16 @@ function Inventory() {
                 Stable
               </button>
 
-              <button type="button">
-                Expiry: Next 90 Days
-                <ChevronDown size={14} />
-              </button>
+              <select
+                className="v2-expiry-select"
+                value={expiryFilter}
+                onChange={(e) => setExpiryFilter(e.target.value)}
+              >
+                <option value="all">Expiry: All Batches</option>
+                <option value="30">Expiry: Next 30 Days</option>
+                <option value="90">Expiry: Next 90 Days</option>
+                <option value="180">Expiry: Next 180 Days</option>
+              </select>
             </div>
           </div>
 
@@ -318,7 +436,7 @@ function Inventory() {
               </thead>
 
               <tbody>
-                {filteredVaccines.map((item) => (
+                {paginatedVaccines.map((item) => (
                   <tr
                     key={item.batch}
                     className={`v2-row-${item.level}`}
@@ -368,26 +486,47 @@ function Inventory() {
             <div className="v2-empty-inventory">
               <Package size={28} />
               <strong>No vaccine batches found</strong>
-              <p>Try changing the search keyword or selected status filter.</p>
+              <p>Try changing the search keyword or selected filters.</p>
             </div>
           )}
 
           <div className="v2-inventory-footer">
             <p>
-              Showing {filteredVaccines.length} of {vaccines.length} displayed
-              demo batches. Full inventory count: 124 batches.
+              Showing {startItem}–{endItem} of {filteredVaccines.length} filtered
+              batches. Full inventory count: 124 batches.
             </p>
 
             <div className="v2-pagination">
-              <button type="button" disabled>
+              <button
+                type="button"
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+              >
                 Previous
               </button>
-              <button type="button" className="active">
-                1
+
+              {Array.from({ length: totalPages }, (_, index) => index + 1).map(
+                (page) => (
+                  <button
+                    key={page}
+                    type="button"
+                    className={currentPage === page ? "active" : ""}
+                    onClick={() => setCurrentPage(page)}
+                  >
+                    {page}
+                  </button>
+                )
+              )}
+
+              <button
+                type="button"
+                disabled={currentPage === totalPages}
+                onClick={() =>
+                  setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+                }
+              >
+                Next
               </button>
-              <button type="button">2</button>
-              <button type="button">3</button>
-              <button type="button">Next</button>
             </div>
           </div>
         </section>
@@ -619,10 +758,7 @@ export function AdminSidebar({ active, onLogout }) {
           <span>Riders</span>
         </Link>
 
-        <Link
-          className={active === "clinics" ? "active" : ""}
-          to="/admin/clinics"
-        >
+        <Link className={active === "clinics" ? "active" : ""} to="/admin/clinics">
           <Building2 size={16} />
           <span>Clinics</span>
         </Link>
