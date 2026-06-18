@@ -47,33 +47,48 @@ import RiderVerifyEmail from "./pages/rider/RiderVerifyEmail";
 import RiderResetPassword from "./pages/rider/RiderResetPassword";
 import RiderResetSuccess from "./pages/rider/RiderResetSuccess";
 
-
-
 import "./styles.css";
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Default Route */}
+        <Route path="/" element={<Navigate to="/login" replace />} />
+
         {/* Auth Routes */}
-        <Route path="/" element={<Login />} />
+        <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/pending" element={<PendingApproval />} />
+        <Route path="/pending-approval" element={<Navigate to="/pending" replace />} />
 
         {/* Admin Routes */}
         <Route path="/admin" element={<AdminDashboard />} />
-        <Route path="/inventory" element={<Inventory />} />
-        <Route path="/add-stock" element={<AddStock />} />
-        <Route path="/add-vaccine" element={<AddVaccine />} />
-        <Route path="/deliveries" element={<Deliveries />} />
-        <Route path="/riders" element={<Riders />} />
-        <Route path="/alerts" element={<Alerts />} />
-        <Route path="/analytics" element={<Analytics />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/clinics" element={<Clinics />} />
-        <Route path="/register-clinic" element={<RegisterClinic />} />
-        <Route path="/clinic-success" element={<ClinicSuccess />} />
+        <Route path="/admin/inventory" element={<Inventory />} />
+        <Route path="/admin/add-stock" element={<AddStock />} />
+        <Route path="/admin/add-vaccine" element={<AddVaccine />} />
+        <Route path="/admin/deliveries" element={<Deliveries />} />
+        <Route path="/admin/riders" element={<Riders />} />
+        <Route path="/admin/alerts" element={<Alerts />} />
+        <Route path="/admin/analytics" element={<Analytics />} />
+        <Route path="/admin/settings" element={<Settings />} />
+        <Route path="/admin/clinics" element={<Clinics />} />
+        <Route path="/admin/register-clinic" element={<RegisterClinic />} />
+        <Route path="/admin/clinic-success" element={<ClinicSuccess />} />
+
+        {/* Old Admin Route Redirects */}
+        <Route path="/inventory" element={<Navigate to="/admin/inventory" replace />} />
+        <Route path="/add-stock" element={<Navigate to="/admin/add-stock" replace />} />
+        <Route path="/add-vaccine" element={<Navigate to="/admin/add-vaccine" replace />} />
+        <Route path="/deliveries" element={<Navigate to="/admin/deliveries" replace />} />
+        <Route path="/riders" element={<Navigate to="/admin/riders" replace />} />
+        <Route path="/alerts" element={<Navigate to="/admin/alerts" replace />} />
+        <Route path="/analytics" element={<Navigate to="/admin/analytics" replace />} />
+        <Route path="/settings" element={<Navigate to="/admin/settings" replace />} />
+        <Route path="/clinics" element={<Navigate to="/admin/clinics" replace />} />
+        <Route path="/register-clinic" element={<Navigate to="/admin/register-clinic" replace />} />
+        <Route path="/clinic-success" element={<Navigate to="/admin/clinic-success" replace />} />
 
         {/* Sales Representative Routes */}
         <Route path="/sales-rep" element={<SalesRepDashboard />} />
@@ -108,7 +123,7 @@ function App() {
         <Route path="/rider/reset-success" element={<RiderResetSuccess />} />
 
         {/* Fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>
   );

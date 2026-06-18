@@ -505,3 +505,1572 @@ input[type="checkbox"]:focus {
   outline: 2px solid rgba(37, 99, 235, 0.15);
   outline-offset: 2px;
 }
+/* =========================================================
+   VaxTrack Login Final UI Fix
+   Put this at the VERY BOTTOM of src/pages/Auth.css
+========================================================= */
+
+.auth-page {
+  min-height: 100vh !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 28px !important;
+  background:
+    radial-gradient(circle at top left, rgba(14, 99, 255, 0.2), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(22, 163, 74, 0.14), transparent 30%),
+    linear-gradient(135deg, #edf4ff 0%, #f8fbff 50%, #e8f1ff 100%) !important;
+}
+
+.auth-card.login-card {
+  width: 430px !important;
+  max-width: calc(100vw - 32px) !important;
+  padding: 36px 34px 32px !important;
+  border-radius: 28px !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  border: 1px solid #cfe0ff !important;
+  box-shadow:
+    0 28px 80px rgba(15, 23, 42, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+  overflow: hidden !important;
+}
+
+/* Logo */
+.auth-card.login-card .auth-brand {
+  text-align: center !important;
+  margin-bottom: 32px !important;
+}
+
+.auth-card.login-card .auth-brand::before {
+  content: "✚";
+  width: 76px !important;
+  height: 76px !important;
+  margin: 0 auto 18px !important;
+  display: grid !important;
+  place-items: center !important;
+  border-radius: 24px !important;
+  background: linear-gradient(135deg, #0b63f6 0%, #14b8a6 50%, #22c55e 100%) !important;
+  color: #ffffff !important;
+  font-size: 36px !important;
+  font-weight: 950 !important;
+  box-shadow: 0 18px 34px rgba(11, 99, 246, 0.28) !important;
+}
+
+.auth-card.login-card .auth-brand h1 {
+  margin: 0 !important;
+  color: #0057d9 !important;
+  font-size: 28px !important;
+  line-height: 1.1 !important;
+  font-weight: 950 !important;
+  letter-spacing: -0.04em !important;
+}
+
+.auth-card.login-card .auth-brand h1::after {
+  content: "Secure vaccine logistics access";
+  display: block;
+  margin-top: 10px;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+/* Form spacing */
+.auth-card.login-card .auth-form {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 13px !important;
+}
+
+.auth-card.login-card .auth-form > label,
+.auth-card.login-card .auth-label-row label {
+  margin: 0 !important;
+  color: #0f172a !important;
+  font-size: 15px !important;
+  font-weight: 900 !important;
+  line-height: 1.2 !important;
+}
+
+.auth-card.login-card .auth-label-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  margin-top: 2px !important;
+}
+
+.auth-card.login-card .small-link {
+  font-size: 12px !important;
+  font-weight: 850 !important;
+  color: #0057d9 !important;
+  text-decoration: none !important;
+}
+
+/* Main input box fix */
+.auth-card.login-card .auth-input {
+  width: 100% !important;
+  height: 56px !important;
+  min-height: 56px !important;
+  max-height: 56px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 0 14px !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  background: #ffffff !important;
+  border: 1.5px solid #c2d2ea !important;
+  border-radius: 14px !important;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.03) !important;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease !important;
+}
+
+.auth-card.login-card .auth-input:focus-within {
+  border-color: #0b63f6 !important;
+  background: #ffffff !important;
+  box-shadow: 0 0 0 4px rgba(11, 99, 246, 0.14) !important;
+}
+
+.auth-card.login-card .auth-input > svg {
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  color: #64748b !important;
+  flex-shrink: 0 !important;
+}
+
+/* This removes the overlapping inner textbox */
+.auth-card.login-card .auth-input input {
+  all: unset !important;
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 56px !important;
+  line-height: 56px !important;
+  box-sizing: border-box !important;
+  background: transparent !important;
+  color: #0f172a !important;
+  font-size: 16px !important;
+  font-weight: 650 !important;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.auth-card.login-card .auth-input input::placeholder {
+  color: #94a3b8 !important;
+  font-weight: 550 !important;
+}
+
+/* Password eye button */
+.auth-card.login-card .icon-ghost {
+  all: unset !important;
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  display: grid !important;
+  place-items: center !important;
+  border-radius: 10px !important;
+  color: #64748b !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+}
+
+.auth-card.login-card .icon-ghost:hover {
+  background: #e8f1ff !important;
+  color: #0057d9 !important;
+}
+
+/* Remember me */
+.auth-card.login-card .auth-check-row {
+  margin: 2px 0 8px !important;
+}
+
+.auth-card.login-card .checkbox-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  color: #0f172a !important;
+  font-size: 15px !important;
+  font-weight: 850 !important;
+  cursor: pointer !important;
+  line-height: 1 !important;
+}
+
+.auth-card.login-card .checkbox-row input[type="checkbox"] {
+  all: unset !important;
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  min-height: 20px !important;
+  max-width: 20px !important;
+  max-height: 20px !important;
+  box-sizing: border-box !important;
+  display: grid !important;
+  place-items: center !important;
+  background: #ffffff !important;
+  border: 2px solid #9fb2ce !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+}
+
+.auth-card.login-card .checkbox-row input[type="checkbox"]:checked {
+  background: #0b63f6 !important;
+  border-color: #0b63f6 !important;
+}
+
+.auth-card.login-card .checkbox-row input[type="checkbox"]:checked::after {
+  content: "✓";
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+/* Error */
+.auth-card.login-card .auth-error {
+  padding: 12px 14px !important;
+  border-radius: 12px !important;
+  background: #fee2e2 !important;
+  color: #991b1b !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+}
+
+/* Login button */
+.auth-card.login-card .primary-auth-btn {
+  width: 100% !important;
+  height: 58px !important;
+  min-height: 58px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  border: 0 !important;
+  border-radius: 16px !important;
+  background: linear-gradient(135deg, #0b63f6, #0057d9) !important;
+  color: #ffffff !important;
+  font-size: 16px !important;
+  font-weight: 950 !important;
+  cursor: pointer !important;
+  box-shadow: 0 14px 28px rgba(11, 99, 246, 0.28) !important;
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    opacity 0.16s ease !important;
+}
+
+.auth-card.login-card .primary-auth-btn:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 18px 36px rgba(11, 99, 246, 0.34) !important;
+}
+
+.auth-card.login-card .primary-auth-btn:active {
+  transform: translateY(0) !important;
+}
+
+/* Divider */
+.auth-card.login-card .auth-divider {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  margin: 16px 0 10px !important;
+}
+
+.auth-card.login-card .auth-divider span {
+  height: 1px !important;
+  flex: 1 !important;
+  background: #dbe5f5 !important;
+}
+
+.auth-card.login-card .auth-divider p {
+  margin: 0 !important;
+  color: #94a3b8 !important;
+  font-size: 13px !important;
+  font-weight: 750 !important;
+}
+
+/* Google */
+.auth-card.login-card .google-auth-btn {
+  width: 100% !important;
+  height: 56px !important;
+  min-height: 56px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  border: 1.5px solid #cbd5e1 !important;
+  border-radius: 16px !important;
+  background: #ffffff !important;
+  color: #334155 !important;
+  font-size: 16px !important;
+  font-weight: 900 !important;
+  cursor: pointer !important;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    transform 0.16s ease !important;
+}
+
+.auth-card.login-card .google-auth-btn:hover {
+  background: #f8fbff !important;
+  border-color: #0b63f6 !important;
+  transform: translateY(-1px) !important;
+}
+
+/* Footer */
+.auth-card.login-card .auth-footer-text {
+  margin: 18px 0 0 !important;
+  text-align: center !important;
+  color: #64748b !important;
+  font-size: 13px !important;
+  font-weight: 650 !important;
+}
+
+.auth-card.login-card .text-link {
+  color: #0057d9 !important;
+  font-weight: 900 !important;
+  text-decoration: none !important;
+}
+
+.auth-card.login-card .text-link:hover {
+  text-decoration: underline !important;
+}
+
+.auth-card.login-card .auth-copyright {
+  display: block !important;
+  margin-top: 22px !important;
+  text-align: center !important;
+  color: #94a3b8 !important;
+  font-size: 11.5px !important;
+  line-height: 1.45 !important;
+  font-weight: 600 !important;
+}
+
+/* Autofill fix */
+.auth-card.login-card .auth-input input:-webkit-autofill,
+.auth-card.login-card .auth-input input:-webkit-autofill:hover,
+.auth-card.login-card .auth-input input:-webkit-autofill:focus,
+.auth-card.login-card .auth-input input:-webkit-autofill:active {
+  -webkit-text-fill-color: #0f172a !important;
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+  box-shadow: 0 0 0 1000px #ffffff inset !important;
+  transition: background-color 9999s ease-in-out 0s !important;
+}
+
+/* Mobile */
+@media (max-width: 480px) {
+  .auth-card.login-card {
+    width: 100% !important;
+    padding: 30px 22px 26px !important;
+    border-radius: 24px !important;
+  }
+
+  .auth-card.login-card .auth-brand h1 {
+    font-size: 25px !important;
+  }
+
+  .auth-card.login-card .auth-input,
+  .auth-card.login-card .primary-auth-btn,
+  .auth-card.login-card .google-auth-btn {
+    height: 54px !important;
+    min-height: 54px !important;
+  }
+}
+/* Remove duplicate login logo */
+.auth-card.login-card::before,
+.auth-card.login-card::after,
+.auth-brand::before {
+  display: none !important;
+  content: none !important;
+}
+
+/* Keep only one clean logo */
+.auth-card.login-card .auth-brand {
+  position: relative !important;
+  padding-top: 92px !important;
+}
+
+.auth-card.login-card .auth-brand::after {
+  content: "✚" !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+
+  width: 76px !important;
+  height: 76px !important;
+  display: grid !important;
+  place-items: center !important;
+
+  border-radius: 24px !important;
+  background: linear-gradient(135deg, #0b63f6 0%, #14b8a6 50%, #22c55e 100%) !important;
+  color: #ffffff !important;
+  font-size: 36px !important;
+  font-weight: 950 !important;
+  box-shadow: 0 18px 34px rgba(11, 99, 246, 0.28) !important;
+}
+/* =========================================================
+   VaxTrack Register Page Final UI Fix
+   Fix overlapping inputs, checkbox, spacing, and consistency
+   Paste at the VERY BOTTOM of src/pages/Auth.css
+========================================================= */
+
+.auth-card.register-card,
+.register-card {
+  width: 460px !important;
+  max-width: calc(100vw - 32px) !important;
+  padding: 34px 34px 32px !important;
+  border-radius: 28px !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  border: 1px solid #cfe0ff !important;
+  box-shadow:
+    0 28px 80px rgba(15, 23, 42, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+  overflow: hidden !important;
+}
+
+/* Register logo */
+.register-card .auth-brand,
+.register-card .register-header {
+  text-align: center !important;
+  margin-bottom: 30px !important;
+}
+
+.register-card .auth-brand::before,
+.register-card .register-header::before {
+  content: "✚" !important;
+  width: 76px !important;
+  height: 76px !important;
+  margin: 0 auto 18px !important;
+  display: grid !important;
+  place-items: center !important;
+  border-radius: 24px !important;
+  background: linear-gradient(135deg, #0b63f6 0%, #14b8a6 50%, #22c55e 100%) !important;
+  color: #ffffff !important;
+  font-size: 36px !important;
+  font-weight: 950 !important;
+  box-shadow: 0 18px 34px rgba(11, 99, 246, 0.28) !important;
+}
+
+.register-card h1,
+.register-card .register-title,
+.register-card .auth-brand h1 {
+  margin: 0 !important;
+  color: #0057d9 !important;
+  font-size: 28px !important;
+  line-height: 1.1 !important;
+  font-weight: 950 !important;
+  letter-spacing: -0.04em !important;
+}
+
+/* Register form spacing */
+.register-card .auth-form {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 13px !important;
+}
+
+.register-card label,
+.register-card .auth-form > label,
+.register-card .auth-label-row label {
+  margin: 0 !important;
+  color: #0f172a !important;
+  font-size: 15px !important;
+  font-weight: 900 !important;
+  line-height: 1.25 !important;
+}
+
+/* Two-column row fix */
+.register-card .form-row {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 10px !important;
+  width: 100% !important;
+}
+
+.register-card .form-row > div {
+  min-width: 0 !important;
+}
+
+/* Main input box fix */
+.register-card .auth-input,
+.register-card .input-group,
+.register-card .register-input {
+  width: 100% !important;
+  height: 56px !important;
+  min-height: 56px !important;
+  max-height: 56px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 0 14px !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  background: #ffffff !important;
+  border: 1.5px solid #c2d2ea !important;
+  border-radius: 14px !important;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.03) !important;
+}
+
+.register-card .auth-input:focus-within,
+.register-card .input-group:focus-within,
+.register-card .register-input:focus-within {
+  border-color: #0b63f6 !important;
+  box-shadow: 0 0 0 4px rgba(11, 99, 246, 0.14) !important;
+}
+
+.register-card .auth-input > svg,
+.register-card .input-group > svg,
+.register-card .register-input > svg {
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  color: #64748b !important;
+  flex-shrink: 0 !important;
+}
+
+/* Remove overlapping inner textbox */
+.register-card .auth-input input,
+.register-card .input-group input,
+.register-card .register-input input,
+.register-card input[type="text"],
+.register-card input[type="email"],
+.register-card input[type="password"] {
+  all: unset !important;
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 56px !important;
+  line-height: 56px !important;
+  box-sizing: border-box !important;
+  background: transparent !important;
+  color: #0f172a !important;
+  font-size: 16px !important;
+  font-weight: 650 !important;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.register-card input::placeholder {
+  color: #94a3b8 !important;
+  font-weight: 550 !important;
+}
+
+/* Password eye button */
+.register-card .icon-ghost,
+.register-card .icon-button {
+  all: unset !important;
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  display: grid !important;
+  place-items: center !important;
+  border-radius: 10px !important;
+  color: #64748b !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+}
+
+.register-card .icon-ghost:hover,
+.register-card .icon-button:hover {
+  background: #e8f1ff !important;
+  color: #0057d9 !important;
+}
+
+/* Helper text */
+.register-card small,
+.register-card .input-helper,
+.register-card .password-helper {
+  color: #64748b !important;
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+  font-weight: 600 !important;
+}
+
+/* Terms checkbox */
+.register-card .auth-check-row,
+.register-card .terms-row {
+  margin: 4px 0 10px !important;
+}
+
+.register-card .checkbox-row {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 10px !important;
+  color: #0f172a !important;
+  font-size: 15px !important;
+  font-weight: 850 !important;
+  line-height: 1.35 !important;
+  cursor: pointer !important;
+}
+
+.register-card .checkbox-row input[type="checkbox"],
+.register-card input[type="checkbox"] {
+  all: unset !important;
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  min-height: 20px !important;
+  max-width: 20px !important;
+  max-height: 20px !important;
+  margin-top: 2px !important;
+  box-sizing: border-box !important;
+  display: grid !important;
+  place-items: center !important;
+  background: #ffffff !important;
+  border: 2px solid #9fb2ce !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+}
+
+.register-card .checkbox-row input[type="checkbox"]:checked,
+.register-card input[type="checkbox"]:checked {
+  background: #0b63f6 !important;
+  border-color: #0b63f6 !important;
+}
+
+.register-card .checkbox-row input[type="checkbox"]:checked::after,
+.register-card input[type="checkbox"]:checked::after {
+  content: "✓";
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+/* Create account button */
+.register-card .primary-auth-btn,
+.register-card .primary-button {
+  width: 100% !important;
+  height: 58px !important;
+  min-height: 58px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  border: 0 !important;
+  border-radius: 16px !important;
+  background: linear-gradient(135deg, #0b63f6, #0057d9) !important;
+  color: #ffffff !important;
+  font-size: 16px !important;
+  font-weight: 950 !important;
+  cursor: pointer !important;
+  box-shadow: 0 14px 28px rgba(11, 99, 246, 0.28) !important;
+}
+
+.register-card .primary-auth-btn:hover,
+.register-card .primary-button:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 18px 36px rgba(11, 99, 246, 0.34) !important;
+}
+
+/* Divider */
+.register-card .auth-divider {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  margin: 16px 0 10px !important;
+}
+
+.register-card .auth-divider span {
+  height: 1px !important;
+  flex: 1 !important;
+  background: #dbe5f5 !important;
+}
+
+.register-card .auth-divider p {
+  margin: 0 !important;
+  color: #94a3b8 !important;
+  font-size: 13px !important;
+  font-weight: 750 !important;
+}
+
+/* Google button */
+.register-card .google-auth-btn,
+.register-card .google-button {
+  width: 100% !important;
+  height: 56px !important;
+  min-height: 56px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  border: 1.5px solid #cbd5e1 !important;
+  border-radius: 16px !important;
+  background: #ffffff !important;
+  color: #334155 !important;
+  font-size: 16px !important;
+  font-weight: 900 !important;
+  cursor: pointer !important;
+}
+
+.register-card .google-auth-btn:hover,
+.register-card .google-button:hover {
+  background: #f8fbff !important;
+  border-color: #0b63f6 !important;
+  transform: translateY(-1px) !important;
+}
+
+/* Footer */
+.register-card .auth-footer-text,
+.register-card .auth-footer {
+  margin: 18px 0 0 !important;
+  text-align: center !important;
+  color: #64748b !important;
+  font-size: 13px !important;
+  font-weight: 650 !important;
+}
+
+.register-card .text-link,
+.register-card .inline-link {
+  color: #0057d9 !important;
+  font-weight: 900 !important;
+  text-decoration: none !important;
+}
+
+/* Autofill fix */
+.register-card input:-webkit-autofill,
+.register-card input:-webkit-autofill:hover,
+.register-card input:-webkit-autofill:focus,
+.register-card input:-webkit-autofill:active {
+  -webkit-text-fill-color: #0f172a !important;
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+  box-shadow: 0 0 0 1000px #ffffff inset !important;
+  transition: background-color 9999s ease-in-out 0s !important;
+}
+
+/* Mobile */
+@media (max-width: 520px) {
+  .auth-card.register-card,
+  .register-card {
+    width: 100% !important;
+    padding: 30px 22px 26px !important;
+    border-radius: 24px !important;
+  }
+
+  .register-card .form-row {
+    grid-template-columns: 1fr !important;
+  }
+
+  .register-card h1,
+  .register-card .register-title,
+  .register-card .auth-brand h1 {
+    font-size: 25px !important;
+  }
+}
+/* =========================================================
+   Register V2 Clean Fix
+   Exact classes from new Register.jsx
+========================================================= */
+
+.register-card-v2 {
+  width: 460px !important;
+  max-width: calc(100vw - 32px) !important;
+  padding: 34px 34px 32px !important;
+  border-radius: 28px !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  border: 1px solid #cfe0ff !important;
+  box-shadow:
+    0 28px 80px rgba(15, 23, 42, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+  overflow: hidden !important;
+}
+
+.register-brand {
+  text-align: center !important;
+  margin-bottom: 28px !important;
+}
+
+.register-brand::before {
+  content: "✚";
+  width: 76px !important;
+  height: 76px !important;
+  margin: 0 auto 18px !important;
+  display: grid !important;
+  place-items: center !important;
+  border-radius: 24px !important;
+  background: linear-gradient(135deg, #0b63f6 0%, #14b8a6 50%, #22c55e 100%) !important;
+  color: #ffffff !important;
+  font-size: 36px !important;
+  font-weight: 950 !important;
+  box-shadow: 0 18px 34px rgba(11, 99, 246, 0.28) !important;
+}
+
+.register-brand h1 {
+  margin: 0 !important;
+  color: #0057d9 !important;
+  font-size: 28px !important;
+  line-height: 1.1 !important;
+  font-weight: 950 !important;
+  letter-spacing: -0.04em !important;
+}
+
+.register-brand p {
+  margin: 9px 0 0 !important;
+  color: #64748b !important;
+  font-size: 13px !important;
+  font-weight: 650 !important;
+}
+
+.register-form {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 14px !important;
+}
+
+.register-field {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 7px !important;
+  min-width: 0 !important;
+}
+
+.register-field label {
+  margin: 0 !important;
+  color: #0f172a !important;
+  font-size: 15px !important;
+  font-weight: 900 !important;
+  line-height: 1.2 !important;
+}
+
+.register-two-col {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 12px !important;
+  width: 100% !important;
+}
+
+.register-input-box {
+  width: 100% !important;
+  height: 56px !important;
+  min-height: 56px !important;
+  max-height: 56px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 0 14px !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  background: #ffffff !important;
+  border: 1.5px solid #c2d2ea !important;
+  border-radius: 14px !important;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.03) !important;
+}
+
+.register-input-box:focus-within {
+  border-color: #0b63f6 !important;
+  box-shadow: 0 0 0 4px rgba(11, 99, 246, 0.14) !important;
+}
+
+.register-input-box svg {
+  width: 19px !important;
+  height: 19px !important;
+  min-width: 19px !important;
+  color: #64748b !important;
+  flex-shrink: 0 !important;
+}
+
+.register-input-box input {
+  all: unset !important;
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 56px !important;
+  line-height: 56px !important;
+  box-sizing: border-box !important;
+  background: transparent !important;
+  color: #0f172a !important;
+  font-size: 16px !important;
+  font-weight: 650 !important;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.register-input-box input::placeholder {
+  color: #94a3b8 !important;
+  font-weight: 550 !important;
+}
+
+.register-eye-btn {
+  all: unset !important;
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  display: grid !important;
+  place-items: center !important;
+  border-radius: 10px !important;
+  color: #64748b !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+}
+
+.register-eye-btn:hover {
+  background: #e8f1ff !important;
+  color: #0057d9 !important;
+}
+
+.password-hint {
+  margin-top: -2px !important;
+  color: #64748b !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+}
+
+.register-terms-row {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 10px !important;
+  color: #0f172a !important;
+  font-size: 15px !important;
+  font-weight: 850 !important;
+  line-height: 1.35 !important;
+  cursor: pointer !important;
+}
+
+.register-terms-row input[type="checkbox"] {
+  all: unset !important;
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  min-height: 20px !important;
+  margin-top: 2px !important;
+  box-sizing: border-box !important;
+  display: grid !important;
+  place-items: center !important;
+  background: #ffffff !important;
+  border: 2px solid #9fb2ce !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+}
+
+.register-terms-row input[type="checkbox"]:checked {
+  background: #0b63f6 !important;
+  border-color: #0b63f6 !important;
+}
+
+.register-terms-row input[type="checkbox"]:checked::after {
+  content: "✓";
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.text-link-inline {
+  color: #0057d9 !important;
+  font-weight: 950 !important;
+}
+
+@media (max-width: 520px) {
+  .register-card-v2 {
+    width: 100% !important;
+    padding: 30px 22px 26px !important;
+    border-radius: 24px !important;
+  }
+
+  .register-two-col {
+    grid-template-columns: 1fr !important;
+  }
+
+  .register-brand h1 {
+    font-size: 25px !important;
+  }
+}
+/* =========================================================
+   Final Checkbox Fix for Login + Register
+   Centers the check mark and keeps checkbox clean
+========================================================= */
+
+/* Login Remember Me + Register Terms checkbox base */
+.auth-card.login-card .checkbox-row input[type="checkbox"],
+.register-card-v2 .register-terms-row input[type="checkbox"] {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  min-height: 20px !important;
+  max-width: 20px !important;
+  max-height: 20px !important;
+
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+
+  border: 2px solid #9fb2ce !important;
+  border-radius: 6px !important;
+  background: #ffffff !important;
+  color: #ffffff !important;
+
+  cursor: pointer !important;
+  position: relative !important;
+  flex-shrink: 0 !important;
+  line-height: 1 !important;
+}
+
+/* Align register checkbox slightly with paragraph text */
+.register-card-v2 .register-terms-row input[type="checkbox"] {
+  margin-top: 2px !important;
+}
+
+/* Checked state */
+.auth-card.login-card .checkbox-row input[type="checkbox"]:checked,
+.register-card-v2 .register-terms-row input[type="checkbox"]:checked {
+  background: #0b63f6 !important;
+  border-color: #0b63f6 !important;
+}
+
+/* Remove old checkmark styles */
+.auth-card.login-card .checkbox-row input[type="checkbox"]:checked::after,
+.register-card-v2 .register-terms-row input[type="checkbox"]:checked::after {
+  content: "" !important;
+
+  width: 5px !important;
+  height: 10px !important;
+
+  border: solid #ffffff !important;
+  border-width: 0 2px 2px 0 !important;
+
+  transform: rotate(45deg) translateY(-1px) !important;
+  display: block !important;
+  box-sizing: border-box !important;
+}
+
+/* Keep label text aligned */
+.auth-card.login-card .checkbox-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  line-height: 1.2 !important;
+}
+
+.register-card-v2 .register-terms-row {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 10px !important;
+  line-height: 1.35 !important;
+}
+/* =========================================================
+   TRUE FINAL CHECKBOX FIX
+   Login Remember Me + Register Terms
+   Uses centered SVG checkmark, not browser default
+========================================================= */
+
+.auth-page .checkbox-row input[type="checkbox"],
+.auth-page .register-terms-row input[type="checkbox"],
+.auth-card.login-card .checkbox-row input[type="checkbox"],
+.register-card-v2 .register-terms-row input[type="checkbox"] {
+  all: initial !important;
+
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  min-height: 20px !important;
+  max-width: 20px !important;
+  max-height: 20px !important;
+
+  margin: 0 !important;
+  padding: 0 !important;
+
+  display: inline-block !important;
+  vertical-align: middle !important;
+  flex: 0 0 20px !important;
+
+  box-sizing: border-box !important;
+  border: 2px solid #9fb2ce !important;
+  border-radius: 6px !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  background-repeat: no-repeat !important;
+  background-position: center !important;
+  background-size: 13px 13px !important;
+
+  cursor: pointer !important;
+  position: relative !important;
+}
+
+/* Remove all old pseudo checkmarks */
+.auth-page .checkbox-row input[type="checkbox"]::before,
+.auth-page .checkbox-row input[type="checkbox"]::after,
+.auth-page .register-terms-row input[type="checkbox"]::before,
+.auth-page .register-terms-row input[type="checkbox"]::after,
+.auth-card.login-card .checkbox-row input[type="checkbox"]::before,
+.auth-card.login-card .checkbox-row input[type="checkbox"]::after,
+.register-card-v2 .register-terms-row input[type="checkbox"]::before,
+.register-card-v2 .register-terms-row input[type="checkbox"]::after {
+  content: none !important;
+  display: none !important;
+}
+
+/* Checked state with centered SVG */
+.auth-page .checkbox-row input[type="checkbox"]:checked,
+.auth-page .register-terms-row input[type="checkbox"]:checked,
+.auth-card.login-card .checkbox-row input[type="checkbox"]:checked,
+.register-card-v2 .register-terms-row input[type="checkbox"]:checked {
+  border-color: #0b63f6 !important;
+  background-color: #0b63f6 !important;
+  background-image: url("data:image/svg+xml,%3Csvg width='14' height='14' viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7.2L5.7 9.8L11 4.2' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+}
+
+/* Login label alignment */
+.auth-card.login-card .checkbox-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  line-height: 1.2 !important;
+}
+
+/* Register label alignment */
+.register-card-v2 .register-terms-row {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 10px !important;
+  line-height: 1.35 !important;
+}
+
+.register-card-v2 .register-terms-row input[type="checkbox"] {
+  margin-top: 2px !important;
+}
+/* =========================================================
+   ONE CHECKBOX ONLY FIX
+   Fix duplicate checkmark for Login + Register
+   Paste at the VERY BOTTOM of src/pages/Auth.css
+========================================================= */
+
+/* Hide the real checkbox completely */
+.auth-card.login-card .checkbox-row input[type="checkbox"],
+.register-card-v2 .register-terms-row input[type="checkbox"] {
+  position: absolute !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: 0 !important;
+  max-height: 0 !important;
+
+  margin: 0 !important;
+  padding: 0 !important;
+
+  appearance: none !important;
+  -webkit-appearance: none !important;
+
+  background: transparent !important;
+  background-image: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Remove all old checkmark pseudo-elements from input */
+.auth-card.login-card .checkbox-row input[type="checkbox"]::before,
+.auth-card.login-card .checkbox-row input[type="checkbox"]::after,
+.register-card-v2 .register-terms-row input[type="checkbox"]::before,
+.register-card-v2 .register-terms-row input[type="checkbox"]::after {
+  content: none !important;
+  display: none !important;
+}
+
+/* Login Remember Me layout */
+.auth-card.login-card .checkbox-row {
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0 !important;
+  cursor: pointer !important;
+}
+
+.auth-card.login-card .checkbox-row span {
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  min-height: 22px !important;
+  padding-left: 32px !important;
+  color: #0f172a !important;
+  font-size: 15px !important;
+  font-weight: 850 !important;
+}
+
+/* Register terms layout */
+.register-card-v2 .register-terms-row {
+  position: relative !important;
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 0 !important;
+  cursor: pointer !important;
+}
+
+.register-card-v2 .register-terms-row span {
+  position: relative !important;
+  display: block !important;
+  padding-left: 32px !important;
+  color: #0f172a !important;
+  font-size: 15px !important;
+  font-weight: 850 !important;
+  line-height: 1.35 !important;
+}
+
+/* Custom empty checkbox */
+.auth-card.login-card .checkbox-row span::before,
+.register-card-v2 .register-terms-row span::before {
+  content: "" !important;
+  position: absolute !important;
+  left: 0 !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+
+  width: 20px !important;
+  height: 20px !important;
+
+  border: 2px solid #9fb2ce !important;
+  border-radius: 6px !important;
+  background: #ffffff !important;
+  box-sizing: border-box !important;
+}
+
+/* Register checkbox should align near first line */
+.register-card-v2 .register-terms-row span::before {
+  top: 2px !important;
+  transform: none !important;
+}
+
+/* Checked box background */
+.auth-card.login-card .checkbox-row input[type="checkbox"]:checked + span::before,
+.register-card-v2 .register-terms-row input[type="checkbox"]:checked + span::before {
+  background: #0b63f6 !important;
+  border-color: #0b63f6 !important;
+}
+
+/* Single centered custom checkmark */
+.auth-card.login-card .checkbox-row input[type="checkbox"]:checked + span::after,
+.register-card-v2 .register-terms-row input[type="checkbox"]:checked + span::after {
+  content: "" !important;
+  position: absolute !important;
+  left: 7px !important;
+  top: 50% !important;
+
+  width: 5px !important;
+  height: 10px !important;
+
+  border: solid #ffffff !important;
+  border-width: 0 2px 2px 0 !important;
+
+  transform: translateY(-60%) rotate(45deg) !important;
+  box-sizing: border-box !important;
+}
+
+/* Register checkmark alignment */
+.register-card-v2 .register-terms-row input[type="checkbox"]:checked + span::after {
+  top: 5px !important;
+  transform: rotate(45deg) !important;
+}
+/* =========================================================
+   FIX DUPLICATE TERMS CHECKBOXES
+   Only one checkbox for Login + Register
+========================================================= */
+
+/* Hide real checkbox inputs */
+.auth-card.login-card .checkbox-row input[type="checkbox"],
+.register-card-v2 .register-terms-row input[type="checkbox"] {
+  position: absolute !important;
+  opacity: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Remove checkbox drawings from ALL spans first */
+.auth-card.login-card .checkbox-row span::before,
+.auth-card.login-card .checkbox-row span::after,
+.register-card-v2 .register-terms-row span::before,
+.register-card-v2 .register-terms-row span::after,
+.register-card-v2 .register-terms-row .text-link-inline::before,
+.register-card-v2 .register-terms-row .text-link-inline::after {
+  content: none !important;
+  display: none !important;
+}
+
+/* Login Remember Me layout */
+.auth-card.login-card .checkbox-row {
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  cursor: pointer !important;
+}
+
+.auth-card.login-card .checkbox-row > span {
+  position: relative !important;
+  padding-left: 32px !important;
+  min-height: 22px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}
+
+/* Register Terms layout */
+.register-card-v2 .register-terms-row {
+  position: relative !important;
+  display: flex !important;
+  align-items: flex-start !important;
+  cursor: pointer !important;
+}
+
+.register-card-v2 .register-terms-row > span {
+  position: relative !important;
+  padding-left: 32px !important;
+  display: block !important;
+  line-height: 1.35 !important;
+}
+
+/* Draw ONE checkbox only on the direct span */
+.auth-card.login-card .checkbox-row > span::before,
+.register-card-v2 .register-terms-row > span::before {
+  content: "" !important;
+  display: block !important;
+  position: absolute !important;
+  left: 0 !important;
+
+  width: 20px !important;
+  height: 20px !important;
+
+  border: 2px solid #9fb2ce !important;
+  border-radius: 6px !important;
+  background: #ffffff !important;
+  box-sizing: border-box !important;
+}
+
+/* Login checkbox vertical alignment */
+.auth-card.login-card .checkbox-row > span::before {
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+}
+
+/* Register checkbox vertical alignment */
+.register-card-v2 .register-terms-row > span::before {
+  top: 2px !important;
+}
+
+/* Checked background */
+.auth-card.login-card .checkbox-row input[type="checkbox"]:checked + span::before,
+.register-card-v2 .register-terms-row input[type="checkbox"]:checked + span::before {
+  background: #0b63f6 !important;
+  border-color: #0b63f6 !important;
+}
+
+/* Draw ONE checkmark only */
+.auth-card.login-card .checkbox-row input[type="checkbox"]:checked + span::after,
+.register-card-v2 .register-terms-row input[type="checkbox"]:checked + span::after {
+  content: "" !important;
+  display: block !important;
+  position: absolute !important;
+
+  width: 5px !important;
+  height: 10px !important;
+
+  border: solid #ffffff !important;
+  border-width: 0 2px 2px 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* Login checkmark alignment */
+.auth-card.login-card .checkbox-row input[type="checkbox"]:checked + span::after {
+  left: 7px !important;
+  top: 50% !important;
+  transform: translateY(-60%) rotate(45deg) !important;
+}
+
+/* Register checkmark alignment */
+.register-card-v2 .register-terms-row input[type="checkbox"]:checked + span::after {
+  left: 7px !important;
+  top: 5px !important;
+  transform: rotate(45deg) !important;
+}
+
+/* Keep Terms and Privacy as blue text, not checkboxes */
+.register-card-v2 .text-link-inline {
+  color: #0057d9 !important;
+  font-weight: 950 !important;
+  display: inline !important;
+  padding-left: 0 !important;
+}
+
+
+/* Real checkbox, restored cleanly */
+.register-card-v2 .register-terms-clean input[type="checkbox"] {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+
+  position: static !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  min-height: 20px !important;
+  max-width: 20px !important;
+  max-height: 20px !important;
+
+  margin: 2px 0 0 0 !important;
+  padding: 0 !important;
+
+  display: block !important;
+  flex: 0 0 20px !important;
+
+  border: 2px solid #9fb2ce !important;
+  border-radius: 6px !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  background-repeat: no-repeat !important;
+  background-position: center !important;
+  background-size: 13px 13px !important;
+
+  box-sizing: border-box !important;
+  cursor: pointer !important;
+}
+
+/* Remove old fake checks */
+.register-card-v2 .register-terms-clean input[type="checkbox"]::before,
+.register-card-v2 .register-terms-clean input[type="checkbox"]::after,
+.register-card-v2 .register-terms-clean .register-terms-text::before,
+.register-card-v2 .register-terms-clean .register-terms-text::after,
+.register-card-v2 .register-terms-clean .text-link-inline::before,
+.register-card-v2 .register-terms-clean .text-link-inline::after {
+  content: none !important;
+  display: none !important;
+}
+
+/* Checked state */
+.register-card-v2 .register-terms-clean input[type="checkbox"]:checked {
+  background-color: #0b63f6 !important;
+  border-color: #0b63f6 !important;
+  background-image: url("data:image/svg+xml,%3Csvg width='14' height='14' viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7.2L5.7 9.8L11 4.2' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+}
+
+/* Terms sentence */
+.register-card-v2 .register-terms-clean .register-terms-text {
+  display: inline !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  color: #0f172a !important;
+  font-size: 15px !important;
+  font-weight: 850 !important;
+  line-height: 1.45 !important;
+  text-align: left !important;
+}
+
+/* Keep links inline */
+.register-card-v2 .register-terms-clean .text-link-inline {
+  display: inline !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  color: #0057d9 !important;
+  font-weight: 950 !important;
+}
+/* =========================================================
+   Align Register Terms Checkbox with Text
+========================================================= */
+
+.register-card-v2 .register-terms-clean {
+  width: 100% !important;
+  display: grid !important;
+  grid-template-columns: 20px 1fr !important;
+  column-gap: 12px !important;
+  align-items: start !important;
+  margin: 6px 0 12px !important;
+  padding: 0 !important;
+  text-align: left !important;
+  cursor: pointer !important;
+}
+
+.register-card-v2 .register-terms-clean > input[type="checkbox"] {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+
+  appearance: none !important;
+  -webkit-appearance: none !important;
+
+  position: static !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  min-height: 20px !important;
+
+  margin: 3px 0 0 0 !important;
+  padding: 0 !important;
+
+  border: 2px solid #9fb2ce !important;
+  border-radius: 6px !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  background-repeat: no-repeat !important;
+  background-position: center !important;
+  background-size: 13px 13px !important;
+
+  box-sizing: border-box !important;
+  cursor: pointer !important;
+}
+
+.register-card-v2 .register-terms-clean > input[type="checkbox"]:checked {
+  background-color: #0b63f6 !important;
+  border-color: #0b63f6 !important;
+  background-image: url("data:image/svg+xml,%3Csvg width='14' height='14' viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7.2L5.7 9.8L11 4.2' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+}
+
+.register-card-v2 .register-terms-clean > input[type="checkbox"]::before,
+.register-card-v2 .register-terms-clean > input[type="checkbox"]::after {
+  content: none !important;
+  display: none !important;
+}
+
+.register-card-v2 .register-terms-clean > .register-terms-text {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+
+  display: block !important;
+  padding: 0 !important;
+  margin: 0 !important;
+
+  color: #0f172a !important;
+  font-size: 15px !important;
+  font-weight: 850 !important;
+  line-height: 1.45 !important;
+  text-align: left !important;
+}
+
+.register-card-v2 .register-terms-clean > .register-terms-text::before,
+.register-card-v2 .register-terms-clean > .register-terms-text::after {
+  content: none !important;
+  display: none !important;
+}
+
+.register-card-v2 .register-terms-clean .text-link-inline {
+  display: inline !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  color: #0057d9 !important;
+  font-weight: 950 !important;
+}

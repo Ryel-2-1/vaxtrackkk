@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   CheckCircle2,
   CirclePlay,
@@ -18,33 +19,39 @@ function RiderDashboard() {
   const navigate = useNavigate();
 
   const [assignedOrders, setAssignedOrders] = useState([]);
-const [starting, setStarting] = useState(false);
+  const [starting, setStarting] = useState(false);
 
-useEffect(() => {
-  const unsubscribe = subscribeAssignedRiderOrders("rider_001", setAssignedOrders);
+  useEffect(() => {
+    const unsubscribe = subscribeAssignedRiderOrders(
+      "rider_001",
+      setAssignedOrders
+    );
 
-  return () => unsubscribe();
-}, []);
+    return () => unsubscribe();
+  }, []);
 
-const assignedOrder = assignedOrders[0];
+  const assignedOrder = assignedOrders[0];
 
-const handleStartDelivery = async () => {
-  try {
-    if (assignedOrder?.id) {
-      setStarting(true);
-      await startRiderDelivery(assignedOrder.id);
-      localStorage.setItem("activeRiderOrderId", assignedOrder.id);
-      localStorage.setItem("activeRiderOrder", JSON.stringify(assignedOrder));
+  const handleStartDelivery = async () => {
+    try {
+      if (assignedOrder?.id) {
+        setStarting(true);
+
+        await startRiderDelivery(assignedOrder.id);
+
+        localStorage.setItem("activeRiderOrderId", assignedOrder.id);
+        localStorage.setItem("activeRiderOrder", JSON.stringify(assignedOrder));
+      }
+
+      navigate("/rider/geofence");
+    } catch (error) {
+      console.error("Start delivery error:", error);
+      alert("Unable to start delivery. Please try again.");
+    } finally {
+      setStarting(false);
     }
+  };
 
-    navigate("/rider/geofence");
-  } catch (error) {
-    console.error("Start delivery error:", error);
-    alert("Unable to start delivery. Please try again.");
-  } finally {
-    setStarting(false);
-  }
-};
   return (
     <RiderLayout active="home">
       <section className="rider-dashboard-head">
@@ -65,21 +72,24 @@ const handleStartDelivery = async () => {
           <small>Est. 10:30 AM</small>
         </div>
 
-        {assignedOrder?.clinicAddress ||
-          "2 Amorsolo Street, Legazpi Village, Makati City"}
+        <h3>{assignedOrder?.clinicName || "Makati Medical Center"}</h3>
+
         <p>
           <MapPin size={14} />
-          2 Amorsolo Street, Legazpi Village, Makati City
+          {assignedOrder?.clinicAddress ||
+            "2 Amorsolo Street, Legazpi Village, Makati City"}
         </p>
 
         <div className="rider-tags">
           <span className="rider-tag">
             <Package size={13} />
-            -70°C Cold Chain
+            {assignedOrder?.storageTemp || "-70°C Cold Chain"}
           </span>
 
           <span className="rider-tag light">
-            2 Pallets (150kg)
+            {assignedOrder
+              ? `${assignedOrder.quantity} ${assignedOrder.unit || "vials"}`
+              : "2 Pallets (150kg)"}
           </span>
         </div>
       </section>
@@ -88,6 +98,7 @@ const handleStartDelivery = async () => {
         type="button"
         className="rider-primary-btn rider-start-btn"
         onClick={handleStartDelivery}
+        disabled={starting}
       >
         <CirclePlay size={18} />
         {starting ? "Starting..." : "Start Delivery"}
@@ -98,7 +109,7 @@ const handleStartDelivery = async () => {
           <div className="rider-stat-icon">
             <Truck size={19} />
           </div>
-          <h3>12</h3>
+          <h3>{assignedOrders.length || 12}</h3>
           <p>Deliveries Today</p>
         </div>
 
@@ -106,7 +117,9 @@ const handleStartDelivery = async () => {
           <div className="rider-stat-icon green">
             <CheckCircle2 size={19} />
           </div>
-          <h3>0 <small>/ 12</small></h3>
+          <h3>
+            0 <small>/ {assignedOrders.length || 12}</small>
+          </h3>
           <p>Completed</p>
         </div>
       </section>
@@ -116,8 +129,18 @@ const handleStartDelivery = async () => {
         <a>View Map</a>
       </section>
 
-      <RouteCard number="1" title="Makati Medical Center" note="Next Stop" />
-      <RouteCard number="2" title="St. Luke's Medical Center BGC" note="Pending" muted />
+      <RouteCard
+        number="1"
+        title={assignedOrder?.clinicName || "Makati Medical Center"}
+        note={assignedOrder ? "Assigned Delivery" : "Next Stop"}
+      />
+
+      <RouteCard
+        number="2"
+        title="St. Luke's Medical Center BGC"
+        note="Pending"
+        muted
+      />
     </RiderLayout>
   );
 }

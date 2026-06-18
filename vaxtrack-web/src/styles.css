@@ -5109,3 +5109,1396 @@ input:-webkit-autofill:active {
 .input-wrapper input {
   background: #ffffff !important;
 }
+/* =========================================================
+   VaxTrack Admin Production Polish
+   Consistent Fonts, Sizing, Accessibility, Interactions
+   Paste at the VERY BOTTOM of src/styles.css
+========================================================= */
+
+:root {
+  --vt-font: Inter, Arial, Helvetica, sans-serif;
+
+  --vt-bg: #f4f7ff;
+  --vt-surface: #ffffff;
+  --vt-sidebar: #eaf2ff;
+
+  --vt-primary: #0b63f6;
+  --vt-primary-dark: #084dbf;
+  --vt-primary-soft: #e8f1ff;
+
+  --vt-text: #0f172a;
+  --vt-muted: #475569;
+  --vt-soft-text: #64748b;
+  --vt-border: #cfe0ff;
+
+  --vt-danger: #e11d2e;
+  --vt-warning: #f59e0b;
+  --vt-success: #16a34a;
+
+  --vt-radius-sm: 10px;
+  --vt-radius-md: 14px;
+  --vt-radius-lg: 18px;
+
+  --vt-shadow-soft: 0 10px 28px rgba(15, 23, 42, 0.06);
+  --vt-shadow-hover: 0 16px 36px rgba(15, 23, 42, 0.12);
+}
+
+/* Global readability */
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  font-family: var(--vt-font);
+  background: var(--vt-bg);
+  color: var(--vt-text);
+  font-size: 16px;
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+}
+
+/* Better default text weight */
+body,
+button,
+input,
+select,
+textarea {
+  font-family: var(--vt-font);
+}
+
+/* Admin page containers */
+.admin-main,
+.inventory-main,
+.deliveries-main,
+.clinics-main,
+.analytics-main,
+.alerts-main,
+.settings-main,
+.dashboard-main {
+  flex: 1;
+  background: var(--vt-bg);
+  min-height: 100vh;
+  padding: 28px 38px;
+  color: var(--vt-text);
+}
+
+/* Main page titles */
+.admin-main h1,
+.inventory-main h1,
+.deliveries-main h1,
+.clinics-main h1,
+.analytics-main h1,
+.alerts-main h1,
+.settings-main h1,
+.dashboard-header h1,
+.admin-topbar h1,
+.inventory-topbar h1,
+.deliveries-topbar h1,
+.form-page-header h1 {
+  font-size: clamp(28px, 2vw, 36px);
+  line-height: 1.15;
+  font-weight: 900;
+  letter-spacing: -0.035em;
+  color: var(--vt-text);
+}
+
+/* Section titles */
+.admin-main h2,
+.inventory-main h2,
+.deliveries-main h2,
+.clinics-main h2,
+.analytics-main h2,
+.alerts-main h2,
+.settings-main h2,
+.panel-header h2,
+.table-section h2 {
+  font-size: 22px;
+  line-height: 1.25;
+  font-weight: 850;
+  color: var(--vt-text);
+}
+
+/* Card titles and row headings */
+.admin-main h3,
+.inventory-main h3,
+.deliveries-main h3,
+.clinics-main h3,
+.analytics-main h3,
+.alerts-main h3,
+.settings-main h3,
+.delivery-info h3,
+.alert-item h3,
+.activity-item h3,
+.profile-mini h3 {
+  font-size: 17px;
+  line-height: 1.35;
+  font-weight: 800;
+  color: var(--vt-text);
+}
+
+/* Paragraphs and descriptions */
+.admin-main p,
+.inventory-main p,
+.deliveries-main p,
+.clinics-main p,
+.analytics-main p,
+.alerts-main p,
+.settings-main p,
+.dashboard-header p,
+.admin-topbar small,
+.inventory-topbar p,
+.deliveries-topbar small,
+.form-page-header small {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--vt-muted);
+}
+
+/* Sidebar consistency */
+.sidebar,
+.inventory-sidebar {
+  width: 280px;
+  background: var(--vt-sidebar);
+  border-right: 1px solid #c9d8ee;
+  padding: 28px 22px;
+  flex-shrink: 0;
+}
+
+.sidebar h2,
+.inventory-sidebar h2 {
+  font-size: 23px;
+  font-weight: 900;
+  color: var(--vt-primary);
+  margin-bottom: 28px;
+}
+
+.profile-mini h3 {
+  font-size: 15px;
+  font-weight: 850;
+}
+
+.profile-mini p {
+  font-size: 13px;
+  color: var(--vt-muted);
+}
+
+/* Sidebar nav: bigger for older users */
+.side-nav a,
+.inventory-sidebar nav a {
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 11px;
+  font-size: 16px;
+  font-weight: 650;
+  color: #1e293b;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.side-nav a:hover,
+.inventory-sidebar nav a:hover {
+  background: #dbeafe;
+  color: var(--vt-primary-dark);
+  transform: translateX(3px);
+}
+
+.side-nav a.active,
+.inventory-sidebar nav a.active {
+  background: var(--vt-primary);
+  color: #ffffff;
+  font-weight: 850;
+  box-shadow: 0 10px 22px rgba(11, 99, 246, 0.22);
+}
+
+/* Logout button */
+.logout-button,
+.sidebar-logout {
+  min-height: 48px;
+  font-size: 16px;
+  font-weight: 750;
+  border-radius: 12px;
+}
+
+/* Cards production style */
+.dashboard-card,
+.stat-card,
+.admin-panel,
+.inventory-kpi,
+.inventory-table-card,
+.capacity-card,
+.vaccine-mini-card,
+.vaccine-form-card,
+.form-section-card,
+.delivery-kpi,
+.tracking-panel,
+.alerts-panel,
+.table-section,
+.sales-stat-card,
+.settings-card,
+.clinic-card {
+  background: var(--vt-surface);
+  border: 1px solid var(--vt-border);
+  border-radius: var(--vt-radius-lg);
+  box-shadow: var(--vt-shadow-soft);
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.dashboard-card:hover,
+.stat-card:hover,
+.admin-panel:hover,
+.inventory-kpi:hover,
+.inventory-table-card:hover,
+.capacity-card:hover,
+.delivery-kpi:hover,
+.tracking-panel:hover,
+.alerts-panel:hover,
+.table-section:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--vt-shadow-hover);
+  border-color: #9ec5ff;
+}
+
+/* KPI numbers */
+.dashboard-card h2,
+.stat-card h2,
+.inventory-kpi h2,
+.delivery-kpi h2,
+.sales-stat-card h2 {
+  font-size: 34px;
+  font-weight: 950;
+  line-height: 1;
+  color: var(--vt-text);
+}
+
+/* Labels inside KPI cards */
+.dashboard-card p,
+.stat-card p,
+.inventory-kpi p,
+.delivery-kpi p,
+.sales-stat-card p {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--vt-muted);
+}
+
+/* Buttons: bigger touch targets */
+button,
+.blue-btn,
+.outline-btn,
+.admin-primary-btn,
+.admin-light-btn,
+.primary-button,
+.view-all-btn,
+.assign-btn,
+.dispatcher-blue-btn,
+.dispatcher-outline-btn {
+  min-height: 44px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 850;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease,
+    opacity 0.15s ease;
+}
+
+button:hover,
+.blue-btn:hover,
+.outline-btn:hover,
+.admin-primary-btn:hover,
+.admin-light-btn:hover,
+.primary-button:hover,
+.view-all-btn:hover,
+.assign-btn:hover,
+.dispatcher-blue-btn:hover,
+.dispatcher-outline-btn:hover {
+  transform: translateY(-1px);
+}
+
+button:active,
+.blue-btn:active,
+.outline-btn:active,
+.admin-primary-btn:active,
+.admin-light-btn:active,
+.primary-button:active,
+.view-all-btn:active,
+.assign-btn:active {
+  transform: translateY(0);
+}
+
+/* Primary buttons */
+.blue-btn,
+.admin-primary-btn,
+.primary-button,
+.view-all-btn,
+.assign-btn {
+  background: var(--vt-primary);
+  color: #ffffff;
+  border: 1px solid var(--vt-primary);
+  box-shadow: 0 8px 18px rgba(11, 99, 246, 0.2);
+}
+
+.blue-btn:hover,
+.admin-primary-btn:hover,
+.primary-button:hover,
+.view-all-btn:hover,
+.assign-btn:hover {
+  background: var(--vt-primary-dark);
+}
+
+/* Outline buttons */
+.outline-btn,
+.admin-light-btn {
+  background: #ffffff;
+  color: var(--vt-primary);
+  border: 1px solid #b7cdf2;
+}
+
+/* Inputs and selects */
+input,
+select,
+textarea,
+.inventory-search,
+.sales-search,
+.request-search,
+.input-group {
+  min-height: 46px;
+  border-radius: 12px;
+  font-size: 15px;
+  color: var(--vt-text);
+}
+
+input,
+select,
+textarea {
+  border: 1px solid #b9c9df;
+  background: #ffffff;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #64748b;
+  opacity: 0.85;
+}
+
+/* Clear focus for old users / accessibility */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgba(11, 99, 246, 0.35);
+  outline-offset: 3px;
+}
+
+/* Tables: larger and easier to scan */
+table {
+  font-size: 15px;
+}
+
+th {
+  font-size: 13px;
+  font-weight: 900;
+  color: #334155;
+  background: #f1f6ff;
+  letter-spacing: 0.035em;
+}
+
+td {
+  font-size: 15px;
+  color: var(--vt-text);
+}
+
+th,
+td {
+  padding: 18px 16px;
+}
+
+tbody tr {
+  transition: background 0.15s ease;
+}
+
+tbody tr:hover {
+  background: #f8fbff;
+}
+
+/* Status pills / badges */
+.status-pill,
+.delivery-status,
+.priority-badge,
+.inventory-status,
+.temp-pill,
+.badge,
+.approval-status {
+  min-height: 30px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+/* Alerts should be obvious */
+.alert-card,
+.alert-item,
+.dispatcher-demo-alert,
+.deviation-alert-box {
+  border-radius: 16px;
+  font-size: 15px;
+}
+
+.alert-card h3,
+.alert-item h3 {
+  font-size: 18px;
+}
+
+.alert-card p,
+.alert-item p {
+  font-size: 15px;
+}
+
+/* Admin dashboard alert banner */
+.admin-alert-banner,
+.dispatcher-demo-alert {
+  padding: 18px 22px;
+  border-radius: 16px;
+  border: 1px solid #fecaca;
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.admin-alert-banner strong,
+.dispatcher-demo-alert strong {
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.admin-alert-banner p,
+.dispatcher-demo-alert p {
+  font-size: 15px;
+  color: #991b1b;
+}
+
+/* Topbar controls */
+.admin-topbar-actions,
+.deliveries-actions,
+.inventory-actions {
+  gap: 12px;
+}
+
+.admin-icon-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+}
+
+/* Search bars wider and clearer */
+.inventory-search,
+.sales-search,
+.request-search {
+  min-width: 320px;
+  background: #ffffff;
+  border: 1px solid #b9c9df;
+}
+
+/* Better checkbox size */
+input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+/* Make clickable cards look clickable */
+.dashboard-card,
+.stat-card,
+.delivery-kpi,
+.inventory-kpi,
+.alert-item,
+.delivery-row,
+.status-item {
+  cursor: pointer;
+}
+
+/* Small animated notification dot */
+.notification-dot,
+.live-indicator .dot,
+.rider-status-pill::before {
+  animation: vtPulse 1.4s infinite;
+}
+
+@keyframes vtPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(225, 29, 46, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 9px rgba(225, 29, 46, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(225, 29, 46, 0);
+  }
+}
+
+/* Better spacing between dashboard sections */
+.admin-content-grid,
+.admin-kpi-grid,
+.inventory-summary-grid,
+.delivery-kpi-grid,
+.stats-grid,
+.dashboard-content {
+  gap: 22px;
+}
+
+/* Reduce tiny text problem */
+small {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* Responsive but still readable */
+@media (max-width: 1100px) {
+  .sidebar,
+  .inventory-sidebar {
+    width: 250px;
+  }
+
+  .admin-main,
+  .inventory-main,
+  .deliveries-main,
+  .clinics-main,
+  .analytics-main,
+  .alerts-main,
+  .settings-main,
+  .dashboard-main {
+    padding: 24px;
+  }
+}
+
+@media (max-width: 800px) {
+  .dashboard-layout,
+  .inventory-page {
+    flex-direction: column;
+  }
+
+  .sidebar,
+  .inventory-sidebar {
+    width: 100%;
+  }
+
+  .side-nav a,
+  .inventory-sidebar nav a {
+    min-height: 46px;
+  }
+
+  .inventory-search,
+  .sales-search,
+  .request-search {
+    min-width: 100%;
+    width: 100%;
+  }
+
+  th,
+  td {
+    padding: 15px 12px;
+  }
+}
+/* FORCE ADMIN FONT FIX */
+body,
+body * {
+  font-family: Inter, Arial, Helvetica, sans-serif !important;
+}
+
+.admin-main,
+.inventory-main,
+.deliveries-main,
+.clinics-main,
+.analytics-main,
+.alerts-main,
+.settings-main,
+.dashboard-main {
+  font-size: 16px !important;
+  color: #0f172a !important;
+}
+
+.admin-main h1,
+.inventory-main h1,
+.deliveries-main h1,
+.clinics-main h1,
+.analytics-main h1,
+.alerts-main h1,
+.settings-main h1,
+.dashboard-header h1,
+.admin-topbar h1,
+.inventory-topbar h1,
+.deliveries-topbar h1,
+.form-page-header h1 {
+  font-size: 34px !important;
+  font-weight: 900 !important;
+  line-height: 1.15 !important;
+  letter-spacing: -0.03em !important;
+  color: #0f172a !important;
+}
+
+.admin-main h2,
+.inventory-main h2,
+.deliveries-main h2,
+.clinics-main h2,
+.analytics-main h2,
+.alerts-main h2,
+.settings-main h2,
+.panel-header h2,
+.table-section h2 {
+  font-size: 24px !important;
+  font-weight: 850 !important;
+  color: #0f172a !important;
+}
+
+.admin-main h3,
+.inventory-main h3,
+.deliveries-main h3,
+.clinics-main h3,
+.analytics-main h3,
+.alerts-main h3,
+.settings-main h3 {
+  font-size: 18px !important;
+  font-weight: 800 !important;
+  color: #0f172a !important;
+}
+
+.admin-main p,
+.inventory-main p,
+.deliveries-main p,
+.clinics-main p,
+.analytics-main p,
+.alerts-main p,
+.settings-main p,
+.admin-main small,
+.inventory-main small,
+.deliveries-main small,
+.clinics-main small,
+.analytics-main small,
+.alerts-main small,
+.settings-main small {
+  font-size: 15px !important;
+  line-height: 1.55 !important;
+  color: #475569 !important;
+}
+
+.sidebar,
+.inventory-sidebar {
+  width: 280px !important;
+}
+
+.sidebar h2,
+.inventory-sidebar h2 {
+  font-size: 24px !important;
+  font-weight: 900 !important;
+}
+
+.side-nav a,
+.inventory-sidebar nav a {
+  min-height: 50px !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  border-radius: 12px !important;
+}
+
+button,
+.blue-btn,
+.outline-btn,
+.admin-primary-btn,
+.admin-light-btn,
+.primary-button,
+.view-all-btn,
+.assign-btn {
+  min-height: 46px !important;
+  font-size: 15px !important;
+  font-weight: 850 !important;
+  border-radius: 12px !important;
+}
+
+input,
+select,
+textarea {
+  min-height: 46px !important;
+  font-size: 15px !important;
+  border-radius: 12px !important;
+}
+
+th {
+  font-size: 14px !important;
+  font-weight: 900 !important;
+}
+
+td {
+  font-size: 16px !important;
+}
+
+th,
+td {
+  padding: 18px 16px !important;
+}
+
+.dashboard-card,
+.stat-card,
+.admin-panel,
+.inventory-kpi,
+.inventory-table-card,
+.capacity-card,
+.delivery-kpi,
+.tracking-panel,
+.alerts-panel,
+.table-section {
+  border-radius: 18px !important;
+  transition: 0.18s ease !important;
+}
+
+.dashboard-card:hover,
+.stat-card:hover,
+.admin-panel:hover,
+.inventory-kpi:hover,
+.inventory-table-card:hover,
+.capacity-card:hover,
+.delivery-kpi:hover,
+.tracking-panel:hover,
+.alerts-panel:hover,
+.table-section:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.12) !important;
+}
+/* =========================================================
+   VaxTrack Login Page Polish
+   Paste at the bottom of src/styles.css
+========================================================= */
+
+.auth-page {
+  min-height: 100vh !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 24px !important;
+  background:
+    radial-gradient(circle at top left, rgba(11, 99, 246, 0.18), transparent 32%),
+    linear-gradient(135deg, #eaf2ff 0%, #f7faff 45%, #e8f1ff 100%) !important;
+}
+
+.auth-card,
+.refined-auth-card {
+  width: 420px !important;
+  max-width: calc(100vw - 32px) !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  border: 1px solid #d5e4ff !important;
+  border-radius: 26px !important;
+  padding: 34px 34px 28px !important;
+  box-shadow:
+    0 28px 70px rgba(15, 23, 42, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75) !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.auth-card::before,
+.refined-auth-card::before {
+  content: "✚";
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 14px;
+  border-radius: 22px;
+  display: grid;
+  place-items: center;
+  background:
+    linear-gradient(135deg, #0b63f6, #22c55e);
+  color: #ffffff;
+  font-size: 34px;
+  font-weight: 900;
+  box-shadow: 0 16px 30px rgba(11, 99, 246, 0.28);
+}
+
+.brand-title {
+  margin: 0 0 8px !important;
+  text-align: center !important;
+  color: #0057d9 !important;
+  font-size: 28px !important;
+  line-height: 1.1 !important;
+  font-weight: 900 !important;
+  letter-spacing: -0.04em !important;
+}
+
+.brand-title::after {
+  content: "Secure vaccine logistics access";
+  display: block;
+  margin-top: 9px;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.auth-form {
+  margin-top: 28px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 14px !important;
+}
+
+.auth-form label,
+.label-row label {
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  color: #1e293b !important;
+}
+
+.label-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  margin-bottom: -4px !important;
+}
+
+.link-button {
+  color: #0057d9 !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  text-decoration: none !important;
+}
+
+/* Fix textbox overlap */
+.input-group {
+  width: 100% !important;
+  height: 54px !important;
+  display: grid !important;
+  grid-template-columns: 24px 1fr 32px !important;
+  align-items: center !important;
+  gap: 10px !important;
+  background: #f8fbff !important;
+  border: 1.5px solid #b9c9df !important;
+  border-radius: 14px !important;
+  padding: 0 14px !important;
+  box-sizing: border-box !important;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease !important;
+}
+
+.input-group:focus-within {
+  background: #ffffff !important;
+  border-color: #0b63f6 !important;
+  box-shadow: 0 0 0 4px rgba(11, 99, 246, 0.14) !important;
+}
+
+.input-group svg {
+  width: 20px !important;
+  height: 20px !important;
+  color: #64748b !important;
+  flex-shrink: 0 !important;
+}
+
+.input-group input {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 100% !important;
+  border: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  color: #0f172a !important;
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+.input-group input::placeholder {
+  color: #94a3b8 !important;
+  font-weight: 500 !important;
+}
+
+.icon-button {
+  width: 32px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: #64748b !important;
+  padding: 0 !important;
+  display: grid !important;
+  place-items: center !important;
+  border-radius: 8px !important;
+}
+
+.icon-button:hover {
+  background: #e8f1ff !important;
+  color: #0057d9 !important;
+}
+
+/* Fix Remember Me checkbox */
+.remember-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  margin-top: 2px !important;
+  color: #475569 !important;
+  font-size: 14px !important;
+  font-weight: 650 !important;
+  line-height: 1 !important;
+}
+
+.remember-row input[type="checkbox"],
+.auth-form input[type="checkbox"] {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  min-height: 20px !important;
+  max-width: 20px !important;
+  max-height: 20px !important;
+  margin: 0 !important;
+  border: 2px solid #9fb2ce !important;
+  border-radius: 6px !important;
+  background: #ffffff !important;
+  cursor: pointer !important;
+  display: inline-grid !important;
+  place-items: center !important;
+  position: relative !important;
+}
+
+.remember-row input[type="checkbox"]:checked,
+.auth-form input[type="checkbox"]:checked {
+  background: #0b63f6 !important;
+  border-color: #0b63f6 !important;
+}
+
+.remember-row input[type="checkbox"]:checked::after,
+.auth-form input[type="checkbox"]:checked::after {
+  content: "✓";
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+/* Login button */
+.primary-button {
+  width: 100% !important;
+  height: 56px !important;
+  margin-top: 12px !important;
+  border: 0 !important;
+  border-radius: 16px !important;
+  background: linear-gradient(135deg, #0b63f6, #0057d9) !important;
+  color: #ffffff !important;
+  font-size: 16px !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.01em !important;
+  box-shadow: 0 14px 28px rgba(11, 99, 246, 0.28) !important;
+  cursor: pointer !important;
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    opacity 0.16s ease !important;
+}
+
+.primary-button:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 18px 36px rgba(11, 99, 246, 0.34) !important;
+}
+
+.primary-button:active {
+  transform: translateY(0) !important;
+}
+
+/* Divider */
+.divider {
+  margin: 24px 0 18px !important;
+  color: #94a3b8 !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+}
+
+.divider span {
+  background: #dbe5f5 !important;
+}
+
+/* Google button */
+.google-button {
+  width: 100% !important;
+  height: 54px !important;
+  border: 1.5px solid #cbd5e1 !important;
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  color: #334155 !important;
+  font-size: 16px !important;
+  font-weight: 850 !important;
+  cursor: pointer !important;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    transform 0.16s ease !important;
+}
+
+.google-button:hover {
+  background: #f8fbff !important;
+  border-color: #0b63f6 !important;
+  transform: translateY(-1px) !important;
+}
+
+.google-button span {
+  color: #ea4335 !important;
+  font-size: 18px !important;
+  font-weight: 900 !important;
+}
+
+/* Footer */
+.auth-footer {
+  margin-top: 24px !important;
+  text-align: center !important;
+  color: #64748b !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+}
+
+.auth-footer b,
+.auth-footer button {
+  color: #0057d9 !important;
+  font-weight: 900 !important;
+}
+
+.copyright {
+  margin-top: 24px !important;
+  text-align: center !important;
+  color: #94a3b8 !important;
+  font-size: 11px !important;
+  line-height: 1.45 !important;
+}
+
+/* Autofill fix */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #0f172a !important;
+  -webkit-box-shadow: 0 0 0 1000px #f8fbff inset !important;
+  transition: background-color 9999s ease-in-out 0s !important;
+}
+
+/* Mobile */
+@media (max-width: 480px) {
+  .auth-card,
+  .refined-auth-card {
+    width: 100% !important;
+    padding: 28px 22px 24px !important;
+    border-radius: 22px !important;
+  }
+
+  .brand-title {
+    font-size: 25px !important;
+  }
+
+  .input-group {
+    height: 52px !important;
+  }
+}
+/* =========================================================
+   FINAL LOGIN INPUT FIX
+   Fix inner textbox overlap, email/password alignment,
+   remember checkbox, and cleaner login card spacing
+========================================================= */
+
+.auth-page .auth-card,
+.auth-page .refined-auth-card {
+  width: 430px !important;
+  padding: 34px 34px 30px !important;
+}
+
+/* Better spacing under title */
+.auth-page .auth-form {
+  margin-top: 30px !important;
+  gap: 14px !important;
+}
+
+/* Labels */
+.auth-page .auth-form label,
+.auth-page .label-row label {
+  margin-bottom: 6px !important;
+  font-size: 14px !important;
+  font-weight: 850 !important;
+  color: #0f172a !important;
+}
+
+/* Input container: make it flex instead of grid */
+.auth-page .input-group {
+  position: relative !important;
+  width: 100% !important;
+  height: 56px !important;
+  min-height: 56px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 11px !important;
+  padding: 0 14px !important;
+  background: #f8fbff !important;
+  border: 1.5px solid #c2d2ea !important;
+  border-radius: 14px !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+}
+
+/* Focus effect */
+.auth-page .input-group:focus-within {
+  background: #ffffff !important;
+  border-color: #0b63f6 !important;
+  box-shadow: 0 0 0 4px rgba(11, 99, 246, 0.14) !important;
+}
+
+/* Left icon */
+.auth-page .input-group > svg {
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  color: #64748b !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Actual input: remove inner box */
+.auth-page .input-group input {
+  flex: 1 1 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  border: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  color: #0f172a !important;
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+}
+
+/* Password eye button */
+.auth-page .input-group .icon-button {
+  width: 34px !important;
+  height: 34px !important;
+  min-width: 34px !important;
+  min-height: 34px !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: #64748b !important;
+  border-radius: 9px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: grid !important;
+  place-items: center !important;
+  box-shadow: none !important;
+}
+
+.auth-page .input-group .icon-button:hover {
+  background: #e8f1ff !important;
+  color: #0057d9 !important;
+}
+
+/* Remove browser autofill inner background */
+.auth-page .input-group input:-webkit-autofill,
+.auth-page .input-group input:-webkit-autofill:hover,
+.auth-page .input-group input:-webkit-autofill:focus,
+.auth-page .input-group input:-webkit-autofill:active {
+  -webkit-text-fill-color: #0f172a !important;
+  -webkit-box-shadow: 0 0 0 1000px #f8fbff inset !important;
+  box-shadow: 0 0 0 1000px #f8fbff inset !important;
+  border: 0 !important;
+}
+
+/* Remember me row */
+.auth-page .remember-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  margin-top: 0 !important;
+  margin-bottom: 4px !important;
+  color: #0f172a !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+}
+
+/* Checkbox exact size */
+.auth-page .remember-row input[type="checkbox"] {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  min-height: 20px !important;
+  max-width: 20px !important;
+  max-height: 20px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 2px solid #9fb2ce !important;
+  border-radius: 6px !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+  cursor: pointer !important;
+}
+
+.auth-page .remember-row input[type="checkbox"]:checked {
+  background: #0b63f6 !important;
+  border-color: #0b63f6 !important;
+}
+
+.auth-page .remember-row input[type="checkbox"]:checked::after {
+  content: "✓";
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+/* Fix forgot password alignment */
+.auth-page .label-row {
+  align-items: center !important;
+  margin-bottom: 6px !important;
+}
+
+.auth-page .link-button {
+  font-size: 12px !important;
+  font-weight: 850 !important;
+}
+
+/* Button spacing */
+.auth-page .primary-button {
+  margin-top: 8px !important;
+}
+
+/* Prevent global CSS from affecting login inputs */
+.auth-page input,
+.auth-page button {
+  box-sizing: border-box !important;
+}
+/* =========================================================
+   ABSOLUTE FINAL FIX FOR LOGIN INPUT OVERLAP
+   Must be placed at the VERY BOTTOM of styles.css
+========================================================= */
+
+.auth-page .input-group {
+  width: 100% !important;
+  height: 54px !important;
+  min-height: 54px !important;
+  max-height: 54px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 0 14px !important;
+  background: #f8fbff !important;
+  border: 1.5px solid #c5d4ea !important;
+  border-radius: 14px !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+}
+
+/* left icon */
+.auth-page .input-group svg {
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  flex-shrink: 0 !important;
+  color: #64748b !important;
+}
+
+/* remove all global input design inside login boxes */
+.auth-page .input-group input,
+.auth-page .input-group input[type="email"],
+.auth-page .input-group input[type="text"],
+.auth-page .input-group input[type="password"] {
+  all: unset !important;
+  flex: 1 1 0 !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  height: 100% !important;
+  display: block !important;
+  box-sizing: border-box !important;
+
+  color: #0f172a !important;
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  line-height: 54px !important;
+
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* password eye button */
+.auth-page .input-group .icon-button {
+  all: unset !important;
+  width: 34px !important;
+  height: 34px !important;
+  min-width: 34px !important;
+  border-radius: 9px !important;
+  display: grid !important;
+  place-items: center !important;
+  color: #64748b !important;
+  cursor: pointer !important;
+}
+
+.auth-page .input-group .icon-button:hover {
+  background: #e8f1ff !important;
+  color: #0057d9 !important;
+}
+
+/* browser autofill fix */
+.auth-page .input-group input:-webkit-autofill,
+.auth-page .input-group input:-webkit-autofill:hover,
+.auth-page .input-group input:-webkit-autofill:focus,
+.auth-page .input-group input:-webkit-autofill:active {
+  -webkit-text-fill-color: #0f172a !important;
+  -webkit-box-shadow: 0 0 0 1000px #f8fbff inset !important;
+  box-shadow: 0 0 0 1000px #f8fbff inset !important;
+  background: transparent !important;
+}
+
+/* remember me checkbox fixed size */
+.auth-page .remember-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+}
+
+.auth-page .remember-row input[type="checkbox"] {
+  all: unset !important;
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  min-height: 20px !important;
+  border: 2px solid #9fb2ce !important;
+  border-radius: 6px !important;
+  background: #ffffff !important;
+  display: grid !important;
+  place-items: center !important;
+  cursor: pointer !important;
+  box-sizing: border-box !important;
+}
+
+.auth-page .remember-row input[type="checkbox"]:checked {
+  background: #0b63f6 !important;
+  border-color: #0b63f6 !important;
+}
+
+.auth-page .remember-row input[type="checkbox"]:checked::after {
+  content: "✓";
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 900;
+}

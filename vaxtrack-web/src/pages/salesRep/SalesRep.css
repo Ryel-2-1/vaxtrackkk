@@ -1856,3 +1856,301 @@
   color: #0f1d33 !important;
   border: 1px solid #c7d5ea !important;
 }
+/* =========================================================
+   FIX: Sales Rep pages full layout + readable text
+========================================================= */
+
+.salesrep-page {
+  width: 100vw !important;
+  min-height: 100vh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: #f5f7ff !important;
+  overflow-x: hidden !important;
+}
+
+.salesrep-sidebar {
+  width: 250px !important;
+  min-width: 250px !important;
+  height: 100vh !important;
+  position: sticky !important;
+  top: 0 !important;
+}
+
+.salesrep-main {
+  flex: 1 !important;
+  min-width: 0 !important;
+  width: calc(100vw - 250px) !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 32px 44px !important;
+  text-align: left !important;
+}
+
+.salesrep-topbar {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  height: 72px !important;
+  padding: 0 !important;
+}
+
+.salesrep-topbar h1 {
+  color: #0057d8 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.salesrep-topbar-right {
+  margin-left: auto !important;
+}
+
+.salesrep-search {
+  width: 310px !important;
+  background: #ffffff !important;
+  border: 1px solid #d6e1f2 !important;
+}
+
+/* Page title readability */
+.salesrep-page-title h1,
+.request-header-row h1,
+.sales-alerts-header h1,
+.settings-simple-grid h2,
+.salesrep-card h2,
+.quick-cart-title h2,
+.approvals-card h2 {
+  color: #0f172a !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.salesrep-page-title p,
+.request-header-row p,
+.sales-alerts-header p {
+  color: #334155 !important;
+  opacity: 1 !important;
+}
+
+/* Keep all main Sales Rep content aligned left */
+.salesrep-metrics,
+.salesrep-dashboard-grid,
+.salesrep-page-title,
+.salesrep-inventory-grid,
+.inventory-table-card,
+.request-order-layout,
+.sales-alerts-header,
+.sales-alert-tabs,
+.sales-alert-filters,
+.sales-alert-grid,
+.settings-simple-grid {
+  width: 100% !important;
+  max-width: 1280px !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+/* =========================================================
+   FIX: Sales Rep Dashboard
+========================================================= */
+
+.salesrep-metrics.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 20px !important;
+}
+
+.salesrep-dashboard-grid {
+  grid-template-columns: minmax(0, 1fr) 340px !important;
+  gap: 24px !important;
+  align-items: start !important;
+}
+
+.salesrep-table-card {
+  width: 100% !important;
+}
+
+.salesrep-side-stack {
+  width: 100% !important;
+}
+
+.salesrep-metric-card h2,
+.small-metric-card h2 {
+  color: #0057d8 !important;
+  opacity: 1 !important;
+}
+
+.salesrep-metric-card span,
+.small-metric-card span {
+  color: #334155 !important;
+}
+
+/* =========================================================
+   FIX: Sales Rep Inventory
+========================================================= */
+
+.salesrep-inventory-grid {
+  grid-template-columns: minmax(0, 1fr) 280px !important;
+  gap: 24px !important;
+  align-items: stretch !important;
+}
+
+/* Hide the extra duplicate chart if it still exists */
+.salesrep-inventory-grid > .bar-chart.wide {
+  display: none !important;
+}
+
+.capacity-card {
+  min-height: 260px !important;
+}
+
+.capacity-card .bar-chart {
+  justify-content: space-around !important;
+}
+
+.inventory-side-metrics {
+  width: 100% !important;
+}
+
+.inventory-table-card {
+  overflow-x: auto !important;
+}
+
+.salesrep-inventory-table {
+  min-width: 940px !important;
+}
+
+/* =========================================================
+   FIX: Sales Rep Request Order
+========================================================= */
+
+.request-order-layout {
+  grid-template-columns: minmax(0, 1fr) 340px !important;
+  gap: 24px !important;
+  align-items: start !important;
+}
+
+.request-header-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 18px !important;
+  margin-top: 28px !important;
+}
+
+.request-search {
+  width: 360px !important;
+  background: #ffffff !important;
+}
+
+.product-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 20px !important;
+}
+
+.product-card h2 {
+  color: #0f172a !important;
+  opacity: 1 !important;
+}
+
+.quick-cart {
+  position: sticky !important;
+  top: 88px !important;
+  min-height: 520px !important;
+  background: #ffffff !important;
+}
+
+.quick-cart-title {
+  background: #ffffff !important;
+}
+
+.empty-cart p {
+  color: #64748b !important;
+}
+
+/* =========================================================
+   FIX: Sales Rep Alerts
+========================================================= */
+
+.sales-alerts-header {
+  grid-template-columns: minmax(0, 1fr) 330px 44px !important;
+  gap: 12px !important;
+  align-items: center !important;
+}
+
+.sales-alert-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 22px !important;
+}
+
+.sales-alert-card {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+.sales-alert-card h2 {
+  color: #0f172a !important;
+  opacity: 1 !important;
+}
+
+.sales-alert-card p {
+  color: #334155 !important;
+}
+
+.alert-location {
+  color: #0f172a !important;
+}
+
+/* =========================================================
+   FIX: Sales Rep Settings
+========================================================= */
+
+.settings-simple-grid {
+  grid-template-columns: minmax(0, 1fr) 440px !important;
+  gap: 26px !important;
+  align-items: start !important;
+}
+
+.settings-simple-grid .salesrep-card {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+.simple-form-grid label,
+.sales-toggle-row span {
+  color: #0f172a !important;
+  opacity: 1 !important;
+}
+
+.simple-form-grid input {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .salesrep-sidebar {
+    width: 230px !important;
+    min-width: 230px !important;
+  }
+
+  .salesrep-main {
+    width: calc(100vw - 230px) !important;
+    padding: 0 24px 40px !important;
+  }
+
+  .salesrep-dashboard-grid,
+  .request-order-layout,
+  .settings-simple-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .sales-alert-grid,
+  .salesrep-metrics.three,
+  .product-grid,
+  .salesrep-inventory-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .quick-cart {
+    position: static !important;
+  }
+}

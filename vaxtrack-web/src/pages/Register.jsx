@@ -1,5 +1,3 @@
-import "./Auth.css";
-
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -8,7 +6,7 @@ import {
   GoogleAuthProvider,
 } from "firebase/auth";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
-import { Eye, EyeOff, ArrowRight } from "lucide-react";
+import { Eye, EyeOff, ArrowRight, Mail, Lock, User } from "lucide-react";
 import { auth, db } from "../firebase";
 import "./Auth.css";
 
@@ -29,7 +27,7 @@ function Register() {
     e.preventDefault();
     setError("");
 
-    if (!fullName || !employeeId || !email || !password) {
+    if (!fullName.trim() || !employeeId.trim() || !email.trim() || !password.trim()) {
       setError("Please complete all required fields.");
       return;
     }
@@ -57,8 +55,9 @@ function Register() {
         createdAt: serverTimestamp(),
       });
 
-      navigate("/pending-approval");
+      navigate("/pending");
     } catch (err) {
+      console.error("Registration error:", err);
       setError("Registration failed. Please try again.");
     } finally {
       setLoading(false);
@@ -85,8 +84,9 @@ function Register() {
         { merge: true }
       );
 
-      navigate("/pending-approval");
+      navigate("/pending");
     } catch (err) {
+      console.error("Google registration error:", err);
       setError("Google registration failed. Please try again.");
     } finally {
       setLoading(false);
@@ -96,72 +96,101 @@ function Register() {
   return (
     <div className="auth-page">
       <div className="auth-card register-card-v2">
-        <div className="auth-brand">
+        <div className="auth-brand register-brand">
           <h1>Staff Registration</h1>
+          <p>Create a secure VaxTrack staff account</p>
         </div>
 
-        <form onSubmit={handleRegister} className="auth-form">
-          <label>Full Name</label>
-          <input
-            className="plain-auth-input"
-            type="text"
-            placeholder="Juan Dela Cruz"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-          />
+        <form
+          onSubmit={handleRegister}
+          className="auth-form register-form"
+          autoComplete="off"
+        >
+          <div className="register-field">
+            <label>Full Name</label>
+
+            <div className="register-input-box">
+              <User size={18} />
+              <input
+                type="text"
+                name="vaxtrack_register_fullname"
+                autoComplete="off"
+                placeholder="Enter full name"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+              />
+            </div>
+          </div>
 
           <div className="register-two-col">
-            <div>
+            <div className="register-field">
               <label>Employee ID</label>
-              <input
-                className="plain-auth-input"
-                type="text"
-                placeholder="VT-2024-0000"
-                value={employeeId}
-                onChange={(e) => setEmployeeId(e.target.value)}
-              />
+
+              <div className="register-input-box">
+                <input
+                  type="text"
+                  name="vaxtrack_register_employee_id"
+                  autoComplete="off"
+                  placeholder="Enter employee ID"
+                  value={employeeId}
+                  onChange={(e) => setEmployeeId(e.target.value)}
+                />
+              </div>
             </div>
 
-            <div>
+            <div className="register-field">
               <label>Work Email</label>
-              <input
-                className="plain-auth-input"
-                type="email"
-                placeholder="juan@vaxtrack.ph"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
+
+              <div className="register-input-box">
+                <Mail size={18} />
+                <input
+                  type="email"
+                  name="vaxtrack_register_email"
+                  autoComplete="off"
+                  placeholder="Enter work email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
             </div>
           </div>
 
-          <label>Password</label>
-          <div className="auth-input">
-            <input
-              type={showPassword ? "text" : "password"}
-              placeholder="Minimum 8 characters"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <button
-              type="button"
-              className="icon-ghost"
-              onClick={() => setShowPassword((prev) => !prev)}
-            >
-              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
+          <div className="register-field">
+            <label>Password</label>
+
+            <div className="register-input-box">
+              <Lock size={18} />
+              <input
+                type={showPassword ? "text" : "password"}
+                name="vaxtrack_register_password"
+                autoComplete="new-password"
+                placeholder="Enter password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+
+              <button
+                type="button"
+                className="register-eye-btn"
+                onClick={() => setShowPassword((prev) => !prev)}
+              >
+                {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+              </button>
+            </div>
+
+            <small className="password-hint">
+              Minimum 8 characters with at least one number.
+            </small>
           </div>
 
-          <small className="password-hint">
-            Minimum 8 characters with at least one number.
-          </small>
-
-          <label className="checkbox-row terms-row">
+          <label className="register-terms-clean">
             <input
               type="checkbox"
               checked={agree}
               onChange={() => setAgree((prev) => !prev)}
             />
-            <span>
+
+            <span className="register-terms-text">
               I agree to the{" "}
               <span className="text-link-inline">Terms of Service</span> and{" "}
               <span className="text-link-inline">Privacy Policy</span> regarding
@@ -189,12 +218,12 @@ function Register() {
             disabled={loading}
           >
             <GoogleIcon />
-              Continue with Google
+            Continue with Google
           </button>
 
           <p className="auth-footer-text">
             Already have a staff account?{" "}
-            <Link to="/" className="text-link">
+            <Link to="/login" className="text-link">
               Log in
             </Link>
           </p>

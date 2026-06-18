@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   AlertTriangle,
   MapPin,
@@ -14,30 +15,30 @@ function RiderDeviationAlert() {
   const navigate = useNavigate();
   const [reporting, setReporting] = useState(false);
 
-const handleReportIssue = async () => {
-  try {
-    setReporting(true);
+  const handleReportIssue = async () => {
+    try {
+      setReporting(true);
 
-    const orderId = localStorage.getItem("activeRiderOrderId");
+      const orderId = localStorage.getItem("activeRiderOrderId");
 
-    await createRouteDeviationAlert({
-      orderId,
-      deliveryId: "#TRK-9824",
-      riderId: "rider_001",
-      riderName: "Juan Dela Cruz",
-      location: "Quezon City",
-      message:
-        "Rider is outside the assigned delivery perimeter. Route deviation alert was reported from the rider app.",
-    });
+      await createRouteDeviationAlert({
+        orderId,
+        deliveryId: "#TRK-9824",
+        riderId: "rider_001",
+        riderName: "Juan Dela Cruz",
+        location: "Quezon City",
+        message:
+          "Rider is outside the assigned delivery perimeter. Route deviation alert was reported from the rider app.",
+      });
 
-    alert("Route deviation alert sent to Dispatcher.");
-  } catch (error) {
-    console.error("Create alert error:", error);
-    alert("Unable to send alert. Please try again.");
-  } finally {
-    setReporting(false);
-  }
-};
+      alert("Route deviation alert sent to Dispatcher.");
+    } catch (error) {
+      console.error("Create alert error:", error);
+      alert("Unable to send alert. Please try again.");
+    } finally {
+      setReporting(false);
+    }
+  };
 
   return (
     <RiderLayout active="navigation">
@@ -97,9 +98,14 @@ const handleReportIssue = async () => {
           Navigate Route
         </button>
 
-        <button type="button" className="rider-secondary-btn">
+        <button
+          type="button"
+          className="rider-secondary-btn"
+          onClick={handleReportIssue}
+          disabled={reporting}
+        >
           <ShieldAlert size={15} />
-          Report Issue
+          {reporting ? "Sending..." : "Report Issue"}
         </button>
       </div>
 

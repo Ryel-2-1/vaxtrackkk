@@ -31,10 +31,7 @@ function Login() {
 
     try {
       setLoading(true);
-
       await signInWithEmailAndPassword(auth, email, password);
-
-      // Admin page route
       navigate("/admin");
     } catch (err) {
       setError("Invalid login credentials. Please try again.");
@@ -48,10 +45,7 @@ function Login() {
 
     try {
       setLoading(true);
-
       await signInWithPopup(auth, provider);
-
-      // Admin page route
       navigate("/admin");
     } catch (err) {
       setError("Google sign in failed. Please try again.");
@@ -67,14 +61,16 @@ function Login() {
           <h1>VaxTrack Portal</h1>
         </div>
 
-        <form onSubmit={handleLogin} className="auth-form">
+        <form onSubmit={handleLogin} className="auth-form" autoComplete="off">
           <label>Email or Employee ID</label>
 
           <div className="auth-input">
             <Mail size={16} />
             <input
               type="text"
-              placeholder="e.g. admin@vaxtrack.com"
+              name="vaxtrack_login_email"
+              autoComplete="off"
+              placeholder="Enter email or employee ID"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
@@ -92,7 +88,9 @@ function Login() {
             <Lock size={16} />
             <input
               type={showPassword ? "text" : "password"}
-              placeholder="••••••••"
+              name="vaxtrack_login_password"
+              autoComplete="new-password"
+              placeholder="Enter password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
