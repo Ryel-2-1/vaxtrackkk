@@ -53,17 +53,15 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Default Route */}
+
         <Route path="/" element={<Navigate to="/login" replace />} />
 
-        {/* Auth Routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/pending" element={<PendingApproval />} />
         <Route path="/pending-approval" element={<Navigate to="/pending" replace />} />
 
-        {/* Admin Routes */}
         <Route path="/admin" element={<AdminDashboard />} />
         <Route path="/admin/inventory" element={<Inventory />} />
         <Route path="/admin/add-stock" element={<AddStock />} />
@@ -77,7 +75,7 @@ function App() {
         <Route path="/admin/register-clinic" element={<RegisterClinic />} />
         <Route path="/admin/clinic-success" element={<ClinicSuccess />} />
 
-        {/* Old Admin Route Redirects */}
+
         <Route path="/inventory" element={<Navigate to="/admin/inventory" replace />} />
         <Route path="/add-stock" element={<Navigate to="/admin/add-stock" replace />} />
         <Route path="/add-vaccine" element={<Navigate to="/admin/add-vaccine" replace />} />
@@ -90,7 +88,6 @@ function App() {
         <Route path="/register-clinic" element={<Navigate to="/admin/register-clinic" replace />} />
         <Route path="/clinic-success" element={<Navigate to="/admin/clinic-success" replace />} />
 
-        {/* Sales Representative Routes */}
         <Route path="/sales-rep" element={<SalesRepDashboard />} />
         <Route path="/sales-rep/inventory" element={<SalesRepInventory />} />
         <Route path="/sales-rep/request-order" element={<SalesRepRequestOrder />} />
@@ -100,14 +97,12 @@ function App() {
         <Route path="/sales-rep/alerts" element={<SalesRepAlerts />} />
         <Route path="/sales-rep/settings" element={<SalesRepSettings />} />
 
-        {/* Dispatcher Routes */}
         <Route path="/dispatcher" element={<DispatcherDashboard />} />
         <Route path="/dispatcher/assign-rider" element={<DispatcherAssignRider />} />
         <Route path="/dispatcher/shipments" element={<DispatcherShipments />} />
         <Route path="/dispatcher/geofence" element={<DispatcherGeofence />} />
         <Route path="/dispatcher/settings" element={<DispatcherSettings />} />
 
-        {/* Rider Routes */}
         <Route path="/rider/login" element={<RiderLogin />} />
         <Route path="/rider/register" element={<RiderRegister />} />
         <Route path="/rider/success" element={<RiderSuccess />} />
@@ -122,7 +117,6 @@ function App() {
         <Route path="/rider/reset-password" element={<RiderResetPassword />} />
         <Route path="/rider/reset-success" element={<RiderResetSuccess />} />
 
-        {/* Fallback */}
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>
