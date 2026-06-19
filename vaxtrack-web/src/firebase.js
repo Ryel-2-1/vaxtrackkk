@@ -1,22 +1,21 @@
-// firebase.js
-
+// Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
 
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "AIzaSyBT6gNMM1KGtsqi4JjSpt8iyKAHqmtek58",
-  authDomain: "vaxtrack-27044.firebaseapp.com",
-  projectId: "vaxtrack-27044",
-  storageBucket: "vaxtrack-27044.firebasestorage.app",
-  messagingSenderId: "92953416605",
-  appId: "1:92953416605:web:d2d9bd4fabc23e7da65574",
-  measurementId: "G-664NTBNHWC",
+  apiKey: "AIzaSyDQfnN4cg58Ym7M4IqWRnapK-k_k_wbqCg",
+  authDomain: "vaxtrack-bef1b.firebaseapp.com",
+  projectId: "vaxtrack-bef1b",
+  storageBucket: "vaxtrack-bef1b.firebasestorage.app",
+  messagingSenderId: "1023801727166",
+  appId: "1:1023801727166:web:1f265e5766b35c5eb166ef",
+  measurementId: "G-24PNWHK97G"
 };
 
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
-
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-
-export default app;
+const analytics = getAnalytics(app);
