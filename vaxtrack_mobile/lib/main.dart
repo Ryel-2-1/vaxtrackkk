@@ -43,9 +43,6 @@ List<BoxShadow> get softShadow {
   ];
 }
 
-/* =========================
-   LOGIN SCREEN
-========================= */
 
 class RiderLoginScreen extends StatefulWidget {
   const RiderLoginScreen({super.key});
@@ -298,9 +295,7 @@ class _RiderLoginScreenState extends State<RiderLoginScreen> {
   }
 }
 
-/* =========================
-   REGISTER SCREEN
-========================= */
+
 
 class RiderSignUpScreen extends StatefulWidget {
   const RiderSignUpScreen({super.key});
@@ -606,9 +601,7 @@ class _RiderSignUpScreenState extends State<RiderSignUpScreen> {
   }
 }
 
-/* =========================
-   REGISTER SUCCESS SCREEN
-========================= */
+
 
 class RiderSuccessConfirmationScreen extends StatelessWidget {
   const RiderSuccessConfirmationScreen({super.key});
@@ -740,9 +733,6 @@ class RiderSuccessConfirmationScreen extends StatelessWidget {
   }
 }
 
-/* =========================
-   FORGOT PASSWORD
-========================= */
 
 class ForgotPasswordEmailScreen extends StatefulWidget {
   const ForgotPasswordEmailScreen({super.key});
@@ -953,9 +943,6 @@ class PasswordResetSuccessScreen extends StatelessWidget {
   }
 }
 
-/* =========================
-   RIDER DASHBOARD
-========================= */
 
 class RiderDashboardScreen extends StatelessWidget {
   const RiderDashboardScreen({
@@ -1401,9 +1388,7 @@ class RiderDashboardScreen extends StatelessWidget {
   }
 }
 
-/* =========================
-   REUSABLE WIDGETS
-========================= */
+
 
 class AuthScaffold extends StatelessWidget {
   const AuthScaffold({super.key, required this.child});

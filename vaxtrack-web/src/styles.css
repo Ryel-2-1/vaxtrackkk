@@ -6085,7 +6085,7 @@ td {
   line-height: 1;
 }
 
-/* Login button */
+
 .primary-button {
   width: 100% !important;
   height: 56px !important;
@@ -6114,7 +6114,7 @@ td {
   transform: translateY(0) !important;
 }
 
-/* Divider */
+
 .divider {
   margin: 24px 0 18px !important;
   color: #94a3b8 !important;
@@ -6126,7 +6126,6 @@ td {
   background: #dbe5f5 !important;
 }
 
-/* Google button */
 .google-button {
   width: 100% !important;
   height: 54px !important;
@@ -6155,7 +6154,6 @@ td {
   font-weight: 900 !important;
 }
 
-/* Footer */
 .auth-footer {
   margin-top: 24px !important;
   text-align: center !important;
@@ -6178,7 +6176,7 @@ td {
   line-height: 1.45 !important;
 }
 
-/* Autofill fix */
+
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
 input:-webkit-autofill:focus {
@@ -6187,7 +6185,7 @@ input:-webkit-autofill:focus {
   transition: background-color 9999s ease-in-out 0s !important;
 }
 
-/* Mobile */
+
 @media (max-width: 480px) {
   .auth-card,
   .refined-auth-card {
@@ -6204,11 +6202,7 @@ input:-webkit-autofill:focus {
     height: 52px !important;
   }
 }
-/* =========================================================
-   FINAL LOGIN INPUT FIX
-   Fix inner textbox overlap, email/password alignment,
-   remember checkbox, and cleaner login card spacing
-========================================================= */
+
 
 .auth-page .auth-card,
 .auth-page .refined-auth-card {
@@ -6216,13 +6210,13 @@ input:-webkit-autofill:focus {
   padding: 34px 34px 30px !important;
 }
 
-/* Better spacing under title */
+
 .auth-page .auth-form {
   margin-top: 30px !important;
   gap: 14px !important;
 }
 
-/* Labels */
+
 .auth-page .auth-form label,
 .auth-page .label-row label {
   margin-bottom: 6px !important;
@@ -6231,7 +6225,7 @@ input:-webkit-autofill:focus {
   color: #0f172a !important;
 }
 
-/* Input container: make it flex instead of grid */
+
 .auth-page .input-group {
   position: relative !important;
   width: 100% !important;
@@ -6248,14 +6242,12 @@ input:-webkit-autofill:focus {
   overflow: hidden !important;
 }
 
-/* Focus effect */
 .auth-page .input-group:focus-within {
   background: #ffffff !important;
   border-color: #0b63f6 !important;
   box-shadow: 0 0 0 4px rgba(11, 99, 246, 0.14) !important;
 }
 
-/* Left icon */
 .auth-page .input-group > svg {
   width: 20px !important;
   height: 20px !important;
@@ -6265,7 +6257,6 @@ input:-webkit-autofill:focus {
   padding: 0 !important;
 }
 
-/* Actual input: remove inner box */
 .auth-page .input-group input {
   flex: 1 1 auto !important;
   width: auto !important;
@@ -6285,7 +6276,7 @@ input:-webkit-autofill:focus {
   line-height: 1 !important;
 }
 
-/* Password eye button */
+
 .auth-page .input-group .icon-button {
   width: 34px !important;
   height: 34px !important;
@@ -6307,7 +6298,7 @@ input:-webkit-autofill:focus {
   color: #0057d9 !important;
 }
 
-/* Remove browser autofill inner background */
+
 .auth-page .input-group input:-webkit-autofill,
 .auth-page .input-group input:-webkit-autofill:hover,
 .auth-page .input-group input:-webkit-autofill:focus,
@@ -6318,7 +6309,7 @@ input:-webkit-autofill:focus {
   border: 0 !important;
 }
 
-/* Remember me row */
+
 .auth-page .remember-row {
   display: flex !important;
   align-items: center !important;
@@ -6330,7 +6321,7 @@ input:-webkit-autofill:focus {
   font-weight: 800 !important;
 }
 
-/* Checkbox exact size */
+
 .auth-page .remember-row input[type="checkbox"] {
   appearance: none !important;
   -webkit-appearance: none !important;
@@ -6363,7 +6354,6 @@ input:-webkit-autofill:focus {
   font-weight: 900;
 }
 
-/* Fix forgot password alignment */
 .auth-page .label-row {
   align-items: center !important;
   margin-bottom: 6px !important;
@@ -6374,20 +6364,15 @@ input:-webkit-autofill:focus {
   font-weight: 850 !important;
 }
 
-/* Button spacing */
 .auth-page .primary-button {
   margin-top: 8px !important;
 }
 
-/* Prevent global CSS from affecting login inputs */
+
 .auth-page input,
 .auth-page button {
   box-sizing: border-box !important;
 }
-/* =========================================================
-   ABSOLUTE FINAL FIX FOR LOGIN INPUT OVERLAP
-   Must be placed at the VERY BOTTOM of styles.css
-========================================================= */
 
 .auth-page .input-group {
   width: 100% !important;

@@ -1,6 +1,4 @@
-/* =========================================================
-   Dispatcher Web UI
-========================================================= */
+
 
 .dispatcher-page {
   min-height: 100vh;
@@ -183,8 +181,6 @@
   color: #475569;
   font-size: 13px;
 }
-
-/* Dashboard */
 
 .dispatcher-map-card,
 .dispatch-table-card,
@@ -523,7 +519,6 @@
   place-items: center;
 }
 
-/* Assign Rider */
 
 .assign-header {
   height: 42px;
@@ -736,7 +731,7 @@
   font-size: 12px;
 }
 
-/* Cargo */
+
 
 .cargo-header-grid {
   display: grid;
@@ -1010,7 +1005,6 @@
   color: #0f172a;
 }
 
-/* Geofence */
 
 .geofence-header {
   display: grid;
@@ -1313,7 +1307,6 @@
   font-size: 10px;
 }
 
-/* Settings */
 
 .dispatcher-settings-grid {
   display: grid;
@@ -1403,7 +1396,6 @@
   margin-left: auto;
 }
 
-/* Responsive desktop fallback */
 
 @media (max-width: 1100px) {
   .dispatcher-content {
@@ -1449,7 +1441,6 @@
   margin: 0 auto;
 }
 
-/* TOP */
 .geo-top-section {
   display: flex;
   justify-content: space-between;
@@ -1527,7 +1518,6 @@
   cursor: pointer;
 }
 
-/* STATUS + DETAILS */
 .geo-status-and-details {
   display: grid;
   grid-template-columns: 2.1fr 1fr;
@@ -1682,8 +1672,6 @@
   font-size: 14px;
   color: #243349;
 }
-
-/* CONTENT GRID */
 .geo-content-grid {
   display: grid;
   grid-template-columns: 2fr 1fr;
@@ -1710,7 +1698,6 @@
     radial-gradient(circle at 70% 65%, rgba(122, 167, 212, 0.10), transparent 25%);
 }
 
-/* Fence */
 .geo-fence-shape {
   position: absolute;
   left: 76px;
@@ -1723,7 +1710,6 @@
   transform: rotate(10deg);
 }
 
-/* Planned route */
 .geo-route-path {
   position: absolute;
   left: 122px;
@@ -1761,7 +1747,6 @@
 .cp4 { left: 82px; top: 120px; }
 .cp5 { left: 102px; top: 170px; }
 
-/* Batch label */
 .geo-batch-label {
   position: absolute;
   left: 116px;
@@ -1775,7 +1760,6 @@
   box-shadow: 0 4px 10px rgba(30, 45, 74, 0.12);
 }
 
-/* Rider */
 .geo-rider-marker {
   position: absolute;
   right: 86px;
@@ -1796,7 +1780,6 @@
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.18);
 }
 
-/* Off-route indicator */
 .geo-offroute-line {
   position: absolute;
   right: 120px;
@@ -1832,7 +1815,6 @@
   font-weight: 700;
 }
 
-/* Controls */
 .geo-map-controls {
   position: absolute;
   top: 18px;
@@ -1856,7 +1838,6 @@
   cursor: pointer;
 }
 
-/* Legend */
 .geo-map-legend {
   position: absolute;
   left: 14px;
@@ -1895,7 +1876,6 @@
   border-radius: 999px;
 }
 
-/* TIMELINE */
 .geo-timeline-card {
   padding: 18px 16px;
 }
@@ -1988,7 +1968,6 @@
   font-size: 12px;
 }
 
-/* FOOTER */
 .geo-footer {
   margin-top: 18px;
   border-top: 1px solid #dde4ef;
@@ -2010,7 +1989,6 @@
   flex-wrap: wrap;
 }
 
-/* RESPONSIVE */
 @media (max-width: 1100px) {
   .geo-status-and-details,
   .geo-content-grid,
@@ -2049,10 +2027,6 @@
     height: 460px;
   }
 }
-/* =========================================================
-   Dispatcher Geofence Exact UI
-   Keeps DispatcherLayout sidebar and topbar
-========================================================= */
 
 .geo2-wrap {
   width: 100%;
@@ -2586,9 +2560,7 @@
     height: 500px;
   }
 }
-/* =========================================================
-   DISPATCHER V2 - DASHBOARD + SHIPMENTS
-========================================================= */
+
 
 .dispatcher-v2-page {
   width: 100%;
@@ -3022,7 +2994,6 @@
   text-decoration: none;
 }
 
-/* Shipments page */
 
 .dispatcher-shipments-grid {
   display: grid;
@@ -3421,18 +3392,14 @@
     gap: 8px;
   }
 }
-/* =========================================================
-   FIX: Dispatcher Dashboard + Shipments Alignment
-========================================================= */
 
-/* Make page content wider and cleaner */
 .dispatcher-content {
   width: min(100%, 1080px) !important;
   margin: 0 auto !important;
   padding: 22px 28px !important;
 }
 
-/* Put Dispatcher Dashboard and Cargo Loading Queue title to the left */
+
 .dispatcher-v2-header,
 .dispatcher-v2-header.split {
   width: 100% !important;
@@ -3462,14 +3429,14 @@
   max-width: 640px !important;
 }
 
-/* Cargo header layout */
+
 .dispatcher-v2-header.split {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) 260px !important;
   gap: 24px !important;
 }
 
-/* Queue status card */
+
 .queue-status-card {
   width: 260px !important;
   min-height: 86px !important;
@@ -3507,7 +3474,6 @@
   font-weight: 900 !important;
 }
 
-/* Shipments page main layout */
 .dispatcher-shipments-grid {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) 260px !important;
@@ -3531,7 +3497,7 @@
   font-weight: 900 !important;
 }
 
-/* Pending load cards */
+
 .pending-loads-list {
   display: grid !important;
   gap: 14px !important;
@@ -3605,7 +3571,7 @@
   white-space: nowrap !important;
 }
 
-/* In Progress cards */
+
 .in-progress-wrap {
   margin-top: 28px !important;
 }
@@ -3630,7 +3596,7 @@
   text-align: center !important;
 }
 
-/* Logistics efficiency card */
+
 .logistics-efficiency-card {
   width: 260px !important;
   border-radius: 10px !important;
@@ -3654,17 +3620,15 @@
   padding: 9px 0 !important;
 }
 
-/* Remove extra dispatcher-v2 footer spacing if still present */
+
 .dispatcher-v2-footer {
   display: none !important;
 }
 
-/* Keep bottom footer from DispatcherLayout clean */
 .dispatcher-footer {
   margin-top: auto !important;
 }
 
-/* Responsive fallback */
 @media (max-width: 1100px) {
   .dispatcher-v2-header.split,
   .dispatcher-shipments-grid {
@@ -3749,9 +3713,6 @@
   text-align: left !important;
   line-height: 1.25 !important;
 }
-/* =========================================================
-   FIX: Dispatcher Shipments / Cargo Loading Queue UI
-========================================================= */
 
 .dispatcher-v2-page {
   width: 100%;
@@ -4060,9 +4021,7 @@
     width: 100%;
   }
 }
-/* =========================================================
-   FIX: Dispatcher Shipment Order Badge
-========================================================= */
+
 
 .pending-load-card {
   grid-template-columns: 90px minmax(0, 1fr) 170px !important;
@@ -4100,7 +4059,6 @@
     grid-template-columns: 90px minmax(0, 1fr) !important;
   }
 }
-/* Demo Firestore Alert Banner */
 
 .dispatcher-demo-alert {
   background: #fee2e2;
@@ -4123,9 +4081,6 @@
   font-size: 12px;
   line-height: 1.4;
 }
-/* =========================================================
-   FIX: Dispatcher pages full layout + readable text
-========================================================= */
 
 .dispatcher-page {
   width: 100vw !important;
@@ -4158,7 +4113,6 @@
   text-align: left !important;
 }
 
-/* Keep each dispatcher page clean and not too stretched */
 .dispatcher-v2-page,
 .geo2-wrap,
 .dispatcher-settings-page {
@@ -4167,7 +4121,6 @@
   margin: 0 !important;
 }
 
-/* Topbar alignment */
 .dispatcher-topbar {
   width: 100% !important;
   grid-template-columns: 210px minmax(360px, 560px) 40px 170px !important;
@@ -4179,7 +4132,6 @@
   width: 100% !important;
 }
 
-/* Make all page titles readable */
 .dispatcher-v2-header h1,
 .assign-header h1,
 .geo2-header h1,
@@ -4194,7 +4146,7 @@
   visibility: visible !important;
 }
 
-/* Make subtitles readable */
+
 .dispatcher-v2-header p,
 .geo2-header p,
 .cargo-header-grid p,
@@ -4203,9 +4155,6 @@
   opacity: 1 !important;
 }
 
-/* =========================================================
-   FIX: Dispatcher Dashboard
-========================================================= */
 
 .dispatcher-live-card,
 .dispatcher-v2-monitor-card {
@@ -4227,9 +4176,7 @@
   width: 100% !important;
 }
 
-/* =========================================================
-   FIX: Assign Rider page
-========================================================= */
+
 
 .assign-header {
   margin-top: 4px !important;
@@ -4280,9 +4227,7 @@
   height: 300px !important;
 }
 
-/* =========================================================
-   FIX: Shipments page
-========================================================= */
+
 
 .dispatcher-shipments-grid {
   width: 100% !important;
@@ -4300,9 +4245,6 @@
   max-width: 1180px !important;
 }
 
-/* =========================================================
-   FIX: Geofence page
-========================================================= */
 
 .geo2-header {
   width: 100% !important;
@@ -4323,9 +4265,7 @@
   height: 540px !important;
 }
 
-/* =========================================================
-   FIX: Dispatcher Settings page
-========================================================= */
+
 
 .dispatcher-settings-grid {
   width: 100% !important;
@@ -4369,7 +4309,7 @@
   line-height: 1.15 !important;
 }
 
-/* Responsive */
+
 @media (max-width: 1200px) {
   .assign-grid,
   .dispatcher-shipments-grid,
