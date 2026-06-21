@@ -2,7 +2,17 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { subscribePendingDispatchOrders } from "../../services/orderService";
 import { subscribeActiveAlerts } from "../../services/alertService";
-import { MapPin, PackageCheck, Truck, UserPlus } from "lucide-react";
+import {
+  AlertTriangle,
+  Clock3,
+  MapPin,
+  Navigation,
+  PackageCheck,
+  ShieldCheck,
+  Truck,
+  UserPlus,
+  UsersRound,
+} from "lucide-react";
 import DispatcherLayout from "./DispatcherLayout";
 
 function DispatcherDashboard() {
@@ -27,6 +37,12 @@ function DispatcherDashboard() {
     navigate("/dispatcher/assign-rider");
   };
 
+  const scrollToPendingQueue = () => {
+    document
+      .getElementById("pending-dispatch-queue")
+      ?.scrollIntoView({ behavior: "smooth" });
+  };
+
   const mockOrders = [
     {
       id: "#VT-9021",
@@ -46,192 +62,344 @@ function DispatcherDashboard() {
       unit: "Vials",
       priority: "Standard",
     },
+    {
+      id: "#VT-9023",
+      destination: "Cardinal Santos Medical Center",
+      address: "San Juan, Metro Manila",
+      vaccine: "Vaxipro Ultra-V Adult",
+      quantity: "660",
+      unit: "Vials",
+      priority: "Urgent",
+    },
   ];
 
   const orders = firestoreOrders.length > 0 ? firestoreOrders : mockOrders;
   const latestAlert = activeAlerts[0];
 
+  const urgentOrders = orders.filter(
+    (order) => (order.priority || "").toLowerCase() === "urgent"
+  ).length;
+
+  const availableRiders = 12;
+  const activeDeliveries = 8;
+  const delayedDeliveries = 2;
+
   return (
     <DispatcherLayout active="dashboard" title="VaxTrack Logistics">
-      <div className="dispatcher-v2-page">
-        <div className="dispatcher-v2-header">
-          <h1>Dispatcher Dashboard</h1>
-          <p>Review approved orders and assign logistical assets for delivery.</p>
-        </div>
+      <div className="dispatcher-dash-page">
+        <section className="dispatcher-dash-hero">
+          <div>
+            <span className="dispatcher-dash-eyebrow">
+              Dispatch Control Center
+            </span>
+            <h1>Dispatcher Dashboard</h1>
+            <p>
+              Review approved orders, monitor live deliveries, and assign riders
+              for vaccine distribution.
+            </p>
+          </div>
+
+          <div className="dispatcher-dash-hero-status">
+            <span className="status-dot"></span>
+            Real-time monitoring active
+          </div>
+        </section>
 
         {latestAlert && (
-          <section className="dispatcher-demo-alert">
-            <strong>{latestAlert.title}</strong>
-            <p>
-              {latestAlert.riderName} • {latestAlert.location} •{" "}
-              {latestAlert.message}
-            </p>
+          <section className="dispatcher-dash-alert">
+            <AlertTriangle size={18} />
+            <div>
+              <strong>{latestAlert.title}</strong>
+              <p>
+                {latestAlert.riderName} • {latestAlert.location} •{" "}
+                {latestAlert.message}
+              </p>
+            </div>
           </section>
         )}
 
-        <section className="dispatcher-live-card">
-          <div className="dispatcher-live-header">
-            <div className="dispatcher-live-title">
-              <MapPin size={15} />
-              <span>Live Delivery Monitoring</span>
-            </div>
+        <section className="dispatcher-dash-kpi-grid">
+          <KpiCard
+            icon={<PackageCheck size={22} />}
+            label="Approved Orders"
+            value={orders.length}
+            note="Ready for dispatch"
+          />
 
-            <div className="dispatcher-live-badges">
-              <span className="on-time">8 ON-TIME</span>
-              <span className="delayed">2 DELAYED</span>
-            </div>
-          </div>
+          <KpiCard
+            icon={<UsersRound size={22} />}
+            label="Available Riders"
+            value={availableRiders}
+            note="On-duty and available"
+          />
 
-          <div className="dispatcher-live-map">
-            <div className="dispatcher-map-network"></div>
+          <KpiCard
+            icon={<Truck size={22} />}
+            label="Active Deliveries"
+            value={activeDeliveries}
+            note="Currently in transit"
+          />
 
-            <span className="dispatch-route route-a"></span>
-            <span className="dispatch-route route-b"></span>
-            <span className="dispatch-route route-c"></span>
-            <span className="dispatch-route route-d"></span>
-            <span className="dispatch-route route-e"></span>
-            <span className="dispatch-route route-f"></span>
-
-            <span className="dispatch-node n1"></span>
-            <span className="dispatch-node n2"></span>
-            <span className="dispatch-node n3"></span>
-            <span className="dispatch-node n4"></span>
-            <span className="dispatch-node n5"></span>
-            <span className="dispatch-node n6"></span>
-            <span className="dispatch-node n7"></span>
-            <span className="dispatch-node n8"></span>
-            <span className="dispatch-node n9"></span>
-
-            <div className="dispatcher-map-info left">
-              <small>NEXT ARRIVAL</small>
-              <strong>St. Lukes Medical Center</strong>
-              <p>12 mins away • 4.2km</p>
-            </div>
-
-            <div className="dispatcher-map-info right">
-              <small>CRITICAL DELAY</small>
-              <strong>Cardinal Santos</strong>
-              <p>Traffic Halt • +15m</p>
-            </div>
-          </div>
+          <KpiCard
+            icon={<AlertTriangle size={22} />}
+            label="Urgent Orders"
+            value={urgentOrders}
+            note={`${delayedDeliveries} delayed routes`}
+            danger
+          />
         </section>
 
-        <section className="dispatcher-v2-summary-grid">
-          <div className="dispatcher-v2-stat-card">
-            <div>
-              <p>Approved Orders</p>
-              <h2>{orders.length}</h2>
+        <section className="dispatcher-dash-main-grid">
+          <div className="dispatcher-dash-monitor-card">
+            <div className="dispatcher-dash-card-head">
+              <div>
+                <span className="card-kicker">Live Delivery Monitoring</span>
+                <h2>Metro Manila Delivery Network</h2>
+              </div>
+
+              <div className="dispatcher-dash-badges">
+                <span className="green">{activeDeliveries} On-time</span>
+                <span className="red">{delayedDeliveries} Delayed</span>
+              </div>
             </div>
 
-            <div className="dispatcher-v2-stat-meta">
-              <PackageCheck size={34} />
-              <span>Ready for dispatch</span>
+            <div className="dispatcher-dash-map">
+              <div className="map-grid-bg"></div>
+
+              <span className="dash-route dash-route-a"></span>
+              <span className="dash-route dash-route-b"></span>
+              <span className="dash-route dash-route-c"></span>
+              <span className="dash-route dash-route-d"></span>
+              <span className="dash-route dash-route-e"></span>
+
+              <span className="dash-node node-a"></span>
+              <span className="dash-node node-b"></span>
+              <span className="dash-node node-c"></span>
+              <span className="dash-node node-d"></span>
+              <span className="dash-node node-e"></span>
+              <span className="dash-node node-f"></span>
+
+              <div className="dash-moving-rider">
+                <Truck size={18} />
+              </div>
+
+              <div className="dash-map-label next">
+                <small>NEXT ARRIVAL</small>
+                <strong>St. Luke&apos;s Medical Center</strong>
+                <p>12 mins away • 4.2 km</p>
+              </div>
+
+              <div className="dash-map-label danger">
+                <small>CRITICAL DELAY</small>
+                <strong>Cardinal Santos</strong>
+                <p>Traffic halt • +15 mins</p>
+              </div>
+            </div>
+
+            <div className="dispatcher-dash-monitor-footer">
+              <MonitorInfo
+                icon={<Navigation size={15} />}
+                label="Primary Route"
+                value="Main Hub-A → Quezon City"
+              />
+
+              <MonitorInfo
+                icon={<Clock3 size={15} />}
+                label="Average ETA"
+                value="18 minutes"
+              />
+
+              <MonitorInfo
+                icon={<ShieldCheck size={15} />}
+                label="Cold-chain Status"
+                value="Stable"
+              />
             </div>
           </div>
 
-          <div className="dispatcher-v2-stat-card">
-            <div>
-              <p>Available Riders</p>
-              <h2>12</h2>
+          <aside className="dispatcher-dash-side-card">
+            <div className="dispatcher-dash-card-head small">
+              <div>
+                <span className="card-kicker">Today&apos;s Operations</span>
+                <h2>Dispatch Summary</h2>
+              </div>
             </div>
 
-            <div className="dispatcher-v2-stat-meta">
-              <Truck size={34} />
-              <span>Ready to Dispatch</span>
+            <div className="dispatcher-dash-op-list">
+              <OperationItem
+                title="Priority Dispatch"
+                value={`${urgentOrders} urgent orders`}
+                text="Assign riders as soon as possible."
+                danger={urgentOrders > 0}
+              />
+
+              <OperationItem
+                title="Rider Availability"
+                value={`${availableRiders} available`}
+                text="Enough riders for current queue."
+              />
+
+              <OperationItem
+                title="Route Condition"
+                value={`${delayedDeliveries} delayed`}
+                text="Monitor geofence and traffic alerts."
+                warning
+              />
             </div>
-          </div>
+
+            <button
+              type="button"
+              className="dispatcher-dash-primary-btn"
+              onClick={scrollToPendingQueue}
+            >
+              <UserPlus size={16} />
+              Assign From Queue
+            </button>
+
+            <button
+              type="button"
+              className="dispatcher-dash-secondary-btn"
+              onClick={() => navigate("/dispatcher/shipments")}
+            >
+              <Truck size={16} />
+              View Shipments
+            </button>
+          </aside>
         </section>
 
-        <section className="dispatcher-v2-table-card">
-          <div className="dispatcher-v2-table-head">
-            <h3>Pending Dispatch Queue</h3>
-            <div className="live-indicator">
-              <span className="dot"></span>
-              REAL-TIME UPDATE ACTIVE
+        <section
+          id="pending-dispatch-queue"
+          className="dispatcher-dash-table-card"
+        >
+          <div className="dispatcher-dash-table-head">
+            <div>
+              <span className="card-kicker">Pending Dispatch Queue</span>
+              <h2>Approved Orders Waiting for Rider Assignment</h2>
+            </div>
+
+            <div className="dispatcher-dash-live-pill">
+              <span></span>
+              Real-time update active
             </div>
           </div>
 
-          <div className="dispatcher-v2-table-wrap">
-            <table className="dispatcher-v2-table">
+          <div className="dispatcher-dash-table-wrap">
+            <table className="dispatcher-dash-table">
               <thead>
                 <tr>
-                  <th>ORDER ID</th>
-                  <th>DESTINATION</th>
-                  <th>VACCINE TYPE</th>
-                  <th>QUANTITY</th>
-                  <th>PRIORITY</th>
-                  <th>ACTIONS</th>
+                  <th>Order ID</th>
+                  <th>Destination</th>
+                  <th>Vaccine Type</th>
+                  <th>Quantity</th>
+                  <th>Priority</th>
+                  <th>Action</th>
                 </tr>
               </thead>
 
               <tbody>
-                {orders.map((order) => (
-                  <tr key={order.id}>
-                    <td className="order-link">
-                      {order.orderNumber || order.id}
-                    </td>
+                {orders.map((order) => {
+                  const priority = order.priority || "Standard";
+                  const isUrgent = priority.toLowerCase() === "urgent";
 
-                    <td>
-                      <strong>{order.clinicName || order.destination}</strong>
-                      <p>{order.clinicAddress || order.address}</p>
-                    </td>
+                  return (
+                    <tr key={order.id}>
+                      <td>
+                        <strong className="order-id">
+                          {order.orderNumber || order.id}
+                        </strong>
+                      </td>
 
-                    <td>
-                      <span className="vaccine-dot"></span>
-                      {order.vaccineName || order.vaccine}
-                    </td>
+                      <td>
+                        <strong>
+                          {order.clinicName || order.destination || "No destination"}
+                        </strong>
+                        <p>{order.clinicAddress || order.address || "No address"}</p>
+                      </td>
 
-                    <td>
-                      {order.quantity} {order.unit || "Vials"}
-                    </td>
+                      <td>
+                        <span className="dispatcher-dash-vaccine-dot"></span>
+                        {order.vaccineName || order.vaccine || "No vaccine type"}
+                      </td>
 
-                    <td>
-                      <span
-                        className={`priority-badge ${
-                          order.priority === "Urgent" ? "urgent" : "standard"
-                        }`}
-                      >
-                        {order.priority || "Standard"}
-                      </span>
-                    </td>
+                      <td>
+                        {order.quantity || 0} {order.unit || "Vials"}
+                      </td>
 
-                    <td>
-                      <button
-                        type="button"
-                        className="assign-btn"
-                        onClick={() => handleAssignRider(order)}
-                      >
-                        <UserPlus size={14} />
-                        Assign Rider
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                      <td>
+                        <span
+                          className={`dispatcher-dash-priority ${
+                            isUrgent ? "urgent" : "standard"
+                          }`}
+                        >
+                          {priority}
+                        </span>
+                      </td>
+
+                      <td>
+                        <button
+                          type="button"
+                          className="dispatcher-dash-assign-btn"
+                          onClick={() => handleAssignRider(order)}
+                        >
+                          <UserPlus size={14} />
+                          Assign Rider
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
 
-          <div className="dispatcher-v2-table-bottom">
-            <span>Showing {orders.length} pending orders</span>
-
-            <div className="pager-mini">
-              <button type="button">‹</button>
-              <button type="button">›</button>
-            </div>
+          <div className="dispatcher-dash-table-bottom">
+            Showing {orders.length} pending dispatch orders
           </div>
         </section>
-
-        <footer className="dispatcher-v2-footer">
-          <span>© 2026 VaxTrack Logistics. All rights reserved.</span>
-
-          <div>
-            <a href="/">Privacy Policy</a>
-            <a href="/">Terms of Service</a>
-            <a href="/">Help Center</a>
-          </div>
-        </footer>
       </div>
     </DispatcherLayout>
+  );
+}
+
+function KpiCard({ icon, label, value, note, danger }) {
+  return (
+    <div className={`dispatcher-dash-kpi ${danger ? "danger" : ""}`}>
+      <div className="dispatcher-dash-kpi-icon">{icon}</div>
+
+      <div>
+        <p>{label}</p>
+        <h2>{value}</h2>
+        <span>{note}</span>
+      </div>
+    </div>
+  );
+}
+
+function MonitorInfo({ icon, label, value }) {
+  return (
+    <div className="dispatcher-dash-monitor-info">
+      {icon}
+      <div>
+        <span>{label}</span>
+        <strong>{value}</strong>
+      </div>
+    </div>
+  );
+}
+
+function OperationItem({ title, value, text, danger, warning }) {
+  return (
+    <div
+      className={`dispatcher-dash-op-item ${
+        danger ? "danger" : warning ? "warning" : ""
+      }`}
+    >
+      <div>
+        <strong>{title}</strong>
+        <span>{value}</span>
+      </div>
+      <p>{text}</p>
+    </div>
   );
 }
 

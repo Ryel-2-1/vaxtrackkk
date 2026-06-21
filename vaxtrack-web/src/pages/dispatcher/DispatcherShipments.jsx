@@ -1,4 +1,5 @@
-import { Clock3, Filter, Truck } from "lucide-react";
+import { useState } from "react";
+import { CheckCircle2, Clock3, Filter, Truck } from "lucide-react";
 import DispatcherLayout from "./DispatcherLayout";
 
 function DispatcherShipments() {
@@ -21,6 +22,19 @@ function DispatcherShipments() {
     },
   ];
 
+  const [loadingOrders, setLoadingOrders] = useState([]);
+  const [priorityOnly, setPriorityOnly] = useState(false);
+
+  const visibleLoads = priorityOnly
+    ? pendingLoads.filter((load) => load.tag === "Priority")
+    : pendingLoads;
+
+  const handleStartLoading = (order) => {
+    if (!loadingOrders.includes(order)) {
+      setLoadingOrders((prev) => [...prev, order]);
+    }
+  };
+
   return (
     <DispatcherLayout active="shipments" title="VaxTrack Logistics">
       <div className="dispatcher-v2-page">
@@ -36,7 +50,7 @@ function DispatcherShipments() {
           <div className="dispatcher-v2-top-cards">
             <div className="queue-status-card">
               <p>
-                QUEUE STATUS<span>12 Total</span>
+                QUEUE STATUS <span>12 Total</span>
               </p>
 
               <div className="queue-bar">
@@ -58,47 +72,73 @@ function DispatcherShipments() {
           <div className="shipments-left">
             <div className="section-head-row">
               <h3>Pending Loads</h3>
-              <button className="filter-link-btn">
+
+              <button
+                type="button"
+                className={`filter-link-btn ${priorityOnly ? "active" : ""}`}
+                onClick={() => setPriorityOnly((prev) => !prev)}
+              >
                 <Filter size={13} />
-                Priority Order
+                {priorityOnly ? "Show All" : "Priority Order"}
               </button>
             </div>
 
             <div className="pending-loads-list">
-              {pendingLoads.map((load) => (
-                <div key={load.order} className="pending-load-card">
-                  <div className="load-order-badge">
-                    <small>ORDER</small>
-                    <strong>{load.order}</strong>
-                  </div>
+              {visibleLoads.map((load) => {
+                const isLoading = loadingOrders.includes(load.order);
 
-                  <div className="load-rider-info">
-                    <div className="load-avatar"></div>
-                    <div>
-                      <h4>{load.rider}</h4>
-                      <p>Rider ID: {load.riderId}</p>
-                      <span className="load-meta">
-                        <Truck size={12} />
-                        {load.cargo}
-                      </span>
-                      <span
-                        className={`load-tag ${
-                          load.tag === "Priority" ? "priority" : "standard"
-                        }`}
+                return (
+                  <div key={load.order} className="pending-load-card">
+                    <div className="load-order-badge">
+                      <small>ORDER</small>
+                      <strong>{load.order}</strong>
+                    </div>
+
+                    <div className="load-rider-info">
+                      <div className="load-avatar"></div>
+
+                      <div>
+                        <h4>{load.rider}</h4>
+                        <p>Rider ID: {load.riderId}</p>
+
+                        <span className="load-meta">
+                          <Truck size={12} />
+                          {load.cargo}
+                        </span>
+
+                        <span
+                          className={`load-tag ${
+                            load.tag === "Priority" ? "priority" : "standard"
+                          }`}
+                        >
+                          {load.tag}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="load-action-area">
+                      <p>
+                        Waiting: <strong>{load.wait}</strong>
+                      </p>
+
+                      <button
+                        type="button"
+                        className={`start-load-btn ${isLoading ? "done" : ""}`}
+                        onClick={() => handleStartLoading(load.order)}
                       >
-                        {load.tag}
-                      </span>
+                        {isLoading ? (
+                          <>
+                            <CheckCircle2 size={14} />
+                            Loading Started
+                          </>
+                        ) : (
+                          "Start Loading →"
+                        )}
+                      </button>
                     </div>
                   </div>
-
-                  <div className="load-action-area">
-                    <p>
-                      Waiting: <strong>{load.wait}</strong>
-                    </p>
-                    <button className="start-load-btn">Start Loading →</button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="in-progress-wrap">
@@ -157,10 +197,12 @@ function DispatcherShipments() {
                   <span>Success Rate</span>
                   <strong>99.8%</strong>
                 </div>
+
                 <div>
                   <span>Rider Wait Time</span>
                   <strong>04:12</strong>
                 </div>
+
                 <div>
                   <span>Dispatch Goal</span>
                   <strong>45 / 50</strong>
@@ -172,6 +214,7 @@ function DispatcherShipments() {
 
         <footer className="dispatcher-v2-footer">
           <span>© 2026 VaxTrack Logistics. All rights reserved.</span>
+
           <div>
             <a href="/">Privacy Policy</a>
             <a href="/">Terms of Service</a>

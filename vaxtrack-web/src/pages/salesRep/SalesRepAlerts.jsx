@@ -2,15 +2,16 @@ import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle,
-  Filter,
   Info,
+  Phone,
   Search,
   Thermometer,
   Truck,
+  X,
 } from "lucide-react";
 import SalesRepLayout from "./SalesRepLayout";
 
-const activeAlerts = [
+const initialActiveAlerts = [
   {
     id: "ALT-001",
     tone: "critical",
@@ -22,6 +23,7 @@ const activeAlerts = [
     time: "Just now",
     primary: "Dispatch Tech",
     secondary: "Details",
+    status: "Open",
   },
   {
     id: "ALT-002",
@@ -34,6 +36,7 @@ const activeAlerts = [
     time: "12 mins ago",
     primary: "Re-route Backup",
     secondary: "Call",
+    status: "Open",
   },
   {
     id: "ALT-003",
@@ -46,6 +49,7 @@ const activeAlerts = [
     time: "1 hr ago",
     primary: "Request Transfer",
     secondary: "Dismiss",
+    status: "Open",
   },
   {
     id: "ALT-004",
@@ -54,13 +58,15 @@ const activeAlerts = [
     tag: "INFO",
     title: "Scheduled Maintenance",
     body: "System backend update scheduled for 02:00 AM PHT. Analytics module may be temporarily unavailable.",
-    location: "",
+    location: "System Update",
     time: "3 hrs ago",
     primary: "Acknowledge",
+    secondary: "",
+    status: "Open",
   },
 ];
 
-const historyAlerts = [
+const initialHistoryAlerts = [
   {
     id: "HIS-001",
     tone: "critical",
@@ -71,6 +77,8 @@ const historyAlerts = [
     location: "Hub Alpha, North Wing",
     time: "Yesterday",
     primary: "View Details",
+    secondary: "",
+    status: "Resolved",
   },
   {
     id: "HIS-002",
@@ -82,6 +90,8 @@ const historyAlerts = [
     location: "Manila Central Hub",
     time: "2 days ago",
     primary: "View Details",
+    secondary: "",
+    status: "Resolved",
   },
   {
     id: "HIS-003",
@@ -93,24 +103,128 @@ const historyAlerts = [
     location: "System Update",
     time: "3 days ago",
     primary: "View Details",
+    secondary: "",
+    status: "Resolved",
   },
 ];
 
 function SalesRepAlerts() {
+  const [activeAlerts, setActiveAlerts] = useState(initialActiveAlerts);
+  const [historyAlerts, setHistoryAlerts] = useState(initialHistoryAlerts);
   const [activeTab, setActiveTab] = useState("active");
   const [activeFilter, setActiveFilter] = useState("all");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [message, setMessage] = useState("");
+  const [selectedAlert, setSelectedAlert] = useState(null);
 
   const alerts = activeTab === "active" ? activeAlerts : historyAlerts;
 
   const filteredAlerts = useMemo(() => {
-    if (activeFilter === "all") return alerts;
+    const search = searchTerm.trim().toLowerCase();
 
-    return alerts.filter((alert) => alert.tone === activeFilter);
-  }, [activeFilter, alerts]);
+    return alerts.filter((alert) => {
+      const matchesFilter = activeFilter === "all" || alert.tone === activeFilter;
+      const matchesSearch =
+        alert.id.toLowerCase().includes(search) ||
+        alert.title.toLowerCase().includes(search) ||
+        alert.body.toLowerCase().includes(search) ||
+        alert.location.toLowerCase().includes(search) ||
+        alert.status.toLowerCase().includes(search);
+
+      return matchesFilter && matchesSearch;
+    });
+  }, [activeFilter, alerts, searchTerm]);
+
+  const filterCounts = useMemo(() => {
+    return {
+      all: alerts.length,
+      critical: alerts.filter((alert) => alert.tone === "critical").length,
+      warning: alerts.filter((alert) => alert.tone === "warning").length,
+      info: alerts.filter((alert) => alert.tone === "info").length,
+    };
+  }, [alerts]);
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
     setActiveFilter("all");
+    setSearchTerm("");
+    setMessage("");
+  };
+
+  const updateAlertStatus = (alertId, status, successMessage) => {
+    setActiveAlerts((current) =>
+      current.map((alert) =>
+        alert.id === alertId ? { ...alert, status } : alert
+      )
+    );
+    setMessage(successMessage);
+  };
+
+  const moveToHistory = (alert, status) => {
+    const resolvedAlert = {
+      ...alert,
+      icon: <CheckCircle size={18} />,
+      status,
+      time: "Just now",
+      primary: "View Details",
+      secondary: "",
+    };
+
+    setActiveAlerts((current) => current.filter((item) => item.id !== alert.id));
+    setHistoryAlerts((current) => [resolvedAlert, ...current]);
+    setMessage(`${alert.id} was moved to History as ${status}.`);
+  };
+
+  const handlePrimaryAction = (alert) => {
+    if (activeTab === "history") {
+      setSelectedAlert(alert);
+      return;
+    }
+
+    if (alert.primary === "Dispatch Tech") {
+      updateAlertStatus(alert.id, "Technician Dispatched", "Technician dispatch recorded.");
+      return;
+    }
+
+    if (alert.primary === "Re-route Backup") {
+      updateAlertStatus(alert.id, "Backup Rider Requested", "Backup rider request recorded.");
+      return;
+    }
+
+    if (alert.primary === "Request Transfer") {
+      localStorage.setItem(
+        "salesRepAlertTransferDraft",
+        JSON.stringify({
+          alertId: alert.id,
+          title: alert.title,
+          location: alert.location,
+          createdAt: new Date().toISOString(),
+        })
+      );
+
+      updateAlertStatus(alert.id, "Transfer Requested", "Transfer request draft saved.");
+      return;
+    }
+
+    if (alert.primary === "Acknowledge") {
+      moveToHistory(alert, "Acknowledged");
+    }
+  };
+
+  const handleSecondaryAction = (alert) => {
+    if (alert.secondary === "Details") {
+      setSelectedAlert(alert);
+      return;
+    }
+
+    if (alert.secondary === "Call") {
+      setMessage("Calling assigned rider/support contact...");
+      return;
+    }
+
+    if (alert.secondary === "Dismiss") {
+      moveToHistory(alert, "Dismissed");
+    }
   };
 
   return (
@@ -119,23 +233,33 @@ function SalesRepAlerts() {
       title="Alerts & Notifications"
       showSearch={false}
     >
-      <section className="sales-alerts-header">
+      <section className="sales-alerts-header alerts-v2-header no-filter-icon">
         <div>
           <h1>Alerts & Notifications</h1>
           <p>Manage critical logistics issues and system warnings.</p>
         </div>
 
-        <div className="request-search">
+        <div className="alerts-v2-search">
           <Search size={15} />
-          <input placeholder="Search ID or location..." />
+          <input
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search alert ID, title, or location..."
+          />
         </div>
-
-        <button className="filter-square" type="button">
-          <Filter size={16} />
-        </button>
       </section>
 
-      <div className="sales-alert-tabs">
+      {message && (
+        <div className="alerts-v2-toast">
+          <CheckCircle size={16} />
+          <span>{message}</span>
+          <button type="button" onClick={() => setMessage("")}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      <div className="sales-alert-tabs alerts-v2-tabs">
         <button
           type="button"
           className={activeTab === "active" ? "active" : ""}
@@ -153,41 +277,97 @@ function SalesRepAlerts() {
         </button>
       </div>
 
-      <div className="sales-alert-filters">
+      <div className="sales-alert-filters alerts-v2-filters">
         <FilterButton
-          label="All"
+          label={`All (${filterCounts.all})`}
           value="all"
           activeFilter={activeFilter}
           onClick={setActiveFilter}
         />
 
         <FilterButton
-          label="Critical"
+          label={`Critical (${filterCounts.critical})`}
           value="critical"
           activeFilter={activeFilter}
           onClick={setActiveFilter}
         />
 
         <FilterButton
-          label="Warning"
+          label={`Warning (${filterCounts.warning})`}
           value="warning"
           activeFilter={activeFilter}
           onClick={setActiveFilter}
         />
 
         <FilterButton
-          label="Info"
+          label={`Info (${filterCounts.info})`}
           value="info"
           activeFilter={activeFilter}
           onClick={setActiveFilter}
         />
       </div>
 
-      <section className="sales-alert-grid">
-        {filteredAlerts.map((alert) => (
-          <AlertCard key={alert.id} {...alert} isHistory={activeTab === "history"} />
-        ))}
+      <section className="sales-alert-grid alerts-v2-grid">
+        {filteredAlerts.length > 0 ? (
+          filteredAlerts.map((alert) => (
+            <AlertCard
+              key={alert.id}
+              alert={alert}
+              isHistory={activeTab === "history"}
+              onPrimaryAction={handlePrimaryAction}
+              onSecondaryAction={handleSecondaryAction}
+            />
+          ))
+        ) : (
+          <div className="alerts-v2-empty">
+            <Info size={34} />
+            <strong>No alerts found</strong>
+            <p>Try changing the search keyword or filter.</p>
+          </div>
+        )}
       </section>
+
+      {selectedAlert && (
+        <div className="alerts-v2-modal-backdrop" onClick={() => setSelectedAlert(null)}>
+          <div className="alerts-v2-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="alerts-v2-modal-head">
+              <div>
+                <span>{selectedAlert.id}</span>
+                <h2>{selectedAlert.title}</h2>
+              </div>
+
+              <button type="button" onClick={() => setSelectedAlert(null)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <p>{selectedAlert.body}</p>
+
+            <div className="alerts-v2-modal-details">
+              <div>
+                <span>Severity</span>
+                <strong>{selectedAlert.tag}</strong>
+              </div>
+              <div>
+                <span>Status</span>
+                <strong>{selectedAlert.status}</strong>
+              </div>
+              <div>
+                <span>Location</span>
+                <strong>{selectedAlert.location || "N/A"}</strong>
+              </div>
+              <div>
+                <span>Reported</span>
+                <strong>{selectedAlert.time}</strong>
+              </div>
+            </div>
+
+            <button type="button" onClick={() => setSelectedAlert(null)}>
+              Close Details
+            </button>
+          </div>
+        </div>
+      )}
     </SalesRepLayout>
   );
 }
@@ -207,36 +387,34 @@ function FilterButton({ label, value, activeFilter, onClick }) {
   );
 }
 
-function AlertCard({
-  tone,
-  icon,
-  tag,
-  title,
-  body,
-  location,
-  time,
-  primary,
-  secondary,
-  isHistory,
-}) {
+function AlertCard({ alert, isHistory, onPrimaryAction, onSecondaryAction }) {
   return (
-    <div className={`sales-alert-card ${tone} ${isHistory ? "history" : ""}`}>
+    <div className={`sales-alert-card alerts-v2-card ${alert.tone} ${isHistory ? "history" : ""}`}>
       <div className="sales-alert-card-top">
-        <span>{icon}</span>
-        <b>{isHistory ? "RESOLVED" : tag}</b>
-        <small>{time}</small>
+        <span>{alert.icon}</span>
+        <b>{isHistory ? "RESOLVED" : alert.tag}</b>
+        <small>{alert.time}</small>
       </div>
 
-      <h2>{title}</h2>
-      <p>{body}</p>
+      <h2>{alert.title}</h2>
+      <p>{alert.body}</p>
 
-      {location && <div className="alert-location">{location}</div>}
+      {alert.location && <div className="alert-location">{alert.location}</div>}
+
+      <div className="alerts-v2-status-row">
+        <span>Status</span>
+        <strong>{alert.status}</strong>
+      </div>
 
       <div className="alert-actions">
-        <button type="button">{primary}</button>
-        {secondary && (
-          <button type="button" className="outline">
-            {secondary}
+        <button type="button" onClick={() => onPrimaryAction(alert)}>
+          {alert.primary}
+        </button>
+
+        {alert.secondary && (
+          <button type="button" className="outline" onClick={() => onSecondaryAction(alert)}>
+            {alert.secondary === "Call" && <Phone size={14} />}
+            {alert.secondary}
           </button>
         )}
       </div>
