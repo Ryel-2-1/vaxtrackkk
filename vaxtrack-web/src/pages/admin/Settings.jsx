@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
@@ -25,6 +25,7 @@ import {
 import { auth } from "../../firebase";
 import { AdminSidebar } from "./Inventory";
 import "./Settings.css";
+import { subscribeUsers, updateUserStatus } from "../../services/userService";
 
 const defaultOrg = {
   organizationName: "VaxTrack Philippines",
@@ -46,74 +47,36 @@ const defaultFeatures = {
   deliveryStatusNotifications: true,
 };
 
-const initialStaff = [
-  {
-    id: "EMP-001",
-    name: "Albert Pangilinan",
-    email: "albert.p@vaxtrack.ph",
-    role: "Senior Dispatcher",
-    department: "Dispatch Operations",
-    branch: "Manila Central Hub",
-    status: "active",
-    statusLabel: "Active",
-    lastLogin: "Today, 8:30 AM",
-  },
-  {
-    id: "EMP-002",
-    name: "Clarisse Ramos",
-    email: "clarisse.r@vaxtrack.ph",
-    role: "Inventory Manager",
-    department: "Inventory",
-    branch: "Manila Central Hub",
-    status: "pending",
-    statusLabel: "Pending",
-    lastLogin: "Registration pending",
-  },
-  {
-    id: "EMP-003",
-    name: "Mateo Garcia",
-    email: "m.garcia@vaxtrack.ph",
-    role: "Manager",
-    department: "Administration",
-    branch: "Quezon City Sub-Hub",
-    status: "active",
-    statusLabel: "Active",
-    lastLogin: "Yesterday, 4:15 PM",
-  },
-  {
-    id: "EMP-004",
-    name: "Nina Flores",
-    email: "nina.f@vaxtrack.ph",
-    role: "Sales Representative",
-    department: "Sales",
-    branch: "Makati Cold Hub",
-    status: "active",
-    statusLabel: "Active",
-    lastLogin: "Today, 10:12 AM",
-  },
-  {
-    id: "EMP-005",
-    name: "Ramon Lee",
-    email: "ramon.l@vaxtrack.ph",
-    role: "Rider",
-    department: "Field Delivery",
-    branch: "Manila Central Hub",
-    status: "inactive",
-    statusLabel: "Inactive",
-    lastLogin: "3 days ago",
-  },
-  {
-    id: "EMP-006",
-    name: "Andrea Cruz",
-    email: "andrea.c@vaxtrack.ph",
-    role: "Dispatcher",
-    department: "Dispatch Operations",
-    branch: "Quezon City Sub-Hub",
-    status: "pending",
-    statusLabel: "Pending",
-    lastLogin: "Registration pending",
-  },
-];
+const ROLE_DISPLAY = {
+  admin: "Admin",
+  dispatcher: "Dispatcher",
+  salesrep: "Sales Representative",
+  rider: "Rider",
+};
+
+const UI_STATUS = {
+  approved: { status: "active", statusLabel: "Active" },
+  pending: { status: "pending", statusLabel: "Pending" },
+  pending_approval: { status: "pending", statusLabel: "Pending" },
+  rejected: { status: "inactive", statusLabel: "Inactive" },
+  disabled: { status: "inactive", statusLabel: "Inactive" },
+};
+
+function normalizeUser(raw) {
+  const uiStatus = UI_STATUS[raw.status] || { status: "pending", statusLabel: "Pending" };
+  return {
+    uid: raw.id,
+    id: raw.employeeId || "—",
+    name: raw.name || "—",
+    email: raw.email || "—",
+    role: ROLE_DISPLAY[raw.role] || raw.role || "—",
+    department: raw.department || "—",
+    branch: raw.branch || "—",
+    status: uiStatus.status,
+    statusLabel: uiStatus.statusLabel,
+    lastLogin: "—",
+  };
+}
 
 const pageSize = 4;
 
@@ -522,13 +485,20 @@ function GeneralSettings({ searchTerm, showToast }) {
 }
 
 function UserManagement({ searchTerm, showToast }) {
-  const [staff, setStaff] = useState(initialStaff);
+  const [staff, setStaff] = useState([]);
   const [roleFilter, setRoleFilter] = useState("all");
   const [departmentFilter, setDepartmentFilter] = useState("all");
   const [branchFilter, setBranchFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedStaff, setSelectedStaff] = useState(null);
   const [actionMenuEmail, setActionMenuEmail] = useState(null);
+
+  useEffect(() => {
+    const unsubscribe = subscribeUsers((raw) => {
+      setStaff(raw.map(normalizeUser));
+    });
+    return () => unsubscribe();
+  }, []);
 
   const filteredStaff = useMemo(() => {
     return staff.filter((person) => {
@@ -562,15 +532,16 @@ function UserManagement({ searchTerm, showToast }) {
   const pendingCount = staff.filter((person) => person.status === "pending").length;
   const inactiveCount = staff.filter((person) => person.status === "inactive").length;
 
-  const updateStatus = (email, status, statusLabel) => {
-    setStaff((prev) =>
-      prev.map((person) =>
-        person.email === email ? { ...person, status, statusLabel } : person
-      )
-    );
-
-    setActionMenuEmail(null);
-    showToast(`Staff status updated to ${statusLabel}.`);
+  const updateStatus = async (uid, firestoreStatus) => {
+    try {
+      await updateUserStatus(uid, firestoreStatus);
+      const label = UI_STATUS[firestoreStatus]?.statusLabel || firestoreStatus;
+      showToast(`User status updated to ${label}.`);
+    } catch {
+      showToast("Failed to update user status. Please try again.");
+    } finally {
+      setActionMenuEmail(null);
+    }
   };
 
   const roles = Array.from(new Set(staff.map((person) => person.role)));
@@ -731,9 +702,7 @@ function UserManagement({ searchTerm, showToast }) {
                             <>
                               <button
                                 type="button"
-                                onClick={() =>
-                                  updateStatus(person.email, "active", "Active")
-                                }
+                                onClick={() => updateStatus(person.uid, "approved")}
                               >
                                 Approve
                               </button>
@@ -741,9 +710,7 @@ function UserManagement({ searchTerm, showToast }) {
                               <button
                                 type="button"
                                 className="danger"
-                                onClick={() =>
-                                  updateStatus(person.email, "inactive", "Inactive")
-                                }
+                                onClick={() => updateStatus(person.uid, "rejected")}
                               >
                                 Reject
                               </button>
@@ -754,9 +721,7 @@ function UserManagement({ searchTerm, showToast }) {
                             <button
                               type="button"
                               className="danger"
-                              onClick={() =>
-                                updateStatus(person.email, "inactive", "Inactive")
-                              }
+                              onClick={() => updateStatus(person.uid, "disabled")}
                             >
                               Deactivate
                             </button>
@@ -765,9 +730,7 @@ function UserManagement({ searchTerm, showToast }) {
                           {person.status === "inactive" && (
                             <button
                               type="button"
-                              onClick={() =>
-                                updateStatus(person.email, "active", "Active")
-                              }
+                              onClick={() => updateStatus(person.uid, "approved")}
                             >
                               Reactivate
                             </button>
@@ -835,11 +798,15 @@ function UserManagement({ searchTerm, showToast }) {
           person={selectedStaff}
           onClose={() => setSelectedStaff(null)}
           onApprove={() => {
-            updateStatus(selectedStaff.email, "active", "Active");
+            updateStatus(selectedStaff.uid, "approved");
             setSelectedStaff(null);
           }}
           onDeactivate={() => {
-            updateStatus(selectedStaff.email, "inactive", "Inactive");
+            updateStatus(selectedStaff.uid, "disabled");
+            setSelectedStaff(null);
+          }}
+          onReactivate={() => {
+            updateStatus(selectedStaff.uid, "approved");
             setSelectedStaff(null);
           }}
         />
@@ -882,7 +849,7 @@ function FeatureToggle({ title, desc, enabled, important, onToggle }) {
   );
 }
 
-function StaffDetailsModal({ person, onClose, onApprove, onDeactivate }) {
+function StaffDetailsModal({ person, onClose, onApprove, onDeactivate, onReactivate }) {
   return (
     <div className="settings-modal-backdrop">
       <div className="settings-modal">
@@ -945,6 +912,16 @@ function StaffDetailsModal({ person, onClose, onApprove, onDeactivate }) {
               onClick={onDeactivate}
             >
               Deactivate
+            </button>
+          )}
+
+          {person.status === "inactive" && (
+            <button
+              type="button"
+              className="settings-primary-action"
+              onClick={onReactivate}
+            >
+              Reactivate
             </button>
           )}
 

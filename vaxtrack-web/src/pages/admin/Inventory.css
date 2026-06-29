@@ -827,28 +827,59 @@
   min-height: 300px !important;
 }
 
-/* Make the Central Hub Capacity chart feel wider and balanced */
-.v2-hub-grid > .v2-hub-card:first-child .v2-hub-bars {
-  height: 210px !important;
-  gap: 34px !important;
-  padding: 0 22px !important;
-  align-items: flex-end !important;
+/* Stock Overview horizontal bar list */
+.v2-stock-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 14px;
+  max-height: 210px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
-/* Wider bar containers for the full-width capacity card */
-.v2-hub-grid > .v2-hub-card:first-child .v2-hub-bar-item div {
-  height: 160px !important;
-  border-radius: 10px 10px 5px 5px !important;
+.v2-stock-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 90px;
+  align-items: center;
+  gap: 12px;
 }
 
-/* Keep labels readable */
-.v2-hub-grid > .v2-hub-card:first-child .v2-hub-bar-item small {
-  font-size: 13px !important;
-  margin-top: 10px !important;
+.v2-stock-row-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.v2-hub-grid > .v2-hub-card:first-child .v2-hub-bar-item b {
-  font-size: 12px !important;
+.v2-stock-row-track {
+  background: #e2e8f0;
+  border-radius: 4px;
+  height: 7px;
+  overflow: hidden;
+}
+
+.v2-stock-row-fill {
+  height: 100%;
+  background: #0057d8;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+.v2-stock-row-qty {
+  font-size: 12px;
+  font-weight: 800;
+  color: #475569;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.v2-stock-empty {
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: #94a3b8;
 }
 
 /* Cold Storage Status and Inventory Alerts stay below, side by side */

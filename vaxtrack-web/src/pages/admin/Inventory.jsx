@@ -21,130 +21,51 @@ import {
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
+import { subscribeInventory } from "../../services/inventoryService";
 import "./Inventory.css";
 
-const vaccines = [
-  {
-    name: "HepaShield-B",
-    type: "Injectable",
-    batch: "HB-2026-118",
-    expiry: "Jul 15, 2026",
-    qty: "6,200",
-    temp: "2-8°C",
-    status: "Warning",
-    level: "warning",
-    location: "Cold Room A-02",
-    manufacturer: "MediCore Labs",
-  },
-  {
-    name: "BCG-Pro",
-    type: "Routine",
-    batch: "BCG-2026-220",
-    expiry: "Jul 28, 2026",
-    qty: "9,750",
-    temp: "2-8°C",
-    status: "Stable",
-    level: "stable",
-    location: "Cold Room B-01",
-    manufacturer: "GlobalVax Pharma",
-  },
-  {
-    name: "RotaVax-Kids",
-    type: "Oral",
-    batch: "RV-2026-302",
-    expiry: "Aug 10, 2026",
-    qty: "4,900",
-    temp: "2-8°C",
-    status: "Stable",
-    level: "stable",
-    location: "Cold Room B-04",
-    manufacturer: "PediaVax Inc.",
-  },
-  {
-    name: "TetraVax",
-    type: "Combination",
-    batch: "TV-2026-044",
-    expiry: "Aug 18, 2026",
-    qty: "3,500",
-    temp: "2-8°C",
-    status: "Critical",
-    level: "critical",
-    location: "Cold Room C-03",
-    manufacturer: "TetraHealth Bio",
-  },
-  {
-    name: "MeaslesGuard",
-    type: "Injectable",
-    batch: "MG-2026-771",
-    expiry: "Sep 02, 2026",
-    qty: "11,800",
-    temp: "2-8°C",
-    status: "Stable",
-    level: "stable",
-    location: "Cold Room A-03",
-    manufacturer: "GlobalVax Pharma",
-  },
-  {
-    name: "RabiesSafe",
-    type: "Injectable",
-    batch: "RB-2026-650",
-    expiry: "Sep 12, 2026",
-    qty: "2,100",
-    temp: "2-8°C",
-    status: "Warning",
-    level: "warning",
-    location: "Cold Room C-02",
-    manufacturer: "SafeDose Biologics",
-  },
-  {
-    name: "VaxCora-19",
-    type: "mRNA",
-    batch: "BT-2024-991",
-    expiry: "Oct 24, 2026",
-    qty: "14,250",
-    temp: "-80°C",
-    status: "Critical",
-    level: "critical",
-    location: "Freezer Unit A-01",
-    manufacturer: "VaxCora Biologics",
-  },
-  {
-    name: "Influenza-Plus",
-    type: "Doses",
-    batch: "INF-2027-OP",
-    expiry: "Dec 12, 2026",
-    qty: "8,400",
-    temp: "2-8°C",
-    status: "Warning",
-    level: "warning",
-    location: "Cold Room B-02",
-    manufacturer: "MediCore Labs",
-  },
-  {
-    name: "Polio-Zero",
-    type: "Injectable",
-    batch: "PO-982-ZR",
-    expiry: "Mar 30, 2027",
-    qty: "52,000",
-    temp: "2-8°C",
-    status: "Stable",
-    level: "stable",
-    location: "Cold Room C-01",
-    manufacturer: "GlobalVax Pharma",
-  },
-];
+function getDaysUntilExpiry(rawDateStr) {
+  if (!rawDateStr) return Infinity;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const expiry = new Date(rawDateStr + "T00:00:00");
+  return Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+}
 
-const demoToday = new Date("2026-06-18T00:00:00");
+function formatExpiry(dateStr) {
+  if (!dateStr) return "—";
+  const date = new Date(dateStr + "T00:00:00");
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
 
-function getDaysUntilExpiry(expiryDate) {
-  const expiry = new Date(expiryDate);
-  const diffTime = expiry.getTime() - demoToday.getTime();
-  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+function normalizeInventoryItem(raw) {
+  const status = raw.status || "Stable";
+  return {
+    id: raw.id,
+    name: raw.vaccineName || "—",
+    type: raw.vaccineType || "—",
+    batch: raw.batchId || "—",
+    expiry: formatExpiry(raw.expiryDate),
+    expiryRaw: raw.expiryDate || "",
+    qty: raw.quantity != null ? Number(raw.quantity).toLocaleString() : "—",
+    qtyRaw: raw.quantity != null ? Number(raw.quantity) : 0,
+    temp: raw.storageTempDisplay || (raw.storageTemp != null ? `${raw.storageTemp}°C` : "—"),
+    status,
+    level: status.toLowerCase(),
+    location: raw.location || "—",
+    manufacturer: raw.manufacturer || "—",
+  };
 }
 
 function Inventory() {
   const navigate = useNavigate();
 
+  const [inventory, setInventory] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [expiryFilter, setExpiryFilter] = useState("all");
@@ -152,6 +73,14 @@ function Inventory() {
   const [selectedBatches, setSelectedBatches] = useState([]);
   const [selectedVaccine, setSelectedVaccine] = useState(null);
   const [toast, setToast] = useState("");
+
+  useEffect(() => {
+    const unsubscribe = subscribeInventory((raw) => {
+      setInventory(raw.map(normalizeInventoryItem));
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
 
   const pageSize = 3;
 
@@ -166,28 +95,68 @@ function Inventory() {
   };
 
   const filteredVaccines = useMemo(() => {
-    return vaccines.filter((item) => {
+    return inventory.filter((item) => {
       const searchValue =
         `${item.name} ${item.type} ${item.batch} ${item.status}`.toLowerCase();
 
       const matchesSearch = searchValue.includes(searchTerm.toLowerCase());
+      const matchesStatus = statusFilter === "all" || item.level === statusFilter;
 
-      const matchesStatus =
-        statusFilter === "all" || item.level === statusFilter;
-
-      const daysUntilExpiry = getDaysUntilExpiry(item.expiry);
-
+      const daysUntilExpiry = getDaysUntilExpiry(item.expiryRaw);
       const matchesExpiry =
         expiryFilter === "all" ||
         (daysUntilExpiry >= 0 && daysUntilExpiry <= Number(expiryFilter));
 
       return matchesSearch && matchesStatus && matchesExpiry;
     });
-  }, [searchTerm, statusFilter, expiryFilter]);
+  }, [inventory, searchTerm, statusFilter, expiryFilter]);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, statusFilter, expiryFilter]);
+
+  const stockByType = useMemo(() => {
+    if (inventory.length === 0) return [];
+    const totals = {};
+    inventory.forEach((item) => {
+      const key = item.type !== "—" ? item.type : "Unknown";
+      totals[key] = (totals[key] || 0) + item.qtyRaw;
+    });
+    const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+    const maxQty = sorted[0]?.[1] || 1;
+    return sorted.map(([label, totalQty]) => ({
+      label,
+      totalQty,
+      percentage: Math.max(4, Math.round((totalQty / maxQty) * 100)),
+    }));
+  }, [inventory]);
+
+  const criticalAndExpiring = useMemo(() => {
+    return inventory
+      .filter((i) => {
+        const days = getDaysUntilExpiry(i.expiryRaw);
+        return i.level === "critical" || (days >= 0 && days <= 30);
+      })
+      .sort((a, b) => getDaysUntilExpiry(a.expiryRaw) - getDaysUntilExpiry(b.expiryRaw))
+      .slice(0, 4);
+  }, [inventory]);
+
+  const criticalCount = useMemo(
+    () => inventory.filter((i) => i.level === "critical").length,
+    [inventory]
+  );
+  const expiringSoonCount = useMemo(
+    () =>
+      inventory.filter((i) => {
+        const days = getDaysUntilExpiry(i.expiryRaw);
+        return days >= 0 && days <= 90;
+      }).length,
+    [inventory]
+  );
+  const stableCount = useMemo(
+    () => inventory.filter((i) => i.level === "stable").length,
+    [inventory]
+  );
 
   const totalPages = Math.max(1, Math.ceil(filteredVaccines.length / pageSize));
 
@@ -281,7 +250,7 @@ function Inventory() {
           <SummaryCard
             icon={<Package size={20} />}
             title="Total Batches"
-            value="124"
+            value={loading ? "—" : inventory.length}
             note="Across all vaccine types"
             type="blue"
             onClick={() => setStatusFilter("all")}
@@ -290,7 +259,7 @@ function Inventory() {
           <SummaryCard
             icon={<AlertTriangle size={20} />}
             title="Critical Stock"
-            value="5"
+            value={loading ? "—" : inventory.filter((i) => i.level === "critical").length}
             note="Needs immediate review"
             type="red"
             onClick={() => setStatusFilter("critical")}
@@ -298,17 +267,17 @@ function Inventory() {
 
           <SummaryCard
             icon={<Thermometer size={20} />}
-            title="Cold-chain Alerts"
-            value="2"
+            title="Warning Batches"
+            value={loading ? "—" : inventory.filter((i) => i.level === "warning").length}
             note="Temperature exceptions"
             type="amber"
-            onClick={() => showToast("Showing cold-chain alert batches.")}
+            onClick={() => setStatusFilter("warning")}
           />
 
           <SummaryCard
             icon={<CheckCircle2 size={20} />}
             title="Stable Batches"
-            value="107"
+            value={loading ? "—" : inventory.filter((i) => i.level === "stable").length}
             note="No action required"
             type="green"
             onClick={() => setStatusFilter("stable")}
@@ -316,20 +285,16 @@ function Inventory() {
         </section>
 
         <section className="v2-hub-grid">
-          <HubCapacityCard
-            title="Central Hub Capacity"
-            subtitle="Storage usage by vaccine group"
-            bars={[
-              { label: "Pfizer", height: "86%", type: "blue", value: "86%" },
-              { label: "Moderna", height: "60%", type: "green", value: "60%" },
-              { label: "Sinovac", height: "78%", type: "amber", value: "78%" },
-              { label: "J&J", height: "50%", type: "light", value: "50%" },
-            ]}
+          <StockOverviewCard groups={stockByType} loading={loading} />
+
+          <CriticalExpiringCard batches={criticalAndExpiring} loading={loading} />
+
+          <InventoryAlertCard
+            critical={criticalCount}
+            expiringSoon={expiringSoonCount}
+            stable={stableCount}
+            loading={loading}
           />
-
-          <ColdStorageCard />
-
-          <InventoryAlertCard />
         </section>
 
         <section className="v2-inventory-table-card">
@@ -482,18 +447,30 @@ function Inventory() {
             </table>
           </div>
 
-          {filteredVaccines.length === 0 && (
+          {loading && (
+            <div className="v2-empty-inventory">
+              <Package size={28} />
+              <strong>Loading inventory...</strong>
+              <p>Fetching vaccine batches from Firestore.</p>
+            </div>
+          )}
+
+          {!loading && filteredVaccines.length === 0 && (
             <div className="v2-empty-inventory">
               <Package size={28} />
               <strong>No vaccine batches found</strong>
-              <p>Try changing the search keyword or selected filters.</p>
+              <p>
+                {inventory.length === 0
+                  ? "No stock has been added yet. Use Add Stock to register a batch."
+                  : "Try changing the search keyword or selected filters."}
+              </p>
             </div>
           )}
 
           <div className="v2-inventory-footer">
             <p>
               Showing {startItem}–{endItem} of {filteredVaccines.length} filtered
-              batches. Full inventory count: 124 batches.
+              batches. Full inventory count: {inventory.length} batches.
             </p>
 
             <div className="v2-pagination">
@@ -628,67 +605,71 @@ function SummaryCard({ icon, title, value, note, type, onClick }) {
   );
 }
 
-function HubCapacityCard({ title, subtitle, bars }) {
+function StockOverviewCard({ groups, loading }) {
   return (
     <div className="v2-hub-card">
       <div className="v2-card-head">
-        <h2>{title}</h2>
-        <p>{subtitle}</p>
+        <h2>Current Stock Overview</h2>
+        <p>Total doses available by vaccine type</p>
       </div>
 
-      <div className="v2-hub-bars">
-        {bars.map((bar) => (
-          <button
-            type="button"
-            className="v2-hub-bar-item"
-            key={bar.label}
-            title={`${bar.label}: ${bar.value}`}
-          >
-            <div>
-              <span className={bar.type} style={{ height: bar.height }}></span>
+      {loading ? (
+        <p className="v2-stock-empty">Loading...</p>
+      ) : groups.length === 0 ? (
+        <p className="v2-stock-empty">No inventory data yet. Add stock to see the overview.</p>
+      ) : (
+        <div className="v2-stock-list">
+          {groups.map((g) => (
+            <div className="v2-stock-row" key={g.label}>
+              <span className="v2-stock-row-label" title={g.label}>{g.label}</span>
+              <div className="v2-stock-row-track">
+                <div className="v2-stock-row-fill" style={{ width: `${g.percentage}%` }} />
+              </div>
+              <span className="v2-stock-row-qty">{g.totalQty.toLocaleString()} doses</span>
             </div>
-
-            <small>{bar.label}</small>
-            <b>{bar.value}</b>
-          </button>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function ColdStorageCard() {
+function CriticalExpiringCard({ batches, loading }) {
   return (
     <div className="v2-hub-card v2-cold-card">
       <div className="v2-card-head">
-        <h2>Cold Storage Status</h2>
-        <p>Live temperature monitoring</p>
+        <h2>Critical &amp; Expiring</h2>
+        <p>Critical stock and batches expiring within 30 days</p>
       </div>
 
       <div className="v2-cold-list">
-        <div>
-          <span>Ultra-low Freezer</span>
-          <strong>-80°C</strong>
-          <small className="critical">Critical review</small>
-        </div>
-
-        <div>
-          <span>Cold Room A</span>
-          <strong>2–8°C</strong>
-          <small className="stable">Stable</small>
-        </div>
-
-        <div>
-          <span>Cold Room B</span>
-          <strong>3.8°C</strong>
-          <small className="stable">Stable</small>
-        </div>
+        {loading ? (
+          <div><span>Loading...</span></div>
+        ) : batches.length === 0 ? (
+          <div><span>No critical or near-expiry batches</span></div>
+        ) : (
+          batches.map((item) => {
+            const days = getDaysUntilExpiry(item.expiryRaw);
+            return (
+              <div key={item.batch}>
+                <span>{item.name}</span>
+                <strong>{item.expiry}</strong>
+                <small className={item.level}>
+                  {item.level === "critical"
+                    ? `Critical — ${days >= 0 ? `${days}d left` : "expired"}`
+                    : `${days} day${days !== 1 ? "s" : ""} left`}
+                </small>
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );
 }
 
-function InventoryAlertCard() {
+function InventoryAlertCard({ critical, expiringSoon, stable, loading }) {
+  const dash = "—";
   return (
     <div className="v2-hub-card v2-alert-summary-card">
       <div className="v2-card-head">
@@ -698,17 +679,17 @@ function InventoryAlertCard() {
 
       <div className="v2-alert-summary-list">
         <div className="critical">
-          <strong>5</strong>
+          <strong>{loading ? dash : critical}</strong>
           <span>Critical stock</span>
         </div>
 
         <div className="warning">
-          <strong>12</strong>
-          <span>Expiring soon</span>
+          <strong>{loading ? dash : expiringSoon}</strong>
+          <span>Expiring in 90 days</span>
         </div>
 
         <div className="stable">
-          <strong>107</strong>
+          <strong>{loading ? dash : stable}</strong>
           <span>Stable batches</span>
         </div>
       </div>

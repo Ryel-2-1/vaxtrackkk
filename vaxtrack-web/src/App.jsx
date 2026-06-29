@@ -5,6 +5,7 @@ import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
 import PendingApproval from "./pages/PendingApproval";
 
+import AdminRoute from "./components/AdminRoute";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import Inventory from "./pages/admin/Inventory";
 import AddStock from "./pages/admin/AddStock";
@@ -33,20 +34,6 @@ import DispatcherShipments from "./pages/dispatcher/DispatcherShipments";
 import DispatcherGeofence from "./pages/dispatcher/DispatcherGeofence";
 import DispatcherSettings from "./pages/dispatcher/DispatcherSettings";
 
-import RiderLogin from "./pages/rider/RiderLogin";
-import RiderRegister from "./pages/rider/RiderRegister";
-import RiderSuccess from "./pages/rider/RiderSuccess";
-import RiderDashboard from "./pages/rider/RiderDashboard";
-import RiderDeliveries from "./pages/rider/RiderDeliveries";
-import RiderGeofence from "./pages/rider/RiderGeofence";
-import RiderDeviationAlert from "./pages/rider/RiderDeviationAlert";
-import RiderNavigation from "./pages/rider/RiderNavigation";
-import RiderProfile from "./pages/rider/RiderProfile";
-import RiderForgotPassword from "./pages/rider/RiderForgotPassword";
-import RiderVerifyEmail from "./pages/rider/RiderVerifyEmail";
-import RiderResetPassword from "./pages/rider/RiderResetPassword";
-import RiderResetSuccess from "./pages/rider/RiderResetSuccess";
-
 import "./styles.css";
 
 function App() {
@@ -62,18 +49,20 @@ function App() {
         <Route path="/pending" element={<PendingApproval />} />
         <Route path="/pending-approval" element={<Navigate to="/pending" replace />} />
 
-        <Route path="/admin" element={<AdminDashboard />} />
-        <Route path="/admin/inventory" element={<Inventory />} />
-        <Route path="/admin/add-stock" element={<AddStock />} />
-        <Route path="/admin/add-vaccine" element={<AddVaccine />} />
-        <Route path="/admin/deliveries" element={<Deliveries />} />
-        <Route path="/admin/riders" element={<Riders />} />
-        <Route path="/admin/alerts" element={<Alerts />} />
-        <Route path="/admin/analytics" element={<Analytics />} />
-        <Route path="/admin/settings" element={<Settings />} />
-        <Route path="/admin/clinics" element={<Clinics />} />
-        <Route path="/admin/register-clinic" element={<RegisterClinic />} />
-        <Route path="/admin/clinic-success" element={<ClinicSuccess />} />
+        <Route element={<AdminRoute />}>
+          <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/admin/inventory" element={<Inventory />} />
+          <Route path="/admin/add-stock" element={<AddStock />} />
+          <Route path="/admin/add-vaccine" element={<AddVaccine />} />
+          <Route path="/admin/deliveries" element={<Deliveries />} />
+          <Route path="/admin/riders" element={<Riders />} />
+          <Route path="/admin/alerts" element={<Alerts />} />
+          <Route path="/admin/analytics" element={<Analytics />} />
+          <Route path="/admin/settings" element={<Settings />} />
+          <Route path="/admin/clinics" element={<Clinics />} />
+          <Route path="/admin/register-clinic" element={<RegisterClinic />} />
+          <Route path="/admin/clinic-success" element={<ClinicSuccess />} />
+        </Route>
 
 
         <Route path="/inventory" element={<Navigate to="/admin/inventory" replace />} />
@@ -102,20 +91,6 @@ function App() {
         <Route path="/dispatcher/shipments" element={<DispatcherShipments />} />
         <Route path="/dispatcher/geofence" element={<DispatcherGeofence />} />
         <Route path="/dispatcher/settings" element={<DispatcherSettings />} />
-
-        <Route path="/rider/login" element={<RiderLogin />} />
-        <Route path="/rider/register" element={<RiderRegister />} />
-        <Route path="/rider/success" element={<RiderSuccess />} />
-        <Route path="/rider" element={<RiderDashboard />} />
-        <Route path="/rider/deliveries" element={<RiderDeliveries />} />
-        <Route path="/rider/geofence" element={<RiderGeofence />} />
-        <Route path="/rider/deviation-alert" element={<RiderDeviationAlert />} />
-        <Route path="/rider/navigation" element={<RiderNavigation />} />
-        <Route path="/rider/profile" element={<RiderProfile />} />
-        <Route path="/rider/forgot-password" element={<RiderForgotPassword />} />
-        <Route path="/rider/verify-email" element={<RiderVerifyEmail />} />
-        <Route path="/rider/reset-password" element={<RiderResetPassword />} />
-        <Route path="/rider/reset-success" element={<RiderResetSuccess />} />
 
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

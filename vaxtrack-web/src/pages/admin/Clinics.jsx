@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
   Bell,
@@ -17,133 +18,102 @@ import {
 } from "lucide-react";
 import { auth } from "../../firebase";
 import { AdminSidebar } from "./Inventory";
+import {
+  subscribeClinics,
+  clinicNameExists,
+  addClinic,
+} from "../../services/clinicService";
 import "./Clinics.css";
 
-const initialClinics = [
-  {
-    name: "Quezon City General Hospital",
-    id: "CLN-4829",
-    location: "North Ave, Quezon City",
-    area: "Metro Manila",
-    contact: "Dr. Maria Santos",
-    phone: "0917-555-0192",
-    email: "maria.santos@qcgh.ph",
-    initials: "MS",
-    lastDelivery: "Today, 09:30 AM",
-    note: "Via Cold-Chain Truck #4",
-    status: "active",
-    statusLabel: "Active",
-    contactTone: "blue",
-    deliveryNotes: "Priority pediatric vaccines.",
-  },
-  {
-    name: "Makati Medical Center",
-    id: "CLN-4830",
-    location: "Amorsolo St, Makati",
-    area: "Metro Manila",
-    contact: "Juan Cruz",
-    phone: "0920-123-4567",
-    email: "juan.cruz@makatimed.ph",
-    initials: "JC",
-    lastDelivery: "2 Days Ago",
-    note: "Pending Resupply",
-    status: "pending",
-    statusLabel: "Pending Resupply",
-    contactTone: "amber",
-    deliveryNotes: "Needs resupply confirmation.",
-  },
-  {
-    name: "Pasig City Children’s Hospital",
-    id: "CLN-4835",
-    location: "Pasig Blvd, Pasig",
-    area: "Metro Manila",
-    contact: "Liza Torres",
-    phone: "0918-987-6543",
-    email: "liza.torres@pcch.ph",
-    initials: "LT",
-    lastDelivery: "1 Week Ago",
-    note: "Delivery Overdue",
-    status: "overdue",
-    statusLabel: "Overdue",
-    contactTone: "purple",
-    deliveryNotes: "Requires delivery review.",
-  },
-  {
-    name: "Sta. Lucia Rural Health Unit",
-    id: "CLN-4841",
-    location: "Sta. Lucia, Manila",
-    area: "Metro Manila",
-    contact: "Nina Flores",
-    phone: "0916-222-8841",
-    email: "nina.flores@slrhu.ph",
-    initials: "NF",
-    lastDelivery: "Yesterday, 02:15 PM",
-    note: "Completed Delivery",
-    status: "active",
-    statusLabel: "Active",
-    contactTone: "green",
-    deliveryNotes: "Routine vaccine drop-off.",
-  },
-  {
-    name: "Taguig Health Center",
-    id: "CLN-4844",
-    location: "32nd Street, Taguig",
-    area: "Metro Manila",
-    contact: "Ramon Lee",
-    phone: "0915-332-1900",
-    email: "ramon.lee@taguighc.ph",
-    initials: "RL",
-    lastDelivery: "4 Days Ago",
-    note: "Pending Resupply",
-    status: "pending",
-    statusLabel: "Pending Resupply",
-    contactTone: "blue",
-    deliveryNotes: "Monitor stock request.",
-  },
-  {
-    name: "Manila Central Clinic",
-    id: "CLN-4850",
-    location: "Taft Avenue, Manila",
-    area: "Metro Manila",
-    contact: "Andrea Cruz",
-    phone: "0917-888-1290",
-    email: "andrea.cruz@mcc.ph",
-    initials: "AC",
-    lastDelivery: "Today, 11:10 AM",
-    note: "Via Cold-Chain Van #2",
-    status: "active",
-    statusLabel: "Active",
-    contactTone: "amber",
-    deliveryNotes: "Cold-chain priority.",
-  },
-];
+const STATUS_LABEL = {
+  active: "Active",
+  pending: "Pending Resupply",
+  overdue: "Overdue",
+};
+
+const STATUS_NOTE = {
+  active: "Ready for Delivery",
+  pending: "Pending Resupply",
+  overdue: "Delivery Overdue",
+};
+
+function normalizeClinic(raw) {
+  const status =
+    raw.status && STATUS_LABEL[raw.status] ? raw.status : "active";
+  const contactStr = typeof raw.contact === "string" ? raw.contact : "";
+  const initials =
+    contactStr
+      .split(" ")
+      .filter(Boolean)
+      .map((w) => w[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "?";
+  return {
+    id: raw.clinicId || raw.id || "—",
+    firestoreId: raw.id || "",
+    name: raw.name || "—",
+    location: raw.location || "—",
+    area: raw.area || "Metro Manila",
+    contact: contactStr || "—",
+    phone: raw.phone || "—",
+    email: raw.email || "—",
+    deliveryNotes: raw.deliveryNotes || "No special notes.",
+    status,
+    statusLabel: STATUS_LABEL[status],
+    note: STATUS_NOTE[status],
+    lastDelivery: raw.lastDelivery || "No delivery yet",
+    initials,
+    contactTone: raw.contactTone || "blue",
+  };
+}
 
 const pageSize = 3;
 
+const EMPTY_CLINIC = {
+  name: "",
+  location: "",
+  area: "Metro Manila",
+  contact: "",
+  phone: "",
+  email: "",
+  deliveryNotes: "",
+  status: "active",
+};
+
 function Clinics() {
-  const [clinics, setClinics] = useState(initialClinics);
+  const navigate = useNavigate();
+  const [clinics, setClinics] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedClinic, setSelectedClinic] = useState(null);
   const [showNewClinicModal, setShowNewClinicModal] = useState(false);
   const [toast, setToast] = useState("");
-
-  const [newClinic, setNewClinic] = useState({
-    name: "",
-    location: "",
-    area: "Metro Manila",
-    contact: "",
-    phone: "",
-    email: "",
-    deliveryNotes: "",
-    status: "active",
-  });
+  const [newClinic, setNewClinic] = useState(EMPTY_CLINIC);
 
   const handleLogout = async () => {
     await signOut(auth);
-    window.location.href = "/login";
+    navigate("/login");
   };
+
+  useEffect(() => {
+    const unsubscribe = subscribeClinics(
+      (raw) => {
+        setClinics(raw.map(normalizeClinic));
+        setLoading(false);
+        setLoadError("");
+      },
+      (error) => {
+        setLoading(false);
+        setLoadError(error.message || "Failed to load clinics.");
+      }
+    );
+    return () => unsubscribe();
+  }, []);
 
   const showToast = (message) => {
     setToast(message);
@@ -154,37 +124,31 @@ function Clinics() {
     return clinics.filter((clinic) => {
       const searchValue =
         `${clinic.name} ${clinic.id} ${clinic.location} ${clinic.contact} ${clinic.phone} ${clinic.note} ${clinic.statusLabel}`.toLowerCase();
-
       const matchesSearch = searchValue.includes(searchTerm.toLowerCase());
       const matchesStatus =
         statusFilter === "all" || clinic.status === statusFilter;
-
       return matchesSearch && matchesStatus;
     });
   }, [clinics, searchTerm, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredClinics.length / pageSize));
-
   const paginatedClinics = filteredClinics.slice(
     (currentPage - 1) * pageSize,
     currentPage * pageSize
   );
-
   const startItem =
     filteredClinics.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
-
   const endItem = Math.min(currentPage * pageSize, filteredClinics.length);
-
-  const activeCount = clinics.filter((clinic) => clinic.status === "active").length;
-  const pendingCount = clinics.filter((clinic) => clinic.status === "pending").length;
-  const overdueCount = clinics.filter((clinic) => clinic.status === "overdue").length;
+  const activeCount = clinics.filter((c) => c.status === "active").length;
+  const pendingCount = clinics.filter((c) => c.status === "pending").length;
+  const overdueCount = clinics.filter((c) => c.status === "overdue").length;
 
   const handleStatusFilter = (status) => {
     setStatusFilter(status);
     setCurrentPage(1);
   };
 
-  const handleCreateClinic = (e) => {
+  const handleCreateClinic = async (e) => {
     e.preventDefault();
 
     if (
@@ -197,55 +161,36 @@ function Clinics() {
       return;
     }
 
-    const createdClinic = {
-      name: newClinic.name,
-      id: `CLN-${Math.floor(4900 + Math.random() * 90)}`,
-      location: newClinic.location,
-      area: newClinic.area,
-      contact: newClinic.contact,
-      phone: newClinic.phone,
-      email: newClinic.email || "No email provided",
-      initials: newClinic.contact
-        .split(" ")
-        .filter(Boolean)
-        .map((word) => word[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase(),
-      lastDelivery: "No delivery yet",
-      note:
-        newClinic.status === "pending"
-          ? "Pending Resupply"
-          : newClinic.status === "overdue"
-          ? "Delivery Overdue"
-          : "Ready for Delivery",
-      status: newClinic.status,
-      statusLabel:
-        newClinic.status === "pending"
-          ? "Pending Resupply"
-          : newClinic.status === "overdue"
-          ? "Overdue"
-          : "Active",
-      contactTone: "blue",
-      deliveryNotes: newClinic.deliveryNotes || "No special notes.",
-    };
+    setSaving(true);
+    try {
+      if (await clinicNameExists(newClinic.name)) {
+        showToast("A clinic with this name already exists.");
+        return;
+      }
 
-    setClinics((prev) => [createdClinic, ...prev]);
+      const clinicId = `CLN-${Math.floor(1000 + Math.random() * 8999)}`;
+      await addClinic({
+        clinicId,
+        name: newClinic.name,
+        location: newClinic.location,
+        area: newClinic.area,
+        contact: newClinic.contact,
+        phone: newClinic.phone,
+        email: newClinic.email,
+        deliveryNotes: newClinic.deliveryNotes,
+        status: newClinic.status,
+      });
 
-    setNewClinic({
-      name: "",
-      location: "",
-      area: "Metro Manila",
-      contact: "",
-      phone: "",
-      email: "",
-      deliveryNotes: "",
-      status: "active",
-    });
-
-    setShowNewClinicModal(false);
-    setCurrentPage(1);
-    showToast(`${createdClinic.name} has been registered.`);
+      setNewClinic(EMPTY_CLINIC);
+      setShowNewClinicModal(false);
+      setCurrentPage(1);
+      showToast(`${newClinic.name.trim()} has been registered.`);
+    } catch (error) {
+      console.error("Add clinic error:", error);
+      showToast("Failed to register clinic. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -286,7 +231,9 @@ function Clinics() {
             <button
               type="button"
               className="clinics-icon-btn"
-              onClick={() => showToast("Tip: Click any clinic row to view details.")}
+              onClick={() =>
+                showToast("Tip: Click any clinic row to view details.")
+              }
             >
               <CircleHelp size={15} />
             </button>
@@ -311,7 +258,6 @@ function Clinics() {
             type="blue"
             onClick={() => handleStatusFilter("all")}
           />
-
           <ClinicSummaryCard
             icon={<CheckCircle2 size={19} />}
             value={activeCount}
@@ -320,7 +266,6 @@ function Clinics() {
             type="green"
             onClick={() => handleStatusFilter("active")}
           />
-
           <ClinicSummaryCard
             icon={<Clock3 size={19} />}
             value={pendingCount}
@@ -329,7 +274,6 @@ function Clinics() {
             type="amber"
             onClick={() => handleStatusFilter("pending")}
           />
-
           <ClinicSummaryCard
             icon={<Truck size={19} />}
             value={overdueCount}
@@ -349,7 +293,6 @@ function Clinics() {
             >
               All
             </button>
-
             <button
               type="button"
               className={statusFilter === "active" ? "active" : ""}
@@ -357,7 +300,6 @@ function Clinics() {
             >
               Active
             </button>
-
             <button
               type="button"
               className={statusFilter === "pending" ? "active" : ""}
@@ -365,7 +307,6 @@ function Clinics() {
             >
               Pending Resupply
             </button>
-
             <button
               type="button"
               className={statusFilter === "overdue" ? "active" : ""}
@@ -409,7 +350,6 @@ function Clinics() {
                       <div className="clinic-icon">
                         <Building2 size={17} />
                       </div>
-
                       <div>
                         <strong>{clinic.name}</strong>
                         <small>ID: {clinic.id}</small>
@@ -426,10 +366,11 @@ function Clinics() {
 
                   <td>
                     <div className="clinic-contact-cell">
-                      <div className={`clinic-contact-avatar ${clinic.contactTone}`}>
+                      <div
+                        className={`clinic-contact-avatar ${clinic.contactTone}`}
+                      >
                         {clinic.initials}
                       </div>
-
                       <div>
                         <strong>{clinic.contact}</strong>
                         <small>{clinic.phone}</small>
@@ -440,7 +381,11 @@ function Clinics() {
                   <td>
                     <div className="clinic-delivery-cell">
                       <strong>{clinic.lastDelivery}</strong>
-                      <small className={clinic.status === "overdue" ? "danger" : ""}>
+                      <small
+                        className={
+                          clinic.status === "overdue" ? "danger" : ""
+                        }
+                      >
                         {clinic.note}
                       </small>
                     </div>
@@ -454,14 +399,18 @@ function Clinics() {
 
                   <td onClick={(e) => e.stopPropagation()}>
                     <div className="clinic-row-actions">
-                      <button type="button" onClick={() => setSelectedClinic(clinic)}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedClinic(clinic)}
+                      >
                         Details
                       </button>
-
                       <button
                         type="button"
                         onClick={() =>
-                          showToast(`Delivery draft opened for ${clinic.name}.`)
+                          showToast(
+                            `Delivery draft opened for ${clinic.name}.`
+                          )
                         }
                       >
                         Create Delivery
@@ -473,29 +422,55 @@ function Clinics() {
             </tbody>
           </table>
 
-          {filteredClinics.length === 0 && (
+          {loading && (
             <div className="clinics-empty">
               <Building2 size={28} />
-              <strong>No clinics found</strong>
-              <p>Try changing the search keyword or selected status filter.</p>
+              <strong>Loading clinics...</strong>
+            </div>
+          )}
+
+          {!loading && loadError && (
+            <div className="clinics-empty">
+              <Building2 size={28} />
+              <strong>Could not load clinics</strong>
+              <p>{loadError}</p>
+            </div>
+          )}
+
+          {!loading && !loadError && filteredClinics.length === 0 && (
+            <div className="clinics-empty">
+              <Building2 size={28} />
+              <strong>
+                {clinics.length === 0
+                  ? "No clinics registered yet."
+                  : "No clinics found"}
+              </strong>
+              <p>
+                {clinics.length === 0
+                  ? "Register a clinic to get started."
+                  : "Try changing the search keyword or selected status filter."}
+              </p>
             </div>
           )}
 
           <div className="clinics-v2-pagination">
             <p>
-              Showing {startItem} to {endItem} of {filteredClinics.length} clinics
+              Showing {startItem} to {endItem} of {filteredClinics.length}{" "}
+              clinics
             </p>
 
             <div>
               <button
                 type="button"
                 disabled={currentPage === 1}
-                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                onClick={() =>
+                  setCurrentPage((prev) => Math.max(prev - 1, 1))
+                }
               >
                 <ChevronLeft size={14} />
               </button>
 
-              {Array.from({ length: totalPages }, (_, index) => index + 1).map(
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(
                 (page) => (
                   <button
                     key={page}
@@ -540,6 +515,7 @@ function Clinics() {
           setNewClinic={setNewClinic}
           onClose={() => setShowNewClinicModal(false)}
           onSubmit={handleCreateClinic}
+          saving={saving}
         />
       )}
     </div>
@@ -548,9 +524,12 @@ function Clinics() {
 
 function ClinicSummaryCard({ icon, value, label, note, type, onClick }) {
   return (
-    <button type="button" className={`clinics-summary-card ${type}`} onClick={onClick}>
+    <button
+      type="button"
+      className={`clinics-summary-card ${type}`}
+      onClick={onClick}
+    >
       <div className="clinics-summary-icon">{icon}</div>
-
       <div>
         <h2>{value}</h2>
         <p>{label}</p>
@@ -564,7 +543,11 @@ function ClinicDetailsModal({ clinic, onClose, onCreateDelivery, onEdit }) {
   return (
     <div className="clinics-modal-backdrop">
       <div className="clinics-modal">
-        <button type="button" className="clinics-modal-close" onClick={onClose}>
+        <button
+          type="button"
+          className="clinics-modal-close"
+          onClick={onClose}
+        >
           <X size={18} />
         </button>
 
@@ -582,32 +565,26 @@ function ClinicDetailsModal({ clinic, onClose, onCreateDelivery, onEdit }) {
             <span>Location</span>
             <strong>{clinic.location}</strong>
           </div>
-
           <div>
             <span>Status</span>
             <strong>{clinic.statusLabel}</strong>
           </div>
-
           <div>
             <span>Contact Person</span>
             <strong>{clinic.contact}</strong>
           </div>
-
           <div>
             <span>Phone</span>
             <strong>{clinic.phone}</strong>
           </div>
-
           <div>
             <span>Email</span>
             <strong>{clinic.email}</strong>
           </div>
-
           <div>
             <span>Last Delivery</span>
             <strong>{clinic.lastDelivery}</strong>
           </div>
-
           <div className="wide">
             <span>Delivery Notes</span>
             <strong>{clinic.deliveryNotes}</strong>
@@ -615,16 +592,26 @@ function ClinicDetailsModal({ clinic, onClose, onCreateDelivery, onEdit }) {
         </div>
 
         <div className="clinics-modal-actions">
-          <button type="button" className="clinics-primary-action" onClick={onCreateDelivery}>
+          <button
+            type="button"
+            className="clinics-primary-action"
+            onClick={onCreateDelivery}
+          >
             Create Delivery
           </button>
-
-          <button type="button" className="clinics-light-action" onClick={onEdit}>
+          <button
+            type="button"
+            className="clinics-light-action"
+            onClick={onEdit}
+          >
             <Edit size={15} />
             Edit Clinic
           </button>
-
-          <button type="button" className="clinics-light-action" onClick={onClose}>
+          <button
+            type="button"
+            className="clinics-light-action"
+            onClick={onClose}
+          >
             Close
           </button>
         </div>
@@ -633,11 +620,16 @@ function ClinicDetailsModal({ clinic, onClose, onCreateDelivery, onEdit }) {
   );
 }
 
-function NewClinicModal({ newClinic, setNewClinic, onClose, onSubmit }) {
+function NewClinicModal({ newClinic, setNewClinic, onClose, onSubmit, saving }) {
   return (
     <div className="clinics-modal-backdrop">
       <form className="clinics-modal clinics-form-modal" onSubmit={onSubmit}>
-        <button type="button" className="clinics-modal-close" onClick={onClose}>
+        <button
+          type="button"
+          className="clinics-modal-close"
+          onClick={onClose}
+          disabled={saving}
+        >
           <X size={18} />
         </button>
 
@@ -654,6 +646,7 @@ function NewClinicModal({ newClinic, setNewClinic, onClose, onSubmit }) {
               onChange={(e) =>
                 setNewClinic((prev) => ({ ...prev, name: e.target.value }))
               }
+              disabled={saving}
             />
           </label>
 
@@ -664,8 +657,12 @@ function NewClinicModal({ newClinic, setNewClinic, onClose, onSubmit }) {
               placeholder="Dr. Maria Santos"
               value={newClinic.contact}
               onChange={(e) =>
-                setNewClinic((prev) => ({ ...prev, contact: e.target.value }))
+                setNewClinic((prev) => ({
+                  ...prev,
+                  contact: e.target.value,
+                }))
               }
+              disabled={saving}
             />
           </label>
 
@@ -678,6 +675,7 @@ function NewClinicModal({ newClinic, setNewClinic, onClose, onSubmit }) {
               onChange={(e) =>
                 setNewClinic((prev) => ({ ...prev, phone: e.target.value }))
               }
+              disabled={saving}
             />
           </label>
 
@@ -690,6 +688,7 @@ function NewClinicModal({ newClinic, setNewClinic, onClose, onSubmit }) {
               onChange={(e) =>
                 setNewClinic((prev) => ({ ...prev, email: e.target.value }))
               }
+              disabled={saving}
             />
           </label>
 
@@ -700,8 +699,12 @@ function NewClinicModal({ newClinic, setNewClinic, onClose, onSubmit }) {
               placeholder="Street, City"
               value={newClinic.location}
               onChange={(e) =>
-                setNewClinic((prev) => ({ ...prev, location: e.target.value }))
+                setNewClinic((prev) => ({
+                  ...prev,
+                  location: e.target.value,
+                }))
               }
+              disabled={saving}
             />
           </label>
 
@@ -712,6 +715,7 @@ function NewClinicModal({ newClinic, setNewClinic, onClose, onSubmit }) {
               onChange={(e) =>
                 setNewClinic((prev) => ({ ...prev, area: e.target.value }))
               }
+              disabled={saving}
             >
               <option>Metro Manila</option>
               <option>Laguna</option>
@@ -725,8 +729,12 @@ function NewClinicModal({ newClinic, setNewClinic, onClose, onSubmit }) {
             <select
               value={newClinic.status}
               onChange={(e) =>
-                setNewClinic((prev) => ({ ...prev, status: e.target.value }))
+                setNewClinic((prev) => ({
+                  ...prev,
+                  status: e.target.value,
+                }))
               }
+              disabled={saving}
             >
               <option value="active">Active</option>
               <option value="pending">Pending Resupply</option>
@@ -746,16 +754,26 @@ function NewClinicModal({ newClinic, setNewClinic, onClose, onSubmit }) {
                   deliveryNotes: e.target.value,
                 }))
               }
+              disabled={saving}
             />
           </label>
         </div>
 
         <div className="clinics-modal-actions">
-          <button type="submit" className="clinics-primary-action">
-            Register Clinic
+          <button
+            type="submit"
+            className="clinics-primary-action"
+            disabled={saving}
+          >
+            {saving ? "Registering..." : "Register Clinic"}
           </button>
 
-          <button type="button" className="clinics-light-action" onClick={onClose}>
+          <button
+            type="button"
+            className="clinics-light-action"
+            onClick={onClose}
+            disabled={saving}
+          >
             Cancel
           </button>
         </div>

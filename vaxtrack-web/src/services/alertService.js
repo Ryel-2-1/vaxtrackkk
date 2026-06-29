@@ -1,9 +1,12 @@
 import {
   addDoc,
   collection,
+  doc,
   onSnapshot,
+  orderBy,
   query,
   serverTimestamp,
+  updateDoc,
   where,
 } from "firebase/firestore";
 import { db } from "../firebase";
@@ -41,5 +44,28 @@ export function subscribeActiveAlerts(callback) {
     }));
 
     callback(alerts);
+  });
+}
+
+export function subscribeAllAlerts(callback) {
+  const q = query(
+    collection(db, ALERTS_COLLECTION),
+    orderBy("createdAt", "desc")
+  );
+
+  return onSnapshot(q, (snapshot) => {
+    callback(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+  });
+}
+
+export async function resolveAlert(alertId) {
+  return updateDoc(doc(db, ALERTS_COLLECTION, alertId), {
+    status: "resolved",
+  });
+}
+
+export async function markAlertRead(alertId) {
+  return updateDoc(doc(db, ALERTS_COLLECTION, alertId), {
+    read: true,
   });
 }

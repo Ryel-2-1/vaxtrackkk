@@ -82,7 +82,8 @@ function Login() {
     }
 
     if (role === "rider") {
-      navigate("/rider");
+      await signOut(auth);
+      setError("Rider accounts must use the VaxTrack mobile app.");
       return;
     }
 

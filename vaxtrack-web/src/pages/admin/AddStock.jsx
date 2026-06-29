@@ -1,17 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  addDoc,
-  collection,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  where,
-} from "firebase/firestore";
 import { ClipboardList, Truck } from "lucide-react";
-import { db } from "../../firebase";
 import { AdminSidebar } from "./Inventory";
+import {
+  getVaccines,
+  batchIdExists,
+  addStockBatch,
+} from "../../services/vaccineService";
 
 function AddStock() {
   const navigate = useNavigate();
@@ -39,20 +34,7 @@ function AddStock() {
     const loadVaccines = async () => {
       try {
         setLoadingVaccines(true);
-
-        const vaccineQuery = query(
-          collection(db, "vaccines"),
-          orderBy("createdAt", "desc")
-        );
-
-        const snap = await getDocs(vaccineQuery);
-
-        setVaccines(
-          snap.docs.map((doc) => ({
-            id: doc.id,
-            ...doc.data(),
-          }))
-        );
+        setVaccines(await getVaccines());
       } catch (error) {
         console.error("Load vaccines error:", error);
         showMessage("Unable to load registered vaccines.");
@@ -180,14 +162,7 @@ function AddStock() {
       return false;
     }
 
-    const batchQuery = query(
-      collection(db, "inventory"),
-      where("batchId", "==", cleanedBatchId)
-    );
-
-    const batchSnap = await getDocs(batchQuery);
-
-    if (!batchSnap.empty) {
+    if (await batchIdExists(cleanedBatchId)) {
       showMessage("This Batch ID already exists in inventory.");
       return false;
     }
@@ -211,12 +186,12 @@ function AddStock() {
       const cleanedManufacturer = manufacturer.trim();
       const status = getBatchStatus(expiryDate);
 
-      await addDoc(collection(db, "inventory"), {
+      await addStockBatch({
         vaccineId: selectedVaccine.id,
         vaccineName: selectedVaccine.vaccineName,
         vaccineType: selectedVaccine.vaccineType,
         manufacturer: cleanedManufacturer,
-        internalSku: selectedVaccine.internalSku || "",
+        internalSku: selectedVaccine.internalSku,
         batchId: cleanedBatchId,
         arrivalDate,
         expiryDate,
@@ -224,13 +199,12 @@ function AddStock() {
         storageTemp: Number(cleanedStorageTemp),
         storageTempDisplay: `${cleanedStorageTemp}°C`,
         status,
-        createdAt: serverTimestamp(),
       });
 
       showMessage("Stock added successfully.", "success");
 
       setTimeout(() => {
-        navigate("/inventory");
+        navigate("/admin/inventory");
       }, 700);
     } catch (error) {
       console.error("Add stock error:", error);
@@ -411,10 +385,6 @@ function AddStock() {
   Enter numbers only. The system will automatically display °C.
   {storageTemp && ` Current value: ${storageTemp}°C`}
 </small>
-
-                <small className="input-helper">
-                  Enter numbers only. The system will automatically add °C.
-                </small>
               </div>
             </div>
           </section>
@@ -435,7 +405,7 @@ function AddStock() {
             <button
               type="button"
               className="outline-btn"
-              onClick={() => navigate("/inventory")}
+              onClick={() => navigate("/admin/inventory")}
               disabled={saving}
             >
               Cancel

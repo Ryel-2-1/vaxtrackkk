@@ -1,15 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  addDoc,
-  collection,
-  getDocs,
-  query,
-  serverTimestamp,
-  where,
-  orderBy,
-} from "firebase/firestore";
-import {
   Building2,
   FlaskConical,
   Package,
@@ -17,8 +8,13 @@ import {
   Syringe,
   X,
 } from "lucide-react";
-import { db } from "../../firebase";
 import { AdminSidebar } from "./Inventory";
+import {
+  getVaccineTypes,
+  addVaccineType,
+  skuExists,
+  addVaccine,
+} from "../../services/vaccineService";
 
 function AddVaccine() {
   const navigate = useNavigate();
@@ -44,19 +40,7 @@ function AddVaccine() {
 
   const loadVaccineTypes = async () => {
     try {
-      const typeQuery = query(
-        collection(db, "vaccineTypes"),
-        orderBy("name", "asc")
-      );
-
-      const snap = await getDocs(typeQuery);
-
-      const loadedTypes = snap.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-      setVaccineTypes(loadedTypes);
+      setVaccineTypes(await getVaccineTypes());
     } catch (error) {
       console.error("Load vaccine types error:", error);
       showMessage("Unable to load vaccine types.");
@@ -105,14 +89,7 @@ function AddVaccine() {
       return false;
     }
 
-    const skuQuery = query(
-      collection(db, "vaccines"),
-      where("internalSku", "==", internalSku.trim().toUpperCase())
-    );
-
-    const skuSnap = await getDocs(skuQuery);
-
-    if (!skuSnap.empty) {
+    if (await skuExists(internalSku.trim().toUpperCase())) {
       showMessage("This internal inventory SKU already exists.");
       return false;
     }
@@ -147,15 +124,10 @@ function AddVaccine() {
     setTypeSaving(true);
 
     try {
-      await addDoc(collection(db, "vaccineTypes"), {
-        name: typeName,
-        createdAt: serverTimestamp(),
-      });
-
+      await addVaccineType(typeName);
       setNewTypeName("");
       setShowAddType(false);
       showMessage("Vaccine type added successfully.", "success");
-
       await loadVaccineTypes();
       setVaccineType(typeName);
     } catch (error) {
@@ -177,18 +149,17 @@ function AddVaccine() {
     setSaving(true);
 
     try {
-      await addDoc(collection(db, "vaccines"), {
+      await addVaccine({
         vaccineName: vaccineName.trim(),
         manufacturer: manufacturer.trim(),
         vaccineType,
         internalSku: internalSku.trim().toUpperCase(),
-        createdAt: serverTimestamp(),
       });
 
       showMessage("Vaccine registered successfully.", "success");
 
       setTimeout(() => {
-        navigate("/inventory");
+        navigate("/admin/inventory");
       }, 800);
     } catch (error) {
       console.error(error);
@@ -219,7 +190,7 @@ function AddVaccine() {
             <button
               type="button"
               className="outline-btn"
-              onClick={() => navigate("/inventory")}
+              onClick={() => navigate("/admin/inventory")}
             >
               Cancel
             </button>

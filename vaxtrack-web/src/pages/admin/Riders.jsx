@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
@@ -21,79 +21,58 @@ import {
 } from "lucide-react";
 import { auth } from "../../firebase";
 import { AdminSidebar } from "./Inventory";
+import { subscribeRiders } from "../../services/riderService";
 import "./Riders.css";
 
-const initialRiders = [
-  {
-    id: "MCV-1234",
-    name: "Juan Dela Cruz",
-    initials: "JD",
-    vehicle: "Motorcycle",
-    phone: "0917-555-0123",
-    status: "active",
-    statusText: "Active",
-    assignment: "VAX-9821 at Sta. Lucia RHU",
-    currentDelivery: "VAX-9821",
-    hub: "Manila Central Hub",
-    lastActive: "Now",
-    onTimeRate: "96%",
-    routeCompliance: "98%",
-    deliveriesToday: 4,
-    location: "Manila",
-  },
-  {
-    id: "VAX-990",
-    name: "Maria Reyes",
-    initials: "MR",
-    vehicle: "Van",
-    phone: "0920-555-0178",
-    status: "standby",
-    statusText: "Standby",
-    assignment: "Available at Hub",
+const FIRESTORE_TO_UI_STATUS = {
+  approved: "standby",
+  pending: "offduty",
+  pending_approval: "offduty",
+  rejected: "offduty",
+  disabled: "offduty",
+};
+
+const FIRESTORE_TO_STATUS_TEXT = {
+  approved: "Standby",
+  pending: "Pending Approval",
+  pending_approval: "Pending Approval",
+  rejected: "Inactive",
+  disabled: "Inactive",
+};
+
+function normalizeRider(raw) {
+  const firestoreStatus = raw.status || "pending";
+  const uiStatus = FIRESTORE_TO_UI_STATUS[firestoreStatus] || "offduty";
+  const statusText = FIRESTORE_TO_STATUS_TEXT[firestoreStatus] || "Unknown";
+  const nameStr = typeof raw.name === "string" ? raw.name : "";
+  const initials =
+    nameStr
+      .split(" ")
+      .filter(Boolean)
+      .map((w) => w[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "?";
+  return {
+    uid: raw.id,
+    id: raw.employeeId || raw.id.slice(0, 8).toUpperCase(),
+    name: nameStr || "—",
+    email: raw.email || "—",
+    initials,
+    vehicle: raw.vehicle || "Motorcycle",
+    phone: raw.phone || "—",
+    status: uiStatus,
+    statusText,
+    assignment: uiStatus === "standby" ? "Available at Hub" : statusText,
     currentDelivery: "None",
-    hub: "Manila Central Hub",
-    lastActive: "2 mins ago",
-    onTimeRate: "94%",
-    routeCompliance: "97%",
-    deliveriesToday: 1,
-    location: "Makati City",
-  },
-  {
-    id: "TXU-4455",
-    name: "Peter Santos",
-    initials: "PS",
-    vehicle: "Auto",
-    phone: "0918-555-0144",
-    status: "offduty",
-    statusText: "Off Duty",
-    assignment: "Shift ended: 14:00",
-    currentDelivery: "None",
-    hub: "Manila Central Hub",
-    lastActive: "Shift ended",
-    onTimeRate: "91%",
-    routeCompliance: "95%",
-    deliveriesToday: 2,
-    location: "Pasig",
-  },
-  {
-    id: "RTX-9824",
-    name: "Arby Barruevo",
-    initials: "AB",
-    vehicle: "Motorcycle",
-    plate: "RTX-9824",
-    phone: "0919-555-0199",
-    status: "deviation",
-    statusText: "Route Alert",
-    assignment: "Route deviation detected near Quezon City",
-    currentDelivery: "RTX-9824",
-    hub: "Manila Central Hub",
-    lastActive: "3 mins ago",
-    onTimeRate: "89%",
-    routeCompliance: "82%",
-    deliveriesToday: 3,
-    location: "Quezon City",
-  },
-];
+    hub: raw.hub || "Manila Central Hub",
+    lastActive: "—",
+    onTimeRate: "—",
+    routeCompliance: "—",
+    deliveriesToday: 0,
+    location: raw.location || "—",
+  };
+}
 
 const pendingDeliveries = [
   "VAX-9821 - Sta. Lucia RHU",
@@ -105,7 +84,9 @@ const pendingDeliveries = [
 function Riders() {
   const navigate = useNavigate();
 
-  const [riders, setRiders] = useState(initialRiders);
+  const [riders, setRiders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedRider, setSelectedRider] = useState(null);
@@ -123,6 +104,21 @@ function Riders() {
     hub: "Manila Central Hub",
     status: "standby",
   });
+
+  useEffect(() => {
+    const unsubscribe = subscribeRiders(
+      (raw) => {
+        setRiders(raw.map(normalizeRider));
+        setLoading(false);
+        setLoadError("");
+      },
+      (error) => {
+        setLoading(false);
+        setLoadError(error.message || "Failed to load riders.");
+      }
+    );
+    return () => unsubscribe();
+  }, []);
 
   const handleLogout = async () => {
     await signOut(auth);
@@ -179,59 +175,10 @@ function Riders() {
 
   const handleCreateRider = (e) => {
     e.preventDefault();
-
-    if (
-  !newRider.name.trim() ||
-  !newRider.id.trim() ||
-  !newRider.phone.trim()
-) {
-      showToast("Please complete all rider fields.");
-      return;
-    }
-
-    const createdRider = {
-      id: newRider.id,
-      name: newRider.name,
-      initials: newRider.name
-        .split(" ")
-        .filter(Boolean)
-        .map((word) => word[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase(),
-      vehicle: newRider.vehicle,
-      phone: newRider.phone,
-      status: newRider.status,
-      statusText:
-        newRider.status === "active"
-          ? "Active"
-          : newRider.status === "offduty"
-          ? "Off Duty"
-          : "Standby",
-      assignment:
-        newRider.status === "active" ? "Awaiting delivery details" : "Available at Hub",
-      currentDelivery: "None",
-      hub: newRider.hub,
-      lastActive: "Just added",
-      onTimeRate: "100%",
-      routeCompliance: "100%",
-      deliveriesToday: 0,
-      location: "Manila",
-    };
-
-    setRiders((prev) => [createdRider, ...prev]);
-
-    setNewRider({
-      name: "",
-      id: "",
-      phone: "",
-      vehicle: "Motorcycle",
-      hub: "Manila Central Hub",
-      status: "standby",
-    });
-
     setShowNewRiderModal(false);
-    showToast(`${createdRider.name} has been added.`);
+    showToast(
+      "Rider accounts must be created via Firebase Authentication. Once registered and approved in Settings, riders appear here automatically."
+    );
   };
 
   return (
@@ -516,11 +463,34 @@ function Riders() {
               </article>
             ))}
 
-            {filteredRiders.length === 0 && (
+            {loading && (
               <div className="riders-empty">
                 <Users size={28} />
-                <strong>No riders found</strong>
-                <p>Try changing the search keyword or selected status filter.</p>
+                <strong>Loading riders...</strong>
+              </div>
+            )}
+
+            {!loading && loadError && (
+              <div className="riders-empty">
+                <Users size={28} />
+                <strong>Could not load riders</strong>
+                <p>{loadError}</p>
+              </div>
+            )}
+
+            {!loading && !loadError && filteredRiders.length === 0 && (
+              <div className="riders-empty">
+                <Users size={28} />
+                <strong>
+                  {riders.length === 0
+                    ? "No rider accounts found"
+                    : "No riders match your search"}
+                </strong>
+                <p>
+                  {riders.length === 0
+                    ? "Rider accounts are registered via the VaxTrack mobile app."
+                    : "Try changing the search keyword or selected status filter."}
+                </p>
               </div>
             )}
           </div>

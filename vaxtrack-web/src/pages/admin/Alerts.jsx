@@ -1,5 +1,5 @@
 import "./Alerts.css";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
@@ -20,84 +20,77 @@ import {
 } from "lucide-react";
 import { auth } from "../../firebase";
 import { AdminSidebar } from "./Inventory";
+import {
+  markAlertRead,
+  resolveAlert,
+  subscribeAllAlerts,
+} from "../../services/alertService";
 
-const initialAlerts = [
-  {
-    id: "ALT-001",
-    type: "Route Deviation",
-    message: "Rider 0412 moved outside the assigned delivery route.",
-    source: "Delivery DEL-2026-002",
-    deliveryId: "DEL-2026-002",
-    rider: "Rider 0412",
-    severity: "critical",
-    status: "active",
-    time: "2 mins ago",
+const TYPE_MAP = {
+  route_deviation: {
+    display: "Route Deviation",
     iconKey: "route",
     recommendation: "Contact the rider and inspect the delivery route immediately.",
-    read: false,
   },
-  {
-    id: "ALT-002",
-    type: "Temperature Warning",
-    message: "Cold-chain temperature report requires admin validation.",
-    source: "Batch BT-2026-001",
-    deliveryId: "Batch BT-2026-001",
-    rider: "Cold Storage Monitor",
-    severity: "warning",
-    status: "active",
-    time: "8 mins ago",
+  temperature_warning: {
+    display: "Temperature Warning",
     iconKey: "temperature",
     recommendation: "Validate the reported temperature and check storage compliance.",
-    read: false,
   },
-  {
-    id: "ALT-003",
-    type: "Low Stock",
-    message: "Sinovac stock is below the safe inventory threshold.",
-    source: "Inventory Module",
-    deliveryId: "Inventory Module",
-    rider: "Inventory System",
-    severity: "warning",
-    status: "active",
-    time: "15 mins ago",
+  low_stock: {
+    display: "Low Stock",
     iconKey: "package",
     recommendation: "Prepare a stock replenishment request for the affected vaccine.",
-    read: false,
   },
-  {
-    id: "ALT-004",
-    type: "Delayed Delivery",
-    message: "Pagsanjan delivery is estimated to arrive later than expected.",
-    source: "Delivery DEL-2026-002",
-    deliveryId: "DEL-2026-002",
-    rider: "Assigned Rider",
-    severity: "notice",
-    status: "active",
-    time: "22 mins ago",
+  delivery_delay: {
+    display: "Delayed Delivery",
     iconKey: "truck",
     recommendation: "Monitor ETA and notify the receiving clinic if delay continues.",
-    read: true,
   },
-  {
-    id: "ALT-005",
-    type: "Delivery Completed",
-    message: "Rider 0225 successfully completed delivery to Lumban Clinic.",
-    source: "Delivery DEL-2026-003",
-    deliveryId: "DEL-2026-003",
-    rider: "Rider 0225",
-    severity: "notice",
-    status: "resolved",
-    time: "35 mins ago",
+  delivery_completed: {
+    display: "Delivery Completed",
     iconKey: "check",
     recommendation: "No further action required.",
-    read: true,
   },
-];
+};
+
+function formatRelativeTime(timestamp) {
+  if (!timestamp?.toDate) return "Just now";
+  const mins = Math.floor((Date.now() - timestamp.toDate().getTime()) / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins} min${mins !== 1 ? "s" : ""} ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hr${hours !== 1 ? "s" : ""} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days !== 1 ? "s" : ""} ago`;
+}
+
+function normalizeAlert(raw) {
+  const mapped = TYPE_MAP[raw.type] || {
+    display: raw.title || raw.type || "Alert",
+    iconKey: null,
+    recommendation: "",
+  };
+  return {
+    id: raw.id,
+    type: mapped.display,
+    message: raw.message || "",
+    source: raw.deliveryId || raw.orderId || "System",
+    deliveryId: raw.deliveryId || "",
+    rider: raw.riderName || "System",
+    severity: raw.severity || "notice",
+    status: raw.status || "active",
+    time: formatRelativeTime(raw.createdAt),
+    iconKey: mapped.iconKey,
+    recommendation: raw.recommendation || mapped.recommendation,
+    read: raw.read || false,
+  };
+}
 
 function Alerts() {
   const navigate = useNavigate();
 
-  const [alerts, setAlerts] = useState(initialAlerts);
+  const [alerts, setAlerts] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [severityFilter, setSeverityFilter] = useState("all");
   const [selectedAlert, setSelectedAlert] = useState(null);
@@ -112,6 +105,13 @@ function Alerts() {
     push: true,
     email: false,
   });
+
+  useEffect(() => {
+    const unsubscribe = subscribeAllAlerts((raw) => {
+      setAlerts(raw.map(normalizeAlert));
+    });
+    return () => unsubscribe();
+  }, []);
 
   const handleLogout = async () => {
     await signOut(auth);
@@ -161,32 +161,17 @@ function Alerts() {
     alerts.find((alert) => alert.status !== "resolved");
 
   const handleReviewAlert = (alert) => {
-    setAlerts((prev) =>
-      prev.map((item) => (item.id === alert.id ? { ...item, read: true } : item))
-    );
-
+    if (!alert.read) markAlertRead(alert.id);
     setSelectedAlert({ ...alert, read: true });
   };
 
   const handleMarkAllRead = () => {
-    setAlerts((prev) => prev.map((alert) => ({ ...alert, read: true })));
+    alerts.filter((a) => !a.read).forEach((a) => markAlertRead(a.id));
     showToast("All alerts marked as read.");
   };
 
   const handleResolveAlert = (alertId) => {
-    setAlerts((prev) =>
-      prev.map((alert) =>
-        alert.id === alertId
-          ? {
-              ...alert,
-              status: "resolved",
-              read: true,
-              time: "Just now",
-            }
-          : alert
-      )
-    );
-
+    resolveAlert(alertId);
     setSelectedAlert(null);
     showToast("Alert marked as resolved.");
   };
