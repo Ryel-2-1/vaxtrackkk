@@ -3020,8 +3020,7 @@
   margin-bottom: 24px !important;
 }
 
-.inventory-capacity-card {
-  min-height: 255px !important;
+.inventory-stock-chart-card {
   padding: 22px 26px !important;
 }
 
@@ -3030,7 +3029,7 @@
   align-items: flex-start !important;
   justify-content: space-between !important;
   gap: 16px !important;
-  margin-bottom: 12px !important;
+  margin-bottom: 16px !important;
 }
 
 .inventory-card-head h2 {
@@ -3045,33 +3044,58 @@
   font-size: 13px !important;
 }
 
-.inventory-v2-chart {
-  height: 175px !important;
-  justify-content: space-around !important;
-  gap: 22px !important;
+.stock-hbar-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  max-height: 260px !important;
+  overflow-y: auto !important;
 }
 
-.inventory-v2-chart .bar-item {
+.hbar-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+
+.hbar-label {
+  flex: 0 0 110px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: #334155 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.hbar-track {
   flex: 1 !important;
-  max-width: 78px !important;
+  height: 22px !important;
+  background: #f1f5f9 !important;
+  border-radius: 6px !important;
+  overflow: hidden !important;
 }
 
-.inventory-v2-chart .bar-bg {
-  width: 54px !important;
-  height: 135px !important;
-  margin: 0 auto !important;
+.hbar-fill {
+  height: 100% !important;
+  border-radius: 6px !important;
+  min-width: 4px !important;
+  transition: width 0.4s ease !important;
 }
 
-.inventory-v2-chart .bar-item p {
-  margin: 8px 0 0 !important;
-}
+.hbar-fill.blue { background: #2563eb !important; }
+.hbar-fill.green { background: #16a34a !important; }
+.hbar-fill.gold { background: #ca8a04 !important; }
+.hbar-fill.red { background: #dc2626 !important; }
+.hbar-fill.purple { background: #9333ea !important; }
 
-.inventory-v2-chart .bar-item small {
-  display: block !important;
-  margin-top: 3px !important;
-  font-size: 11px !important;
-  color: #64748b !important;
-  font-weight: 800 !important;
+.hbar-qty {
+  flex: 0 0 85px !important;
+  text-align: right !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: #0f172a !important;
+  white-space: nowrap !important;
 }
 
 .inventory-v2-summary .inventory-side-metrics {
@@ -6308,4 +6332,42 @@
     border: 0 !important;
     margin: 0 auto !important;
   }
+}
+
+/* Inventory loading/error/empty state */
+.inventory-loading-state {
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.inventory-loading-state svg {
+  color: #2563eb;
+}
+
+.inventory-loading-state strong {
+  color: #0f172a;
+  font-size: 16px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+.chart-empty {
+  width: 100%;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 13px;
+  padding: 30px 0;
 }

@@ -13,18 +13,28 @@ import { db } from "../firebase";
 const ORDERS_COLLECTION = "orders";
 
 export async function createSalesRepOrder(orderData = {}) {
-  return addDoc(collection(db, ORDERS_COLLECTION), {
-    orderNumber: orderData.orderNumber || `VT-ORD-${Date.now()}`,
-    clinicName: orderData.clinicName || "St. Luke's Medical Center - QC",
-    clinicAddress:
-      orderData.clinicAddress ||
-      "279 E Rodriguez Sr. Ave, Quezon City, Metro Manila",
-    vaccineName: orderData.vaccineName || "Vaxipro Ultra-V Adult",
-    vaccineType: orderData.vaccineType || "Cold Chain Vaccine",
-    quantity: orderData.quantity || 660,
+  if (!orderData.clinicName) {
+    throw new Error("Clinic name is required.");
+  }
+  if (!orderData.vaccineName) {
+    throw new Error("Vaccine name is required.");
+  }
+  if (!orderData.quantity || orderData.quantity <= 0) {
+    throw new Error("Quantity must be greater than zero.");
+  }
+
+  const orderNumber = orderData.orderNumber || `VT-ORD-${Date.now()}`;
+
+  const doc = {
+    orderNumber,
+    clinicName: orderData.clinicName,
+    clinicAddress: orderData.clinicAddress || "",
+    vaccineName: orderData.vaccineName,
+    vaccineType: orderData.vaccineType || "",
+    quantity: Number(orderData.quantity),
     unit: orderData.unit || "vials",
-    storageTemp: orderData.storageTemp || "2°C - 8°C",
-    priority: orderData.priority || "Urgent",
+    storageTemp: orderData.storageTemp || "",
+    priority: orderData.priority || "Standard",
 
     status: "pending_dispatch",
 
@@ -32,9 +42,31 @@ export async function createSalesRepOrder(orderData = {}) {
     assignedRiderName: null,
 
     createdByRole: "sales_rep",
+    createdByUid: orderData.createdByUid || null,
+    createdByEmail: orderData.createdByEmail || null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  });
+  };
+
+  if (orderData.region) {
+    doc.region = orderData.region;
+  }
+
+  if (orderData.deliveryInstructions) {
+    doc.deliveryInstructions = orderData.deliveryInstructions;
+  }
+
+  if (Array.isArray(orderData.items) && orderData.items.length > 0) {
+    doc.items = orderData.items.map((item) => ({
+      name: item.name || "",
+      sku: item.sku || "",
+      chain: item.chain || item.temp || item.category || "",
+      quantity: Number(item.quantity) || 0,
+      unitPrice: Number(item.unitPrice) || 0,
+    }));
+  }
+
+  return addDoc(collection(db, ORDERS_COLLECTION), doc);
 }
 
 export function subscribePendingDispatchOrders(callback) {

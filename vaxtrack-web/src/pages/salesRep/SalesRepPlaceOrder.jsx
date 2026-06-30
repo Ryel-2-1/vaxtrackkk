@@ -12,6 +12,7 @@ import {
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createSalesRepOrder } from "../../services/orderService";
+import { auth } from "../../firebase";
 import SalesRepLayout from "./SalesRepLayout";
 
 const fallbackItems = [
@@ -156,50 +157,52 @@ function SalesRepPlaceOrder() {
       return;
     }
 
+    setSaving(true);
+    setMessage("");
+
     try {
-      setSaving(true);
+      const user = auth.currentUser;
+      const vaccineSummary =
+        items.length === 1
+          ? items[0].name
+          : `${items[0].name} +${items.length - 1} more`;
 
       const orderPayload = {
         clinicName: selectedClinicInfo.name,
         clinicAddress: selectedClinicInfo.address,
-        items,
-        vaccineName: items[0]?.name || "Selected Vaccines",
-        vaccineType: items[0]?.chain || "Mixed Vaccine Order",
+        vaccineName: vaccineSummary,
+        vaccineType: items[0]?.chain || "",
         quantity: totalQuantity,
         unit: "vials",
-        storageTemp: items[0]?.chain || "Mixed",
+        storageTemp: items[0]?.chain || "",
         priority: urgent ? "Urgent" : "Standard",
         deliveryInstructions: instructions.trim(),
-        subtotal,
-        handlingFee,
-        urgentFee,
-        estimatedTotal,
-        status: "Pending",
-        createdAt: new Date().toISOString(),
+        items,
+        createdByUid: user?.uid || null,
+        createdByEmail: user?.email || null,
       };
 
-      let latestOrderId = `ORD-${Date.now()}`;
+      const orderRef = await createSalesRepOrder(orderPayload);
+      const orderId = orderRef.id;
 
-      try {
-        const orderRef = await createSalesRepOrder(orderPayload);
-        latestOrderId = orderRef?.id || latestOrderId;
-      } catch (firebaseError) {
-        console.warn("Firebase order save failed. Saving local draft instead:", firebaseError);
-      }
-
-      localStorage.setItem("latestSalesOrderId", latestOrderId);
+      localStorage.setItem("latestSalesOrderId", orderId);
       localStorage.setItem(
         "latestSalesOrderDetails",
         JSON.stringify({
-          id: latestOrderId,
+          id: orderId,
           ...orderPayload,
+          subtotal,
+          handlingFee,
+          urgentFee,
+          estimatedTotal,
+          status: "pending_dispatch",
         })
       );
 
       navigate("/sales-rep/order-confirmation");
     } catch (error) {
       console.error("Create order error:", error);
-      setMessage("Unable to create order. Please try again.");
+      setMessage(error.message || "Unable to create order. Please try again.");
     } finally {
       setSaving(false);
     }

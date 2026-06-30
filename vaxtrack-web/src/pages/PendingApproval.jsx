@@ -22,15 +22,15 @@ function PendingApproval() {
 
         <p>
           Your VaxTrack account has been created, but it still needs to be
-          reviewed by a manager or administrator before you can access the Sales
-          Pro Dashboard.
+          reviewed and approved by an administrator before you can access the
+          portal.
         </p>
 
         <div className="pending-note">
           <ShieldCheck size={20} />
           <span>
-            Once approved, your role will be updated to <b>sales_rep</b> and
-            your department will be assigned to <b>sales</b>.
+            Once approved, you will be able to log in and access your assigned
+            dashboard. You will receive access based on the role you applied for.
           </span>
         </div>
 

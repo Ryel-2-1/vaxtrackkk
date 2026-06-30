@@ -105,13 +105,27 @@ function loadLatestOrder() {
         }))
       : [];
 
+    const displayStatus = (() => {
+      switch (savedOrder.status) {
+        case "pending_dispatch": return "Processing";
+        case "assigned": return "Assigned";
+        case "in_transit": return "Out for Delivery";
+        case "delivered":
+        case "completed": return "Delivered";
+        case "delayed": return "Delayed";
+        case "cancelled":
+        case "canceled": return "Cancelled";
+        default: return "Processing";
+      }
+    })();
+
     return {
       id: savedOrder.id,
       destination: savedOrder.clinicName || "Selected Clinic",
       city: savedOrder.clinicAddress || "Address unavailable",
       date: "Today",
       scheduled: "Pending dispatch schedule",
-      status: savedOrder.status || "Processing",
+      status: displayStatus,
       progress: 15,
       progressText: "15% • Order submitted",
       driver: "Pending",

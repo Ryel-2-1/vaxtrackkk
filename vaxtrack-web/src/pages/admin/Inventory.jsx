@@ -124,10 +124,12 @@ function Inventory() {
     });
     const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]);
     const maxQty = sorted[0]?.[1] || 1;
-    return sorted.map(([label, totalQty]) => ({
+    const tones = ["blue", "green", "gold", "red", "purple"];
+    return sorted.map(([label, totalQty], i) => ({
       label,
       totalQty,
       percentage: Math.max(4, Math.round((totalQty / maxQty) * 100)),
+      tone: tones[i % tones.length],
     }));
   }, [inventory]);
 
@@ -623,7 +625,7 @@ function StockOverviewCard({ groups, loading }) {
             <div className="v2-stock-row" key={g.label}>
               <span className="v2-stock-row-label" title={g.label}>{g.label}</span>
               <div className="v2-stock-row-track">
-                <div className="v2-stock-row-fill" style={{ width: `${g.percentage}%` }} />
+                <div className={`v2-stock-row-fill ${g.tone}`} style={{ width: `${g.percentage}%` }} />
               </div>
               <span className="v2-stock-row-qty">{g.totalQty.toLocaleString()} doses</span>
             </div>

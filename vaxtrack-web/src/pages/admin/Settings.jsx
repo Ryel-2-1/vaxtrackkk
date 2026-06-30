@@ -25,7 +25,7 @@ import {
 import { auth } from "../../firebase";
 import { AdminSidebar } from "./Inventory";
 import "./Settings.css";
-import { subscribeUsers, updateUserStatus } from "../../services/userService";
+import { subscribeUsers, updateUserStatus, updateUserRole } from "../../services/userService";
 
 const defaultOrg = {
   organizationName: "VaxTrack Philippines",
@@ -54,6 +54,12 @@ const ROLE_DISPLAY = {
   rider: "Rider",
 };
 
+const ASSIGNABLE_ROLES = [
+  { value: "salesrep", label: "Sales Representative" },
+  { value: "dispatcher", label: "Dispatcher" },
+  { value: "rider", label: "Rider" },
+];
+
 const UI_STATUS = {
   approved: { status: "active", statusLabel: "Active" },
   pending: { status: "pending", statusLabel: "Pending" },
@@ -67,9 +73,10 @@ function normalizeUser(raw) {
   return {
     uid: raw.id,
     id: raw.employeeId || "—",
-    name: raw.name || "—",
+    name: raw.name || raw.fullName || "—",
     email: raw.email || "—",
-    role: ROLE_DISPLAY[raw.role] || raw.role || "—",
+    rawRole: raw.role || "",
+    role: ROLE_DISPLAY[raw.role] || raw.role || "Unassigned",
     department: raw.department || "—",
     branch: raw.branch || "—",
     status: uiStatus.status,
@@ -492,6 +499,7 @@ function UserManagement({ searchTerm, showToast }) {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedStaff, setSelectedStaff] = useState(null);
   const [actionMenuEmail, setActionMenuEmail] = useState(null);
+  const [roleChangeTarget, setRoleChangeTarget] = useState(null);
 
   useEffect(() => {
     const unsubscribe = subscribeUsers((raw) => {
@@ -540,6 +548,25 @@ function UserManagement({ searchTerm, showToast }) {
     } catch {
       showToast("Failed to update user status. Please try again.");
     } finally {
+      setActionMenuEmail(null);
+    }
+  };
+
+  const currentAdminUid = auth.currentUser?.uid;
+
+  const changeRole = async (uid, newRole) => {
+    if (uid === currentAdminUid) {
+      showToast("You cannot change your own role.");
+      setRoleChangeTarget(null);
+      return;
+    }
+    try {
+      await updateUserRole(uid, newRole);
+      showToast(`User role updated to ${ROLE_DISPLAY[newRole] || newRole}.`);
+    } catch {
+      showToast("Failed to update user role. Please try again.");
+    } finally {
+      setRoleChangeTarget(null);
       setActionMenuEmail(null);
     }
   };
@@ -735,6 +762,18 @@ function UserManagement({ searchTerm, showToast }) {
                               Reactivate
                             </button>
                           )}
+
+                          {person.uid !== currentAdminUid && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRoleChangeTarget(person);
+                                setActionMenuEmail(null);
+                              }}
+                            >
+                              Change Role
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -796,6 +835,7 @@ function UserManagement({ searchTerm, showToast }) {
       {selectedStaff && (
         <StaffDetailsModal
           person={selectedStaff}
+          isSelf={selectedStaff.uid === currentAdminUid}
           onClose={() => setSelectedStaff(null)}
           onApprove={() => {
             updateStatus(selectedStaff.uid, "approved");
@@ -809,6 +849,18 @@ function UserManagement({ searchTerm, showToast }) {
             updateStatus(selectedStaff.uid, "approved");
             setSelectedStaff(null);
           }}
+          onChangeRole={() => {
+            setSelectedStaff(null);
+            setRoleChangeTarget(selectedStaff);
+          }}
+        />
+      )}
+
+      {roleChangeTarget && (
+        <RoleChangeModal
+          person={roleChangeTarget}
+          onClose={() => setRoleChangeTarget(null)}
+          onConfirm={(newRole) => changeRole(roleChangeTarget.uid, newRole)}
         />
       )}
     </>
@@ -849,7 +901,7 @@ function FeatureToggle({ title, desc, enabled, important, onToggle }) {
   );
 }
 
-function StaffDetailsModal({ person, onClose, onApprove, onDeactivate, onReactivate }) {
+function StaffDetailsModal({ person, isSelf, onClose, onApprove, onDeactivate, onReactivate, onChangeRole }) {
   return (
     <div className="settings-modal-backdrop">
       <div className="settings-modal">
@@ -925,8 +977,68 @@ function StaffDetailsModal({ person, onClose, onApprove, onDeactivate, onReactiv
             </button>
           )}
 
+          {!isSelf && (
+            <button type="button" className="settings-primary-action" onClick={onChangeRole}>
+              Change Role
+            </button>
+          )}
+
           <button type="button" className="settings-light-action" onClick={onClose}>
             Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RoleChangeModal({ person, onClose, onConfirm }) {
+  const [newRole, setNewRole] = useState(person.rawRole || "salesrep");
+
+  return (
+    <div className="settings-modal-backdrop">
+      <div className="settings-modal confirm-modal">
+        <button type="button" className="settings-modal-close" onClick={onClose}>
+          <X size={18} />
+        </button>
+
+        <div className="settings-modal-avatar">
+          <UserRound size={28} />
+        </div>
+
+        <h2>Change Role</h2>
+        <p>
+          Update role for <strong>{person.name}</strong> ({person.email}).
+          Current role: <strong>{person.role}</strong>.
+        </p>
+
+        <div className="role-change-select-wrap">
+          <label>New Role</label>
+          <select
+            className="role-change-select"
+            value={newRole}
+            onChange={(e) => setNewRole(e.target.value)}
+          >
+            {ASSIGNABLE_ROLES.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="settings-modal-actions">
+          <button
+            type="button"
+            className="settings-primary-action"
+            disabled={newRole === person.rawRole}
+            onClick={() => onConfirm(newRole)}
+          >
+            Confirm Role Change
+          </button>
+
+          <button type="button" className="settings-light-action" onClick={onClose}>
+            Cancel
           </button>
         </div>
       </div>

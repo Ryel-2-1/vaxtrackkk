@@ -57,7 +57,7 @@ function getLatestOrder() {
       ...fallbackOrder,
       ...savedOrder,
       id: savedOrder.id || localStorage.getItem("latestSalesOrderId") || fallbackOrder.id,
-      status: savedOrder.status || "Processing",
+      status: friendlyStatus(savedOrder.status),
       clinicName: savedOrder.clinicName || fallbackOrder.clinicName,
       clinicAddress: savedOrder.clinicAddress || savedOrder.clinicName || fallbackOrder.clinicAddress,
       estimatedDelivery: savedOrder.estimatedDelivery || "Pending dispatch schedule",
@@ -225,6 +225,20 @@ function SalesRepOrderConfirmation() {
       </section>
     </SalesRepLayout>
   );
+}
+
+function friendlyStatus(raw) {
+  switch (raw) {
+    case "pending_dispatch": return "Processing";
+    case "assigned": return "Assigned";
+    case "in_transit": return "In Transit";
+    case "delivered":
+    case "completed": return "Delivered";
+    case "delayed": return "Delayed";
+    case "cancelled":
+    case "canceled": return "Cancelled";
+    default: return "Processing";
+  }
 }
 
 function ConfirmItem({ icon, name, sku, qty, note }) {

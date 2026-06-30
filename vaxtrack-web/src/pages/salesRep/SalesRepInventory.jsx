@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
@@ -8,168 +8,113 @@ import {
   ChevronRight,
   Filter,
   Hourglass,
+  Loader2,
   PackageCheck,
   PackagePlus,
   RotateCcw,
   Search,
   Snowflake,
 } from "lucide-react";
+import { subscribeInventory } from "../../services/inventoryService";
 import SalesRepLayout from "./SalesRepLayout";
 
-const inventoryData = [
-  {
-    id: "BT-2024-X91",
-    name: "VaxCovar-19",
-    type: "Moderna",
-    manufacturer: "Moderna Pharma",
-    expiryDate: "Oct 24, 2026",
-    daysRemaining: 12,
-    quantity: 14200,
-    temp: "-70°C",
-    status: "Critical",
-    capacity: 78,
-  },
-  {
-    id: "INF-221-Z67",
-    name: "Influenza-Plus",
-    type: "Pfizer",
-    manufacturer: "Global Bio",
-    expiryDate: "Dec 12, 2026",
-    daysRemaining: 61,
-    quantity: 8400,
-    temp: "2-8°C",
-    status: "Warning",
-    capacity: 84,
-  },
-  {
-    id: "PO-882-V69",
-    name: "Polio-Zero",
-    type: "Sinovac",
-    manufacturer: "Hygiela Lab",
-    expiryDate: "Mar 30, 2027",
-    daysRemaining: 170,
-    quantity: 52000,
-    temp: "2-8°C",
-    status: "Stable",
-    capacity: 72,
-  },
-  {
-    id: "PFZ-2023-A01",
-    name: "Comirnaty Shield",
-    type: "Pfizer",
-    manufacturer: "Pfizer-BioNTech",
-    expiryDate: "Aug 18, 2026",
-    daysRemaining: 38,
-    quantity: 85000,
-    temp: "-70°C",
-    status: "Stable",
-    capacity: 90,
-  },
-  {
-    id: "SNO-2023-C44",
-    name: "CoronaVac Plus",
-    type: "Sinovac",
-    manufacturer: "Sinovac",
-    expiryDate: "Oct 03, 2026",
-    daysRemaining: 84,
-    quantity: 120000,
-    temp: "2-8°C",
-    status: "Stable",
-    capacity: 86,
-  },
-  {
-    id: "MOD-2023-B12",
-    name: "Spikevax Batch",
-    type: "Moderna",
-    manufacturer: "Moderna",
-    expiryDate: "Jul 11, 2026",
-    daysRemaining: 29,
-    quantity: 45000,
-    temp: "-20°C",
-    status: "Warning",
-    capacity: 56,
-  },
-  {
-    id: "JNJ-2023-X99",
-    name: "Janssen Protect",
-    type: "J&J",
-    manufacturer: "J&J Janssen",
-    expiryDate: "May 28, 2026",
-    daysRemaining: 18,
-    quantity: 10000,
-    temp: "2-8°C",
-    status: "Critical",
-    capacity: 18,
-  },
-  {
-    id: "HEP-2025-HB2",
-    name: "HepaGuard-B",
-    type: "Pfizer",
-    manufacturer: "MedSupply PH",
-    expiryDate: "Jan 14, 2027",
-    daysRemaining: 95,
-    quantity: 36000,
-    temp: "2-8°C",
-    status: "Stable",
-    capacity: 66,
-  },
-  {
-    id: "RAB-2025-R01",
-    name: "RabiesVac",
-    type: "Moderna",
-    manufacturer: "Global Bio",
-    expiryDate: "Nov 02, 2026",
-    daysRemaining: 50,
-    quantity: 18500,
-    temp: "2-8°C",
-    status: "Warning",
-    capacity: 42,
-  },
-  {
-    id: "TET-2024-T11",
-    name: "TetanusCare",
-    type: "Sinovac",
-    manufacturer: "Hygiela Lab",
-    expiryDate: "Feb 22, 2027",
-    daysRemaining: 135,
-    quantity: 24000,
-    temp: "2-8°C",
-    status: "Stable",
-    capacity: 58,
-  },
-];
-
-const vaccineTypes = ["All", "Pfizer", "Moderna", "Sinovac", "J&J"];
 const statusTypes = ["All", "Critical", "Warning", "Stable"];
 const rowsPerPage = 5;
 
+function getDaysUntilExpiry(rawDateStr) {
+  if (!rawDateStr) return Infinity;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const expiry = new Date(rawDateStr + "T00:00:00");
+  return Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function formatExpiry(dateStr) {
+  if (!dateStr) return "—";
+  const date = new Date(dateStr + "T00:00:00");
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function normalizeStock(raw) {
+  const status = raw.status || "Stable";
+  const daysRemaining = getDaysUntilExpiry(raw.expiryDate);
+  return {
+    id: raw.id,
+    batchId: raw.batchId || raw.id,
+    name: raw.vaccineName || "Unknown Vaccine",
+    type: raw.vaccineType || "Other",
+    manufacturer: raw.manufacturer || "—",
+    expiryDate: formatExpiry(raw.expiryDate),
+    expiryRaw: raw.expiryDate || "",
+    daysRemaining,
+    quantity: raw.quantity != null ? Number(raw.quantity) : 0,
+    temp: raw.storageTempDisplay || (raw.storageTemp != null ? `${raw.storageTemp}°C` : "—"),
+    status,
+    statusLower: status.toLowerCase(),
+  };
+}
+
 function SalesRepInventory() {
   const navigate = useNavigate();
+
+  const [inventory, setInventory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState("All");
   const [selectedStatus, setSelectedStatus] = useState("All");
-  const [expiryWindow, setExpiryWindow] = useState("90");
+  const [expiryWindow, setExpiryWindow] = useState("all");
   const [selectedRows, setSelectedRows] = useState([]);
   const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    const unsubscribe = subscribeInventory(
+      (raw) => {
+        setInventory(raw.map(normalizeStock));
+        setLoading(false);
+        setError("");
+      },
+      (err) => {
+        if (err?.code === "permission-denied") {
+          setError("You do not have permission to view inventory. Please contact your administrator.");
+        } else {
+          setError("Unable to load inventory. Please try again later.");
+        }
+        setLoading(false);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  const vaccineTypes = useMemo(() => {
+    const types = new Set(inventory.map((s) => s.type));
+    return ["All", ...Array.from(types).sort()];
+  }, [inventory]);
 
   const filteredStocks = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
 
-    return inventoryData.filter((stock) => {
+    return inventory.filter((stock) => {
       const matchesSearch =
         stock.name.toLowerCase().includes(query) ||
         stock.manufacturer.toLowerCase().includes(query) ||
-        stock.id.toLowerCase().includes(query) ||
+        stock.batchId.toLowerCase().includes(query) ||
         stock.type.toLowerCase().includes(query);
 
       const matchesType = selectedType === "All" || stock.type === selectedType;
       const matchesStatus = selectedStatus === "All" || stock.status === selectedStatus;
       const matchesExpiry =
-        expiryWindow === "all" || stock.daysRemaining <= Number(expiryWindow);
+        expiryWindow === "all" ||
+        (stock.daysRemaining >= 0 && stock.daysRemaining <= Number(expiryWindow));
 
       return matchesSearch && matchesType && matchesStatus && matchesExpiry;
     });
-  }, [searchTerm, selectedType, selectedStatus, expiryWindow]);
+  }, [inventory, searchTerm, selectedType, selectedStatus, expiryWindow]);
 
   const totalPages = Math.max(1, Math.ceil(filteredStocks.length / rowsPerPage));
   const currentPage = Math.min(page, totalPages);
@@ -177,44 +122,45 @@ function SalesRepInventory() {
   const visibleStocks = filteredStocks.slice(startIndex, startIndex + rowsPerPage);
 
   const metrics = useMemo(() => {
-    const expiringSoon = inventoryData
-      .filter((stock) => stock.daysRemaining <= 30)
+    const expiringSoon = inventory
+      .filter((stock) => stock.daysRemaining <= 30 && stock.daysRemaining >= 0)
       .reduce((total, stock) => total + stock.quantity, 0);
 
-    const safeStock = inventoryData
-      .filter((stock) => stock.status === "Stable")
+    const safeStock = inventory
+      .filter((stock) => stock.statusLower === "stable")
       .reduce((total, stock) => total + stock.quantity, 0);
 
-    const coldChainAlerts = inventoryData.filter((stock) => stock.status !== "Stable").length;
+    const coldChainAlerts = inventory.filter((stock) => stock.statusLower !== "stable").length;
 
-    return {
-      expiringSoon,
-      safeStock,
-      coldChainAlerts,
-    };
-  }, []);
+    return { expiringSoon, safeStock, coldChainAlerts };
+  }, [inventory]);
 
-  const capacityByType = useMemo(() => {
-    return vaccineTypes
-      .filter((type) => type !== "All")
-      .map((type) => {
-        const typeStocks = inventoryData.filter((stock) => stock.type === type);
-        const averageCapacity =
-          typeStocks.reduce((total, stock) => total + stock.capacity, 0) / typeStocks.length;
+  const stockByType = useMemo(() => {
+    if (inventory.length === 0) return [];
+    const totals = {};
 
-        return {
-          label: type,
-          value: Math.round(averageCapacity || 0),
-          tone: type === "Pfizer" ? "blue" : type === "Moderna" ? "green" : type === "Sinovac" ? "gold" : "red",
-        };
-      });
-  }, []);
+    for (const stock of inventory) {
+      const key = stock.type || "Unknown";
+      totals[key] = (totals[key] || 0) + stock.quantity;
+    }
+
+    const sorted = Object.entries(totals).sort(([, a], [, b]) => b - a);
+    const maxQty = sorted.length > 0 ? sorted[0][1] : 1;
+    const tones = ["blue", "green", "gold", "red", "purple"];
+
+    return sorted.map(([label, qty], i) => ({
+      label,
+      qty,
+      barHeight: maxQty > 0 ? Math.max(Math.round((qty / maxQty) * 100), 4) : 0,
+      tone: tones[i % tones.length],
+    }));
+  }, [inventory]);
 
   const resetFilters = () => {
     setSearchTerm("");
     setSelectedType("All");
     setSelectedStatus("All");
-    setExpiryWindow("90");
+    setExpiryWindow("all");
     setSelectedRows([]);
     setPage(1);
   };
@@ -260,13 +206,47 @@ function SalesRepInventory() {
   };
 
   const requestSelected = () => {
-    const selectedStockItems = inventoryData.filter((stock) => selectedRows.includes(stock.id));
+    const selectedStockItems = inventory.filter((stock) => selectedRows.includes(stock.id));
 
     localStorage.setItem("salesRepSelectedInventory", JSON.stringify(selectedStockItems));
     navigate("/sales-rep/request-order");
   };
 
-  const formatNumber = (value) => value.toLocaleString();
+  const formatNumber = (value) => Number(value || 0).toLocaleString();
+
+  if (loading) {
+    return (
+      <SalesRepLayout active="inventory" title="Inventory Monitoring" showSearch={false}>
+        <div className="inventory-loading-state">
+          <Loader2 size={32} className="spin" />
+          <p>Loading inventory data...</p>
+        </div>
+      </SalesRepLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <SalesRepLayout active="inventory" title="Inventory Monitoring" showSearch={false}>
+        <div className="inventory-loading-state">
+          <AlertTriangle size={32} />
+          <p>{error}</p>
+        </div>
+      </SalesRepLayout>
+    );
+  }
+
+  if (inventory.length === 0) {
+    return (
+      <SalesRepLayout active="inventory" title="Inventory Monitoring" showSearch={false}>
+        <div className="inventory-loading-state">
+          <PackageCheck size={32} />
+          <strong>No inventory data</strong>
+          <p>No vaccine batches found in the system. Contact your administrator.</p>
+        </div>
+      </SalesRepLayout>
+    );
+  }
 
   return (
     <SalesRepLayout active="inventory" title="Inventory Monitoring" showSearch={false}>
@@ -288,18 +268,22 @@ function SalesRepInventory() {
       </section>
 
       <section className="inventory-v2-summary">
-        <div className="salesrep-card capacity-card inventory-capacity-card">
+        <div className="salesrep-card inventory-stock-chart-card">
           <div className="inventory-card-head">
             <div>
-              <h2>Central Hub Capacity</h2>
-              <p>Average storage capacity by vaccine type</p>
+              <h2>Available Stock by Vaccine Type</h2>
+              <p>Total doses grouped by vaccine type</p>
             </div>
           </div>
 
-          <div className="bar-chart inventory-v2-chart">
-            {capacityByType.map((bar) => (
-              <Bar key={bar.label} label={bar.label} value={bar.value} tone={bar.tone} />
-            ))}
+          <div className="stock-hbar-list">
+            {stockByType.length > 0 ? (
+              stockByType.map((bar) => (
+                <HBar key={bar.label} label={bar.label} qty={bar.qty} barWidth={bar.barHeight} tone={bar.tone} />
+              ))
+            ) : (
+              <p className="chart-empty">No stock data available</p>
+            )}
           </div>
         </div>
 
@@ -389,7 +373,7 @@ function SalesRepInventory() {
             {selectedRows.length > 0 && <span> · {selectedRows.length} selected</span>}
           </div>
 
-          {filteredStocks.some((stock) => stock.status === "Critical") && (
+          {filteredStocks.some((stock) => stock.statusLower === "critical") && (
             <p>
               <AlertTriangle size={14} />
               Critical batches should be requested or escalated first.
@@ -439,14 +423,16 @@ function SalesRepInventory() {
                       </div>
                     </div>
                   </td>
-                  <td><span className="batch-chip">{stock.id}</span></td>
+                  <td><span className="batch-chip">{stock.batchId}</span></td>
                   <td>
                     <strong>{stock.expiryDate}</strong>
-                    <small>{stock.daysRemaining} Days Remaining</small>
+                    {stock.daysRemaining !== Infinity && (
+                      <small>{stock.daysRemaining} Days Remaining</small>
+                    )}
                   </td>
                   <td>{formatNumber(stock.quantity)}</td>
                   <td><span className="temp-chip">{stock.temp}</span></td>
-                  <td><span className={`status-chip ${stock.status.toLowerCase()}`}>• {stock.status}</span></td>
+                  <td><span className={`status-chip ${stock.statusLower}`}>• {stock.status}</span></td>
                 </tr>
               ))
             ) : (
@@ -503,14 +489,14 @@ function SalesRepInventory() {
   );
 }
 
-function Bar({ label, value, tone }) {
+function HBar({ label, qty, barWidth, tone }) {
   return (
-    <div className="bar-item">
-      <div className="bar-bg">
-        <span className={tone} style={{ height: `${value}%` }}></span>
+    <div className="hbar-row">
+      <span className="hbar-label">{label}</span>
+      <div className="hbar-track">
+        <div className={`hbar-fill ${tone}`} style={{ width: `${barWidth}%` }} />
       </div>
-      <p>{label}</p>
-      <small>{value}%</small>
+      <span className="hbar-qty">{formatCompact(qty)} doses</span>
     </div>
   );
 }

@@ -831,47 +831,55 @@
 .v2-stock-list {
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 12px;
   margin-top: 14px;
-  max-height: 210px;
+  max-height: 260px;
   overflow-y: auto;
   padding-right: 4px;
 }
 
 .v2-stock-row {
-  display: grid;
-  grid-template-columns: 140px 1fr 90px;
+  display: flex;
   align-items: center;
   gap: 12px;
 }
 
 .v2-stock-row-label {
+  flex: 0 0 110px;
   font-size: 13px;
-  font-weight: 700;
-  color: #0f172a;
+  font-weight: 600;
+  color: #334155;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .v2-stock-row-track {
-  background: #e2e8f0;
-  border-radius: 4px;
-  height: 7px;
+  flex: 1;
+  background: #f1f5f9;
+  border-radius: 6px;
+  height: 22px;
   overflow: hidden;
 }
 
 .v2-stock-row-fill {
   height: 100%;
-  background: #0057d8;
-  border-radius: 4px;
+  border-radius: 6px;
+  min-width: 4px;
   transition: width 0.4s ease;
 }
 
+.v2-stock-row-fill.blue { background: #2563eb; }
+.v2-stock-row-fill.green { background: #16a34a; }
+.v2-stock-row-fill.gold { background: #ca8a04; }
+.v2-stock-row-fill.red { background: #dc2626; }
+.v2-stock-row-fill.purple { background: #9333ea; }
+
 .v2-stock-row-qty {
-  font-size: 12px;
-  font-weight: 800;
-  color: #475569;
+  flex: 0 0 85px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
   text-align: right;
   white-space: nowrap;
 }

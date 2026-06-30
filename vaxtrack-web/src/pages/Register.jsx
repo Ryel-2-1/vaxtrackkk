@@ -6,9 +6,14 @@ import {
   GoogleAuthProvider,
 } from "firebase/auth";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
-import { Eye, EyeOff, ArrowRight, Mail, Lock, User } from "lucide-react";
+import { Eye, EyeOff, ArrowRight, Mail, Lock, User, Briefcase } from "lucide-react";
 import { auth, db } from "../firebase";
 import "./Auth.css";
+
+const ROLE_OPTIONS = [
+  { value: "salesrep", label: "Sales Representative" },
+  { value: "dispatcher", label: "Dispatcher" },
+];
 
 function Register() {
   const navigate = useNavigate();
@@ -18,6 +23,7 @@ function Register() {
   const [employeeId, setEmployeeId] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [selectedRole, setSelectedRole] = useState("salesrep");
   const [agree, setAgree] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -50,9 +56,10 @@ function Register() {
         fullName,
         employeeId,
         email,
-        role: "staff",
+        role: selectedRole,
         status: "pending",
         createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
 
       navigate("/pending");
@@ -77,9 +84,10 @@ function Register() {
           fullName: result.user.displayName || "",
           employeeId: "",
           email: result.user.email || "",
-          role: "staff",
+          role: selectedRole,
           status: "pending",
           createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
         },
         { merge: true }
       );
@@ -152,6 +160,25 @@ function Register() {
                   onChange={(e) => setEmail(e.target.value)}
                 />
               </div>
+            </div>
+          </div>
+
+          <div className="register-field">
+            <label>Applying as</label>
+
+            <div className="register-input-box">
+              <Briefcase size={18} />
+              <select
+                className="register-role-select"
+                value={selectedRole}
+                onChange={(e) => setSelectedRole(e.target.value)}
+              >
+                {ROLE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
