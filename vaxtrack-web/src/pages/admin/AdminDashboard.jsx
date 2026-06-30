@@ -1,11 +1,10 @@
 import "./AdminDashboard.css";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
   AlertTriangle,
   Bell,
-  CheckCircle2,
   Clock,
   Layers,
   MapPin,
@@ -21,30 +20,40 @@ import {
 } from "lucide-react";
 import { auth } from "../../firebase";
 import { AdminSidebar } from "./Inventory";
+import { subscribeDeliveries } from "../../services/deliveryService";
+import { subscribeAllAlerts } from "../../services/alertService";
+import { subscribeRiders } from "../../services/riderService";
+import { subscribeInventory } from "../../services/inventoryService";
 
-const alerts = [
-  {
-    id: "ALT-001",
-    type: "critical",
-    title: "Route Deviation",
-    desc: "Delivery moved outside the expected delivery path.",
-    time: "3 min ago",
-  },
-  {
-    id: "ALT-002",
-    type: "warning",
-    title: "Late Arrival",
-    desc: "ETA delayed by 15 minutes due to traffic.",
-    time: "8 min ago",
-  },
-  {
-    id: "ALT-003",
-    type: "success",
-    title: "Cold Storage",
-    desc: "Temperature successfully stabilized to 3.8°C.",
-    time: "15 min ago",
-  },
-];
+function formatRelativeTime(timestamp) {
+  if (!timestamp) return "—";
+  const ms = timestamp.toMillis ? timestamp.toMillis() : timestamp;
+  const diff = Date.now() - ms;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+const ALERT_TYPE_MAP = {
+  temperature_breach: "critical",
+  stock_expiry: "warning",
+  route_deviation: "critical",
+  delivery_delay: "warning",
+  resolved: "success",
+};
+
+function normalizeAlert(raw) {
+  return {
+    id: raw.id,
+    type: ALERT_TYPE_MAP[raw.type] || (raw.status === "resolved" ? "success" : "warning"),
+    title: raw.title || raw.type || "Alert",
+    desc: raw.message || raw.description || "—",
+    time: formatRelativeTime(raw.createdAt),
+  };
+}
 
 function AdminDashboard() {
   const navigate = useNavigate();
@@ -56,6 +65,96 @@ function AdminDashboard() {
   const [mapZoom, setMapZoom] = useState(100);
   const [mapLayer, setMapLayer] = useState("Standard");
   const [toast, setToast] = useState("");
+
+  const [deliveryCount, setDeliveryCount] = useState(0);
+  const [delayedCount, setDelayedCount] = useState(0);
+  const [criticalCount, setCriticalCount] = useState(0);
+  const [riderCount, setRiderCount] = useState(0);
+  const [recentAlerts, setRecentAlerts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    let loaded = { deliveries: false, alerts: false, riders: false, inventory: false };
+
+    const checkAllLoaded = () => {
+      if (loaded.deliveries && loaded.alerts && loaded.riders && loaded.inventory) {
+        setLoading(false);
+      }
+    };
+
+    const handleError = (error) => {
+      console.error("Dashboard subscription error:", error);
+      setLoadError(error.message || "Failed to load dashboard data.");
+      setLoading(false);
+    };
+
+    const unsubDeliveries = subscribeDeliveries(
+      (orders) => {
+        setDeliveryCount(orders.length);
+        setDelayedCount(
+          orders.filter((o) => {
+            return o.statusKey === "delayed" || o.statusKey === "cancelled" || o.statusKey === "canceled";
+          }).length
+        );
+        loaded.deliveries = true;
+        checkAllLoaded();
+      },
+      handleError
+    );
+
+    let unsubAlerts = () => {};
+    try {
+      unsubAlerts = subscribeAllAlerts((raw) => {
+        setRecentAlerts(
+          raw
+            .filter((a) => a.status !== "resolved")
+            .slice(0, 5)
+            .map(normalizeAlert)
+        );
+        loaded.alerts = true;
+        checkAllLoaded();
+      });
+    } catch (e) {
+      console.error("Dashboard alerts subscription error:", e);
+      loaded.alerts = true;
+      checkAllLoaded();
+    }
+
+    const unsubRiders = subscribeRiders(
+      (riders) => {
+        setRiderCount(riders.length);
+        loaded.riders = true;
+        checkAllLoaded();
+      },
+      handleError
+    );
+
+    let unsubInventory = () => {};
+    try {
+      unsubInventory = subscribeInventory((batches) => {
+        setCriticalCount(
+          batches.filter((b) => {
+            const s = (b.status || "").toLowerCase();
+            return s === "critical";
+          }).length
+        );
+        loaded.inventory = true;
+        checkAllLoaded();
+      });
+    } catch (e) {
+      console.error("Dashboard inventory subscription error:", e);
+      loaded.inventory = true;
+      checkAllLoaded();
+    }
+
+    return () => {
+      unsubDeliveries();
+      unsubAlerts();
+      unsubRiders();
+      unsubInventory();
+    };
+  }, []);
 
   const handleLogout = async () => {
     await signOut(auth);
@@ -75,6 +174,19 @@ function AdminDashboard() {
   const handleContactRider = () => {
     showToast("Calling rider Arby Barruevo...");
   };
+
+  const displayAlerts =
+    recentAlerts.length > 0
+      ? recentAlerts.slice(0, 3)
+      : [
+          {
+            id: "empty",
+            type: "success",
+            title: "All Clear",
+            desc: "No active alerts at this time.",
+            time: "Now",
+          },
+        ];
 
   return (
     <div className="inventory-page">
@@ -98,7 +210,9 @@ function AdminDashboard() {
               onClick={() => setShowNotifications(true)}
             >
               <Bell size={15} />
-              <span className="v2-notification-dot"></span>
+              {recentAlerts.length > 0 && (
+                <span className="v2-notification-dot"></span>
+              )}
             </button>
 
             <button
@@ -111,17 +225,20 @@ function AdminDashboard() {
           </div>
         </header>
 
-        {showAlertBanner && (
+        {showAlertBanner && recentAlerts.some((a) => a.type === "critical") && (
           <section className="v2-alert-banner">
             <div className="v2-alert-icon">
               <AlertTriangle size={18} />
             </div>
 
             <div>
-              <strong>Route Deviation Detected</strong>
+              <strong>
+                {recentAlerts.find((a) => a.type === "critical")?.title ||
+                  "Critical Alert"}
+              </strong>
               <p>
-                Shipment RTX-9824 has moved 1.2km outside the assigned delivery
-                perimeter in Quezon City.
+                {recentAlerts.find((a) => a.type === "critical")?.desc ||
+                  "A critical alert requires your attention."}
               </p>
             </div>
 
@@ -185,7 +302,9 @@ function AdminDashboard() {
                 <div className="v2-map-controls">
                   <button
                     type="button"
-                    onClick={() => setMapZoom((prev) => Math.min(prev + 10, 160))}
+                    onClick={() =>
+                      setMapZoom((prev) => Math.min(prev + 10, 160))
+                    }
                     aria-label="Zoom in"
                   >
                     <Plus size={22} strokeWidth={2.4} />
@@ -193,7 +312,9 @@ function AdminDashboard() {
 
                   <button
                     type="button"
-                    onClick={() => setMapZoom((prev) => Math.max(prev - 10, 60))}
+                    onClick={() =>
+                      setMapZoom((prev) => Math.max(prev - 10, 60))
+                    }
                     aria-label="Zoom out"
                   >
                     <Minus size={22} strokeWidth={2.4} />
@@ -241,36 +362,36 @@ function AdminDashboard() {
             <section className="v2-stats-grid">
               <MetricCard
                 icon={<Truck size={18} />}
-                value="42"
+                value={loading ? "..." : String(deliveryCount)}
                 label="Active Deliveries"
-                trend="+15%"
+                trend=""
                 type="blue"
                 onClick={() => navigate("/admin/deliveries")}
               />
 
               <MetricCard
                 icon={<Clock size={18} />}
-                value="3"
+                value={loading ? "..." : String(delayedCount)}
                 label="Delayed / Missing"
-                trend="-2%"
+                trend=""
                 type="amber"
                 onClick={() => navigate("/admin/deliveries")}
               />
 
               <MetricCard
                 icon={<AlertTriangle size={18} />}
-                value="5"
+                value={loading ? "..." : String(criticalCount)}
                 label="Low Stock / Critical"
-                trend="-8.5%"
+                trend=""
                 type="red"
                 onClick={() => navigate("/admin/inventory")}
               />
 
               <MetricCard
                 icon={<Users size={18} />}
-                value="28"
-                label="Riders Online"
-                trend="+6%"
+                value={loading ? "..." : String(riderCount)}
+                label="Registered Riders"
+                trend=""
                 type="green"
                 onClick={() => navigate("/admin/riders")}
               />
@@ -322,11 +443,11 @@ function AdminDashboard() {
                 </button>
               </div>
 
-              {alerts.map((alert) => (
+              {displayAlerts.map((alert) => (
                 <AlertItem
                   key={alert.id}
                   {...alert}
-                  onReview={() => setShowInspectModal(true)}
+                  onReview={() => navigate("/admin/alerts")}
                 />
               ))}
             </div>
@@ -379,7 +500,11 @@ function AdminDashboard() {
             </div>
 
             <div className="v2-modal-actions">
-              <button type="button" className="v2-red-btn" onClick={handleContactRider}>
+              <button
+                type="button"
+                className="v2-red-btn"
+                onClick={handleContactRider}
+              >
                 Contact Rider
               </button>
 
@@ -422,8 +547,11 @@ function AdminDashboard() {
             </button>
           </div>
 
-          {alerts.map((alert) => (
-            <div key={alert.id} className={`v2-notification-item ${alert.type}`}>
+          {displayAlerts.map((alert) => (
+            <div
+              key={alert.id}
+              className={`v2-notification-item ${alert.type}`}
+            >
               <strong>{alert.title}</strong>
               <p>{alert.desc}</p>
               <small>{alert.time}</small>
@@ -445,10 +573,14 @@ function AdminDashboard() {
 
 function MetricCard({ icon, value, label, trend, type, onClick }) {
   return (
-    <button type="button" className={`v2-metric-card ${type}`} onClick={onClick}>
+    <button
+      type="button"
+      className={`v2-metric-card ${type}`}
+      onClick={onClick}
+    >
       <div className="v2-metric-icon">{icon}</div>
 
-      <div className="v2-trend">{trend}</div>
+      {trend && <div className="v2-trend">{trend}</div>}
 
       <h2>{value}</h2>
       <p>{label}</p>

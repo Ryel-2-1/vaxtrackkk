@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
@@ -17,98 +17,71 @@ import {
 } from "lucide-react";
 import { auth } from "../../firebase";
 import { AdminSidebar } from "./Inventory";
+import { subscribeDeliveries } from "../../services/deliveryService";
 import "./Deliveries.css";
 
-const initialDeliveries = [
-  {
-    id: "#VT-823",
-    eta: "ETA: 9:00 AM",
-    etaType: "normal",
-    initials: "JS",
-    rider: "Juan Santos",
-    vehicle: "Van",
-    plate: "NCL-1241",
-    destination: "Makati Med Center",
-    address: "2 Amorsolo Street, Legazpi Village",
-    region: "Makati",
-    status: "In Transit",
-    statusType: "transit",
-    temp: "3.4°C",
-    priority: "Normal",
-  },
-  {
-    id: "#VT-8824",
-    eta: "+45m Behind",
-    etaType: "late",
-    initials: "MR",
-    rider: "Maria Reyes",
-    vehicle: "Truck",
-    plate: "RTY-992",
-    destination: "PGH Manila",
-    address: "Taft Avenue, Ermita",
-    region: "Manila",
-    status: "Delayed",
-    statusType: "delayed",
-    temp: "3.8°C",
-    priority: "High",
-  },
-  {
-    id: "#VT-8825",
-    eta: "Departs at 1:00 PM",
-    etaType: "neutral",
-    initials: "DL",
-    rider: "David Lim",
-    vehicle: "Van",
-    plate: "ABC-445",
-    destination: "St. Luke's BGC",
-    address: "32nd St, Taguig",
-    region: "Taguig",
-    status: "Loading",
-    statusType: "loading",
-    temp: "2.9°C",
-    priority: "Normal",
-  },
-  {
-    id: "#VT-8826",
-    eta: "-35m ahead",
-    etaType: "ahead",
-    initials: "AG",
-    rider: "Ana Garcia",
-    vehicle: "Bike",
-    plate: "123-XY",
-    destination: "Quezon City Gen",
-    address: "Seminary Road, Project 8",
-    region: "Quezon City",
-    status: "In Transit",
-    statusType: "transit",
-    temp: "3.1°C",
-    priority: "Normal",
-  },
-];
+function normalizeDelivery(raw) {
+  const riderName = raw.assignedRiderName || "Unassigned";
+  const initials = riderName
+    .split(" ")
+    .filter(Boolean)
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase() || "?";
+
+  return {
+    uid: raw.id,
+    id: raw.orderNumber || raw.id.slice(0, 10).toUpperCase(),
+    rider: riderName,
+    initials,
+    vehicle: raw.vehicle || "—",
+    plate: raw.plate || "—",
+    destination: raw.clinicName || "—",
+    address: raw.clinicAddress || "—",
+    region: raw.region || "—",
+    rawStatus: raw.rawStatus,
+    statusKey: raw.statusKey,
+    status: raw.statusLabel,
+    statusType: raw.statusType,
+    temp: raw.storageTemp || "—",
+    priority: raw.priority || "Normal",
+    eta: raw.statusType === "transit" ? "In Transit" : raw.statusType === "delayed" ? "Needs Review" : "Preparing",
+    etaType: raw.statusType === "delayed" ? "late" : raw.statusType === "transit" ? "normal" : "neutral",
+    vaccineName: raw.vaccineName || "—",
+    quantity: raw.quantity || 0,
+    unit: raw.unit || "doses",
+  };
+}
 
 function Deliveries() {
   const navigate = useNavigate();
 
-  const [deliveryList, setDeliveryList] = useState(initialDeliveries);
+  const [deliveryList, setDeliveryList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [regionFilter, setRegionFilter] = useState("all");
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [selectedDelivery, setSelectedDelivery] = useState(null);
-  const [showNewDeliveryModal, setShowNewDeliveryModal] = useState(false);
   const [mapMode, setMapMode] = useState(false);
   const [toast, setToast] = useState("");
 
- const [newDelivery, setNewDelivery] = useState({
-  id: "",
-  rider: "",
-  destination: "",
-  address: "",
-  region: "Manila",
-  statusType: "loading",
-  temp: "2-8°C",
-  priority: "Normal",
-});
+  useEffect(() => {
+    const unsubscribe = subscribeDeliveries(
+      (raw) => {
+        setDeliveryList(raw.map(normalizeDelivery));
+        setLoading(false);
+        setLoadError("");
+      },
+      (error) => {
+        setLoading(false);
+        setLoadError(error.message || "Failed to load deliveries.");
+      }
+    );
+    return () => unsubscribe();
+  }, []);
 
   const handleLogout = async () => {
     await signOut(auth);
@@ -120,97 +93,30 @@ function Deliveries() {
     setTimeout(() => setToast(""), 2200);
   };
 
-  const handleCreateDelivery = (e) => {
-    e.preventDefault();
-
-   if (
-  !newDelivery.id.trim() ||
-  !newDelivery.rider.trim() ||
-  !newDelivery.destination.trim() ||
-  !newDelivery.address.trim()
-) {
-      showToast("Please complete all delivery fields.");
-      return;
-    }
-
-    const statusLabel =
-      newDelivery.statusType === "transit"
-        ? "In Transit"
-        : newDelivery.statusType === "delayed"
-        ? "Delayed"
-        : "Loading";
-
-    const createdDelivery = {
-      id: newDelivery.id.startsWith("#") ? newDelivery.id : `#${newDelivery.id}`,
-      eta:
-        newDelivery.statusType === "loading"
-          ? "Preparing shipment"
-          : newDelivery.statusType === "delayed"
-          ? "Needs review"
-          : "ETA: Pending",
-      etaType:
-        newDelivery.statusType === "delayed"
-          ? "late"
-          : newDelivery.statusType === "transit"
-          ? "normal"
-          : "neutral",
-      initials: newDelivery.rider
-        .split(" ")
-        .filter(Boolean)
-        .map((name) => name[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase(),
-      rider: newDelivery.rider,
-      vehicle: "Not specified",
-      plate: "Not specified",
-      destination: newDelivery.destination,
-      address: newDelivery.address,
-      region: newDelivery.region,
-      status: statusLabel,
-      statusType: newDelivery.statusType,
-      temp: newDelivery.temp,
-      priority: newDelivery.priority,
-    };
-
-    setDeliveryList((prev) => [createdDelivery, ...prev]);
-
-    setNewDelivery({
-      id: "",
-      rider: "",
-      destination: "",
-      address: "",
-      region: "Manila",
-      statusType: "loading",
-      temp: "2-8°C",
-      priority: "Normal",
-  });
-
-    setShowNewDeliveryModal(false);
-    showToast(`${createdDelivery.id} has been added to deliveries.`);
-  };
-
   const filteredDeliveries = useMemo(() => {
     return deliveryList.filter((delivery) => {
       const searchValue =
         `${delivery.id} ${delivery.rider} ${delivery.destination} ${delivery.region} ${delivery.status}`.toLowerCase();
-
       const matchesSearch = searchValue.includes(searchTerm.toLowerCase());
-
       const matchesStatus =
         statusFilter === "all" || delivery.statusType === statusFilter;
-
       const matchesRegion =
         regionFilter === "all" ||
         delivery.region.toLowerCase() === regionFilter.toLowerCase();
-
       return matchesSearch && matchesStatus && matchesRegion;
     });
   }, [deliveryList, searchTerm, statusFilter, regionFilter]);
 
-  const delayedDelivery =
-    deliveryList.find((item) => item.statusType === "delayed") ||
-    deliveryList[0];
+  const transitCount = deliveryList.filter((d) => d.statusType === "transit").length;
+  const delayedCount = deliveryList.filter((d) => d.statusType === "delayed").length;
+  const loadingCount = deliveryList.filter((d) => d.statusType === "loading").length;
+
+  const delayedDelivery = deliveryList.find((d) => d.statusType === "delayed");
+
+  const regions = useMemo(() => {
+    const set = new Set(deliveryList.map((d) => d.region).filter((r) => r !== "—"));
+    return Array.from(set).sort();
+  }, [deliveryList]);
 
   return (
     <div className="inventory-page">
@@ -248,7 +154,11 @@ function Deliveries() {
             <button
               type="button"
               className="deliveries-v4-new-btn"
-              onClick={() => setShowNewDeliveryModal(true)}
+              onClick={() =>
+                showToast(
+                  "Deliveries are created through Sales Rep orders and dispatched by a Dispatcher."
+                )
+              }
             >
               <Plus size={14} />
               New Delivery
@@ -256,21 +166,24 @@ function Deliveries() {
           </div>
         </header>
 
-        <section className="deliveries-alert-strip">
-          <AlertTriangle size={18} />
-
-          <div>
-            <strong>1 delayed delivery requires review</strong>
-            <p>#VT-8824 is currently +45 minutes behind schedule.</p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setSelectedDelivery(delayedDelivery)}
-          >
-            Review Now
-          </button>
-        </section>
+        {delayedCount > 0 && delayedDelivery && (
+          <section className="deliveries-alert-strip">
+            <AlertTriangle size={18} />
+            <div>
+              <strong>
+                {delayedCount} delayed deliver{delayedCount === 1 ? "y" : "ies"}{" "}
+                require{delayedCount === 1 ? "s" : ""} review
+              </strong>
+              <p>{delayedDelivery.id} needs attention.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedDelivery(delayedDelivery)}
+            >
+              Review Now
+            </button>
+          </section>
+        )}
 
         <section className="deliveries-v4-filters">
           <div className="deliveries-v4-search">
@@ -290,7 +203,7 @@ function Deliveries() {
             <option value="all">All Statuses</option>
             <option value="transit">In Transit</option>
             <option value="delayed">Delayed</option>
-            <option value="loading">Loading</option>
+            <option value="loading">Loading / Assigned</option>
           </select>
 
           <select
@@ -299,10 +212,11 @@ function Deliveries() {
             onChange={(e) => setRegionFilter(e.target.value)}
           >
             <option value="all">All Regions</option>
-            <option value="Makati">Makati</option>
-            <option value="Manila">Manila</option>
-            <option value="Taguig">Taguig</option>
-            <option value="Quezon City">Quezon City</option>
+            {regions.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
           </select>
 
           <button
@@ -342,16 +256,16 @@ function Deliveries() {
         <section className="deliveries-summary-grid">
           <DeliverySummaryCard
             icon={<Truck size={18} />}
-            value="42"
-            label="Active Deliveries"
+            value={deliveryList.length}
+            label="Total Deliveries"
             type="blue"
-            note="+12%"
+            note="All orders"
             onClick={() => setStatusFilter("all")}
           />
 
           <DeliverySummaryCard
             icon={<Navigation size={18} />}
-            value="18"
+            value={transitCount}
             label="In Transit"
             type="green"
             note="On route"
@@ -360,7 +274,7 @@ function Deliveries() {
 
           <DeliverySummaryCard
             icon={<Clock3 size={18} />}
-            value="3"
+            value={delayedCount}
             label="Delayed"
             type="amber"
             note="Needs review"
@@ -369,11 +283,11 @@ function Deliveries() {
 
           <DeliverySummaryCard
             icon={<AlertTriangle size={18} />}
-            value="2"
-            label="Route Alerts"
+            value={loadingCount}
+            label="Loading / Assigned"
             type="red"
-            note="Critical"
-            onClick={() => showToast("Route alert filter applied.")}
+            note="Preparing"
+            onClick={() => setStatusFilter("loading")}
           />
         </section>
 
@@ -382,7 +296,7 @@ function Deliveries() {
             <div>
               <h2>{mapMode ? "Fleet Map Mode" : "Live Fleet Tracking"}</h2>
               <p>
-                Showing {filteredDeliveries.length} of {deliveryList.length} demo
+                Showing {filteredDeliveries.length} of {deliveryList.length}{" "}
                 deliveries
               </p>
             </div>
@@ -413,7 +327,7 @@ function Deliveries() {
                 <tbody>
                   {filteredDeliveries.map((delivery) => (
                     <tr
-                      key={delivery.id}
+                      key={delivery.uid}
                       className={`delivery-row-${delivery.statusType}`}
                       onClick={() => setSelectedDelivery(delivery)}
                     >
@@ -431,13 +345,12 @@ function Deliveries() {
                           <span className="deliveries-v4-avatar">
                             {delivery.initials}
                           </span>
-
                           <div>
                             <strong>{delivery.rider}</strong>
                             <small>
-                              {delivery.vehicle}
-                              <br />
-                              Plate: {delivery.plate}
+                              {delivery.vehicle !== "—"
+                                ? `${delivery.vehicle} • Plate: ${delivery.plate}`
+                                : "Vehicle not assigned"}
                             </small>
                           </div>
                         </div>
@@ -492,11 +405,34 @@ function Deliveries() {
                 </tbody>
               </table>
 
-              {filteredDeliveries.length === 0 && (
+              {loading && (
                 <div className="deliveries-empty-state">
                   <Truck size={30} />
-                  <strong>No deliveries found</strong>
-                  <p>Try adjusting your search or selected filters.</p>
+                  <strong>Loading deliveries...</strong>
+                </div>
+              )}
+
+              {!loading && loadError && (
+                <div className="deliveries-empty-state">
+                  <Truck size={30} />
+                  <strong>Could not load deliveries</strong>
+                  <p>{loadError}</p>
+                </div>
+              )}
+
+              {!loading && !loadError && filteredDeliveries.length === 0 && (
+                <div className="deliveries-empty-state">
+                  <Truck size={30} />
+                  <strong>
+                    {deliveryList.length === 0
+                      ? "No deliveries yet"
+                      : "No deliveries match your filters"}
+                  </strong>
+                  <p>
+                    {deliveryList.length === 0
+                      ? "Deliveries appear here when orders are created by Sales Representatives."
+                      : "Try adjusting your search or selected filters."}
+                  </p>
                 </div>
               )}
             </div>
@@ -508,7 +444,9 @@ function Deliveries() {
         <DeliveryModal
           delivery={selectedDelivery}
           onClose={() => setSelectedDelivery(null)}
-          onContact={() => showToast(`Contacting ${selectedDelivery.rider}...`)}
+          onContact={() =>
+            showToast(`Contacting ${selectedDelivery.rider}...`)
+          }
           onRoute={() => {
             setSelectedDelivery(null);
             setMapMode(true);
@@ -519,154 +457,6 @@ function Deliveries() {
             showToast(`${selectedDelivery.id} marked as reviewed.`);
           }}
         />
-      )}
-
-      {showNewDeliveryModal && (
-        <div className="deliveries-modal-backdrop">
-          <form
-            className="deliveries-modal deliveries-form-modal"
-            onSubmit={handleCreateDelivery}
-          >
-            <button
-              type="button"
-              className="deliveries-modal-close"
-              onClick={() => setShowNewDeliveryModal(false)}
-            >
-              <X size={18} />
-            </button>
-            
-            <h2>New Delivery</h2>
-            <p>Create a new cold-chain delivery record for dispatch monitoring.</p>
-
-            <div className="deliveries-form-grid">
-              <label>
-                Delivery ID
-                <input
-                  type="text"
-                  placeholder="VT-9001"
-                  value={newDelivery.id}
-                  onChange={(e) =>
-                    setNewDelivery((prev) => ({
-                      ...prev,
-                      id: e.target.value,
-                    }))
-                  }
-                />
-              </label>
-
-              <label>
-                Rider Name
-                <input
-                  type="text"
-                  placeholder="Juan Dela Cruz"
-                  value={newDelivery.rider}
-                  onChange={(e) =>
-                    setNewDelivery((prev) => ({
-                      ...prev,
-                      rider: e.target.value,
-                    }))
-                  }
-                />
-              </label>
-
-              <label>
-                Destination
-                <input
-                  type="text"
-                  placeholder="Clinic or hospital name"
-                  value={newDelivery.destination}
-                  onChange={(e) =>
-                    setNewDelivery((prev) => ({
-                      ...prev,
-                      destination: e.target.value,
-                    }))
-                  }
-                />
-              </label>
-
-              <label>
-                Region
-                <select
-                  value={newDelivery.region}
-                  onChange={(e) =>
-                    setNewDelivery((prev) => ({
-                      ...prev,
-                      region: e.target.value,
-                    }))
-                  }
-                >
-                  <option>Manila</option>
-                  <option>Makati</option>
-                  <option>Taguig</option>
-                  <option>Quezon City</option>
-                </select>
-              </label>
-
-              <label className="wide">
-                Address
-                <input
-                  type="text"
-                  placeholder="Complete delivery address"
-                  value={newDelivery.address}
-                  onChange={(e) =>
-                    setNewDelivery((prev) => ({
-                      ...prev,
-                      address: e.target.value,
-                    }))
-                  }
-                />
-              </label>
-
-              <label>
-                Status
-                <select
-                  value={newDelivery.statusType}
-                  onChange={(e) =>
-                    setNewDelivery((prev) => ({
-                      ...prev,
-                      statusType: e.target.value,
-                    }))
-                  }
-                >
-                  <option value="loading">Loading</option>
-                  <option value="transit">In Transit</option>
-                  <option value="delayed">Delayed</option>
-                </select>
-              </label>
-
-              <label>
-                Priority
-                <select
-                  value={newDelivery.priority}
-                  onChange={(e) =>
-                    setNewDelivery((prev) => ({
-                      ...prev,
-                      priority: e.target.value,
-                    }))
-                  }
-                >
-                  <option>Normal</option>
-                  <option>High</option>
-                  <option>Urgent</option>
-                </select>
-              </label>
-            </div>
-
-            <div className="deliveries-modal-actions">
-              <button type="submit" className="deliveries-primary-action">
-                Create Delivery
-              </button>
-
-              <button
-                type="button"
-                className="deliveries-light-action"
-                onClick={() => setShowNewDeliveryModal(false)}
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
       )}
     </div>
   );
@@ -680,7 +470,6 @@ function DeliverySummaryCard({ icon, value, label, type, note, onClick }) {
       onClick={onClick}
     >
       <div className="deliveries-summary-icon">{icon}</div>
-
       <div>
         <h2>{value}</h2>
         <p>{label}</p>
@@ -700,10 +489,8 @@ function FleetMap({ deliveries, onSelect }) {
       {deliveries.map((delivery, index) => (
         <button
           type="button"
-          key={delivery.id}
-          className={`deliveries-map-pin pin-${index + 1} ${
-            delivery.statusType
-          }`}
+          key={delivery.uid}
+          className={`deliveries-map-pin pin-${index + 1} ${delivery.statusType}`}
           onClick={() => onSelect(delivery)}
         >
           <Truck size={16} />
@@ -716,12 +503,10 @@ function FleetMap({ deliveries, onSelect }) {
           <i className="transit"></i>
           In Transit
         </span>
-
         <span>
           <i className="delayed"></i>
           Delayed
         </span>
-
         <span>
           <i className="loading"></i>
           Loading
@@ -781,6 +566,18 @@ function DeliveryModal({ delivery, onClose, onContact, onRoute, onResolve }) {
           <div>
             <span>Priority</span>
             <strong>{delivery.priority}</strong>
+          </div>
+
+          <div>
+            <span>Vaccine</span>
+            <strong>{delivery.vaccineName}</strong>
+          </div>
+
+          <div>
+            <span>Quantity</span>
+            <strong>
+              {delivery.quantity} {delivery.unit}
+            </strong>
           </div>
 
           <div className="wide">

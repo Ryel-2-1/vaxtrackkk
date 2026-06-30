@@ -107,17 +107,58 @@ Known gap to fix later: `status: "inactive"` (used in Settings.jsx UI) is not bl
 - Navigation bugs fixed: AddVaccine + AddStock both navigated to `/inventory` → fixed to `/admin/inventory`
 - Duplicate `<small>` temp helper in AddStock.jsx removed
 
-**Step 7 — riderService.js + Riders.jsx**
-- `riderService.js` created: `subscribeRiders` queries `users` where `role == "rider"`, client-side sort by name, error callback
-- Riders.jsx wired: hardcoded `initialRiders` removed; Firestore status mapped to UI status (`approved`→`standby`, `pending`/`pending_approval`→`offduty` "Pending Approval", `rejected`/`disabled`→`offduty` "Inactive")
-- Operational statuses (`active`, `deviation`) remain local-state-only since no delivery/GPS system exists yet
-- "New Rider" button kept; submit now shows notice that rider accounts require Firebase Auth — writing deferred per CLAUDE.md
-- Loading/error states added to personnel list
+**Step 6 — deliveryService.js + Deliveries.jsx ✅ CONFIRMED WORKING**
+- `deliveryService.js` created: `subscribeDeliveries` listens on `orders` collection (no separate `deliveries` collection exists yet), client-side sort by `createdAt`, error callback
+- Status normalization centralized in `deliveryService.js` with shared helpers: `normalizeStatusKey`, `getOrderStatusValue`, `mapOrderStatusLabel`, `mapOrderStatusType`
+- `getOrderStatusValue` checks multiple field names: `status`, `orderStatus`, `deliveryStatus`, `shipmentStatus`, `dispatchStatus`
+- Each order object from the service includes: `rawStatus` (original Firestore value), `statusKey` (normalized key), `statusLabel` (display text), `statusType` (CSS/filter category)
+- Full status mapping: `pending`/`pending_dispatch`/`assigned`/`loading` → Loading, `in_transit` → In Transit, `delayed` → Delayed, `cancelled`/`canceled` → Cancelled, `completed`/`delivered` → Delivered
+- Deliveries.jsx wired to Firestore; hardcoded `initialDeliveries` removed; `normalizeDelivery` maps service-computed fields to UI shape
+- Summary cards show real counts; alert strip only appears when delayed deliveries exist; region filter populated dynamically
+- "New Delivery" button shows notice (deliveries are created through Sales Rep → Dispatcher flow)
+- All keys use `delivery.uid` (Firestore doc ID); loading/error/empty states added
+- Detail modal shows vaccine name and quantity from order data
+- Bug fixed: `status: "delayed"` not reflecting — root cause was direct `STATUS_MAP[raw.status]` lookup with no normalization and missing status keys; fixed by centralizing normalization in the service layer
+- Firebase Analytics disabled during local development (`import.meta.env.PROD` guard in `firebase.js`); only initializes in production builds. Eliminates CSP errors from `firebase.googleapis.com`, `firebaseinstallations.googleapis.com`, `googletagmanager.com` during `npm run dev`
+- **Firestore rules note:** Admin Deliveries uses the existing `orders` collection. During development, Firestore rules were temporarily updated to allow authenticated users to read/write orders so Admin Deliveries can subscribe. Before production deployment, these rules must be tightened so only approved admin/authorized roles can access the correct order operations.
+
+**Step 7 — riderService.js + Riders.jsx ✅ CONFIRMED WORKING**
+- `riderService.js` created: `subscribeRiders` queries `users` where `role == "rider"`, `updateRiderStatus` writes to `users/{uid}`
+- Riders.jsx rewritten: hardcoded array removed; Firestore subscription is sole source of truth
+- Status mapping: `approved`→Standby, `pending`/`pending_approval`→Pending Approval, `disabled`→Off Duty, `rejected`→Rejected
+- Field mapping: `fullName||name||displayName||email`, `vehiclePlate||motorcycle||motorcycleId||vehicle`, `employeeId` for display ID only
+- Rider lifecycle: pending→Approve/Reject, approved→Mark Off Duty, disabled→Set Available, rejected stays
+- All keys use `rider.uid` (Firestore doc ID); duplicate key bug fixed
+- "New Rider" shows notice about Firebase Auth requirement
 
 **Step 4 — vaccineService.js + AddVaccine.jsx + AddStock.jsx**
 - `vaccineService.js` created: `getVaccineTypes`, `addVaccineType`, `skuExists`, `addVaccine`, `getVaccines`, `batchIdExists`, `addStockBatch`
 - AddVaccine.jsx and AddStock.jsx refactored to use service; all Firestore imports removed from components
 - Confirmed: Add Vaccine saves, duplicate SKU blocked; Add Stock saves, duplicate Batch ID blocked; new stock appears in Inventory real-time
+
+**Step 8 — AdminDashboard.jsx real counts ✅ CONFIRMED WORKING**
+- Wired to 4 Firestore subscriptions: `subscribeDeliveries` (orders), `subscribeAllAlerts` (alerts), `subscribeRiders` (users), `subscribeInventory` (inventory)
+- KPI cards show real counts: total orders, delayed/missing, critical stock, registered riders
+- Recent alerts sidebar populated from Firestore alerts (unresolved, most recent 5)
+- Trend percentages removed (no historical data to compute from); "Riders Online" renamed to "Registered Riders"
+- Loading/error states added; `subscribeAllAlerts` and `subscribeInventory` wrapped in try/catch (no error callback in those services)
+
+**Step 9 — Analytics.jsx ✅ CONFIRMED WORKING**
+- No separate `analyticsService.js` needed — reuses `subscribeDeliveries` and `subscribeAllAlerts`
+- Real data from Firestore:
+  - Total Orders: count from `orders`, filtered by time range (7/30/90 days) and vaccine
+  - Active Alerts: unresolved count from `alerts`
+  - Completion Rate: `(delivered + completed) / total` from orders in range
+  - Volume Chart: orders grouped by `createdAt` into day buckets (7d) or period buckets (30d/90d)
+  - Vaccine Filter: dynamically populated from unique `vaccineName` values in orders
+  - Heatmap: computed from order `createdAt` timestamps (day of week × morning/afternoon/evening)
+  - AI Insight: semi-dynamic, references actual delayed order count
+  - Region Distribution: computed from orders `region` field if present; graceful empty state if not
+- Hardcoded sections kept (with reason):
+  - Hub Performance Ranking: no `hubs` collection exists
+  - Average Delivery Time: no dispatch/arrival timestamps on orders (shows "—" with explanation)
+- "On-Time Rate" renamed to "Completion Rate" (honest label for delivered/completed ÷ total)
+- Loading/error states added
 
 **Step 3.5 — Inventory.jsx real-time overview sections**
 - "Current Stock Overview" card: vertical scrollable bar list, total doses grouped by vaccineType, sorted highest-to-lowest. Replaces the old column bar chart.
@@ -135,13 +176,13 @@ All admin pages except AddStock and AddVaccine run on hardcoded demo data. The g
 
 | File | Status | Serves |
 |---|---|---|
-| `src/services/alertService.js` | ✅ Complete | Alerts.jsx, AdminDashboard.jsx |
+| `src/services/alertService.js` | ✅ Complete | Alerts.jsx, AdminDashboard.jsx, Analytics.jsx |
 | `src/services/orderService.js` | Complete — SalesRep/Dispatcher only, do not touch | SalesRep, Dispatcher |
-| `src/services/inventoryService.js` | ✅ Complete | Inventory.jsx |
+| `src/services/inventoryService.js` | ✅ Complete | Inventory.jsx, AdminDashboard.jsx |
 | `src/services/userService.js` | ✅ Complete | Settings.jsx (User Management tab) |
 | `src/services/vaccineService.js` | ✅ Complete | AddVaccine.jsx, AddStock.jsx |
-| `src/services/deliveryService.js` | **Create** | Deliveries.jsx, AdminDashboard.jsx |
-| `src/services/riderService.js` | ✅ Complete | Riders.jsx |
+| `src/services/deliveryService.js` | ✅ Complete | Deliveries.jsx, AdminDashboard.jsx, Analytics.jsx |
+| `src/services/riderService.js` | ✅ Complete | Riders.jsx, AdminDashboard.jsx |
 | `src/services/clinicService.js` | ✅ Complete | Clinics.jsx |
 
 ### Implementation Order
@@ -151,10 +192,10 @@ All admin pages except AddStock and AddVaccine run on hardcoded demo data. The g
 3. `inventoryService.js` + wire `Inventory.jsx` ✅ COMPLETE
 4. `vaccineService.js` + refactor `AddVaccine.jsx` + `AddStock.jsx` ✅ COMPLETE
 5. `clinicService.js` + wire `Clinics.jsx` ✅ COMPLETE
-6. `deliveryService.js` + wire `Deliveries.jsx`
+6. `deliveryService.js` + wire `Deliveries.jsx` ✅ COMPLETE
 7. `riderService.js` + wire `Riders.jsx` (reads + status updates only) ✅ COMPLETE
-8. Wire `AdminDashboard.jsx` real counts (depends on steps 1–7)
-9. Analytics.jsx — deferred until real data volume exists
+8. Wire `AdminDashboard.jsx` real counts (depends on steps 1–7) ✅ COMPLETE
+9. `Analytics.jsx` wired to Firestore ✅ COMPLETE
 
 ### Deferred Items (do not implement yet)
 

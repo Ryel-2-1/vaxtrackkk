@@ -15,55 +15,60 @@ import {
   Plus,
   Search,
   Truck,
-  UserPlus,
   Users,
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
 import { AdminSidebar } from "./Inventory";
-import { subscribeRiders } from "../../services/riderService";
+import { subscribeRiders, updateRiderStatus } from "../../services/riderService";
 import "./Riders.css";
 
-const FIRESTORE_TO_UI_STATUS = {
-  approved: "standby",
-  pending: "offduty",
-  pending_approval: "offduty",
-  rejected: "offduty",
-  disabled: "offduty",
-};
-
-const FIRESTORE_TO_STATUS_TEXT = {
-  approved: "Standby",
-  pending: "Pending Approval",
-  pending_approval: "Pending Approval",
-  rejected: "Inactive",
-  disabled: "Inactive",
+const UI_STATUS_MAP = {
+  approved: { uiStatus: "standby", statusText: "Standby" },
+  pending: { uiStatus: "offduty", statusText: "Pending Approval" },
+  pending_approval: { uiStatus: "offduty", statusText: "Pending Approval" },
+  disabled: { uiStatus: "offduty", statusText: "Off Duty" },
+  rejected: { uiStatus: "offduty", statusText: "Rejected" },
 };
 
 function normalizeRider(raw) {
-  const firestoreStatus = raw.status || "pending";
-  const uiStatus = FIRESTORE_TO_UI_STATUS[firestoreStatus] || "offduty";
-  const statusText = FIRESTORE_TO_STATUS_TEXT[firestoreStatus] || "Unknown";
-  const nameStr = typeof raw.name === "string" ? raw.name : "";
+  const statusRaw = (raw.status || "pending").trim().toLowerCase();
+  const mapped = UI_STATUS_MAP[statusRaw] || {
+    uiStatus: "offduty",
+    statusText: "Unknown",
+  };
+
+  const name =
+    raw.fullName || raw.name || raw.displayName || raw.email || "Unnamed Rider";
+
+  const vehicle =
+    raw.vehiclePlate ||
+    raw.motorcycle ||
+    raw.motorcycleId ||
+    raw.vehicle ||
+    "Not assigned";
+
   const initials =
-    nameStr
+    name
       .split(" ")
       .filter(Boolean)
       .map((w) => w[0])
       .join("")
       .slice(0, 2)
       .toUpperCase() || "?";
+
   return {
-    uid: raw.id,
-    id: raw.employeeId || raw.id.slice(0, 8).toUpperCase(),
-    name: nameStr || "—",
+    uid: raw.uid,
+    displayId: raw.employeeId || "—",
+    name,
     email: raw.email || "—",
+    phone: raw.phone || raw.contactNumber || "—",
     initials,
-    vehicle: raw.vehicle || "Motorcycle",
-    phone: raw.phone || "—",
-    status: uiStatus,
-    statusText,
-    assignment: uiStatus === "standby" ? "Available at Hub" : statusText,
+    vehicle,
+    statusRaw,
+    status: mapped.uiStatus,
+    statusText: mapped.statusText,
+    assignment: mapped.uiStatus === "standby" ? "Available at Hub" : mapped.statusText,
     currentDelivery: "None",
     hub: raw.hub || "Manila Central Hub",
     lastActive: "—",
@@ -130,45 +135,32 @@ function Riders() {
     setTimeout(() => setToast(""), 2200);
   };
 
+  const handleStatusChange = async (rider, newStatus, successMsg) => {
+    try {
+      await updateRiderStatus(rider.uid, newStatus);
+      showToast(successMsg);
+    } catch (error) {
+      console.error("Update rider status error:", error);
+      showToast(`Failed to update ${rider.name}: ${error.message}`);
+    }
+  };
+
   const filteredRiders = useMemo(() => {
     return riders.filter((rider) => {
       const searchValue =
-        `${rider.name} ${rider.id} ${rider.vehicle} ${rider.statusText} ${rider.assignment}`.toLowerCase();
-
+        `${rider.name} ${rider.displayId} ${rider.vehicle} ${rider.statusText} ${rider.assignment}`.toLowerCase();
       const matchesSearch = searchValue.includes(searchTerm.toLowerCase());
       const matchesStatus =
         statusFilter === "all" || rider.status === statusFilter;
-
       return matchesSearch && matchesStatus;
     });
   }, [riders, searchTerm, statusFilter]);
 
-  const activeCount = riders.filter(
-    (rider) => rider.status === "active" || rider.status === "deviation"
-  ).length;
-
-  const standbyCount = riders.filter((rider) => rider.status === "standby").length;
-  const offDutyCount = riders.filter((rider) => rider.status === "offduty").length;
-  const alertCount = riders.filter((rider) => rider.status === "deviation").length;
+  const standbyCount = riders.filter((r) => r.status === "standby").length;
+  const offDutyCount = riders.filter((r) => r.status === "offduty").length;
 
   const handleAssignDelivery = () => {
     if (!assignTarget) return;
-
-    setRiders((prev) =>
-      prev.map((rider) =>
-        rider.id === assignTarget.id
-          ? {
-              ...rider,
-              status: "active",
-              statusText: "Active",
-              assignment: selectedDelivery,
-              currentDelivery: selectedDelivery.split(" - ")[0],
-              lastActive: "Assigned now",
-            }
-          : rider
-      )
-    );
-
     showToast(`${assignTarget.name} assigned to ${selectedDelivery}.`);
     setAssignTarget(null);
   };
@@ -237,38 +229,38 @@ function Riders() {
         <section className="riders-summary-grid">
           <RiderSummaryCard
             icon={<Users size={19} />}
-            value={activeCount}
-            label="Active Riders"
-            note="Currently available or delivering"
+            value={riders.length}
+            label="Total Riders"
+            note="Registered rider accounts"
             type="blue"
-            onClick={() => setStatusFilter("active")}
+            onClick={() => setStatusFilter("all")}
           />
 
           <RiderSummaryCard
             icon={<Clock3 size={19} />}
             value={standbyCount}
-            label="Idle Riders"
-            note="Waiting for assignment"
+            label="Standby"
+            note="Available for assignment"
             type="green"
             onClick={() => setStatusFilter("standby")}
           />
 
           <RiderSummaryCard
             icon={<AlertTriangle size={19} />}
-            value={alertCount}
-            label="Route Alerts"
-            note="Needs admin review"
+            value={offDutyCount}
+            label="Off Duty / Pending"
+            note="Not currently available"
             type="red"
-            onClick={() => setStatusFilter("deviation")}
+            onClick={() => setStatusFilter("offduty")}
           />
 
           <RiderSummaryCard
             icon={<CheckCircle2 size={19} />}
-            value="94.2%"
+            value="—"
             label="On-Time Rate"
-            note="+8% from last week"
+            note="Delivery data not yet available"
             type="amber"
-            onClick={() => showToast("Showing rider performance summary.")}
+            onClick={() => showToast("Delivery performance data not yet available.")}
           />
         </section>
 
@@ -281,8 +273,8 @@ function Riders() {
               </div>
 
               <div className="riders-map-status">
-                <span>{activeCount} Active</span>
-                <span>{standbyCount} Idle</span>
+                <span>{standbyCount} Standby</span>
+                <span>{offDutyCount} Off Duty</span>
                 <span>{mapZoom}%</span>
               </div>
             </div>
@@ -299,7 +291,7 @@ function Riders() {
               {filteredRiders.map((rider, index) => (
                 <button
                   type="button"
-                  key={rider.id}
+                  key={rider.uid}
                   className={`riders-map-marker marker-${index + 1} ${rider.status}`}
                   onClick={() => setSelectedRider(rider)}
                   title={rider.name}
@@ -354,14 +346,6 @@ function Riders() {
 
           <button
             type="button"
-            className={statusFilter === "active" ? "active" : ""}
-            onClick={() => setStatusFilter("active")}
-          >
-            Active
-          </button>
-
-          <button
-            type="button"
             className={statusFilter === "standby" ? "active" : ""}
             onClick={() => setStatusFilter("standby")}
           >
@@ -370,18 +354,10 @@ function Riders() {
 
           <button
             type="button"
-            className={statusFilter === "deviation" ? "active" : ""}
-            onClick={() => setStatusFilter("deviation")}
-          >
-            Route Alert
-          </button>
-
-          <button
-            type="button"
             className={statusFilter === "offduty" ? "active" : ""}
             onClick={() => setStatusFilter("offduty")}
           >
-            Off Duty
+            Off Duty / Pending
           </button>
         </section>
 
@@ -389,14 +365,16 @@ function Riders() {
           <div className="riders-personnel-head">
             <div>
               <h2>Active Personnel</h2>
-              <p>Showing {filteredRiders.length} of {riders.length} riders.</p>
+              <p>
+                Showing {filteredRiders.length} of {riders.length} riders.
+              </p>
             </div>
           </div>
 
           <div className="riders-list">
             {filteredRiders.map((rider) => (
               <article
-                key={rider.id}
+                key={rider.uid}
                 className={`rider-row ${rider.status}`}
                 onClick={() => setSelectedRider(rider)}
               >
@@ -408,7 +386,7 @@ function Riders() {
                   <div>
                     <h3>{rider.name}</h3>
                     <p>
-                      {rider.vehicle}: {rider.id}
+                      {rider.vehicle} • ID: {rider.displayId}
                     </p>
                   </div>
                 </div>
@@ -431,32 +409,28 @@ function Riders() {
                   <small>rate</small>
                 </div>
 
-                <div className="rider-actions" onClick={(e) => e.stopPropagation()}>
+                <div
+                  className="rider-actions"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <span className={`rider-status-pill ${rider.status}`}>
                     {rider.statusText}
                   </span>
 
-                  <button type="button" onClick={() => setSelectedRider(rider)}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRider(rider)}
+                  >
                     Details
                   </button>
 
-                  {(rider.status === "standby" || rider.status === "offduty") && (
+                  {rider.status === "standby" && (
                     <button
                       type="button"
                       className="primary"
                       onClick={() => setAssignTarget(rider)}
                     >
                       Assign
-                    </button>
-                  )}
-
-                  {rider.status === "deviation" && (
-                    <button
-                      type="button"
-                      className="danger"
-                      onClick={() => setSelectedRider(rider)}
-                    >
-                      Review
                     </button>
                   )}
                 </div>
@@ -484,7 +458,7 @@ function Riders() {
                 <strong>
                   {riders.length === 0
                     ? "No rider accounts found"
-                    : "No riders match your search"}
+                    : "No riders match your filter"}
                 </strong>
                 <p>
                   {riders.length === 0
@@ -508,20 +482,19 @@ function Riders() {
           }}
           onRoute={() => showToast(`Opening route for ${selectedRider.name}.`)}
           onOffDuty={() => {
-            setRiders((prev) =>
-              prev.map((rider) =>
-                rider.id === selectedRider.id
-                  ? {
-                      ...rider,
-                      status: "offduty",
-                      statusText: "Off Duty",
-                      assignment: "Marked off duty by admin",
-                    }
-                  : rider
-              )
-            );
+            const rider = selectedRider;
             setSelectedRider(null);
-            showToast(`${selectedRider.name} marked as off duty.`);
+            handleStatusChange(rider, "disabled", `${rider.name} marked as off duty.`);
+          }}
+          onReactivate={() => {
+            const rider = selectedRider;
+            setSelectedRider(null);
+            handleStatusChange(rider, "approved", `${rider.name} set to standby.`);
+          }}
+          onReject={() => {
+            const rider = selectedRider;
+            setSelectedRider(null);
+            handleStatusChange(rider, "rejected", `${rider.name} has been rejected.`);
           }}
         />
       )}
@@ -550,7 +523,11 @@ function Riders() {
 
 function RiderSummaryCard({ icon, value, label, note, type, onClick }) {
   return (
-    <button type="button" className={`riders-summary-card ${type}`} onClick={onClick}>
+    <button
+      type="button"
+      className={`riders-summary-card ${type}`}
+      onClick={onClick}
+    >
       <div className="riders-summary-icon">{icon}</div>
       <div>
         <h2>{value}</h2>
@@ -561,7 +538,21 @@ function RiderSummaryCard({ icon, value, label, note, type, onClick }) {
   );
 }
 
-function RiderDetailsModal({ rider, onClose, onContact, onAssign, onRoute, onOffDuty }) {
+function RiderDetailsModal({
+  rider,
+  onClose,
+  onContact,
+  onAssign,
+  onRoute,
+  onOffDuty,
+  onReactivate,
+  onReject,
+}) {
+  const isPending =
+    rider.statusRaw === "pending" || rider.statusRaw === "pending_approval";
+  const isApproved = rider.statusRaw === "approved";
+  const isDisabled = rider.statusRaw === "disabled";
+
   return (
     <div className="riders-modal-backdrop">
       <div className="riders-modal">
@@ -575,7 +566,7 @@ function RiderDetailsModal({ rider, onClose, onContact, onAssign, onRoute, onOff
 
         <h2>{rider.name}</h2>
         <p>
-          Rider ID: {rider.id} • {rider.vehicle}
+          ID: {rider.displayId} • {rider.vehicle}
         </p>
 
         <div className="riders-modal-grid">
@@ -616,22 +607,72 @@ function RiderDetailsModal({ rider, onClose, onContact, onAssign, onRoute, onOff
         </div>
 
         <div className="riders-modal-actions">
-          <button type="button" className="riders-primary-action" onClick={onRoute}>
+          <button
+            type="button"
+            className="riders-primary-action"
+            onClick={onRoute}
+          >
             View Route
           </button>
 
-          <button type="button" className="riders-light-action" onClick={onContact}>
+          <button
+            type="button"
+            className="riders-light-action"
+            onClick={onContact}
+          >
             <PhoneCall size={15} />
             Contact Rider
           </button>
 
-          <button type="button" className="riders-light-action" onClick={onAssign}>
-            Assign Delivery
-          </button>
+          {isApproved && (
+            <button
+              type="button"
+              className="riders-light-action"
+              onClick={onAssign}
+            >
+              Assign Delivery
+            </button>
+          )}
 
-          <button type="button" className="riders-danger-action" onClick={onOffDuty}>
-            Mark Off Duty
-          </button>
+          {isApproved && (
+            <button
+              type="button"
+              className="riders-danger-action"
+              onClick={onOffDuty}
+            >
+              Mark Off Duty
+            </button>
+          )}
+
+          {isPending && (
+            <button
+              type="button"
+              className="riders-primary-action"
+              onClick={onReactivate}
+            >
+              Approve
+            </button>
+          )}
+
+          {isPending && (
+            <button
+              type="button"
+              className="riders-danger-action"
+              onClick={onReject}
+            >
+              Reject
+            </button>
+          )}
+
+          {isDisabled && (
+            <button
+              type="button"
+              className="riders-primary-action"
+              onClick={onReactivate}
+            >
+              Set Available
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -672,11 +713,19 @@ function AssignRiderModal({
         </label>
 
         <div className="riders-modal-actions">
-          <button type="button" className="riders-primary-action" onClick={onAssign}>
+          <button
+            type="button"
+            className="riders-primary-action"
+            onClick={onAssign}
+          >
             Assign Rider
           </button>
 
-          <button type="button" className="riders-light-action" onClick={onClose}>
+          <button
+            type="button"
+            className="riders-light-action"
+            onClick={onClose}
+          >
             Cancel
           </button>
         </div>
@@ -694,7 +743,9 @@ function NewRiderModal({ newRider, setNewRider, onClose, onSubmit }) {
         </button>
 
         <h2>New Rider</h2>
-        <p>Create a field personnel account for cold-chain delivery operations.</p>
+        <p>
+          Create a field personnel account for cold-chain delivery operations.
+        </p>
 
         <div className="riders-form-grid">
           <label>
@@ -782,7 +833,11 @@ function NewRiderModal({ newRider, setNewRider, onClose, onSubmit }) {
             Create Rider
           </button>
 
-          <button type="button" className="riders-light-action" onClick={onClose}>
+          <button
+            type="button"
+            className="riders-light-action"
+            onClick={onClose}
+          >
             Cancel
           </button>
         </div>
