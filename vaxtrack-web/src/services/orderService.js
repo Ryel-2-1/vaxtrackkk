@@ -69,6 +69,31 @@ export async function createSalesRepOrder(orderData = {}) {
   return addDoc(collection(db, ORDERS_COLLECTION), doc);
 }
 
+export function subscribeSalesRepOrders(uid, callback, onError) {
+  const q = query(
+    collection(db, ORDERS_COLLECTION),
+    where("createdByUid", "==", uid)
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const orders = snapshot.docs
+        .map((docItem) => ({ id: docItem.id, ...docItem.data() }))
+        .sort((a, b) => {
+          const aMs = a.createdAt?.toMillis?.() ?? 0;
+          const bMs = b.createdAt?.toMillis?.() ?? 0;
+          return bMs - aMs;
+        });
+      callback(orders);
+    },
+    (error) => {
+      console.error("subscribeSalesRepOrders error:", error);
+      if (onError) onError(error);
+    }
+  );
+}
+
 export function subscribePendingDispatchOrders(callback) {
   const q = query(
     collection(db, ORDERS_COLLECTION),
@@ -85,20 +110,26 @@ export function subscribePendingDispatchOrders(callback) {
   });
 }
 
-export async function assignRiderToOrder(orderId, rider) {
+export async function assignRiderToOrder(orderId, rider, dispatcher) {
   if (!orderId) {
     throw new Error("Order ID is required.");
   }
 
   const orderRef = doc(db, ORDERS_COLLECTION, orderId);
 
-  return updateDoc(orderRef, {
+  const update = {
     status: "assigned",
     assignedRiderId: rider.id,
     assignedRiderName: rider.name,
     assignedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  });
+  };
+
+  if (rider.phone) update.assignedRiderPhone = rider.phone;
+  if (dispatcher?.uid) update.assignedByUid = dispatcher.uid;
+  if (dispatcher?.email) update.assignedByEmail = dispatcher.email;
+
+  return updateDoc(orderRef, update);
 }
 
 export function subscribeAssignedRiderOrders(riderId, callback) {
@@ -133,4 +164,41 @@ export async function startRiderDelivery(orderId) {
     startedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+}
+
+const VALID_STATUS_TRANSITIONS = {
+  pending_dispatch: ["assigned", "cancelled"],
+  assigned: ["loading", "delayed", "cancelled"],
+  loading: ["in_transit", "delayed", "cancelled"],
+  in_transit: ["delivered", "delayed", "cancelled"],
+  delayed: ["in_transit", "cancelled"],
+};
+
+export async function updateOrderStatus(orderId, newStatus, dispatcher, extra) {
+  if (!orderId) throw new Error("Order ID is required.");
+  if (!newStatus) throw new Error("New status is required.");
+
+  const orderRef = doc(db, ORDERS_COLLECTION, orderId);
+
+  const update = {
+    status: newStatus,
+    updatedAt: serverTimestamp(),
+    statusUpdatedAt: serverTimestamp(),
+  };
+
+  if (dispatcher?.uid) update.statusUpdatedByUid = dispatcher.uid;
+  if (dispatcher?.email) update.statusUpdatedByEmail = dispatcher.email;
+
+  if (newStatus === "delivered" || newStatus === "completed") {
+    update.deliveredAt = serverTimestamp();
+  }
+  if (newStatus === "delayed") {
+    update.delayedAt = serverTimestamp();
+    if (extra?.delayReason) update.delayReason = extra.delayReason;
+  }
+  if (newStatus === "in_transit") {
+    update.startedAt = serverTimestamp();
+  }
+
+  return updateDoc(orderRef, update);
 }

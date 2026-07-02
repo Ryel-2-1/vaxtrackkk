@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   Box,
-  ChevronRight,
   ClipboardCheck,
+  Loader2,
   MapPin,
   PackageCheck,
   Phone,
@@ -13,164 +13,166 @@ import {
   Truck,
   X,
 } from "lucide-react";
+import { subscribeSalesRepOrders } from "../../services/orderService";
+import {
+  normalizeStatusKey,
+  getOrderStatusValue,
+} from "../../services/deliveryService";
+import { auth } from "../../firebase";
 import SalesRepLayout from "./SalesRepLayout";
 
-const defaultOrders = [
-  {
-    id: "VT-8803",
-    destination: "St. Luke's Medical Center",
-    city: "Quezon City, Metro Manila",
-    date: "Oct 24, 2026",
-    scheduled: "Oct 24, 02:00 PM",
-    status: "Out for Delivery",
-    progress: 75,
-    progressText: "75% • 1.2km",
-    driver: "RX-44",
-    driverName: "Juan Dela Cruz",
-    subtotal: 16700,
-    logisticsFee: 150,
-    items: [
-      { name: "VaxGrip Tetra 2024", batch: "#990-2A", qty: "500 Units", price: 12500 },
-      { name: "Prevenar 13", batch: "#990-2A", qty: "120 Units", price: 4200 },
-    ],
-  },
-  {
-    id: "VT-8801",
-    destination: "Makati Medical Center",
-    city: "Makati City, Metro Manila",
-    date: "Oct 24, 2026",
-    scheduled: "Oct 24, 04:30 PM",
-    status: "Processing",
-    progress: 25,
-    progressText: "25% • Sorting",
-    driver: "Pending",
-    driverName: "Awaiting rider assignment",
-    subtotal: 8400,
-    logisticsFee: 150,
-    items: [
-      { name: "Influenza-Plus", batch: "INF-221-Z67", qty: "300 Units", price: 3600 },
-      { name: "CoronaVac Plus", batch: "SNO-2023-C44", qty: "400 Units", price: 4800 },
-    ],
-  },
-  {
-    id: "VT-8867",
-    destination: "Asian Hospital",
-    city: "Alabang, Muntinlupa",
-    date: "Oct 23, 2026",
-    scheduled: "Oct 23, 09:45 AM",
-    status: "Delivered",
-    progress: 100,
-    progressText: "100% • 09:45",
-    driver: "RX-19",
-    driverName: "Mark Santos",
-    subtotal: 12300,
-    logisticsFee: 150,
-    items: [
-      { name: "Polio-Zero", batch: "PO-882-V69", qty: "250 Units", price: 6000 },
-      { name: "HepaGuard-B", batch: "HEP-2025-HB2", qty: "350 Units", price: 6300 },
-    ],
-  },
-  {
-    id: "VT-8869",
-    destination: "Cardinal Santos",
-    city: "San Juan City",
-    date: "Oct 23, 2026",
-    scheduled: "Oct 23, 03:00 PM",
-    status: "Delayed",
-    progress: 60,
-    progressText: "60% • Traffic",
-    driver: "RX-04",
-    driverName: "Carlo Reyes",
-    subtotal: 9650,
-    logisticsFee: 250,
-    items: [
-      { name: "RabiesVac", batch: "RAB-2025-R01", qty: "200 Units", price: 5200 },
-      { name: "TetanusCare", batch: "TET-2024-T11", qty: "150 Units", price: 4450 },
-    ],
-  },
-];
-
-function loadLatestOrder() {
-  try {
-    const savedOrder = JSON.parse(localStorage.getItem("latestSalesOrderDetails") || "null");
-
-    if (!savedOrder?.id) return null;
-
-    const items = Array.isArray(savedOrder.items)
-      ? savedOrder.items.map((item) => ({
-          name: item.name,
-          batch: item.sku || item.id || "N/A",
-          qty: `${Number(item.quantity || 0).toLocaleString()} vials`,
-          price: Number(item.quantity || 0) * Number(item.unitPrice || 0),
-        }))
-      : [];
-
-    const displayStatus = (() => {
-      switch (savedOrder.status) {
-        case "pending_dispatch": return "Processing";
-        case "assigned": return "Assigned";
-        case "in_transit": return "Out for Delivery";
-        case "delivered":
-        case "completed": return "Delivered";
-        case "delayed": return "Delayed";
-        case "cancelled":
-        case "canceled": return "Cancelled";
-        default: return "Processing";
-      }
-    })();
-
-    return {
-      id: savedOrder.id,
-      destination: savedOrder.clinicName || "Selected Clinic",
-      city: savedOrder.clinicAddress || "Address unavailable",
-      date: "Today",
-      scheduled: "Pending dispatch schedule",
-      status: displayStatus,
-      progress: 15,
-      progressText: "15% • Order submitted",
-      driver: "Pending",
-      driverName: "Awaiting rider assignment",
-      subtotal: Number(savedOrder.subtotal || 0),
-      logisticsFee: Number(savedOrder.handlingFee || 0),
-      items,
-    };
-  } catch {
-    return null;
+function mapTrackingLabel(statusKey) {
+  switch (statusKey) {
+    case "pending":
+    case "pending_dispatch":
+      return "Pending Dispatch";
+    case "assigned":
+      return "Assigned";
+    case "loading":
+      return "Loading";
+    case "in_transit":
+      return "Out for Delivery";
+    case "delayed":
+      return "Delayed";
+    case "completed":
+    case "delivered":
+      return "Delivered";
+    case "cancelled":
+    case "canceled":
+      return "Cancelled";
+    default:
+      return "Processing";
   }
+}
+
+function statusProgress(statusKey) {
+  switch (statusKey) {
+    case "pending":
+    case "pending_dispatch":
+      return 15;
+    case "assigned":
+      return 30;
+    case "loading":
+      return 45;
+    case "in_transit":
+      return 75;
+    case "delayed":
+      return 60;
+    case "completed":
+    case "delivered":
+      return 100;
+    case "cancelled":
+    case "canceled":
+      return 0;
+    default:
+      return 10;
+  }
+}
+
+function formatDate(ts) {
+  if (!ts) return "—";
+  const date = ts.toDate ? ts.toDate() : new Date(ts);
+  if (isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function normalizeOrder(raw) {
+  const rawStatus = getOrderStatusValue(raw);
+  const statusKey = normalizeStatusKey(rawStatus);
+  const label = mapTrackingLabel(statusKey);
+  const progress = statusProgress(statusKey);
+
+  const items = Array.isArray(raw.items)
+    ? raw.items.map((item) => ({
+        name: item.name || "Unknown",
+        batch: item.sku || item.batchId || "—",
+        qty: `${Number(item.quantity || 0).toLocaleString()} vials`,
+      }))
+    : [];
+
+  return {
+    id: raw.id,
+    orderNumber: raw.orderNumber || raw.id,
+    destination: raw.clinicName || "Unknown Clinic",
+    city: raw.clinicAddress || "—",
+    date: formatDate(raw.createdAt),
+    status: label,
+    statusKey,
+    progress,
+    progressText: `${progress}%`,
+    driver: raw.assignedRiderId || "Pending",
+    driverName: raw.assignedRiderName || "Awaiting rider assignment",
+    vaccineName: raw.vaccineName || "—",
+    quantity: Number(raw.quantity || 0),
+    priority: raw.priority || "Standard",
+    instructions: raw.deliveryInstructions || "",
+    items,
+  };
 }
 
 function SalesRepOrderTracking() {
   const navigate = useNavigate();
-  const latestOrder = loadLatestOrder();
 
-  const orders = useMemo(() => {
-    if (!latestOrder) return defaultOrders;
-    const exists = defaultOrders.some((order) => order.id === latestOrder.id);
-    return exists ? defaultOrders : [latestOrder, ...defaultOrders];
-  }, [latestOrder]);
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   const [activeTab, setActiveTab] = useState("active");
   const [statusFilter, setStatusFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedOrderId, setSelectedOrderId] = useState(orders[0]?.id || "");
+  const [selectedOrderId, setSelectedOrderId] = useState("");
   const [message, setMessage] = useState("");
 
-  const selectedOrder = orders.find((order) => order.id === selectedOrderId) || orders[0];
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) {
+      setError("You must be logged in to view orders.");
+      setLoading(false);
+      return;
+    }
+
+    const unsubscribe = subscribeSalesRepOrders(
+      user.uid,
+      (raw) => {
+        const normalized = raw.map(normalizeOrder);
+        setOrders(normalized);
+        setLoading(false);
+        setError("");
+
+        if (!selectedOrderId && normalized.length > 0) {
+          setSelectedOrderId(normalized[0].id);
+        }
+      },
+      (err) => {
+        if (err?.code === "permission-denied") {
+          setError("You do not have permission to view orders. Please contact your administrator.");
+        } else {
+          setError("Unable to load orders. Please try again later.");
+        }
+        setLoading(false);
+      }
+    );
+
+    return unsubscribe;
+  }, []);
+
+  const selectedOrder = orders.find((o) => o.id === selectedOrderId) || null;
 
   const filteredOrders = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
 
     return orders.filter((order) => {
-      const isHistory = order.status === "Delivered";
+      const isHistory = order.statusKey === "completed" || order.statusKey === "delivered" || order.statusKey === "cancelled" || order.statusKey === "canceled";
       const matchesTab = activeTab === "history" ? isHistory : !isHistory;
       const matchesStatus =
         statusFilter === "all" ||
         order.status.toLowerCase().replaceAll(" ", "-") === statusFilter;
       const matchesSearch =
-        order.id.toLowerCase().includes(query) ||
+        order.orderNumber.toLowerCase().includes(query) ||
         order.destination.toLowerCase().includes(query) ||
         order.city.toLowerCase().includes(query) ||
-        order.status.toLowerCase().includes(query);
+        order.status.toLowerCase().includes(query) ||
+        order.vaccineName.toLowerCase().includes(query);
 
       return matchesTab && matchesStatus && matchesSearch;
     });
@@ -186,7 +188,7 @@ function SalesRepOrderTracking() {
   const handleShare = async () => {
     if (!selectedOrder) return;
 
-    const text = `${selectedOrder.id} - ${selectedOrder.destination} (${selectedOrder.status})`;
+    const text = `${selectedOrder.orderNumber} - ${selectedOrder.destination} (${selectedOrder.status})`;
 
     try {
       await navigator.clipboard.writeText(text);
@@ -205,6 +207,28 @@ function SalesRepOrderTracking() {
     setMessage(`Contact request sent to driver ${selectedOrder.driverName}.`);
   };
 
+  if (loading) {
+    return (
+      <SalesRepLayout active="request" title="Order Tracking Dashboard" showSearch={false}>
+        <div className="inventory-loading-state">
+          <Loader2 size={32} className="spin" />
+          <p>Loading your orders...</p>
+        </div>
+      </SalesRepLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <SalesRepLayout active="request" title="Order Tracking Dashboard" showSearch={false}>
+        <div className="inventory-loading-state">
+          <AlertTriangle size={32} />
+          <p>{error}</p>
+        </div>
+      </SalesRepLayout>
+    );
+  }
+
   return (
     <SalesRepLayout active="request" title="Order Tracking Dashboard" showSearch={false}>
       <section className="tracking-v2-page">
@@ -219,7 +243,7 @@ function SalesRepOrderTracking() {
             <input
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Search order ID, clinic, city, or status..."
+              placeholder="Search order ID, clinic, vaccine, or status..."
             />
           </div>
         </div>
@@ -270,10 +294,12 @@ function SalesRepOrderTracking() {
                   onChange={(event) => setStatusFilter(event.target.value)}
                 >
                   <option value="all">All Status</option>
-                  <option value="processing">Processing</option>
+                  <option value="pending-dispatch">Pending Dispatch</option>
+                  <option value="assigned">Assigned</option>
                   <option value="out-for-delivery">Out for Delivery</option>
                   <option value="delayed">Delayed</option>
                   <option value="delivered">Delivered</option>
+                  <option value="cancelled">Cancelled</option>
                 </select>
               </label>
             </div>
@@ -285,7 +311,7 @@ function SalesRepOrderTracking() {
                     <th>Order ID</th>
                     <th>Destination</th>
                     <th>Date</th>
-                    <th>Logistics Status</th>
+                    <th>Status</th>
                     <th>Progress</th>
                   </tr>
                 </thead>
@@ -304,28 +330,15 @@ function SalesRepOrderTracking() {
                     <tr>
                       <td colSpan="5">
                         <div className="tracking-v2-empty">
-                          No tracking records found.
+                          {orders.length === 0
+                            ? "You haven't placed any orders yet."
+                            : "No matching orders found."}
                         </div>
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
-            </div>
-
-            <div className="draft-footer tracking-v2-draft-footer">
-              <Truck size={28} />
-              <div>
-                <strong>Draft Order</strong>
-                <p>{latestOrder ? "Latest order added" : "No new draft detected"}</p>
-              </div>
-              <div>
-                <strong>Est. Delivery</strong>
-                <p>Oct 26, 2026</p>
-              </div>
-              <button type="button" onClick={() => navigate("/sales-rep/place-order")}>
-                Review Order
-              </button>
             </div>
           </div>
 
@@ -335,14 +348,16 @@ function SalesRepOrderTracking() {
                 <div className="tracking-side-title">
                   <div>
                     <span>Selected Order</span>
-                    <h2>{selectedOrder.id}</h2>
+                    <h2>{selectedOrder.orderNumber}</h2>
                   </div>
                   <button type="button" onClick={() => setSelectedOrderId("")}>
                     ×
                   </button>
                 </div>
 
-                <p>Scheduled for {selectedOrder.scheduled}</p>
+                <p>
+                  {selectedOrder.priority === "Urgent" ? "⚡ Urgent" : "Standard"} · {selectedOrder.date}
+                </p>
 
                 <div className="tracking-v2-side-actions">
                   <button type="button" className="contact-driver" onClick={handleContactDriver}>
@@ -355,10 +370,10 @@ function SalesRepOrderTracking() {
                   </button>
                 </div>
 
-                <h3>Live Tracking</h3>
+                <h3>Delivery Status</h3>
                 <div className={`mini-map tracking-v2-mini-map ${selectedOrder.status.toLowerCase().replaceAll(" ", "-")}`}>
                   <div className="tracking-v2-route-line" />
-                  <span>LIVE • DRIVER ID: {selectedOrder.driver}</span>
+                  <span>{selectedOrder.status} · Rider: {selectedOrder.driverName}</span>
                 </div>
 
                 <div className="tracking-v2-info-box">
@@ -369,31 +384,42 @@ function SalesRepOrderTracking() {
                   </div>
                 </div>
 
+                {selectedOrder.instructions && (
+                  <div className="tracking-v2-info-box">
+                    <ClipboardCheck size={15} />
+                    <div>
+                      <strong>Instructions</strong>
+                      <p>{selectedOrder.instructions}</p>
+                    </div>
+                  </div>
+                )}
+
                 <h3>Order Content</h3>
 
-                {selectedOrder.items.map((item) => (
-                  <OrderContent
-                    key={`${selectedOrder.id}-${item.name}-${item.batch}`}
-                    name={item.name}
-                    batch={item.batch}
-                    qty={item.qty}
-                    price={formatCurrency(item.price)}
-                  />
-                ))}
+                {selectedOrder.items.length > 0 ? (
+                  selectedOrder.items.map((item, i) => (
+                    <OrderContent
+                      key={`${selectedOrder.id}-${i}`}
+                      name={item.name}
+                      batch={item.batch}
+                      qty={item.qty}
+                    />
+                  ))
+                ) : (
+                  <div className="tracking-v2-info-box">
+                    <PackageCheck size={15} />
+                    <div>
+                      <strong>{selectedOrder.vaccineName}</strong>
+                      <p>{selectedOrder.quantity.toLocaleString()} vials</p>
+                    </div>
+                  </div>
+                )}
 
                 <div className="tracking-total">
                   <p>
-                    Subtotal
-                    <strong>{formatCurrency(selectedOrder.subtotal)}</strong>
+                    Total Quantity
+                    <strong>{selectedOrder.quantity.toLocaleString()} vials</strong>
                   </p>
-                  <p>
-                    Logistics Fee
-                    <strong>{formatCurrency(selectedOrder.logisticsFee)}</strong>
-                  </p>
-                  <h2>
-                    Total
-                    <span>{formatCurrency(selectedOrder.subtotal + selectedOrder.logisticsFee)}</span>
-                  </h2>
                 </div>
               </>
             ) : (
@@ -411,7 +437,7 @@ function SalesRepOrderTracking() {
 }
 
 function TrackingRow({ selected, order, onSelect }) {
-  const isDanger = order.status === "Delayed";
+  const isDanger = order.statusKey === "delayed";
   const statusClass = order.status.toLowerCase().replaceAll(" ", "-");
 
   return (
@@ -426,12 +452,12 @@ function TrackingRow({ selected, order, onSelect }) {
     >
       <td>
         {isDanger ? <AlertTriangle size={17} /> : <Box size={17} />}
-        <strong>{order.id}</strong>
+        <strong>{order.orderNumber}</strong>
       </td>
 
       <td>
         <strong>{order.destination}</strong>
-        <small>{order.city}</small>
+        <small>{order.vaccineName}</small>
       </td>
 
       <td>{order.date}</td>
@@ -450,24 +476,16 @@ function TrackingRow({ selected, order, onSelect }) {
   );
 }
 
-function OrderContent({ name, batch, qty, price }) {
+function OrderContent({ name, batch, qty }) {
   return (
     <div className="order-content">
       <PackageCheck size={18} />
       <div>
         <strong>{name}</strong>
-        <p>Batch: {batch} • {qty}</p>
+        <p>Batch: {batch} · {qty}</p>
       </div>
-      <b>{price}</b>
     </div>
   );
-}
-
-function formatCurrency(value) {
-  return `₱${Number(value || 0).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
 }
 
 export default SalesRepOrderTracking;

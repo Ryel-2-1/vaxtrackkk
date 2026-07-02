@@ -1,148 +1,203 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle,
   Info,
-  Phone,
+  Loader2,
   Search,
-  Thermometer,
   Truck,
   X,
 } from "lucide-react";
+import { subscribeSalesRepOrders } from "../../services/orderService";
+import {
+  normalizeStatusKey,
+  getOrderStatusValue,
+} from "../../services/deliveryService";
+import { auth } from "../../firebase";
 import SalesRepLayout from "./SalesRepLayout";
 
-const initialActiveAlerts = [
-  {
-    id: "ALT-001",
-    tone: "critical",
-    icon: <Thermometer size={18} />,
-    tag: "CRITICAL",
-    title: "Temperature Deviation in Hub Alpha",
-    body: "Freezer Unit #3 dropped below -70°C threshold. Current temp: -62°C. Pfizer-BioNTech batch at risk.",
-    location: "Hub Alpha, North Wing",
-    time: "Just now",
-    primary: "Dispatch Tech",
-    secondary: "Details",
-    status: "Open",
-  },
-  {
-    id: "ALT-002",
-    tone: "critical",
-    icon: <Truck size={18} />,
-    tag: "CRITICAL",
-    title: "Rider #104 Route Delay",
-    body: "Vehicle breakdown reported on EDSA. Cold chain integrity expires in 45 minutes.",
-    location: "Mark Santos • 45m left",
-    time: "12 mins ago",
-    primary: "Re-route Backup",
-    secondary: "Call",
-    status: "Open",
-  },
-  {
-    id: "ALT-003",
-    tone: "warning",
-    icon: <AlertTriangle size={18} />,
-    tag: "WARNING",
-    title: "Low Stock: Pfizer-BioNTech",
-    body: "Inventory in Manila Central has dropped below 15% threshold. Replenishment needed within 48 hours.",
-    location: "Current Stock 14% (250 vials)",
-    time: "1 hr ago",
-    primary: "Request Transfer",
-    secondary: "Dismiss",
-    status: "Open",
-  },
-  {
-    id: "ALT-004",
-    tone: "info",
-    icon: <Info size={18} />,
-    tag: "INFO",
-    title: "Scheduled Maintenance",
-    body: "System backend update scheduled for 02:00 AM PHT. Analytics module may be temporarily unavailable.",
-    location: "System Update",
-    time: "3 hrs ago",
-    primary: "Acknowledge",
-    secondary: "",
-    status: "Open",
-  },
-];
+function deriveAlertFromOrder(order) {
+  const rawStatus = getOrderStatusValue(order);
+  const statusKey = normalizeStatusKey(rawStatus);
 
-const initialHistoryAlerts = [
-  {
-    id: "HIS-001",
-    tone: "critical",
-    icon: <CheckCircle size={18} />,
-    tag: "CRITICAL",
-    title: "Temperature Alert Resolved",
-    body: "Cold-chain temperature returned to normal after freezer recalibration.",
-    location: "Hub Alpha, North Wing",
-    time: "Yesterday",
-    primary: "View Details",
-    secondary: "",
-    status: "Resolved",
-  },
-  {
-    id: "HIS-002",
-    tone: "warning",
-    icon: <CheckCircle size={18} />,
-    tag: "WARNING",
-    title: "Low Stock Replenished",
-    body: "Pfizer-BioNTech stock was replenished and is now above the minimum threshold.",
-    location: "Manila Central Hub",
-    time: "2 days ago",
-    primary: "View Details",
-    secondary: "",
-    status: "Resolved",
-  },
-  {
-    id: "HIS-003",
-    tone: "info",
-    icon: <CheckCircle size={18} />,
-    tag: "INFO",
-    title: "Maintenance Completed",
-    body: "Scheduled backend maintenance was completed successfully.",
-    location: "System Update",
-    time: "3 days ago",
-    primary: "View Details",
-    secondary: "",
-    status: "Resolved",
-  },
-];
+  let tone = "info";
+  let tag = "INFO";
+  let icon = <Info size={18} />;
+  let title = "";
+  let body = "";
+
+  const clinic = order.clinicName || "Unknown Clinic";
+  const orderNum = order.orderNumber || order.id;
+  const vaccine = order.vaccineName || "Vaccine order";
+
+  switch (statusKey) {
+    case "delayed":
+      tone = "critical";
+      tag = "CRITICAL";
+      icon = <AlertTriangle size={18} />;
+      title = `Delivery Delayed — ${orderNum}`;
+      body = `Order to ${clinic} for ${vaccine} has been delayed. Check order tracking for updates.`;
+      break;
+    case "cancelled":
+    case "canceled":
+      tone = "critical";
+      tag = "CRITICAL";
+      icon = <AlertTriangle size={18} />;
+      title = `Order Cancelled — ${orderNum}`;
+      body = `Order to ${clinic} for ${vaccine} has been cancelled.`;
+      break;
+    case "assigned":
+      tone = "info";
+      tag = "UPDATE";
+      icon = <Truck size={18} />;
+      title = `Rider Assigned — ${orderNum}`;
+      body = `A rider has been assigned to deliver ${vaccine} to ${clinic}.${order.assignedRiderName ? ` Rider: ${order.assignedRiderName}` : ""}`;
+      break;
+    case "in_transit":
+      tone = "info";
+      tag = "UPDATE";
+      icon = <Truck size={18} />;
+      title = `In Transit — ${orderNum}`;
+      body = `Your order of ${vaccine} to ${clinic} is now in transit.`;
+      break;
+    case "completed":
+    case "delivered":
+      tone = "success";
+      tag = "DELIVERED";
+      icon = <CheckCircle size={18} />;
+      title = `Delivered — ${orderNum}`;
+      body = `Order of ${vaccine} to ${clinic} has been delivered successfully.`;
+      break;
+    case "pending":
+    case "pending_dispatch":
+      tone = "info";
+      tag = "PENDING";
+      icon = <Info size={18} />;
+      title = `Order Submitted — ${orderNum}`;
+      body = `Your order of ${vaccine} to ${clinic} is pending dispatch.`;
+      break;
+    case "loading":
+      tone = "info";
+      tag = "UPDATE";
+      icon = <Truck size={18} />;
+      title = `Loading — ${orderNum}`;
+      body = `Order of ${vaccine} for ${clinic} is being loaded for dispatch.`;
+      break;
+    default:
+      title = `Order Update — ${orderNum}`;
+      body = `Order to ${clinic} status: ${rawStatus || "unknown"}.`;
+      break;
+  }
+
+  const ts = order.updatedAt || order.createdAt;
+
+  return {
+    id: order.id,
+    tone,
+    tag,
+    icon,
+    title,
+    body,
+    location: clinic,
+    time: formatTime(ts),
+    statusKey,
+    orderNumber: orderNum,
+    priority: order.priority || "Standard",
+    quantity: Number(order.quantity || 0),
+    vaccineName: vaccine,
+  };
+}
+
+function formatTime(ts) {
+  if (!ts) return "—";
+  const date = ts.toDate ? ts.toDate() : new Date(ts);
+  if (isNaN(date.getTime())) return "—";
+
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHr = Math.floor(diffMs / 3600000);
+  const diffDay = Math.floor(diffMs / 86400000);
+
+  if (diffMin < 1) return "Just now";
+  if (diffMin < 60) return `${diffMin} min ago`;
+  if (diffHr < 24) return `${diffHr} hr ago`;
+  if (diffDay < 7) return `${diffDay} day${diffDay > 1 ? "s" : ""} ago`;
+
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
 
 function SalesRepAlerts() {
-  const [activeAlerts, setActiveAlerts] = useState(initialActiveAlerts);
-  const [historyAlerts, setHistoryAlerts] = useState(initialHistoryAlerts);
+  const [alerts, setAlerts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
   const [activeTab, setActiveTab] = useState("active");
   const [activeFilter, setActiveFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [message, setMessage] = useState("");
   const [selectedAlert, setSelectedAlert] = useState(null);
 
-  const alerts = activeTab === "active" ? activeAlerts : historyAlerts;
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) {
+      setError("You must be logged in to view alerts.");
+      setLoading(false);
+      return;
+    }
+
+    const unsubscribe = subscribeSalesRepOrders(
+      user.uid,
+      (raw) => {
+        const derived = raw.map(deriveAlertFromOrder);
+        setAlerts(derived);
+        setLoading(false);
+        setError("");
+      },
+      (err) => {
+        if (err?.code === "permission-denied") {
+          setError("You do not have permission to view alerts. Please contact your administrator.");
+        } else {
+          setError("Unable to load alerts. Please try again later.");
+        }
+        setLoading(false);
+      }
+    );
+
+    return unsubscribe;
+  }, []);
+
+  const activeAlerts = useMemo(
+    () => alerts.filter((a) => a.statusKey !== "completed" && a.statusKey !== "delivered" && a.statusKey !== "cancelled" && a.statusKey !== "canceled"),
+    [alerts]
+  );
+
+  const historyAlerts = useMemo(
+    () => alerts.filter((a) => a.statusKey === "completed" || a.statusKey === "delivered" || a.statusKey === "cancelled" || a.statusKey === "canceled"),
+    [alerts]
+  );
+
+  const currentAlerts = activeTab === "active" ? activeAlerts : historyAlerts;
 
   const filteredAlerts = useMemo(() => {
     const search = searchTerm.trim().toLowerCase();
-
-    return alerts.filter((alert) => {
+    return currentAlerts.filter((alert) => {
       const matchesFilter = activeFilter === "all" || alert.tone === activeFilter;
       const matchesSearch =
-        alert.id.toLowerCase().includes(search) ||
+        alert.orderNumber.toLowerCase().includes(search) ||
         alert.title.toLowerCase().includes(search) ||
         alert.body.toLowerCase().includes(search) ||
-        alert.location.toLowerCase().includes(search) ||
-        alert.status.toLowerCase().includes(search);
-
+        alert.location.toLowerCase().includes(search);
       return matchesFilter && matchesSearch;
     });
-  }, [activeFilter, alerts, searchTerm]);
+  }, [activeFilter, currentAlerts, searchTerm]);
 
-  const filterCounts = useMemo(() => {
-    return {
-      all: alerts.length,
-      critical: alerts.filter((alert) => alert.tone === "critical").length,
-      warning: alerts.filter((alert) => alert.tone === "warning").length,
-      info: alerts.filter((alert) => alert.tone === "info").length,
-    };
-  }, [alerts]);
+  const filterCounts = useMemo(() => ({
+    all: currentAlerts.length,
+    critical: currentAlerts.filter((a) => a.tone === "critical").length,
+    info: currentAlerts.filter((a) => a.tone === "info").length,
+    success: currentAlerts.filter((a) => a.tone === "success").length,
+  }), [currentAlerts]);
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
@@ -151,92 +206,34 @@ function SalesRepAlerts() {
     setMessage("");
   };
 
-  const updateAlertStatus = (alertId, status, successMessage) => {
-    setActiveAlerts((current) =>
-      current.map((alert) =>
-        alert.id === alertId ? { ...alert, status } : alert
-      )
+  if (loading) {
+    return (
+      <SalesRepLayout active="alerts" title="Alerts & Notifications" showSearch={false}>
+        <div className="inventory-loading-state">
+          <Loader2 size={32} className="spin" />
+          <p>Loading alerts...</p>
+        </div>
+      </SalesRepLayout>
     );
-    setMessage(successMessage);
-  };
+  }
 
-  const moveToHistory = (alert, status) => {
-    const resolvedAlert = {
-      ...alert,
-      icon: <CheckCircle size={18} />,
-      status,
-      time: "Just now",
-      primary: "View Details",
-      secondary: "",
-    };
-
-    setActiveAlerts((current) => current.filter((item) => item.id !== alert.id));
-    setHistoryAlerts((current) => [resolvedAlert, ...current]);
-    setMessage(`${alert.id} was moved to History as ${status}.`);
-  };
-
-  const handlePrimaryAction = (alert) => {
-    if (activeTab === "history") {
-      setSelectedAlert(alert);
-      return;
-    }
-
-    if (alert.primary === "Dispatch Tech") {
-      updateAlertStatus(alert.id, "Technician Dispatched", "Technician dispatch recorded.");
-      return;
-    }
-
-    if (alert.primary === "Re-route Backup") {
-      updateAlertStatus(alert.id, "Backup Rider Requested", "Backup rider request recorded.");
-      return;
-    }
-
-    if (alert.primary === "Request Transfer") {
-      localStorage.setItem(
-        "salesRepAlertTransferDraft",
-        JSON.stringify({
-          alertId: alert.id,
-          title: alert.title,
-          location: alert.location,
-          createdAt: new Date().toISOString(),
-        })
-      );
-
-      updateAlertStatus(alert.id, "Transfer Requested", "Transfer request draft saved.");
-      return;
-    }
-
-    if (alert.primary === "Acknowledge") {
-      moveToHistory(alert, "Acknowledged");
-    }
-  };
-
-  const handleSecondaryAction = (alert) => {
-    if (alert.secondary === "Details") {
-      setSelectedAlert(alert);
-      return;
-    }
-
-    if (alert.secondary === "Call") {
-      setMessage("Calling assigned rider/support contact...");
-      return;
-    }
-
-    if (alert.secondary === "Dismiss") {
-      moveToHistory(alert, "Dismissed");
-    }
-  };
+  if (error) {
+    return (
+      <SalesRepLayout active="alerts" title="Alerts & Notifications" showSearch={false}>
+        <div className="inventory-loading-state">
+          <AlertTriangle size={32} />
+          <p>{error}</p>
+        </div>
+      </SalesRepLayout>
+    );
+  }
 
   return (
-    <SalesRepLayout
-      active="alerts"
-      title="Alerts & Notifications"
-      showSearch={false}
-    >
+    <SalesRepLayout active="alerts" title="Alerts & Notifications" showSearch={false}>
       <section className="sales-alerts-header alerts-v2-header no-filter-icon">
         <div>
           <h1>Alerts & Notifications</h1>
-          <p>Manage critical logistics issues and system warnings.</p>
+          <p>Order status updates and delivery alerts for your orders.</p>
         </div>
 
         <div className="alerts-v2-search">
@@ -244,7 +241,7 @@ function SalesRepAlerts() {
           <input
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="Search alert ID, title, or location..."
+            placeholder="Search order ID, title, or clinic..."
           />
         </div>
       </section>
@@ -265,7 +262,7 @@ function SalesRepAlerts() {
           className={activeTab === "active" ? "active" : ""}
           onClick={() => handleTabChange("active")}
         >
-          Active Alerts ({activeAlerts.length})
+          Active ({activeAlerts.length})
         </button>
 
         <button
@@ -278,33 +275,12 @@ function SalesRepAlerts() {
       </div>
 
       <div className="sales-alert-filters alerts-v2-filters">
-        <FilterButton
-          label={`All (${filterCounts.all})`}
-          value="all"
-          activeFilter={activeFilter}
-          onClick={setActiveFilter}
-        />
-
-        <FilterButton
-          label={`Critical (${filterCounts.critical})`}
-          value="critical"
-          activeFilter={activeFilter}
-          onClick={setActiveFilter}
-        />
-
-        <FilterButton
-          label={`Warning (${filterCounts.warning})`}
-          value="warning"
-          activeFilter={activeFilter}
-          onClick={setActiveFilter}
-        />
-
-        <FilterButton
-          label={`Info (${filterCounts.info})`}
-          value="info"
-          activeFilter={activeFilter}
-          onClick={setActiveFilter}
-        />
+        <FilterButton label={`All (${filterCounts.all})`} value="all" activeFilter={activeFilter} onClick={setActiveFilter} />
+        <FilterButton label={`Critical (${filterCounts.critical})`} value="critical" activeFilter={activeFilter} onClick={setActiveFilter} />
+        <FilterButton label={`Updates (${filterCounts.info})`} value="info" activeFilter={activeFilter} onClick={setActiveFilter} />
+        {activeTab === "history" && (
+          <FilterButton label={`Delivered (${filterCounts.success})`} value="success" activeFilter={activeFilter} onClick={setActiveFilter} />
+        )}
       </div>
 
       <section className="sales-alert-grid alerts-v2-grid">
@@ -314,15 +290,18 @@ function SalesRepAlerts() {
               key={alert.id}
               alert={alert}
               isHistory={activeTab === "history"}
-              onPrimaryAction={handlePrimaryAction}
-              onSecondaryAction={handleSecondaryAction}
+              onViewDetails={() => setSelectedAlert(alert)}
             />
           ))
         ) : (
           <div className="alerts-v2-empty">
             <Info size={34} />
             <strong>No alerts found</strong>
-            <p>Try changing the search keyword or filter.</p>
+            <p>
+              {alerts.length === 0
+                ? "Place your first order to start receiving alerts."
+                : "Try changing the search keyword or filter."}
+            </p>
           </div>
         )}
       </section>
@@ -332,10 +311,9 @@ function SalesRepAlerts() {
           <div className="alerts-v2-modal" onClick={(event) => event.stopPropagation()}>
             <div className="alerts-v2-modal-head">
               <div>
-                <span>{selectedAlert.id}</span>
+                <span>{selectedAlert.orderNumber}</span>
                 <h2>{selectedAlert.title}</h2>
               </div>
-
               <button type="button" onClick={() => setSelectedAlert(null)}>
                 <X size={18} />
               </button>
@@ -349,16 +327,24 @@ function SalesRepAlerts() {
                 <strong>{selectedAlert.tag}</strong>
               </div>
               <div>
-                <span>Status</span>
-                <strong>{selectedAlert.status}</strong>
+                <span>Priority</span>
+                <strong>{selectedAlert.priority}</strong>
               </div>
               <div>
-                <span>Location</span>
-                <strong>{selectedAlert.location || "N/A"}</strong>
+                <span>Clinic</span>
+                <strong>{selectedAlert.location}</strong>
               </div>
               <div>
-                <span>Reported</span>
+                <span>Time</span>
                 <strong>{selectedAlert.time}</strong>
+              </div>
+              <div>
+                <span>Vaccine</span>
+                <strong>{selectedAlert.vaccineName}</strong>
+              </div>
+              <div>
+                <span>Quantity</span>
+                <strong>{selectedAlert.quantity.toLocaleString()} vials</strong>
               </div>
             </div>
 
@@ -376,9 +362,7 @@ function FilterButton({ label, value, activeFilter, onClick }) {
   return (
     <button
       type="button"
-      className={`alert-filter-btn ${value} ${
-        activeFilter === value ? "active" : ""
-      }`}
+      className={`alert-filter-btn ${value} ${activeFilter === value ? "active" : ""}`}
       onClick={() => onClick(value)}
     >
       {value !== "all" && <span className="filter-dot"></span>}
@@ -387,12 +371,12 @@ function FilterButton({ label, value, activeFilter, onClick }) {
   );
 }
 
-function AlertCard({ alert, isHistory, onPrimaryAction, onSecondaryAction }) {
+function AlertCard({ alert, isHistory, onViewDetails }) {
   return (
     <div className={`sales-alert-card alerts-v2-card ${alert.tone} ${isHistory ? "history" : ""}`}>
       <div className="sales-alert-card-top">
         <span>{alert.icon}</span>
-        <b>{isHistory ? "RESOLVED" : alert.tag}</b>
+        <b>{isHistory ? (alert.statusKey === "cancelled" || alert.statusKey === "canceled" ? "CANCELLED" : "DELIVERED") : alert.tag}</b>
         <small>{alert.time}</small>
       </div>
 
@@ -401,22 +385,10 @@ function AlertCard({ alert, isHistory, onPrimaryAction, onSecondaryAction }) {
 
       {alert.location && <div className="alert-location">{alert.location}</div>}
 
-      <div className="alerts-v2-status-row">
-        <span>Status</span>
-        <strong>{alert.status}</strong>
-      </div>
-
       <div className="alert-actions">
-        <button type="button" onClick={() => onPrimaryAction(alert)}>
-          {alert.primary}
+        <button type="button" onClick={onViewDetails}>
+          View Details
         </button>
-
-        {alert.secondary && (
-          <button type="button" className="outline" onClick={() => onSecondaryAction(alert)}>
-            {alert.secondary === "Call" && <Phone size={14} />}
-            {alert.secondary}
-          </button>
-        )}
       </div>
     </div>
   );

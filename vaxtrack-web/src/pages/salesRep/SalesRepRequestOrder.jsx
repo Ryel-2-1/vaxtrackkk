@@ -1,8 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  AlertTriangle,
   Bell,
   CheckCircle2,
+  Loader2,
   Minus,
   PackageCheck,
   Plus,
@@ -10,107 +12,139 @@ import {
   ShoppingCart,
   Trash2,
 } from "lucide-react";
+import { subscribeInventory } from "../../services/inventoryService";
 import SalesRepLayout from "./SalesRepLayout";
 
-const productCatalog = [
-  {
-    category: "MRNA TECHNOLOGY",
-    name: "VaxCovar-9 Prime",
-    sku: "VC9-P-2024-X",
-    stock: 4280,
-    temp: "-80°C to -60°C",
-    status: "In Stock",
-  },
-  {
-    category: "VIRAL VECTOR",
-    name: "ImmunoShield G3",
-    sku: "IGS3-500-MED",
-    stock: 840,
-    temp: "2°C to 8°C",
-    status: "Low Stock",
-  },
-  {
-    category: "PROTEIN SUBUNIT",
-    name: "NovusVax Pro",
-    sku: "NVP-99-PRO",
-    stock: 12150,
-    temp: "2°C to 8°C",
-    status: "In Stock",
-  },
-  {
-    category: "MRNA TECHNOLOGY",
-    name: "Pediatri-Vax 12",
-    sku: "PV12-KID-24",
-    stock: 0,
-    temp: "-20°C",
-    status: "Out of Stock",
-  },
-  {
-    category: "INACTIVATED",
-    name: "CoronaVac Plus",
-    sku: "SNO-2023-C44",
-    stock: 120000,
-    temp: "2°C to 8°C",
-    status: "In Stock",
-  },
-  {
-    category: "MRNA TECHNOLOGY",
-    name: "Spikevax Batch",
-    sku: "MOD-2023-B12",
-    stock: 45000,
-    temp: "-20°C",
-    status: "In Stock",
-  },
-];
+function normalizeProduct(raw) {
+  const qty = raw.quantity != null ? Number(raw.quantity) : 0;
+  let status = "In Stock";
+  if (qty <= 0) status = "Out of Stock";
+  else if (qty <= 100) status = "Low Stock";
+
+  return {
+    id: raw.id,
+    name: raw.vaccineName || "Unknown Vaccine",
+    sku: raw.batchId || raw.id,
+    category: raw.vaccineType || "Other",
+    stock: qty,
+    temp: raw.storageTemp != null
+      ? String(raw.storageTemp).includes("°") ? String(raw.storageTemp) : `${raw.storageTemp}°C`
+      : "—",
+    status,
+  };
+}
 
 function SalesRepRequestOrder() {
   const navigate = useNavigate();
+
+  const [catalog, setCatalog] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
   const [searchTerm, setSearchTerm] = useState("");
   const [stockFilter, setStockFilter] = useState("all");
-  const [quantities, setQuantities] = useState(() =>
-    productCatalog.reduce((acc, product) => ({ ...acc, [product.sku]: 1 }), {})
-  );
+  const [quantities, setQuantities] = useState({});
   const [cart, setCart] = useState([]);
   const [destination, setDestination] = useState("");
   const [notice, setNotice] = useState("");
 
+  useEffect(() => {
+    const unsubscribe = subscribeInventory(
+      (raw) => {
+        const products = raw.map(normalizeProduct);
+        setCatalog(products);
+
+        setQuantities((prev) => {
+          const next = { ...prev };
+          for (const p of products) {
+            if (!(p.sku in next)) next[p.sku] = 1;
+          }
+          return next;
+        });
+
+        setLoading(false);
+        setError("");
+      },
+      (err) => {
+        if (err?.code === "permission-denied") {
+          setError("You do not have permission to view inventory. Please contact your administrator.");
+        } else {
+          setError("Unable to load inventory. Please try again later.");
+        }
+        setLoading(false);
+      }
+    );
+
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (catalog.length === 0) return;
+
+    try {
+      const saved = JSON.parse(localStorage.getItem("salesRepSelectedInventory") || "null");
+      if (!Array.isArray(saved) || saved.length === 0) return;
+
+      localStorage.removeItem("salesRepSelectedInventory");
+
+      const preselected = [];
+      for (const item of saved) {
+        const match = catalog.find((p) => p.id === item.id);
+        if (match && match.stock > 0) {
+          const existing = preselected.find((c) => c.sku === match.sku);
+          if (!existing) {
+            preselected.push({ ...match, quantity: 1 });
+          }
+        }
+      }
+
+      if (preselected.length > 0) {
+        setCart((prev) => {
+          const merged = [...prev];
+          for (const item of preselected) {
+            if (!merged.find((c) => c.sku === item.sku)) {
+              merged.push(item);
+            }
+          }
+          return merged;
+        });
+        setNotice(`${preselected.length} item(s) added from inventory selection.`);
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }, [catalog]);
+
   const filteredProducts = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
-
-    return productCatalog.filter((product) => {
+    return catalog.filter((product) => {
       const matchesSearch =
         product.name.toLowerCase().includes(query) ||
         product.sku.toLowerCase().includes(query) ||
         product.category.toLowerCase().includes(query) ||
         product.status.toLowerCase().includes(query);
-
       const matchesStock = stockFilter === "all" || product.stock > 0;
-
       return matchesSearch && matchesStock;
     });
-  }, [searchTerm, stockFilter]);
+  }, [catalog, searchTerm, stockFilter]);
 
   const cartTotal = cart.reduce((total, item) => total + item.quantity, 0);
   const storageSlots = cart.length;
 
   const changeQuantity = (sku, direction) => {
-    const product = productCatalog.find((item) => item.sku === sku);
+    const product = catalog.find((item) => item.sku === sku);
     const maxQty = Math.max(product?.stock || 1, 1);
 
     setQuantities((current) => {
       const currentQty = current[sku] || 1;
       const nextQty = direction === "minus" ? currentQty - 1 : currentQty + 1;
-
-      return {
-        ...current,
-        [sku]: Math.min(Math.max(nextQty, 1), maxQty),
-      };
+      return { ...current, [sku]: Math.min(Math.max(nextQty, 1), maxQty) };
     });
   };
 
   const addToCart = (product) => {
     if (product.stock <= 0) {
-      notifyRestock(product);
+      setNotice(`${product.name} is out of stock.`);
       return;
     }
 
@@ -118,18 +152,13 @@ function SalesRepRequestOrder() {
 
     setCart((current) => {
       const existing = current.find((item) => item.sku === product.sku);
-
       if (existing) {
         return current.map((item) =>
           item.sku === product.sku
-            ? {
-                ...item,
-                quantity: Math.min(item.quantity + quantity, product.stock),
-              }
+            ? { ...item, quantity: Math.min(item.quantity + quantity, product.stock) }
             : item
         );
       }
-
       return [...current, { ...product, quantity }];
     });
 
@@ -138,20 +167,6 @@ function SalesRepRequestOrder() {
 
   const removeFromCart = (sku) => {
     setCart((current) => current.filter((item) => item.sku !== sku));
-  };
-
-  const notifyRestock = (product) => {
-    const savedNotifications = JSON.parse(localStorage.getItem("salesRepRestockNotifications") || "[]");
-    const alreadySaved = savedNotifications.some((item) => item.sku === product.sku);
-
-    if (!alreadySaved) {
-      localStorage.setItem(
-        "salesRepRestockNotifications",
-        JSON.stringify([...savedNotifications, product])
-      );
-    }
-
-    setNotice(`Restock notification saved for ${product.name}.`);
   };
 
   const placeOrder = () => {
@@ -177,6 +192,28 @@ function SalesRepRequestOrder() {
     navigate("/sales-rep/place-order");
   };
 
+  if (loading) {
+    return (
+      <SalesRepLayout active="request" title="Vaccine Inventory" showSearch={false}>
+        <div className="inventory-loading-state">
+          <Loader2 size={32} className="spin" />
+          <p>Loading vaccine catalog...</p>
+        </div>
+      </SalesRepLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <SalesRepLayout active="request" title="Vaccine Inventory" showSearch={false}>
+        <div className="inventory-loading-state">
+          <AlertTriangle size={32} />
+          <p>{error}</p>
+        </div>
+      </SalesRepLayout>
+    );
+  }
+
   return (
     <SalesRepLayout active="request" title="Vaccine Inventory" showSearch={false}>
       <section className="request-order-layout request-v2-layout">
@@ -184,7 +221,7 @@ function SalesRepRequestOrder() {
           <div className="request-header-row request-v2-header">
             <div>
               <h1>Vaccine Inventory</h1>
-              <p>Global medical catalog and live hub availability.</p>
+              <p>Live hub availability from Firestore inventory.</p>
             </div>
 
             <div className="request-search request-v2-search">
@@ -192,7 +229,7 @@ function SalesRepRequestOrder() {
               <input
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search by name, SKU, or vaccine type..."
+                placeholder="Search by name, batch ID, or vaccine type..."
               />
             </div>
           </div>
@@ -232,11 +269,11 @@ function SalesRepRequestOrder() {
                   </div>
 
                   <h2>{product.name}</h2>
-                  <p>SKU: {product.sku}</p>
+                  <p>Batch: {product.sku}</p>
 
                   <div className="product-meta">
                     <div>
-                      <span>Hub Stock Level</span>
+                      <span>Available Stock</span>
                       <strong>{product.stock > 0 ? product.stock.toLocaleString() : "--"}</strong>
                       <small>vials</small>
                     </div>
@@ -257,7 +294,7 @@ function SalesRepRequestOrder() {
                         <Minus size={14} />
                       </button>
 
-                      <span>{quantities[product.sku]}</span>
+                      <span>{quantities[product.sku] || 1}</span>
 
                       <button
                         type="button"
@@ -276,7 +313,7 @@ function SalesRepRequestOrder() {
                       {product.stock <= 0 ? (
                         <>
                           <Bell size={15} />
-                          Notify When Restocked
+                          Out of Stock
                         </>
                       ) : (
                         <>

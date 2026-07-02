@@ -1,6 +1,8 @@
 import {
+  AlertTriangle,
   Bell,
   FileText,
+  Loader2,
   MapPin,
   Minus,
   PackagePlus,
@@ -9,62 +11,12 @@ import {
   Trash2,
   Zap,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createSalesRepOrder } from "../../services/orderService";
+import { subscribeClinics } from "../../services/clinicService";
 import { auth } from "../../firebase";
 import SalesRepLayout from "./SalesRepLayout";
-
-const fallbackItems = [
-  {
-    name: "Vaxipro Ultra-V (Adult)",
-    sku: "SKU-VX-9921",
-    chain: "Cold Chain",
-    quantity: 150,
-    unitPrice: 24.5,
-    stockText: "In Stock (4,200 units)",
-  },
-  {
-    name: "Vaxipro Ultra-V (Adult)",
-    sku: "SKU-IM-4410",
-    chain: "Room Temp",
-    quantity: 500,
-    unitPrice: 12,
-    stockText: "In Stock (4,200 units)",
-  },
-  {
-    name: "Vaxipro Ultra-V (Adult)",
-    sku: "SKU-SY-1205",
-    chain: "Dry Goods",
-    quantity: 10,
-    unitPrice: 85,
-    stockText: "In Stock (4,200 units)",
-  },
-];
-
-const unitPriceMap = {
-  "VC9-P-2024-X": 24.5,
-  "IGS3-500-MED": 12,
-  "NVP-99-PRO": 18.75,
-  "PV12-KID-24": 20,
-  "SNO-2023-C44": 11.5,
-  "MOD-2023-B12": 22.25,
-};
-
-const clinics = [
-  {
-    name: "St. Luke's Medical Center - QC",
-    address: "279 E Rodriguez Sr. Ave, Quezon City, 1112 Metro Manila, Philippines",
-  },
-  {
-    name: "Manila Doctors Hospital",
-    address: "667 United Nations Ave, Ermita, Manila, 1000 Metro Manila, Philippines",
-  },
-  {
-    name: "Makati Medical Center",
-    address: "2 Amorsolo Street, Legazpi Village, Makati, 1229 Metro Manila, Philippines",
-  },
-];
 
 function getInitialItems() {
   try {
@@ -72,19 +24,18 @@ function getInitialItems() {
 
     if (savedDraft?.items?.length) {
       return savedDraft.items.map((item) => ({
-        name: item.name,
-        sku: item.sku,
+        name: item.name || "Unknown Vaccine",
+        sku: item.sku || item.id || "—",
         chain: item.temp || item.category || "Cold Chain",
         quantity: Number(item.quantity) || 1,
-        unitPrice: Number(item.unitPrice) || unitPriceMap[item.sku] || 15,
-        stockText: item.stock ? `In Stock (${Number(item.stock).toLocaleString()} units)` : "In Stock",
+        stockText: item.stock ? `Available: ${Number(item.stock).toLocaleString()} vials` : "",
       }));
     }
   } catch (error) {
     console.warn("Unable to load sales rep cart:", error);
   }
 
-  return fallbackItems;
+  return [];
 }
 
 function SalesRepPlaceOrder() {
@@ -93,56 +44,60 @@ function SalesRepPlaceOrder() {
   const [saving, setSaving] = useState(false);
   const [items, setItems] = useState(getInitialItems);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedClinic, setSelectedClinic] = useState(() => {
-    try {
-      const savedDraft = JSON.parse(localStorage.getItem("salesRepQuickCart") || "null");
-      return savedDraft?.destination || clinics[0].name;
-    } catch {
-      return clinics[0].name;
-    }
-  });
+
+  const [clinics, setClinics] = useState([]);
+  const [clinicsLoading, setClinicsLoading] = useState(true);
+  const [selectedClinic, setSelectedClinic] = useState("");
   const [instructions, setInstructions] = useState("");
   const [urgent, setUrgent] = useState(false);
   const [message, setMessage] = useState("");
 
-  const selectedClinicInfo =
-    clinics.find((clinic) => clinic.name === selectedClinic) || clinics[0];
+  useEffect(() => {
+    const unsubscribe = subscribeClinics(
+      (docs) => {
+        setClinics(docs);
+        setClinicsLoading(false);
+
+        if (!selectedClinic && docs.length > 0) {
+          try {
+            const savedDraft = JSON.parse(localStorage.getItem("salesRepQuickCart") || "null");
+            const dest = savedDraft?.destination || "";
+            const match = docs.find((c) => c.name === dest);
+            setSelectedClinic(match ? match.name : docs[0].name);
+          } catch {
+            setSelectedClinic(docs[0].name);
+          }
+        }
+      },
+      () => {
+        setClinicsLoading(false);
+      }
+    );
+
+    return unsubscribe;
+  }, []);
+
+  const selectedClinicInfo = clinics.find((c) => c.name === selectedClinic) || clinics[0] || null;
 
   const filteredItems = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
-
-    return items.filter((item) => {
-      return (
+    return items.filter(
+      (item) =>
         item.name.toLowerCase().includes(query) ||
         item.sku.toLowerCase().includes(query) ||
         item.chain.toLowerCase().includes(query)
-      );
-    });
+    );
   }, [items, searchTerm]);
 
-  const subtotal = useMemo(() => {
-    return items.reduce((total, item) => total + item.quantity * item.unitPrice, 0);
-  }, [items]);
-
-  const handlingFee = 165;
-  const urgentFee = urgent ? 250 : 0;
-  const estimatedTotal = subtotal + handlingFee + urgentFee;
   const totalQuantity = items.reduce((total, item) => total + item.quantity, 0);
 
   const handleQuantityChange = (sku, action) => {
     setItems((current) =>
       current.map((item) => {
         if (item.sku !== sku) return item;
-
         const nextQuantity =
-          action === "increase"
-            ? item.quantity + 1
-            : Math.max(item.quantity - 1, 1);
-
-        return {
-          ...item,
-          quantity: nextQuantity,
-        };
+          action === "increase" ? item.quantity + 1 : Math.max(item.quantity - 1, 1);
+        return { ...item, quantity: nextQuantity };
       })
     );
   };
@@ -154,6 +109,11 @@ function SalesRepPlaceOrder() {
   const handleFinalizeOrder = async () => {
     if (items.length === 0) {
       setMessage("Add at least one order item before finalizing.");
+      return;
+    }
+
+    if (!selectedClinicInfo) {
+      setMessage("Please select a clinic destination.");
       return;
     }
 
@@ -169,7 +129,7 @@ function SalesRepPlaceOrder() {
 
       const orderPayload = {
         clinicName: selectedClinicInfo.name,
-        clinicAddress: selectedClinicInfo.address,
+        clinicAddress: selectedClinicInfo.location || selectedClinicInfo.address || "",
         vaccineName: vaccineSummary,
         vaccineType: items[0]?.chain || "",
         quantity: totalQuantity,
@@ -191,13 +151,11 @@ function SalesRepPlaceOrder() {
         JSON.stringify({
           id: orderId,
           ...orderPayload,
-          subtotal,
-          handlingFee,
-          urgentFee,
-          estimatedTotal,
           status: "pending_dispatch",
         })
       );
+
+      localStorage.removeItem("salesRepQuickCart");
 
       navigate("/sales-rep/order-confirmation");
     } catch (error) {
@@ -208,6 +166,27 @@ function SalesRepPlaceOrder() {
     }
   };
 
+  if (items.length === 0 && !message) {
+    return (
+      <SalesRepLayout active="request" title="Place New Order" showSearch={false}>
+        <div className="inventory-loading-state">
+          <AlertTriangle size={32} />
+          <strong>No items in cart</strong>
+          <p>Go back to the catalog to add vaccines to your order.</p>
+          <button
+            type="button"
+            className="inventory-request-btn"
+            style={{ marginTop: 16 }}
+            onClick={() => navigate("/sales-rep/request-order")}
+          >
+            <PackagePlus size={16} />
+            Browse Catalog
+          </button>
+        </div>
+      </SalesRepLayout>
+    );
+  }
+
   return (
     <SalesRepLayout
       active="request"
@@ -217,7 +196,7 @@ function SalesRepPlaceOrder() {
     >
       <div className="place-order-session place-v2-session">
         <span>Current Session</span>
-        <strong>#ORD-2024-8842</strong>
+        <strong>{items.length} item(s) in order</strong>
         <Bell size={15} />
       </div>
 
@@ -229,7 +208,7 @@ function SalesRepPlaceOrder() {
               <input
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search selected items by name, SKU, or cold-chain type..."
+                placeholder="Search selected items by name, batch, or type..."
               />
             </div>
 
@@ -258,9 +237,8 @@ function SalesRepPlaceOrder() {
               <thead>
                 <tr>
                   <th>Product</th>
-                  <th>SKU & Chain</th>
+                  <th>Batch & Type</th>
                   <th>Quantity</th>
-                  <th>Unit Price</th>
                   <th></th>
                 </tr>
               </thead>
@@ -278,7 +256,7 @@ function SalesRepPlaceOrder() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="5">
+                    <td colSpan="4">
                       <div className="place-v2-empty">
                         No matching order item found.
                       </div>
@@ -295,8 +273,8 @@ function SalesRepPlaceOrder() {
               </button>
 
               <p>
-                Items Subtotal
-                <strong>{formatCurrency(subtotal)}</strong>
+                Total Vials
+                <strong>{totalQuantity.toLocaleString()}</strong>
               </p>
             </div>
           </div>
@@ -310,21 +288,32 @@ function SalesRepPlaceOrder() {
             </h2>
 
             <label>Select Clinic/Hospital</label>
-            <select
-              value={selectedClinic}
-              onChange={(event) => setSelectedClinic(event.target.value)}
-            >
-              {clinics.map((clinic) => (
-                <option key={clinic.name} value={clinic.name}>
-                  {clinic.name}
-                </option>
-              ))}
-            </select>
+            {clinicsLoading ? (
+              <p style={{ fontSize: 13, color: "#64748b" }}>
+                <Loader2 size={14} className="spin" style={{ verticalAlign: "middle", marginRight: 6 }} />
+                Loading clinics...
+              </p>
+            ) : clinics.length === 0 ? (
+              <p style={{ fontSize: 13, color: "#94a3b8" }}>No clinics found. Add clinics in Admin.</p>
+            ) : (
+              <select
+                value={selectedClinic}
+                onChange={(event) => setSelectedClinic(event.target.value)}
+              >
+                {clinics.map((clinic) => (
+                  <option key={clinic.id} value={clinic.name}>
+                    {clinic.name}
+                  </option>
+                ))}
+              </select>
+            )}
 
-            <div className="address-box">
-              <strong>Shipping Address</strong>
-              <p>{selectedClinicInfo.address}</p>
-            </div>
+            {selectedClinicInfo && (
+              <div className="address-box">
+                <strong>Shipping Address</strong>
+                <p>{selectedClinicInfo.location || selectedClinicInfo.address || "No address on file"}</p>
+              </div>
+            )}
           </div>
 
           <div className="destination-card">
@@ -351,7 +340,7 @@ function SalesRepPlaceOrder() {
           </div>
 
           <div className="pricing-card place-v2-pricing-card">
-            <h2>Pricing Summary</h2>
+            <h2>Order Summary</h2>
 
             <p>
               Total Vials
@@ -359,26 +348,14 @@ function SalesRepPlaceOrder() {
             </p>
 
             <p>
-              Subtotal
-              <strong>{formatCurrency(subtotal)}</strong>
+              Items
+              <strong>{items.length}</strong>
             </p>
 
             <p>
-              Handling Fee
-              <strong>{formatCurrency(handlingFee)}</strong>
+              Priority
+              <strong>{urgent ? "Urgent" : "Standard"}</strong>
             </p>
-
-            {urgent && (
-              <p>
-                Urgent Fee
-                <strong>{formatCurrency(urgentFee)}</strong>
-              </p>
-            )}
-
-            <h3>
-              Estimated Total
-              <span>{formatCurrency(estimatedTotal)}</span>
-            </h3>
 
             <button
               type="button"
@@ -403,7 +380,7 @@ function OrderRow({ item, onDecrease, onIncrease, onRemove }) {
     <tr>
       <td>
         <strong>{item.name}</strong>
-        <small>⊙ {item.stockText}</small>
+        {item.stockText && <small>⊙ {item.stockText}</small>}
       </td>
 
       <td>
@@ -420,23 +397,12 @@ function OrderRow({ item, onDecrease, onIncrease, onRemove }) {
       </td>
 
       <td>
-        <strong>{formatCurrency(item.unitPrice)}</strong>
-      </td>
-
-      <td>
         <button type="button" className="place-v2-remove-btn" onClick={onRemove}>
           <Trash2 size={15} />
         </button>
       </td>
     </tr>
   );
-}
-
-function formatCurrency(value) {
-  return `₱${Number(value || 0).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
 }
 
 export default SalesRepPlaceOrder;

@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   onSnapshot,
   serverTimestamp,
   updateDoc,
@@ -33,4 +34,26 @@ export async function updateUserRole(uid, role) {
     throw new Error(`Invalid role: ${role}`);
   }
   return updateDoc(doc(db, USERS_COLLECTION, uid), { role, updatedAt: serverTimestamp() });
+}
+
+export async function getUserProfile(uid) {
+  const snap = await getDoc(doc(db, USERS_COLLECTION, uid));
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...snap.data() };
+}
+
+const PROFILE_EDITABLE_FIELDS = ["name", "phone", "contactNumber", "organization", "company", "clinic"];
+
+export async function updateUserProfile(uid, profileData) {
+  const clean = {};
+  for (const key of PROFILE_EDITABLE_FIELDS) {
+    if (key in profileData) {
+      clean[key] = profileData[key];
+    }
+  }
+  if (Object.keys(clean).length === 0) {
+    throw new Error("No editable fields provided.");
+  }
+  clean.updatedAt = serverTimestamp();
+  return updateDoc(doc(db, USERS_COLLECTION, uid), clean);
 }

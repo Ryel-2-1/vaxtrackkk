@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowRight,
@@ -6,212 +7,230 @@ import {
   Clock3,
   ClipboardList,
   Filter,
+  Loader2,
   PackageCheck,
   Search,
   ShoppingCart,
   Truck,
 } from "lucide-react";
+import { subscribeSalesRepOrders } from "../../services/orderService";
+import { subscribeInventory } from "../../services/inventoryService";
+import {
+  normalizeStatusKey,
+  getOrderStatusValue,
+} from "../../services/deliveryService";
+import { auth } from "../../firebase";
 import SalesRepLayout from "./SalesRepLayout";
 
 const PAGE_SIZE = 4;
 
+function mapDashboardStatus(statusKey) {
+  switch (statusKey) {
+    case "pending":
+    case "pending_dispatch":
+      return "Pending";
+    case "assigned":
+    case "loading":
+      return "Processing";
+    case "in_transit":
+      return "In Transit";
+    case "delayed":
+      return "Delayed";
+    case "completed":
+    case "delivered":
+      return "Delivered";
+    case "cancelled":
+    case "canceled":
+      return "Cancelled";
+    case "rejected":
+      return "Declined";
+    default:
+      return "Pending";
+  }
+}
+
+function statusProgress(statusKey) {
+  switch (statusKey) {
+    case "pending":
+    case "pending_dispatch":
+      return 15;
+    case "assigned":
+      return 30;
+    case "loading":
+      return 45;
+    case "in_transit":
+      return 75;
+    case "delayed":
+      return 60;
+    case "completed":
+    case "delivered":
+      return 100;
+    default:
+      return 10;
+  }
+}
+
+function formatDate(ts) {
+  if (!ts) return "—";
+  const date = ts.toDate ? ts.toDate() : new Date(ts);
+  if (isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function formatExpiry(dateStr) {
+  if (!dateStr) return "—";
+  const date = new Date(dateStr + "T00:00:00");
+  if (isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function getDaysUntilExpiry(dateStr) {
+  if (!dateStr) return Infinity;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const expiry = new Date(dateStr + "T00:00:00");
+  return Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function normalizeInventoryRow(raw) {
+  const qty = raw.quantity != null ? Number(raw.quantity) : 0;
+  const days = getDaysUntilExpiry(raw.expiryDate);
+
+  let status = "Available";
+  let statusClass = "available";
+  let tone = "blue";
+
+  if (qty <= 0) {
+    status = "Out of Stock";
+    statusClass = "out-of-stock";
+    tone = "gray";
+  } else if (days <= 30 && days >= 0) {
+    status = "Near Expiry";
+    statusClass = "near-expiry";
+    tone = "gray";
+  } else if (qty <= 100) {
+    status = "Low Stock";
+    statusClass = "low-stock";
+    tone = "gold";
+  }
+
+  return {
+    id: raw.id,
+    vaccine: raw.vaccineName || "Unknown Vaccine",
+    batchId: raw.batchId || raw.id,
+    quantity: qty.toLocaleString(),
+    quantityRaw: qty,
+    expiry: formatExpiry(raw.expiryDate),
+    status,
+    statusClass,
+    tone,
+  };
+}
+
 function SalesRepDashboard() {
+  const navigate = useNavigate();
+
+  const [orders, setOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
+  const [ordersError, setOrdersError] = useState("");
+
+  const [inventory, setInventory] = useState([]);
+  const [invLoading, setInvLoading] = useState(true);
+  const [invError, setInvError] = useState("");
+
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [currentPage, setCurrentPage] = useState(1);
 
-  const inventoryRows = [
-    {
-      vaccine: "Pfizer-BioNTech",
-      batchId: "PFZ-2023-A01",
-      quantity: "85,000",
-      expiry: "Aug 18, 2026",
-      status: "Available",
-      statusClass: "available",
-      tone: "blue",
-    },
-    {
-      vaccine: "Sinovac",
-      batchId: "SNO-2023-C44",
-      quantity: "120,000",
-      expiry: "Oct 03, 2026",
-      status: "Available",
-      statusClass: "available",
-      tone: "gold",
-    },
-    {
-      vaccine: "Moderna",
-      batchId: "MOD-2023-B12",
-      quantity: "45,000",
-      expiry: "Jul 11, 2026",
-      status: "Low Stock",
-      statusClass: "low-stock",
-      tone: "blue",
-    },
-    {
-      vaccine: "J&J Janssen",
-      batchId: "JNJ-2023-X99",
-      quantity: "10,000",
-      expiry: "May 28, 2026",
-      status: "Near Expiry",
-      statusClass: "near-expiry",
-      tone: "gray",
-    },
-    {
-      vaccine: "AstraZeneca",
-      batchId: "AZN-2024-D18",
-      quantity: "64,500",
-      expiry: "Sep 14, 2026",
-      status: "Available",
-      statusClass: "available",
-      tone: "blue",
-    },
-    {
-      vaccine: "Novavax",
-      batchId: "NVX-2024-K22",
-      quantity: "18,000",
-      expiry: "Dec 02, 2026",
-      status: "Low Stock",
-      statusClass: "low-stock",
-      tone: "gold",
-    },
-    {
-      vaccine: "Sputnik V",
-      batchId: "SPU-2024-R10",
-      quantity: "52,300",
-      expiry: "Nov 19, 2026",
-      status: "Available",
-      statusClass: "available",
-      tone: "blue",
-    },
-    {
-      vaccine: "Hepatitis B",
-      batchId: "HEP-2024-H31",
-      quantity: "9,400",
-      expiry: "Apr 08, 2026",
-      status: "Near Expiry",
-      statusClass: "near-expiry",
-      tone: "gray",
-    },
-    {
-      vaccine: "Influenza Vaccine",
-      batchId: "FLU-2024-F07",
-      quantity: "73,900",
-      expiry: "Jan 26, 2027",
-      status: "Available",
-      statusClass: "available",
-      tone: "blue",
-    },
-    {
-      vaccine: "BCG Vaccine",
-      batchId: "BCG-2024-B15",
-      quantity: "14,250",
-      expiry: "Feb 18, 2027",
-      status: "Low Stock",
-      statusClass: "low-stock",
-      tone: "gold",
-    },
-    {
-      vaccine: "Rotavirus Vaccine",
-      batchId: "ROT-2024-R29",
-      quantity: "7,800",
-      expiry: "Mar 21, 2026",
-      status: "Near Expiry",
-      statusClass: "near-expiry",
-      tone: "gray",
-    },
-    {
-      vaccine: "Tetanus Toxoid",
-      batchId: "TET-2024-T05",
-      quantity: "39,600",
-      expiry: "Jun 09, 2027",
-      status: "Available",
-      statusClass: "available",
-      tone: "blue",
-    },
-  ];
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) {
+      setOrdersError("Not logged in.");
+      setOrdersLoading(false);
+      return;
+    }
 
-  const quickActions = [
-    {
-      label: "Request New Order",
-      text: "Create a vaccine request for approval.",
-      href: "/sales-rep/request-order",
-      icon: <ClipboardList size={19} />,
-    },
-    {
-      label: "Place Order",
-      text: "Prepare client order details.",
-      href: "/sales-rep/place-order",
-      icon: <ShoppingCart size={19} />,
-    },
-    {
-      label: "Track Shipment",
-      text: "Check delivery status and ETA.",
-      href: "/sales-rep/order-tracking",
-      icon: <Truck size={19} />,
-    },
-    {
-      label: "View Alerts",
-      text: "Review order and delivery alerts.",
-      href: "/sales-rep/alerts",
-      icon: <AlertTriangle size={19} />,
-    },
-  ];
+    const unsubscribe = subscribeSalesRepOrders(
+      user.uid,
+      (raw) => {
+        const normalized = raw.map((o) => {
+          const rawStatus = getOrderStatusValue(o);
+          const statusKey = normalizeStatusKey(rawStatus);
+          return {
+            id: o.id,
+            orderNumber: o.orderNumber || o.id,
+            clinicName: o.clinicName || "Unknown Clinic",
+            clinicAddress: o.clinicAddress || "—",
+            vaccineName: o.vaccineName || "—",
+            status: mapDashboardStatus(statusKey),
+            statusKey,
+            progress: statusProgress(statusKey),
+            date: formatDate(o.createdAt),
+          };
+        });
+        setOrders(normalized);
+        setOrdersLoading(false);
+        setOrdersError("");
+      },
+      (err) => {
+        if (err?.code === "permission-denied") {
+          setOrdersError("Permission denied.");
+        } else {
+          setOrdersError("Unable to load orders.");
+        }
+        setOrdersLoading(false);
+      }
+    );
 
-  const requestRows = [
-    {
-      order: "ORDER #VX-6608",
-      city: "San Pedro City",
-      status: "Pending",
-    },
-    {
-      order: "ORDER #VX-6667",
-      city: "Cavite, Imus",
-      status: "Approved",
-    },
-    {
-      order: "ORDER #VX-6669",
-      city: "BGC, Taguig",
-      status: "Declined",
-    },
-  ];
+    return unsubscribe;
+  }, []);
 
-  const trackingRows = [
-    {
-      order: "#VX-8821",
-      destination: "Manila Doctors Hospital",
-      status: "Delivered",
-      progress: "100%",
-    },
-    {
-      order: "#VX-8830",
-      destination: "Makati Health District",
-      status: "In Transit",
-      progress: "72%",
-    },
-    {
-      order: "#VX-8844",
-      destination: "San Pedro City",
-      status: "Processing",
-      progress: "35%",
-    },
-  ];
+  useEffect(() => {
+    const unsubscribe = subscribeInventory(
+      (raw) => {
+        setInventory(raw.map(normalizeInventoryRow));
+        setInvLoading(false);
+        setInvError("");
+      },
+      (err) => {
+        if (err?.code === "permission-denied") {
+          setInvError("Permission denied.");
+        } else {
+          setInvError("Unable to load inventory.");
+        }
+        setInvLoading(false);
+      }
+    );
+
+    return unsubscribe;
+  }, []);
+
+  const metrics = useMemo(() => {
+    const total = orders.length;
+    const pending = orders.filter((o) => o.statusKey === "pending" || o.statusKey === "pending_dispatch").length;
+    const inTransit = orders.filter((o) => o.statusKey === "in_transit").length;
+    const delivered = orders.filter((o) => o.statusKey === "delivered" || o.statusKey === "completed").length;
+    return { total, pending, inTransit, delivered };
+  }, [orders]);
+
+  const latestOrders = useMemo(() => orders.slice(0, 3), [orders]);
+  const trackingOrders = useMemo(
+    () => orders.filter((o) => o.statusKey !== "delivered" && o.statusKey !== "completed" && o.statusKey !== "cancelled" && o.statusKey !== "canceled").slice(0, 3),
+    [orders]
+  );
 
   const filteredInventory = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase();
-
-    return inventoryRows.filter((row) => {
+    return inventory.filter((row) => {
       const matchesSearch =
         !keyword ||
         row.vaccine.toLowerCase().includes(keyword) ||
         row.batchId.toLowerCase().includes(keyword) ||
         row.status.toLowerCase().includes(keyword);
-
       const matchesStatus = statusFilter === "All" || row.status === statusFilter;
-
       return matchesSearch && matchesStatus;
     });
-  }, [inventoryRows, searchTerm, statusFilter]);
+  }, [inventory, searchTerm, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredInventory.length / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages);
@@ -231,39 +250,78 @@ function SalesRepDashboard() {
   };
 
   const goToPage = (page) => {
-    const nextPage = Math.min(Math.max(page, 1), totalPages);
-    setCurrentPage(nextPage);
+    setCurrentPage(Math.min(Math.max(page, 1), totalPages));
   };
+
+  const quickActions = [
+    {
+      label: "Request New Order",
+      text: "Create a vaccine request for approval.",
+      route: "/sales-rep/request-order",
+      icon: <ClipboardList size={19} />,
+    },
+    {
+      label: "Place Order",
+      text: "Prepare client order details.",
+      route: "/sales-rep/request-order",
+      icon: <ShoppingCart size={19} />,
+    },
+    {
+      label: "Track Shipment",
+      text: "Check delivery status and ETA.",
+      route: "/sales-rep/order-tracking",
+      icon: <Truck size={19} />,
+    },
+    {
+      label: "View Alerts",
+      text: "Review order and delivery alerts.",
+      route: "/sales-rep/alerts",
+      icon: <AlertTriangle size={19} />,
+    },
+  ];
+
+  const isLoading = ordersLoading || invLoading;
+
+  if (isLoading) {
+    return (
+      <SalesRepLayout active="dashboard" title="Sales Representative Dashboard">
+        <div className="inventory-loading-state">
+          <Loader2 size={32} className="spin" />
+          <p>Loading dashboard...</p>
+        </div>
+      </SalesRepLayout>
+    );
+  }
 
   return (
     <SalesRepLayout active="dashboard" title="Sales Representative Dashboard">
       <section className="salesrep-metrics four">
         <MetricCard
           icon={<ShoppingCart size={28} />}
-          label="Total Orders (30D)"
-          value="1,284"
-          note="↗ +12% vs last month"
+          label="Total Orders"
+          value={metrics.total.toLocaleString()}
+          note={`${metrics.delivered} delivered`}
           tone="blue"
         />
         <MetricCard
           icon={<ClipboardList size={28} />}
-          label="Pending Requests"
-          value="18"
-          note="5 awaiting approval"
+          label="Pending Dispatch"
+          value={metrics.pending.toLocaleString()}
+          note="awaiting dispatch"
           tone="gold"
         />
         <MetricCard
           icon={<CheckCircle2 size={28} />}
-          label="Approved Orders"
-          value="96"
-          note="+9 approved this week"
+          label="Delivered"
+          value={metrics.delivered.toLocaleString()}
+          note="completed orders"
           tone="green"
         />
         <MetricCard
           icon={<Truck size={28} />}
-          label="Active Shipments"
-          value="42"
-          note="8 arriving today"
+          label="In Transit"
+          value={metrics.inTransit.toLocaleString()}
+          note="active shipments"
           tone="blue"
         />
       </section>
@@ -275,119 +333,123 @@ function SalesRepDashboard() {
               <h2>Available Vaccine Inventory</h2>
               <p>Quick preview of batches available for client orders.</p>
             </div>
-            <a href="/sales-rep/inventory" className="salesrep-view-link">
+            <button
+              type="button"
+              className="salesrep-view-link"
+              onClick={() => navigate("/sales-rep/inventory")}
+            >
               View Inventory <ArrowRight size={14} />
-            </a>
+            </button>
           </div>
 
-          <div className="salesrep-card-toolbar">
-            <div className="salesrep-inline-search">
-              <Search size={15} />
-              <input
-                value={searchTerm}
-                onChange={updateSearch}
-                placeholder="Search vaccine or batch ID..."
-              />
-            </div>
+          {invError ? (
+            <p style={{ padding: 16, color: "#94a3b8", fontSize: 13 }}>{invError}</p>
+          ) : (
+            <>
+              <div className="salesrep-card-toolbar">
+                <div className="salesrep-inline-search">
+                  <Search size={15} />
+                  <input
+                    value={searchTerm}
+                    onChange={updateSearch}
+                    placeholder="Search vaccine or batch ID..."
+                  />
+                </div>
 
-            <div className="salesrep-toolbar-actions">
-              <button
-                type="button"
-                className={`salesrep-pill ${statusFilter === "All" ? "primary" : ""}`}
-                onClick={() => updateFilter("All")}
-              >
-                All Vaccines
-              </button>
-              <button
-                type="button"
-                className={`salesrep-pill ${statusFilter === "Low Stock" ? "primary" : ""}`}
-                onClick={() => updateFilter("Low Stock")}
-              >
-                <Filter size={13} /> Low Stock
-              </button>
-              <button
-                type="button"
-                className={`salesrep-pill ${statusFilter === "Near Expiry" ? "primary" : ""}`}
-                onClick={() => updateFilter("Near Expiry")}
-              >
-                Near Expiry
-              </button>
-            </div>
-          </div>
+                <div className="salesrep-toolbar-actions">
+                  <button
+                    type="button"
+                    className={`salesrep-pill ${statusFilter === "All" ? "primary" : ""}`}
+                    onClick={() => updateFilter("All")}
+                  >
+                    All Vaccines
+                  </button>
+                  <button
+                    type="button"
+                    className={`salesrep-pill ${statusFilter === "Low Stock" ? "primary" : ""}`}
+                    onClick={() => updateFilter("Low Stock")}
+                  >
+                    <Filter size={13} /> Low Stock
+                  </button>
+                  <button
+                    type="button"
+                    className={`salesrep-pill ${statusFilter === "Near Expiry" ? "primary" : ""}`}
+                    onClick={() => updateFilter("Near Expiry")}
+                  >
+                    Near Expiry
+                  </button>
+                </div>
+              </div>
 
-          <table className="salesrep-data-table dashboard-inventory-table">
-            <thead>
-              <tr>
-                <th>Vaccine Type</th>
-                <th>Batch ID</th>
-                <th>Quantity</th>
-                <th>Expiry Date</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleInventory.length > 0 ? (
-                visibleInventory.map((row) => (
-                  <tr key={row.batchId}>
-                    <td>
-                      <div className="salesrep-product-cell">
-                        <span className={`salesrep-product-icon ${row.tone}`}>
-                          <PackageCheck size={15} />
-                        </span>
-                        <strong>{row.vaccine}</strong>
-                      </div>
-                    </td>
-                    <td>{row.batchId}</td>
-                    <td>{row.quantity}</td>
-                    <td>{row.expiry}</td>
-                    <td>
-                      <span className={`inventory-status-chip ${row.statusClass}`}>
-                        {row.status}
-                      </span>
-                    </td>
+              <table className="salesrep-data-table dashboard-inventory-table">
+                <thead>
+                  <tr>
+                    <th>Vaccine Type</th>
+                    <th>Batch ID</th>
+                    <th>Quantity</th>
+                    <th>Expiry Date</th>
+                    <th>Status</th>
                   </tr>
-                ))
-              ) : (
-                <tr className="dashboard-empty-row">
-                  <td colSpan="5">No vaccine batches match your search/filter.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                </thead>
+                <tbody>
+                  {visibleInventory.length > 0 ? (
+                    visibleInventory.map((row) => (
+                      <tr key={row.id}>
+                        <td>
+                          <div className="salesrep-product-cell">
+                            <span className={`salesrep-product-icon ${row.tone}`}>
+                              <PackageCheck size={15} />
+                            </span>
+                            <strong>{row.vaccine}</strong>
+                          </div>
+                        </td>
+                        <td>{row.batchId}</td>
+                        <td>{row.quantity}</td>
+                        <td>{row.expiry}</td>
+                        <td>
+                          <span className={`inventory-status-chip ${row.statusClass}`}>
+                            {row.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr className="dashboard-empty-row">
+                      <td colSpan="5">
+                        {inventory.length === 0
+                          ? "No inventory data available."
+                          : "No vaccine batches match your search/filter."}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
 
-          <div className="salesrep-pagination-row dashboard-pagination-row">
-            <p>
-              Showing {showingStart} to {showingEnd} of {filteredInventory.length} batches
-            </p>
-            <div className="salesrep-pagination-controls">
-              <button
-                type="button"
-                onClick={() => goToPage(safePage - 1)}
-                disabled={safePage === 1}
-                aria-label="Previous page"
-              >
-                &lt;
-              </button>
-              {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
-                <button
-                  key={page}
-                  type="button"
-                  className={page === safePage ? "active" : ""}
-                  onClick={() => goToPage(page)}
-                >
-                  {page}
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => goToPage(safePage + 1)}
-                disabled={safePage === totalPages}
-                aria-label="Next page"
-              >
-                &gt;
-              </button>
-            </div>
-          </div>
+              <div className="salesrep-pagination-row dashboard-pagination-row">
+                <p>
+                  Showing {showingStart} to {showingEnd} of {filteredInventory.length} batches
+                </p>
+                <div className="salesrep-pagination-controls">
+                  <button type="button" onClick={() => goToPage(safePage - 1)} disabled={safePage === 1}>
+                    &lt;
+                  </button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                    <button
+                      key={page}
+                      type="button"
+                      className={page === safePage ? "active" : ""}
+                      onClick={() => goToPage(page)}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                  <button type="button" onClick={() => goToPage(safePage + 1)} disabled={safePage === totalPages}>
+                    &gt;
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         <aside className="salesrep-side-stack">
@@ -395,41 +457,52 @@ function SalesRepDashboard() {
             <div className="salesrep-section-title compact">
               <Clock3 size={16} />
               <h2>Recent Activity</h2>
-              <a href="/sales-rep/order-tracking">View All</a>
+              <button
+                type="button"
+                className="salesrep-view-link"
+                onClick={() => navigate("/sales-rep/order-tracking")}
+              >
+                View All
+              </button>
             </div>
 
-            <ActivityItem
-              tone="green"
-              title="Order #VX-8821 delivered to Manila Doctors Hospital."
-              time="2 mins ago"
-            />
-            <ActivityItem
-              tone="blue"
-              title="Batch release Lot B-1049 verified for distribution."
-              time="15 mins ago"
-            />
-            <ActivityItem
-              tone="red"
-              title="Cold chain warning detected in Truck #042."
-              time="1 hour ago"
-            />
-            <ActivityItem
-              tone="blue"
-              title="Makati Health District was added to your client list."
-              time="3 hours ago"
-            />
+            {ordersError ? (
+              <p style={{ padding: "8px 0", color: "#94a3b8", fontSize: 13 }}>{ordersError}</p>
+            ) : orders.length === 0 ? (
+              <p style={{ padding: "8px 0", color: "#94a3b8", fontSize: 13 }}>
+                No recent activity. Place your first order to get started.
+              </p>
+            ) : (
+              latestOrders.map((o) => (
+                <ActivityItem
+                  key={o.id}
+                  tone={o.statusKey === "delivered" || o.statusKey === "completed" ? "green" : o.statusKey === "delayed" ? "red" : "blue"}
+                  title={`${o.orderNumber} — ${o.clinicName} (${o.status})`}
+                  time={o.date}
+                />
+              ))
+            )}
           </div>
 
           <div className="salesrep-card approvals-card">
             <h2>My Order Requests</h2>
-            {requestRows.map((request) => (
-              <RequestStatus
-                key={request.order}
-                order={request.order}
-                city={request.city}
-                status={request.status}
-              />
-            ))}
+
+            {ordersError ? (
+              <p style={{ padding: "8px 0", color: "#94a3b8", fontSize: 13 }}>{ordersError}</p>
+            ) : latestOrders.length === 0 ? (
+              <p style={{ padding: "8px 0", color: "#94a3b8", fontSize: 13 }}>
+                No orders yet.
+              </p>
+            ) : (
+              latestOrders.map((o) => (
+                <RequestStatus
+                  key={o.id}
+                  order={o.orderNumber}
+                  city={o.clinicName}
+                  status={o.status}
+                />
+              ))
+            )}
           </div>
         </aside>
       </section>
@@ -445,7 +518,7 @@ function SalesRepDashboard() {
 
           <div className="dashboard-action-grid">
             {quickActions.map((action) => (
-              <QuickAction key={action.label} {...action} />
+              <QuickAction key={action.label} {...action} onNavigate={navigate} />
             ))}
           </div>
         </div>
@@ -459,9 +532,21 @@ function SalesRepDashboard() {
           </div>
 
           <div className="tracking-preview-list">
-            {trackingRows.map((item) => (
-              <TrackingPreview key={item.order} {...item} />
-            ))}
+            {trackingOrders.length > 0 ? (
+              trackingOrders.map((o) => (
+                <TrackingPreview
+                  key={o.id}
+                  order={o.orderNumber}
+                  destination={o.clinicName}
+                  status={o.status}
+                  progress={`${o.progress}%`}
+                />
+              ))
+            ) : (
+              <p style={{ padding: 12, color: "#94a3b8", fontSize: 13 }}>
+                {orders.length === 0 ? "No orders yet." : "No active orders to track."}
+              </p>
+            )}
           </div>
         </div>
       </section>
@@ -496,7 +581,6 @@ function ActivityItem({ tone, title, time }) {
 
 function RequestStatus({ order, city, status }) {
   const statusClass = status.toLowerCase().replace(/\s+/g, "-");
-
   return (
     <div className="approval-row">
       <div>
@@ -508,29 +592,27 @@ function RequestStatus({ order, city, status }) {
   );
 }
 
-function QuickAction({ icon, label, text, href }) {
+function QuickAction({ icon, label, text, route, onNavigate }) {
   return (
-    <a className="dashboard-action-card" href={href}>
+    <button type="button" className="dashboard-action-card" onClick={() => onNavigate(route)}>
       <span className="dashboard-action-icon">{icon}</span>
       <div>
         <strong>{label}</strong>
         <p>{text}</p>
       </div>
       <ArrowRight size={16} />
-    </a>
+    </button>
   );
 }
 
 function TrackingPreview({ order, destination, status, progress }) {
   const statusClass = status.toLowerCase().replace(/\s+/g, "-");
-
   return (
     <div className="tracking-preview-row">
       <div>
         <strong>{order}</strong>
         <p>{destination}</p>
       </div>
-
       <div className="tracking-preview-progress">
         <span className={`mini-status ${statusClass}`}>{status}</span>
         <div className="mini-progress-bar">

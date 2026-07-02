@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { subscribePendingDispatchOrders } from "../../services/orderService";
+import { subscribeDeliveries } from "../../services/deliveryService";
+import { subscribeRiders } from "../../services/riderService";
 import { subscribeActiveAlerts } from "../../services/alertService";
 import {
   AlertTriangle,
   Clock3,
+  Loader2,
   MapPin,
   Navigation,
   PackageCheck,
@@ -18,16 +21,65 @@ import DispatcherLayout from "./DispatcherLayout";
 function DispatcherDashboard() {
   const navigate = useNavigate();
 
-  const [firestoreOrders, setFirestoreOrders] = useState([]);
+  const [pendingOrders, setPendingOrders] = useState([]);
+  const [allOrders, setAllOrders] = useState([]);
+  const [riders, setRiders] = useState([]);
   const [activeAlerts, setActiveAlerts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    const unsubscribeOrders = subscribePendingDispatchOrders(setFirestoreOrders);
-    const unsubscribeAlerts = subscribeActiveAlerts(setActiveAlerts);
+    let loaded = { pending: false, all: false, riders: false, alerts: false };
+    const checkDone = () => {
+      if (loaded.pending && loaded.all && loaded.riders && loaded.alerts) {
+        setLoading(false);
+      }
+    };
+
+    const unsubPending = subscribePendingDispatchOrders((orders) => {
+      setPendingOrders(orders);
+      loaded.pending = true;
+      checkDone();
+    });
+
+    const unsubAll = subscribeDeliveries((orders) => {
+      setAllOrders(orders);
+      loaded.all = true;
+      checkDone();
+    }, (err) => {
+      console.error("subscribeDeliveries error:", err);
+      setError("Unable to load orders.");
+      loaded.all = true;
+      checkDone();
+    });
+
+    const unsubRiders = subscribeRiders((riderList) => {
+      setRiders(riderList);
+      loaded.riders = true;
+      checkDone();
+    }, (err) => {
+      console.error("subscribeRiders error:", err);
+      loaded.riders = true;
+      checkDone();
+    });
+
+    let unsubAlerts;
+    try {
+      unsubAlerts = subscribeActiveAlerts(( alerts) => {
+        setActiveAlerts(alerts);
+        loaded.alerts = true;
+        checkDone();
+      });
+    } catch {
+      loaded.alerts = true;
+      checkDone();
+    }
 
     return () => {
-      unsubscribeOrders();
-      unsubscribeAlerts();
+      unsubPending();
+      unsubAll();
+      unsubRiders();
+      if (unsubAlerts) unsubAlerts();
     };
   }, []);
 
@@ -43,46 +95,27 @@ function DispatcherDashboard() {
       ?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const mockOrders = [
-    {
-      id: "#VT-9021",
-      destination: "Central General Hospital",
-      address: "District 4, Main St.",
-      vaccine: "Pfizer-BioNTech",
-      quantity: "1,200",
-      unit: "Vials",
-      priority: "Urgent",
-    },
-    {
-      id: "#VT-9022",
-      destination: "St. Mary Clinic",
-      address: "North Suburb, Ave 12",
-      vaccine: "Moderna Spikvax",
-      quantity: "850",
-      unit: "Vials",
-      priority: "Standard",
-    },
-    {
-      id: "#VT-9023",
-      destination: "Cardinal Santos Medical Center",
-      address: "San Juan, Metro Manila",
-      vaccine: "Vaxipro Ultra-V Adult",
-      quantity: "660",
-      unit: "Vials",
-      priority: "Urgent",
-    },
-  ];
-
-  const orders = firestoreOrders.length > 0 ? firestoreOrders : mockOrders;
   const latestAlert = activeAlerts[0];
 
-  const urgentOrders = orders.filter(
-    (order) => (order.priority || "").toLowerCase() === "urgent"
+  const availableRiders = riders.filter((r) => r.status === "approved").length;
+  const activeDeliveries = allOrders.filter(
+    (o) => o.statusKey === "in_transit" || o.statusKey === "assigned" || o.statusKey === "loading"
+  ).length;
+  const delayedDeliveries = allOrders.filter((o) => o.statusKey === "delayed").length;
+  const urgentOrders = pendingOrders.filter(
+    (o) => (o.priority || "").toLowerCase() === "urgent"
   ).length;
 
-  const availableRiders = 12;
-  const activeDeliveries = 8;
-  const delayedDeliveries = 2;
+  if (loading) {
+    return (
+      <DispatcherLayout active="dashboard" title="VaxTrack Logistics">
+        <div className="dispatcher-loading-state">
+          <Loader2 size={32} className="spin" />
+          <p>Loading dispatch data...</p>
+        </div>
+      </DispatcherLayout>
+    );
+  }
 
   return (
     <DispatcherLayout active="dashboard" title="VaxTrack Logistics">
@@ -118,11 +151,21 @@ function DispatcherDashboard() {
           </section>
         )}
 
+        {error && (
+          <section className="dispatcher-dash-alert">
+            <AlertTriangle size={18} />
+            <div>
+              <strong>Data Error</strong>
+              <p>{error}</p>
+            </div>
+          </section>
+        )}
+
         <section className="dispatcher-dash-kpi-grid">
           <KpiCard
             icon={<PackageCheck size={22} />}
-            label="Approved Orders"
-            value={orders.length}
+            label="Pending Orders"
+            value={pendingOrders.length}
             note="Ready for dispatch"
           />
 
@@ -130,7 +173,7 @@ function DispatcherDashboard() {
             icon={<UsersRound size={22} />}
             label="Available Riders"
             value={availableRiders}
-            note="On-duty and available"
+            note={`${riders.length} total registered`}
           />
 
           <KpiCard
@@ -144,8 +187,8 @@ function DispatcherDashboard() {
             icon={<AlertTriangle size={22} />}
             label="Urgent Orders"
             value={urgentOrders}
-            note={`${delayedDeliveries} delayed routes`}
-            danger
+            note={delayedDeliveries > 0 ? `${delayedDeliveries} delayed routes` : "No delayed routes"}
+            danger={urgentOrders > 0 || delayedDeliveries > 0}
           />
         </section>
 
@@ -158,7 +201,7 @@ function DispatcherDashboard() {
               </div>
 
               <div className="dispatcher-dash-badges">
-                <span className="green">{activeDeliveries} On-time</span>
+                <span className="green">{activeDeliveries} Active</span>
                 <span className="red">{delayedDeliveries} Delayed</span>
               </div>
             </div>
@@ -184,29 +227,31 @@ function DispatcherDashboard() {
               </div>
 
               <div className="dash-map-label next">
-                <small>NEXT ARRIVAL</small>
-                <strong>St. Luke&apos;s Medical Center</strong>
-                <p>12 mins away • 4.2 km</p>
+                <small>DELIVERIES</small>
+                <strong>{activeDeliveries} active</strong>
+                <p>{delayedDeliveries} delayed</p>
               </div>
 
-              <div className="dash-map-label danger">
-                <small>CRITICAL DELAY</small>
-                <strong>Cardinal Santos</strong>
-                <p>Traffic halt • +15 mins</p>
-              </div>
+              {delayedDeliveries > 0 && (
+                <div className="dash-map-label danger">
+                  <small>DELAYED</small>
+                  <strong>{delayedDeliveries} route{delayedDeliveries > 1 ? "s" : ""}</strong>
+                  <p>Requires attention</p>
+                </div>
+              )}
             </div>
 
             <div className="dispatcher-dash-monitor-footer">
               <MonitorInfo
                 icon={<Navigation size={15} />}
-                label="Primary Route"
-                value="Main Hub-A → Quezon City"
+                label="Pending Orders"
+                value={`${pendingOrders.length} awaiting`}
               />
 
               <MonitorInfo
                 icon={<Clock3 size={15} />}
-                label="Average ETA"
-                value="18 minutes"
+                label="Riders Available"
+                value={`${availableRiders} on duty`}
               />
 
               <MonitorInfo
@@ -229,21 +274,21 @@ function DispatcherDashboard() {
               <OperationItem
                 title="Priority Dispatch"
                 value={`${urgentOrders} urgent orders`}
-                text="Assign riders as soon as possible."
+                text={urgentOrders > 0 ? "Assign riders as soon as possible." : "No urgent orders right now."}
                 danger={urgentOrders > 0}
               />
 
               <OperationItem
                 title="Rider Availability"
                 value={`${availableRiders} available`}
-                text="Enough riders for current queue."
+                text={availableRiders >= pendingOrders.length ? "Enough riders for current queue." : "More riders needed for pending orders."}
               />
 
               <OperationItem
                 title="Route Condition"
                 value={`${delayedDeliveries} delayed`}
-                text="Monitor geofence and traffic alerts."
-                warning
+                text={delayedDeliveries > 0 ? "Monitor geofence and traffic alerts." : "All routes running smoothly."}
+                warning={delayedDeliveries > 0}
               />
             </div>
 
@@ -297,63 +342,74 @@ function DispatcherDashboard() {
               </thead>
 
               <tbody>
-                {orders.map((order) => {
-                  const priority = order.priority || "Standard";
-                  const isUrgent = priority.toLowerCase() === "urgent";
+                {pendingOrders.length > 0 ? (
+                  pendingOrders.map((order) => {
+                    const priority = order.priority || "Standard";
+                    const isUrgent = priority.toLowerCase() === "urgent";
 
-                  return (
-                    <tr key={order.id}>
-                      <td>
-                        <strong className="order-id">
-                          {order.orderNumber || order.id}
-                        </strong>
-                      </td>
+                    return (
+                      <tr key={order.id}>
+                        <td>
+                          <strong className="order-id">
+                            {order.orderNumber || order.id}
+                          </strong>
+                        </td>
 
-                      <td>
-                        <strong>
-                          {order.clinicName || order.destination || "No destination"}
-                        </strong>
-                        <p>{order.clinicAddress || order.address || "No address"}</p>
-                      </td>
+                        <td>
+                          <strong>
+                            {order.clinicName || "No destination"}
+                          </strong>
+                          <p>{order.clinicAddress || ""}</p>
+                        </td>
 
-                      <td>
-                        <span className="dispatcher-dash-vaccine-dot"></span>
-                        {order.vaccineName || order.vaccine || "No vaccine type"}
-                      </td>
+                        <td>
+                          <span className="dispatcher-dash-vaccine-dot"></span>
+                          {order.vaccineName || "—"}
+                        </td>
 
-                      <td>
-                        {order.quantity || 0} {order.unit || "Vials"}
-                      </td>
+                        <td>
+                          {order.quantity || 0} {order.unit || "vials"}
+                        </td>
 
-                      <td>
-                        <span
-                          className={`dispatcher-dash-priority ${
-                            isUrgent ? "urgent" : "standard"
-                          }`}
-                        >
-                          {priority}
-                        </span>
-                      </td>
+                        <td>
+                          <span
+                            className={`dispatcher-dash-priority ${
+                              isUrgent ? "urgent" : "standard"
+                            }`}
+                          >
+                            {priority}
+                          </span>
+                        </td>
 
-                      <td>
-                        <button
-                          type="button"
-                          className="dispatcher-dash-assign-btn"
-                          onClick={() => handleAssignRider(order)}
-                        >
-                          <UserPlus size={14} />
-                          Assign Rider
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                        <td>
+                          <button
+                            type="button"
+                            className="dispatcher-dash-assign-btn"
+                            onClick={() => handleAssignRider(order)}
+                          >
+                            <UserPlus size={14} />
+                            Assign Rider
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan="6">
+                      <div className="dispatcher-empty-queue">
+                        <PackageCheck size={28} />
+                        <p>No pending orders. All orders have been assigned.</p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
 
           <div className="dispatcher-dash-table-bottom">
-            Showing {orders.length} pending dispatch orders
+            Showing {pendingOrders.length} pending dispatch order{pendingOrders.length !== 1 ? "s" : ""}
           </div>
         </section>
       </div>
