@@ -8008,6 +8008,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .sc-icon-wrap {
   width: 28px;
@@ -8076,18 +8077,20 @@
   border-top: 1px solid #f1f5f9;
 }
 .sc-actions .shipment-action-btn {
-  flex: 1;
-  min-width: 0;
-  justify-content: center;
-  padding: 7px 10px;
-  font-size: 11px;
-  font-weight: 700;
-  border-radius: 6px;
-  white-space: nowrap;
+  flex: 1 !important;
+  min-width: 0 !important;
+  justify-content: center !important;
+  padding: 7px 10px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  border-radius: 6px !important;
+  white-space: nowrap !important;
+  height: auto !important;
 }
 
 .shipment-tag-row {
-  display: flex;
+  display: flex !important;
+  flex-wrap: nowrap !important;
   gap: 5px;
   align-items: center;
 }
