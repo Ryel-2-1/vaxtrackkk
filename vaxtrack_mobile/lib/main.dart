@@ -102,13 +102,21 @@ class AuthGate extends StatelessWidget {
           );
         }
 
+        // While registerRider() runs, the freshly created Auth session fires
+        // authStateChanges. AuthGate must not load the profile or sign out
+        // here — that would race the in-flight Firestore profile write.
+        // registerRider() signs out itself when done.
+        if (AuthService.registrationInProgress) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
         if (snapshot.data == null) {
-          debugPrint('[AUTH_GATE] No user → LoginScreen');
           return const LoginScreen();
         }
 
         final uid = snapshot.data!.uid;
-        debugPrint('[AUTH_GATE] Auth user present: uid=$uid → loading profile');
         return FutureBuilder<_ProfileResult>(
           future: _safeGetProfile(uid),
           builder: (context, userSnap) {
@@ -130,7 +138,6 @@ class AuthGate extends StatelessWidget {
             }
 
             if (result.permissionDenied) {
-              debugPrint('[AUTH_GATE] Firestore permission denied');
               AuthService.pendingLoginMessage =
                   'Unable to load rider profile. Please check Firestore rules.';
               FirebaseAuth.instance.signOut();
@@ -140,11 +147,8 @@ class AuthGate extends StatelessWidget {
             }
 
             final user = result.user;
-            debugPrint(
-                '[AUTH_GATE] Profile loaded: role=${user?.role} status=${user?.status}');
             final rejection = AuthService.rejectionMessageFor(user);
             if (rejection != null) {
-              debugPrint('[AUTH_GATE] Login blocked: $rejection');
               AuthService.pendingLoginMessage = rejection;
               FirebaseAuth.instance.signOut();
               return const Scaffold(
@@ -152,7 +156,6 @@ class AuthGate extends StatelessWidget {
               );
             }
 
-            debugPrint('[AUTH_GATE] Login allowed: navigating to HomeScreen');
             return const HomeScreen();
           },
         );
@@ -165,13 +168,11 @@ class AuthGate extends StatelessWidget {
       final user = await AuthService().getUserProfile(uid);
       return _ProfileResult(user: user);
     } on FirebaseException catch (e) {
-      debugPrint('[AUTH_GATE] Firestore error: ${e.code} ${e.message}');
       if (e.code == 'permission-denied') {
         return _ProfileResult(permissionDenied: true);
       }
       return _ProfileResult();
-    } catch (e) {
-      debugPrint('[AUTH_GATE] getUserProfile threw: $e');
+    } catch (_) {
       // Missing profile doc → user is null → rejectionMessageFor returns the
       // "Rider profile not found" message.
       return _ProfileResult();

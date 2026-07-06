@@ -42,17 +42,21 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      debugPrint('[RIDER_LOGIN] Attempting login: $email');
       // AuthGate handles role/status validation. LoginScreen only needs
       // to complete the Firebase Auth sign-in; if the user is invalid,
       // AuthGate signs them out and sets AuthService.pendingLoginMessage
       // for the next LoginScreen mount to display.
-      final cred = await FirebaseAuth.instance
+      await FirebaseAuth.instance
           .signInWithEmailAndPassword(email: email, password: password)
           .timeout(const Duration(seconds: 30));
-      debugPrint('[RIDER_LOGIN] Firebase Auth success: uid=${cred.user?.uid}');
+      // If this LoginScreen was pushed as a route (e.g. after registration
+      // or logout), AuthGate at the root decides where to go next — pop back
+      // to it so its HomeScreen/blocked result is actually visible. No-op
+      // when LoginScreen is AuthGate's own inline widget.
+      if (mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
     } on FirebaseAuthException catch (e) {
-      debugPrint('[RIDER_LOGIN] FirebaseAuthException: ${e.code} ${e.message}');
       String msg;
       switch (e.code) {
         case 'invalid-email':

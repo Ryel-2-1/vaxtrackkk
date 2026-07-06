@@ -60,15 +60,15 @@ class _DeliveriesScreenState extends State<DeliveriesScreen> with SingleTickerPr
           }
 
           final all = snapshot.data ?? [];
-          final active = all.where((d) => !d.isDelivered).toList();
+          final active = all.where((d) => d.isActive).toList();
           final completed = all.where((d) => d.isDelivered).toList();
 
           return TabBarView(
             controller: _tabController,
             children: [
-              _buildList(active, 'No active deliveries.'),
+              _buildList(active, 'No assigned deliveries yet.'),
               _buildList(completed, 'No completed deliveries yet.'),
-              _buildList(all, 'No deliveries assigned to you.'),
+              _buildList(all, 'No assigned deliveries yet.'),
             ],
           );
         },

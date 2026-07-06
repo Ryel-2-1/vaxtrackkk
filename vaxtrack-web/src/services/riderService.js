@@ -1,12 +1,16 @@
-import { collection, doc, onSnapshot, query, updateDoc, where } from "firebase/firestore";
+import { collection, doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
 
 const VALID_STATUSES = ["approved", "pending", "disabled", "rejected"];
 
 export function subscribeRiders(callback, onError) {
-  const q = query(collection(db, "users"), where("role", "==", "rider"));
+  // Subscribe to the whole users collection and filter client-side with
+  // normalization. A server-side where("role", "==", "rider") is exact-match
+  // and silently misses docs whose role has case/whitespace variants
+  // (e.g. "Rider"), which the Flutter app accepts because it normalizes
+  // on read. Normalizing here keeps web and mobile consistent.
   return onSnapshot(
-    q,
+    collection(db, "users"),
     (snap) => {
       const getName = (r) =>
         r.fullName || r.name || r.displayName || r.email || r.id;

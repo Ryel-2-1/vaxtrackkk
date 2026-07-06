@@ -337,6 +337,36 @@ All 4 primary Dispatcher pages are Firestore-backed. Manual testing confirmed on
 
 ---
 
+## Flutter Rider — Registration / Approval / Login ✅ CONFIRMED WORKING (2026-07-07)
+
+Rider mobile app lives in the separate `vaxtrack_mobile` repo (structured lib/: models, screens, services, theme). Full registration → admin approval → login cycle manually tested and confirmed.
+
+**Registration (Flutter):**
+- `RegisterScreen` → `AuthService.registerRider()` creates the Firebase Auth account, then writes Firestore `users/{uid}` (doc ID = Auth UID) with: `role: "rider"`, `status: "pending"`, `fullName`, `email`, `phone`, `vehiclePlate`, `createdAt`, `updatedAt`
+- Signs out after registration; success screen: "Rider application submitted. Please wait for admin approval."
+- 30s timeouts on Auth create + Firestore write; mapped error messages (email-already-in-use, weak-password, invalid-email, network, operation-not-allowed, permission-denied); Auth account deleted if the Firestore write fails so the email stays reusable
+- **AuthGate registration race fixed:** creating the Auth account fires `authStateChanges`; AuthGate previously loaded the new pending profile and signed out mid-write, corrupting registration. Fixed with `AuthService.registrationInProgress` flag — AuthGate stays passive (spinner, no profile load, no sign-out) while registration runs
+
+**Login (Flutter):**
+- LoginScreen only performs Firebase Auth sign-in; role/status validation is centralized in AuthGate (root `home` widget)
+- `AppUser.fromFirestore` normalizes: `role`/`status` are `trim().toLowerCase()`; approved rider condition is `role == "rider" && status == "approved"`
+- Blocked states surface via `AuthService.pendingLoginMessage` (set by AuthGate before signOut, displayed by the next LoginScreen mount): pending → "pending admin approval", disabled/rejected → "not active", non-rider → "riders only, use web portal", missing doc → "Rider profile not found", Firestore permission-denied → "check Firestore rules"
+- **Navigation stack bug fixed:** register-success and logout previously pushed `/login` as a route on top of (or replacing) AuthGate, so a successful sign-in never became visible. Now all flows return to root `'/'` (AuthGate decides); LoginScreen pops to root after sign-in
+
+**Admin Riders (web) compatibility:**
+- `riderService.subscribeRiders` now subscribes to the whole `users` collection and filters client-side with normalized role check (`trim().toLowerCase() === "rider"`) — the old exact-match `where("role", "==", "rider")` silently missed docs with case/whitespace role variants
+- Pending riders appear as "Pending Approval" with Approve/Reject in the details modal; `updateRiderStatus` writes `approved`/`rejected` to `users/{uid}`
+- Known data-quality note: two legacy corrupt docs exist from the old monolithic app's signup (`role: "pending"` on test321@gmail.com, `role: "staff"` on rider@email.com) — invisible to rider lists by design; clean up in Firebase Console when convenient
+
+**Confirmed end-to-end (manual + emulator):** register in Flutter → pending rider appears in Admin Riders → Admin approves → rider logs in → Rider Dashboard opens (with location permission flow). Temporary debug logs removed after confirmation; `flutter analyze` passes with 0 issues.
+
+**Firestore rules needed for rider (report, not yet deployed):**
+- Rider can `create` own `users/{uid}` only with `role == "rider"` and `status == "pending"`
+- Rider can read/update own doc; cannot approve self
+- Admin (approved) can read/update rider users for approval
+
+---
+
 ## Sales Rep Role — PHASE COMPLETE ✅
 
 All 7 Sales Rep pages are now Firestore-backed. Manual testing confirmed on 2026-07-02.

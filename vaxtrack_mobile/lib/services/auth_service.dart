@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
 import '../models/app_user.dart';
 
 class RegistrationError implements Exception {
@@ -19,6 +17,13 @@ class AuthService {
   /// and clears this on the next mount so the user sees why they were
   /// bounced back instead of a silent redirect.
   static String? pendingLoginMessage;
+
+  /// True while registerRider() is running. AuthGate must stay passive
+  /// during registration: creating the Auth account fires authStateChanges,
+  /// and without this flag AuthGate would load the brand-new pending
+  /// profile and sign the user out while the Firestore profile write is
+  /// still in flight, corrupting the registration.
+  static bool registrationInProgress = false;
 
   static String? rejectionMessageFor(AppUser? user) {
     if (user == null) {
@@ -80,12 +85,9 @@ class AuthService {
     required String phone,
     required String vehiclePlate,
   }) async {
-    debugPrint('[RIDER_REG] Active Firebase project: '
-        '${Firebase.app().options.projectId} '
-        '(appId=${Firebase.app().options.appId})');
     User? createdUser;
+    registrationInProgress = true;
     try {
-      debugPrint('[RIDER_REG] Starting Firebase Auth create user for $email');
       final credential = await _auth
           .createUserWithEmailAndPassword(
             email: email.trim(),
@@ -93,14 +95,11 @@ class AuthService {
           )
           .timeout(const Duration(seconds: 30));
       createdUser = credential.user;
-      debugPrint('[RIDER_REG] Firebase Auth user created: '
-          'uid=${createdUser?.uid}');
       if (createdUser == null) {
         throw RegistrationError('unknown', 'Registration failed. Please try again.');
       }
 
       try {
-        debugPrint('[RIDER_REG] Writing Firestore users/${createdUser.uid}');
         await _db
             .collection('users')
             .doc(createdUser.uid)
@@ -115,14 +114,12 @@ class AuthService {
               'updatedAt': FieldValue.serverTimestamp(),
             })
             .timeout(const Duration(seconds: 30));
-        debugPrint('[RIDER_REG] Firestore user document written');
       } on FirebaseException catch (e) {
-        debugPrint('[RIDER_REG] Firestore write failed: ${e.code} ${e.message}');
+        // Remove the orphaned Auth account so the email stays usable for a
+        // retry after the Firestore failure is resolved.
         try {
           await createdUser.delete();
-        } catch (cleanupErr) {
-          debugPrint('[RIDER_REG] Auth cleanup after Firestore failure failed: $cleanupErr');
-        }
+        } catch (_) {}
         if (e.code == 'permission-denied') {
           throw RegistrationError(
             'permission-denied',
@@ -136,9 +133,7 @@ class AuthService {
       }
 
       await _auth.signOut();
-      debugPrint('[RIDER_REG] Registration complete, signed out');
     } on FirebaseAuthException catch (e) {
-      debugPrint('[RIDER_REG] FirebaseAuthException: ${e.code} ${e.message}');
       switch (e.code) {
         case 'email-already-in-use':
           throw RegistrationError(e.code, 'This email is already registered.');
@@ -163,14 +158,14 @@ class AuthService {
     } on RegistrationError {
       rethrow;
     } on TimeoutException {
-      debugPrint('[RIDER_REG] Registration timed out (no response from Firebase)');
       throw RegistrationError(
         'timeout',
         'Registration timed out. Please check your connection and try again.',
       );
     } catch (e) {
-      debugPrint('[RIDER_REG] Registration failed (unknown): $e');
       throw RegistrationError('unknown', 'Registration failed. Please try again.');
+    } finally {
+      registrationInProgress = false;
     }
   }
 }

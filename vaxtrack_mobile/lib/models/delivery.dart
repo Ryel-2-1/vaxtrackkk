@@ -6,6 +6,7 @@ class Delivery {
   final String clinicName;
   final String clinicAddress;
   final String vaccineName;
+  final String? vaccineType;
   final int quantity;
   final String unit;
   final String priority;
@@ -17,10 +18,12 @@ class Delivery {
   final String? assignedRiderName;
   final String? proofOfDeliveryUrl;
   final String? invoiceUrl;
+  final List<String> itemSummaries;
   final DateTime? createdAt;
   final DateTime? assignedAt;
   final DateTime? startedAt;
   final DateTime? deliveredAt;
+  final DateTime? updatedAt;
   final GeoPoint? lastLocation;
 
   Delivery({
@@ -29,6 +32,7 @@ class Delivery {
     required this.clinicName,
     required this.clinicAddress,
     required this.vaccineName,
+    this.vaccineType,
     required this.quantity,
     required this.unit,
     required this.priority,
@@ -40,10 +44,12 @@ class Delivery {
     this.assignedRiderName,
     this.proofOfDeliveryUrl,
     this.invoiceUrl,
+    this.itemSummaries = const [],
     this.createdAt,
     this.assignedAt,
     this.startedAt,
     this.deliveredAt,
+    this.updatedAt,
     this.lastLocation,
   });
 
@@ -57,6 +63,7 @@ class Delivery {
       clinicName: data['clinicName'] ?? 'Unknown Clinic',
       clinicAddress: data['clinicAddress'] ?? '',
       vaccineName: data['vaccineName'] ?? '',
+      vaccineType: data['vaccineType'],
       quantity: (data['quantity'] ?? 0).toInt(),
       unit: data['unit'] ?? 'vials',
       priority: data['priority'] ?? 'Standard',
@@ -68,12 +75,29 @@ class Delivery {
       assignedRiderName: data['assignedRiderName'],
       proofOfDeliveryUrl: data['proofOfDeliveryUrl'],
       invoiceUrl: data['invoiceUrl'],
+      itemSummaries: _itemSummaries(data['items']),
       createdAt: _toDateTime(data['createdAt']),
       assignedAt: _toDateTime(data['assignedAt']),
       startedAt: _toDateTime(data['startedAt']),
       deliveredAt: _toDateTime(data['deliveredAt']),
+      updatedAt: _toDateTime(data['updatedAt']),
       lastLocation: data['lastLocation'] as GeoPoint?,
     );
+  }
+
+  static List<String> _itemSummaries(dynamic items) {
+    if (items is! List) return const [];
+    return items
+        .whereType<Map>()
+        .map((item) {
+          final name = (item['vaccineName'] ?? item['name'] ?? '').toString();
+          if (name.isEmpty) return '';
+          final qty = item['quantity'];
+          final unit = (item['unit'] ?? 'vials').toString();
+          return qty == null ? name : '$name — $qty $unit';
+        })
+        .where((s) => s.isNotEmpty)
+        .toList();
   }
 
   bool get isDelivered => status == 'delivered' || status == 'completed';
@@ -81,6 +105,8 @@ class Delivery {
   bool get isLoading => status == 'loading';
   bool get isAssigned => status == 'assigned';
   bool get isDelayed => status == 'delayed';
+  bool get isCancelled => status == 'cancelled' || status == 'canceled';
+  bool get isActive => !isDelivered && !isCancelled;
   bool get isUrgent => priority == 'Urgent' && !isDelivered;
   bool get canStartLoading => status == 'assigned';
   bool get canStartTransit => status == 'loading';

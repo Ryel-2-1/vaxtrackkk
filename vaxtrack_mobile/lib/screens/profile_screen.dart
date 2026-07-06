@@ -241,7 +241,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (confirm == true) {
       await _authService.signOut();
       if (mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+        // Return to the root AuthGate ('/'), which shows LoginScreen for a
+        // signed-out user. Pushing '/login' instead would remove AuthGate
+        // from the stack and leave nobody routing the next sign-in.
+        Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
       }
     }
   }

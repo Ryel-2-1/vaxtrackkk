@@ -138,7 +138,11 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
             _infoRow(Icons.business, 'Clinic', d.clinicName),
             _infoRow(Icons.location_on, 'Address', d.clinicAddress),
             _infoRow(Icons.vaccines, 'Vaccine', d.vaccineName),
+            if (d.vaccineType != null && d.vaccineType!.isNotEmpty)
+              _infoRow(Icons.category, 'Type', d.vaccineType!),
             _infoRow(Icons.inventory_2, 'Quantity', '${d.quantity} ${d.unit}'),
+            if (d.itemSummaries.length > 1)
+              _infoRow(Icons.list_alt, 'Items', d.itemSummaries.join('\n')),
             _infoRow(Icons.flag, 'Priority', d.priority),
             if (d.region != null) _infoRow(Icons.map, 'Region', d.region!),
             if (d.deliveryInstructions != null)

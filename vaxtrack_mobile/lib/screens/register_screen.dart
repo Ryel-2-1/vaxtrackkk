@@ -32,7 +32,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _register() async {
-    debugPrint('[RIDER_REG] Register button pressed');
     final fullName = _fullNameController.text.trim();
     final email = _emailController.text.trim();
     final phone = _phoneController.text.trim();
@@ -44,18 +43,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
         phone.isEmpty ||
         vehiclePlate.isEmpty ||
         password.isEmpty) {
-      debugPrint('[RIDER_REG] Validation failed: empty field(s)');
       setState(() => _error = 'Please fill in all fields.');
       return;
     }
 
     if (password.length < 6) {
-      debugPrint('[RIDER_REG] Validation failed: password too short');
       setState(() => _error = 'Password must be at least 6 characters.');
       return;
     }
 
-    debugPrint('[RIDER_REG] Form validation passed');
     setState(() {
       _loading = true;
       _error = null;
@@ -69,13 +65,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         phone: phone,
         vehiclePlate: vehiclePlate,
       );
-      debugPrint('[RIDER_REG] registerRider returned success');
       if (mounted) setState(() => _submitted = true);
     } on RegistrationError catch (e) {
-      debugPrint('[RIDER_REG] Registration failed: ${e.code} ${e.message}');
       if (mounted) setState(() => _error = e.message);
-    } catch (e, stack) {
-      debugPrint('[RIDER_REG] Registration failed (screen): $e\n$stack');
+    } catch (e) {
       if (mounted) {
         setState(() => _error = 'Registration failed. Please try again.');
       }
@@ -115,7 +108,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () => Navigator.of(context)
-                        .pushReplacementNamed('/login'),
+                        .pushNamedAndRemoveUntil('/', (route) => false),
                     child: const Text('Back to Sign In'),
                   ),
                 ),
@@ -229,8 +222,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 12),
               TextButton(
-                onPressed: () =>
-                    Navigator.of(context).pushReplacementNamed('/login'),
+                onPressed: () => Navigator.of(context)
+                    .pushNamedAndRemoveUntil('/', (route) => false),
                 child: const Text('Already have an account? Sign in'),
               ),
             ],

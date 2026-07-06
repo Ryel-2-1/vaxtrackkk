@@ -52,7 +52,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
 
           final deliveries = snapshot.data ?? [];
-          final active = deliveries.where((d) => !d.isDelivered).toList();
+          final active = deliveries.where((d) => d.isActive).toList();
           final completed = deliveries.where((d) => d.isDelivered).toList();
           final urgent = active.where((d) => d.isUrgent).toList();
 
@@ -70,7 +70,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 _sectionTitle("Today's Deliveries", '${active.length} remaining'),
                 const SizedBox(height: 8),
                 if (active.isEmpty)
-                  _emptyState('No active deliveries assigned to you.')
+                  _emptyState('No assigned deliveries yet.')
                 else
                   ...active.map((d) => _deliveryCard(d)),
                 if (completed.isNotEmpty) ...[
