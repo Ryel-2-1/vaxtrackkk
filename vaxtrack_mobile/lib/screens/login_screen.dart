@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
@@ -10,12 +11,21 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _authService = AuthService();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _loading = false;
   bool _obscurePassword = true;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    final msg = AuthService.pendingLoginMessage;
+    if (msg != null) {
+      _error = msg;
+      AuthService.pendingLoginMessage = null;
+    }
+  }
 
   Future<void> _login() async {
     final email = _emailController.text.trim();
@@ -32,43 +42,43 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      final user = await _authService.signIn(email, password);
-
-      if (!user.isRider) {
-        await _authService.signOut();
-        setState(() => _error = 'This app is for rider accounts only.');
-        return;
+      debugPrint('[RIDER_LOGIN] Attempting login: $email');
+      // AuthGate handles role/status validation. LoginScreen only needs
+      // to complete the Firebase Auth sign-in; if the user is invalid,
+      // AuthGate signs them out and sets AuthService.pendingLoginMessage
+      // for the next LoginScreen mount to display.
+      final cred = await FirebaseAuth.instance
+          .signInWithEmailAndPassword(email: email, password: password)
+          .timeout(const Duration(seconds: 30));
+      debugPrint('[RIDER_LOGIN] Firebase Auth success: uid=${cred.user?.uid}');
+    } on FirebaseAuthException catch (e) {
+      debugPrint('[RIDER_LOGIN] FirebaseAuthException: ${e.code} ${e.message}');
+      String msg;
+      switch (e.code) {
+        case 'invalid-email':
+          msg = 'Please enter a valid email address.';
+          break;
+        case 'user-disabled':
+          msg = 'Your rider account is not active. Contact your administrator.';
+          break;
+        case 'user-not-found':
+        case 'wrong-password':
+        case 'invalid-credential':
+          msg = 'Invalid email or password.';
+          break;
+        case 'too-many-requests':
+          msg = 'Too many attempts. Please try again later.';
+          break;
+        case 'network-request-failed':
+          msg = 'Network error. Please try again.';
+          break;
+        default:
+          msg = e.message ?? 'Sign in failed. Please try again.';
       }
-
-      if (user.isPending) {
-        await _authService.signOut();
-        setState(() => _error = 'Your account is pending approval. Please wait for admin confirmation.');
-        return;
-      }
-
-      if (user.isDisabled) {
-        await _authService.signOut();
-        setState(() => _error = 'Your account has been disabled. Contact your administrator.');
-        return;
-      }
-
-      if (user.isRejected) {
-        await _authService.signOut();
-        setState(() => _error = 'Your account has been rejected. Contact your administrator.');
-        return;
-      }
-
-      if (!user.isApproved) {
-        await _authService.signOut();
-        setState(() => _error = 'Access denied. Contact your administrator.');
-        return;
-      }
-
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/home');
-      }
-    } on Exception catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted) setState(() => _error = msg);
+    } catch (e, stack) {
+      debugPrint('Rider sign-in failed: $e\n$stack');
+      if (mounted) setState(() => _error = 'Sign in failed. Please try again.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -167,6 +177,13 @@ class _LoginScreenState extends State<LoginScreen> {
                           )
                         : const Text('Sign In'),
                   ),
+                ),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: _loading
+                      ? null
+                      : () => Navigator.of(context).pushNamed('/register'),
+                  child: const Text("Don't have an account? Apply as a rider"),
                 ),
               ],
             ),

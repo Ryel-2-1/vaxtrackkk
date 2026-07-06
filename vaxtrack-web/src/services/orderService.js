@@ -199,6 +199,10 @@ export async function updateOrderStatus(orderId, newStatus, dispatcher, extra) {
   if (newStatus === "in_transit") {
     update.startedAt = serverTimestamp();
   }
+  if (newStatus === "cancelled" || newStatus === "canceled") {
+    update.cancelledAt = serverTimestamp();
+    if (extra?.cancelReason) update.cancelReason = extra.cancelReason;
+  }
 
   return updateDoc(orderRef, update);
 }

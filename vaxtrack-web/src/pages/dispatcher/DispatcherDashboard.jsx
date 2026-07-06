@@ -8,7 +8,6 @@ import {
   AlertTriangle,
   Clock3,
   Loader2,
-  MapPin,
   Navigation,
   PackageCheck,
   ShieldCheck,
@@ -256,8 +255,8 @@ function DispatcherDashboard() {
 
               <MonitorInfo
                 icon={<ShieldCheck size={15} />}
-                label="Cold-chain Status"
-                value="Stable"
+                label="Delayed Routes"
+                value={`${delayedDeliveries} delayed`}
               />
             </div>
           </div>

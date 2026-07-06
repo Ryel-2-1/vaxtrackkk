@@ -5,13 +5,68 @@ import 'firebase_options.dart';
 import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/register_screen.dart';
 import 'services/auth_service.dart';
 import 'models/app_user.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  runApp(const VaxTrackRiderApp());
+  try {
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    } on FirebaseException catch (e) {
+      if (e.code != 'duplicate-app') rethrow;
+    }
+    runApp(const VaxTrackRiderApp());
+  } catch (e, stack) {
+    debugPrint('Firebase init failed: $e\n$stack');
+    runApp(_FirebaseInitErrorApp(error: e.toString()));
+  }
+}
+
+class _FirebaseInitErrorApp extends StatelessWidget {
+  final String error;
+  const _FirebaseInitErrorApp({required this.error});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 56, color: Colors.red),
+                const SizedBox(height: 16),
+                const Text(
+                  'VaxTrack Rider failed to start',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Unable to initialize Firebase. Please check your connection and try again.',
+                  style: TextStyle(fontSize: 13, color: Colors.black54),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  error,
+                  style: const TextStyle(fontSize: 11, color: Colors.black45),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class VaxTrackRiderApp extends StatelessWidget {
@@ -27,6 +82,7 @@ class VaxTrackRiderApp extends StatelessWidget {
       routes: {
         '/login': (_) => const LoginScreen(),
         '/home': (_) => const HomeScreen(),
+        '/register': (_) => const RegisterScreen(),
       },
     );
   }
@@ -47,11 +103,14 @@ class AuthGate extends StatelessWidget {
         }
 
         if (snapshot.data == null) {
+          debugPrint('[AUTH_GATE] No user → LoginScreen');
           return const LoginScreen();
         }
 
-        return FutureBuilder<AppUser>(
-          future: AuthService().getUserProfile(snapshot.data!.uid),
+        final uid = snapshot.data!.uid;
+        debugPrint('[AUTH_GATE] Auth user present: uid=$uid → loading profile');
+        return FutureBuilder<_ProfileResult>(
+          future: _safeGetProfile(uid),
           builder: (context, userSnap) {
             if (userSnap.connectionState == ConnectionState.waiting) {
               return const Scaffold(
@@ -59,20 +118,69 @@ class AuthGate extends StatelessWidget {
               );
             }
 
-            if (userSnap.hasError || userSnap.data == null) {
-              return const LoginScreen();
-            }
-
-            final user = userSnap.data!;
-            if (!user.canAccess) {
+            final result = userSnap.data;
+            if (result == null) {
+              // Should not happen with _safeGetProfile, but be defensive.
+              AuthService.pendingLoginMessage =
+                  'Sign in failed. Please try again.';
               FirebaseAuth.instance.signOut();
-              return const LoginScreen();
+              return const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              );
             }
 
+            if (result.permissionDenied) {
+              debugPrint('[AUTH_GATE] Firestore permission denied');
+              AuthService.pendingLoginMessage =
+                  'Unable to load rider profile. Please check Firestore rules.';
+              FirebaseAuth.instance.signOut();
+              return const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            final user = result.user;
+            debugPrint(
+                '[AUTH_GATE] Profile loaded: role=${user?.role} status=${user?.status}');
+            final rejection = AuthService.rejectionMessageFor(user);
+            if (rejection != null) {
+              debugPrint('[AUTH_GATE] Login blocked: $rejection');
+              AuthService.pendingLoginMessage = rejection;
+              FirebaseAuth.instance.signOut();
+              return const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            debugPrint('[AUTH_GATE] Login allowed: navigating to HomeScreen');
             return const HomeScreen();
           },
         );
       },
     );
   }
+
+  Future<_ProfileResult> _safeGetProfile(String uid) async {
+    try {
+      final user = await AuthService().getUserProfile(uid);
+      return _ProfileResult(user: user);
+    } on FirebaseException catch (e) {
+      debugPrint('[AUTH_GATE] Firestore error: ${e.code} ${e.message}');
+      if (e.code == 'permission-denied') {
+        return _ProfileResult(permissionDenied: true);
+      }
+      return _ProfileResult();
+    } catch (e) {
+      debugPrint('[AUTH_GATE] getUserProfile threw: $e');
+      // Missing profile doc → user is null → rejectionMessageFor returns the
+      // "Rider profile not found" message.
+      return _ProfileResult();
+    }
+  }
+}
+
+class _ProfileResult {
+  final AppUser? user;
+  final bool permissionDenied;
+  _ProfileResult({this.user, this.permissionDenied = false});
 }

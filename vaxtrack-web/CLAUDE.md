@@ -278,16 +278,62 @@ Known gap to fix later: `status: "inactive"` (used in Settings.jsx UI) is not bl
   - loading → Dispatch / Mark Delayed / Cancel
   - in_transit → Mark Delivered / Mark Delayed / Cancel
   - delayed → Resume Transit / Cancel
-- `updateOrderStatus` writes: `status`, `updatedAt`, `statusUpdatedAt`, `statusUpdatedByUid`, `statusUpdatedByEmail`; plus `deliveredAt` for delivered, `delayedAt` for delayed, `startedAt` for in_transit
+- `updateOrderStatus` writes: `status`, `updatedAt`, `statusUpdatedAt`, `statusUpdatedByUid`, `statusUpdatedByEmail`; plus `deliveredAt` for delivered, `delayedAt` for delayed, `startedAt` for in_transit, `cancelledAt` for cancelled, `cancelReason` if provided
 - Preserves all assigned rider fields (assignedRiderId, assignedRiderName, etc.)
 - Shipment cards show: order number, vaccine name, clinic, quantity, rider name/phone, priority tag, status tag with color coding
 - Terminal orders (delivered/cancelled) show with reduced opacity, no action buttons
 - Loading/error/empty states; toast notifications for status updates
 - CSS: added `.shipments-filter-bar`, `.shipment-filter-btn`, `.shipment-card-v2` with status color variants, `.status-tag.*`, `.shipment-actions-row`, `.shipment-action-btn` with tone variants
+- **Manual test confirmed 2026-07-06:** Sales Rep order → Dispatcher assigns rider → order appears in Shipments as Assigned → Start Loading → Dispatch → Mark Delivered. Status changes reflect across Dispatcher, Admin Deliveries, and Sales Rep Order Tracking in real time. Firestore remains single source of truth.
 
-**Dispatcher pages still static (not yet wired):**
-- `DispatcherGeofence.jsx` — not inspected yet
-- `DispatcherSettings.jsx` — not inspected yet
+**Step 19 — Dispatcher Live Monitoring / Geofence wired to Firestore ✅ CONFIRMED WORKING**
+- `DispatcherGeofence.jsx` rewritten from scratch (previously 100% mock data)
+- Removed hardcoded: rider "Juan Dela Cruz", delivery ID "TRK-9824", batch "PFZ-2023-A01", location "Quezon City (GPS Unverified)", "1.2km from Planned Route", fake destinations, ETA/coldChain/nextArrival/criticalDelay, all mock timeline entries, all fake map roads/routes/checkpoints/geofence shape, zoom/layer/refresh controls
+- Subscribes to `subscribeDeliveries` from `deliveryService.js` — filters to active statuses: assigned, loading, in_transit, delayed
+- Left panel: "Active Shipments (N)" list with real orderNumber, clinicName, assignedRiderName, and status pill per order; clicking selects
+- Right panel: shipment detail card with real rider name/phone, order + vaccine + quantity + unit, priority, destination + clinicAddress, live location, last status update
+- Live Location fallback: if `lastLocation` (GeoPoint) is null, shows "No live location yet — Waiting for Rider mobile app location update." No fake coordinates, no fake route paths
+- Info banner explains: "Live GPS tracking not yet active. Map view, geofence, and route deviation detection will activate once the Rider mobile app begins sending location updates."
+- Loading/error/empty states added; error state distinguishes permission-denied from generic load failure
+- CSS: added `.geo3-info-banner`, `.geo3-order-list`, `.geo3-order-item` (with `.active` state), `.geo3-status-pill` (with assigned/loading/transit/delayed tones), `.geo3-badge` (same tones), `.geo3-muted`
+- No maps/GPS/route optimization/geofence logic implemented yet — deferred until Rider mobile begins writing `lastLocation`
+- **Manual test confirmed 2026-07-06:** Dispatcher opens Geofence → sees 7 real active shipments (IN TRANSIT, DELAYED) with real rider names, real clinics, real vaccine quantities. "No live location yet" fallback works. No mock data remains.
+
+**Step 20 — Dispatcher Final QA Pass ✅ CONFIRMED WORKING**
+- Full inspection of all Dispatcher pages + supporting services confirmed:
+  - No hardcoded/mock shipment/order/rider/GPS data in completed pages
+  - All 4 completed pages (Dashboard, Assign Rider, Shipments, Geofence) subscribe to Firestore and treat it as the sole source of truth
+  - Status normalization is centralized in `deliveryService.normalizeStatusKey` — consistent across Dashboard/Shipments/Geofence
+  - Loading/error/empty states present on every completed page; permission-denied is distinguished from generic load failure
+  - No `console.log`/`debugger`/`TODO`/`FIXME` in completed pages (only legitimate `console.error` in subscription error callbacks)
+- **Round 1 fix:** Dashboard hardcoded `Cold-chain Status: Stable` MonitorInfo replaced with real `Delayed Routes: {delayedDeliveries} delayed` count
+- **Round 2 fixes:** removed 3 unused Lucide imports — `MapPin` (Dashboard), `Filter` (Shipments), `CheckCircle2` (Geofence)
+- **Manual test confirmed 2026-07-06:** All completed Dispatcher pages Firestore-backed, no hardcoded data, status flow consistent, build passed
+
+## Dispatcher Role — PHASE COMPLETE ✅
+
+All 4 primary Dispatcher pages are Firestore-backed. Manual testing confirmed on 2026-07-06.
+
+| Page | Status | Data Source |
+|---|---|---|
+| Dashboard | ✅ Complete | `orders` + `users` (riders) + `alerts` |
+| Assign Rider | ✅ Complete | `users` (riders); writes to `orders` |
+| Shipments / Cargo Loading Queue | ✅ Complete | `orders`; writes status updates |
+| Geofence / Live Monitoring | ✅ Complete | `orders` (active statuses); `lastLocation` fallback |
+| Settings | ⚠️ Deferred | Still hardcoded profile/preferences (localStorage only) |
+
+**Confirmed working end-to-end:**
+1. Sales Rep places order → Dispatcher Dashboard shows in Pending Dispatch Queue
+2. Dispatcher assigns rider → status: assigned; reflects on Admin Deliveries + Sales Rep Order Tracking
+3. Dispatcher Shipments → Start Loading → Dispatch → Mark Delivered; each transition writes audit fields and syncs across all roles
+4. Dispatcher Geofence shows only active orders (assigned/loading/in_transit/delayed) with real rider/clinic/vaccine data
+5. "No live location yet" fallback works when `lastLocation` is absent
+6. All statuses (pending_dispatch/assigned/loading/in_transit/delayed/delivered/completed/cancelled/canceled) normalized consistently
+
+**Deferred (not required for Dispatcher phase completion):**
+- DispatcherSettings.jsx — hardcoded profile; can be wired later like SalesRepSettings using `getUserProfile`/`updateUserProfile`
+- Real GPS/map/geofence/route deviation — requires Flutter Rider `lastLocation` writes first
+- Decorative "Metro Manila Delivery Network" CSS art on Dashboard — pure visual dressing, no fake numeric data
 
 ---
 
