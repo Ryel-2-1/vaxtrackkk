@@ -255,7 +255,7 @@
     grid-template-columns: 1fr;
   }
 }
-/* Fix auth form text alignment */
+
 .auth-card,
 .auth-form,
 .auth-form label,
@@ -283,10 +283,6 @@
 .auth-divider p {
   text-align: center;
 }
-
-/* =====================================================
-   Forgot Password UI
-===================================================== */
 
 .forgot-page {
   background: #f7f8ff;
@@ -469,9 +465,6 @@
   font-weight: 800;
   color: #0057d8;
 }
-/* =========================================================
-   FIX: White checkboxes for Login/Register
-========================================================= */
 
 input[type="checkbox"] {
   appearance: none;
@@ -505,10 +498,6 @@ input[type="checkbox"]:focus {
   outline: 2px solid rgba(37, 99, 235, 0.15);
   outline-offset: 2px;
 }
-/* =========================================================
-   VaxTrack Login Final UI Fix
-   Put this at the VERY BOTTOM of src/pages/Auth.css
-========================================================= */
 
 .auth-page {
   min-height: 100vh !important;
@@ -535,7 +524,6 @@ input[type="checkbox"]:focus {
   overflow: hidden !important;
 }
 
-/* Logo */
 .auth-card.login-card .auth-brand {
   text-align: center !important;
   margin-bottom: 32px !important;
@@ -575,7 +563,6 @@ input[type="checkbox"]:focus {
   letter-spacing: 0;
 }
 
-/* Form spacing */
 .auth-card.login-card .auth-form {
   display: flex !important;
   flex-direction: column !important;
@@ -605,7 +592,6 @@ input[type="checkbox"]:focus {
   text-decoration: none !important;
 }
 
-/* Main input box fix */
 .auth-card.login-card .auth-input {
   width: 100% !important;
   height: 56px !important;
@@ -641,7 +627,6 @@ input[type="checkbox"]:focus {
   flex-shrink: 0 !important;
 }
 
-/* This removes the overlapping inner textbox */
 .auth-card.login-card .auth-input input {
   all: unset !important;
   flex: 1 1 auto !important;
@@ -666,7 +651,6 @@ input[type="checkbox"]:focus {
   font-weight: 550 !important;
 }
 
-/* Password eye button */
 .auth-card.login-card .icon-ghost {
   all: unset !important;
   width: 36px !important;
@@ -685,7 +669,6 @@ input[type="checkbox"]:focus {
   color: #0057d9 !important;
 }
 
-/* Remember me */
 .auth-card.login-card .auth-check-row {
   margin: 2px 0 8px !important;
 }
@@ -731,7 +714,6 @@ input[type="checkbox"]:focus {
   line-height: 1;
 }
 
-/* Error */
 .auth-card.login-card .auth-error {
   padding: 12px 14px !important;
   border-radius: 12px !important;
@@ -741,7 +723,6 @@ input[type="checkbox"]:focus {
   font-weight: 700 !important;
 }
 
-/* Login button */
 .auth-card.login-card .primary-auth-btn {
   width: 100% !important;
   height: 58px !important;
@@ -773,7 +754,6 @@ input[type="checkbox"]:focus {
   transform: translateY(0) !important;
 }
 
-/* Divider */
 .auth-card.login-card .auth-divider {
   display: flex !important;
   align-items: center !important;
@@ -794,7 +774,6 @@ input[type="checkbox"]:focus {
   font-weight: 750 !important;
 }
 
-/* Google */
 .auth-card.login-card .google-auth-btn {
   width: 100% !important;
   height: 56px !important;
@@ -822,7 +801,6 @@ input[type="checkbox"]:focus {
   transform: translateY(-1px) !important;
 }
 
-/* Footer */
 .auth-card.login-card .auth-footer-text {
   margin: 18px 0 0 !important;
   text-align: center !important;
@@ -851,7 +829,6 @@ input[type="checkbox"]:focus {
   font-weight: 600 !important;
 }
 
-/* Autofill fix */
 .auth-card.login-card .auth-input input:-webkit-autofill,
 .auth-card.login-card .auth-input input:-webkit-autofill:hover,
 .auth-card.login-card .auth-input input:-webkit-autofill:focus,
@@ -862,7 +839,6 @@ input[type="checkbox"]:focus {
   transition: background-color 9999s ease-in-out 0s !important;
 }
 
-/* Mobile */
 @media (max-width: 480px) {
   .auth-card.login-card {
     width: 100% !important;
@@ -881,15 +857,12 @@ input[type="checkbox"]:focus {
     min-height: 54px !important;
   }
 }
-/* Remove duplicate login logo */
 .auth-card.login-card::before,
 .auth-card.login-card::after,
 .auth-brand::before {
   display: none !important;
   content: none !important;
 }
-
-/* Keep only one clean logo */
 .auth-card.login-card .auth-brand {
   position: relative !important;
   padding-top: 92px !important;
@@ -914,11 +887,6 @@ input[type="checkbox"]:focus {
   font-weight: 950 !important;
   box-shadow: 0 18px 34px rgba(11, 99, 246, 0.28) !important;
 }
-/* =========================================================
-   VaxTrack Register Page Final UI Fix
-   Fix overlapping inputs, checkbox, spacing, and consistency
-   Paste at the VERY BOTTOM of src/pages/Auth.css
-========================================================= */
 
 .auth-card.register-card,
 .register-card {
@@ -934,7 +902,6 @@ input[type="checkbox"]:focus {
   overflow: hidden !important;
 }
 
-/* Register logo */
 .register-card .auth-brand,
 .register-card .register-header {
   text-align: center !important;
@@ -968,7 +935,6 @@ input[type="checkbox"]:focus {
   letter-spacing: -0.04em !important;
 }
 
-/* Register form spacing */
 .register-card .auth-form {
   display: flex !important;
   flex-direction: column !important;
@@ -985,7 +951,7 @@ input[type="checkbox"]:focus {
   line-height: 1.25 !important;
 }
 
-/* Two-column row fix */
+
 .register-card .form-row {
   display: grid !important;
   grid-template-columns: 1fr 1fr !important;
@@ -997,7 +963,6 @@ input[type="checkbox"]:focus {
   min-width: 0 !important;
 }
 
-/* Main input box fix */
 .register-card .auth-input,
 .register-card .input-group,
 .register-card .register-input {
@@ -1034,7 +999,6 @@ input[type="checkbox"]:focus {
   flex-shrink: 0 !important;
 }
 
-/* Remove overlapping inner textbox */
 .register-card .auth-input input,
 .register-card .input-group input,
 .register-card .register-input input,
@@ -1064,7 +1028,6 @@ input[type="checkbox"]:focus {
   font-weight: 550 !important;
 }
 
-/* Password eye button */
 .register-card .icon-ghost,
 .register-card .icon-button {
   all: unset !important;
@@ -1085,7 +1048,6 @@ input[type="checkbox"]:focus {
   color: #0057d9 !important;
 }
 
-/* Helper text */
 .register-card small,
 .register-card .input-helper,
 .register-card .password-helper {
@@ -1095,7 +1057,6 @@ input[type="checkbox"]:focus {
   font-weight: 600 !important;
 }
 
-/* Terms checkbox */
 .register-card .auth-check-row,
 .register-card .terms-row {
   margin: 4px 0 10px !important;
@@ -1146,7 +1107,6 @@ input[type="checkbox"]:focus {
   line-height: 1;
 }
 
-/* Create account button */
 .register-card .primary-auth-btn,
 .register-card .primary-button {
   width: 100% !important;
@@ -1172,7 +1132,6 @@ input[type="checkbox"]:focus {
   box-shadow: 0 18px 36px rgba(11, 99, 246, 0.34) !important;
 }
 
-/* Divider */
 .register-card .auth-divider {
   display: flex !important;
   align-items: center !important;
@@ -1193,7 +1152,6 @@ input[type="checkbox"]:focus {
   font-weight: 750 !important;
 }
 
-/* Google button */
 .register-card .google-auth-btn,
 .register-card .google-button {
   width: 100% !important;
@@ -1219,7 +1177,6 @@ input[type="checkbox"]:focus {
   transform: translateY(-1px) !important;
 }
 
-/* Footer */
 .register-card .auth-footer-text,
 .register-card .auth-footer {
   margin: 18px 0 0 !important;
@@ -1236,7 +1193,6 @@ input[type="checkbox"]:focus {
   text-decoration: none !important;
 }
 
-/* Autofill fix */
 .register-card input:-webkit-autofill,
 .register-card input:-webkit-autofill:hover,
 .register-card input:-webkit-autofill:focus,
@@ -1247,7 +1203,6 @@ input[type="checkbox"]:focus {
   transition: background-color 9999s ease-in-out 0s !important;
 }
 
-/* Mobile */
 @media (max-width: 520px) {
   .auth-card.register-card,
   .register-card {
@@ -1266,10 +1221,7 @@ input[type="checkbox"]:focus {
     font-size: 25px !important;
   }
 }
-/* =========================================================
-   Register V2 Clean Fix
-   Exact classes from new Register.jsx
-========================================================= */
+
 
 .register-card-v2 {
   width: 460px !important;
@@ -1487,12 +1439,8 @@ input[type="checkbox"]:focus {
     font-size: 25px !important;
   }
 }
-/* =========================================================
-   Final Checkbox Fix for Login + Register
-   Centers the check mark and keeps checkbox clean
-========================================================= */
 
-/* Login Remember Me + Register Terms checkbox base */
+
 .auth-card.login-card .checkbox-row input[type="checkbox"],
 .register-card-v2 .register-terms-row input[type="checkbox"] {
   appearance: none !important;
@@ -2169,4 +2117,110 @@ input[type="checkbox"]:focus {
   justify-content: center;
   gap: 8px;
   cursor: pointer;
+}
+
+.forgot-card .auth-input {
+  width: 100% !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  max-height: 44px !important;
+
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+
+  padding: 0 14px !important;
+  box-sizing: border-box !important;
+
+  background: #ffffff !important;
+  border: 1.5px solid #c2d2ea !important;
+  border-radius: 8px !important;
+
+  overflow: hidden !important;
+  box-shadow: none !important;
+}
+
+.forgot-card .auth-input:focus-within {
+  border-color: #0b63f6 !important;
+  box-shadow: 0 0 0 3px rgba(11, 99, 246, 0.12) !important;
+}
+
+.forgot-card .auth-input > svg {
+  width: 18px !important;
+  height: 18px !important;
+  min-width: 18px !important;
+  flex-shrink: 0 !important;
+
+  color: #8ca0bc !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.forgot-card .auth-input input {
+  all: unset !important;
+
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  min-width: 0 !important;
+
+  height: 44px !important;
+  line-height: 44px !important;
+
+  box-sizing: border-box !important;
+  background: transparent !important;
+
+  color: #334155 !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.forgot-card .auth-input input::placeholder {
+  color: #8191aa !important;
+}
+
+.forgot-card .icon-ghost {
+  all: unset !important;
+
+  width: 34px !important;
+  height: 34px !important;
+  min-width: 34px !important;
+
+  display: grid !important;
+  place-items: center !important;
+
+  color: #8ca0bc !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+}
+
+.forgot-card .icon-ghost:hover {
+  color: #0057d8 !important;
+  background: transparent !important;
+}
+
+.forgot-card .icon-ghost svg {
+  margin: 0 !important;
+  background: transparent !important;
+}
+
+.forgot-card .auth-input input:-webkit-autofill,
+.forgot-card .auth-input input:-webkit-autofill:hover,
+.forgot-card .auth-input input:-webkit-autofill:focus,
+.forgot-card .auth-input input:-webkit-autofill:active {
+  -webkit-text-fill-color: #334155 !important;
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+  box-shadow: 0 0 0 1000px #ffffff inset !important;
+  transition: background-color 9999s ease-in-out 0s !important;
 }
