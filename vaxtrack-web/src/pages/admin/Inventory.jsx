@@ -9,6 +9,7 @@ import {
   Building2,
   CheckCircle2,
   FileDown,
+  FileText,
   LayoutDashboard,
   LogOut,
   Package,
@@ -744,6 +745,14 @@ export function AdminSidebar({ active, onLogout }) {
         <Link className={active === "clinics" ? "active" : ""} to="/admin/clinics">
           <Building2 size={16} />
           <span>Clinics</span>
+        </Link>
+
+        <Link
+          className={active === "invoices" ? "active" : ""}
+          to="/admin/invoices"
+        >
+          <FileText size={16} />
+          <span>Invoices</span>
         </Link>
 
         <Link

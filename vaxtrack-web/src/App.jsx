@@ -6,6 +6,8 @@ import ForgotPassword from "./pages/ForgotPassword";
 import PendingApproval from "./pages/PendingApproval";
 
 import AdminRoute from "./components/AdminRoute";
+import DispatcherRoute from "./components/DispatcherRoute";
+import SalesRepRoute from "./components/SalesRepRoute";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import Inventory from "./pages/admin/Inventory";
 import AddStock from "./pages/admin/AddStock";
@@ -16,6 +18,8 @@ import Alerts from "./pages/admin/Alerts";
 import Analytics from "./pages/admin/Analytics";
 import Settings from "./pages/admin/Settings";
 import Clinics from "./pages/admin/Clinics";
+import Invoices from "./pages/admin/Invoices";
+import InvoiceEditor from "./pages/admin/InvoiceEditor";
 import RegisterClinic from "./pages/admin/RegisterClinic";
 import ClinicSuccess from "./pages/admin/ClinicSuccess";
 
@@ -31,6 +35,7 @@ import SalesRepSettings from "./pages/salesRep/SalesRepSettings";
 import DispatcherDashboard from "./pages/dispatcher/DispatcherDashboard";
 import DispatcherAssignRider from "./pages/dispatcher/DispatcherAssignRider";
 import DispatcherShipments from "./pages/dispatcher/DispatcherShipments";
+import DispatcherCargoLoading from "./pages/dispatcher/DispatcherCargoLoading";
 import DispatcherGeofence from "./pages/dispatcher/DispatcherGeofence";
 import DispatcherSettings from "./pages/dispatcher/DispatcherSettings";
 
@@ -60,6 +65,8 @@ function App() {
           <Route path="/admin/analytics" element={<Analytics />} />
           <Route path="/admin/settings" element={<Settings />} />
           <Route path="/admin/clinics" element={<Clinics />} />
+          <Route path="/admin/invoices" element={<Invoices />} />
+          <Route path="/admin/invoices/:orderId" element={<InvoiceEditor />} />
           <Route path="/admin/register-clinic" element={<RegisterClinic />} />
           <Route path="/admin/clinic-success" element={<ClinicSuccess />} />
         </Route>
@@ -77,20 +84,40 @@ function App() {
         <Route path="/register-clinic" element={<Navigate to="/admin/register-clinic" replace />} />
         <Route path="/clinic-success" element={<Navigate to="/admin/clinic-success" replace />} />
 
+        <Route element={<SalesRepRoute />}>
         <Route path="/sales-rep" element={<SalesRepDashboard />} />
-        <Route path="/sales-rep/inventory" element={<SalesRepInventory />} />
-        <Route path="/sales-rep/request-order" element={<SalesRepRequestOrder />} />
-        <Route path="/sales-rep/place-order" element={<SalesRepPlaceOrder />} />
-        <Route path="/sales-rep/order-confirmation" element={<SalesRepOrderConfirmation />} />
-        <Route path="/sales-rep/order-tracking" element={<SalesRepOrderTracking />} />
+        <Route 
+         path="/sales-rep/inventory"
+         element={<SalesRepInventory />}
+        />
+        <Route
+         path="/sales-rep/request-order"
+         element={<SalesRepRequestOrder />}
+        />
+        <Route
+         path="/sales-rep/place-order"
+         element={<SalesRepPlaceOrder />}
+        />
+        <Route
+         path="/sales-rep/order-confirmation"
+         element={<SalesRepOrderConfirmation />}
+        />
+        <Route
+         path="/sales-rep/order-tracking"
+         element={<SalesRepOrderTracking />}
+        />
         <Route path="/sales-rep/alerts" element={<SalesRepAlerts />} />
         <Route path="/sales-rep/settings" element={<SalesRepSettings />} />
+        </Route>
 
-        <Route path="/dispatcher" element={<DispatcherDashboard />} />
-        <Route path="/dispatcher/assign-rider" element={<DispatcherAssignRider />} />
-        <Route path="/dispatcher/shipments" element={<DispatcherShipments />} />
-        <Route path="/dispatcher/geofence" element={<DispatcherGeofence />} />
-        <Route path="/dispatcher/settings" element={<DispatcherSettings />} />
+        <Route element={<DispatcherRoute />}>
+          <Route path="/dispatcher" element={<DispatcherDashboard />} />
+          <Route path="/dispatcher/assign-rider" element={<DispatcherAssignRider />} />
+          <Route path="/dispatcher/shipments" element={<DispatcherShipments />} />
+          <Route path="/dispatcher/cargo-loading" element={<DispatcherCargoLoading />} />
+          <Route path="/dispatcher/geofence" element={<DispatcherGeofence />} />
+          <Route path="/dispatcher/settings" element={<DispatcherSettings />} />
+        </Route>
 
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

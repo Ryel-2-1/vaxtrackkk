@@ -4,6 +4,7 @@ import { signOut } from "firebase/auth";
 import {
   Bell,
   CheckCircle2,
+  ClipboardCheck,
   LayoutDashboard,
   LogOut,
   MapPinned,
@@ -165,6 +166,14 @@ function DispatcherLayout({
           >
             <Truck size={16} />
             <span>Shipments</span>
+          </NavLink>
+
+          <NavLink
+            to="/dispatcher/cargo-loading"
+            className={active === "cargo-loading" ? "active" : ""}
+          >
+            <ClipboardCheck size={16} />
+            <span>Cargo Loading</span>
           </NavLink>
 
           <NavLink

@@ -2,6 +2,7 @@ import {
   addDoc,
   collection,
   doc,
+  getDoc,
   onSnapshot,
   serverTimestamp,
   updateDoc,
@@ -11,6 +12,13 @@ import {
 import { db } from "../firebase";
 
 const ORDERS_COLLECTION = "orders";
+
+export async function getOrderById(orderId) {
+  if (!orderId) return null;
+  const snap = await getDoc(doc(db, ORDERS_COLLECTION, orderId));
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...snap.data() };
+}
 
 export async function createSalesRepOrder(orderData = {}) {
   if (!orderData.clinicName) {
