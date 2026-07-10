@@ -11,7 +11,7 @@ VaxTrack is a vaccine cold-chain logistics platform for the Philippines. This re
 | Admin | React Web (this repo) | `src/pages/admin/` |
 | Sales Representative | React Web (this repo) | `src/pages/salesRep/` |
 | Dispatcher | React Web (this repo) | `src/pages/dispatcher/` |
-| Rider | **Flutter mobile app only** | Separate repo: `vaxtrack_mobile` |
+| Rider | **Flutter mobile app only** | Sibling folder `vaxtrack_mobile/` (same git repo, one level up) |
 
 **Rider is NOT part of this codebase.** Any React Rider files found in this repo are accidental and should be deleted. The web login page already blocks rider accounts (`"Rider accounts must use the VaxTrack mobile app."`).
 
@@ -23,18 +23,25 @@ VaxTrack is a vaccine cold-chain logistics platform for the Philippines. This re
 - Lucide React (icons)
 - No UI framework — custom CSS per page
 
-## Firebase Collections
+## Firebase Collections (source of truth)
 
 | Collection | Status | Used By |
 |---|---|---|
-| `users` | Exists | Login, AdminRoute, Register, Settings (User Mgmt) |
+| `users` | Exists | Login, route guards, Register, Settings (User Mgmt), Riders, Flutter Rider auth/profile |
 | `vaccines` | Exists | AddVaccine, AddStock |
 | `vaccineTypes` | Exists | AddVaccine |
-| `inventory` | Exists | AddStock |
-| `alerts` | Exists | alertService.js (unused by UI yet) |
-| `orders` | Exists | orderService.js (SalesRep/Dispatcher) |
-| `deliveries` | **Does not exist yet** | Deliveries.jsx (currently hardcoded) |
-| `clinics` | Exists (created by Step 5) | Clinics.jsx |
+| `inventory` | Exists | Admin Inventory, AddStock, Sales Rep Inventory/Request Order |
+| `alerts` | Exists | Admin Alerts, AdminDashboard, Dispatcher Dashboard, Analytics |
+| `orders` | Exists | **Single source of truth for deliveries.** Admin Deliveries/Analytics, Sales Rep (create + own-order tracking), Dispatcher (assign + status updates + cargo loading), Flutter Rider (assigned orders) |
+| `clinics` | Exists | Admin Clinics, Sales Rep Place Order |
+| `invoices` | Exists (pulled Invoices module) | Admin Invoices/InvoiceEditor via invoiceService.js |
+| `counters` | Exists (pulled Invoices module) | Transactional invoice numbering (`counters/invoice_{year}`) |
+
+There is **no `deliveries` collection** — never create one; everything delivery-related lives on `orders`.
+
+**Canonical order status values:** `pending_dispatch` → `assigned` → `loading` → `in_transit` → `delivered` (terminal), with branches `delayed` (recoverable) and `cancelled` (terminal). Legacy variants `completed` and `canceled` are accepted on read via `deliveryService.normalizeStatusKey` but never written. Do not introduce new statuses (e.g. `picked_up` was rejected during the Rider merge).
+
+**Companion docs:** `docs/VaxTrack-Test-Case-Tracker.md` (full-system, 123 cases), `docs/VaxTrack-Admin-Test-Case-Tracker.md`, `docs/VaxTrack-Maps-Routing-Plan.md`. A production Firestore rules plan was drafted in-session (2026-07-11) — key open questions: Employee-ID login does an unauthenticated `users` query, and dispatchers currently read the whole `users` collection.
 
 ## Firestore User Document Schema
 
@@ -47,7 +54,7 @@ users/{uid}
   name:   string
 ```
 
-Status values must be consistent across Login.jsx, AdminRoute.jsx, and userService.js (when created). Do not write "active" or "inactive" as status — these are UI display labels only.
+Status values must be consistent across Login.jsx, the route guards (AdminRoute/SalesRepRoute/DispatcherRoute), userService.js, and the Flutter AuthGate. Do not write "active" or "inactive" as status — these are UI display labels only.
 
 ## Dev Server
 
@@ -337,6 +344,29 @@ All 4 primary Dispatcher pages are Firestore-backed. Manual testing confirmed on
 
 ---
 
+## Pulled Changes (2026-07-10, commits b67c443 + e977da4) — statically audited, runtime test pending
+
+Code pulled from a collaborator. Post-pull diagnosis (2026-07-10): builds pass, no regressions, architecture intact. **Not yet runtime-tested** — see Pending Manual Test items in `docs/VaxTrack-Test-Case-Tracker.md`.
+
+**New: Admin Invoices module**
+- `pages/admin/Invoices.jsx` (queue), `pages/admin/InvoiceEditor.jsx`, `services/invoiceService.js`, routes `/admin/invoices` + `/admin/invoices/:orderId`, sidebar link
+- Reads `orders`; writes new `invoices` collection (doc ID = orderId, one invoice per order) and `counters` (transactional sequential numbering `INV-YYYY-######`)
+- Issued invoices are locked from edits; amounts show a dash when items carry no real prices
+
+**New: Dispatcher Cargo Loading**
+- `pages/dispatcher/DispatcherCargoLoading.jsx`, `services/cargoLoadingService.js`, route `/dispatcher/cargo-loading`, sidebar link
+- Groups assigned/loading orders per approved rider; per-order `isLoaded` checkbox persisted to Firestore with `loadedAt/By` audit fields
+- "Finalize dispatch" batch-moves a rider's whole group to `in_transit` atomically (writeBatch) with standard status audit fields
+- **Process note:** finalize skips the `loading` status — dispatchers now have two dispatch paths (Shipments' Start Loading → Dispatch vs Cargo Loading's checklist → finalize). Both valid; product decision pending on which is canonical
+
+**New: Sales Rep + Dispatcher route protection**
+- `components/SalesRepRoute.jsx` and `components/DispatcherRoute.jsx` — mirror AdminRoute exactly (pending → /pending, rejected/disabled → /login, wrong role → own dashboard); all /sales-rep/* and /dispatcher/* routes now wrapped in App.jsx
+- Closes the gap where those routes were previously unprotected
+
+**Also in pull:** Auth.css forgot-password layout fix; `getOrderById` added to orderService.js
+
+---
+
 ## Flutter Rider — Registration / Approval / Login ✅ CONFIRMED WORKING (2026-07-07)
 
 Rider mobile app lives in the separate `vaxtrack_mobile` repo (structured lib/: models, screens, services, theme). Full registration → admin approval → login cycle manually tested and confirmed.
@@ -360,10 +390,25 @@ Rider mobile app lives in the separate `vaxtrack_mobile` repo (structured lib/: 
 
 **Confirmed end-to-end (manual + emulator):** register in Flutter → pending rider appears in Admin Riders → Admin approves → rider logs in → Rider Dashboard opens (with location permission flow). Temporary debug logs removed after confirmation; `flutter analyze` passes with 0 issues.
 
+**Assigned Deliveries ✅ CONFIRMED WORKING (2026-07-10):**
+- `DeliveryService.riderDeliveries()` subscribes to `orders` where `assignedRiderId == FirebaseAuth.currentUser.uid` (real-time snapshots, client-side sort by `createdAt`)
+- `Delivery` model maps: orderNumber, clinicName, clinicAddress, vaccineName, vaccineType, quantity, unit, priority, normalized status + label, deliveryInstructions, items[] summaries, assignedAt/createdAt/updatedAt, lastLocation
+- Status labels match web: Assigned/Loading/In Transit/Delayed/Delivered/Cancelled; Active lists exclude cancelled; empty state "No assigned deliveries yet."
+- **Verified live:** Dispatcher assigned an order on web → order appeared on Rider Dashboard in real time (urgent banner, badges, card) → detail screen showed all fields + status timeline
+
+**Implemented but NOT yet e2e-tested (next phase):**
+- Rider status updates (Start Loading → Start Transit → Mark Delivered, Report Delay with reason) — code exists in `delivery_detail_screen.dart` + `delivery_service.dart` with audit fields
+- Proof of delivery / invoice photo upload to Firebase Storage (`proof_of_delivery/{orderId}/`, `invoices/{orderId}/`)
+- Location writes: `users/{uid}.lastLocation` on dashboard load, `orders/{id}.lastLocation` on status change — these will activate the web Geofence page's live-location display
+
 **Firestore rules needed for rider (report, not yet deployed):**
 - Rider can `create` own `users/{uid}` only with `role == "rider"` and `status == "pending"`
 - Rider can read/update own doc; cannot approve self
 - Admin (approved) can read/update rider users for approval
+
+**Firestore rules needed for pulled Invoices module (report, not yet deployed):**
+- `invoices` collection: approved admin read/write only
+- `counters` collection: approved admin write/update only (used for transactional invoice numbering, `counters/invoice_{year}`)
 
 ---
 
@@ -399,9 +444,9 @@ All 7 Sales Rep pages are now Firestore-backed. Manual testing confirmed on 2026
 
 ---
 
-## Current Focus: Phase 3 — Admin Service Layer
+## Phase 3 — Admin Service Layer ✅ COMPLETE
 
-All admin pages except AddStock and AddVaccine run on hardcoded demo data. The goal is to replace that data with real Firestore reads/writes through a clean service layer.
+All admin pages are Firestore-backed through the service layer below. (Historical goal: replace hardcoded demo data with real Firestore reads/writes.)
 
 ### Service Files Plan
 
@@ -460,17 +505,18 @@ These exist in the codebase but have not been addressed:
 
 ## Files Safe to Delete (not yet deleted)
 
-- `src/pages/rider/` — all files (already staged for deletion in git, not imported anywhere)
+- ~~`src/pages/rider/`~~ — ✅ deleted (Rider is Flutter-only; no React rider pages remain)
 - `src/pages/admin/RegisterClinic.jsx` — redundant with Clinics.jsx inline modal; form saves nothing
 - `src/pages/admin/ClinicSuccess.jsx` — hardcoded, only reachable from dead RegisterClinic flow
 
-## Test Accounts Needed
+## Test Accounts (exist in vaxtrack-bef1b)
 
-The following Firestore test users do not exist yet. When creating them in Firebase Console, the `users/{uid}` document must have:
-
-- **Sales Representative:** `role: "salesrep"`, `status: "approved"`
-- **Dispatcher:** `role: "dispatcher"`, `status: "approved"`
-- **Rider:** `role: "rider"`, `status: "approved"` — for testing web login block only; actual rider usage is Flutter
+- **Admin:** admin@vaxtrack.com (`role: "admin"`, approved)
+- **Dispatcher:** dispatcher@vaxtrack.com / 123456 (`role: "dispatcher"`, approved); also dispatcher@gmail.com
+- **Sales Representative:** test12@gmail.com (`role: "salesrep"`, approved)
+- **Riders (approved):** rider@vaxtrack.com, test@gmail.com, rider.test@vaxtrack.com, rider.qa2@vaxtrack.com / rider123456 (QA Rider Two)
+- **Rider (pending):** rider.qa1@vaxtrack.com (riders rider / QA-1234)
+- **Legacy corrupt docs (ignore/clean up in console):** test321@gmail.com (`role: "pending"`), rider@email.com (`role: "staff"`) — from the old monolithic app's signup; invisible to rider lists by design
 
 ## AdminSidebar Note
 
