@@ -18,6 +18,8 @@ import {
 import { auth } from "../../firebase";
 import { AdminSidebar } from "./Inventory";
 import { subscribeDeliveries } from "../../services/deliveryService";
+import StatusBadge from "../../components/ui/StatusBadge";
+import KpiCard from "../../components/ui/KpiCard";
 import "./Deliveries.css";
 
 function normalizeDelivery(raw) {
@@ -254,39 +256,36 @@ function Deliveries() {
         )}
 
         <section className="deliveries-summary-grid">
-          <DeliverySummaryCard
-            icon={<Truck size={18} />}
+          <KpiCard
+            label="Total deliveries"
             value={deliveryList.length}
-            label="Total Deliveries"
-            type="blue"
-            note="All orders"
+            context="All orders"
+            tone="neutral"
             onClick={() => setStatusFilter("all")}
           />
 
-          <DeliverySummaryCard
-            icon={<Navigation size={18} />}
+          <KpiCard
+            label="In transit"
             value={transitCount}
-            label="In Transit"
-            type="green"
-            note="On route"
+            context="On route"
+            tone="info"
             onClick={() => setStatusFilter("transit")}
           />
 
-          <DeliverySummaryCard
-            icon={<Clock3 size={18} />}
-            value={delayedCount}
+          <KpiCard
             label="Delayed"
-            type="amber"
-            note="Needs review"
+            value={delayedCount}
+            context="Needs review"
+            tone="danger"
+            attention={delayedCount > 0}
             onClick={() => setStatusFilter("delayed")}
           />
 
-          <DeliverySummaryCard
-            icon={<AlertTriangle size={18} />}
+          <KpiCard
+            label="Loading / assigned"
             value={loadingCount}
-            label="Loading / Assigned"
-            type="red"
-            note="Preparing"
+            context="Preparing"
+            tone="warning"
             onClick={() => setStatusFilter("loading")}
           />
         </section>
@@ -364,11 +363,7 @@ function Deliveries() {
                       </td>
 
                       <td>
-                        <span
-                          className={`deliveries-v4-status ${delivery.statusType}`}
-                        >
-                          {delivery.status}
-                        </span>
+                        <StatusBadge statusKey={delivery.statusKey} />
                       </td>
 
                       <td onClick={(e) => e.stopPropagation()}>
@@ -459,23 +454,6 @@ function Deliveries() {
         />
       )}
     </div>
-  );
-}
-
-function DeliverySummaryCard({ icon, value, label, type, note, onClick }) {
-  return (
-    <button
-      type="button"
-      className={`deliveries-summary-card ${type}`}
-      onClick={onClick}
-    >
-      <div className="deliveries-summary-icon">{icon}</div>
-      <div>
-        <h2>{value}</h2>
-        <p>{label}</p>
-        <small>{note}</small>
-      </div>
-    </button>
   );
 }
 

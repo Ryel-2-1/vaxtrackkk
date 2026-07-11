@@ -1,0 +1,280 @@
+/* ============================================================
+   Meridian shell — Phase 1 re-skin of the three real layouts.
+
+   Scope: sidebar + topbar chrome ONLY (Admin, Sales Rep,
+   Dispatcher). Content cards/tables are intentionally untouched.
+
+   Why the !important flags: the legacy stylesheets (styles.css,
+   SalesRep.css, Dispatcher.css) re-declare these selectors many
+   times, several with !important (e.g. the blue dispatcher nav).
+   Every rule here uses element+class chains for higher specificity
+   AND !important so this layer wins deterministically regardless
+   of bundle order. When a page is fully migrated to Meridian its
+   legacy rules should be deleted and these flags dropped.
+   ============================================================ */
+
+/* ---------------- sidebar containers ---------------- */
+
+aside.inventory-sidebar,
+aside.dispatcher-sidebar,
+aside.salesrep-sidebar {
+  background: var(--green-950) !important;
+  border-right: none !important;
+  box-shadow: none !important;
+  color: #9db8ac !important;
+  font-family: var(--font-ui) !important;
+}
+
+/* ---------------- brand ---------------- */
+
+aside.inventory-sidebar > h2,
+aside.dispatcher-sidebar .dispatcher-brand h1,
+aside.salesrep-sidebar .salesrep-brand {
+  color: #ffffff !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.01em !important;
+  background: none !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+/* ---------------- role chip (new element) ---------------- */
+
+.m-role-chip {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  background: var(--green-900);
+  color: #9db8ac;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  margin: 10px 0 14px;
+  white-space: nowrap;
+}
+
+.m-role-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #35875f;
+  flex-shrink: 0;
+}
+
+/* ---------------- account / profile block ---------------- */
+
+aside.inventory-sidebar .profile-mini,
+aside.salesrep-sidebar .salesrep-profile {
+  background: var(--green-900) !important;
+  border: none !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  box-shadow: none !important;
+}
+
+aside.inventory-sidebar .profile-mini .avatar,
+aside.salesrep-sidebar .salesrep-profile-icon {
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  border-radius: var(--radius-pill) !important;
+  background: var(--green-700) !important;
+  color: #ffffff !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: none !important;
+}
+
+aside.inventory-sidebar .profile-mini h3,
+aside.salesrep-sidebar .salesrep-profile h3 {
+  color: #ffffff !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+}
+
+aside.inventory-sidebar .profile-mini p,
+aside.inventory-sidebar .profile-mini small,
+aside.salesrep-sidebar .salesrep-profile p,
+aside.salesrep-sidebar .salesrep-profile small {
+  color: #9db8ac !important;
+  font-size: 11px !important;
+}
+
+/* ---------------- nav items ---------------- */
+
+aside.inventory-sidebar nav a,
+aside.dispatcher-sidebar .dispatcher-nav a,
+aside.salesrep-sidebar .salesrep-nav a {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  height: 40px !important;
+  padding: 0 12px !important;
+  margin: 0 0 2px !important;
+  border-radius: var(--radius-control) !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: #9db8ac !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  text-decoration: none !important;
+  transform: none !important;
+  animation: none !important;
+  transition: background 120ms ease, color 120ms ease !important;
+}
+
+aside.inventory-sidebar nav a svg,
+aside.dispatcher-sidebar .dispatcher-nav a svg,
+aside.salesrep-sidebar .salesrep-nav a svg,
+aside.inventory-sidebar nav a span,
+aside.dispatcher-sidebar .dispatcher-nav a span,
+aside.salesrep-sidebar .salesrep-nav a span {
+  color: inherit !important;
+  transform: none !important;
+  animation: none !important;
+}
+
+/* neutralize legacy gradient sweep / underline decorations */
+aside.inventory-sidebar nav a::after,
+aside.inventory-sidebar nav a::before,
+aside.dispatcher-sidebar .dispatcher-nav a::after,
+aside.dispatcher-sidebar .dispatcher-nav a::before,
+aside.salesrep-sidebar .salesrep-nav a::after,
+aside.salesrep-sidebar .salesrep-nav a::before {
+  content: none !important;
+  display: none !important;
+}
+
+aside.inventory-sidebar nav a:hover,
+aside.dispatcher-sidebar .dispatcher-nav a:hover,
+aside.salesrep-sidebar .salesrep-nav a:hover {
+  background: var(--green-900) !important;
+  color: #c9dcd2 !important;
+  transform: none !important;
+}
+
+aside.inventory-sidebar nav a:active,
+aside.dispatcher-sidebar .dispatcher-nav a:active,
+aside.salesrep-sidebar .salesrep-nav a:active {
+  transform: none !important;
+}
+
+aside.inventory-sidebar nav a.active,
+aside.inventory-sidebar nav a.active:hover,
+aside.dispatcher-sidebar .dispatcher-nav a.active,
+aside.dispatcher-sidebar .dispatcher-nav a.active:hover,
+aside.salesrep-sidebar .salesrep-nav a.active,
+aside.salesrep-sidebar .salesrep-nav a.active:hover {
+  background: var(--green-700) !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  box-shadow: none !important;
+  animation: none !important;
+  transform: none !important;
+}
+
+aside.inventory-sidebar nav a.active svg,
+aside.dispatcher-sidebar .dispatcher-nav a.active svg,
+aside.salesrep-sidebar .salesrep-nav a.active svg {
+  color: #ffffff !important;
+  animation: none !important;
+}
+
+aside.inventory-sidebar nav a:focus-visible,
+aside.dispatcher-sidebar .dispatcher-nav a:focus-visible,
+aside.salesrep-sidebar .salesrep-nav a:focus-visible {
+  outline: 2px solid var(--green-600) !important;
+  outline-offset: 1px !important;
+}
+
+/* ---------------- logout ---------------- */
+
+aside.inventory-sidebar .sidebar-logout,
+aside.dispatcher-sidebar .dispatcher-logout,
+aside.salesrep-sidebar .salesrep-logout {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  height: 40px !important;
+  padding: 0 12px !important;
+  background: transparent !important;
+  border: none !important;
+  border-top: 1px solid var(--green-900) !important;
+  border-radius: 0 !important;
+  color: #9db8ac !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  font-family: var(--font-ui) !important;
+  cursor: pointer !important;
+  transform: none !important;
+  transition: color 120ms ease !important;
+}
+
+aside.inventory-sidebar .sidebar-logout:hover,
+aside.dispatcher-sidebar .dispatcher-logout:hover,
+aside.salesrep-sidebar .salesrep-logout:hover {
+  background: transparent !important;
+  color: #ffffff !important;
+  transform: none !important;
+}
+
+/* ---------------- topbars (Dispatcher + Sales Rep shared) ---------------- */
+
+header.dispatcher-topbar,
+header.salesrep-topbar {
+  background: #ffffff !important;
+  border-bottom: 1px solid var(--gray-200) !important;
+  box-shadow: none !important;
+}
+
+header.dispatcher-topbar h2,
+header.salesrep-topbar h1 {
+  color: var(--gray-900) !important;
+  font-size: 20px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  background: none !important;
+  -webkit-text-fill-color: var(--gray-900) !important;
+}
+
+header.dispatcher-topbar .dispatcher-search,
+header.salesrep-topbar .salesrep-search {
+  background: #ffffff !important;
+  border: 1px solid var(--gray-300) !important;
+  border-radius: var(--radius-control) !important;
+  box-shadow: none !important;
+  color: var(--gray-500) !important;
+}
+
+header.dispatcher-topbar .dispatcher-search input,
+header.salesrep-topbar .salesrep-search input {
+  background: transparent !important;
+  color: var(--gray-900) !important;
+  font-family: var(--font-ui) !important;
+}
+
+header.dispatcher-topbar .dispatcher-bell,
+header.salesrep-topbar .salesrep-icon-btn {
+  background: #ffffff !important;
+  border: 1px solid var(--gray-200) !important;
+  border-radius: var(--radius-control) !important;
+  color: var(--gray-600) !important;
+  box-shadow: none !important;
+}
+
+header.dispatcher-topbar .dispatcher-bell:hover,
+header.salesrep-topbar .salesrep-icon-btn:hover {
+  background: var(--gray-50) !important;
+}
+
+header.dispatcher-topbar .dispatcher-hub {
+  color: var(--gray-500) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+}

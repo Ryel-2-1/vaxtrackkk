@@ -21,6 +21,7 @@ import {
 } from "../../services/deliveryService";
 import { auth } from "../../firebase";
 import SalesRepLayout from "./SalesRepLayout";
+import KpiCard from "../../components/ui/KpiCard";
 
 const PAGE_SIZE = 4;
 
@@ -296,33 +297,29 @@ function SalesRepDashboard() {
   return (
     <SalesRepLayout active="dashboard" title="Sales Representative Dashboard">
       <section className="salesrep-metrics four">
-        <MetricCard
-          icon={<ShoppingCart size={28} />}
-          label="Total Orders"
+        <KpiCard
+          label="Total orders"
           value={metrics.total.toLocaleString()}
-          note={`${metrics.delivered} delivered`}
-          tone="blue"
+          context={`${metrics.delivered} delivered`}
+          tone="neutral"
         />
-        <MetricCard
-          icon={<ClipboardList size={28} />}
-          label="Pending Dispatch"
+        <KpiCard
+          label="Pending dispatch"
           value={metrics.pending.toLocaleString()}
-          note="awaiting dispatch"
-          tone="gold"
+          context="Awaiting dispatch"
+          tone="neutral"
         />
-        <MetricCard
-          icon={<CheckCircle2 size={28} />}
+        <KpiCard
           label="Delivered"
           value={metrics.delivered.toLocaleString()}
-          note="completed orders"
-          tone="green"
+          context="Completed orders"
+          tone="success"
         />
-        <MetricCard
-          icon={<Truck size={28} />}
-          label="In Transit"
+        <KpiCard
+          label="In transit"
           value={metrics.inTransit.toLocaleString()}
-          note="active shipments"
-          tone="blue"
+          context="Active shipments"
+          tone="info"
         />
       </section>
 
@@ -551,19 +548,6 @@ function SalesRepDashboard() {
         </div>
       </section>
     </SalesRepLayout>
-  );
-}
-
-function MetricCard({ icon, label, value, note, tone }) {
-  return (
-    <div className="salesrep-metric-card">
-      <div className={`metric-icon ${tone}`}>{icon}</div>
-      <div>
-        <span>{label}</span>
-        <h2>{value}</h2>
-        <p>{note}</p>
-      </div>
-    </div>
   );
 }
 

@@ -19,9 +19,9 @@ import {
   updateOrderLoadedState,
 } from "../../services/cargoLoadingService";
 import { getUserProfile } from "../../services/userService";
-import { mapOrderStatusLabel } from "../../services/deliveryService";
 import { auth } from "../../firebase";
 import DispatcherLayout from "./DispatcherLayout";
+import StatusBadge from "../../components/ui/StatusBadge";
 import "./CargoLoading.css";
 
 // Loading-status badge shown on each rider card. Uses text + icon (not color
@@ -352,9 +352,8 @@ function RiderCard({
                 </p>
                 <span className="cl-order-qty">
                   Qty: {(order.quantity || 0).toLocaleString()} {order.unit || "doses"}
-                  {" · "}
-                  <span className="cl-order-status">{mapOrderStatusLabel(order.statusKey)}</span>
                 </span>
+                <StatusBadge statusKey={order.statusKey} />
               </div>
 
               <div className="cl-load-check">
@@ -485,7 +484,7 @@ function RoutePreviewPanel({ group, dispatched, finalizing, onFinalize }) {
                     <strong>
                       #{String(seq).padStart(2, "0")} {orderClinic(order)}
                     </strong>
-                    <em>{mapOrderStatusLabel(order.statusKey)}</em>
+                    <StatusBadge statusKey={order.statusKey} />
                   </div>
                 </div>
               );

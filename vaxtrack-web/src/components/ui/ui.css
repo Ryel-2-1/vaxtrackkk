@@ -1,0 +1,156 @@
+/* ============================================================
+   Meridian UI primitives — StatusBadge + KpiCard (Phase 2).
+   New class names (m-*) so nothing collides with legacy CSS.
+   The !important flags guard typography/colors against legacy
+   broad selectors (e.g. Dispatcher.css styles bare spans inside
+   .dispatcher-content with !important). Drop them as legacy
+   sheets are retired.
+   ============================================================ */
+
+/* ---------------- Status badge ---------------- */
+
+.m-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 4px 10px !important;
+  border-radius: var(--radius-pill) !important;
+  font-family: var(--font-ui) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 1.2 !important;
+  white-space: nowrap !important;
+  border: 1px solid transparent !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+}
+
+.m-badge-dot {
+  width: 6px !important;
+  height: 6px !important;
+  border-radius: 50% !important;
+  flex-shrink: 0 !important;
+  padding: 0 !important;
+}
+
+.m-badge-pending {
+  color: var(--gray-600) !important;
+  background: var(--gray-100) !important;
+  border-color: var(--gray-200) !important;
+}
+.m-badge-pending .m-badge-dot { background: var(--gray-500) !important; }
+
+.m-badge-assigned {
+  color: var(--info-text) !important;
+  background: var(--info-bg) !important;
+  border-color: var(--info-border) !important;
+}
+.m-badge-assigned .m-badge-dot { background: var(--info-text) !important; }
+
+.m-badge-loading {
+  color: var(--warning-text) !important;
+  background: var(--warning-bg) !important;
+  border-color: var(--warning-border) !important;
+}
+.m-badge-loading .m-badge-dot { background: var(--warning-text) !important; }
+
+.m-badge-transit {
+  color: #0d5f58 !important;
+  background: #dceeeb !important;
+  border-color: #a7d3cc !important;
+}
+.m-badge-transit .m-badge-dot { background: var(--info-text) !important; }
+
+.m-badge-delayed {
+  color: var(--danger-text) !important;
+  background: var(--danger-bg) !important;
+  border-color: var(--danger-border) !important;
+}
+.m-badge-delayed .m-badge-dot { background: var(--danger-text) !important; }
+
+.m-badge-delivered {
+  color: var(--success-text) !important;
+  background: var(--success-bg) !important;
+  border-color: var(--success-border) !important;
+}
+.m-badge-delivered .m-badge-dot { background: var(--success-text) !important; }
+
+.m-badge-cancelled {
+  color: var(--gray-500) !important;
+  background: var(--gray-100) !important;
+  border-color: var(--gray-200) !important;
+}
+.m-badge-cancelled .m-badge-dot { background: #374151 !important; }
+
+/* ---------------- KPI card ---------------- */
+
+.m-kpi {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  min-height: 104px !important;
+  padding: 16px 20px !important;
+  background: #ffffff !important;
+  border: 1px solid var(--gray-200) !important;
+  border-radius: var(--radius-card) !important;
+  box-shadow: var(--shadow-card) !important;
+  font-family: var(--font-ui) !important;
+  text-align: left !important;
+  width: 100%;
+}
+
+.m-kpi-attention {
+  border-top: 3px solid var(--danger-text) !important;
+}
+
+button.m-kpi {
+  cursor: pointer !important;
+  transition: border-color 120ms ease, background 120ms ease !important;
+}
+
+button.m-kpi:hover {
+  border-color: var(--gray-300) !important;
+  background: var(--gray-50) !important;
+}
+
+button.m-kpi:focus-visible {
+  outline: 2px solid var(--green-100) !important;
+  outline-offset: 1px !important;
+}
+
+.m-kpi-label {
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: var(--gray-600) !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+}
+
+.m-kpi-value {
+  font-size: 28px !important;
+  font-weight: 700 !important;
+  line-height: 1.15 !important;
+  color: var(--gray-900) !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+.m-kpi-value-danger {
+  color: var(--danger-text) !important;
+}
+
+.m-kpi-context {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  color: var(--gray-500) !important;
+}
+
+.m-kpi-dot {
+  width: 6px !important;
+  height: 6px !important;
+  border-radius: 50% !important;
+  flex-shrink: 0 !important;
+}

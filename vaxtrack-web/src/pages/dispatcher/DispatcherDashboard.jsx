@@ -16,6 +16,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import DispatcherLayout from "./DispatcherLayout";
+import KpiCard from "../../components/ui/KpiCard";
 
 function DispatcherDashboard() {
   const navigate = useNavigate();
@@ -162,32 +163,32 @@ function DispatcherDashboard() {
 
         <section className="dispatcher-dash-kpi-grid">
           <KpiCard
-            icon={<PackageCheck size={22} />}
-            label="Pending Orders"
+            label="Pending orders"
             value={pendingOrders.length}
-            note="Ready for dispatch"
+            context="Ready for dispatch"
+            tone="neutral"
           />
 
           <KpiCard
-            icon={<UsersRound size={22} />}
-            label="Available Riders"
+            label="Available riders"
             value={availableRiders}
-            note={`${riders.length} total registered`}
+            context={`${riders.length} total registered`}
+            tone="success"
           />
 
           <KpiCard
-            icon={<Truck size={22} />}
-            label="Active Deliveries"
+            label="Active deliveries"
             value={activeDeliveries}
-            note="Currently in transit"
+            context="Currently in transit"
+            tone="info"
           />
 
           <KpiCard
-            icon={<AlertTriangle size={22} />}
-            label="Urgent Orders"
+            label="Urgent orders"
             value={urgentOrders}
-            note={delayedDeliveries > 0 ? `${delayedDeliveries} delayed routes` : "No delayed routes"}
-            danger={urgentOrders > 0 || delayedDeliveries > 0}
+            context={delayedDeliveries > 0 ? `${delayedDeliveries} delayed routes` : "No delayed routes"}
+            tone="danger"
+            attention={urgentOrders > 0 || delayedDeliveries > 0}
           />
         </section>
 
@@ -413,20 +414,6 @@ function DispatcherDashboard() {
         </section>
       </div>
     </DispatcherLayout>
-  );
-}
-
-function KpiCard({ icon, label, value, note, danger }) {
-  return (
-    <div className={`dispatcher-dash-kpi ${danger ? "danger" : ""}`}>
-      <div className="dispatcher-dash-kpi-icon">{icon}</div>
-
-      <div>
-        <p>{label}</p>
-        <h2>{value}</h2>
-        <span>{note}</span>
-      </div>
-    </div>
   );
 }
 

@@ -705,8 +705,13 @@ export function AdminSidebar({ active, onLogout }) {
     <aside className="inventory-sidebar">
       <h2>VaxTrack</h2>
 
+      <span className="m-role-chip">
+        <span className="m-role-dot" />
+        Admin Console
+      </span>
+
       <div className="profile-mini">
-        <div className="avatar">🧑‍💼</div>
+        <div className="avatar">LA</div>
 
         <div className="profile-mini-text">
           <h3>Logistics Admin</h3>

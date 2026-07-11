@@ -139,7 +139,10 @@ function DispatcherLayout({
       <aside className="dispatcher-sidebar">
         <div className="dispatcher-brand">
           <h1>VaxTrack</h1>
-          <p>Vaccine Logistics</p>
+          <span className="m-role-chip">
+            <span className="m-role-dot" />
+            Dispatch
+          </span>
         </div>
 
         <nav className="dispatcher-nav">

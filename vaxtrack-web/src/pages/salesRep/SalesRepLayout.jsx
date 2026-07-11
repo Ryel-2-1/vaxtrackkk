@@ -156,8 +156,13 @@ function SalesRepLayout({ active, title, children, topbarTitle, showSearch = tru
       <aside className="salesrep-sidebar">
         <div className="salesrep-brand">VaxTrack</div>
 
+        <span className="m-role-chip">
+          <span className="m-role-dot" />
+          Sales
+        </span>
+
         <div className="salesrep-profile">
-          <div className="salesrep-profile-icon">👨‍💼</div>
+          <div className="salesrep-profile-icon">SR</div>
           <div>
             <h3>Sales Representative</h3>
             <p>Manila Central Hub</p>
