@@ -4,6 +4,7 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
 import PendingApproval from "./pages/PendingApproval";
+import StyleGuide from "./pages/StyleGuide";
 
 import AdminRoute from "./components/AdminRoute";
 import DispatcherRoute from "./components/DispatcherRoute";
@@ -118,6 +119,9 @@ function App() {
           <Route path="/dispatcher/geofence" element={<DispatcherGeofence />} />
           <Route path="/dispatcher/settings" element={<DispatcherSettings />} />
         </Route>
+
+        {/* Meridian design-system preview — isolated, no Firestore. */}
+        <Route path="/style-guide" element={<StyleGuide />} />
 
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

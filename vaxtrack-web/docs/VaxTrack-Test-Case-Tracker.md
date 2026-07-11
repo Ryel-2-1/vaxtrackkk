@@ -11,6 +11,25 @@ Status legend: **Passed** = confirmed working (manual test or CLAUDE.md confirma
 
 ---
 
+## Manual Testing Notes
+
+### Multi-role testing — use separate browser profiles
+
+Firebase Auth state is shared **per browser profile / origin**. Logging into a second role in another tab of the **same** browser profile silently switches **all** tabs to the most recently logged-in user. This is expected Firebase behavior, **not a bug** — do not change authentication code to "fix" it.
+
+To test multiple roles at once, isolate each role in its own browser profile / browser / emulator:
+
+| Role | Suggested environment |
+|---|---|
+| Admin | Chrome (normal profile) |
+| Dispatcher | Edge |
+| Sales Rep | Chrome Incognito or Brave |
+| Rider | Flutter emulator / physical phone |
+
+**Do not** test multiple web roles in normal tabs of the same browser profile — they share Firebase Auth state and will collapse to a single user.
+
+---
+
 ## 1. Admin — Route Protection
 
 | Test Case ID | ISO 25010 Category | Role | Module | Test Scenario | Preconditions | Test Steps | Expected Result | Actual Result | Status | Remarks |

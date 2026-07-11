@@ -1,0 +1,68 @@
+/* ============================================================
+   VaxTrack "Meridian" design tokens
+   Pure CSS custom properties — safe to import anywhere.
+   No element selectors, no visual side effects on existing pages.
+   ============================================================ */
+
+:root {
+  /* Brand greens (deep pine) */
+  --green-950: #0b211a;
+  --green-900: #123126;
+  --green-800: #1a4534;
+  --green-700: #1f5c41; /* primary CTA, active nav, links, focus */
+  --green-600: #27714f;
+  --green-100: #dbeee3;
+  --green-50: #f1f8f4;
+
+  /* Neutrals (true gray — no blue cast) */
+  --gray-900: #111827;
+  --gray-600: #4b5563;
+  --gray-500: #6b7280;
+  --gray-300: #d1d5db;
+  --gray-200: #e5e7eb;
+  --gray-100: #f3f4f6;
+  --gray-50: #f9fafb;
+
+  /* Semantic: success (delivered / approved / active) */
+  --success-text: #15803d;
+  --success-bg: #e7f4ec;
+  --success-border: #bbdecb;
+
+  /* Semantic: danger (delayed / cancelled / rejected / urgent) */
+  --danger-text: #b42318;
+  --danger-bg: #fef1f0;
+  --danger-border: #f5c6c0;
+
+  /* Semantic: warning (loading / expiring) — use sparingly */
+  --warning-text: #b45309;
+  --warning-bg: #fef6e7;
+  --warning-border: #f2dbae;
+
+  /* Semantic: info (in transit / assigned) — muted teal, not blue */
+  --info-text: #0f766e;
+  --info-bg: #e8f4f2;
+  --info-border: #b9dcd7;
+
+  /* Sidebar */
+  --sidebar-bg: var(--green-950);
+  --sidebar-item: #9db8ac;
+  --sidebar-item-hover-bg: var(--green-900);
+  --sidebar-item-active-bg: var(--green-700);
+
+  /* Structure */
+  --radius-control: 8px;  /* buttons, inputs, table containers */
+  --radius-card: 12px;    /* cards, modals, banners */
+  --radius-pill: 999px;   /* badges, avatars */
+
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-float: 0 12px 32px rgba(16, 24, 40, 0.12);
+
+  --border-card: 1px solid var(--gray-200);
+
+  --font-ui: "Inter", -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+/* Tabular numerals for KPI values, table numbers, timestamps */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
