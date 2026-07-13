@@ -2,15 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
-  Circle,
+  Info,
   Loader2,
-  MapPin,
   Package,
   Printer,
   RotateCcw,
-  Route,
   Truck,
-  User,
   X,
 } from "lucide-react";
 import {
@@ -22,10 +19,11 @@ import { getUserProfile } from "../../services/userService";
 import { auth } from "../../firebase";
 import DispatcherLayout from "./DispatcherLayout";
 import StatusBadge from "../../components/ui/StatusBadge";
+import KpiCard from "../../components/ui/KpiCard";
 import "./CargoLoading.css";
 
-// Loading-status badge shown on each rider card. Uses text + icon (not color
-// alone) so the state is clear without relying on colour perception.
+// Loading-state badge shown on each rider card. Text + icon (not colour alone)
+// so the state is clear without relying on colour perception.
 function loadingBadge(group, dispatched) {
   if (dispatched) return { label: "Dispatched", tone: "dispatched" };
   if (group.allLoaded) return { label: "Ready", tone: "ready" };
@@ -40,6 +38,18 @@ function orderClinic(order) {
   return order.clinicName || order.clinic || "Unknown clinic";
 }
 
+function initialsOf(name) {
+  return (
+    (name || "")
+      .split(" ")
+      .filter(Boolean)
+      .map((w) => w[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "?"
+  );
+}
+
 function formatNow() {
   return new Date().toLocaleString("en-PH", {
     dateStyle: "medium",
@@ -51,7 +61,6 @@ function DispatcherCargoLoading() {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [selectedRiderId, setSelectedRiderId] = useState(null);
 
   const [dispatcher, setDispatcher] = useState(() => {
     const user = auth.currentUser;
@@ -110,21 +119,15 @@ function DispatcherCargoLoading() {
     return unsub;
   }, []);
 
-  // Derive the effective selection during render (React-recommended over an
-  // effect): honour the user's pick when it still exists, else fall back to
-  // the first group. `setSelectedRiderId` only runs on an explicit click.
-  const effectiveRiderId = useMemo(() => {
-    if (groups.length === 0) return null;
-    if (selectedRiderId && groups.some((g) => g.riderId === selectedRiderId)) {
-      return selectedRiderId;
-    }
-    return groups[0].riderId;
-  }, [groups, selectedRiderId]);
-
-  const selectedGroup = useMemo(
-    () => groups.find((g) => g.riderId === effectiveRiderId) || null,
-    [groups, effectiveRiderId]
-  );
+  const summary = useMemo(() => {
+    const riders = groups.length;
+    const ordersToLoad = groups.reduce((sum, g) => sum + (g.totalOrders || 0), 0);
+    const loaded = groups.reduce((sum, g) => sum + (g.loadedCount || 0), 0);
+    const ready = groups.filter(
+      (g) => g.allLoaded && !dispatchedRiders[g.riderId]
+    ).length;
+    return { riders, ordersToLoad, loaded, ready };
+  }, [groups, dispatchedRiders]);
 
   const showToast = (msg, type = "success") => {
     setToast(msg);
@@ -184,9 +187,9 @@ function DispatcherCargoLoading() {
   if (loading) {
     return (
       <DispatcherLayout active="cargo-loading" title="VaxTrack Logistics">
-        <div className="dispatcher-loading-state">
-          <Loader2 size={32} className="cl-spin" />
-          <p>Loading cargo loading data...</p>
+        <div className="cl-state">
+          <Loader2 size={30} className="cl-spin" />
+          <p>Loading cargo data...</p>
         </div>
       </DispatcherLayout>
     );
@@ -195,8 +198,11 @@ function DispatcherCargoLoading() {
   if (error) {
     return (
       <DispatcherLayout active="cargo-loading" title="VaxTrack Logistics">
-        <div className="dispatcher-loading-state">
-          <AlertTriangle size={32} />
+        <div className="cl-state">
+          <span className="cl-state-icon">
+            <AlertTriangle size={20} />
+          </span>
+          <strong>Could not load cargo data</strong>
           <p>{error}</p>
           <button
             type="button"
@@ -216,59 +222,92 @@ function DispatcherCargoLoading() {
   return (
     <DispatcherLayout active="cargo-loading" title="VaxTrack Logistics">
       <div className="dispatcher-v2-page">
-        <div className="dispatcher-v2-header">
-          <h1>Dispatcher: Route Preview &amp; Loading Sheets</h1>
-          <p>Review and prepare assigned orders and route details for final dispatch.</p>
+        <div className="cl-header">
+          <h1>Cargo loading</h1>
+          <p>Confirm each order as loaded, then finalize dispatch per rider.</p>
         </div>
 
+        <section className="cl-summary">
+          <KpiCard
+            label="Riders"
+            value={summary.riders}
+            context="With orders to load"
+            tone="neutral"
+          />
+          <KpiCard
+            label="Orders to load"
+            value={summary.ordersToLoad}
+            context="Across all riders"
+            tone="neutral"
+          />
+          <KpiCard
+            label="Loaded"
+            value={summary.loaded}
+            context={`of ${summary.ordersToLoad} confirmed`}
+            tone="success"
+          />
+          <KpiCard
+            label="Ready to dispatch"
+            value={summary.ready}
+            context={summary.ready > 0 ? "Fully loaded" : "None ready yet"}
+            tone={summary.ready > 0 ? "success" : "neutral"}
+          />
+        </section>
+
         {toast && (
-          <div className={`alerts-v2-toast ${toastType === "error" ? "error" : ""}`}>
-            {toastType === "error" ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
+          <div className={`cl-toast ${toastType === "error" ? "error" : ""}`}>
+            {toastType === "error" ? (
+              <AlertTriangle size={16} />
+            ) : (
+              <CheckCircle2 size={16} />
+            )}
             <span>{toast}</span>
-            <button type="button" aria-label="Dismiss notification" onClick={() => setToast("")}>
+            <button
+              type="button"
+              aria-label="Dismiss notification"
+              onClick={() => setToast("")}
+            >
               <X size={14} />
             </button>
           </div>
         )}
 
         {groups.length === 0 ? (
-          <div className="dispatcher-empty-queue">
-            <Package size={28} />
-            <p>No riders currently have assigned orders awaiting loading.</p>
+          <div className="cl-empty">
+            <span className="cl-empty-icon">
+              <Package size={20} />
+            </span>
+            <strong>No assigned orders ready for loading</strong>
+            <p>
+              Orders appear here once a dispatcher assigns them to a rider.
+            </p>
           </div>
         ) : (
-          <div className="cl-grid">
-            <div className="cl-left">
+          <>
+            <div className="cl-note">
+              <Info size={15} />
+              <span>
+                Live route mapping isn&apos;t active yet — orders follow each
+                rider&apos;s delivery sequence below.
+              </span>
+            </div>
+
+            <div className="cl-cards">
               {groups.map((group) => (
                 <RiderCard
                   key={group.riderId}
                   group={group}
-                  selected={group.riderId === effectiveRiderId}
                   dispatched={!!dispatchedRiders[group.riderId]}
                   savingOrders={savingOrders}
                   finalizing={finalizingRider === group.riderId}
-                  onSelect={() => setSelectedRiderId(group.riderId)}
                   onToggleLoaded={handleToggleLoaded}
                   onPrint={() => setPrintGroup(group)}
                   onFinalize={() => setConfirmGroup(group)}
                 />
               ))}
             </div>
-
-            <aside className="cl-right">
-              <RoutePreviewPanel
-                group={selectedGroup}
-                dispatched={selectedGroup ? !!dispatchedRiders[selectedGroup.riderId] : false}
-                finalizing={selectedGroup ? finalizingRider === selectedGroup.riderId : false}
-                onFinalize={() => selectedGroup && setConfirmGroup(selectedGroup)}
-              />
-            </aside>
-          </div>
+          </>
         )}
-
-        <footer className="dispatcher-v2-footer">
-          <span>&copy; 2026 VaxTrack Logistics. All rights reserved.</span>
-        </footer>
       </div>
 
       {confirmGroup && (
@@ -288,36 +327,34 @@ function DispatcherCargoLoading() {
 
 function RiderCard({
   group,
-  selected,
   dispatched,
   savingOrders,
   finalizing,
-  onSelect,
   onToggleLoaded,
   onPrint,
   onFinalize,
 }) {
   const badge = loadingBadge(group, dispatched);
   const canFinalize = group.allLoaded && !dispatched && !finalizing;
+  const total = group.totalOrders || 0;
+  const loaded = group.loadedCount || 0;
+  const pct = total > 0 ? Math.round((loaded / total) * 100) : 0;
 
   return (
-    <section
-      className={`cl-rider-card ${selected ? "selected" : ""}`}
-      onClick={onSelect}
-      onFocus={onSelect}
-      aria-label={`Loading sheet for ${group.rider.name}`}
-    >
-      <header className="cl-rider-head">
-        <div className="cl-rider-avatar" aria-hidden="true">
-          <User size={18} />
-        </div>
+    <section className="cl-card" aria-label={`Loading sheet for ${group.rider.name}`}>
+      <header className="cl-card-head">
+        <span className="cl-avatar" aria-hidden="true">
+          {initialsOf(group.rider.name)}
+        </span>
 
         <div className="cl-rider-meta">
           <strong>{group.rider.name}</strong>
           <small>
-            {group.rider.plate ? `Plate ${group.rider.plate}` : "No plate on file"}
-            {" · "}
-            {group.totalOrders} {group.totalOrders === 1 ? "order" : "orders"}
+            {group.rider.plate ? (
+              <span className="cl-plate">{group.rider.plate}</span>
+            ) : (
+              "No plate on file"
+            )}
           </small>
         </div>
 
@@ -325,71 +362,92 @@ function RiderCard({
           {badge.tone === "ready" || badge.tone === "dispatched" ? (
             <CheckCircle2 size={12} />
           ) : (
-            <Circle size={12} />
+            <span className="cl-badge-dot" />
           )}
           {badge.label}
         </span>
       </header>
 
+      <div className="cl-progress">
+        <div className="cl-progress-row">
+          <span className="tnum">
+            {loaded}/{total} loaded
+          </span>
+          <span className="cl-progress-pct tnum">{pct}%</span>
+        </div>
+        <div className="cl-progress-bar">
+          <i style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+
       <div className="cl-order-list">
         {group.orders.map((order, index) => {
           const checkboxId = `loaded-${order.id}`;
           const saving = !!savingOrders[order.id];
+          const isLoaded = order.isLoaded === true;
           const seq = Number.isFinite(Number(order.deliverySequence))
             ? Number(order.deliverySequence)
             : index + 1;
 
           return (
-            <div key={order.id} className="cl-order-row">
-              <span className="cl-seq">#{String(seq).padStart(2, "0")}</span>
+            <div
+              key={order.id}
+              className={`cl-order-row ${isLoaded ? "loaded" : ""}`}
+            >
+              <span className="cl-seq tnum">
+                {String(seq).padStart(2, "0")}
+              </span>
 
               <div className="cl-order-info">
-                <strong>{orderClinic(order)}</strong>
-                {orderAddress(order) && <small>{orderAddress(order)}</small>}
-                <p>
+                <div className="cl-order-top">
+                  <strong>{orderClinic(order)}</strong>
+                  <StatusBadge statusKey={order.statusKey} />
+                </div>
+                <small className="cl-order-vaccine">
                   {order.vaccineName || "Unknown vaccine"}
+                  <span className="tnum">
+                    {" · "}
+                    {(order.quantity || 0).toLocaleString()} {order.unit || "doses"}
+                  </span>
                   {order.batchId ? ` · Batch ${order.batchId}` : ""}
-                </p>
-                <span className="cl-order-qty">
-                  Qty: {(order.quantity || 0).toLocaleString()} {order.unit || "doses"}
-                </span>
-                <StatusBadge statusKey={order.statusKey} />
+                </small>
               </div>
 
-              <div className="cl-load-check">
+              <label
+                htmlFor={checkboxId}
+                className={`cl-check ${isLoaded ? "on" : ""}`}
+              >
                 <input
                   type="checkbox"
                   id={checkboxId}
-                  checked={order.isLoaded === true}
+                  checked={isLoaded}
                   disabled={saving || dispatched}
-                  onClick={(e) => e.stopPropagation()}
                   onChange={(e) => onToggleLoaded(order, e.target.checked)}
                 />
-                <label htmlFor={checkboxId}>
-                  {saving ? (
-                    <Loader2 size={12} className="cl-spin" />
-                  ) : (
-                    <span className="cl-load-label-text">
-                      {order.isLoaded === true ? "Loaded" : "Confirm loaded"}
-                    </span>
-                  )}
-                </label>
-              </div>
+                {saving ? (
+                  <Loader2 size={13} className="cl-spin" />
+                ) : (
+                  <span className="cl-check-text">
+                    {isLoaded ? "Loaded" : "Confirm"}
+                  </span>
+                )}
+              </label>
             </div>
           );
         })}
       </div>
 
-      <div className="cl-rider-actions">
+      {!group.allLoaded && !dispatched && (
+        <p className="cl-hint">Confirm all orders as loaded to enable dispatch.</p>
+      )}
+
+      <div className="cl-card-actions">
         <button
           type="button"
           className="cl-btn cl-btn-outline"
-          onClick={(e) => {
-            e.stopPropagation();
-            onPrint();
-          }}
+          onClick={onPrint}
         >
-          <Printer size={14} /> Print Sheet
+          <Printer size={14} /> Print sheet
         </button>
 
         <button
@@ -397,113 +455,13 @@ function RiderCard({
           className="cl-btn cl-btn-primary"
           disabled={!canFinalize}
           aria-disabled={!canFinalize}
-          onClick={(e) => {
-            e.stopPropagation();
-            onFinalize();
-          }}
+          onClick={onFinalize}
         >
           {finalizing ? <Loader2 size={14} className="cl-spin" /> : <Truck size={14} />}
-          {dispatched ? "Dispatched" : "Finalize Dispatch"}
+          {dispatched ? "Dispatched" : "Finalize dispatch"}
         </button>
       </div>
-
-      {!group.allLoaded && !dispatched && (
-        <p className="cl-hint">Confirm all orders as loaded to enable dispatch.</p>
-      )}
     </section>
-  );
-}
-
-function RoutePreviewPanel({ group, dispatched, finalizing, onFinalize }) {
-  const canFinalize = group && group.allLoaded && !dispatched && !finalizing;
-
-  return (
-    <div className="cl-route-card">
-      <div className="cl-route-head">
-        <Route size={15} />
-        <strong>Route Preview</strong>
-      </div>
-
-      {!group ? (
-        <div className="cl-route-empty">
-          <MapPin size={22} />
-          <p>Select a rider to preview their route.</p>
-        </div>
-      ) : (
-        <>
-          {/* No clinic coordinates / route integration exist yet, so the map
-              area shows a clear empty state instead of a decorative fake route. */}
-          <div className="cl-map-placeholder" role="img" aria-label="Route map unavailable">
-            <MapPin size={22} />
-            <p>
-              Route preview unavailable because destination coordinates have not been
-              configured.
-            </p>
-          </div>
-
-          <div className="cl-route-facts">
-            <div>
-              <span>Selected Rider</span>
-              <strong>{group.rider.name}</strong>
-            </div>
-            <div>
-              <span>First Stop</span>
-              <strong>{group.orders[0] ? orderClinic(group.orders[0]) : "—"}</strong>
-            </div>
-            <div>
-              <span>Next Stop</span>
-              <strong>{group.orders[1] ? orderClinic(group.orders[1]) : "—"}</strong>
-            </div>
-            <div>
-              <span>ETA</span>
-              <strong>Not available</strong>
-            </div>
-            <div>
-              <span>Total Distance</span>
-              <strong>Not available</strong>
-            </div>
-            <div>
-              <span>Route Status</span>
-              <strong>
-                {dispatched ? "Dispatched" : group.allLoaded ? "Ready to dispatch" : "Awaiting loading"}
-              </strong>
-            </div>
-          </div>
-
-          <div className="cl-timeline">
-            <span className="cl-timeline-title">Delivery Sequence</span>
-            {group.orders.map((order, index) => {
-              const seq = Number.isFinite(Number(order.deliverySequence))
-                ? Number(order.deliverySequence)
-                : index + 1;
-              return (
-                <div key={order.id} className={`cl-timeline-item ${order.isLoaded ? "done" : ""}`}>
-                  <span className="cl-timeline-dot" aria-hidden="true" />
-                  <div>
-                    <small>{order.plannedTime || "Not scheduled"}</small>
-                    <strong>
-                      #{String(seq).padStart(2, "0")} {orderClinic(order)}
-                    </strong>
-                    <StatusBadge statusKey={order.statusKey} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <button
-            type="button"
-            className="cl-btn cl-btn-primary cl-btn-full"
-            disabled={!canFinalize}
-            aria-disabled={!canFinalize}
-            onClick={onFinalize}
-          >
-            {finalizing ? <Loader2 size={14} className="cl-spin" /> : <Truck size={14} />}
-            {dispatched ? "Dispatched" : "Finalize Dispatch"}
-          </button>
-        </>
-      )}
-    </div>
   );
 }
 
@@ -537,7 +495,7 @@ function ConfirmDispatchDialog({ group, onCancel, onConfirm }) {
             Cancel
           </button>
           <button type="button" className="cl-btn cl-btn-primary" onClick={onConfirm} autoFocus>
-            <Truck size={14} /> Confirm Dispatch
+            <Truck size={14} /> Confirm dispatch
           </button>
         </div>
       </div>

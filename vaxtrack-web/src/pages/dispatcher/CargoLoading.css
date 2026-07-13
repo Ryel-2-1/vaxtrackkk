@@ -1,6 +1,7 @@
-/* ===== Dispatcher · Cargo Loading (Route Preview & Loading Sheets) ===== */
+/* ===== Dispatcher · Cargo Loading — Meridian (Phase 6) =====
+   Screen styles are tokens-based (m/srd-style). Print styles at the
+   bottom are unchanged and functional. */
 
-/* Spinner (Dispatcher.css has no shared spin keyframe). */
 @keyframes cl-spin {
   to {
     transform: rotate(360deg);
@@ -10,24 +11,74 @@
   animation: cl-spin 1s linear infinite;
 }
 
-/* Toast base (Dispatcher.css only defines the .error variant). */
-.alerts-v2-toast {
+/* ===== Header ===== */
+.cl-header {
+  margin-bottom: 16px;
+}
+.cl-header h1 {
+  margin: 0 !important;
+  font-family: var(--font-ui) !important;
+  font-size: 22px !important;
+  font-weight: 600 !important;
+  color: var(--gray-900) !important;
+  letter-spacing: -0.01em;
+  background: none !important;
+  -webkit-text-fill-color: var(--gray-900) !important;
+}
+.cl-header p {
+  margin: 3px 0 0 !important;
+  font-size: 13px !important;
+  color: var(--gray-600) !important;
+}
+
+/* ===== Summary cards ===== */
+.cl-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* ===== Honest route note ===== */
+.cl-note {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
-  color: #065f46;
-  border-radius: 8px;
   padding: 10px 14px;
+  background: var(--info-bg);
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius-card);
+  color: var(--info-text);
   font-size: 13px;
-  font-weight: 700;
   margin-bottom: 16px;
 }
-.alerts-v2-toast span {
+.cl-note svg {
+  flex-shrink: 0;
+}
+
+/* ===== Toast ===== */
+.cl-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--success-bg);
+  border: 1px solid var(--success-border);
+  color: var(--success-text);
+  border-radius: var(--radius-card);
+  padding: 11px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+.cl-toast.error {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+}
+.cl-toast span {
   flex: 1;
 }
-.alerts-v2-toast button {
+.cl-toast button {
   border: 0;
   background: transparent;
   color: inherit;
@@ -36,61 +87,42 @@
   place-items: center;
 }
 
-/* ===== Layout ===== */
-.cl-grid {
+/* ===== Cards grid ===== */
+.cl-cards {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 16px;
   align-items: start;
 }
 
-.cl-left {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-width: 0;
-}
-
-.cl-right {
-  position: sticky;
-  top: 16px;
-}
-
 /* ===== Rider card ===== */
-.cl-rider-card {
+.cl-card {
   background: #ffffff;
-  border: 1px solid #d6e0ef;
-  border-radius: 10px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
   padding: 16px;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
-  cursor: pointer;
-  border-left: 4px solid transparent;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.cl-rider-card:hover {
-  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.08);
-}
-.cl-rider-card.selected {
-  border-left-color: #2563eb;
-  border-color: #93c5fd;
-  background: #f8fbff;
+  font-family: var(--font-ui);
 }
 
-.cl-rider-head {
+.cl-card-head {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
-.cl-rider-avatar {
+.cl-avatar {
   width: 40px;
   height: 40px;
-  border-radius: 999px;
-  background: #dbeafe;
-  color: #1d4ed8;
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
+  min-width: 40px;
+  border-radius: var(--radius-pill);
+  background: var(--green-100);
+  color: var(--green-800);
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .cl-rider-meta {
   flex: 1;
@@ -99,286 +131,282 @@
 .cl-rider-meta strong {
   display: block;
   font-size: 15px;
-  color: #172033;
+  font-weight: 600;
+  color: var(--gray-900);
 }
 .cl-rider-meta small {
-  color: #64748b;
   font-size: 12px;
+  color: var(--gray-500);
+}
+.cl-plate {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: var(--gray-100);
+  color: var(--gray-600);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .cl-badge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 5px 10px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 900;
-  text-transform: uppercase;
-  flex: 0 0 auto;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.cl-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
 }
 .cl-badge-ready {
-  background: #dcfce7;
-  color: #15803d;
+  background: var(--success-bg);
+  color: var(--success-text);
+  border-color: var(--success-border);
 }
 .cl-badge-pending {
-  background: #fef3c7;
-  color: #b45309;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  border-color: var(--warning-border);
 }
 .cl-badge-dispatched {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--info-bg);
+  color: var(--info-text);
+  border-color: var(--info-border);
+}
+
+/* ===== Progress ===== */
+.cl-progress {
+  margin-bottom: 8px;
+}
+.cl-progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gray-600);
+  margin-bottom: 6px;
+}
+.cl-progress-pct {
+  color: var(--gray-500);
+}
+.cl-progress-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--gray-100);
+  overflow: hidden;
+}
+.cl-progress-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--green-600);
+  transition: width 200ms ease;
 }
 
 /* ===== Order rows ===== */
 .cl-order-list {
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid #e5edf7;
+  border-top: 1px solid var(--gray-100);
+  margin-top: 4px;
 }
 .cl-order-row {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
   gap: 12px;
-  align-items: start;
-  padding: 12px 0;
-  border-bottom: 1px solid #eef2f9;
+  align-items: center;
+  min-height: 56px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--gray-100);
+}
+.cl-order-row:last-child {
+  border-bottom: none;
+}
+.cl-order-row.loaded .cl-order-info strong {
+  color: var(--gray-500);
 }
 .cl-seq {
   font-size: 12px;
-  font-weight: 900;
-  color: #1d4ed8;
+  font-weight: 600;
+  color: var(--gray-400, #9ca3af);
+  text-align: center;
 }
 .cl-order-info {
   min-width: 0;
 }
-.cl-order-info strong {
-  display: block;
-  font-size: 13px;
-  color: #172033;
-  word-break: break-word;
-}
-.cl-order-info small {
-  display: block;
-  color: #64748b;
-  font-size: 11px;
-  margin-top: 2px;
-  word-break: break-word;
-}
-.cl-order-info p {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: #334155;
-  word-break: break-word;
-}
-.cl-order-qty {
-  display: inline-block;
-  margin-top: 4px;
-  font-size: 11px;
-  color: #64748b;
-}
-.cl-order-status {
-  font-weight: 800;
-  color: #475569;
-}
-
-/* Loaded confirmation control */
-.cl-load-check {
+.cl-order-top {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
-.cl-load-check input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  accent-color: #16a34a;
-  cursor: pointer;
+.cl-order-info strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-900);
+  word-break: break-word;
 }
-.cl-load-check input[type="checkbox"]:disabled {
-  cursor: not-allowed;
-}
-.cl-load-check label {
-  font-size: 11px;
-  font-weight: 800;
-  color: #475569;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.cl-load-check input:checked + label .cl-load-label-text {
-  color: #15803d;
+.cl-order-vaccine {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--gray-500);
+  word-break: break-word;
 }
 
-/* Visible keyboard focus states */
-.cl-load-check input[type="checkbox"]:focus-visible,
-.cl-btn:focus-visible,
-.cl-rider-card:focus-visible {
-  outline: 2px solid #2563eb;
+/* ===== Loaded checkbox ===== */
+.cl-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--gray-300);
+  background: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gray-600);
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.cl-check:hover {
+  background: var(--gray-50);
+}
+.cl-check.on {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+  color: var(--success-text);
+}
+.cl-check input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--green-700);
+  cursor: pointer;
+  margin: 0;
+}
+.cl-check input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+}
+
+/* Visible keyboard focus */
+.cl-check input[type="checkbox"]:focus-visible,
+.cl-btn:focus-visible {
+  outline: 2px solid var(--green-100);
   outline-offset: 2px;
 }
 
+.cl-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--warning-text);
+}
+
 /* ===== Buttons ===== */
-.cl-rider-actions {
+.cl-card-actions {
   display: flex;
   gap: 10px;
   margin-top: 14px;
 }
 .cl-btn {
-  min-height: 38px;
-  border-radius: 7px;
+  min-height: 36px;
+  border-radius: var(--radius-control);
   padding: 0 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
   border: 1px solid transparent;
-  font-size: 12px;
-  font-weight: 800;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 .cl-btn-primary {
-  background: #0057d8;
+  flex: 1;
+  background: var(--green-700);
   color: #ffffff;
 }
 .cl-btn-primary:hover:not(:disabled) {
-  background: #0048b3;
+  background: var(--green-800);
 }
 .cl-btn-outline {
   background: #ffffff;
-  color: #0f172a;
-  border-color: #cbd5e1;
+  color: var(--gray-700);
+  border-color: var(--gray-300);
 }
 .cl-btn-outline:hover {
-  background: #f1f5f9;
+  background: var(--gray-50);
 }
 .cl-btn:disabled {
-  opacity: 0.55;
+  background: var(--gray-100);
+  color: var(--gray-500);
+  border-color: transparent;
   cursor: not-allowed;
 }
-.cl-btn-full {
-  width: 100%;
-  margin-top: 14px;
-}
 
-.cl-hint {
-  margin: 10px 0 0;
-  font-size: 11px;
-  color: #b45309;
-}
-
-/* ===== Route preview panel ===== */
-.cl-route-card {
-  background: #ffffff;
-  border: 1px solid #d6e0ef;
-  border-radius: 10px;
-  padding: 16px;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
-}
-.cl-route-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #172033;
-  font-size: 14px;
-  margin-bottom: 14px;
-}
-.cl-route-empty,
-.cl-map-placeholder {
+/* ===== Loading / error / empty states ===== */
+.cl-state,
+.cl-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
+  gap: 4px;
   text-align: center;
-  gap: 8px;
-  color: #64748b;
-  background: #f1f5f9;
-  border: 1px dashed #cbd5e1;
-  border-radius: 8px;
-  padding: 22px 14px;
+  font-family: var(--font-ui);
 }
-.cl-route-empty p,
-.cl-map-placeholder p {
-  margin: 0;
-  font-size: 11.5px;
-  line-height: 1.4;
+.cl-state {
+  padding: 80px 20px;
+  color: var(--gray-500);
 }
-
-.cl-route-facts {
-  margin: 16px 0;
+.cl-empty {
+  padding: 48px 20px;
+  background: #fff;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+}
+.cl-state-icon,
+.cl-empty-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--gray-100);
+  color: var(--gray-500);
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
 }
-.cl-route-facts > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: baseline;
+.cl-state strong,
+.cl-empty strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-900);
 }
-.cl-route-facts span {
-  color: #64748b;
-  font-size: 11px;
-  text-transform: uppercase;
-  font-weight: 800;
-}
-.cl-route-facts strong {
-  font-size: 12px;
-  color: #172033;
-  text-align: right;
-  word-break: break-word;
-}
-
-/* Timeline */
-.cl-timeline {
-  border-top: 1px solid #e5edf7;
-  padding-top: 14px;
-}
-.cl-timeline-title {
-  display: block;
-  font-size: 11px;
-  font-weight: 900;
-  text-transform: uppercase;
-  color: #475569;
-  margin-bottom: 12px;
-}
-.cl-timeline-item {
-  display: grid;
-  grid-template-columns: 16px 1fr;
-  gap: 10px;
-  padding-bottom: 14px;
-}
-.cl-timeline-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 999px;
-  background: #cbd5e1;
-  margin-top: 3px;
-}
-.cl-timeline-item.done .cl-timeline-dot {
-  background: #22c55e;
-}
-.cl-timeline-item small {
-  display: block;
-  color: #94a3b8;
-  font-size: 10px;
-}
-.cl-timeline-item strong {
-  display: block;
-  font-size: 12px;
-  color: #172033;
-  word-break: break-word;
-}
-.cl-timeline-item em {
-  display: block;
-  font-style: normal;
-  font-size: 11px;
-  color: #1d4ed8;
-  margin-top: 2px;
+.cl-state p,
+.cl-empty p {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--gray-500);
+  max-width: 360px;
 }
 
 /* ===== Confirmation dialog ===== */
 .cl-dialog-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.45);
+  background: rgba(11, 33, 26, 0.32);
   display: grid;
   place-items: center;
   z-index: 60;
@@ -386,20 +414,22 @@
 }
 .cl-dialog {
   background: #ffffff;
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   padding: 22px;
   width: min(440px, 100%);
-  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.25);
+  box-shadow: var(--shadow-float);
+  font-family: var(--font-ui);
 }
 .cl-dialog h2 {
   margin: 0 0 10px;
   font-size: 18px;
-  color: #172033;
+  font-weight: 600;
+  color: var(--gray-900);
 }
 .cl-dialog p {
   margin: 0 0 20px;
   font-size: 13px;
-  color: #475569;
+  color: var(--gray-600);
   line-height: 1.5;
 }
 .cl-dialog-actions {
@@ -409,33 +439,25 @@
 }
 
 /* ===== Responsive ===== */
-@media (max-width: 1000px) {
-  .cl-grid {
+@media (max-width: 900px) {
+  .cl-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cl-cards {
     grid-template-columns: 1fr;
   }
-  .cl-right {
-    position: static;
-  }
 }
-@media (max-width: 600px) {
-  .cl-order-row {
-    grid-template-columns: 32px minmax(0, 1fr);
-  }
-  .cl-load-check {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
-    padding-left: 44px;
-  }
-  .cl-rider-actions {
+@media (max-width: 520px) {
+  .cl-card-actions {
     flex-direction: column;
   }
-  .cl-btn {
+  .cl-btn-primary {
     width: 100%;
   }
 }
 
-/* ===== Print sheet ===== */
-/* Hidden on screen; only shown when printing. */
+/* ===== Print sheet (unchanged, functional) =====
+   Hidden on screen; only shown when printing. */
 .cl-print-area {
   display: none;
 }

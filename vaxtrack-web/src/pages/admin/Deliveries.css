@@ -1047,3 +1047,564 @@
   appearance: auto !important;
   -webkit-appearance: auto !important;
 }
+/* ============================================================
+   Meridian Phase 3 — Delivery Management redesign (mdl-*).
+   Tokens-based. !important used only where legacy page-scoped
+   rules would otherwise override typography/colors.
+   ============================================================ */
+
+/* ---------- header ---------- */
+
+.mdl-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.mdl-header h1 {
+  font-family: var(--font-ui);
+  font-size: 22px !important;
+  font-weight: 600 !important;
+  color: var(--gray-900) !important;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.mdl-header p {
+  font-size: 13px !important;
+  color: var(--gray-600) !important;
+  margin: 2px 0 0;
+}
+
+/* ---------- buttons ---------- */
+
+.mdl-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  height: 36px !important;
+  padding: 0 14px !important;
+  border-radius: var(--radius-control) !important;
+  font-family: var(--font-ui) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  border: 1px solid transparent !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease !important;
+  white-space: nowrap;
+}
+
+.mdl-btn:focus-visible {
+  outline: 2px solid var(--green-100) !important;
+  outline-offset: 1px !important;
+}
+
+.mdl-btn-secondary {
+  background: #fff !important;
+  border-color: var(--gray-300) !important;
+  color: var(--gray-600) !important;
+}
+.mdl-btn-secondary:hover {
+  background: var(--gray-50) !important;
+}
+
+.mdl-btn-ghost {
+  background: transparent !important;
+  color: var(--green-700) !important;
+}
+.mdl-btn-ghost:hover {
+  background: var(--green-50) !important;
+}
+
+.mdl-btn-danger-ghost {
+  background: #fff !important;
+  border-color: var(--danger-border) !important;
+  color: var(--danger-text) !important;
+}
+.mdl-btn-danger-ghost:hover {
+  background: var(--danger-bg) !important;
+}
+
+.mdl-btn-sm {
+  height: 30px !important;
+  padding: 0 10px !important;
+  font-size: 12px !important;
+}
+
+/* ---------- delayed banner ---------- */
+
+.mdl-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-card);
+  border: 1px solid;
+  margin-bottom: 16px;
+}
+
+.mdl-banner svg {
+  flex-shrink: 0;
+}
+
+.mdl-banner strong {
+  display: block;
+  font-size: 14px !important;
+  font-weight: 600;
+}
+
+.mdl-banner p {
+  margin: 0;
+  font-size: 13px !important;
+  color: var(--gray-600) !important;
+}
+
+.mdl-banner > div {
+  flex: 1;
+}
+
+.mdl-banner-danger {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+}
+
+/* ---------- filter bar ---------- */
+
+.mdl-filterbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.mdl-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 240px;
+  max-width: 380px;
+  height: 36px;
+  padding: 0 12px;
+  background: #fff;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control);
+  color: var(--gray-500);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.mdl-search:focus-within {
+  border-color: var(--green-700) !important;
+  box-shadow: 0 0 0 3px var(--green-100) !important;
+}
+
+.mdl-search input {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  flex: 1;
+  background: transparent !important;
+  font-family: var(--font-ui) !important;
+  font-size: 13px !important;
+  color: var(--gray-900) !important;
+  padding: 0 !important;
+}
+
+.mdl-search input::placeholder {
+  color: var(--gray-500) !important;
+}
+
+.mdl-select {
+  height: 36px !important;
+  padding: 0 12px !important;
+  background: #fff !important;
+  border: 1px solid var(--gray-300) !important;
+  border-radius: var(--radius-control) !important;
+  font-family: var(--font-ui) !important;
+  font-size: 13px !important;
+  color: var(--gray-900) !important;
+  box-shadow: none !important;
+}
+
+.mdl-select:focus {
+  border-color: var(--green-700) !important;
+  box-shadow: 0 0 0 3px var(--green-100) !important;
+  outline: none !important;
+}
+
+.mdl-quickfilters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: -6px 0 16px;
+}
+
+.mdl-chip {
+  height: 30px !important;
+  padding: 0 12px !important;
+  border-radius: var(--radius-pill) !important;
+  background: #fff !important;
+  border: 1px solid var(--gray-300) !important;
+  color: var(--gray-600) !important;
+  font-family: var(--font-ui) !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease !important;
+}
+
+.mdl-chip:hover {
+  background: var(--green-50) !important;
+  border-color: var(--green-100) !important;
+  color: var(--green-800) !important;
+}
+
+/* ---------- table card ---------- */
+
+.mdl-card {
+  background: #fff;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.mdl-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.mdl-card-head h2 {
+  font-family: var(--font-ui);
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  color: var(--gray-900) !important;
+  margin: 0;
+}
+
+.mdl-card-head p {
+  font-size: 12px !important;
+  color: var(--gray-500) !important;
+  margin: 2px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.mdl-table-wrap {
+  overflow-x: auto;
+}
+
+.mdl-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.mdl-table thead th {
+  height: 44px;
+  background: var(--gray-50) !important;
+  color: var(--gray-500) !important;
+  font-family: var(--font-ui) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  text-align: left;
+  padding: 0 16px !important;
+  border-bottom: 1px solid var(--gray-200) !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  white-space: nowrap;
+}
+
+.mdl-table tbody td {
+  padding: 10px 16px !important;
+  border-bottom: 1px solid var(--gray-100) !important;
+  font-family: var(--font-ui) !important;
+  font-size: 13px !important;
+  color: var(--gray-900);
+  vertical-align: middle;
+  background: transparent !important;
+}
+
+.mdl-table tbody tr {
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.mdl-table tbody tr:hover td {
+  background: var(--green-50) !important;
+}
+
+.mdl-table tbody tr:last-child td {
+  border-bottom: none !important;
+}
+
+.mdl-row-delayed td:first-child {
+  box-shadow: inset 3px 0 0 var(--danger-text) !important;
+}
+
+.mdl-td-order {
+  font-weight: 600 !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--gray-900) !important;
+}
+
+.mdl-rider-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mdl-avatar {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: var(--radius-pill);
+  background: var(--green-100) !important;
+  color: var(--green-800) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mdl-rider-cell strong,
+.mdl-dest-cell strong {
+  display: block;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--gray-900) !important;
+}
+
+.mdl-rider-cell small,
+.mdl-dest-cell small {
+  display: block;
+  font-size: 12px !important;
+  color: var(--gray-500) !important;
+  margin-top: 1px;
+}
+
+.mdl-row-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* ---------- empty / loading / error ---------- */
+
+.mdl-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 32px 20px;
+  text-align: center;
+}
+
+.mdl-empty-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--gray-100);
+  color: var(--gray-500);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+
+.mdl-empty strong {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: var(--gray-900) !important;
+}
+
+.mdl-empty p {
+  margin: 0;
+  font-size: 13px !important;
+  color: var(--gray-500) !important;
+  max-width: 420px;
+}
+
+/* ---------- Meridian Phase 4: delivery detail drawer ---------- */
+
+.mdl-btn-primary {
+  background: var(--green-700) !important;
+  border-color: var(--green-700) !important;
+  color: #ffffff !important;
+}
+.mdl-btn-primary:hover {
+  background: var(--green-800) !important;
+  border-color: var(--green-800) !important;
+}
+
+.mdl-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(11, 33, 26, 0.32);
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.mdl-drawer {
+  width: 460px;
+  max-width: 92vw;
+  height: 100%;
+  background: #ffffff;
+  border-left: 1px solid var(--gray-200);
+  box-shadow: var(--shadow-float);
+  display: flex;
+  flex-direction: column;
+  animation: mdl-drawer-in 160ms ease;
+  font-family: var(--font-ui);
+}
+
+@keyframes mdl-drawer-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.mdl-drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.mdl-drawer-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mdl-drawer-head h2 {
+  margin: 0;
+  font-size: 18px !important;
+  font-weight: 600 !important;
+  color: var(--gray-900) !important;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.mdl-drawer-head p {
+  margin: 4px 0 0;
+  font-size: 13px !important;
+  color: var(--gray-600) !important;
+}
+
+.mdl-drawer-close {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff !important;
+  border: 1px solid var(--gray-200) !important;
+  border-radius: var(--radius-control) !important;
+  color: var(--gray-600) !important;
+  cursor: pointer;
+  box-shadow: none !important;
+}
+
+.mdl-drawer-close:hover {
+  background: var(--gray-50) !important;
+}
+
+.mdl-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 20px 20px;
+}
+
+.mdl-drawer-section {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.mdl-drawer-section:last-child {
+  border-bottom: none;
+}
+
+.mdl-drawer-section h3 {
+  margin: 0 0 8px;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: var(--gray-500) !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+}
+
+.mdl-drawer-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 0;
+}
+
+.mdl-drawer-row span {
+  font-size: 13px !important;
+  color: var(--gray-500) !important;
+  flex-shrink: 0;
+}
+
+.mdl-drawer-row strong {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--gray-900) !important;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.mdl-drawer-rider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mdl-drawer-rider strong {
+  display: block;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: var(--gray-900) !important;
+}
+
+.mdl-drawer-rider small {
+  display: block;
+  font-size: 12px !important;
+  color: var(--gray-500) !important;
+  margin-top: 1px;
+}
+
+.mdl-drawer-note {
+  margin: 0;
+  font-size: 13px !important;
+  color: var(--gray-600) !important;
+  line-height: 1.5;
+}
+
+.mdl-drawer-actions {
+  display: flex;
+  gap: 8px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--gray-200);
+  background: var(--gray-50);
+}

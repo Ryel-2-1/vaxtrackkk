@@ -6543,3 +6543,442 @@
   color: #94a3b8;
   text-align: center;
 }
+
+/* ============================================================
+   Meridian Phase 5 — Sales Rep Dashboard (srd-*).
+   Tokens-based. !important only where the broad legacy
+   .salesrep-main selectors would otherwise interfere.
+   ============================================================ */
+
+.srd {
+  font-family: var(--font-ui);
+  padding-top: 20px;
+}
+
+.srd-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 80px 20px;
+  color: var(--gray-500);
+}
+
+/* ---------- greeting header ---------- */
+
+.srd-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.srd-head h1 {
+  margin: 0 !important;
+  font-family: var(--font-ui) !important;
+  font-size: 22px !important;
+  font-weight: 600 !important;
+  color: var(--gray-900) !important;
+  letter-spacing: -0.01em;
+}
+
+.srd-head p {
+  margin: 3px 0 0 !important;
+  font-size: 13px !important;
+  color: var(--gray-600) !important;
+}
+
+/* ---------- buttons ---------- */
+
+.srd-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  height: 38px !important;
+  padding: 0 16px !important;
+  border-radius: var(--radius-control) !important;
+  font-family: var(--font-ui) !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  border: 1px solid transparent !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease !important;
+  white-space: nowrap;
+}
+
+.srd-btn:focus-visible {
+  outline: 2px solid var(--green-100) !important;
+  outline-offset: 1px !important;
+}
+
+.srd-btn-primary {
+  background: var(--green-700) !important;
+  color: #ffffff !important;
+}
+.srd-btn-primary:hover {
+  background: var(--green-800) !important;
+}
+
+.srd-btn-secondary {
+  background: #fff !important;
+  border-color: var(--gray-300) !important;
+  color: var(--gray-700) !important;
+  height: 34px !important;
+  font-size: 13px !important;
+}
+.srd-btn-secondary:hover {
+  background: var(--gray-50) !important;
+}
+
+/* ---------- KPI grid ---------- */
+
+.srd-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+/* ---------- main grid ---------- */
+
+.srd-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.srd-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ---------- cards ---------- */
+
+.srd-card {
+  background: #ffffff !important;
+  border: 1px solid var(--gray-200) !important;
+  border-radius: var(--radius-card) !important;
+  box-shadow: var(--shadow-card) !important;
+  overflow: hidden;
+}
+
+.srd-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.srd-card-head h2 {
+  margin: 0 !important;
+  font-family: var(--font-ui) !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  color: var(--gray-900) !important;
+}
+
+.srd-card-head p {
+  margin: 2px 0 0 !important;
+  font-size: 12px !important;
+  color: var(--gray-500) !important;
+}
+
+.srd-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  font-family: var(--font-ui) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--green-700) !important;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.srd-link:hover {
+  color: var(--green-800) !important;
+}
+
+/* ---------- active orders table ---------- */
+
+.srd-table-wrap {
+  overflow-x: auto;
+}
+
+.srd-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.srd-table thead th {
+  height: 42px;
+  background: var(--gray-50) !important;
+  color: var(--gray-500) !important;
+  font-family: var(--font-ui) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  text-align: left !important;
+  padding: 0 16px !important;
+  border-bottom: 1px solid var(--gray-200) !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  white-space: nowrap;
+}
+
+.srd-table tbody td {
+  padding: 10px 16px !important;
+  border-bottom: 1px solid var(--gray-100) !important;
+  font-family: var(--font-ui) !important;
+  font-size: 13px !important;
+  color: var(--gray-900);
+  vertical-align: middle;
+  background: transparent !important;
+}
+
+.srd-table tbody tr {
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.srd-table tbody tr:hover td {
+  background: var(--green-50) !important;
+}
+
+.srd-table tbody tr:last-child td {
+  border-bottom: none !important;
+}
+
+.srd-order-id {
+  font-weight: 600 !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--gray-900) !important;
+}
+
+.srd-vaccine-cell strong {
+  display: block;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--gray-900) !important;
+}
+
+.srd-vaccine-cell small {
+  display: block;
+  font-size: 12px !important;
+  color: var(--gray-500) !important;
+  margin-top: 1px;
+}
+
+.srd-td-meta {
+  color: var(--gray-500) !important;
+  font-size: 12px !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---------- stock to watch ---------- */
+
+.srd-stock-list {
+  padding: 6px 0;
+}
+
+.srd-stock-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.srd-stock-row:last-child {
+  border-bottom: none;
+}
+
+.srd-stock-info strong {
+  display: block;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--gray-900) !important;
+}
+
+.srd-stock-info small {
+  display: block;
+  font-size: 12px !important;
+  color: var(--gray-500) !important;
+  margin-top: 1px;
+}
+
+.srd-stock-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.srd-stock-qty {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--gray-900) !important;
+}
+
+.srd-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+.srd-chip-low {
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+}
+
+.srd-chip-expiry {
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+}
+
+.srd-chip-out {
+  color: var(--danger-text);
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+}
+
+/* ---------- quick actions ---------- */
+
+.srd-actions {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0;
+}
+
+.srd-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 20px;
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid var(--gray-100) !important;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-ui) !important;
+  transition: background 120ms ease;
+}
+
+.srd-action:last-child {
+  border-bottom: none !important;
+}
+
+.srd-action:hover {
+  background: var(--green-50) !important;
+}
+
+.srd-action-icon {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: var(--radius-control);
+  background: var(--green-100);
+  color: var(--green-800);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.srd-action > div {
+  flex: 1;
+}
+
+.srd-action strong {
+  display: block;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--gray-900) !important;
+}
+
+.srd-action small {
+  display: block;
+  font-size: 12px !important;
+  color: var(--gray-500) !important;
+  margin-top: 1px;
+}
+
+.srd-action > svg {
+  color: var(--gray-400, #9ca3af);
+  flex-shrink: 0;
+}
+
+/* ---------- empty states ---------- */
+
+.srd-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.srd-empty.compact {
+  padding: 24px 20px;
+}
+
+.srd-empty-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--gray-100);
+  color: var(--gray-500);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+
+.srd-empty strong {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: var(--gray-900) !important;
+}
+
+.srd-empty p {
+  margin: 0 0 10px !important;
+  font-size: 13px !important;
+  color: var(--gray-500) !important;
+  max-width: 320px;
+}
+
+.srd-empty.compact p {
+  margin: 0 !important;
+}
+
+/* ---------- responsive ---------- */
+
+@media (max-width: 960px) {
+  .srd-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .srd-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

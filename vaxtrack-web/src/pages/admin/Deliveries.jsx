@@ -3,12 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
   AlertTriangle,
-  Bell,
   ChevronDown,
-  CircleHelp,
-  Clock3,
   Filter,
-  Navigation,
   PhoneCall,
   Plus,
   Search,
@@ -53,7 +49,26 @@ function normalizeDelivery(raw) {
     vaccineName: raw.vaccineName || "—",
     quantity: raw.quantity || 0,
     unit: raw.unit || "doses",
+    // Read-only pass-throughs displayed in the detail drawer.
+    riderPhone: raw.assignedRiderPhone || "",
+    instructions: raw.deliveryInstructions || "",
+    createdAt: raw.createdAt || null,
+    assignedAt: raw.assignedAt || null,
+    statusUpdatedAt: raw.statusUpdatedAt || null,
+    statusUpdatedByEmail: raw.statusUpdatedByEmail || "",
   };
+}
+
+function formatDateTime(ts) {
+  if (!ts) return null;
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function Deliveries() {
@@ -67,7 +82,6 @@ function Deliveries() {
   const [regionFilter, setRegionFilter] = useState("all");
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [selectedDelivery, setSelectedDelivery] = useState(null);
-  const [mapMode, setMapMode] = useState(false);
   const [toast, setToast] = useState("");
 
   useEffect(() => {
@@ -127,50 +141,29 @@ function Deliveries() {
       <main className="deliveries-v4-page">
         {toast && <div className="deliveries-toast">{toast}</div>}
 
-        <header className="deliveries-v4-header">
+        <header className="mdl-header">
           <div>
-            <h1>Delivery Management</h1>
+            <h1>Delivery management</h1>
             <p>Monitor and route active cold-chain shipments.</p>
           </div>
 
-          <div className="deliveries-v4-header-right">
-            <div className="deliveries-v4-top-icons">
-              <button
-                type="button"
-                onClick={() => showToast("No new notifications.")}
-              >
-                <Bell size={15} />
-                <span></span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  showToast("Tip: Click any delivery row to review details.")
-                }
-              >
-                <CircleHelp size={15} />
-              </button>
-            </div>
-
-            <button
-              type="button"
-              className="deliveries-v4-new-btn"
-              onClick={() =>
-                showToast(
-                  "Deliveries are created through Sales Rep orders and dispatched by a Dispatcher."
-                )
-              }
-            >
-              <Plus size={14} />
-              New Delivery
-            </button>
-          </div>
+          <button
+            type="button"
+            className="mdl-btn mdl-btn-secondary"
+            onClick={() =>
+              showToast(
+                "Deliveries are created through Sales Rep orders and dispatched by a Dispatcher."
+              )
+            }
+          >
+            <Plus size={14} />
+            New delivery
+          </button>
         </header>
 
         {delayedCount > 0 && delayedDelivery && (
-          <section className="deliveries-alert-strip">
-            <AlertTriangle size={18} />
+          <section className="mdl-banner mdl-banner-danger">
+            <AlertTriangle size={16} />
             <div>
               <strong>
                 {delayedCount} delayed deliver{delayedCount === 1 ? "y" : "ies"}{" "}
@@ -180,6 +173,7 @@ function Deliveries() {
             </div>
             <button
               type="button"
+              className="mdl-btn mdl-btn-danger-ghost"
               onClick={() => setSelectedDelivery(delayedDelivery)}
             >
               Review Now
@@ -187,33 +181,33 @@ function Deliveries() {
           </section>
         )}
 
-        <section className="deliveries-v4-filters">
-          <div className="deliveries-v4-search">
+        <section className="mdl-filterbar">
+          <label className="mdl-search">
             <Search size={15} />
             <input
-              placeholder="Search by Delivery ID, Rider, or Destination..."
+              placeholder="Search by order, rider, or destination..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
-          </div>
+          </label>
 
           <select
-            className="deliveries-v4-select"
+            className="mdl-select"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
-            <option value="all">All Statuses</option>
-            <option value="transit">In Transit</option>
+            <option value="all">All statuses</option>
+            <option value="transit">In transit</option>
             <option value="delayed">Delayed</option>
-            <option value="loading">Loading / Assigned</option>
+            <option value="loading">Loading / assigned</option>
           </select>
 
           <select
-            className="deliveries-v4-select"
+            className="mdl-select"
             value={regionFilter}
             onChange={(e) => setRegionFilter(e.target.value)}
           >
-            <option value="all">All Regions</option>
+            <option value="all">All regions</option>
             {regions.map((r) => (
               <option key={r} value={r}>
                 {r}
@@ -223,27 +217,36 @@ function Deliveries() {
 
           <button
             type="button"
-            className="deliveries-v4-more-btn"
+            className="mdl-btn mdl-btn-secondary"
             onClick={() => setShowMoreFilters((prev) => !prev)}
           >
             <Filter size={14} />
-            More Filters
+            More filters
             <ChevronDown size={14} />
           </button>
         </section>
 
         {showMoreFilters && (
-          <section className="deliveries-more-filters">
-            <button type="button" onClick={() => setStatusFilter("delayed")}>
+          <section className="mdl-quickfilters">
+            <button
+              type="button"
+              className="mdl-chip"
+              onClick={() => setStatusFilter("delayed")}
+            >
               Show delayed only
             </button>
 
-            <button type="button" onClick={() => setStatusFilter("transit")}>
+            <button
+              type="button"
+              className="mdl-chip"
+              onClick={() => setStatusFilter("transit")}
+            >
               Show in-transit only
             </button>
 
             <button
               type="button"
+              className="mdl-chip"
               onClick={() => {
                 setStatusFilter("all");
                 setRegionFilter("all");
@@ -290,148 +293,130 @@ function Deliveries() {
           />
         </section>
 
-        <section className="deliveries-v4-fleet-card">
-          <div className="deliveries-v4-fleet-header">
+        <section className="mdl-card">
+          <div className="mdl-card-head">
             <div>
-              <h2>{mapMode ? "Fleet Map Mode" : "Live Fleet Tracking"}</h2>
+              <h2>Deliveries</h2>
               <p>
                 Showing {filteredDeliveries.length} of {deliveryList.length}{" "}
                 deliveries
               </p>
             </div>
-
-            <button type="button" onClick={() => setMapMode((prev) => !prev)}>
-              {mapMode ? "View Table Mode" : "View Map Mode"}
-            </button>
           </div>
 
-          {mapMode ? (
-            <FleetMap
-              deliveries={filteredDeliveries}
-              onSelect={setSelectedDelivery}
-            />
-          ) : (
-            <div className="deliveries-table-wrap">
-              <table className="deliveries-v4-table">
-                <thead>
-                  <tr>
-                    <th>Delivery ID</th>
-                    <th>Rider &amp; Vehicle</th>
-                    <th>Destination</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
+          <div className="mdl-table-wrap">
+            <table className="mdl-table">
+              <thead>
+                <tr>
+                  <th>Order</th>
+                  <th>Rider &amp; vehicle</th>
+                  <th>Destination</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
 
-                <tbody>
-                  {filteredDeliveries.map((delivery) => (
-                    <tr
-                      key={delivery.uid}
-                      className={`delivery-row-${delivery.statusType}`}
-                      onClick={() => setSelectedDelivery(delivery)}
-                    >
-                      <td>
-                        <div className="deliveries-v4-id-cell">
-                          <strong>{delivery.id}</strong>
-                          <small className={delivery.etaType}>
-                            {delivery.eta}
+              <tbody>
+                {filteredDeliveries.map((delivery) => (
+                  <tr
+                    key={delivery.uid}
+                    className={
+                      delivery.statusType === "delayed" ? "mdl-row-delayed" : ""
+                    }
+                    onClick={() => setSelectedDelivery(delivery)}
+                  >
+                    <td>
+                      <span className="mdl-td-order">{delivery.id}</span>
+                    </td>
+
+                    <td>
+                      <div className="mdl-rider-cell">
+                        <span className="mdl-avatar">{delivery.initials}</span>
+                        <div>
+                          <strong>{delivery.rider}</strong>
+                          <small>
+                            {delivery.vehicle !== "—"
+                              ? `${delivery.vehicle} • Plate: ${delivery.plate}`
+                              : "Vehicle not assigned"}
                           </small>
                         </div>
-                      </td>
+                      </div>
+                    </td>
 
-                      <td>
-                        <div className="deliveries-v4-rider-cell">
-                          <span className="deliveries-v4-avatar">
-                            {delivery.initials}
-                          </span>
-                          <div>
-                            <strong>{delivery.rider}</strong>
-                            <small>
-                              {delivery.vehicle !== "—"
-                                ? `${delivery.vehicle} • Plate: ${delivery.plate}`
-                                : "Vehicle not assigned"}
-                            </small>
-                          </div>
-                        </div>
-                      </td>
+                    <td>
+                      <div className="mdl-dest-cell">
+                        <strong>{delivery.destination}</strong>
+                        <small>{delivery.address}</small>
+                      </div>
+                    </td>
 
-                      <td>
-                        <div className="deliveries-v4-destination-cell">
-                          <strong>{delivery.destination}</strong>
-                          <small>{delivery.address}</small>
-                        </div>
-                      </td>
+                    <td>
+                      <StatusBadge statusKey={delivery.statusKey} />
+                    </td>
 
-                      <td>
-                        <StatusBadge statusKey={delivery.statusKey} />
-                      </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <div className="mdl-row-actions">
+                        <button
+                          type="button"
+                          className="mdl-btn mdl-btn-ghost mdl-btn-sm"
+                          onClick={() => setSelectedDelivery(delivery)}
+                        >
+                          View
+                        </button>
 
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <div className="delivery-row-actions">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedDelivery(delivery)}
-                          >
-                            View
-                          </button>
+                        <button
+                          type="button"
+                          className="mdl-btn mdl-btn-ghost mdl-btn-sm"
+                          onClick={() =>
+                            showToast(`Contacting ${delivery.rider}...`)
+                          }
+                        >
+                          Call
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setMapMode(true);
-                              showToast(`Showing route for ${delivery.id}.`);
-                            }}
-                          >
-                            Route
-                          </button>
+            {loading && (
+              <div className="mdl-empty">
+                <span className="mdl-empty-icon">
+                  <Truck size={18} />
+                </span>
+                <strong>Loading deliveries...</strong>
+              </div>
+            )}
 
-                          <button
-                            type="button"
-                            onClick={() =>
-                              showToast(`Contacting ${delivery.rider}...`)
-                            }
-                          >
-                            Call
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            {!loading && loadError && (
+              <div className="mdl-empty">
+                <span className="mdl-empty-icon">
+                  <AlertTriangle size={18} />
+                </span>
+                <strong>Could not load deliveries</strong>
+                <p>{loadError}</p>
+              </div>
+            )}
 
-              {loading && (
-                <div className="deliveries-empty-state">
-                  <Truck size={30} />
-                  <strong>Loading deliveries...</strong>
-                </div>
-              )}
-
-              {!loading && loadError && (
-                <div className="deliveries-empty-state">
-                  <Truck size={30} />
-                  <strong>Could not load deliveries</strong>
-                  <p>{loadError}</p>
-                </div>
-              )}
-
-              {!loading && !loadError && filteredDeliveries.length === 0 && (
-                <div className="deliveries-empty-state">
-                  <Truck size={30} />
-                  <strong>
-                    {deliveryList.length === 0
-                      ? "No deliveries yet"
-                      : "No deliveries match your filters"}
-                  </strong>
-                  <p>
-                    {deliveryList.length === 0
-                      ? "Deliveries appear here when orders are created by Sales Representatives."
-                      : "Try adjusting your search or selected filters."}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
+            {!loading && !loadError && filteredDeliveries.length === 0 && (
+              <div className="mdl-empty">
+                <span className="mdl-empty-icon">
+                  <Truck size={18} />
+                </span>
+                <strong>
+                  {deliveryList.length === 0
+                    ? "No deliveries yet"
+                    : "No deliveries match your filters"}
+                </strong>
+                <p>
+                  {deliveryList.length === 0
+                    ? "Deliveries appear here when orders are created by Sales Representatives."
+                    : "Try adjusting your search or selected filters."}
+                </p>
+              </div>
+            )}
+          </div>
         </section>
       </main>
 
@@ -444,8 +429,9 @@ function Deliveries() {
           }
           onRoute={() => {
             setSelectedDelivery(null);
-            setMapMode(true);
-            showToast(`Route view opened for ${selectedDelivery.id}.`);
+            showToast(
+              "Live route view activates once rider GPS updates are available."
+            );
           }}
           onResolve={() => {
             setSelectedDelivery(null);
@@ -457,140 +443,160 @@ function Deliveries() {
   );
 }
 
-function FleetMap({ deliveries, onSelect }) {
-  return (
-    <div className="deliveries-map-mode">
-      <div className="deliveries-map-line one"></div>
-      <div className="deliveries-map-line two"></div>
-      <div className="deliveries-map-line three"></div>
-
-      {deliveries.map((delivery, index) => (
-        <button
-          type="button"
-          key={delivery.uid}
-          className={`deliveries-map-pin pin-${index + 1} ${delivery.statusType}`}
-          onClick={() => onSelect(delivery)}
-        >
-          <Truck size={16} />
-          <span>{delivery.id}</span>
-        </button>
-      ))}
-
-      <div className="deliveries-map-legend">
-        <span>
-          <i className="transit"></i>
-          In Transit
-        </span>
-        <span>
-          <i className="delayed"></i>
-          Delayed
-        </span>
-        <span>
-          <i className="loading"></i>
-          Loading
-        </span>
-      </div>
-    </div>
-  );
-}
-
 function DeliveryModal({ delivery, onClose, onContact, onRoute, onResolve }) {
+  const created = formatDateTime(delivery.createdAt);
+  const assigned = formatDateTime(delivery.assignedAt);
+  const statusUpdated = formatDateTime(delivery.statusUpdatedAt);
+
   return (
-    <div className="deliveries-modal-backdrop">
-      <div className="deliveries-modal">
-        <button
-          type="button"
-          className="deliveries-modal-close"
-          onClick={onClose}
-        >
-          <X size={18} />
-        </button>
-
-        <div className={`deliveries-modal-icon ${delivery.statusType}`}>
-          <Truck size={24} />
-        </div>
-
-        <h2>{delivery.id}</h2>
-        <p>
-          {delivery.destination} delivery handled by {delivery.rider}.
-        </p>
-
-        <div className="deliveries-modal-grid">
+    <div className="mdl-drawer-backdrop" onMouseDown={onClose}>
+      <aside
+        className="mdl-drawer"
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="mdl-drawer-head">
           <div>
-            <span>Rider</span>
-            <strong>{delivery.rider}</strong>
+            <div className="mdl-drawer-title-row">
+              <h2>{delivery.id}</h2>
+              <StatusBadge statusKey={delivery.statusKey} />
+            </div>
+            <p>{delivery.destination}</p>
           </div>
 
-          <div>
-            <span>Status</span>
-            <strong>{delivery.status}</strong>
-          </div>
-
-          <div>
-            <span>Vehicle</span>
-            <strong>{delivery.vehicle}</strong>
-          </div>
-
-          <div>
-            <span>Plate No.</span>
-            <strong>{delivery.plate}</strong>
-          </div>
-
-          <div>
-            <span>Temperature</span>
-            <strong>{delivery.temp}</strong>
-          </div>
-
-          <div>
-            <span>Priority</span>
-            <strong>{delivery.priority}</strong>
-          </div>
-
-          <div>
-            <span>Vaccine</span>
-            <strong>{delivery.vaccineName}</strong>
-          </div>
-
-          <div>
-            <span>Quantity</span>
-            <strong>
-              {delivery.quantity} {delivery.unit}
-            </strong>
-          </div>
-
-          <div className="wide">
-            <span>Destination</span>
-            <strong>{delivery.address}</strong>
-          </div>
-        </div>
-
-        <div className="deliveries-modal-actions">
           <button
             type="button"
-            className="deliveries-primary-action"
-            onClick={onRoute}
+            className="mdl-drawer-close"
+            onClick={onClose}
+            aria-label="Close details"
           >
-            View Route
+            <X size={16} />
+          </button>
+        </header>
+
+        <div className="mdl-drawer-body">
+          <section className="mdl-drawer-section">
+            <h3>Destination</h3>
+            <div className="mdl-drawer-row">
+              <span>Clinic</span>
+              <strong>{delivery.destination}</strong>
+            </div>
+            <div className="mdl-drawer-row">
+              <span>Address</span>
+              <strong>{delivery.address}</strong>
+            </div>
+            {delivery.region !== "—" && (
+              <div className="mdl-drawer-row">
+                <span>Region</span>
+                <strong>{delivery.region}</strong>
+              </div>
+            )}
+          </section>
+
+          <section className="mdl-drawer-section">
+            <h3>Shipment</h3>
+            <div className="mdl-drawer-row">
+              <span>Vaccine</span>
+              <strong>{delivery.vaccineName}</strong>
+            </div>
+            <div className="mdl-drawer-row">
+              <span>Quantity</span>
+              <strong className="tnum">
+                {delivery.quantity} {delivery.unit}
+              </strong>
+            </div>
+            <div className="mdl-drawer-row">
+              <span>Temperature</span>
+              <strong>{delivery.temp}</strong>
+            </div>
+            <div className="mdl-drawer-row">
+              <span>Priority</span>
+              <strong>{delivery.priority}</strong>
+            </div>
+          </section>
+
+          <section className="mdl-drawer-section">
+            <h3>Rider</h3>
+            <div className="mdl-drawer-rider">
+              <span className="mdl-avatar">{delivery.initials}</span>
+              <div>
+                <strong>{delivery.rider}</strong>
+                <small>
+                  {delivery.vehicle !== "—"
+                    ? `${delivery.vehicle} • Plate: ${delivery.plate}`
+                    : "Vehicle not assigned"}
+                </small>
+                {delivery.riderPhone && <small>{delivery.riderPhone}</small>}
+              </div>
+            </div>
+          </section>
+
+          {delivery.instructions && (
+            <section className="mdl-drawer-section">
+              <h3>Delivery instructions</h3>
+              <p className="mdl-drawer-note">{delivery.instructions}</p>
+            </section>
+          )}
+
+          <section className="mdl-drawer-section">
+            <h3>Activity</h3>
+            {created && (
+              <div className="mdl-drawer-row">
+                <span>Order created</span>
+                <strong className="tnum">{created}</strong>
+              </div>
+            )}
+            {assigned && (
+              <div className="mdl-drawer-row">
+                <span>Rider assigned</span>
+                <strong className="tnum">{assigned}</strong>
+              </div>
+            )}
+            {statusUpdated && (
+              <div className="mdl-drawer-row">
+                <span>Last status update</span>
+                <strong className="tnum">{statusUpdated}</strong>
+              </div>
+            )}
+            {delivery.statusUpdatedByEmail && (
+              <div className="mdl-drawer-row">
+                <span>Updated by</span>
+                <strong>{delivery.statusUpdatedByEmail}</strong>
+              </div>
+            )}
+            {!created && !assigned && !statusUpdated && (
+              <p className="mdl-drawer-note">No activity recorded yet.</p>
+            )}
+          </section>
+        </div>
+
+        <footer className="mdl-drawer-actions">
+          <button
+            type="button"
+            className="mdl-btn mdl-btn-primary"
+            onClick={onResolve}
+          >
+            Mark Reviewed
           </button>
 
           <button
             type="button"
-            className="deliveries-light-action"
+            className="mdl-btn mdl-btn-secondary"
             onClick={onContact}
           >
-            <PhoneCall size={15} />
+            <PhoneCall size={14} />
             Contact Rider
           </button>
 
           <button
             type="button"
-            className="deliveries-danger-action"
-            onClick={onResolve}
+            className="mdl-btn mdl-btn-ghost"
+            onClick={onRoute}
           >
-            Mark Reviewed
+            View Route
           </button>
-        </div>
-      </div>
+        </footer>
+      </aside>
     </div>
   );
 }
