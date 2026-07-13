@@ -28,6 +28,14 @@ To test multiple roles at once, isolate each role in its own browser profile / b
 
 **Do not** test multiple web roles in normal tabs of the same browser profile — they share Firebase Auth state and will collapse to a single user.
 
+### Pending manual verification
+
+**Dispatcher Cargo Loading — Meridian rider checklist cards (Phase 6):**
+- ✅ Meridian UI was **build-verified** (`npm run build` passes).
+- ✅ Empty state ("No assigned orders ready for loading") was **live-verified** in the browser as the dispatcher.
+- ⚠️ The **rider checklist cards** (avatar, plate chip, progress bar, order rows with StatusBadge, loaded checkboxes, Finalize/Print buttons) were **mock-harness verified only** — during testing the live page had no orders in the `assigned`/`loading` state, so the cards could not render from real data.
+- ⏳ **Still pending:** verify the rider checklist cards live with a **real assigned/loading order**. Steps: create/place a Sales Rep order → assign a rider in Dispatcher → open `/dispatcher/cargo-loading` → confirm the rider card renders correctly, toggle a "loaded" checkbox (progress bar updates + Firestore write), and confirm Finalize dispatch enables only when all orders are loaded.
+
 ---
 
 ## 1. Admin — Route Protection

@@ -2,28 +2,15 @@ import "./AdminDashboard.css";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
-import {
-  AlertTriangle,
-  Bell,
-  Clock,
-  Layers,
-  MapPin,
-  Minus,
-  Navigation,
-  PhoneCall,
-  Plus,
-  Search,
-  ShieldAlert,
-  Truck,
-  Users,
-  X,
-} from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Package } from "lucide-react";
 import { auth } from "../../firebase";
 import { AdminSidebar } from "./Inventory";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeAllAlerts } from "../../services/alertService";
 import { subscribeRiders } from "../../services/riderService";
 import { subscribeInventory } from "../../services/inventoryService";
+import KpiCard from "../../components/ui/KpiCard";
+import StatusBadge from "../../components/ui/StatusBadge";
 
 function formatRelativeTime(timestamp) {
   if (!timestamp) return "—";
@@ -55,21 +42,32 @@ function normalizeAlert(raw) {
   };
 }
 
+// Status rows shown in the delivery breakdown, in operational order.
+const BREAKDOWN_ORDER = [
+  "pending_dispatch",
+  "assigned",
+  "loading",
+  "in_transit",
+  "delayed",
+  "delivered",
+  "cancelled",
+];
+
+const ALERT_DOT = {
+  critical: "var(--danger-text)",
+  warning: "var(--warning-text)",
+  success: "var(--success-text)",
+};
+
 function AdminDashboard() {
   const navigate = useNavigate();
-
-  const [showAlertBanner, setShowAlertBanner] = useState(true);
-  const [showInspectModal, setShowInspectModal] = useState(false);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [showRiderTooltip, setShowRiderTooltip] = useState(false);
-  const [mapZoom, setMapZoom] = useState(100);
-  const [mapLayer, setMapLayer] = useState("Standard");
-  const [toast, setToast] = useState("");
 
   const [deliveryCount, setDeliveryCount] = useState(0);
   const [delayedCount, setDelayedCount] = useState(0);
   const [criticalCount, setCriticalCount] = useState(0);
   const [riderCount, setRiderCount] = useState(0);
+  const [statusBreakdown, setStatusBreakdown] = useState({});
+  const [recentOrders, setRecentOrders] = useState([]);
   const [recentAlerts, setRecentAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -96,6 +94,23 @@ function AdminDashboard() {
           orders.filter((o) => {
             return o.statusKey === "delayed" || o.statusKey === "cancelled" || o.statusKey === "canceled";
           }).length
+        );
+        // Derived from the same orders array — no extra Firestore read.
+        const breakdown = {};
+        orders.forEach((o) => {
+          const key = o.statusKey === "canceled" ? "cancelled" : o.statusKey;
+          breakdown[key] = (breakdown[key] || 0) + 1;
+        });
+        setStatusBreakdown(breakdown);
+        setRecentOrders(
+          orders.slice(0, 6).map((o) => ({
+            id: o.id,
+            orderNumber: o.orderNumber || o.id,
+            clinicName: o.clinicName || "—",
+            vaccineName: o.vaccineName || "—",
+            statusKey: o.statusKey,
+            time: formatRelativeTime(o.createdAt),
+          }))
         );
         loaded.deliveries = true;
         checkAllLoaded();
@@ -161,445 +176,212 @@ function AdminDashboard() {
     navigate("/login");
   };
 
-  const showToast = (message) => {
-    setToast(message);
-    setTimeout(() => setToast(""), 2200);
-  };
-
-  const handleDismissAlert = () => {
-    setShowAlertBanner(false);
-    showToast("Route deviation alert dismissed.");
-  };
-
-  const handleContactRider = () => {
-    showToast("Calling rider Arby Barruevo...");
-  };
-
-  const displayAlerts =
-    recentAlerts.length > 0
-      ? recentAlerts.slice(0, 3)
-      : [
-          {
-            id: "empty",
-            type: "success",
-            title: "All Clear",
-            desc: "No active alerts at this time.",
-            time: "Now",
-          },
-        ];
+  const dash = loading ? "…" : undefined;
+  const breakdownRows = BREAKDOWN_ORDER.filter((k) => statusBreakdown[k] > 0);
+  const activeCount = deliveryCount;
 
   return (
     <div className="inventory-page">
       <AdminSidebar active="dashboard" onLogout={handleLogout} />
 
-      <main className="v2-admin-main">
-        {toast && <div className="v2-toast">{toast}</div>}
-
-        <header className="v2-admin-topbar">
-          <p>VaxTrack Logistics Command</p>
-
-          <div className="v2-admin-search">
-            <Search size={14} />
-            <input placeholder="Search health unit, shipment, or rider..." />
-          </div>
-
-          <div className="v2-admin-icons">
-            <button
-              type="button"
-              aria-label="Open notifications"
-              onClick={() => setShowNotifications(true)}
-            >
-              <Bell size={15} />
-              {recentAlerts.length > 0 && (
-                <span className="v2-notification-dot"></span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              aria-label="Open alerts"
-              onClick={() => navigate("/admin/alerts")}
-            >
-              <ShieldAlert size={15} />
-            </button>
-          </div>
+      <main className="adx-main">
+        <header className="adx-header">
+          <h1>Admin dashboard</h1>
+          <p>Live overview of deliveries, alerts, riders, and stock.</p>
         </header>
 
-        {showAlertBanner && recentAlerts.some((a) => a.type === "critical") && (
-          <section className="v2-alert-banner">
-            <div className="v2-alert-icon">
-              <AlertTriangle size={18} />
-            </div>
-
+        {loadError && (
+          <div className="adx-banner">
+            <AlertTriangle size={16} />
             <div>
-              <strong>
-                {recentAlerts.find((a) => a.type === "critical")?.title ||
-                  "Critical Alert"}
-              </strong>
-              <p>
-                {recentAlerts.find((a) => a.type === "critical")?.desc ||
-                  "A critical alert requires your attention."}
-              </p>
+              <strong>Could not load some dashboard data</strong>
+              <p>{loadError}</p>
             </div>
-
-            <button
-              type="button"
-              className="v2-red-btn"
-              onClick={() => setShowInspectModal(true)}
-            >
-              Inspect Now
-            </button>
-
-            <button
-              type="button"
-              className="v2-dismiss-btn"
-              onClick={handleDismissAlert}
-            >
-              Dismiss
-            </button>
-          </section>
+          </div>
         )}
 
-        <section className="v2-admin-grid">
-          <div className="v2-tracking-column">
-            <div className="v2-map-card">
-              <div className="v2-map-card-head">
-                <div className="v2-map-title">
-                  <span></span>
-                  Live Tracking: Arby Barruevo
-                </div>
+        <section className="adx-kpis">
+          <KpiCard
+            label="Total orders"
+            value={dash ?? deliveryCount}
+            context="All deliveries"
+            tone="neutral"
+            onClick={() => navigate("/admin/deliveries")}
+          />
+          <KpiCard
+            label="Delayed / missing"
+            value={dash ?? delayedCount}
+            context={delayedCount > 0 ? "Needs review" : "None flagged"}
+            tone="danger"
+            attention={delayedCount > 0}
+            onClick={() => navigate("/admin/deliveries")}
+          />
+          <KpiCard
+            label="Critical stock"
+            value={dash ?? criticalCount}
+            context={criticalCount > 0 ? "Batches critical" : "Stock healthy"}
+            tone="warning"
+            attention={criticalCount > 0}
+            onClick={() => navigate("/admin/inventory")}
+          />
+          <KpiCard
+            label="Registered riders"
+            value={dash ?? riderCount}
+            context="On the platform"
+            tone="success"
+            onClick={() => navigate("/admin/riders")}
+          />
+        </section>
 
-                <div className="v2-map-status">
-                  <strong>{mapLayer}</strong>
-                  <small>{mapZoom}% zoom</small>
-                </div>
+        <section className="adx-grid">
+          <div className="adx-card">
+            <div className="adx-card-head">
+              <div>
+                <h2>Delivery status breakdown</h2>
+                <p>Live counts across all orders.</p>
               </div>
-
-              <div className="v2-live-map">
-                <div className="v2-planned-route"></div>
-                <div className="v2-current-route"></div>
-
-                <span className="v2-map-dot start"></span>
-                <span className="v2-map-dot middle"></span>
-
-                <button
-                  type="button"
-                  className="v2-map-dot rider"
-                  onClick={() => setShowRiderTooltip((prev) => !prev)}
-                  aria-label="Show rider location details"
-                >
-                  <Truck size={15} />
-                </button>
-
-                {showRiderTooltip && (
-                  <div className="v2-rider-tooltip">
-                    <strong>Arby Barruevo</strong>
-                    <p>Route deviation detected</p>
-                    <small>Quezon City • RTX-9824</small>
-                  </div>
-                )}
-
-                <div className="v2-map-controls">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setMapZoom((prev) => Math.min(prev + 10, 160))
-                    }
-                    aria-label="Zoom in"
-                  >
-                    <Plus size={22} strokeWidth={2.4} />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setMapZoom((prev) => Math.max(prev - 10, 60))
-                    }
-                    aria-label="Zoom out"
-                  >
-                    <Minus size={22} strokeWidth={2.4} />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setMapLayer((prev) =>
-                        prev === "Standard" ? "Cold-chain layer" : "Standard"
-                      )
-                    }
-                    aria-label="Toggle map layer"
-                  >
-                    <Layers size={21} strokeWidth={2.4} />
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  className="v2-recenter-btn"
-                  onClick={() => {
-                    setMapZoom(100);
-                    showToast("Map recentered to rider location.");
-                  }}
-                >
-                  <Navigation size={14} />
-                  Recenter Rider
-                </button>
-
-                <div className="v2-map-legend">
-                  <span>
-                    <i className="planned"></i>
-                    Planned Path
-                  </span>
-
-                  <span>
-                    <i className="current"></i>
-                    Current Deviation
-                  </span>
-                </div>
-              </div>
+              <button
+                type="button"
+                className="adx-link"
+                onClick={() => navigate("/admin/deliveries")}
+              >
+                Deliveries
+                <ArrowRight size={14} />
+              </button>
             </div>
 
-            <section className="v2-stats-grid">
-              <MetricCard
-                icon={<Truck size={18} />}
-                value={loading ? "..." : String(deliveryCount)}
-                label="Active Deliveries"
-                trend=""
-                type="blue"
-                onClick={() => navigate("/admin/deliveries")}
-              />
-
-              <MetricCard
-                icon={<Clock size={18} />}
-                value={loading ? "..." : String(delayedCount)}
-                label="Delayed / Missing"
-                trend=""
-                type="amber"
-                onClick={() => navigate("/admin/deliveries")}
-              />
-
-              <MetricCard
-                icon={<AlertTriangle size={18} />}
-                value={loading ? "..." : String(criticalCount)}
-                label="Low Stock / Critical"
-                trend=""
-                type="red"
-                onClick={() => navigate("/admin/inventory")}
-              />
-
-              <MetricCard
-                icon={<Users size={18} />}
-                value={loading ? "..." : String(riderCount)}
-                label="Registered Riders"
-                trend=""
-                type="green"
-                onClick={() => navigate("/admin/riders")}
-              />
-            </section>
+            {breakdownRows.length === 0 ? (
+              <div className="adx-empty">
+                <span className="adx-empty-icon">
+                  <Package size={18} />
+                </span>
+                <strong>No orders yet</strong>
+                <p>Orders appear here as Sales Reps place them.</p>
+              </div>
+            ) : (
+              <div className="adx-breakdown">
+                {breakdownRows.map((key) => {
+                  const count = statusBreakdown[key];
+                  const pct = activeCount > 0 ? Math.round((count / activeCount) * 100) : 0;
+                  return (
+                    <div key={key} className="adx-breakdown-row">
+                      <StatusBadge statusKey={key} />
+                      <div className="adx-breakdown-bar">
+                        <i className={`tone-${key}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="adx-breakdown-count tnum">{count}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          <aside className="v2-rider-panel">
-            <div className="v2-rider-avatar">AB</div>
-
-            <div>
-              <h3>Arby Barruevo</h3>
-              <p>Rider ID: RTX-9824</p>
-            </div>
-
-            <div className="v2-rider-info">
+          <aside className="adx-card">
+            <div className="adx-card-head">
               <div>
-                <span>Delivery ID</span>
-                <strong>RTX-9824</strong>
+                <h2>Alerts requiring attention</h2>
+                <p>Unresolved alerts.</p>
               </div>
-
-              <div>
-                <span>Current Location</span>
-                <strong>Quezon City</strong>
-              </div>
+              <button
+                type="button"
+                className="adx-link"
+                onClick={() => navigate("/admin/alerts")}
+              >
+                Alert center
+                <ArrowRight size={14} />
+              </button>
             </div>
 
-            <button
-              type="button"
-              className="v2-outline-full"
-              onClick={() => setShowInspectModal(true)}
-            >
-              View Full Route History
-            </button>
-
-            <button
-              type="button"
-              className="v2-contact-btn"
-              onClick={handleContactRider}
-            >
-              <PhoneCall size={15} />
-              Contact Rider
-            </button>
-
-            <div className="v2-recent-alerts">
-              <div className="v2-section-head">
-                <h4>Recent Alerts</h4>
-                <button type="button" onClick={() => navigate("/admin/alerts")}>
-                  All
-                </button>
+            {recentAlerts.length === 0 ? (
+              <div className="adx-empty compact">
+                <span className="adx-empty-icon success">
+                  <CheckCircle2 size={18} />
+                </span>
+                <strong>All clear</strong>
+                <p>No active alerts right now.</p>
               </div>
-
-              {displayAlerts.map((alert) => (
-                <AlertItem
-                  key={alert.id}
-                  {...alert}
-                  onReview={() => navigate("/admin/alerts")}
-                />
-              ))}
-            </div>
+            ) : (
+              <div className="adx-alert-list">
+                {recentAlerts.slice(0, 4).map((alert) => (
+                  <button
+                    key={alert.id}
+                    type="button"
+                    className="adx-alert-row"
+                    onClick={() => navigate("/admin/alerts")}
+                  >
+                    <span
+                      className="adx-alert-dot"
+                      style={{ background: ALERT_DOT[alert.type] || "var(--gray-400,#9ca3af)" }}
+                    />
+                    <div>
+                      <strong>{alert.title}</strong>
+                      <small>{alert.desc}</small>
+                    </div>
+                    <span className="adx-alert-time">{alert.time}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </aside>
         </section>
-      </main>
 
-      {showInspectModal && (
-        <div className="v2-modal-backdrop" role="dialog" aria-modal="true">
-          <div className="v2-inspect-modal">
+        <section className="adx-card">
+          <div className="adx-card-head">
+            <div>
+              <h2>Recent orders</h2>
+              <p>Latest orders across all clinics.</p>
+            </div>
             <button
               type="button"
-              className="v2-modal-close"
-              onClick={() => setShowInspectModal(false)}
-              aria-label="Close modal"
+              className="adx-link"
+              onClick={() => navigate("/admin/deliveries")}
             >
-              <X size={18} />
-            </button>
-
-            <div className="v2-modal-icon">
-              <MapPin size={24} />
-            </div>
-
-            <h2>Route Deviation Inspection</h2>
-            <p>
-              Shipment RTX-9824 is outside the expected delivery path. Review the
-              rider status and decide the next action.
-            </p>
-
-            <div className="v2-inspection-grid">
-              <div>
-                <span>Rider</span>
-                <strong>Arby Barruevo</strong>
-              </div>
-
-              <div>
-                <span>Delivery ID</span>
-                <strong>RTX-9824</strong>
-              </div>
-
-              <div>
-                <span>Current Location</span>
-                <strong>Quezon City</strong>
-              </div>
-
-              <div>
-                <span>Deviation Distance</span>
-                <strong>1.2 km</strong>
-              </div>
-            </div>
-
-            <div className="v2-modal-actions">
-              <button
-                type="button"
-                className="v2-red-btn"
-                onClick={handleContactRider}
-              >
-                Contact Rider
-              </button>
-
-              <button
-                type="button"
-                className="v2-outline-action"
-                onClick={() => {
-                  setShowInspectModal(false);
-                  navigate("/admin/deliveries");
-                }}
-              >
-                Open Deliveries
-              </button>
-
-              <button
-                type="button"
-                className="v2-dismiss-btn"
-                onClick={() => {
-                  setShowInspectModal(false);
-                  handleDismissAlert();
-                }}
-              >
-                Mark Reviewed
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showNotifications && (
-        <div className="v2-notification-panel">
-          <div className="v2-notification-head">
-            <div>
-              <h3>Notifications</h3>
-              <p>Latest logistics activity</p>
-            </div>
-
-            <button type="button" onClick={() => setShowNotifications(false)}>
-              <X size={18} />
+              View all
+              <ArrowRight size={14} />
             </button>
           </div>
 
-          {displayAlerts.map((alert) => (
-            <div
-              key={alert.id}
-              className={`v2-notification-item ${alert.type}`}
-            >
-              <strong>{alert.title}</strong>
-              <p>{alert.desc}</p>
-              <small>{alert.time}</small>
+          {recentOrders.length === 0 ? (
+            <div className="adx-empty">
+              <span className="adx-empty-icon">
+                <Package size={18} />
+              </span>
+              <strong>No orders yet</strong>
+              <p>Orders appear here as Sales Reps place them.</p>
             </div>
-          ))}
-
-          <button
-            type="button"
-            className="v2-outline-full"
-            onClick={() => navigate("/admin/alerts")}
-          >
-            View Alert Center
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MetricCard({ icon, value, label, trend, type, onClick }) {
-  return (
-    <button
-      type="button"
-      className={`v2-metric-card ${type}`}
-      onClick={onClick}
-    >
-      <div className="v2-metric-icon">{icon}</div>
-
-      {trend && <div className="v2-trend">{trend}</div>}
-
-      <h2>{value}</h2>
-      <p>{label}</p>
-    </button>
-  );
-}
-
-function AlertItem({ title, desc, time, type, onReview }) {
-  return (
-    <div className={`v2-alert-item ${type}`}>
-      <div>
-        <strong>{title}</strong>
-        <p>{desc}</p>
-        <small>{time}</small>
-      </div>
-
-      <button type="button" onClick={onReview}>
-        Review
-      </button>
+          ) : (
+            <div className="adx-table-wrap">
+              <table className="adx-table">
+                <thead>
+                  <tr>
+                    <th>Order</th>
+                    <th>Clinic</th>
+                    <th>Vaccine</th>
+                    <th>Status</th>
+                    <th>Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentOrders.map((o) => (
+                    <tr key={o.id} onClick={() => navigate("/admin/deliveries")}>
+                      <td>
+                        <span className="adx-order-id">{o.orderNumber}</span>
+                      </td>
+                      <td>{o.clinicName}</td>
+                      <td>{o.vaccineName}</td>
+                      <td>
+                        <StatusBadge statusKey={o.statusKey} />
+                      </td>
+                      <td className="adx-td-meta">{o.time}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </main>
     </div>
   );
 }

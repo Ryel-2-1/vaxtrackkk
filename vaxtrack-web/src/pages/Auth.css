@@ -2224,3 +2224,150 @@ input[type="checkbox"]:focus {
   box-shadow: 0 0 0 1000px #ffffff inset !important;
   transition: background-color 9999s ease-in-out 0s !important;
 }
+/* ============================================================
+   MERIDIAN AUTH OVERRIDE — appended last so it wins over the
+   legacy blue layers above. Colour re-skin only: no layout,
+   no markup, no auth logic changes. Uses global tokens.css.
+   ============================================================ */
+
+/* --- Page background: calm neutral, drop the blue radial gradients ---
+   Doubled class (0,2,0) so it beats the single-class !important
+   .auth-page rules in both Auth.css and the shared styles.css. --- */
+.auth-page.auth-page {
+  background: var(--green-50) !important;
+}
+
+/* --- Brand logo tile: solid pine green (was blue→teal→green gradient).
+   Covers both the per-brand pseudo (Auth.css) and the shared card
+   pseudo `.auth-card::before` / `.refined-auth-card::before` (styles.css). --- */
+.auth-card.login-card .auth-brand::after,
+.register-brand::before,
+.register-card-v2 .register-brand::before,
+.register-card .auth-brand::before,
+.register-card .register-header::before,
+.auth-card::before,
+.refined-auth-card::before {
+  background: var(--green-700) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 24px rgba(18, 49, 38, 0.22) !important;
+}
+
+/* --- Brand wordmark: pine green (was blue) --- */
+.auth-brand h1,
+.auth-card.login-card .auth-brand h1,
+.register-card h1,
+.register-card .register-title,
+.register-card .auth-brand h1,
+.register-brand h1,
+.forgot-brand h1 {
+  color: var(--green-800) !important;
+}
+
+/* --- Primary buttons: solid Meridian green (was blue gradient) --- */
+.primary-auth-btn,
+.auth-card.login-card .primary-auth-btn,
+.register-card .primary-auth-btn,
+.register-card .primary-button,
+.register-card-v2 .primary-auth-btn,
+.primary-button {
+  background: var(--green-700) !important;
+  box-shadow: none !important;
+}
+.primary-auth-btn:hover,
+.auth-card.login-card .primary-auth-btn:hover,
+.register-card .primary-auth-btn:hover,
+.register-card .primary-button:hover,
+.register-card-v2 .primary-auth-btn:hover,
+.primary-button:hover {
+  background: var(--green-800) !important;
+  box-shadow: none !important;
+}
+
+/* --- Input focus: green ring (was blue) --- */
+.plain-auth-input:focus,
+.auth-input:focus-within,
+.auth-card.login-card .auth-input:focus-within,
+.register-card .auth-input:focus-within,
+.register-card .input-group:focus-within,
+.register-card .register-input:focus-within,
+.register-card-v2 .register-input-box:focus-within,
+.register-input-box:focus-within,
+.forgot-card .auth-input:focus-within {
+  border-color: var(--green-700) !important;
+  box-shadow: 0 0 0 3px var(--green-100) !important;
+}
+
+/* --- Text / small / forgot links: green (was blue) --- */
+.text-link,
+.text-link-inline,
+.small-link,
+.auth-card.login-card .small-link,
+.auth-card.login-card .text-link,
+.register-card .text-link,
+.register-card .inline-link,
+.register-card-v2 .text-link-inline,
+.register-card-v2 .register-terms-clean .text-link-inline,
+.back-login-link,
+.resend-code-btn {
+  color: var(--green-700) !important;
+}
+
+/* --- Icon-ghost / eye-toggle hover: green tint (was blue) --- */
+.auth-card.login-card .icon-ghost:hover,
+.register-card .icon-ghost:hover,
+.register-card .icon-button:hover,
+.register-eye-btn:hover,
+.forgot-card .icon-ghost:hover {
+  background: var(--green-50) !important;
+  color: var(--green-800) !important;
+}
+
+/* --- Google button hover border: green (was blue) --- */
+.auth-card.login-card .google-auth-btn:hover,
+.register-card .google-auth-btn:hover,
+.register-card .google-button:hover {
+  border-color: var(--green-600) !important;
+}
+
+/* --- Checkboxes checked: green (was blue) --- */
+.register-card-v2 .register-terms-clean > input[type="checkbox"]:checked {
+  background-color: var(--green-700) !important;
+  border-color: var(--green-700) !important;
+}
+.auth-card.login-card .checkbox-row input[type="checkbox"]:checked + span::before,
+.register-card-v2 .register-terms-row input[type="checkbox"]:checked + span::before {
+  background: var(--green-700) !important;
+  border-color: var(--green-700) !important;
+}
+
+/* --- Pending approval: green accents (was blue).
+   `.auth-page`-scoped (0,2,0) so it beats the single-class blue
+   rules for .pending-icon / .primary-button in the shared styles.css. --- */
+.pending-note {
+  background: var(--green-50) !important;
+}
+.pending-note svg {
+  color: var(--green-700) !important;
+}
+.auth-page .pending-icon {
+  background: var(--green-100) !important;
+  color: var(--green-700) !important;
+}
+.auth-page .primary-button {
+  background: var(--green-700) !important;
+  box-shadow: none !important;
+}
+.auth-page .primary-button:hover {
+  background: var(--green-800) !important;
+  box-shadow: none !important;
+}
+
+/* --- Forgot-password accent boxes: green (was blue) --- */
+.forgot-icon-box {
+  background: var(--green-50) !important;
+  color: var(--green-700) !important;
+}
+.forgot-help-box {
+  background: var(--green-50) !important;
+  color: var(--gray-900) !important;
+}
