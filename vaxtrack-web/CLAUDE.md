@@ -344,6 +344,34 @@ All 4 primary Dispatcher pages are Firestore-backed. Manual testing confirmed on
 
 ---
 
+## Meridian UI Redesign — in progress (visual/layout only, no logic changes)
+
+Dark-green "Meridian" design system rollout. **Visual/CSS only** — no Firestore services, data logic, route guards, status values, or Firebase reads/writes changed in any Meridian phase.
+
+**Foundations (shipped):**
+- `src/styles/tokens.css` — CSS custom properties (`--green-950…50`, `--gray-*`, semantic success/danger/warning/info-teal, radii, shadows, `.tnum`); imported globally in `main.jsx`
+- `src/styles/meridian-shell.css` — dark-green sidebar + white topbar re-skin for all three role layouts
+- `src/pages/StyleGuide.jsx` (+ `.css`) — live style guide at `/style-guide` (isolated, no Firestore)
+- Shared primitives in `src/components/ui/`: `StatusBadge.jsx` (consumes normalized `statusKey`), `KpiCard.jsx`, `ui.css`
+
+**Design rules:** dark-green brand; green=success/delivered/approved, red=urgent/delayed/cancelled, amber=loading/warning, teal=assigned/in-transit, neutral gray structure. No bright blue, no emoji avatars, no fake map art, no uppercase microlabels, no heavy shadows. Tabular numerals on all figures.
+
+**Pages redesigned & CONFIRMED WORKING:**
+| Page | Notes | Confirmed |
+|---|---|---|
+| Auth (Login / Register / Pending) | Green brand/logo/buttons/links/focus; `Auth.css` override layer appended (beat the shared `styles.css` blue rules with specificity, no `styles.css` edit) | ✅ live |
+| Admin Deliveries (table + filter bar + detail drawer) | Modal → right-side drawer with audit trail; shared StatusBadge/KpiCard | ✅ live |
+| Admin Dashboard | Removed fake "Metro Manila" map + hardcoded rider panel + fake inspect modal; added real delivery status breakdown + recent orders (derived from same `orders` array) | ✅ live |
+| Sales Rep Dashboard | Consolidated 4 redundant order widgets into one Active-orders table + Stock-to-watch + quiet quick actions | ✅ live |
+| Dispatcher Cargo Loading | Summary cards + rider checklist cards; rider cards **mock-harness verified only** — real assigned/loading-order check still pending (see test tracker) | ⚠️ partial |
+| Dispatcher Assign Rider | Emoji avatars → initials; green selected state; StatusBadge; green Confirm w/ clear disabled state | ✅ **manual real-assignment test passed 2026-07-14** — real pending order → select approved rider → Confirm → order `status: "assigned"`, `assignedRiderId/name/phone` written, reflected on Admin Deliveries + Sales Rep Order Tracking |
+
+**Verification method note:** admin/sales-rep pages were verified live by logging in as dispatcher (who can read `orders`/`alerts`/`users`/`inventory` under dev rules) via a temporary preview route that was removed after each check. All temporary routes/harnesses have been removed.
+
+**Remaining (per audit priority):** Dispatcher Shipments, Sales Rep list pages (Inventory/Request/Place/Tracking/Alerts), Admin list pages (Inventory/Clinics/Riders/Alerts), Dispatcher Dashboard remainder + Geofence tokenization, Settings pages, Admin Analytics (needs dataviz palette), Admin Invoices. Cleanup: delete dead `RegisterClinic.jsx`/`ClinicSuccess.jsx` and unused legacy CSS blocks.
+
+---
+
 ## Pulled Changes (2026-07-10, commits b67c443 + e977da4) — statically audited, runtime test pending
 
 Code pulled from a collaborator. Post-pull diagnosis (2026-07-10): builds pass, no regressions, architecture intact. **Not yet runtime-tested** — see Pending Manual Test items in `docs/VaxTrack-Test-Case-Tracker.md`.
