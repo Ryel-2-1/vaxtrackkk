@@ -105,6 +105,8 @@ To test multiple roles at once, isolate each role in its own browser profile / b
 
 **🎉 WEB MERIDIAN UI MIGRATION COMPLETE ✅ (2026-07-16):** all three web roles migrated — Admin (12 pages incl. Invoices), Sales Rep (7 pages), Dispatcher (6 pages) + shared Auth pages, each manually verified. Visual/CSS + presentational-JSX only across every batch — no Firestore services/subscriptions/writes, business logic, validation, route guards, or real data changed; fake maps + fabricated hub/AI content removed and replaced with honest states. Outstanding functional (not Meridian): Dispatcher Cargo Loading rider-checklist cards need a live real-assigned/loading-order render check (DCL-001..005 remain Pending Manual Test). Rider app is Flutter-only.
 
+**PARTIAL Runtime QA ✅ (2026-07-17, Rider-side only):** Flutter Rider e2e status updates verified live on the emulator as rider.qa2@vaxtrack.com — assigned-order receipt (query `assignedRiderId == current Auth UID`), Mark Delivered (RSU-003), Report Delay with `delayReason` (RSU-004), and immediate reflection in the Rider's own live subscription all PASSED; Flutter runtime showed no permission-denied or exceptions. NOT yet verified (blocked this session — no browser + missing Admin/Sales Rep credentials): Sales Rep fresh-order creation, Admin order visibility, Dispatcher rider assignment, Cargo Loading real rider checklist card / isLoaded toggle / Finalize dispatch (DCL-001..005), and web-side reflection of Rider status updates (RSU-005). **VT-ORD-1784056096300 remains reserved untouched in `assigned` for the Cargo Loading test.**
+
 ---
 
 ## 1. Admin — Route Protection
@@ -311,7 +313,7 @@ To test multiple roles at once, isolate each role in its own browser profile / b
 
 | Test Case ID | ISO 25010 Category | Role | Module | Test Scenario | Preconditions | Test Steps | Expected Result | Actual Result | Status | Remarks |
 |---|---|---|---|---|---|---|---|---|---|---|
-| DCL-001 | Functional Suitability | Dispatcher | CargoLoading | Orders grouped by rider | assigned/loading orders exist | Open cargo-loading | Groups per approved rider | — | Pending Manual Test | New pulled module; static review passed |
+| DCL-001 | Functional Suitability | Dispatcher | CargoLoading | Orders grouped by rider | assigned/loading orders exist | Open cargo-loading | Groups per approved rider | — | Pending Manual Test | New pulled module; static review passed. **Test order ready:** VT-ORD-1784056096300 is reserved in `assigned` (rider QA Rider Two) since 2026-07-17 for this check |
 | DCL-002 | Functional Suitability | Dispatcher | CargoLoading | Per-order loaded checkbox persists | Group visible | Toggle isLoaded | isLoaded + loadedAt/By written | — | Pending Manual Test | |
 | DCL-003 | Functional Suitability | Dispatcher | CargoLoading | Finalize dispatch batch | All orders loaded | Finalize | Batch: all → in_transit atomically | — | Pending Manual Test | Skips 'loading' status (process note) |
 | DCL-004 | Functional Suitability | Dispatcher | CargoLoading | Finalized orders reflect across roles | Finalize done | Check Shipments/Admin/SR/Rider | in_transit everywhere | — | Pending Manual Test | |
@@ -366,20 +368,22 @@ To test multiple roles at once, isolate each role in its own browser profile / b
 
 | Test Case ID | ISO 25010 Category | Role | Module | Test Scenario | Preconditions | Test Steps | Expected Result | Actual Result | Status | Remarks |
 |---|---|---|---|---|---|---|---|---|---|---|
-| RAD-001 | Functional Suitability | Rider | DeliveryService | Only own assigned orders | Orders assigned to rider | Open dashboard | orders where assignedRiderId == uid | Works | Passed | Verified live 2026-07-10 |
+| RAD-001 | Functional Suitability | Rider | DeliveryService | Only own assigned orders | Orders assigned to rider | Open dashboard | orders where assignedRiderId == uid | Works | Passed | Verified live 2026-07-10; re-confirmed 2026-07-17 (rider.qa2 sees own 4 orders incl. assigned VT-ORD-1784056096300) |
 | RAD-002 | Functional Suitability | Rider | Dashboard | Dispatcher assignment appears real-time | Dispatcher assigns | Observe app | Order appears without refresh | Appeared live | Passed | |
 | RAD-003 | Functional Suitability | Rider | DeliveryDetail | Detail fields + timeline | Assigned order | Open detail | Clinic/vaccine/type/qty/priority + timeline | Works | Passed | |
 | RAD-004 | Reliability | Rider | Screens | Loading/error/empty states | No assignments | Open lists | "No assigned deliveries yet." | Works | Passed | |
 
 ## 31. Flutter Rider — Status Updates
 
+**PARTIAL runtime QA 2026-07-17 (emulator, rider.qa2@vaxtrack.com):** Mark Delivered (VT-ORD-1783611813231) and Report Delay with reason (VT-ORD-1783010866286) both PASSED — each status write reflected immediately in the rider's own live subscription (snackbar + badge + KPI counts updated without refresh), proving the Firestore write round-trip. Flutter runtime logs showed no permission-denied and no exceptions (only benign emulator GMS/App Check warnings). NOT yet verified: Start Loading / Start Transit taps (test orders were already in_transit) and web-side reflection of rider status changes (Admin/Sales Rep/Dispatcher) — blocked this session. **Order VT-ORD-1784056096300 is reserved untouched (still `assigned`) for the Cargo Loading real-rider-card test (DCL-001..005).**
+
 | Test Case ID | ISO 25010 Category | Role | Module | Test Scenario | Preconditions | Test Steps | Expected Result | Actual Result | Status | Remarks |
 |---|---|---|---|---|---|---|---|---|---|---|
-| RSU-001 | Functional Suitability | Rider | DeliveryDetail | Start Loading (assigned → loading) | Assigned order | Tap Start Loading | status loading + audit fields | — | Pending Manual Test | Implemented; not e2e verified |
+| RSU-001 | Functional Suitability | Rider | DeliveryDetail | Start Loading (assigned → loading) | Assigned order | Tap Start Loading | status loading + audit fields | — | Pending Manual Test | Implemented; not e2e verified (2026-07-17 run had no assigned order free to consume) |
 | RSU-002 | Functional Suitability | Rider | DeliveryDetail | Start Transit (loading → in_transit) | Loading order | Tap Start Transit | status in_transit + startedAt | — | Pending Manual Test | |
-| RSU-003 | Functional Suitability | Rider | DeliveryDetail | Mark Delivered | in_transit order | Tap Mark as Delivered | status delivered + deliveredAt | — | Pending Manual Test | |
-| RSU-004 | Functional Suitability | Rider | DeliveryDetail | Report Delay with reason | Active order | Tap Report Delay, enter reason | status delayed + delayReason | — | Pending Manual Test | |
-| RSU-005 | Functional Suitability | Rider | Cross-role | Rider status change syncs to web | Rider updates status | Check Dispatcher/Admin/SR pages | All reflect new status live | — | Pending Manual Test | Next planned phase |
+| RSU-003 | Functional Suitability | Rider | DeliveryDetail | Mark Delivered | in_transit order | Tap Mark as Delivered | status delivered + deliveredAt | Snackbar "Status updated to delivered"; order moved to Completed with Delivered badge; KPI Completed 0→1 live | Passed | Verified live 2026-07-17 on VT-ORD-1783611813231 |
+| RSU-004 | Functional Suitability | Rider | DeliveryDetail | Report Delay with reason | Active order | Tap Report Delay, enter reason | status delayed + delayReason | Snackbar "Status updated to delayed"; Delayed badge on dashboard; reason "Heavy traffic on EDSA - QA test delay" submitted | Passed | Verified live 2026-07-17 on VT-ORD-1783010866286 |
+| RSU-005 | Functional Suitability | Rider | Cross-role | Rider status change syncs to web | Rider updates status | Check Dispatcher/Admin/SR pages | All reflect new status live | — | Pending Manual Test | Rider-side live reflection confirmed 2026-07-17; web-side reflection still unverified (session browser block) |
 
 ## 32. Flutter Rider — Proof Upload / Location
 
@@ -396,8 +400,8 @@ To test multiple roles at once, isolate each role in its own browser profile / b
 
 | Status | Count |
 |---|---|
-| Passed | 95 |
-| Pending Manual Test | 26 |
+| Passed | 97 |
+| Pending Manual Test | 24 |
 | Not Applicable | 2 |
 | Failed | 0 |
 | **Total** | **123** |

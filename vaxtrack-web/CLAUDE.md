@@ -452,8 +452,17 @@ Rider mobile app lives in the separate `vaxtrack_mobile` repo (structured lib/: 
 - Status labels match web: Assigned/Loading/In Transit/Delayed/Delivered/Cancelled; Active lists exclude cancelled; empty state "No assigned deliveries yet."
 - **Verified live:** Dispatcher assigned an order on web → order appeared on Rider Dashboard in real time (urgent banner, badges, card) → detail screen showed all fields + status timeline
 
+**Rider Status Updates — PARTIAL runtime QA ✅ (2026-07-17, emulator, rider.qa2@vaxtrack.com):**
+- ✅ **PASSED — Rider receives assigned orders:** dashboard shows only own orders via `assignedRiderId == FirebaseAuth.currentUser.uid` query (re-confirmed live)
+- ✅ **PASSED — Mark Delivered** (VT-ORD-1783611813231): snackbar "Status updated to delivered", order moved to Completed with Delivered badge, KPI Completed count updated live
+- ✅ **PASSED — Report Delay with reason** (VT-ORD-1783010866286): reason submitted via dialog, snackbar "Status updated to delayed", Delayed badge on dashboard — `delayReason` write path exercised
+- ✅ **PASSED — Rider status updates reflect immediately in the Rider's own live subscription** (no refresh needed — proves Firestore write + snapshot round-trip)
+- ✅ **PASSED — Flutter runtime clean:** no permission-denied, no exceptions during status writes (only benign emulator GMS/App Check warnings)
+- ⏳ **NOT yet verified:** Start Loading / Start Transit taps (both test orders were already in_transit); web-side reflection of Rider status updates on Admin/Sales Rep/Dispatcher pages (session browser block); Sales Rep fresh-order creation; Admin order visibility; Dispatcher rider assignment; Cargo Loading real rider checklist card / isLoaded toggle / Finalize dispatch
+- 📌 **Order VT-ORD-1784056096300 is reserved untouched in `assigned` (rider: QA Rider Two) for the Cargo Loading real-rider-card test (DCL-001..005)** — do not consume it from the Rider app
+
 **Implemented but NOT yet e2e-tested (next phase):**
-- Rider status updates (Start Loading → Start Transit → Mark Delivered, Report Delay with reason) — code exists in `delivery_detail_screen.dart` + `delivery_service.dart` with audit fields
+- Rider Start Loading / Start Transit taps (assigned → loading → in_transit) — code exists in `delivery_detail_screen.dart` + `delivery_service.dart` with audit fields; delivered/delayed paths verified 2026-07-17
 - Proof of delivery / invoice photo upload to Firebase Storage (`proof_of_delivery/{orderId}/`, `invoices/{orderId}/`)
 - Location writes: `users/{uid}.lastLocation` on dashboard load, `orders/{id}.lastLocation` on status change — these will activate the web Geofence page's live-location display
 
