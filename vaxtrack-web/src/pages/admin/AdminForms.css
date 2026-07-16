@@ -1,0 +1,187 @@
+/* ============================================================
+   Meridian override layer — Admin Add Vaccine / Add Stock forms.
+
+   The form classes (.blue-btn, .outline-btn, input/select, .vaccine-form-card,
+   .form-section-card, .step-tabs, .number-stepper, …) are defined in the shared
+   global styles.css, which also serves other modules. Rather than edit that
+   file, every rule here is scoped under `.inventory-main` — the <main> wrapper
+   used ONLY by these two form pages (all other admin pages use their own
+   *-v2/v3 main class), so it wins by specificity and touches nothing else.
+   Visual/token-only — no geometry or behavior changed.
+   ============================================================ */
+
+.inventory-page .inventory-main {
+  background: var(--gray-50);
+  font-family: var(--font-ui);
+}
+
+/* Breadcrumb + heading */
+.inventory-main .form-page-header p span {
+  color: var(--green-700);
+}
+
+.inventory-main .form-page-header h1 {
+  color: var(--gray-900);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.inventory-main .form-page-header small {
+  color: var(--gray-600);
+}
+
+/* Form cards: subtle border, 12px radius, light shadow */
+.inventory-main .vaccine-form-card,
+.inventory-main .form-section-card {
+  border: var(--border-card);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+
+.inventory-main .vaccine-form-card h2,
+.inventory-main .form-section-card h2 {
+  color: var(--gray-900);
+  font-weight: 700;
+}
+
+/* Card heading icon tile: blue → Meridian green */
+.inventory-main .vaccine-form-card h2 span,
+.inventory-main .form-section-card h2 svg {
+  background: var(--green-700);
+  color: #ffffff;
+}
+
+/* Labels: sentence weight, neutral */
+.inventory-main label {
+  color: var(--gray-600);
+  font-weight: 600;
+}
+
+/* Inputs / selects: neutral border, green focus ring */
+.inventory-main input,
+.inventory-main select {
+  border: 1px solid var(--gray-300);
+  background: #ffffff;
+}
+
+.inventory-main input:focus,
+.inventory-main select:focus {
+  border-color: var(--green-700);
+  box-shadow: 0 0 0 3px var(--green-100);
+}
+
+/* Keep the number stepper's inner input borderless (parent draws the border) */
+.inventory-main .number-stepper {
+  border: 1px solid var(--gray-300);
+  background: #ffffff;
+}
+
+.inventory-main .number-stepper input {
+  border: none;
+  background: transparent;
+}
+
+.inventory-main .number-stepper input:focus {
+  border: none;
+  box-shadow: none;
+}
+
+/* Step tabs (Add Stock) */
+.inventory-main .step-tabs span.active {
+  color: var(--green-700);
+  border-bottom-color: var(--green-700);
+}
+
+/* "Add type" inline helper */
+.inventory-main .mini-link-btn {
+  color: var(--green-700);
+}
+
+.inventory-main .add-type-box {
+  border: 1px dashed var(--gray-300);
+  background: var(--gray-50);
+}
+
+/* Buttons: primary green, secondary neutral */
+.inventory-main .blue-btn {
+  background: var(--green-700);
+}
+
+.inventory-main .blue-btn:hover {
+  background: var(--green-800);
+  transform: none;
+}
+
+.inventory-main .outline-btn {
+  border: 1px solid var(--gray-300);
+  color: var(--gray-900);
+}
+
+.inventory-main .outline-btn:hover {
+  background: var(--gray-50);
+  transform: none;
+}
+
+/* ------------------------------------------------------------
+   Basic Information layout alignment (Add Vaccine + shared)
+   ------------------------------------------------------------ */
+
+/* Two-column grid: even gap, columns top-aligned */
+.inventory-main .two-col-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+/* Normalize the label row above each field so both columns line up.
+   Left column uses a bare <label>; right column uses .label-with-action
+   (label + "Add Type"). Give both the same height + bottom margin so the
+   Manufacturer input and the Vaccine Type select start at the same line. */
+.inventory-main .two-col-form > div > label,
+.inventory-main .two-col-form .label-with-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 22px;
+  margin: 0 0 8px;
+}
+
+/* The label inside the action row must not add its own bottom margin */
+.inventory-main .label-with-action label {
+  min-height: 0;
+  margin: 0;
+}
+
+/* "Add Type" sits neatly in the label row, not floating above the select */
+.inventory-main .mini-link-btn {
+  height: 22px;
+  padding: 0;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* Icon-in-field: vertically center the icon (global rule only sets left) */
+.inventory-main .field-with-icon svg {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* Section labels (Vaccine Name, Internal Inventory SKU) get breathing room;
+   the first label right after the card heading keeps its existing spacing. */
+.inventory-main .vaccine-form-card > label {
+  margin-top: 20px;
+}
+
+.inventory-main .vaccine-form-card > h2 + label {
+  margin-top: 0;
+}
+
+/* SKU helper text + validation message spacing (no cramped overlap) */
+.inventory-main .input-helper {
+  margin-top: 8px;
+}
+
+.inventory-main .form-response,
+.inventory-main .form-error {
+  margin-top: 14px;
+}

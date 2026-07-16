@@ -2,15 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
-  AlertTriangle,
   Bell,
-  Bike,
-  CheckCircle2,
   CircleHelp,
-  Clock3,
-  MapPin,
-  Minus,
-  Navigation,
   PhoneCall,
   Plus,
   Search,
@@ -21,6 +14,7 @@ import {
 import { auth } from "../../firebase";
 import { AdminSidebar } from "./Inventory";
 import { subscribeRiders, updateRiderStatus } from "../../services/riderService";
+import KpiCard from "../../components/ui/KpiCard";
 import "./Riders.css";
 
 const UI_STATUS_MAP = {
@@ -99,7 +93,6 @@ function Riders() {
   const [showNewRiderModal, setShowNewRiderModal] = useState(false);
   const [selectedDelivery, setSelectedDelivery] = useState(pendingDeliveries[0]);
   const [toast, setToast] = useState("");
-  const [mapZoom, setMapZoom] = useState(100);
 
   const [newRider, setNewRider] = useState({
     name: "",
@@ -227,112 +220,37 @@ function Riders() {
         </header>
 
         <section className="riders-summary-grid">
-          <RiderSummaryCard
-            icon={<Users size={19} />}
+          <KpiCard
+            label="Total riders"
             value={riders.length}
-            label="Total Riders"
-            note="Registered rider accounts"
-            type="blue"
+            context="Registered rider accounts"
+            tone="neutral"
             onClick={() => setStatusFilter("all")}
           />
 
-          <RiderSummaryCard
-            icon={<Clock3 size={19} />}
-            value={standbyCount}
+          <KpiCard
             label="Standby"
-            note="Available for assignment"
-            type="green"
+            value={standbyCount}
+            context="Available for assignment"
+            tone="success"
             onClick={() => setStatusFilter("standby")}
           />
 
-          <RiderSummaryCard
-            icon={<AlertTriangle size={19} />}
+          <KpiCard
+            label="Off duty / pending"
             value={offDutyCount}
-            label="Off Duty / Pending"
-            note="Not currently available"
-            type="red"
+            context="Not currently available"
+            tone="warning"
             onClick={() => setStatusFilter("offduty")}
           />
 
-          <RiderSummaryCard
-            icon={<CheckCircle2 size={19} />}
+          <KpiCard
+            label="On-time rate"
             value="—"
-            label="On-Time Rate"
-            note="Delivery data not yet available"
-            type="amber"
+            context="Delivery data not yet available"
+            tone="neutral"
             onClick={() => showToast("Delivery performance data not yet available.")}
           />
-        </section>
-
-        <section className="riders-map-section">
-          <div className="riders-map-card">
-            <div className="riders-map-head">
-              <div>
-                <h2>Live Fleet Map</h2>
-                <p>Click a marker to view rider details.</p>
-              </div>
-
-              <div className="riders-map-status">
-                <span>{standbyCount} Standby</span>
-                <span>{offDutyCount} Off Duty</span>
-                <span>{mapZoom}%</span>
-              </div>
-            </div>
-
-            <div className="riders-fleet-map">
-              <div className="riders-map-road one"></div>
-              <div className="riders-map-road two"></div>
-              <div className="riders-map-road three"></div>
-
-              <strong className="riders-map-label manila">Manila</strong>
-              <strong className="riders-map-label makati">Makati City</strong>
-              <strong className="riders-map-label qc">Quezon City</strong>
-
-              {filteredRiders.map((rider, index) => (
-                <button
-                  type="button"
-                  key={rider.uid}
-                  className={`riders-map-marker marker-${index + 1} ${rider.status}`}
-                  onClick={() => setSelectedRider(rider)}
-                  title={rider.name}
-                >
-                  {rider.status === "standby" ? (
-                    <Bike size={15} />
-                  ) : (
-                    <MapPin size={15} />
-                  )}
-                </button>
-              ))}
-
-              <div className="riders-map-controls">
-                <button
-                  type="button"
-                  onClick={() => setMapZoom((prev) => Math.min(prev + 10, 160))}
-                >
-                  <Plus size={18} />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setMapZoom((prev) => Math.max(prev - 10, 70))}
-                >
-                  <Minus size={18} />
-                </button>
-              </div>
-
-              <button
-                type="button"
-                className="riders-recenter-btn"
-                onClick={() => {
-                  setMapZoom(100);
-                  showToast("Fleet map recentered.");
-                }}
-              >
-                <Navigation size={14} />
-                Recenter Map
-              </button>
-            </div>
-          </div>
         </section>
 
         <section className="riders-filter-row">
@@ -518,23 +436,6 @@ function Riders() {
         />
       )}
     </div>
-  );
-}
-
-function RiderSummaryCard({ icon, value, label, note, type, onClick }) {
-  return (
-    <button
-      type="button"
-      className={`riders-summary-card ${type}`}
-      onClick={onClick}
-    >
-      <div className="riders-summary-icon">{icon}</div>
-      <div>
-        <h2>{value}</h2>
-        <p>{label}</p>
-        <small>{note}</small>
-      </div>
-    </button>
   );
 }
 

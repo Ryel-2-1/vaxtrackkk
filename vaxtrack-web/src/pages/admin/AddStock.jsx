@@ -7,6 +7,7 @@ import {
   batchIdExists,
   addStockBatch,
 } from "../../services/vaccineService";
+import "./AdminForms.css";
 
 function AddStock() {
   const navigate = useNavigate();

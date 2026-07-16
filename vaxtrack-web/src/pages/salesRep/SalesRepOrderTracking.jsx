@@ -20,6 +20,7 @@ import {
 } from "../../services/deliveryService";
 import { auth } from "../../firebase";
 import SalesRepLayout from "./SalesRepLayout";
+import StatusBadge from "../../components/ui/StatusBadge";
 
 function mapTrackingLabel(statusKey) {
   switch (statusKey) {
@@ -356,7 +357,7 @@ function SalesRepOrderTracking() {
                 </div>
 
                 <p>
-                  {selectedOrder.priority === "Urgent" ? "⚡ Urgent" : "Standard"} · {selectedOrder.date}
+                  {selectedOrder.priority === "Urgent" ? "Urgent" : "Standard"} · {selectedOrder.date}
                 </p>
 
                 <div className="tracking-v2-side-actions">
@@ -371,9 +372,9 @@ function SalesRepOrderTracking() {
                 </div>
 
                 <h3>Delivery Status</h3>
-                <div className={`mini-map tracking-v2-mini-map ${selectedOrder.status.toLowerCase().replaceAll(" ", "-")}`}>
-                  <div className="tracking-v2-route-line" />
-                  <span>{selectedOrder.status} · Rider: {selectedOrder.driverName}</span>
+                <div className="tracking-v2-status-strip">
+                  <StatusBadge statusKey={selectedOrder.statusKey} label={selectedOrder.status} />
+                  <span>Rider: {selectedOrder.driverName}</span>
                 </div>
 
                 <div className="tracking-v2-info-box">
@@ -438,7 +439,6 @@ function SalesRepOrderTracking() {
 
 function TrackingRow({ selected, order, onSelect }) {
   const isDanger = order.statusKey === "delayed";
-  const statusClass = order.status.toLowerCase().replaceAll(" ", "-");
 
   return (
     <tr
@@ -463,7 +463,7 @@ function TrackingRow({ selected, order, onSelect }) {
       <td>{order.date}</td>
 
       <td>
-        <span className={`track-status ${statusClass}`}>{order.status}</span>
+        <StatusBadge statusKey={order.statusKey} label={order.status} />
       </td>
 
       <td>

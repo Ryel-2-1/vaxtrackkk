@@ -4,19 +4,17 @@ import { useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
   Activity,
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
+  Building2,
   FileDown,
   Lightbulb,
   MoreVertical,
-  Truck,
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
 import { AdminSidebar } from "./Inventory";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeAllAlerts } from "../../services/alertService";
+import KpiCard from "../../components/ui/KpiCard";
 
 const MS_PER_DAY = 86400000;
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -24,42 +22,6 @@ const HEATMAP_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const HEATMAP_PERIODS = ["Morning", "Afternoon", "Evening"];
 
 const RANGE_LABELS = { "7": "Last 7 Days", "30": "Last 30 Days", "90": "Last 90 Days" };
-
-// No hubs collection exists — kept as static reference data
-const STATIC_HUBS = [
-  {
-    location: "Manila Central",
-    rate: "94.5%",
-    incidents: 2,
-    status: "Optimal",
-    statusKey: "optimal",
-    recommendation: "Continue current dispatch schedule.",
-  },
-  {
-    location: "Cebu Hub Alpha",
-    rate: "96.2%",
-    incidents: 5,
-    status: "Optimal",
-    statusKey: "optimal",
-    recommendation: "Maintain current staffing and cold-chain process.",
-  },
-  {
-    location: "Davao Logistics Ctr",
-    rate: "91.4%",
-    incidents: 12,
-    status: "Review",
-    statusKey: "review",
-    recommendation: "Review rider availability during afternoon peak hours.",
-  },
-  {
-    location: "Baguio Sub-Hub",
-    rate: "88.9%",
-    incidents: 14,
-    status: "Critical",
-    statusKey: "critical",
-    recommendation: "Increase monitoring for route deviation and delayed trips.",
-  },
-];
 
 function getOrderMs(order) {
   return order.createdAt?.toMillis?.() ?? 0;
@@ -342,37 +304,35 @@ function Analytics() {
         </header>
 
         <section className="analytics-kpi-grid">
-          <MetricCard
-            icon={<Truck size={20} />}
-            title="Total Orders"
+          <KpiCard
+            label="Total orders"
             value={totalDeliveries.toLocaleString()}
-            note={`${rangeLabel}${vaccineFilter !== "all" ? ` · ${vaccineFilter}` : ""}`}
-            type="blue"
+            context={`${rangeLabel}${vaccineFilter !== "all" ? ` · ${vaccineFilter}` : ""}`}
+            tone="neutral"
             onClick={() =>
               openModal({
-                title: "Total Orders",
+                title: "Total orders",
                 description: `Orders for ${rangeLabel}.`,
                 rows: [
-                  ["Selected Region", regionFilter === "all" ? "All Regions" : regionFilter],
-                  ["Selected Vaccine", vaccineFilter === "all" ? "All Vaccines" : vaccineFilter],
-                  ["Order Count", totalDeliveries.toLocaleString()],
+                  ["Selected region", regionFilter === "all" ? "All regions" : regionFilter],
+                  ["Selected vaccine", vaccineFilter === "all" ? "All vaccines" : vaccineFilter],
+                  ["Order count", totalDeliveries.toLocaleString()],
                 ],
               })
             }
           />
 
-          <MetricCard
-            icon={<Clock size={20} />}
-            title="Average Delivery Time"
+          <KpiCard
+            label="Average delivery time"
             value="—"
-            note="No dispatch/arrival timestamps yet"
-            type="amber"
+            context="No dispatch/arrival timestamps yet"
+            tone="neutral"
             onClick={() =>
               openModal({
-                title: "Average Delivery Time",
+                title: "Average delivery time",
                 description: "Average time from hub dispatch to clinic delivery.",
                 rows: [
-                  ["Current Average", "Not available"],
+                  ["Current average", "Not available"],
                   ["Reason", "No dispatch or arrival timestamps are recorded in orders yet"],
                   ["Recommendation", "Add dispatch and delivery timestamps to enable this metric"],
                 ],
@@ -380,39 +340,38 @@ function Analytics() {
             }
           />
 
-          <MetricCard
-            icon={<CheckCircle2 size={20} />}
-            title="Completion Rate"
+          <KpiCard
+            label="Completion rate"
             value={onTimeRate}
-            note={totalDeliveries > 0 ? `${completedCount} of ${totalDeliveries} completed` : "No orders in range"}
-            type="green"
+            context={totalDeliveries > 0 ? `${completedCount} of ${totalDeliveries} completed` : "No orders in range"}
+            tone="success"
             onClick={() =>
               openModal({
-                title: "Completion Rate",
+                title: "Completion rate",
                 description: "Percentage of orders with delivered/completed status.",
                 rows: [
                   ["Completed", completedCount],
-                  ["Total Orders", totalDeliveries],
+                  ["Total orders", totalDeliveries],
                   ["Rate", onTimeRate],
                 ],
               })
             }
           />
 
-          <MetricCard
-            icon={<AlertTriangle size={20} />}
-            title="Active Alerts"
+          <KpiCard
+            label="Active alerts"
             value={alertCount}
-            note={`${delayedCount} delayed order${delayedCount !== 1 ? "s" : ""}`}
-            type="red"
+            context={`${delayedCount} delayed order${delayedCount !== 1 ? "s" : ""}`}
+            tone="danger"
+            attention={alertCount > 0 || delayedCount > 0}
             onClick={() =>
               openModal({
-                title: "Active Alerts",
+                title: "Active alerts",
                 description: "Unresolved alerts and delayed orders.",
                 rows: [
-                  ["Unresolved Alerts", alertCount],
-                  ["Delayed Orders", delayedCount],
-                  ["Suggested Action", "Review alerts and delayed orders for intervention"],
+                  ["Unresolved alerts", alertCount],
+                  ["Delayed orders", delayedCount],
+                  ["Suggested action", "Review alerts and delayed orders for intervention"],
                 ],
               })
             }
@@ -521,7 +480,7 @@ function Analytics() {
             </div>
 
             <div>
-              <h2>AI Logistics Insight</h2>
+              <h2>Operational insight</h2>
               <p>
                 {delayedCount > 0
                   ? `There ${delayedCount === 1 ? "is" : "are"} currently ${delayedCount} delayed order${delayedCount !== 1 ? "s" : ""}. Review delayed shipments and consider assigning additional riders during peak hours.`
@@ -532,8 +491,8 @@ function Analytics() {
                 type="button"
                 onClick={() =>
                   openModal({
-                    title: "AI Logistics Insight",
-                    description: "Decision-support insight based on current order data.",
+                    title: "Operational insight",
+                    description: "Rule-based insight derived from current order and alert data.",
                     rows: [
                       ["Delayed Orders", delayedCount],
                       ["Active Alerts", alertCount],
@@ -549,63 +508,18 @@ function Analytics() {
 
           <section className="analytics-card analytics-hub-card">
             <div className="analytics-card-title-row">
-              <h2>Hub Performance Ranking</h2>
-              <button
-                type="button"
-                onClick={() =>
-                  openModal({
-                    title: "All Hub Rankings",
-                    description: "Hub performance data is static — no hubs collection exists yet.",
-                    rows: STATIC_HUBS.map((hub) => [
-                      hub.location,
-                      `${hub.rate} on-time, ${hub.incidents} incidents, ${hub.status}`,
-                    ]),
-                  })
-                }
-              >
-                View All +
-              </button>
+              <h2>Hub performance ranking</h2>
             </div>
 
-            <table className="analytics-hub-table">
-              <thead>
-                <tr>
-                  <th>Hub Location</th>
-                  <th>On-Time Rate</th>
-                  <th>Incidents</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {STATIC_HUBS.map((hub) => (
-                  <tr
-                    key={hub.location}
-                    onClick={() =>
-                      openModal({
-                        title: hub.location,
-                        description: "Hub performance details (static data).",
-                        rows: [
-                          ["On-Time Rate", hub.rate],
-                          ["Incident Reports", hub.incidents],
-                          ["Status", hub.status],
-                          ["Recommendation", hub.recommendation],
-                        ],
-                      })
-                    }
-                  >
-                    <td>{hub.location}</td>
-                    <td>{hub.rate}</td>
-                    <td>{hub.incidents}</td>
-                    <td>
-                      <span className={`analytics-hub-status ${hub.statusKey}`}>
-                        {hub.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="analytics-empty-state">
+              <Building2 size={26} />
+              <strong>Hub ranking not available yet</strong>
+              <p>
+                Per-hub on-time and incident metrics will appear here once a hubs
+                data source and per-order hub assignment are recorded. No hub data
+                is fabricated in the meantime.
+              </p>
+            </div>
           </section>
 
           <section className="analytics-card analytics-heatmap-card">
@@ -659,20 +573,6 @@ function Analytics() {
         <AnalyticsModal modal={selectedModal} onClose={() => setSelectedModal(null)} />
       )}
     </div>
-  );
-}
-
-function MetricCard({ icon, title, value, note, type, onClick }) {
-  return (
-    <button type="button" className={`analytics-metric-card ${type}`} onClick={onClick}>
-      <div className="analytics-metric-icon">{icon}</div>
-
-      <div>
-        <p>{title}</p>
-        <h2>{value}</h2>
-        <small>{note}</small>
-      </div>
-    </button>
   );
 }
 

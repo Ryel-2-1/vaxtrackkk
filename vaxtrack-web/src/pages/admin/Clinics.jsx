@@ -4,16 +4,13 @@ import { signOut } from "firebase/auth";
 import {
   Bell,
   Building2,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   CircleHelp,
-  Clock3,
   Edit,
   Grid3X3,
   Plus,
   Search,
-  Truck,
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
@@ -23,6 +20,7 @@ import {
   clinicNameExists,
   addClinic,
 } from "../../services/clinicService";
+import KpiCard from "../../components/ui/KpiCard";
 import "./Clinics.css";
 
 const STATUS_LABEL = {
@@ -250,36 +248,33 @@ function Clinics() {
         </header>
 
         <section className="clinics-summary-grid">
-          <ClinicSummaryCard
-            icon={<Building2 size={19} />}
+          <KpiCard
+            label="Total clinics"
             value={clinics.length}
-            label="Total Clinics"
-            note="Affiliated facilities"
-            type="blue"
+            context="Affiliated facilities"
+            tone="neutral"
             onClick={() => handleStatusFilter("all")}
           />
-          <ClinicSummaryCard
-            icon={<CheckCircle2 size={19} />}
+          <KpiCard
+            label="Active clinics"
             value={activeCount}
-            label="Active Clinics"
-            note="Ready for deliveries"
-            type="green"
+            context="Ready for deliveries"
+            tone="success"
             onClick={() => handleStatusFilter("active")}
           />
-          <ClinicSummaryCard
-            icon={<Clock3 size={19} />}
+          <KpiCard
+            label="Pending resupply"
             value={pendingCount}
-            label="Pending Resupply"
-            note="Needs stock review"
-            type="amber"
+            context="Needs stock review"
+            tone="warning"
             onClick={() => handleStatusFilter("pending")}
           />
-          <ClinicSummaryCard
-            icon={<Truck size={19} />}
+          <KpiCard
+            label="Overdue delivery"
             value={overdueCount}
-            label="Overdue Delivery"
-            note="Requires follow-up"
-            type="red"
+            context="Requires follow-up"
+            tone="danger"
+            attention
             onClick={() => handleStatusFilter("overdue")}
           />
         </section>
@@ -329,10 +324,10 @@ function Clinics() {
           <table className="clinics-v2-table">
             <thead>
               <tr>
-                <th>Clinic Name</th>
+                <th>Clinic name</th>
                 <th>Location</th>
-                <th>Contact Person</th>
-                <th>Last Delivery</th>
+                <th>Contact person</th>
+                <th>Last delivery</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
@@ -519,23 +514,6 @@ function Clinics() {
         />
       )}
     </div>
-  );
-}
-
-function ClinicSummaryCard({ icon, value, label, note, type, onClick }) {
-  return (
-    <button
-      type="button"
-      className={`clinics-summary-card ${type}`}
-      onClick={onClick}
-    >
-      <div className="clinics-summary-icon">{icon}</div>
-      <div>
-        <h2>{value}</h2>
-        <p>{label}</p>
-        <small>{note}</small>
-      </div>
-    </button>
   );
 }
 

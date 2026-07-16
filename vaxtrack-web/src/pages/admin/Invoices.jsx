@@ -4,7 +4,6 @@ import { signOut } from "firebase/auth";
 import {
   AlertTriangle,
   CheckCircle2,
-  ClipboardList,
   FileText,
   Loader2,
   Printer,
@@ -17,6 +16,7 @@ import {
   subscribeInvoiceQueue,
   updateInvoicePriority,
 } from "../../services/invoiceService";
+import KpiCard from "../../components/ui/KpiCard";
 import "./Invoices.css";
 
 const PRIORITY_OPTIONS = ["Normal", "High", "Urgent"];
@@ -166,29 +166,26 @@ function Invoices() {
         </header>
 
         <section className="inv-summary-grid">
-          <SummaryCard
-            icon={<ClipboardList size={18} />}
+          <KpiCard
+            label="Pending invoices"
             value={summary.pending}
-            label="Pending Invoices"
-            tone="blue"
+            tone="neutral"
           />
-          <SummaryCard
-            icon={<AlertTriangle size={18} />}
+          <KpiCard
+            label="High priority"
             value={summary.highPriority}
-            label="High Priority"
-            tone="red"
+            tone="danger"
+            attention={summary.highPriority > 0}
           />
-          <SummaryCard
-            icon={<CheckCircle2 size={18} />}
+          <KpiCard
+            label="Issued today"
             value={summary.issuedToday}
-            label="Issued Today"
-            tone="green"
+            tone="success"
           />
-          <SummaryCard
-            icon={<FileText size={18} />}
+          <KpiCard
+            label="Total issued"
             value={summary.totalIssued}
-            label="Total Issued"
-            tone="slate"
+            tone="neutral"
           />
         </section>
 
@@ -261,12 +258,12 @@ function Invoices() {
               <thead>
                 <tr>
                   <th>Order ID</th>
-                  <th>Customer / Clinic</th>
-                  <th>Sales Rep</th>
-                  <th>Order Date</th>
+                  <th>Customer / clinic</th>
+                  <th>Sales rep</th>
+                  <th>Order date</th>
                   <th>Qty</th>
                   <th>Amount</th>
-                  <th>Invoice Status</th>
+                  <th>Invoice status</th>
                   <th>Priority</th>
                   <th>Action</th>
                 </tr>
@@ -375,18 +372,6 @@ function Invoices() {
           )}
         </section>
       </main>
-    </div>
-  );
-}
-
-function SummaryCard({ icon, value, label, tone }) {
-  return (
-    <div className={`inv-summary-card ${tone}`}>
-      <div className="inv-summary-icon">{icon}</div>
-      <div>
-        <h2>{value}</h2>
-        <p>{label}</p>
-      </div>
     </div>
   );
 }

@@ -7,7 +7,6 @@ import {
   Bell,
   Box,
   Building2,
-  CheckCircle2,
   FileDown,
   FileText,
   LayoutDashboard,
@@ -16,13 +15,13 @@ import {
   Plus,
   Search,
   Settings,
-  Thermometer,
   Truck,
   Users,
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
 import { subscribeInventory } from "../../services/inventoryService";
+import KpiCard from "../../components/ui/KpiCard";
 import "./Inventory.css";
 
 function getDaysUntilExpiry(rawDateStr) {
@@ -250,39 +249,36 @@ function Inventory() {
         </header>
 
         <section className="v2-inventory-summary-grid">
-          <SummaryCard
-            icon={<Package size={20} />}
-            title="Total Batches"
+          <KpiCard
+            label="Total batches"
             value={loading ? "—" : inventory.length}
-            note="Across all vaccine types"
-            type="blue"
+            context="Across all vaccine types"
+            tone="neutral"
             onClick={() => setStatusFilter("all")}
           />
 
-          <SummaryCard
-            icon={<AlertTriangle size={20} />}
-            title="Critical Stock"
+          <KpiCard
+            label="Critical stock"
             value={loading ? "—" : inventory.filter((i) => i.level === "critical").length}
-            note="Needs immediate review"
-            type="red"
+            context="Needs immediate review"
+            tone="danger"
+            attention
             onClick={() => setStatusFilter("critical")}
           />
 
-          <SummaryCard
-            icon={<Thermometer size={20} />}
-            title="Warning Batches"
+          <KpiCard
+            label="Warning batches"
             value={loading ? "—" : inventory.filter((i) => i.level === "warning").length}
-            note="Temperature exceptions"
-            type="amber"
+            context="Temperature exceptions"
+            tone="warning"
             onClick={() => setStatusFilter("warning")}
           />
 
-          <SummaryCard
-            icon={<CheckCircle2 size={20} />}
-            title="Stable Batches"
+          <KpiCard
+            label="Stable batches"
             value={loading ? "—" : inventory.filter((i) => i.level === "stable").length}
-            note="No action required"
-            type="green"
+            context="No action required"
+            tone="success"
             onClick={() => setStatusFilter("stable")}
           />
         </section>
@@ -394,10 +390,10 @@ function Inventory() {
                       onChange={toggleAll}
                     />
                   </th>
-                  <th>Vaccine Name</th>
+                  <th>Vaccine name</th>
                   <th>Batch ID</th>
-                  <th>Expiry Date</th>
-                  <th>Remaining Qty</th>
+                  <th>Expiry date</th>
+                  <th>Remaining qty</th>
                   <th>Temp</th>
                   <th>Status</th>
                 </tr>
@@ -591,20 +587,6 @@ function Inventory() {
         </div>
       )}
     </div>
-  );
-}
-
-function SummaryCard({ icon, title, value, note, type, onClick }) {
-  return (
-    <button type="button" className={`v2-summary-card ${type}`} onClick={onClick}>
-      <div className="v2-summary-icon">{icon}</div>
-
-      <div>
-        <p>{title}</p>
-        <h2>{value}</h2>
-        <small>{note}</small>
-      </div>
-    </button>
   );
 }
 

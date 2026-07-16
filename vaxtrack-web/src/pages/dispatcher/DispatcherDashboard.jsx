@@ -7,6 +7,7 @@ import { subscribeActiveAlerts } from "../../services/alertService";
 import {
   AlertTriangle,
   Clock3,
+  Info,
   Loader2,
   Navigation,
   PackageCheck,
@@ -196,49 +197,26 @@ function DispatcherDashboard() {
           <div className="dispatcher-dash-monitor-card">
             <div className="dispatcher-dash-card-head">
               <div>
-                <span className="card-kicker">Live Delivery Monitoring</span>
-                <h2>Metro Manila Delivery Network</h2>
+                <span className="card-kicker">Delivery monitoring</span>
+                <h2>Active delivery overview</h2>
               </div>
 
               <div className="dispatcher-dash-badges">
-                <span className="green">{activeDeliveries} Active</span>
-                <span className="red">{delayedDeliveries} Delayed</span>
+                <span className="green">{activeDeliveries} active</span>
+                <span className="red">{delayedDeliveries} delayed</span>
               </div>
             </div>
 
-            <div className="dispatcher-dash-map">
-              <div className="map-grid-bg"></div>
-
-              <span className="dash-route dash-route-a"></span>
-              <span className="dash-route dash-route-b"></span>
-              <span className="dash-route dash-route-c"></span>
-              <span className="dash-route dash-route-d"></span>
-              <span className="dash-route dash-route-e"></span>
-
-              <span className="dash-node node-a"></span>
-              <span className="dash-node node-b"></span>
-              <span className="dash-node node-c"></span>
-              <span className="dash-node node-d"></span>
-              <span className="dash-node node-e"></span>
-              <span className="dash-node node-f"></span>
-
-              <div className="dash-moving-rider">
-                <Truck size={18} />
+            <div className="dispatcher-dash-monitor-note">
+              <Info size={16} />
+              <div>
+                <strong>Live map view not yet active.</strong>
+                <p>
+                  Route and geofence map tracking will activate once the Rider
+                  mobile app begins sending location updates. The counts below
+                  reflect real order and status data from Firestore.
+                </p>
               </div>
-
-              <div className="dash-map-label next">
-                <small>DELIVERIES</small>
-                <strong>{activeDeliveries} active</strong>
-                <p>{delayedDeliveries} delayed</p>
-              </div>
-
-              {delayedDeliveries > 0 && (
-                <div className="dash-map-label danger">
-                  <small>DELAYED</small>
-                  <strong>{delayedDeliveries} route{delayedDeliveries > 1 ? "s" : ""}</strong>
-                  <p>Requires attention</p>
-                </div>
-              )}
             </div>
 
             <div className="dispatcher-dash-monitor-footer">

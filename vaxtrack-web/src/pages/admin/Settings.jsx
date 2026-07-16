@@ -5,25 +5,22 @@ import {
   AlertTriangle,
   Bell,
   Building2,
-  CheckCircle2,
   Clock,
   Eye,
   Globe,
-  LockKeyhole,
   MoreVertical,
   RefreshCcw,
   Save,
   Search,
   Settings as SettingsIcon,
   ShieldCheck,
-  UserCheck,
   UserRound,
   Users,
-  UserX,
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
 import { AdminSidebar } from "./Inventory";
+import KpiCard from "../../components/ui/KpiCard";
 import "./Settings.css";
 import { subscribeUsers, updateUserStatus, updateUserRole } from "../../services/userService";
 
@@ -281,36 +278,32 @@ function GeneralSettings({ searchTerm, showToast }) {
   return (
     <>
       <section className="settings-summary-grid">
-        <SettingsSummaryCard
-          icon={<Bell size={19} />}
+        <KpiCard
+          label="Enabled alerts"
           value={enabledCount}
-          label="Enabled Alerts"
-          note="Currently active"
-          type="blue"
+          context="Currently active"
+          tone="info"
         />
 
-        <SettingsSummaryCard
-          icon={<AlertTriangle size={19} />}
+        <KpiCard
+          label="Disabled alerts"
           value={disabledCount}
-          label="Disabled Alerts"
-          note="Needs review if critical"
-          type="red"
+          context="Needs review if critical"
+          tone="warning"
         />
 
-        <SettingsSummaryCard
-          icon={<Globe size={19} />}
-          value="GMT+8"
+        <KpiCard
           label="Timezone"
-          note="Asia/Manila"
-          type="green"
+          value="GMT+8"
+          context="Asia/Manila"
+          tone="neutral"
         />
 
-        <SettingsSummaryCard
-          icon={<ShieldCheck size={19} />}
+        <KpiCard
+          label="Admin profile"
           value="Active"
-          label="Admin Profile"
-          note="System configuration"
-          type="amber"
+          context="System configuration"
+          tone="success"
         />
       </section>
 
@@ -578,36 +571,32 @@ function UserManagement({ searchTerm, showToast }) {
   return (
     <>
       <section className="settings-summary-grid">
-        <SettingsSummaryCard
-          icon={<Users size={19} />}
+        <KpiCard
+          label="Total staff"
           value={totalStaff}
-          label="Total Staff"
-          note="Registered personnel"
-          type="blue"
+          context="Registered personnel"
+          tone="neutral"
         />
 
-        <SettingsSummaryCard
-          icon={<UserCheck size={19} />}
-          value={activeCount}
+        <KpiCard
           label="Active"
-          note="Approved accounts"
-          type="green"
+          value={activeCount}
+          context="Approved accounts"
+          tone="success"
         />
 
-        <SettingsSummaryCard
-          icon={<Clock size={19} />}
-          value={pendingCount}
+        <KpiCard
           label="Pending"
-          note="Needs approval"
-          type="amber"
+          value={pendingCount}
+          context="Needs approval"
+          tone="warning"
         />
 
-        <SettingsSummaryCard
-          icon={<UserX size={19} />}
-          value={inactiveCount}
+        <KpiCard
           label="Inactive"
-          note="Disabled accounts"
-          type="red"
+          value={inactiveCount}
+          context="Disabled accounts"
+          tone="danger"
         />
       </section>
 
@@ -864,20 +853,6 @@ function UserManagement({ searchTerm, showToast }) {
         />
       )}
     </>
-  );
-}
-
-function SettingsSummaryCard({ icon, value, label, note, type }) {
-  return (
-    <div className={`settings-summary-card ${type}`}>
-      <div className="settings-summary-icon">{icon}</div>
-
-      <div>
-        <h2>{value}</h2>
-        <p>{label}</p>
-        <small>{note}</small>
-      </div>
-    </div>
   );
 }
 

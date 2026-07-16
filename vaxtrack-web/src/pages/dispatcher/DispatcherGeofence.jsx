@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import DispatcherLayout from "./DispatcherLayout";
 import { subscribeDeliveries } from "../../services/deliveryService";
+import StatusBadge from "../../components/ui/StatusBadge";
 
 const ACTIVE_STATUSES = new Set(["assigned", "loading", "in_transit", "delayed"]);
 
@@ -34,16 +35,6 @@ function formatCoords(geoPoint) {
   const lng = geoPoint.longitude ?? geoPoint._long;
   if (typeof lat !== "number" || typeof lng !== "number") return null;
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-}
-
-function statusToneClass(key) {
-  switch (key) {
-    case "assigned": return "assigned";
-    case "loading": return "loading";
-    case "in_transit": return "transit";
-    case "delayed": return "delayed";
-    default: return "pending";
-  }
 }
 
 function DispatcherGeofence() {
@@ -155,9 +146,7 @@ function DispatcherGeofence() {
                       >
                         <div className="geo3-order-item-head">
                           <strong>{order.orderNumber || order.id}</strong>
-                          <span className={`geo3-status-pill ${statusToneClass(order.statusKey)}`}>
-                            {order.statusLabel}
-                          </span>
+                          <StatusBadge statusKey={order.statusKey} label={order.statusLabel} />
                         </div>
                         <p>{order.clinicName || "—"}</p>
                         <small>
@@ -178,9 +167,7 @@ function DispatcherGeofence() {
                   <div className="geo3-card geo3-info-card">
                     <div className="geo3-card-head">
                       <h3>Shipment Details</h3>
-                      <span className={`geo3-badge ${statusToneClass(selected.statusKey)}`}>
-                        {selected.statusLabel}
-                      </span>
+                      <StatusBadge statusKey={selected.statusKey} label={selected.statusLabel} />
                     </div>
 
                     <div className="geo3-info-list">

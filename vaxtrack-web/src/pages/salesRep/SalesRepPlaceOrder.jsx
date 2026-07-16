@@ -380,7 +380,7 @@ function OrderRow({ item, onDecrease, onIncrease, onRemove }) {
     <tr>
       <td>
         <strong>{item.name}</strong>
-        {item.stockText && <small>⊙ {item.stockText}</small>}
+        {item.stockText && <small>{item.stockText}</small>}
       </td>
 
       <td>

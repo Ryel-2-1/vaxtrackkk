@@ -36,6 +36,75 @@ To test multiple roles at once, isolate each role in its own browser profile / b
 - ⚠️ The **rider checklist cards** (avatar, plate chip, progress bar, order rows with StatusBadge, loaded checkboxes, Finalize/Print buttons) were **mock-harness verified only** — during testing the live page had no orders in the `assigned`/`loading` state, so the cards could not render from real data.
 - ⏳ **Still pending:** verify the rider checklist cards live with a **real assigned/loading order**. Steps: create/place a Sales Rep order → assign a rider in Dispatcher → open `/dispatcher/cargo-loading` → confirm the rider card renders correctly, toggle a "loaded" checkbox (progress bar updates + Firestore write), and confirm Finalize dispatch enables only when all orders are loaded.
 
+### Meridian UI polish — Sales Rep list pages (visual only)
+
+**Batch 1 — Sales Rep Inventory + Order Tracking ✅ manual test passed 2026-07-15:**
+- Visual/CSS + presentational-JSX only — no Firestore services, subscriptions, order/inventory logic, `salesRepSelectedInventory` localStorage flow, routes, or validation changed.
+- Blue → Meridian green detox on both pages' `-v2` style blocks; Order Tracking now uses shared **StatusBadge** and the fake gradient mini-map/route line + `⚡` emoji were removed (clean status strip). Inventory table headers sentence-cased, stock-status chips retuned to semantic tokens, green row hover / focus states.
+- **Confirmed live (Sales Rep profile):** `/sales-rep/inventory` opens, real Firestore inventory loads, search/filter/type tabs work, selection works, Request Selected routes correctly; `/sales-rep/order-tracking` opens, real orders load, StatusBadge displays correctly, row/details selection works; no console errors. `npm run build` passes.
+
+**Batch 2 — Sales Rep Request Order + Place Order ✅ manual test passed 2026-07-15:**
+- Visual/CSS + one presentational-JSX removal (decorative `⊙` glyph) only — no Firestore services/subscriptions (`subscribeInventory`, `subscribeClinics`), `createSalesRepOrder` payload fields, `salesRepSelectedInventory`/`salesRepQuickCart` localStorage flow, cart math, validation, submit handler, or routes changed.
+- Blue → Meridian green across both `-v2` blocks + shared base rules: green filter tabs / Add-to-order / Place-order / cart badges; **Place Order's Order Summary card flipped from bright blue to deep pine `--green-800`**; neutral quantity steppers + secondary "Add more items"; sentence-case non-uppercase chips/labels; green focus rings; lighter card shadows.
+- **Confirmed live (Sales Rep profile):** `/sales-rep/request-order` opens, `salesRepSelectedInventory` preselect appears, quantity controls work, Place Order navigation works; `/sales-rep/place-order` opens, real Firestore clinics load, Order Summary correct, **Finalize creates a real order** that appears in Sales Rep Order Tracking + Admin Deliveries + Dispatcher pending/assignment flow; no console errors. `npm run build` passes.
+
+**Batch 3 — Sales Rep Alerts + Settings ✅ manual test passed 2026-07-15:**
+- Visual/CSS only — no JSX changes; no Firestore services/subscriptions (`subscribeSalesRepOrders`, `getUserProfile`/`updateUserProfile`), `deriveAlertFromOrder` derivation, tab/filter/search state, Settings save handler/field whitelist, name validation, or routes changed.
+- Alerts: semantic tones enforced (critical=red, info/updates=teal, delivered=green, warning=amber); "All"/"Updates" filter chips de-blued; alert status badges rendered sentence-case via CSS `::first-letter` (derived `tag` strings unchanged); "View Details" red base → neutral secondary; green tab underline/search focus; lighter card hover; modal labels de-uppercased. Settings: green Save + input focus rings, softened labels, semantic account-status colors; shared `.inventory-loading-state` icon blue → neutral gray.
+- **Confirmed live (Sales Rep profile):** `/sales-rep/alerts` opens, Active/History tabs + filter chips + search work, cards display correctly, View Details modal opens/closes; `/sales-rep/settings` opens, profile loads, editing a field activates Save, **Save persists after refresh**; no console errors. `npm run build` passes.
+
+**✅ Sales Rep Meridian UI set COMPLETE (2026-07-15):** all 7 Sales Rep pages (Dashboard, Inventory, Order Tracking, Request Order, Place Order, Alerts, Settings) migrated to the Meridian dark-green system and manually verified. Visual/CSS only — no functional logic changed across any batch.
+
+### Meridian UI polish — Admin list pages
+
+**Admin Batch 1 — Riders + Inventory ✅ manual test passed 2026-07-16:**
+- Visual/CSS + presentational-JSX only — no Firestore services/subscriptions (`subscribeRiders`/`updateRiderStatus`, `subscribeInventory`), approve/reject/off-duty/reactivate behavior, inventory filter/search/pagination/bulk-select logic, `normalizeRider`/`normalizeInventoryItem`, or routes changed.
+- **Fake "Live Fleet Map" removed** from Admin Riders (drawn roads, hardcoded city labels, positioned markers, zoom/recenter) + orphan `mapZoom` state. Icon-tile summary cards on both pages → shared **KpiCard**. Blue → Meridian green across buttons/filters/pagination/checkboxes/avatars/search focus; sentence-case table headers; Inventory Warning stock chip fixed indigo → amber; softened weights + lighter shadows. AdminSidebar untouched (already Meridian).
+- Pre-existing fake "Assign delivery" toast flow + placeholder `pendingDeliveries` on Riders left as-is (out of scope for a visual pass; flagged for a future functional cleanup).
+- **Confirmed live (Admin profile):** `/admin/riders` opens, fake map gone, real riders load, filters/search work, detail modal opens, approve/reject/off-duty/reactivate work; `/admin/inventory` opens, real inventory loads, search/filter/pagination + checkboxes/bulk-select work, Add Vaccine/Add Stock route correctly; no console errors. `npm run build` passes.
+
+**Admin Batch 2 — Clinics + Alerts ✅ manual test passed 2026-07-16:**
+- Visual/CSS + presentational-JSX only — no Firestore services/subscriptions (`subscribeClinics`/`clinicNameExists`/`addClinic`, `subscribeAllAlerts`/`markAlertRead`/`resolveAlert`), required-field + duplicate-name checks, alert mark-read/resolve/priority/category logic, `normalizeClinic`/`normalizeAlert`, or routes changed.
+- Icon-tile summary/KPI cards on both pages → shared **KpiCard** (Alerts with semantic tones incl. Critical=danger red rule, Pending notices=info/teal, Resolved=success). Blue → Meridian green across buttons/filters/pagination/toggles/form focus; sentence-case table headers; Clinics contact **initials avatars** blue → green; Alerts **notice** accent/icon blue → teal; softened weights + lighter shadows. AdminSidebar untouched (already Meridian).
+- **Confirmed live (Admin profile):** `/admin/clinics` opens, real clinics load, search/filter/pagination work, register modal opens, required-field validation + duplicate check work, new clinic saves; `/admin/alerts` opens, real alerts load, filter tabs work, review modal opens, mark read / Mark Resolved work, Alert Settings toggles work; no console errors. `npm run build` passes.
+
+**Admin Batch 3 — Settings + Add Vaccine + Add Stock ✅ manual test passed 2026-07-16:**
+- Visual/CSS + presentational-JSX only — no Firestore services/subscriptions (`subscribeUsers`/`updateUserStatus`/`updateUserRole`, `addVaccine`/`addVaccineType`/`skuExists`/`addStockBatch`/`batchIdExists`), status/role actions, feature-toggle state, SKU-format regex, duplicate SKU/batch checks, date/qty/temp validation, save/discard, or routes changed.
+- Settings: icon-tile summary cards (both tabs) → shared **KpiCard**; blue → green across tabs/buttons/toggles/pagination/focus/avatars; pending status sky-blue → amber; sentence-case staff headers. Add Vaccine/Add Stock: new **`AdminForms.css`** scoped under `.inventory-main` (global `styles.css` untouched) — green buttons/focus/heading tiles, neutral form cards, softened labels.
+- **Follow-up fixes (2026-07-16):** (1) Settings System-Features toggles resized 48×28 → **46×24** (knob 18, on=green/off=gray, focus ring, centered) — CSS-only in `Settings.css`. (2) Add Vaccine "Basic Information" alignment — equal-height label rows (Manufacturer input ↔ Vaccine Type select aligned), "Add Type" seated in the label row, field icons vertically centered, SKU + helper/error spacing — CSS-only in `AdminForms.css` (Add Stock verified still correct after shared spacing changes).
+- **Confirmed live (Admin profile):** `/admin/settings` both tabs work, real users load, status actions + role change work, feature toggles behave (now compact), save/discard work; `/admin/add-vaccine` required + SKU-format validation + duplicate-SKU check + save all work with aligned layout; `/admin/add-stock` required + duplicate-batch check + quantity/temp/date validation + save all work; no console errors. `npm run build` passes.
+
+**✅ Admin core/list/form pages — Meridian UI COMPLETE (2026-07-16):** Dashboard, Deliveries + detail drawer, Inventory, Riders, Clinics, Alerts, Settings, Add Vaccine, Add Stock all migrated to the Meridian dark-green system. Visual/CSS only — no functional logic changed across any batch. Not yet migrated: Admin Analytics, Invoices (out of scope by request).
+
+### Meridian UI polish — Dispatcher remaining pages
+
+**Dispatcher Batch — Dashboard + Geofence + Settings ✅ manual test passed 2026-07-16:**
+- Visual/CSS + presentational-JSX only — no Firestore subscriptions (`subscribePendingDispatchOrders`/`subscribeDeliveries`/`subscribeRiders`/`subscribeActiveAlerts`), assignment handoff, status/priority logic, Geofence active-status filter/selection, or Settings profile/preferences/`localStorage` save changed.
+- **Fake "Metro Manila Delivery Network" map removed** from Dispatcher Dashboard (JSX + CSS) → honest "Live map view not yet active" note (real badges/footer counts kept). Geofence bespoke pills → shared **StatusBadge**, honest info banner blue → teal, forced-red info sub-text → neutral. Settings: green Save button + toggles + input focus rings. Blue → Meridian green + de-uppercased microlabels + lighter shadows across all three.
+- **Confirmed live (Dispatcher profile):** `/dispatcher` opens, fake map gone, honest note appears, real KPI counts + queue load, Assign-from-queue + View-Shipments work; `/dispatcher/geofence` opens, active deliveries load, StatusBadge displays, order selection works, no fake GPS/map claims; `/dispatcher/settings` opens, toggles/settings + Save preferences work; no console errors. `npm run build` passes.
+
+**✅ Dispatcher pages — Meridian UI COMPLETE (2026-07-16):** Dashboard, Assign Rider, Cargo Loading, Shipments, Geofence/Live Monitoring, Settings all migrated to the Meridian dark-green system. Visual/CSS only — no functional logic changed. Outstanding (styling done): Cargo Loading rider-checklist cards still need a live real-assigned/loading-order render check (DCL-001..005 below remain Pending Manual Test).
+
+### Meridian UI polish — Admin Analytics
+
+**Admin Analytics ✅ manual test passed 2026-07-16:**
+- Visual/CSS + presentational-JSX only — no Firestore subscriptions (`subscribeDeliveries`/`subscribeAllAlerts`), time/region/vaccine filters, or analytics computations (`computeVolumeBuckets`/`computeHeatmap`/`computeRegions`, completion rate) changed; no new Firestore reads/writes.
+- Icon-tile KPI cards → shared **KpiCard** ×4 (detail modals preserved). **Chart palette blue → Meridian green:** volume bars, region progress bars, and the peak-hours heatmap (4-step green sequential + green legend).
+- **Honesty fixes:** the fabricated `STATIC_HUBS` "Hub Performance Ranking" table (invented hub names/rates/incidents) was removed and replaced with an honest "Hub ranking not available yet" empty state; **"AI Logistics Insight" renamed "Operational insight"** (rule-based on real delayed/alert counts — no AI/ML claims). Avg-delivery-time KPI keeps its honest "—" state. Note: AAN-004's remark ("Hardcoded ranking kept") is superseded — the static ranking is now removed in favor of the honest empty state; the deferred-metric intent of AAN-004 stands.
+- **Confirmed live (Admin profile):** `/admin/analytics` opens, KPI cards + detail modals work, filters work, volume/region/heatmap display correctly with the Meridian palette, hub section shows the honest unavailable state, "Operational insight" replaces AI wording; no console errors. `npm run build` passes.
+
+### Meridian UI polish — Admin Invoices / InvoiceEditor
+
+**Admin Invoices + InvoiceEditor ✅ manual test passed 2026-07-16:**
+- Visual/CSS + presentational-JSX only — no `invoiceService` logic touched: `subscribeInvoiceQueue`, `createInvoiceDraft`/`updateInvoiceDraft`/`issueInvoice`, `updateInvoicePriority`, invoice numbering/per-year counter, one-invoice-per-order (invoice doc id = orderId), issued read-only lock, `validateForIssue`/save-before-issue gate, and Firestore fields all unchanged. **InvoiceEditor.jsx was not edited** (chrome inherits the detoxed `Invoices.css`).
+- Queue: icon-tile summary cards → shared **KpiCard**; sentence-case table headers + green row hover + tabular order-id; blue → green buttons/focus rings; local invoice `StatusBadge` de-uppercased + semantic tokens ("Ready to Print" blue → teal).
+- **Printable A4 `.inv-doc` deliberately preserved** — black print borders, cream item-table header, red invoice number, green grand total, and the `@media print` block are untouched; only the editable-field focus outlines went blue → green.
+- **Confirmed live (Admin profile):** queue opens, orders/invoices load, search/filter/sort/pagination work, priority change persists; Create Invoice + draft editing + Save Draft persist, reopening draft works, Mark as Issued works, issued invoice locks read-only, one-invoice-per-order still enforced, Print A4 layout correct; no console errors. `npm run build` passes.
+
+**✅ Admin role — Meridian UI COMPLETE (2026-07-16):** all Admin pages incl. Analytics, Invoices, InvoiceEditor. (Notes AIV-001..006 in section 12 were previously "Pending Manual Test"; the Invoices module is now both runtime-verified and Meridian-styled.)
+
+**🎉 WEB MERIDIAN UI MIGRATION COMPLETE ✅ (2026-07-16):** all three web roles migrated — Admin (12 pages incl. Invoices), Sales Rep (7 pages), Dispatcher (6 pages) + shared Auth pages, each manually verified. Visual/CSS + presentational-JSX only across every batch — no Firestore services/subscriptions/writes, business logic, validation, route guards, or real data changed; fake maps + fabricated hub/AI content removed and replaced with honest states. Outstanding functional (not Meridian): Dispatcher Cargo Loading rider-checklist cards need a live real-assigned/loading-order render check (DCL-001..005 remain Pending Manual Test). Rider app is Flutter-only.
+
 ---
 
 ## 1. Admin — Route Protection

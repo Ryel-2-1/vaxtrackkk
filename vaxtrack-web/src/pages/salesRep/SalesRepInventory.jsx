@@ -394,10 +394,10 @@ function SalesRepInventory() {
                   onChange={toggleVisibleRows}
                 />
               </th>
-              <th>Vaccine Name</th>
+              <th>Vaccine name</th>
               <th>Batch ID</th>
-              <th>Expiry Date</th>
-              <th>Remaining Qty</th>
+              <th>Expiry date</th>
+              <th>Remaining qty</th>
               <th>Temp</th>
               <th>Status</th>
             </tr>

@@ -6,14 +6,12 @@ import {
   AlertTriangle,
   Bell,
   CheckCircle2,
-  Clock,
   MapPin,
   Package,
   PhoneCall,
   Route,
   Search,
   Settings,
-  ShieldAlert,
   Thermometer,
   Truck,
   X,
@@ -25,6 +23,7 @@ import {
   resolveAlert,
   subscribeAllAlerts,
 } from "../../services/alertService";
+import KpiCard from "../../components/ui/KpiCard";
 
 const TYPE_MAP = {
   route_deviation: {
@@ -229,43 +228,36 @@ function Alerts() {
         </header>
 
         <section className="alert-kpi-grid">
-          <AlertKpi
-            icon={<ShieldAlert size={22} />}
-            label="Critical Alerts"
+          <KpiCard
+            label="Critical alerts"
             value={criticalCount}
-            note="Needs immediate action"
-            type="red"
-            active={severityFilter === "critical"}
+            context="Needs immediate action"
+            tone="danger"
+            attention
             onClick={() => setSeverityFilter("critical")}
           />
 
-          <AlertKpi
-            icon={<AlertTriangle size={22} />}
+          <KpiCard
             label="Warnings"
             value={warningCount}
-            note="Requires review"
-            type="orange"
-            active={severityFilter === "warning"}
+            context="Requires review"
+            tone="warning"
             onClick={() => setSeverityFilter("warning")}
           />
 
-          <AlertKpi
-            icon={<Clock size={22} />}
-            label="Pending Notices"
+          <KpiCard
+            label="Pending notices"
             value={noticeCount}
-            note="For monitoring"
-            type="blue"
-            active={severityFilter === "notice"}
+            context="For monitoring"
+            tone="info"
             onClick={() => setSeverityFilter("notice")}
           />
 
-          <AlertKpi
-            icon={<CheckCircle2 size={22} />}
-            label="Resolved Today"
+          <KpiCard
+            label="Resolved today"
             value={resolvedCount}
-            note="Completed alerts"
-            type="green"
-            active={severityFilter === "resolved"}
+            context="Completed alerts"
+            tone="success"
             onClick={() => setSeverityFilter("resolved")}
           />
         </section>
@@ -485,24 +477,6 @@ function Alerts() {
         />
       )}
     </div>
-  );
-}
-
-function AlertKpi({ icon, label, value, note, type, active, onClick }) {
-  return (
-    <button
-      type="button"
-      className={`alert-kpi ${type} ${active ? "active" : ""}`}
-      onClick={onClick}
-    >
-      <div className="alert-kpi-icon">{icon}</div>
-
-      <div>
-        <p>{label}</p>
-        <h2>{value}</h2>
-        <small>{note}</small>
-      </div>
-    </button>
   );
 }
 

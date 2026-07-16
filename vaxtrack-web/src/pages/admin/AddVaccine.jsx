@@ -15,6 +15,7 @@ import {
   skuExists,
   addVaccine,
 } from "../../services/vaccineService";
+import "./AdminForms.css";
 
 function AddVaccine() {
   const navigate = useNavigate();

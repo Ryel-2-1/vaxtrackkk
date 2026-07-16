@@ -329,10 +329,10 @@
 .analytics-v2-main {
   flex: 1;
   min-height: 100vh;
-  background: #f6f8ff;
+  background: var(--gray-50);
   padding: 30px 34px;
-  font-family: Inter, Arial, Helvetica, sans-serif;
-  color: #0f172a;
+  font-family: var(--font-ui);
+  color: var(--gray-900);
 }
 
 /* Header */
@@ -347,18 +347,18 @@
 
 .analytics-v2-header h1 {
   margin: 0;
-  color: #0f172a;
+  color: var(--gray-900);
   font-size: 32px;
   line-height: 1.05;
-  font-weight: 950;
-  letter-spacing: -0.04em;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .analytics-v2-header p {
   margin: 8px 0 0;
-  color: #64748b;
+  color: var(--gray-600);
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 400;
 }
 
 .analytics-v2-actions {
@@ -372,24 +372,33 @@
 .analytics-v2-actions select,
 .analytics-export-btn {
   height: 42px;
-  border: 1px solid #dbe3f3;
-  border-radius: 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: 10px;
   background: #ffffff;
-  color: #334155;
+  color: var(--gray-600);
   padding: 0 13px;
   font-size: 13px;
-  font-weight: 850;
+  font-weight: 500;
   outline: none;
   box-shadow: none;
   cursor: pointer;
 }
 
+.analytics-v2-actions select:focus {
+  border-color: var(--green-700);
+  box-shadow: 0 0 0 3px var(--green-100);
+}
+
 .analytics-export-btn {
-  color: #0057d8;
+  color: var(--gray-900);
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-weight: 900;
+  font-weight: 600;
+}
+
+.analytics-export-btn:hover {
+  background: var(--gray-50);
 }
 
 /* KPI cards */
@@ -416,11 +425,9 @@
   transition: 0.18s ease;
 }
 
-.analytics-metric-card:hover,
 .analytics-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.1);
-  border-color: #bfdbfe;
+  box-shadow: 0 4px 12px rgba(16, 24, 40, 0.08);
+  border-color: var(--gray-300);
 }
 
 .analytics-metric-icon {
@@ -483,10 +490,10 @@
 
 .analytics-card {
   background: #ffffff;
-  border: 1px solid #dbe3f3;
-  border-radius: 16px;
+  border: var(--border-card);
+  border-radius: var(--radius-card);
   padding: 18px;
-  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.04);
+  box-shadow: var(--shadow-card);
   transition: 0.18s ease;
 }
 
@@ -500,19 +507,49 @@
 
 .analytics-card-title-row h2 {
   margin: 0;
-  color: #0f172a;
+  color: var(--gray-900);
   font-size: 20px;
-  font-weight: 950;
-  letter-spacing: -0.03em;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .analytics-card-title-row button {
   border: 0;
   background: transparent;
-  color: #0057d8;
+  color: var(--gray-500);
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 600;
   cursor: pointer;
+}
+
+/* Honest empty state (e.g., hub ranking with no data source) */
+.analytics-empty-state {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  text-align: center;
+  color: var(--gray-500);
+  padding: 24px;
+}
+
+.analytics-empty-state svg {
+  color: var(--gray-500);
+}
+
+.analytics-empty-state strong {
+  color: var(--gray-900);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.analytics-empty-state p {
+  margin: 0;
+  max-width: 420px;
+  color: var(--gray-600);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 /* Bar chart */
@@ -554,22 +591,23 @@
 .analytics-bar {
   width: 100%;
   max-width: 78px;
-  background: #cfe0ff;
+  background: var(--green-600);
   border-radius: 5px 5px 0 0;
   z-index: 2;
   transition: 0.18s ease;
 }
 
 .analytics-bar-group:hover .analytics-bar {
-  background: #0057d8;
+  background: var(--green-700);
 }
 
 .analytics-bar-group small {
   position: absolute;
   bottom: -18px;
-  color: #64748b;
+  color: var(--gray-500);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Region */
@@ -591,24 +629,24 @@
 .analytics-region-item > div:first-child {
   display: flex;
   justify-content: space-between;
-  color: #0f172a;
+  color: var(--gray-900);
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 600;
   margin-bottom: 6px;
 }
 
 .analytics-region-item small {
   display: block;
   margin-bottom: 5px;
-  color: #64748b;
+  color: var(--gray-500);
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 500;
 }
 
 .analytics-region-progress {
   height: 8px;
   border-radius: 999px;
-  background: #e2e8f0;
+  background: var(--gray-200);
   overflow: hidden;
 }
 
@@ -617,7 +655,7 @@
   height: 100%;
   max-width: 100%;
   border-radius: 999px;
-  background: #0057d8;
+  background: var(--green-700);
 }
 
 /* AI Card */
@@ -626,15 +664,15 @@
   display: flex;
   gap: 14px;
   align-items: flex-start;
-  background: linear-gradient(135deg, #eff6ff, #ffffff);
+  background: var(--green-50);
 }
 
 .analytics-ai-icon {
   width: 44px;
   height: 44px;
   border-radius: 14px;
-  background: #dbeafe;
-  color: #0057d8;
+  background: var(--green-100);
+  color: var(--green-700);
   display: grid;
   place-items: center;
   flex-shrink: 0;
@@ -642,29 +680,33 @@
 
 .analytics-ai-card h2 {
   margin: 0;
-  color: #0f172a;
+  color: var(--gray-900);
   font-size: 20px;
-  font-weight: 950;
+  font-weight: 700;
 }
 
 .analytics-ai-card p {
   margin: 8px 0 14px;
-  color: #475569;
+  color: var(--gray-600);
   font-size: 14px;
   line-height: 1.55;
-  font-weight: 650;
+  font-weight: 400;
 }
 
 .analytics-ai-card button {
   height: 38px;
   border: 0;
   border-radius: 999px;
-  background: #0057d8;
+  background: var(--green-700);
   color: #ffffff;
   padding: 0 14px;
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 600;
   cursor: pointer;
+}
+
+.analytics-ai-card button:hover {
+  background: var(--green-800);
 }
 
 /* Hub */
@@ -733,16 +775,16 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #64748b;
+  color: var(--gray-500);
   font-size: 11px;
-  font-weight: 850;
+  font-weight: 500;
 }
 
 .analytics-heatmap-legend i {
   width: 44px;
   height: 8px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #dbeafe, #0057d8);
+  background: linear-gradient(90deg, var(--green-100), var(--green-700));
 }
 
 .analytics-heatmap-labels {
@@ -753,10 +795,10 @@
 }
 
 .analytics-heatmap-labels span {
-  color: #64748b;
+  color: var(--gray-500);
   font-size: 11px;
   text-align: center;
-  font-weight: 800;
+  font-weight: 500;
 }
 
 .analytics-heatmap-grid {
@@ -778,19 +820,19 @@
 }
 
 .analytics-heat-cell.level-1 {
-  background: #dbeafe;
+  background: var(--green-100);
 }
 
 .analytics-heat-cell.level-2 {
-  background: #93c5fd;
+  background: #9fd3b6;
 }
 
 .analytics-heat-cell.level-3 {
-  background: #3b82f6;
+  background: var(--green-600);
 }
 
 .analytics-heat-cell.level-4 {
-  background: #0057d8;
+  background: var(--green-800);
 }
 
 /* Modal */
@@ -810,10 +852,10 @@
   width: 580px;
   max-width: 100%;
   background: #ffffff;
-  border-radius: 22px;
-  border: 1px solid #dbe3f3;
+  border-radius: 16px;
+  border: var(--border-card);
   padding: 28px;
-  box-shadow: 0 30px 80px rgba(15, 23, 42, 0.28);
+  box-shadow: var(--shadow-float);
 }
 
 .analytics-modal-close {
@@ -838,16 +880,16 @@
   display: grid;
   place-items: center;
   margin-bottom: 14px;
-  background: #dbeafe;
-  color: #0057d8;
+  background: var(--green-100);
+  color: var(--green-700);
 }
 
 .analytics-modal h2 {
   margin: 0;
-  color: #0f172a;
+  color: var(--gray-900);
   font-size: 28px;
-  font-weight: 950;
-  letter-spacing: -0.03em;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .analytics-modal p {
@@ -866,24 +908,24 @@
 
 .analytics-modal-grid div {
   padding: 14px;
-  border-radius: 14px;
-  border: 1px solid #dbe3f3;
-  background: #f8fbff;
+  border-radius: 12px;
+  border: 1px solid var(--gray-200);
+  background: var(--gray-50);
 }
 
 .analytics-modal-grid span {
   display: block;
-  color: #64748b;
+  color: var(--gray-600);
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 500;
   margin-bottom: 4px;
 }
 
 .analytics-modal-grid strong {
   display: block;
-  color: #0f172a;
+  color: var(--gray-900);
   font-size: 15px;
-  font-weight: 900;
+  font-weight: 600;
 }
 
 .analytics-modal-actions {
@@ -894,13 +936,17 @@
 .analytics-modal-actions button {
   height: 40px;
   border: 0;
-  border-radius: 12px;
-  background: #0057d8;
+  border-radius: 10px;
+  background: var(--green-700);
   color: #ffffff;
   padding: 0 16px;
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 600;
   cursor: pointer;
+}
+
+.analytics-modal-actions button:hover {
+  background: var(--green-800);
 }
 
 /* Toast */
