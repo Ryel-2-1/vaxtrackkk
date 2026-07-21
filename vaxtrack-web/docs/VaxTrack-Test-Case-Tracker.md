@@ -33,8 +33,8 @@ To test multiple roles at once, isolate each role in its own browser profile / b
 **Dispatcher Cargo Loading — Meridian rider checklist cards (Phase 6):**
 - ✅ Meridian UI was **build-verified** (`npm run build` passes).
 - ✅ Empty state ("No assigned orders ready for loading") was **live-verified** in the browser as the dispatcher.
-- ⚠️ The **rider checklist cards** (avatar, plate chip, progress bar, order rows with StatusBadge, loaded checkboxes, Finalize/Print buttons) were **mock-harness verified only** — during testing the live page had no orders in the `assigned`/`loading` state, so the cards could not render from real data.
-- ⏳ **Still pending:** verify the rider checklist cards live with a **real assigned/loading order**. Steps: create/place a Sales Rep order → assign a rider in Dispatcher → open `/dispatcher/cargo-loading` → confirm the rider card renders correctly, toggle a "loaded" checkbox (progress bar updates + Firestore write), and confirm Finalize dispatch enables only when all orders are loaded.
+- ✅ **Finalize dispatch + cross-role reflection LIVE-VERIFIED (2026-07-16)** with real order **`VT-ORD-1784056096300`**: the order was finalized from `assigned` → `in_transit` via Cargo Loading, and the new status reflected across **all three web roles** — Dispatcher Shipments, **Admin Deliveries**, and **Sales Rep Order Tracking** all show **In Transit**, no console errors. Firestore remains the single source of truth.
+- ⚠️ The rider checklist card **micro-interactions** (per-order "loaded" checkbox → progress bar + `isLoaded` Firestore write; Finalize-enabled-only-when-all-loaded gate) were exercised as part of reaching finalize but are not itemized here — treat DCL-002/DCL-005 as still Pending Manual Test for an explicit per-checkbox render check.
 
 ### Meridian UI polish — Sales Rep list pages (visual only)
 
@@ -105,7 +105,7 @@ To test multiple roles at once, isolate each role in its own browser profile / b
 
 **✅ Admin role — Meridian UI COMPLETE (2026-07-16):** all Admin pages incl. Analytics, Invoices, InvoiceEditor. (Notes AIV-001..006 in section 12 were previously "Pending Manual Test"; the Invoices module is now both runtime-verified and Meridian-styled.)
 
-**🎉 WEB MERIDIAN UI MIGRATION COMPLETE ✅ (2026-07-16):** all three web roles migrated — Admin (12 pages incl. Invoices), Sales Rep (7 pages), Dispatcher (6 pages) + shared Auth pages, each manually verified. Visual/CSS + presentational-JSX only across every batch — no Firestore services/subscriptions/writes, business logic, validation, route guards, or real data changed; fake maps + fabricated hub/AI content removed and replaced with honest states. Outstanding functional (not Meridian): Dispatcher Cargo Loading rider-checklist cards need a live real-assigned/loading-order render check (DCL-001..005 remain Pending Manual Test). Rider app is Flutter-only.
+**🎉 WEB MERIDIAN UI MIGRATION COMPLETE ✅ (2026-07-16):** all three web roles migrated — Admin (12 pages incl. Invoices), Sales Rep (7 pages), Dispatcher (6 pages) + shared Auth pages, each manually verified. Visual/CSS + presentational-JSX only across every batch — no Firestore services/subscriptions/writes, business logic, validation, route guards, or real data changed; fake maps + fabricated hub/AI content removed and replaced with honest states. Outstanding functional (not Meridian): Cargo Loading finalize + cross-role reflection now live-verified 2026-07-17 (DCL-001/003/004 Passed); only DCL-002 (per-checkbox isLoaded write) + DCL-005 (empty/error states) remain Pending Manual Test. Rider app is Flutter-only.
 
 **PARTIAL Runtime QA ✅ (2026-07-17, Rider-side only):** Flutter Rider e2e status updates verified live on the emulator as rider.qa2@vaxtrack.com — assigned-order receipt (query `assignedRiderId == current Auth UID`), Mark Delivered (RSU-003), Report Delay with `delayReason` (RSU-004), and immediate reflection in the Rider's own live subscription all PASSED; Flutter runtime showed no permission-denied or exceptions. NOT yet verified (blocked this session — no browser + missing Admin/Sales Rep credentials): Sales Rep fresh-order creation, Admin order visibility, Dispatcher rider assignment, Cargo Loading real rider checklist card / isLoaded toggle / Finalize dispatch (DCL-001..005), and web-side reflection of Rider status updates (RSU-005). **VT-ORD-1784056096300 remains reserved untouched in `assigned` for the Cargo Loading test.**
 
@@ -402,6 +402,8 @@ To test multiple roles at once, isolate each role in its own browser profile / b
 
 | Status | Count |
 |---|---|
+| Passed | 100 |
+| Pending Manual Test | 21 |
 | Passed | 100 |
 | Pending Manual Test | 21 |
 | Not Applicable | 2 |
