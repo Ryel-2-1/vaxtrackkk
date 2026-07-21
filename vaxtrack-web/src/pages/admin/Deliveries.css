@@ -1601,6 +1601,74 @@
   line-height: 1.5;
 }
 
+/* ---------- proof of delivery (rider-uploaded photos) ---------- */
+.mdl-proof {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mdl-proof-thumb {
+  display: block;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--gray-50);
+  line-height: 0;
+}
+
+.mdl-proof-thumb:hover {
+  border-color: var(--green-600);
+}
+
+.mdl-proof-thumb:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+}
+
+.mdl-proof-thumb img {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+}
+
+.mdl-proof-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mdl-proof-link {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-control);
+  background: var(--green-700);
+  color: #fff !important;
+  font-family: var(--font-ui);
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  text-decoration: none !important;
+  border: 1px solid transparent;
+  transition: background 120ms ease;
+}
+
+.mdl-proof-link:hover {
+  background: var(--green-800);
+}
+
+.mdl-proof-link.secondary {
+  background: #fff;
+  color: var(--gray-700) !important;
+  border-color: var(--gray-300);
+}
+
+.mdl-proof-link.secondary:hover {
+  background: var(--gray-50);
+}
+
 .mdl-drawer-actions {
   display: flex;
   gap: 8px;

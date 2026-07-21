@@ -41,6 +41,29 @@ There is **no `deliveries` collection** — never create one; everything deliver
 
 **Canonical order status values:** `pending_dispatch` → `assigned` → `loading` → `in_transit` → `delivered` (terminal), with branches `delayed` (recoverable) and `cancelled` (terminal). Legacy variants `completed` and `canceled` are accepted on read via `deliveryService.normalizeStatusKey` but never written. Do not introduce new statuses (e.g. `picked_up` was rejected during the Rider merge).
 
+**Canonical dispatch path — DECIDED 2026-07-17: Cargo Loading.** The earlier two-path ambiguity (Shipments "Start loading"/"Dispatch" vs. Cargo Loading checklist) is resolved:
+- **Dispatcher Cargo Loading is the official dispatch-preparation path.** Confirming an order's checkbox writes `isLoaded: true` + `loadedAt/ByUid/ByEmail`, and when the order is still `assigned` it also promotes `status: "loading"` with the standard status audit fields. "Finalize dispatch" then batch-moves the rider's group to `in_transit` (`dispatchedAt`, `loadingFinalizedAt`, `startedAt`, status audit) atomically via `writeBatch`.
+- Unchecking clears `isLoaded` + loaded audit fields but **never regresses status** back to `assigned` — `loading` means preparation has begun, and silent backwards transitions would corrupt the audit trail.
+- **Dispatcher Shipments is monitoring + exception handling only.** Its "Start loading" (assigned → loading) and "Dispatch" (loading → in_transit) actions were **removed**. It keeps Delay, Cancel, Resume transit, and **"Mark delivered (override)"** — the latter is a dispatcher override; the normal completion path remains the Flutter Rider app.
+- This makes `loading` reachable again on the web (previously Cargo Loading skipped straight to `in_transit`), so the documented five-step flow is honest end-to-end.
+- **Recovery case (known, not solved):** Cargo Loading only lists riders with `role: "rider"` + `status: "approved"`. If a rider is disabled/off-duty *after* assignment, their assigned orders disappear from Cargo Loading. **Recovery path: reassign the order to an approved rider via Dispatcher → Assign Rider.** Shipments can still Delay/Cancel such orders but can no longer dispatch them.
+
+**External APIs / clinic geocoding — DEFERRED 2026-07-17 (decision):**
+- **Clinic geocoding is postponed.** `clinics` documents hold text addresses only — no coordinates — so no distance or containment math is possible yet.
+- **Do NOT add Google Maps, Google Geocoding, Mapbox, or OpenRouteService keys.** No map/routing/geocoding key exists in either project today; `.env` holds only `VITE_FIREBASE_*` variables.
+- Postponed *because* clinics lack coordinates: **geofence detection, route deviation, destination markers, ETA.**
+- **Continue with no-external-API integrations first, in this order:** (1) **Proof-of-delivery web display** (Firebase Storage download URLs already written by the Rider app), then (2) **continuous rider location** (device GPS via the `geolocator` package already in `pubspec.yaml`).
+- Note for future sessions: the API diagnosis lists "geocode clinics" as an early step — that step is **intentionally deferred**, not overlooked. Do not add a Maps key without an explicit new decision.
+
+**Proof-of-Delivery web display — IMPLEMENTED 2026-07-17, populated path BLOCKED:**
+- Admin Deliveries detail drawer gained a **"Proof of delivery"** section (between Rider and Activity). `normalizeDelivery` now passes through `proofOfDeliveryUrl` + `invoiceUrl` (the service layer already spread `...data`; the page's whitelist was dropping them).
+- **No Firebase Storage SDK was added to the web** — the Flutter app writes `getDownloadURL()` output, i.e. a full HTTPS download URL with a token, so the page renders it directly. `firebase.js` untouched, no new packages.
+- `orders.invoiceUrl` is the **rider's photo of the paper invoice** — completely unrelated to the `invoices` collection / Admin Invoices module. Surfaced as a secondary "Open invoice photo" link.
+- **Verified live (Admin):** section renders, empty state "No proof uploaded yet." correct on all 17 orders, no console errors (APD-001/002 Passed).
+- 🚧 **BLOCKED — Firebase Storage upload fails.** A rider proof upload was attempted 2026-07-17 (order VT-ORD-1783611813231, synthetic emulator camera): photo captured and attached, Submit tapped, upload rejected with `StorageException Code -13010, HttpResult 404` — *"Object does not exist at location" / "The server has terminated the upload session"*. **No `proofOfDeliveryUrl` was ever written, and zero orders in the collection have proof data**, so the populated image-preview path (APD-003/004/005) is **unproven**.
+- **Diagnosis:** 404 ≠ 403. A rules denial returns 403 "User does not have permission"; a 404 means the bucket does not exist at that location. Both apps target `vaxtrack-bef1b.firebasestorage.app` with identical, self-consistent config. Most likely **Firebase Storage was never provisioned** for the project. This also explains why proof upload has never worked — it is not a regression.
+- **Next step before ANY code change:** check Firebase Console → `vaxtrack-bef1b` → Storage. "Get started" button ⇒ not provisioned. An existing bucket with a different name (e.g. `.appspot.com`) ⇒ config mismatch, which would then be a small code fix.
+
 **Companion docs:** `docs/VaxTrack-Test-Case-Tracker.md` (full-system, 123 cases), `docs/VaxTrack-Admin-Test-Case-Tracker.md`, `docs/VaxTrack-Maps-Routing-Plan.md`. A production Firestore rules plan was drafted in-session (2026-07-11) — key open questions: Employee-ID login does an unauthenticated `users` query, and dispatchers currently read the whole `users` collection.
 
 ## Firestore User Document Schema
@@ -415,7 +438,7 @@ Code pulled from a collaborator. Post-pull diagnosis (2026-07-10): builds pass, 
 - `pages/dispatcher/DispatcherCargoLoading.jsx`, `services/cargoLoadingService.js`, route `/dispatcher/cargo-loading`, sidebar link
 - Groups assigned/loading orders per approved rider; per-order `isLoaded` checkbox persisted to Firestore with `loadedAt/By` audit fields
 - "Finalize dispatch" batch-moves a rider's whole group to `in_transit` atomically (writeBatch) with standard status audit fields
-- **Process note:** finalize skips the `loading` status — dispatchers now have two dispatch paths (Shipments' Start Loading → Dispatch vs Cargo Loading's checklist → finalize). Both valid; product decision pending on which is canonical
+- **Process note (RESOLVED 2026-07-17):** finalize originally skipped the `loading` status and dispatchers had two competing dispatch paths. **Cargo Loading is now the canonical path** — the checkbox promotes `assigned → loading`, finalize moves `loading → in_transit`, and Shipments' competing "Start loading"/"Dispatch" actions were removed. See "Canonical dispatch path" in the Architecture section
 
 **New: Sales Rep + Dispatcher route protection**
 - `components/SalesRepRoute.jsx` and `components/DispatcherRoute.jsx` — mirror AdminRoute exactly (pending → /pending, rejected/disabled → /login, wrong role → own dashboard); all /sales-rep/* and /dispatcher/* routes now wrapped in App.jsx

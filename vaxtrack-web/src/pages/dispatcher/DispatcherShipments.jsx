@@ -22,20 +22,24 @@ function statusLabel(key) {
   }
 }
 
+// Shipments is a monitoring + exception-handling surface, not a dispatch path.
+// Cargo Loading is the canonical route for assigned → loading → in_transit,
+// so "Start loading" and "Dispatch" are intentionally absent here.
+// Delay / Cancel / Resume transit remain as exception handling, and
+// "Mark delivered" stays as a dispatcher override — the normal completion
+// path is the Rider mobile app.
 function nextActions(statusKey) {
   switch (statusKey) {
     case "assigned": return [
-      { label: "Start loading", next: "loading", tone: "primary" },
       { label: "Delay", next: "delayed", tone: "warning" },
       { label: "Cancel", next: "cancelled", tone: "danger" },
     ];
     case "loading": return [
-      { label: "Dispatch", next: "in_transit", tone: "primary" },
       { label: "Delay", next: "delayed", tone: "warning" },
       { label: "Cancel", next: "cancelled", tone: "danger" },
     ];
     case "in_transit": return [
-      { label: "Mark delivered", next: "delivered", tone: "primary" },
+      { label: "Mark delivered (override)", next: "delivered", tone: "primary" },
       { label: "Delay", next: "delayed", tone: "warning" },
       { label: "Cancel", next: "cancelled", tone: "danger" },
     ];

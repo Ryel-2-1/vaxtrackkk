@@ -317,9 +317,13 @@ To test multiple roles at once, isolate each role in its own browser profile / b
 |---|---|---|---|---|---|---|---|---|---|---|
 | DCL-001 | Functional Suitability | Dispatcher | CargoLoading | Orders grouped by rider | assigned/loading orders exist | Open cargo-loading | Groups per approved rider | Real rider checklist card appears for QA Rider Two; reserved order VT-ORD-1784056096300 appears under that rider | Passed | Verified live 2026-07-17 (Dispatcher login) |
 | DCL-002 | Functional Suitability | Dispatcher | CargoLoading | Per-order loaded checkbox persists | Group visible | Toggle isLoaded | isLoaded + loadedAt/By written | isLoaded toggle works; progress updates | Passed | Verified live 2026-07-17 |
-| DCL-003 | Functional Suitability | Dispatcher | CargoLoading | Finalize dispatch batch | All orders loaded | Finalize | Batch: all → in_transit atomically | Finalize Dispatch becomes enabled and works; order VT-ORD-1784056096300 changed assigned → in_transit | Passed | Verified live 2026-07-17. Skips 'loading' status (process note) |
+| DCL-003 | Functional Suitability | Dispatcher | CargoLoading | Finalize dispatch batch | All orders loaded | Finalize | Batch: all → in_transit atomically | Finalize Dispatch becomes enabled and works; order VT-ORD-1784056096300 changed assigned → in_transit | Passed | Verified live 2026-07-17, **before** the canonical-path change. The old "skips `loading`" note no longer applies — the checkbox now promotes assigned → loading (see DCL-006), so finalize moves loading → in_transit. Re-verification of the new path is Pending (DCL-006/007) |
 | DCL-004 | Functional Suitability | Dispatcher | CargoLoading | Finalized orders reflect across roles | Finalize done | Check Shipments/Admin/SR/Rider | in_transit everywhere | Dispatcher Shipments reflects In Transit; no console errors. Admin Deliveries + Sales Rep Order Tracking reflection NOT yet verified (Admin/SR passwords unavailable) | Pending Manual Test | Dispatcher-side reflection Passed 2026-07-17; Admin/SR-side still pending |
 | DCL-005 | Reliability | Dispatcher | CargoLoading | Loading/error/empty states | — | Open with no data | Clear empty state, no fake route | — | Pending Manual Test | |
+| DCL-006 | Functional Suitability | Dispatcher | CargoLoading | Checkbox promotes assigned → loading | Assigned order in a rider group | Tick the loaded checkbox | `isLoaded: true` + `loadedAt/ByUid/ByEmail`; status `assigned` → `loading` + status audit fields; order stays in the group | — | Pending Manual Test | Added 2026-07-17 with the canonical-dispatch-path change |
+| DCL-007 | Functional Suitability | Dispatcher | CargoLoading | Unchecking does not regress status | Order already `loading` + loaded | Untick the checkbox | `isLoaded: false`, loaded audit cleared, **status stays `loading`** | — | Pending Manual Test | Deliberate: no backwards status transition |
+| DSH-010 | Functional Suitability | Dispatcher | Shipments | Competing dispatch actions removed | Orders in assigned / loading | View row actions | No "Start loading" on assigned, no "Dispatch" on loading; only Delay + Cancel | — | Pending Manual Test | Cargo Loading is the canonical dispatch path |
+| DSH-011 | Functional Suitability | Dispatcher | Shipments | Exception actions still available | Orders in in_transit / delayed | View row actions | "Mark delivered (override)", Delay, Cancel, Resume transit all present and working | — | Pending Manual Test | Mark delivered is a dispatcher override; Rider app is the normal path |
 
 ## 25. Dispatcher — Shipments / Status Progression
 
@@ -391,8 +395,13 @@ To test multiple roles at once, isolate each role in its own browser profile / b
 
 | Test Case ID | ISO 25010 Category | Role | Module | Test Scenario | Preconditions | Test Steps | Expected Result | Actual Result | Status | Remarks |
 |---|---|---|---|---|---|---|---|---|---|---|
-| RPU-001 | Functional Suitability | Rider | ProofScreen | Proof photo upload to Storage | in_transit/delivered order | Take photo, submit | proof_of_delivery/{orderId}/ upload + URL on order | — | Pending Manual Test | Implemented; needs device camera test |
-| RPU-002 | Functional Suitability | Rider | ProofScreen | Optional invoice photo upload | Proof selected | Add invoice photo | invoices/{orderId}/ upload + URL on order | — | Pending Manual Test | |
+| RPU-001 | Functional Suitability | Rider | ProofScreen | Proof photo upload to Storage | in_transit/delivered order | Take photo, submit | proof_of_delivery/{orderId}/ upload + URL on order | **Attempted 2026-07-17 on VT-ORD-1783611813231 — FAILED.** Order selected, synthetic-camera photo captured and attached, Submit tapped. Upload rejected: `StorageException Code -13010, HttpResult 404, "Object does not exist at location" / "The server has terminated the upload session"`. No `proofOfDeliveryUrl` written | **Blocked** | Not a code or rules fault — a 404 (not 403) points to the Storage bucket not being provisioned, or a bucket-name mismatch. Both apps target `vaxtrack-bef1b.firebasestorage.app`. **Needs Firebase Console → Storage check before any code change** |
+| RPU-002 | Functional Suitability | Rider | ProofScreen | Optional invoice photo upload | Proof selected | Add invoice photo | invoices/{orderId}/ upload + URL on order | — | Blocked | Same Storage blocker as RPU-001 |
+| APD-001 | Functional Suitability | Admin | Deliveries | Proof section renders in detail drawer | Any order | Open drawer | "Proof of delivery" section present between Rider and Activity | Section renders correctly | Passed | Verified live 2026-07-17 (Admin login, all 17 orders) |
+| APD-002 | Functional Suitability | Admin | Deliveries | Empty state when no proof | Order without proofOfDeliveryUrl | Open drawer | "No proof uploaded yet." | Exact text shown on all 17 orders | Passed | Verified live 2026-07-17 |
+| APD-003 | Functional Suitability | Admin | Deliveries | Image preview renders when proof exists | Order **with** proofOfDeliveryUrl | Open drawer | Thumbnail preview loads | — | **Blocked** | Untestable: zero orders have proof data (RPU-001 blocker). Populated path unproven |
+| APD-004 | Functional Suitability | Admin | Deliveries | "Open image" opens full image | Order with proofOfDeliveryUrl | Click Open image | Opens in new tab | — | **Blocked** | Same as APD-003 |
+| APD-005 | Functional Suitability | Admin | Deliveries | invoiceUrl shows as rider invoice photo | Order with invoiceUrl | Open drawer | "Open invoice photo" secondary link, distinct from Admin Invoices module | — | **Blocked** | Same as APD-003 |
 | RLC-001 | Functional Suitability | Rider | LocationService | Rider location writes users/{uid} | Location permission granted | Open dashboard / pull refresh | lastLocation + lastLocationUpdate written | — | Pending Manual Test | Permission flow confirmed on emulator |
 | RLC-002 | Functional Suitability | Rider | LocationService | Order location on status change | Status updated | Update any status | orders/{id}.lastLocation written | — | Pending Manual Test | Feeds future Geofence map |
 
@@ -402,10 +411,11 @@ To test multiple roles at once, isolate each role in its own browser profile / b
 
 | Status | Count |
 |---|---|
-| Passed | 100 |
-| Pending Manual Test | 21 |
-| Passed | 100 |
-| Pending Manual Test | 21 |
+| Passed | 102 |
+| Pending Manual Test | 23 |
+| Blocked | 5 |
 | Not Applicable | 2 |
 | Failed | 0 |
-| **Total** | **123** |
+| **Total** | **132** |
+
+*Counts recomputed directly from the case tables on 2026-07-17 (a duplicated summary row from an earlier edit was removed). "Blocked" = attempted but prevented by an environment/infrastructure fault, not a code defect: RPU-001/002 + APD-003/004/005, all downstream of the Firebase Storage 404.*

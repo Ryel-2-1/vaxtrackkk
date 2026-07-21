@@ -56,6 +56,12 @@ function normalizeDelivery(raw) {
     assignedAt: raw.assignedAt || null,
     statusUpdatedAt: raw.statusUpdatedAt || null,
     statusUpdatedByEmail: raw.statusUpdatedByEmail || "",
+    // Rider-uploaded photos. Both are full Firebase Storage download URLs
+    // written by the Flutter Rider app, so the web renders them directly and
+    // needs no Storage SDK. `invoiceUrl` is the rider's photo of the paper
+    // invoice — unrelated to the `invoices` collection / Admin Invoices module.
+    proofOfDeliveryUrl: raw.proofOfDeliveryUrl || "",
+    invoiceUrl: raw.invoiceUrl || "",
   };
 }
 
@@ -537,6 +543,48 @@ function DeliveryModal({ delivery, onClose, onContact, onRoute, onResolve }) {
               <p className="mdl-drawer-note">{delivery.instructions}</p>
             </section>
           )}
+
+          <section className="mdl-drawer-section">
+            <h3>Proof of delivery</h3>
+            {delivery.proofOfDeliveryUrl ? (
+              <div className="mdl-proof">
+                <a
+                  className="mdl-proof-thumb"
+                  href={delivery.proofOfDeliveryUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <img
+                    src={delivery.proofOfDeliveryUrl}
+                    alt={`Proof of delivery for order ${delivery.id}`}
+                    loading="lazy"
+                  />
+                </a>
+                <div className="mdl-proof-actions">
+                  <a
+                    className="mdl-proof-link"
+                    href={delivery.proofOfDeliveryUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Open image
+                  </a>
+                  {delivery.invoiceUrl && (
+                    <a
+                      className="mdl-proof-link secondary"
+                      href={delivery.invoiceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Open invoice photo
+                    </a>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="mdl-drawer-note">No proof uploaded yet.</p>
+            )}
+          </section>
 
           <section className="mdl-drawer-section">
             <h3>Activity</h3>

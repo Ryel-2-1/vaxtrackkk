@@ -160,8 +160,29 @@ export function subscribeCargoLoadingGroups(callback, onError) {
  * Persist whether a single order has been physically loaded.
  * Stores the loaded state in Firestore (not just React state) plus a small
  * audit trail. Does not touch unrelated order fields.
+ *
+ * Cargo Loading is the canonical dispatch path, so confirming the first order
+ * of an `assigned` group also advances it to `loading` — this is what keeps the
+ * documented pending_dispatch → assigned → loading → in_transit → delivered
+ * flow reachable now that Shipments no longer offers "Start loading".
+ *
+ * Unchecking only clears the loaded flag. The status is deliberately NOT
+ * regressed from `loading` back to `assigned`: `loading` means preparation has
+ * begun, and silent backwards transitions would confuse the audit trail and
+ * every downstream role view.
+ *
+ * @param {string} orderId
+ * @param {boolean} isLoaded
+ * @param {{uid?: string, email?: string}} dispatcher
+ * @param {string} [currentStatusKey] normalized status of the order as shown in
+ *   the UI; only `"assigned"` triggers the promotion to `loading`.
  */
-export async function updateOrderLoadedState(orderId, isLoaded, dispatcher) {
+export async function updateOrderLoadedState(
+  orderId,
+  isLoaded,
+  dispatcher,
+  currentStatusKey
+) {
   if (!orderId) throw new Error("Order ID is required.");
 
   const ref = doc(db, ORDERS, orderId);
@@ -176,8 +197,19 @@ export async function updateOrderLoadedState(orderId, isLoaded, dispatcher) {
     update.loadedAt = serverTimestamp();
     if (dispatcher?.uid) update.loadedByUid = dispatcher.uid;
     if (dispatcher?.email) update.loadedByEmail = dispatcher.email;
+
+    // Promote assigned → loading on first confirmation. Uses the same status
+    // audit fields as updateOrderStatus / finalizeRiderDispatch so Admin,
+    // Sales Rep and Shipments all read a consistent trail.
+    if (currentStatusKey === "assigned") {
+      update.status = "loading";
+      update.statusUpdatedAt = serverTimestamp();
+      if (dispatcher?.uid) update.statusUpdatedByUid = dispatcher.uid;
+      if (dispatcher?.email) update.statusUpdatedByEmail = dispatcher.email;
+    }
   } else {
     // Clearing a confirmation removes the audit fields so they never go stale.
+    // Status is intentionally left as-is (no regression to `assigned`).
     update.loadedAt = null;
     update.loadedByUid = null;
     update.loadedByEmail = null;

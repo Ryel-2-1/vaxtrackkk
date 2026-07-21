@@ -138,7 +138,13 @@ function DispatcherCargoLoading() {
     if (savingOrders[order.id]) return; // block duplicate writes
     setSavingOrders((prev) => ({ ...prev, [order.id]: true }));
     try {
-      await updateOrderLoadedState(order.id, nextLoaded, dispatcher);
+      // statusKey lets the service promote assigned → loading on confirmation.
+      await updateOrderLoadedState(
+        order.id,
+        nextLoaded,
+        dispatcher,
+        order.statusKey
+      );
     } catch (err) {
       console.error("updateOrderLoadedState error:", err);
       showToast(err.message || "Failed to save loaded state.", "error");
