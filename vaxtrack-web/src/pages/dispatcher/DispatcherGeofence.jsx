@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import {
   AlertTriangle,
   Clock3,
@@ -13,6 +15,18 @@ import {
 import DispatcherLayout from "./DispatcherLayout";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import StatusBadge from "../../components/ui/StatusBadge";
+
+// DOM-based marker (no image assets) — Leaflet's default icon PNGs break under
+// bundlers, and a divIcon lets the marker use Meridian green via CSS.
+// "geo3-live-*" names: the legacy removed fake-map CSS still defines
+// .geo3-rider-marker with absolute left/top offsets that corrupt Leaflet's
+// transform positioning.
+const riderIcon = L.divIcon({
+  className: "geo3-live-rider-marker",
+  html: '<span class="geo3-live-rider-dot"></span>',
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+});
 
 const ACTIVE_STATUSES = new Set(["assigned", "loading", "in_transit", "delayed"]);
 
@@ -47,6 +61,89 @@ function formatCoords(geoPoint) {
   const lng = geoPoint.longitude ?? geoPoint._long;
   if (typeof lat !== "number" || typeof lng !== "number") return null;
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+}
+
+// Handles both Firestore GeoPoint shapes (latitude/longitude and _lat/_long).
+function getLatLng(geoPoint) {
+  if (!geoPoint) return null;
+  const lat = geoPoint.latitude ?? geoPoint._lat;
+  const lng = geoPoint.longitude ?? geoPoint._long;
+  if (typeof lat !== "number" || typeof lng !== "number") return null;
+  return [lat, lng];
+}
+
+// Rider-position-only map (Leaflet + OpenStreetMap tiles — no API key).
+// Destination markers, geofence, and routes stay deferred until clinics
+// have coordinates. Renders only when a lastLocation exists.
+function RiderLocationMap({ lat, lng }) {
+  const containerRef = useRef(null);
+  const mapRef = useRef(null);
+  const markerRef = useRef(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    if (!mapRef.current) {
+      mapRef.current = L.map(containerRef.current);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      }).addTo(mapRef.current);
+    }
+
+    mapRef.current.setView([lat, lng], 15);
+
+    if (!markerRef.current) {
+      markerRef.current = L.marker([lat, lng], { icon: riderIcon }).addTo(mapRef.current);
+    } else {
+      markerRef.current.setLatLng([lat, lng]);
+    }
+
+    // Leaflet measures the container at construction time, which can happen
+    // before flex layout settles — recalc after layout so the marker/center
+    // aren't offset from the visible container. setTimeout (not rAF): rAF can
+    // be suspended in embedded/headless panes.
+    const map = mapRef.current;
+    const timer = setTimeout(() => {
+      map.invalidateSize();
+      map.setView([lat, lng], 15, { animate: false });
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [lat, lng]);
+
+  // Re-measure on viewport resize so the responsive height breakpoints
+  // (480 / 390 / 320px) don't leave the map with stale dimensions (gray
+  // strips / off-center tiles). ResizeObserver on the container also catches
+  // sidebar/layout reflows, not just window resizes.
+  useEffect(() => {
+    const onResize = () => mapRef.current && mapRef.current.invalidateSize();
+    window.addEventListener("resize", onResize);
+    let ro;
+    if (containerRef.current && typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(onResize);
+      ro.observe(containerRef.current);
+    }
+    return () => {
+      window.removeEventListener("resize", onResize);
+      if (ro) ro.disconnect();
+    };
+  }, []);
+
+  // Tear the map down on unmount so HMR / re-selection never hits
+  // "Map container is already initialized".
+  useEffect(() => {
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+        markerRef.current = null;
+      }
+    };
+  }, []);
+
+  // "geo3-live-map" (not "geo3-map") — the legacy removed fake-map CSS still
+  // defines .geo3-map with a 520px gradient background, which would collide.
+  return <div ref={containerRef} className="geo3-live-map" />;
 }
 
 function DispatcherGeofence() {
@@ -126,11 +223,12 @@ function DispatcherGeofence() {
         <div className="geo3-info-banner">
           <Info size={16} />
           <div>
-            <strong>Live GPS tracking not yet active.</strong>
+            <strong>Live rider tracking shows position only.</strong>
             <p>
-              Map view, geofence, and route deviation detection will activate once
-              the Rider mobile app begins sending location updates. This page shows
-              real order and status data from Firestore.
+              The map displays the rider&apos;s last reported location while a
+              delivery is in transit (foreground tracking). Geofence, route
+              deviation, and destination markers will activate once clinics have
+              coordinates. All data comes from Firestore.
             </p>
           </div>
         </div>
@@ -260,6 +358,24 @@ function DispatcherGeofence() {
                       </div>
                     </div>
                   </div>
+
+                  {getLatLng(selected.lastLocation) && (
+                    <div className="geo3-card geo3-live-map-card">
+                      <h3>Live map</h3>
+                      <RiderLocationMap
+                        lat={getLatLng(selected.lastLocation)[0]}
+                        lng={getLatLng(selected.lastLocation)[1]}
+                      />
+                      <p className="geo3-live-map-note">
+                        Rider position only
+                        {isLocationStale(selected.lastLocationUpdate)
+                          ? " — last update is stale"
+                          : ""}
+                        . Destination markers and geofence require clinic
+                        coordinates (deferred).
+                      </p>
+                    </div>
+                  )}
 
                   {selected.deliveryInstructions && (
                     <div className="geo3-card geo3-timeline-card">

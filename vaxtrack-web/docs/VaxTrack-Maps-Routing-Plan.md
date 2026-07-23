@@ -5,6 +5,28 @@
 
 ---
 
+> ## ⚠️ SUPERSEDED — read this first (updated 2026-07-23)
+>
+> This is an **early aspirational plan**, kept for history. It does **not** reflect
+> what is actually built. The project has since **decided to avoid paid/billing-sensitive
+> APIs**, so the recommendations below (Google Maps as primary renderer, Google
+> Directions/Geocoding) are **not** the implemented stack.
+>
+> **Actually implemented today (see CLAUDE.md for the source of truth):**
+> - **Map display:** **Leaflet + OpenStreetMap tiles** on Dispatcher Geofence — **no API key, no billing.** (A CSP `img-src` allowance for `tile.openstreetmap.org` is the only config it needs.)
+> - **Rider GPS → Firestore:** implemented and runtime-verified (continuous foreground tracking, `geolocator`).
+> - **Proof of delivery:** temporary **manual HTTPS URL fallback** (Firebase Storage not provisioned — a Blaze decision, deferred).
+>
+> **NOT implemented (deferred, no code):** Google Maps API, Google Geocoding API,
+> Mapbox, OpenRouteService (routing/VRP), Google OR-Tools, clinic geocoding,
+> destination markers, geofence detection, route deviation, ETA/routing.
+>
+> The "What is implemented vs. future" table near the bottom has been corrected to
+> match reality; the narrative sections above it are the **original** proposal and
+> should be read as "one option we considered," not as current fact.
+
+---
+
 ## 1. Recommended Stack
 
 | Component | Recommended Tool | Fallback / Future |
@@ -364,21 +386,25 @@ alerts/{alertId}
 
 ### What is implemented vs. future enhancement?
 
-| Feature | Status |
-|---|---|
-| Google Maps on Admin Dashboard | Implemented |
-| Delivery destination markers | Implemented |
-| Route polyline (warehouse → clinic) | Implemented |
-| Rider GPS tracking to Firestore | Implemented |
-| Admin live rider tracking | Implemented |
-| Route deviation alerts | Implemented |
-| Multi-stop route optimization (ORS) | Implemented (basic) |
-| OR-Tools backend solver | Documented as future enhancement |
-| Turn-by-turn navigation in Flutter | Documented as future enhancement |
-| Historical route playback | Documented as future enhancement |
-| Traffic-aware routing | Documented as future enhancement |
+**Corrected 2026-07-23 to match the actual codebase** (the earlier values in this
+table were aspirational template placeholders, not real status):
 
-*(Adjust "Implemented" vs "Documented" based on what you complete before defense.)*
+| Feature | Actual Status |
+|---|---|
+| Web map renderer | **Implemented — Leaflet + OpenStreetMap** on Dispatcher Geofence (NOT Google Maps; no API key) |
+| Google Maps on Admin Dashboard | **NOT implemented** — no Google Maps anywhere; no Admin map |
+| Delivery destination markers | **NOT implemented** — deferred (clinics have no coordinates yet) |
+| Route polyline (warehouse → clinic) | **NOT implemented** — deferred |
+| Rider GPS tracking to Firestore | **Implemented** — continuous foreground tracking, runtime-verified 2026-07-23 |
+| Dispatcher live rider tracking | **Implemented (position only)** — rider marker on the Leaflet map from `orders.lastLocation` |
+| Admin live rider tracking | **NOT implemented** — no Admin map |
+| Route deviation alerts | **NOT implemented** — deferred (needs routing + clinic coords) |
+| Multi-stop route optimization (ORS) | **NOT implemented** — deferred (no OpenRouteService key) |
+| OR-Tools backend solver | **NOT implemented** — future/optional |
+| Turn-by-turn navigation in Flutter | **NOT implemented** — future |
+| Historical route playback | **NOT implemented** — future |
+| Traffic-aware routing | **NOT implemented** — future |
+| Proof-of-delivery photo | **Temporary manual HTTPS URL fallback** — Firebase Storage upload deferred (Blaze) |
 
 ---
 

@@ -8095,6 +8095,48 @@
 .geo3-muted { color: #94a3b8 !important; font-style: italic; font-weight: 500 !important; }
 .geo3-stale { color: var(--warning-text, #b45309) !important; font-weight: 600 !important; }
 
+/* ---------- live map (Leaflet + OSM, rider position only) ----------
+   Named geo3-live-map to avoid the legacy .geo3-map fake-map rules
+   (min-height 520px + gradient bg) still present further down.
+   Responsive height: desktop ~480px, laptop/tablet ~390px, mobile ~320px.
+   Full card width, never overflows horizontally. */
+.geo3-live-map {
+  width: 100%;
+  max-width: 100%;
+  height: 480px;
+  border: 1px solid var(--gray-200);
+  border-radius: 10px;
+  overflow: hidden;
+  z-index: 0; /* keep Leaflet panes under the app's dropdowns/modals */
+}
+@media (max-width: 1024px) {
+  .geo3-live-map { height: 390px; }
+}
+@media (max-width: 640px) {
+  .geo3-live-map { height: 320px; }
+}
+.geo3-live-map-card h3 {
+  margin-bottom: 10px;
+}
+.geo3-live-map-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--gray-500);
+}
+.geo3-live-rider-marker {
+  background: transparent;
+  border: none;
+}
+.geo3-live-rider-dot {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--green-600);
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2px var(--green-700), 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
 /* ============================================================
    Meridian Dispatcher · Assign Rider (ar-*). Tokens-based.
    Replaces the legacy assign-* / rider-option / dispatcher-blue-btn
