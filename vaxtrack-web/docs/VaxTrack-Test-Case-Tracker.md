@@ -401,8 +401,8 @@ To test multiple roles at once, isolate each role in its own browser profile / b
 | RPU-004 | Functional Suitability | Rider | ProofScreen | Manual URL validation | Toggle on | Submit empty / non-https URL | Blocked with snackbar, no write | Code verified (empty → "Enter a proof image URL"; non-https → "must start with https://") | Passed | Static + implicit; happy path exercised live |
 | APD-001 | Functional Suitability | Admin | Deliveries | Proof section renders in detail drawer | Any order | Open drawer | "Proof of delivery" section present between Rider and Activity | Section renders correctly | Passed | Verified live 2026-07-17 (Admin login, all 17 orders) |
 | APD-002 | Functional Suitability | Admin | Deliveries | Empty state when no proof | Order without proofOfDeliveryUrl | Open drawer | "No proof uploaded yet." | Exact text shown on all 17 orders | Passed | Verified live 2026-07-17 |
-| APD-003 | Functional Suitability | Admin | Deliveries | Image preview renders when proof exists | Order **with** proofOfDeliveryUrl | Open drawer | Thumbnail preview loads | Section populates (via RPU-003 fallback): drawer switched from empty state to "Open image" with correct `<img src>` from proofOfDeliveryUrl. **Pixels did NOT paint in the test browser — its sandbox blocks all external image hosts (wikimedia/google/picsum failed identically), not a code fault** | **Partial** | Section + src wiring verified 2026-07-22; actual image render needs a real-browser spot check |
-| APD-004 | Functional Suitability | Admin | Deliveries | "Open image" opens full image | Order with proofOfDeliveryUrl | Click Open image | Opens in new tab | "Open image" link renders with correct href (= proofOfDeliveryUrl). Navigation not exercised (test browser blocks external hosts) | **Partial** | href verified 2026-07-22; needs real-browser click |
+| APD-003 | Functional Suitability | Admin | Deliveries | Image preview renders when proof exists | Order **with** proofOfDeliveryUrl | Open drawer | Thumbnail preview loads | Proof image preview paints/loads correctly in normal Chrome on VT-ORD-1783611813231. (The earlier non-paint was only the sandboxed test browser blocking external image hosts, not a code fault) | Passed | Verified in user's own Chrome 2026-07-22 |
+| APD-004 | Functional Suitability | Admin | Deliveries | "Open image" opens full image | Order with proofOfDeliveryUrl | Click Open image | Opens in new tab | "Open image" opens the full image in normal Chrome | Passed | Verified in user's own Chrome 2026-07-22 |
 | APD-005 | Functional Suitability | Admin | Deliveries | invoiceUrl shows as rider invoice photo | Order with invoiceUrl | Open drawer | "Open invoice photo" secondary link, distinct from Admin Invoices module | — | **Blocked** | No order has invoiceUrl: URL-mode fallback skips invoice, camera invoice path still Storage-blocked |
 | RLC-001 | Functional Suitability | Rider | LocationService | Rider location writes users/{uid} | Location permission granted | Open dashboard / pull refresh | lastLocation + lastLocationUpdate written | — | Pending Manual Test | Permission flow confirmed on emulator |
 | RLC-002 | Functional Suitability | Rider | LocationService | Order location on status change | Status updated | Update any status | orders/{id}.lastLocation written | — | Pending Manual Test | Feeds future Geofence map |
@@ -413,12 +413,11 @@ To test multiple roles at once, isolate each role in its own browser profile / b
 
 | Status | Count |
 |---|---|
-| Passed | 104 |
+| Passed | 106 |
 | Pending Manual Test | 23 |
-| Partial | 2 |
 | Blocked | 3 |
 | Not Applicable | 2 |
 | Failed | 0 |
 | **Total** | **134** |
 
-*Counts recomputed from the case tables on 2026-07-22. Added RPU-003/004 (no-Blaze manual proof URL fallback — Passed). "Partial" = APD-003/004: the Admin proof section populates and the `<img>`/link are correctly wired from proofOfDeliveryUrl, but the external image cannot paint in the sandboxed test browser (blocks all external hosts) — needs a real-browser spot check. "Blocked" = RPU-001/002 (Firebase Storage 404, not provisioned) + APD-005 (no invoiceUrl on any order).*
+*Counts recomputed from the case tables on 2026-07-22. APD-003/004 moved Partial → Passed after real-Chrome verification (proof image paints, "Open image" works); the earlier non-paint was only the sandboxed test browser blocking external image hosts, not a code fault. RPU-003/004 (no-Blaze manual proof URL fallback) Passed. "Blocked" = RPU-001/002 (Firebase Storage 404, not provisioned — awaiting Storage provisioning / Blaze decision) + APD-005 (no invoiceUrl on any order).*
