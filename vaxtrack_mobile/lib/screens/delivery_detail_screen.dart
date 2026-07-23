@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/delivery.dart';
 import '../services/delivery_service.dart';
@@ -23,6 +24,40 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
 
   Delivery get d => widget.delivery;
 
+  @override
+  void initState() {
+    super.initState();
+    // Foreground-only live tracking runs while an in_transit delivery is open.
+    if (d.isInTransit) {
+      _startTracking();
+    }
+  }
+
+  @override
+  void dispose() {
+    // Leaving the screen (or the app being torn down) stops tracking — this is
+    // the documented foreground-only MVP; background tracking is out of scope.
+    _locationService.stopTracking();
+    super.dispose();
+  }
+
+  Future<void> _startTracking() async {
+    final riderId = FirebaseAuth.instance.currentUser?.uid;
+    if (riderId == null) return;
+    try {
+      final started = await _locationService.startTracking(riderId);
+      if (!started && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Live location unavailable — enable location to share your position.'),
+          ),
+        );
+      }
+    } catch (_) {
+      // Tracking is best-effort; never disrupt the delivery flow.
+    }
+  }
+
   Future<void> _updateStatus(String newStatus) async {
     setState(() => _updatingStatus = true);
     try {
@@ -46,6 +81,17 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
       final pos = await _locationService.getCurrentPosition();
       if (pos != null) {
         await _locationService.updateOrderLocation(d.id, pos);
+      }
+
+      // Tracking lifecycle on transitions:
+      // - in_transit  -> begin continuous tracking (persists once the rider
+      //   re-opens the now in_transit delivery; the screen pops right after
+      //   this update to refresh state on the dashboard).
+      // - delivered/cancelled -> stop before leaving the screen.
+      if (newStatus == 'in_transit') {
+        await _startTracking();
+      } else if (newStatus == 'delivered' || newStatus == 'cancelled') {
+        await _locationService.stopTracking();
       }
 
       if (mounted) {

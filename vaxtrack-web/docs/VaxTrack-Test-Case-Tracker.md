@@ -406,6 +406,13 @@ To test multiple roles at once, isolate each role in its own browser profile / b
 | APD-005 | Functional Suitability | Admin | Deliveries | invoiceUrl shows as rider invoice photo | Order with invoiceUrl | Open drawer | "Open invoice photo" secondary link, distinct from Admin Invoices module | — | **Blocked** | No order has invoiceUrl: URL-mode fallback skips invoice, camera invoice path still Storage-blocked |
 | RLC-001 | Functional Suitability | Rider | LocationService | Rider location writes users/{uid} | Location permission granted | Open dashboard / pull refresh | lastLocation + lastLocationUpdate written | — | Pending Manual Test | Permission flow confirmed on emulator |
 | RLC-002 | Functional Suitability | Rider | LocationService | Order location on status change | Status updated | Update any status | orders/{id}.lastLocation written | — | Pending Manual Test | Feeds future Geofence map |
+| RLT-001 | Functional Suitability | Rider | LocationService / DeliveryDetail | Foreground tracking starts on in_transit | in_transit delivery detail opened | Open the screen | Tracking starts, no crash, no blocking error | Opened in_transit VT-ORD-1784199396106 as rider.qa2; no crash, no permission prompt (already granted), no error snackbar; Flutter log clean | Passed | Verified live 2026-07-23 (emulator) |
+| RLT-002 | Functional Suitability | Rider | LocationService | Movement writes all 5 order location fields | Tracking active, rider moves >30m | Push emulator geo fixes >30m, >15s apart | orders.lastLocation + lastLocationUpdate + locationAccuracy + heading + speed update | Order moved from null → lastLocation [14.553,121.003], accuracy 5, heading 0, speed 0.00045, lastLocationUpdate fresh | Passed | Verified live 2026-07-23 via `adb emu geo fix` |
+| RLT-003 | Functional Suitability | Rider | LocationService | Same tick written to all in_transit orders | Rider has 2 in_transit orders | Move once | Both orders updated with identical position | VT-ORD-1784199396106 **and** VT-ORD-1784056096300 (same rider uid) both updated to [14.553,121.003] with identical fields | Passed | Verified live 2026-07-23 |
+| RLT-004 | Functional Suitability | Rider | LocationService | Movement writes user location fields | Tracking active | Move | users/{uid}.lastLocation + lastLocationUpdate + locationAccuracy + heading + speed update | User doc moved [37.42,-122.08]→[14.553,121.003]; accuracy/heading/speed went null → 5/0/0.00045 (proves continuous tracker, not the one-shot method) | Passed | Verified live 2026-07-23 |
+| RLT-005 | Efficiency | Rider | LocationService | Throttle — no writes while stationary | Tracking active, no movement | Wait ~2.5 min without moving | lastLocationUpdate frozen (no new writes) | Timestamp stayed 12:00:20 across a 165s stationary wait — distanceFilter/interval guard suppressed writes | Passed | Verified live 2026-07-23 |
+| RLT-006 | Functional Suitability | Rider | DeliveryDetail | Tracking stops on dispose | In_transit detail open + tracking | Navigate back, then push a distant geo fix | Order stops receiving continuous writes | After back (dispose→stopTracking), a distant fix (121.01,14.56) did **not** move the order — stayed at fix3 [14.553,121.003]/12:00:20 | Passed | Verified live 2026-07-23 |
+| RLT-007 | Functional Suitability | Dispatcher | Geofence | Live coords + relative time + stale badge | Order has fresh then aged lastLocation | Select shipment; wait >2 min | Coords + "Updated Xm ago"; "Stale" badge after 2 min | Showed "14.55296, 121.00296 · Updated Just now" fresh; after >2 min → "Updated Xm ago · Stale (no recent update)"; no console errors | Passed | Verified live 2026-07-23 (Dispatcher). Text-only, no map |
 
 ---
 
@@ -413,11 +420,11 @@ To test multiple roles at once, isolate each role in its own browser profile / b
 
 | Status | Count |
 |---|---|
-| Passed | 111 |
+| Passed | 118 |
 | Pending Manual Test | 18 |
 | Blocked | 3 |
 | Not Applicable | 2 |
 | Failed | 0 |
-| **Total** | **134** |
+| **Total** | **141** |
 
-*Counts recomputed from the case tables on 2026-07-22. Cargo Loading canonical-dispatch-path QA passed live (Dispatcher): DCL-004/006/007 + DSH-010/011 moved Pending → Passed on order VT-ORD-1784199396106 (assigned→loading via checkbox, no-regress on uncheck, finalize→in_transit, cross-role reflection on Admin + Sales Rep + Shipments, rider fields preserved). Earlier: APD-003/004 Passed (real-Chrome proof render); RPU-003/004 Passed (no-Blaze manual proof URL fallback). "Blocked" = RPU-001/002 (Firebase Storage 404, not provisioned — awaiting Storage provisioning / Blaze decision) + APD-005 (no invoiceUrl on any order).*
+*Counts recomputed from the case tables on 2026-07-23. Continuous Rider Location foreground tracking passed live (RLT-001..007): in_transit detail starts tracking; movement writes lastLocation + lastLocationUpdate + locationAccuracy + heading + speed to all in_transit orders AND users/{uid}; stationary throttle freezes writes; tracking stops on dispose; Dispatcher Geofence shows live coords + relative time + a 2-min Stale badge — all via `adb emu geo fix` movement on the emulator. Earlier (2026-07-22): Cargo Loading canonical path (DCL-004/006/007 + DSH-010/011); APD-003/004 (real-Chrome proof render); RPU-003/004 (no-Blaze manual proof URL fallback). "Blocked" = RPU-001/002 (Firebase Storage 404, not provisioned — awaiting Storage provisioning / Blaze decision) + APD-005 (no invoiceUrl on any order).*

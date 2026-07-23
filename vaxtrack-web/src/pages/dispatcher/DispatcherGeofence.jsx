@@ -16,6 +16,18 @@ import StatusBadge from "../../components/ui/StatusBadge";
 
 const ACTIVE_STATUSES = new Set(["assigned", "loading", "in_transit", "delayed"]);
 
+// A live-location fix older than this reads as stale — the rider stream is
+// throttled to ~15s, so 2 minutes without an update means it has stopped
+// (app backgrounded/closed, GPS lost, or delivery ended).
+const STALE_LOCATION_MS = 2 * 60 * 1000;
+
+function isLocationStale(ts) {
+  if (!ts) return false;
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  if (isNaN(d.getTime())) return false;
+  return Date.now() - d.getTime() > STALE_LOCATION_MS;
+}
+
 function formatRelativeTime(ts) {
   if (!ts) return null;
   const d = ts.toDate ? ts.toDate() : new Date(ts);
@@ -221,6 +233,9 @@ function DispatcherGeofence() {
                               <p>
                                 Updated{" "}
                                 {formatRelativeTime(selected.lastLocationUpdate) || "—"}
+                                {isLocationStale(selected.lastLocationUpdate) && (
+                                  <span className="geo3-stale"> · Stale (no recent update)</span>
+                                )}
                               </p>
                             </>
                           ) : (

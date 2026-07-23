@@ -8093,6 +8093,7 @@
 .geo3-badge.delayed { background: #fee2e2; color: #991b1b; }
 
 .geo3-muted { color: #94a3b8 !important; font-style: italic; font-weight: 500 !important; }
+.geo3-stale { color: var(--warning-text, #b45309) !important; font-weight: 600 !important; }
 
 /* ============================================================
    Meridian Dispatcher · Assign Rider (ar-*). Tokens-based.
