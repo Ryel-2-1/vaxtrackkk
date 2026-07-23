@@ -24,10 +24,23 @@ class _ProofScreenState extends State<ProofScreen> {
   bool _uploading = false;
   bool _submitted = false;
 
+  // Temporary no-Blaze fallback: paste an existing HTTPS image URL instead of
+  // uploading through Firebase Storage (which is not provisioned on this
+  // project yet). The camera upload path above is left fully intact for when
+  // Storage is enabled.
+  bool _useManualUrl = false;
+  final _manualUrlController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     _riderId = FirebaseAuth.instance.currentUser?.uid;
+  }
+
+  @override
+  void dispose() {
+    _manualUrlController.dispose();
+    super.dispose();
   }
 
   Future<void> _pickProofPhoto() async {
@@ -45,7 +58,29 @@ class _ProofScreenState extends State<ProofScreen> {
   }
 
   Future<void> _submit() async {
-    if (_selectedOrderId == null || _proofPhoto == null) {
+    if (_selectedOrderId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a delivery first.')),
+      );
+      return;
+    }
+
+    final manualUrl = _manualUrlController.text.trim();
+
+    if (_useManualUrl) {
+      if (manualUrl.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Enter a proof image URL, or turn off the URL option.')),
+        );
+        return;
+      }
+      if (!manualUrl.startsWith('https://')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Proof image URL must start with https://')),
+        );
+        return;
+      }
+    } else if (_proofPhoto == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Select a delivery and take a proof photo.')),
       );
@@ -55,18 +90,26 @@ class _ProofScreenState extends State<ProofScreen> {
     setState(() => _uploading = true);
 
     try {
-      final proofUrl = await _imageService.uploadProofOfDelivery(_selectedOrderId!, _proofPhoto!);
-      await _deliveryService.saveProofOfDelivery(_selectedOrderId!, proofUrl);
+      if (_useManualUrl) {
+        // No-Blaze fallback: write the pasted URL straight to the order,
+        // skipping Firebase Storage entirely. Invoice upload is skipped in
+        // this mode since it also depends on Storage.
+        await _deliveryService.saveProofOfDelivery(_selectedOrderId!, manualUrl);
+      } else {
+        final proofUrl = await _imageService.uploadProofOfDelivery(_selectedOrderId!, _proofPhoto!);
+        await _deliveryService.saveProofOfDelivery(_selectedOrderId!, proofUrl);
 
-      if (_invoicePhoto != null) {
-        final invoiceUrl = await _imageService.uploadInvoice(_selectedOrderId!, _invoicePhoto!);
-        await _deliveryService.saveInvoicePhoto(_selectedOrderId!, invoiceUrl);
+        if (_invoicePhoto != null) {
+          final invoiceUrl = await _imageService.uploadInvoice(_selectedOrderId!, _invoicePhoto!);
+          await _deliveryService.saveInvoicePhoto(_selectedOrderId!, invoiceUrl);
+        }
       }
 
       setState(() {
         _submitted = true;
         _proofPhoto = null;
         _invoicePhoto = null;
+        _manualUrlController.clear();
       });
 
       Future.delayed(const Duration(seconds: 3), () {
@@ -176,6 +219,54 @@ class _ProofScreenState extends State<ProofScreen> {
                         ClipRRect(
                           borderRadius: BorderRadius.circular(10),
                           child: Image.file(_proofPhoto!, height: 160, width: double.infinity, fit: BoxFit.cover),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: const [
+                                Text('Use proof image URL instead',
+                                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                                SizedBox(height: 2),
+                                Text('Temporary demo fallback (Firebase Storage not enabled)',
+                                    style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                              ],
+                            ),
+                          ),
+                          Switch(
+                            value: _useManualUrl,
+                            onChanged: (v) => setState(() => _useManualUrl = v),
+                          ),
+                        ],
+                      ),
+                      if (_useManualUrl) ...[
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _manualUrlController,
+                          keyboardType: TextInputType.url,
+                          decoration: const InputDecoration(
+                            labelText: 'Proof image URL',
+                            hintText: 'https://...',
+                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Must be a public HTTPS image link. Skips Firebase Storage upload and saves the link directly to the order.',
+                          style: TextStyle(fontSize: 11, color: AppColors.textLight),
                         ),
                       ],
                     ],
