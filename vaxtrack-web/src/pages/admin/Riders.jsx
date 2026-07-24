@@ -7,7 +7,6 @@ import {
   PhoneCall,
   Plus,
   Search,
-  Truck,
   Users,
   X,
 } from "lucide-react";
@@ -73,13 +72,6 @@ function normalizeRider(raw) {
   };
 }
 
-const pendingDeliveries = [
-  "VAX-9821 - Sta. Lucia RHU",
-  "VAX-8824 - PGH Manila",
-  "VAX-8825 - St. Luke's BGC",
-  "VAX-9001 - Quezon City Gen",
-];
-
 function Riders() {
   const navigate = useNavigate();
 
@@ -89,9 +81,7 @@ function Riders() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedRider, setSelectedRider] = useState(null);
-  const [assignTarget, setAssignTarget] = useState(null);
   const [showNewRiderModal, setShowNewRiderModal] = useState(false);
-  const [selectedDelivery, setSelectedDelivery] = useState(pendingDeliveries[0]);
   const [toast, setToast] = useState("");
 
   const [newRider, setNewRider] = useState({
@@ -151,12 +141,6 @@ function Riders() {
 
   const standbyCount = riders.filter((r) => r.status === "standby").length;
   const offDutyCount = riders.filter((r) => r.status === "offduty").length;
-
-  const handleAssignDelivery = () => {
-    if (!assignTarget) return;
-    showToast(`${assignTarget.name} assigned to ${selectedDelivery}.`);
-    setAssignTarget(null);
-  };
 
   const handleCreateRider = (e) => {
     e.preventDefault();
@@ -341,16 +325,6 @@ function Riders() {
                   >
                     Details
                   </button>
-
-                  {rider.status === "standby" && (
-                    <button
-                      type="button"
-                      className="primary"
-                      onClick={() => setAssignTarget(rider)}
-                    >
-                      Assign
-                    </button>
-                  )}
                 </div>
               </article>
             ))}
@@ -394,10 +368,6 @@ function Riders() {
           rider={selectedRider}
           onClose={() => setSelectedRider(null)}
           onContact={() => showToast(`Contacting ${selectedRider.name}...`)}
-          onAssign={() => {
-            setAssignTarget(selectedRider);
-            setSelectedRider(null);
-          }}
           onRoute={() => showToast(`Opening route for ${selectedRider.name}.`)}
           onOffDuty={() => {
             const rider = selectedRider;
@@ -417,16 +387,6 @@ function Riders() {
         />
       )}
 
-      {assignTarget && (
-        <AssignRiderModal
-          rider={assignTarget}
-          selectedDelivery={selectedDelivery}
-          setSelectedDelivery={setSelectedDelivery}
-          onClose={() => setAssignTarget(null)}
-          onAssign={handleAssignDelivery}
-        />
-      )}
-
       {showNewRiderModal && (
         <NewRiderModal
           newRider={newRider}
@@ -443,7 +403,6 @@ function RiderDetailsModal({
   rider,
   onClose,
   onContact,
-  onAssign,
   onRoute,
   onOffDuty,
   onReactivate,
@@ -528,16 +487,6 @@ function RiderDetailsModal({
           {isApproved && (
             <button
               type="button"
-              className="riders-light-action"
-              onClick={onAssign}
-            >
-              Assign Delivery
-            </button>
-          )}
-
-          {isApproved && (
-            <button
-              type="button"
               className="riders-danger-action"
               onClick={onOffDuty}
             >
@@ -574,61 +523,6 @@ function RiderDetailsModal({
               Set Available
             </button>
           )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AssignRiderModal({
-  rider,
-  selectedDelivery,
-  setSelectedDelivery,
-  onClose,
-  onAssign,
-}) {
-  return (
-    <div className="riders-modal-backdrop">
-      <div className="riders-modal small">
-        <button type="button" className="riders-modal-close" onClick={onClose}>
-          <X size={18} />
-        </button>
-
-        <div className="riders-modal-avatar standby">
-          <Truck size={24} />
-        </div>
-
-        <h2>Assign Delivery</h2>
-        <p>Select a pending delivery for {rider.name}.</p>
-
-        <label className="riders-form-label">
-          Pending Delivery
-          <select
-            value={selectedDelivery}
-            onChange={(e) => setSelectedDelivery(e.target.value)}
-          >
-            {pendingDeliveries.map((delivery) => (
-              <option key={delivery}>{delivery}</option>
-            ))}
-          </select>
-        </label>
-
-        <div className="riders-modal-actions">
-          <button
-            type="button"
-            className="riders-primary-action"
-            onClick={onAssign}
-          >
-            Assign Rider
-          </button>
-
-          <button
-            type="button"
-            className="riders-light-action"
-            onClick={onClose}
-          >
-            Cancel
-          </button>
         </div>
       </div>
     </div>
