@@ -1,0 +1,72 @@
+rules_version = '2';
+
+// VaxTrack Cloud Storage security rules — production-oriented DRAFT (2026-07-24).
+//
+// NOT DEPLOYED, and Firebase Storage is NOT yet provisioned for this project
+// (a Blaze decision is pending). These rules describe the intended access for
+// when Storage is enabled and the real camera -> Storage proof-upload path is
+// switched on. Until then the app uses a temporary manual-URL proof fallback
+// that writes to Firestore only and never touches Storage.
+//
+// Paths (written by the Flutter Rider app):
+//   proof_of_delivery/{orderId}/{fileName}
+//   invoices/{orderId}/{fileName}
+// where {orderId} is the Firestore orders/ document ID.
+//
+// LIMITATION: Storage rules cannot inspect image pixels/EXIF — they can only
+// gate on size + contentType and cross-check the order doc in Firestore. Deeper
+// validation (e.g. that the photo is genuinely a delivery) is out of scope.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Caller's own users doc (cross-service read into Firestore).
+    function userDoc() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+    function isApproved() { return signedIn() && userDoc().status == 'approved'; }
+    function isAdmin()      { return signedIn() && userDoc().role == 'admin' && isApproved(); }
+    function isDispatcher() { return signedIn() && userDoc().role == 'dispatcher' && isApproved(); }
+    function isRider()      { return signedIn() && userDoc().role == 'rider' && isApproved(); }
+
+    // The order doc for a given path {orderId}.
+    function orderDoc(orderId) {
+      return firestore.get(/databases/(default)/documents/orders/$(orderId)).data;
+    }
+
+    function isImageUnder10MB() {
+      return request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Proof-of-delivery photos: written only by the rider the order is assigned
+    // to; read by admin, dispatcher, or the sales rep who created the order.
+    match /proof_of_delivery/{orderId}/{fileName} {
+      allow write: if isRider()
+        && isImageUnder10MB()
+        && orderDoc(orderId).assignedRiderId == request.auth.uid;
+      allow read: if isAdmin()
+        || isDispatcher()
+        || (signedIn() && orderDoc(orderId).createdByUid == request.auth.uid);
+    }
+
+    // Rider's photo of the paper invoice — same access pattern as proof.
+    match /invoices/{orderId}/{fileName} {
+      allow write: if isRider()
+        && isImageUnder10MB()
+        && orderDoc(orderId).assignedRiderId == request.auth.uid;
+      allow read: if isAdmin()
+        || isDispatcher()
+        || (signedIn() && orderDoc(orderId).createdByUid == request.auth.uid);
+    }
+
+    // Deny everything else.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

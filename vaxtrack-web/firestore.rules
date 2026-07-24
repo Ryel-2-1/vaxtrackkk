@@ -1,0 +1,183 @@
+rules_version = '2';
+
+// VaxTrack Firestore security rules — production-oriented DRAFT (2026-07-24).
+//
+// NOT DEPLOYED. Must be tested against a STAGING Firebase project before it
+// ever reaches production — the field-level order allowlists below mirror the
+// current app's exact write sets, so if the app starts writing a new order
+// field the corresponding write will be denied until the allowlist is updated.
+//
+// Role/status source of truth: users/{uid}.role + users/{uid}.status.
+// Exact role strings: admin | dispatcher | salesrep | rider.
+// Exact status strings: approved | pending | disabled | rejected.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------------- helpers ----------------
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // The caller's own users doc. Only call when signedIn() is already true.
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isApproved() {
+      return signedIn() && userDoc().status == 'approved';
+    }
+
+    function hasRole(r) {
+      return signedIn() && userDoc().role == r;
+    }
+
+    function isAdmin()      { return hasRole('admin') && isApproved(); }
+    function isDispatcher() { return hasRole('dispatcher') && isApproved(); }
+    function isSalesRep()   { return hasRole('salesrep') && isApproved(); }
+    function isRider()      { return hasRole('rider') && isApproved(); }
+
+    // Any approved, signed-in user (staff or rider).
+    function isApprovedUser() { return isApproved(); }
+
+    // Keys whose value changed in this write.
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // Order fields each non-admin role is allowed to change. These mirror the
+    // app's real writes as of 2026-07-24 — keep them in sync with orderService,
+    // cargoLoadingService, and the Flutter delivery_service/location_service.
+    function dispatcherOrderFields() {
+      return [
+        'assignedAt', 'assignedByEmail', 'assignedByUid', 'assignedRiderId',
+        'assignedRiderName', 'assignedRiderPhone', 'cancelReason', 'cancelledAt',
+        'delayReason', 'delayedAt', 'deliveredAt', 'dispatchedAt',
+        'dispatchedByEmail', 'dispatchedByUid', 'isLoaded', 'loadedAt',
+        'loadedByEmail', 'loadedByUid', 'loadingFinalizedAt', 'startedAt',
+        'status', 'statusUpdatedAt', 'statusUpdatedByEmail', 'statusUpdatedByUid',
+        'updatedAt'
+      ];
+    }
+    function riderOrderFields() {
+      return [
+        'delayReason', 'delayedAt', 'deliveredAt', 'heading', 'invoiceUrl',
+        'lastLocation', 'lastLocationUpdate', 'locationAccuracy',
+        'proofOfDeliveryUrl', 'speed', 'startedAt', 'status', 'statusUpdatedAt',
+        'statusUpdatedByEmail', 'statusUpdatedByUid', 'updatedAt'
+      ];
+    }
+
+    // ---------------- users ----------------
+    match /users/{uid} {
+      // Self-read at ANY status (so login + route guards can detect
+      // pending/disabled/rejected). Admin reads all; Dispatcher reads only
+      // rider docs (matches the server-filtered role == "rider" query).
+      allow get: if signedIn() && (
+        request.auth.uid == uid
+        || isAdmin()
+        || (isDispatcher() && resource.data.role == 'rider')
+      );
+      allow list: if isAdmin()
+        || (isDispatcher() && resource.data.role == 'rider');
+
+      // Rider self-registration (Flutter): create own doc, rider + pending only.
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.role == 'rider'
+        && request.resource.data.status == 'pending';
+
+      // Admin manages any user (approve / disable / reject / role change).
+      // A user may edit their own profile/location but may NOT change their own
+      // role or status (no self-approval, no self-elevation).
+      allow update: if isAdmin()
+        || (
+          signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.status == resource.data.status
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    // ---------------- orders ----------------
+    match /orders/{orderId} {
+      // Admin + Dispatcher see all orders. Sales Rep sees only orders they
+      // created; Rider sees only orders assigned to them.
+      allow get: if isAdmin() || isDispatcher()
+        || (isSalesRep() && resource.data.createdByUid == request.auth.uid)
+        || (isRider() && resource.data.assignedRiderId == request.auth.uid);
+      allow list: if isAdmin() || isDispatcher()
+        || (isSalesRep() && resource.data.createdByUid == request.auth.uid)
+        || (isRider() && resource.data.assignedRiderId == request.auth.uid);
+
+      // Sales Rep creates orders they own.
+      allow create: if isSalesRep()
+        && request.resource.data.createdByUid == request.auth.uid;
+
+      // Admin: full update.
+      // Dispatcher: only dispatch/assignment/status fields (allowlist).
+      // Rider: only status/location/proof fields, on their OWN assigned order,
+      //        and cannot reassign it (assignedRiderId is not in the allowlist).
+      // Sales Rep: may update only their own orders (rarely used by the app).
+      allow update: if isAdmin()
+        || (
+          isDispatcher()
+          && changedKeys().hasOnly(dispatcherOrderFields())
+        )
+        || (
+          isRider()
+          && resource.data.assignedRiderId == request.auth.uid
+          && changedKeys().hasOnly(riderOrderFields())
+        )
+        || (
+          isSalesRep()
+          && resource.data.createdByUid == request.auth.uid
+          && request.resource.data.createdByUid == request.auth.uid
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    // ---------------- catalog data ----------------
+    // Read by any approved user (Sales Rep needs inventory + clinics; catalog
+    // pages need vaccines/types). Writes are admin-only.
+    match /inventory/{id} {
+      allow read: if isApprovedUser();
+      allow write: if isAdmin();
+    }
+    match /vaccines/{id} {
+      allow read: if isApprovedUser();
+      allow write: if isAdmin();
+    }
+    match /vaccineTypes/{id} {
+      allow read: if isApprovedUser();
+      allow write: if isAdmin();
+    }
+    match /clinics/{id} {
+      allow read: if isApprovedUser();
+      allow write: if isAdmin();
+    }
+
+    // ---------------- alerts ----------------
+    // Read by Admin + Dispatcher; only Admin resolves / marks read.
+    match /alerts/{id} {
+      allow read: if isAdmin() || isDispatcher();
+      allow write: if isAdmin();
+    }
+
+    // ---------------- invoices / counters (admin only) ----------------
+    // No Sales Rep / Dispatcher / Rider access — the Invoices module is
+    // admin-only, and counters back transactional invoice numbering.
+    match /invoices/{id} {
+      allow read, write: if isAdmin();
+    }
+    match /counters/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    // ---------------- deny by default ----------------
+    // Anything not matched above is denied (no catch-all allow).
+  }
+}
