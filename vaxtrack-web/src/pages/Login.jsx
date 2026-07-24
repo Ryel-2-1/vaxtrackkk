@@ -6,14 +6,7 @@ import {
   GoogleAuthProvider,
   signOut,
 } from "firebase/auth";
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  where,
-} from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
 import { auth, db } from "../firebase";
 import "./Auth.css";
@@ -91,45 +84,27 @@ function Login() {
     setError("Unknown account role. Please contact the administrator.");
   };
 
-  const getEmailFromEmployeeId = async (loginInput) => {
-    if (loginInput.includes("@")) {
-      return loginInput;
-    }
-
-    const usersRef = collection(db, "users");
-    const employeeQuery = query(
-      usersRef,
-      where("employeeId", "==", loginInput)
-    );
-
-    const querySnapshot = await getDocs(employeeQuery);
-
-    if (querySnapshot.empty) {
-      throw new Error("employee-id-not-found");
-    }
-
-    const userData = querySnapshot.docs[0].data();
-
-    if (!userData.email) {
-      throw new Error("employee-email-not-found");
-    }
-
-    return userData.email;
-  };
-
   const handleLogin = async (e) => {
     e.preventDefault();
     setError("");
 
-    if (!email.trim() || !password.trim()) {
-      setError("Please fill in your email or employee ID and password.");
+    const loginEmail = email.trim();
+
+    if (!loginEmail || !password.trim()) {
+      setError("Please enter your email and password.");
+      return;
+    }
+
+    // Email/password login only. Employee-ID login was removed for production
+    // security — it required an unauthenticated read of the users collection,
+    // which exposed the staff directory. Sign in with your email address.
+    if (!loginEmail.includes("@")) {
+      setError("Please log in with your email address.");
       return;
     }
 
     try {
       setLoading(true);
-
-      const loginEmail = await getEmailFromEmployeeId(email.trim());
 
       const userCredential = await signInWithEmailAndPassword(
         auth,
@@ -140,12 +115,7 @@ function Login() {
       await redirectUserByRole(userCredential.user);
     } catch (err) {
       console.error("Login error:", err);
-
-      if (err.message === "employee-id-not-found") {
-        setError("Employee ID not found. Please check and try again.");
-      } else {
-        setError("Invalid login credentials. Please try again.");
-      }
+      setError("Invalid login credentials. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -176,15 +146,15 @@ function Login() {
         </div>
 
         <form onSubmit={handleLogin} className="auth-form" autoComplete="off">
-          <label>Email or Employee ID</label>
+          <label>Email</label>
 
           <div className="auth-input">
             <Mail size={16} />
             <input
-              type="text"
+              type="email"
               name="vaxtrack_login_email"
               autoComplete="off"
-              placeholder="Enter email or employee ID"
+              placeholder="Enter your email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
