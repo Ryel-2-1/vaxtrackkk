@@ -2,8 +2,10 @@ import {
   collection,
   doc,
   onSnapshot,
+  query,
   serverTimestamp,
   updateDoc,
+  where,
   writeBatch,
 } from "firebase/firestore";
 import { db } from "../firebase";
@@ -113,8 +115,18 @@ export function subscribeCargoLoadingGroups(callback, onError) {
     callback(groups);
   };
 
-  const unsubUsers = onSnapshot(
+  // Production hardening (2026-07-24): server-filter to role == "rider" so
+  // Firestore rules can restrict `users` reads. `isApprovedRider` still runs
+  // client-side to narrow to status == "approved" (the role check it also does
+  // is now redundant but harmless). Verified: all rider docs use role exactly
+  // "rider", so this returns the identical rider set as the prior whole-users
+  // read.
+  const ridersQuery = query(
     collection(db, USERS),
+    where("role", "==", "rider")
+  );
+  const unsubUsers = onSnapshot(
+    ridersQuery,
     (snap) => {
       const map = {};
       snap.docs.forEach((d) => {

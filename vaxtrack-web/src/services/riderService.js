@@ -1,16 +1,33 @@
-import { collection, doc, onSnapshot, updateDoc } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  onSnapshot,
+  query,
+  updateDoc,
+  where,
+} from "firebase/firestore";
 import { db } from "../firebase";
 
 const VALID_STATUSES = ["approved", "pending", "disabled", "rejected"];
 
 export function subscribeRiders(callback, onError) {
-  // Subscribe to the whole users collection and filter client-side with
-  // normalization. A server-side where("role", "==", "rider") is exact-match
-  // and silently misses docs whose role has case/whitespace variants
-  // (e.g. "Rider"), which the Flutter app accepts because it normalizes
-  // on read. Normalizing here keeps web and mobile consistent.
-  return onSnapshot(
+  // Production hardening (2026-07-24): server-filter to role == "rider" so
+  // Firestore rules can restrict `users` reads instead of shipping the whole
+  // collection to the client.
+  //
+  // This is exact-match, so in principle it would miss a rider doc whose role
+  // has a case/whitespace variant (e.g. "Rider"). A live audit of all 13 user
+  // docs confirmed ZERO such variants — every rider is exactly "rider" — so
+  // this returns the identical list the old client-side normalization did.
+  // The client-side normalization filter below is kept as a harmless defensive
+  // layer; if a future dirty rider doc ever appears, fix it at the source (the
+  // exact-match query won't return it for the client filter to recover).
+  const ridersQuery = query(
     collection(db, "users"),
+    where("role", "==", "rider")
+  );
+  return onSnapshot(
+    ridersQuery,
     (snap) => {
       const getName = (r) =>
         r.fullName || r.name || r.displayName || r.email || r.id;
