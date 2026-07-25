@@ -23,7 +23,12 @@ dist-ssr
 *.sln
 *.sw?
 
+# Local environment files with real credentials — NEVER commit.
+# This covers .env, .env.local, .env.staging, .env.production, etc.
+# Only the committed templates (*.example) are re-included below.
 .env
-.env.local
+.env.*
+!.env.example
+!.env.*.example
 node_modules
 dist
