@@ -81,11 +81,15 @@ service cloud.firestore {
       allow list: if isAdmin()
         || (isDispatcher() && resource.data.role == 'rider');
 
-      // Rider self-registration (Flutter): create own doc, rider + pending only.
-      allow create: if signedIn()
-        && request.auth.uid == uid
-        && request.resource.data.role == 'rider'
-        && request.resource.data.status == 'pending';
+      // Admin may create user docs (broad write). Rider self-registration
+      // (Flutter): create own doc, rider + pending only.
+      allow create: if isAdmin()
+        || (
+          signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.role == 'rider'
+          && request.resource.data.status == 'pending'
+        );
 
       // Admin manages any user (approve / disable / reject / role change).
       // A user may edit their own profile/location but may NOT change their own
@@ -112,9 +116,12 @@ service cloud.firestore {
         || (isSalesRep() && resource.data.createdByUid == request.auth.uid)
         || (isRider() && resource.data.assignedRiderId == request.auth.uid);
 
-      // Sales Rep creates orders they own.
-      allow create: if isSalesRep()
-        && request.resource.data.createdByUid == request.auth.uid;
+      // Admin may create orders (broad write). Sales Rep creates orders they own.
+      allow create: if isAdmin()
+        || (
+          isSalesRep()
+          && request.resource.data.createdByUid == request.auth.uid
+        );
 
       // Admin: full update.
       // Dispatcher: only dispatch/assignment/status fields (allowlist).
