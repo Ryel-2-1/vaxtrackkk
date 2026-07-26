@@ -1377,6 +1377,12 @@
   flex-wrap: wrap;
 }
 
+.clinics-optional {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--gray-500, #6b7280);
+}
+
 .clinics-primary-action,
 .clinics-light-action {
   height: 40px;

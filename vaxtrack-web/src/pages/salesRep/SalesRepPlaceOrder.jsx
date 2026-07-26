@@ -142,6 +142,21 @@ function SalesRepPlaceOrder() {
         createdByEmail: user?.email || null,
       };
 
+      // Carry the clinic's manual coordinates onto the order when present, so
+      // Dispatcher Geofence can show the destination + geofence circle.
+      // Clinics without coordinates simply omit these (rider-only map).
+      if (
+        Number.isFinite(Number(selectedClinicInfo.latitude)) &&
+        Number.isFinite(Number(selectedClinicInfo.longitude)) &&
+        selectedClinicInfo.latitude !== "" &&
+        selectedClinicInfo.longitude !== "" &&
+        selectedClinicInfo.latitude != null &&
+        selectedClinicInfo.longitude != null
+      ) {
+        orderPayload.clinicLat = Number(selectedClinicInfo.latitude);
+        orderPayload.clinicLng = Number(selectedClinicInfo.longitude);
+      }
+
       const orderRef = await createSalesRepOrder(orderPayload);
       const orderId = orderRef.id;
 

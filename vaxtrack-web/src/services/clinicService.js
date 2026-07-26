@@ -47,8 +47,10 @@ export async function addClinic({
   email,
   deliveryNotes,
   status,
+  latitude,
+  longitude,
 }) {
-  return addDoc(collection(db, CLINICS), {
+  const clinic = {
     clinicId,
     name: name.trim(),
     location: location.trim(),
@@ -60,5 +62,18 @@ export async function addClinic({
     status,
     lastDelivery: "No delivery yet",
     createdAt: serverTimestamp(),
-  });
+  };
+
+  // Optional manual coordinates — only stored when both are valid numbers.
+  // Clinics without coordinates keep working exactly as before (no map pin,
+  // no geofence circle). No geocoding API is used.
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  if (Number.isFinite(lat) && Number.isFinite(lng) &&
+      latitude !== "" && longitude !== "") {
+    clinic.latitude = lat;
+    clinic.longitude = lng;
+  }
+
+  return addDoc(collection(db, CLINICS), clinic);
 }

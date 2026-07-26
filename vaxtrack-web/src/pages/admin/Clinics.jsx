@@ -77,6 +77,8 @@ const EMPTY_CLINIC = {
   email: "",
   deliveryNotes: "",
   status: "active",
+  latitude: "",
+  longitude: "",
 };
 
 function Clinics() {
@@ -177,6 +179,8 @@ function Clinics() {
         email: newClinic.email,
         deliveryNotes: newClinic.deliveryNotes,
         status: newClinic.status,
+        latitude: newClinic.latitude,
+        longitude: newClinic.longitude,
       });
 
       setNewClinic(EMPTY_CLINIC);
@@ -681,6 +685,34 @@ function NewClinicModal({ newClinic, setNewClinic, onClose, onSubmit, saving }) 
                   ...prev,
                   location: e.target.value,
                 }))
+              }
+              disabled={saving}
+            />
+          </label>
+
+          <label>
+            Latitude <span className="clinics-optional">(optional)</span>
+            <input
+              type="number"
+              step="any"
+              placeholder="e.g. 14.5995"
+              value={newClinic.latitude}
+              onChange={(e) =>
+                setNewClinic((prev) => ({ ...prev, latitude: e.target.value }))
+              }
+              disabled={saving}
+            />
+          </label>
+
+          <label>
+            Longitude <span className="clinics-optional">(optional)</span>
+            <input
+              type="number"
+              step="any"
+              placeholder="e.g. 120.9842"
+              value={newClinic.longitude}
+              onChange={(e) =>
+                setNewClinic((prev) => ({ ...prev, longitude: e.target.value }))
               }
               disabled={saving}
             />

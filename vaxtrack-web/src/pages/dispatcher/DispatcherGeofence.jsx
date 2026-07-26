@@ -28,6 +28,18 @@ const riderIcon = L.divIcon({
   iconAnchor: [9, 9],
 });
 
+// Destination (clinic) marker — visually distinct from the green rider dot.
+const clinicIcon = L.divIcon({
+  className: "geo3-live-clinic-marker",
+  html: '<span class="geo3-live-clinic-dot"></span>',
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+});
+
+// Manual geofence radius around the clinic (metres). No routing/ETA — just a
+// simple "is the rider within this circle" visualization.
+const GEOFENCE_RADIUS_M = 300;
+
 const ACTIVE_STATUSES = new Set(["assigned", "loading", "in_transit", "delayed"]);
 
 // A live-location fix older than this reads as stale — the rider stream is
@@ -72,13 +84,39 @@ function getLatLng(geoPoint) {
   return [lat, lng];
 }
 
-// Rider-position-only map (Leaflet + OpenStreetMap tiles — no API key).
-// Destination markers, geofence, and routes stay deferred until clinics
-// have coordinates. Renders only when a lastLocation exists.
-function RiderLocationMap({ lat, lng }) {
+// The order's manual clinic coordinates (plain numbers copied from the clinic
+// at order-creation time), or null when the clinic had no coordinates.
+function getClinicLatLng(order) {
+  const lat = order?.clinicLat;
+  const lng = order?.clinicLng;
+  if (typeof lat !== "number" || typeof lng !== "number") return null;
+  return [lat, lng];
+}
+
+// Great-circle distance in metres (Haversine) — no external API.
+function distanceMeters([lat1, lng1], [lat2, lng2]) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// Leaflet + OpenStreetMap tiles (no API key). Always shows the rider marker;
+// when the order carries manual clinic coordinates it also shows a destination
+// marker + a geofence circle. No routing, ETA, or automatic alerts.
+// Renders only when a rider lastLocation exists.
+function RiderLocationMap({ lat, lng, clinicLat, clinicLng }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
+  const clinicMarkerRef = useRef(null);
+  const circleRef = useRef(null);
+
+  const hasClinic = Number.isFinite(clinicLat) && Number.isFinite(clinicLng);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -90,26 +128,62 @@ function RiderLocationMap({ lat, lng }) {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       }).addTo(mapRef.current);
     }
+    const map = mapRef.current;
 
-    mapRef.current.setView([lat, lng], 15);
-
+    // Rider marker (always).
     if (!markerRef.current) {
-      markerRef.current = L.marker([lat, lng], { icon: riderIcon }).addTo(mapRef.current);
+      markerRef.current = L.marker([lat, lng], { icon: riderIcon }).addTo(map);
     } else {
       markerRef.current.setLatLng([lat, lng]);
     }
 
+    // Clinic marker + geofence circle (only when coordinates exist).
+    if (hasClinic) {
+      if (!clinicMarkerRef.current) {
+        clinicMarkerRef.current = L.marker([clinicLat, clinicLng], { icon: clinicIcon }).addTo(map);
+      } else {
+        clinicMarkerRef.current.setLatLng([clinicLat, clinicLng]);
+      }
+      if (!circleRef.current) {
+        circleRef.current = L.circle([clinicLat, clinicLng], {
+          radius: GEOFENCE_RADIUS_M,
+          color: "#b45309",
+          weight: 2,
+          fillColor: "#f59e0b",
+          fillOpacity: 0.12,
+        }).addTo(map);
+      } else {
+        circleRef.current.setLatLng([clinicLat, clinicLng]);
+        circleRef.current.setRadius(GEOFENCE_RADIUS_M);
+      }
+    } else {
+      // Clinic coords went away (different order selected) — remove overlays.
+      if (clinicMarkerRef.current) { clinicMarkerRef.current.remove(); clinicMarkerRef.current = null; }
+      if (circleRef.current) { circleRef.current.remove(); circleRef.current = null; }
+    }
+
+    const fit = () => {
+      if (hasClinic) {
+        map.fitBounds(
+          L.latLngBounds([[lat, lng], [clinicLat, clinicLng]]).pad(0.35),
+          { animate: false }
+        );
+      } else {
+        map.setView([lat, lng], 15, { animate: false });
+      }
+    };
+    fit();
+
     // Leaflet measures the container at construction time, which can happen
-    // before flex layout settles — recalc after layout so the marker/center
-    // aren't offset from the visible container. setTimeout (not rAF): rAF can
-    // be suspended in embedded/headless panes.
-    const map = mapRef.current;
+    // before flex layout settles — recalc after layout so markers aren't offset
+    // from the visible container. setTimeout (not rAF): rAF can be suspended in
+    // embedded/headless panes.
     const timer = setTimeout(() => {
       map.invalidateSize();
-      map.setView([lat, lng], 15, { animate: false });
+      fit();
     }, 50);
     return () => clearTimeout(timer);
-  }, [lat, lng]);
+  }, [lat, lng, clinicLat, clinicLng, hasClinic]);
 
   // Re-measure on viewport resize so the responsive height breakpoints
   // (480 / 390 / 320px) don't leave the map with stale dimensions (gray
@@ -137,6 +211,8 @@ function RiderLocationMap({ lat, lng }) {
         mapRef.current.remove();
         mapRef.current = null;
         markerRef.current = null;
+        clinicMarkerRef.current = null;
+        circleRef.current = null;
       }
     };
   }, []);
@@ -359,23 +435,47 @@ function DispatcherGeofence() {
                     </div>
                   </div>
 
-                  {getLatLng(selected.lastLocation) && (
-                    <div className="geo3-card geo3-live-map-card">
-                      <h3>Live map</h3>
-                      <RiderLocationMap
-                        lat={getLatLng(selected.lastLocation)[0]}
-                        lng={getLatLng(selected.lastLocation)[1]}
-                      />
-                      <p className="geo3-live-map-note">
-                        Rider position only
-                        {isLocationStale(selected.lastLocationUpdate)
-                          ? " — last update is stale"
-                          : ""}
-                        . Destination markers and geofence require clinic
-                        coordinates (deferred).
-                      </p>
-                    </div>
-                  )}
+                  {getLatLng(selected.lastLocation) && (() => {
+                    const riderLL = getLatLng(selected.lastLocation);
+                    const clinicLL = getClinicLatLng(selected);
+                    const distM = clinicLL ? distanceMeters(riderLL, clinicLL) : null;
+                    const inside = distM != null && distM <= GEOFENCE_RADIUS_M;
+                    return (
+                      <div className="geo3-card geo3-live-map-card">
+                        <h3>Live map</h3>
+                        <RiderLocationMap
+                          lat={riderLL[0]}
+                          lng={riderLL[1]}
+                          clinicLat={clinicLL ? clinicLL[0] : undefined}
+                          clinicLng={clinicLL ? clinicLL[1] : undefined}
+                        />
+                        {clinicLL ? (
+                          <p className="geo3-live-map-note">
+                            <span className={inside ? "geo3-geofence-in" : "geo3-geofence-out"}>
+                              {inside
+                                ? "Inside geofence"
+                                : "Outside geofence"}
+                            </span>{" "}
+                            — rider is {Math.round(distM)} m from the destination
+                            (geofence radius {GEOFENCE_RADIUS_M} m)
+                            {isLocationStale(selected.lastLocationUpdate)
+                              ? "; last update is stale"
+                              : ""}
+                            .
+                          </p>
+                        ) : (
+                          <p className="geo3-live-map-note">
+                            Rider position only
+                            {isLocationStale(selected.lastLocationUpdate)
+                              ? " — last update is stale"
+                              : ""}
+                            . Add clinic coordinates in Admin → Clinics to show a
+                            destination marker + geofence.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {selected.deliveryInstructions && (
                     <div className="geo3-card geo3-timeline-card">

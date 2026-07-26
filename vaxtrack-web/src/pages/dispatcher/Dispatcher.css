@@ -8136,6 +8136,28 @@
   border: 3px solid #fff;
   box-shadow: 0 0 0 2px var(--green-700), 0 1px 4px rgba(0, 0, 0, 0.35);
 }
+/* Destination (clinic) marker — amber, distinct from the green rider dot. */
+.geo3-live-clinic-marker {
+  background: transparent;
+  border: none;
+}
+.geo3-live-clinic-dot {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #b45309;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2px #92400e, 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+.geo3-geofence-in {
+  color: var(--green-700, #15803d) !important;
+  font-weight: 700 !important;
+}
+.geo3-geofence-out {
+  color: var(--warning-text, #b45309) !important;
+  font-weight: 700 !important;
+}
 
 /* ============================================================
    Meridian Dispatcher · Assign Rider (ar-*). Tokens-based.

@@ -64,6 +64,16 @@ export async function createSalesRepOrder(orderData = {}) {
     doc.deliveryInstructions = orderData.deliveryInstructions;
   }
 
+  // Optional destination coordinates copied from the clinic (manual, no
+  // geocoding API). Only stored when both are finite numbers; orders for
+  // clinics without coordinates simply omit these.
+  const clinicLat = Number(orderData.clinicLat);
+  const clinicLng = Number(orderData.clinicLng);
+  if (Number.isFinite(clinicLat) && Number.isFinite(clinicLng)) {
+    doc.clinicLat = clinicLat;
+    doc.clinicLng = clinicLng;
+  }
+
   if (Array.isArray(orderData.items) && orderData.items.length > 0) {
     doc.items = orderData.items.map((item) => ({
       name: item.name || "",
