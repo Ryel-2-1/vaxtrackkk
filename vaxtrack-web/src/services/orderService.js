@@ -224,3 +224,23 @@ export async function updateOrderStatus(orderId, newStatus, dispatcher, extra) {
 
   return updateDoc(orderRef, update);
 }
+
+// Persist a generated route + ETA onto an order (Dispatcher Geofence,
+// OpenRouteService). Only these route fields (+ updatedAt) are written, so the
+// dispatcher rule allowlist (`dispatcherOrderFields`) permits it. `route` comes
+// from routeService.fetchRoute plus a computed `etaText`.
+export async function saveOrderRoute(orderId, route) {
+  if (!orderId) throw new Error("Order ID is required.");
+  if (!route?.polyline) throw new Error("Route polyline is required.");
+
+  const orderRef = doc(db, ORDERS_COLLECTION, orderId);
+  return updateDoc(orderRef, {
+    routePolyline: route.polyline,
+    routeDistanceMeters: Number(route.distanceMeters) || 0,
+    routeDurationSeconds: Number(route.durationSeconds) || 0,
+    routeEtaText: route.etaText || "",
+    routeGeneratedAt: serverTimestamp(),
+    routeProvider: "openrouteservice",
+    updatedAt: serverTimestamp(),
+  });
+}

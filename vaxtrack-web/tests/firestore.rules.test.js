@@ -188,6 +188,18 @@ async function main() {
     }));
   });
 
+  await check("P13 dispatcher writes route + ETA fields (OpenRouteService)", async () => {
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordRider1"), {
+      routePolyline: "abcde_encoded_polyline",
+      routeDistanceMeters: 4200,
+      routeDurationSeconds: 1380,
+      routeEtaText: "3:45 PM",
+      routeGeneratedAt: "t",
+      routeProvider: "openrouteservice",
+      updatedAt: "t",
+    }));
+  });
+
   console.log("\n--- NEGATIVE cases ---");
 
   await check("N1 unauthenticated cannot read users", async () => {
@@ -234,6 +246,14 @@ async function main() {
 
   await check("N10 sales rep cannot create an order for another createdByUid", async () => {
     await assertFails(setDoc(doc(salesRep, "orders", "srBadOrder"), { createdByUid: otherSalesRepUid, status: "pending_dispatch" }));
+  });
+
+  await check("N11 rider cannot write route fields on own order (dispatcher-only)", async () => {
+    await assertFails(updateDoc(doc(rider, "orders", "ordRider1"), {
+      routePolyline: "x",
+      routeProvider: "openrouteservice",
+      updatedAt: "t",
+    }));
   });
 
   await testEnv.cleanup();

@@ -54,7 +54,12 @@ service cloud.firestore {
         'assignedRiderName', 'assignedRiderPhone', 'cancelReason', 'cancelledAt',
         'delayReason', 'delayedAt', 'deliveredAt', 'dispatchedAt',
         'dispatchedByEmail', 'dispatchedByUid', 'isLoaded', 'loadedAt',
-        'loadedByEmail', 'loadedByUid', 'loadingFinalizedAt', 'startedAt',
+        'loadedByEmail', 'loadedByUid', 'loadingFinalizedAt',
+        // Route + ETA (OpenRouteService) — written by the Geofence "Generate
+        // route & ETA" action. Dispatcher-only; set at generation, not by riders.
+        'routeDistanceMeters', 'routeDurationSeconds', 'routeEtaText',
+        'routeGeneratedAt', 'routePolyline', 'routeProvider',
+        'startedAt',
         'status', 'statusUpdatedAt', 'statusUpdatedByEmail', 'statusUpdatedByUid',
         'updatedAt'
       ];

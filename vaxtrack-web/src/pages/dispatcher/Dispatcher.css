@@ -8159,6 +8159,89 @@
   font-weight: 700 !important;
 }
 
+/* ---------- route + ETA (OpenRouteService) ----------
+   geo3-live-route-* names (not the legacy geo3-route-line / geo3-route-tag /
+   geo3-view-route-btn fake-map rules still present further down). */
+.geo3-live-route {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--gray-200);
+}
+.geo3-live-route-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-700, #334155);
+}
+.geo3-live-route-head svg {
+  color: var(--green-600);
+}
+.geo3-live-route-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+.geo3-live-route-metrics > div {
+  background: var(--gray-50, #f8fafc);
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.geo3-live-route-metrics small {
+  display: block;
+  font-size: 11px;
+  color: var(--gray-500);
+  margin-bottom: 2px;
+}
+.geo3-live-route-metrics strong {
+  font-size: 15px;
+  color: var(--green-800, #065f46);
+  font-weight: 700;
+}
+.geo3-live-route-sub {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--gray-500);
+}
+.geo3-live-route-missing {
+  margin: 10px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--warning-text, #b45309);
+}
+.geo3-live-route-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger-text, #b91c1c);
+}
+.geo3-live-route-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--green-600);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.geo3-live-route-btn:hover:not(:disabled) {
+  background: var(--green-700);
+}
+.geo3-live-route-btn:disabled {
+  background: var(--gray-300, #cbd5e1);
+  color: var(--gray-500, #64748b);
+  cursor: not-allowed;
+}
+
 /* ============================================================
    Meridian Dispatcher · Assign Rider (ar-*). Tokens-based.
    Replaces the legacy assign-* / rider-option / dispatcher-blue-btn
