@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/delivery.dart';
 import '../services/delivery_service.dart';
 import '../services/location_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/route_utils.dart';
+import '../widgets/delivery_map.dart';
 import 'package:intl/intl.dart';
 
 class DeliveryDetailScreen extends StatefulWidget {
@@ -143,9 +146,24 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     );
   }
 
+  // Hands off to the installed Google Maps app for real turn-by-turn
+  // navigation (free, no API key). Prefers the exact clinic coordinates when
+  // the dispatcher set them; otherwise falls back to an address search.
   Future<void> _openNavigation() async {
-    final address = Uri.encodeFull(d.clinicAddress);
-    final uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$address');
+    final Uri uri;
+    if (d.hasClinicCoords) {
+      uri = Uri.parse(
+        'https://www.google.com/maps/dir/?api=1'
+        '&destination=${d.clinicLat},${d.clinicLng}&travelmode=driving',
+      );
+    } else if (d.clinicAddress.isNotEmpty) {
+      uri = Uri.parse(
+        'https://www.google.com/maps/search/?api=1'
+        '&query=${Uri.encodeComponent(d.clinicAddress)}',
+      );
+    } else {
+      return;
+    }
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
@@ -200,53 +218,158 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
   }
 
   Widget _routeCard() {
+    // Show the live Google Map when we have anything to plot: clinic
+    // coordinates and/or a rider location. Otherwise fall back to the text
+    // route summary so coord-less orders still work.
+    final hasRiderLoc = d.lastLocation != null;
+    final showMap = d.hasClinicCoords || hasRiderLoc;
+    final canOpenMaps = d.hasClinicCoords || d.clinicAddress.isNotEmpty;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _cardHeader('Route Information'),
+            _cardHeader('Route & Navigation'),
             const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppColors.background,
-                borderRadius: BorderRadius.circular(10),
+            if (showMap) ...[
+              DeliveryMap(
+                initialRider: hasRiderLoc
+                    ? LatLng(d.lastLocation!.latitude, d.lastLocation!.longitude)
+                    : null,
+                clinic: d.hasClinicCoords
+                    ? LatLng(d.clinicLat!, d.clinicLng!)
+                    : null,
+                routePolyline: d.routePolyline,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Text('Main Hub', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 8),
-                        child: Icon(Icons.arrow_forward, color: AppColors.primary, size: 16),
-                      ),
-                      Expanded(
-                        child: Text(d.clinicAddress.isNotEmpty ? d.clinicAddress : d.clinicName,
-                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                      ),
-                    ],
+              const SizedBox(height: 12),
+              if (d.hasRoute) ...[
+                _etaCard(),
+                const SizedBox(height: 12),
+              ],
+              _destinationRow(),
+              if (!d.hasRoute)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    d.hasClinicCoords
+                        ? 'Route not generated yet — dispatch can add it. You can still open Google Maps.'
+                        : 'Destination pin not set — showing your location only.',
+                    style: const TextStyle(fontSize: 11, color: AppColors.textLight),
                   ),
-                  const SizedBox(height: 8),
-                  Text('Next Stop: ${d.clinicName}',
-                      style: const TextStyle(fontSize: 12, color: AppColors.textLight)),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
+                ),
+              const SizedBox(height: 12),
+            ] else ...[
+              _textRouteFallback(),
+              const SizedBox(height: 12),
+            ],
             SizedBox(
               width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: d.clinicAddress.isNotEmpty ? _openNavigation : null,
+              child: ElevatedButton.icon(
+                onPressed: canOpenMaps ? _openNavigation : null,
                 icon: const Icon(Icons.navigation),
-                label: const Text('Open in Maps'),
+                label: const Text('Open in Google Maps'),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
               ),
             ),
+            if (canOpenMaps && !d.hasClinicCoords)
+              const Padding(
+                padding: EdgeInsets.only(top: 6),
+                child: Text(
+                  'Using address search — exact destination pin not set by dispatch.',
+                  style: TextStyle(fontSize: 11, color: AppColors.textLight),
+                ),
+              ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _etaCard() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          _etaMetric(Icons.straighten, 'Distance', formatDistance(d.routeDistanceMeters)),
+          _etaDivider(),
+          _etaMetric(Icons.schedule, 'Duration', formatDuration(d.routeDurationSeconds)),
+          _etaDivider(),
+          _etaMetric(Icons.access_time, 'ETA',
+              formatEta(d.routeGeneratedAt, d.routeDurationSeconds, d.routeEtaText)),
+        ],
+      ),
+    );
+  }
+
+  Widget _etaMetric(IconData icon, String label, String value) {
+    return Expanded(
+      child: Column(
+        children: [
+          Icon(icon, size: 16, color: AppColors.primary),
+          const SizedBox(height: 4),
+          Text(label, style: const TextStyle(fontSize: 11, color: AppColors.textLight)),
+          const SizedBox(height: 2),
+          Text(value,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+        ],
+      ),
+    );
+  }
+
+  Widget _etaDivider() =>
+      Container(width: 1, height: 34, color: AppColors.border);
+
+  Widget _destinationRow() {
+    return Row(
+      children: [
+        const Icon(Icons.place, size: 16, color: AppColors.primary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            d.clinicAddress.isNotEmpty ? d.clinicAddress : d.clinicName,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _textRouteFallback() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('Main Hub', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Icon(Icons.arrow_forward, color: AppColors.primary, size: 16),
+              ),
+              Expanded(
+                child: Text(d.clinicAddress.isNotEmpty ? d.clinicAddress : d.clinicName,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text('Next Stop: ${d.clinicName}',
+              style: const TextStyle(fontSize: 12, color: AppColors.textLight)),
+          const SizedBox(height: 6),
+          const Text('No map coordinates yet — add clinic coordinates in the web portal.',
+              style: TextStyle(fontSize: 11, color: AppColors.textLight)),
+        ],
       ),
     );
   }
