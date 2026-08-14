@@ -32,7 +32,10 @@ export function subscribeRiders(callback, onError) {
       const getName = (r) =>
         r.fullName || r.name || r.displayName || r.email || r.id;
       const riders = snap.docs
-        .map((d) => ({ uid: d.id, ...d.data() }))
+        // Spread data first so the Firestore document ID always wins as `uid`
+        // (a stray `uid` field in the doc must never override it — the status
+        // actions write to users/{uid}).
+        .map((d) => ({ ...d.data(), uid: d.id }))
         .filter((r) => (r.role || "").trim().toLowerCase() === "rider")
         .sort((a, b) => getName(a).localeCompare(getName(b)));
       callback(riders);
