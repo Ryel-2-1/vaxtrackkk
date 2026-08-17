@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "--port", "5176"],
       "port": 5176
+    },
+    {
+      "name": "vaxtrack-web-staging",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--mode", "staging", "--port", "5176"],
+      "port": 5176
     }
   ]
 }

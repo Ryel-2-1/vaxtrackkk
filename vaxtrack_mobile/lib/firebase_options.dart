@@ -14,11 +14,11 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyCVRckmGWwBP9ts9uMWK4IQ4dFK-OSWut4',
-    appId: '1:1023801727166:android:109c0158307151f5b166ef',
-    messagingSenderId: '1023801727166',
-    projectId: 'vaxtrack-bef1b',
-    storageBucket: 'vaxtrack-bef1b.firebasestorage.app',
+    apiKey: 'AIzaSyBXQP8fPmGdzKPgNOJSWL0gW_vmNFHJRNA',
+    appId: '1:913176226821:android:fa10abcc42c0ca0c1b006c',
+    messagingSenderId: '913176226821',
+    projectId: 'vaxtrack-staging',
+    storageBucket: 'vaxtrack-staging.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
