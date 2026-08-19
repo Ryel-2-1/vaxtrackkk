@@ -5,6 +5,7 @@ import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
 import PendingApproval from "./pages/PendingApproval";
 import StyleGuide from "./pages/StyleGuide";
+import GoogleMapsFeasibility from "./pages/dev/GoogleMapsFeasibility";
 
 import AdminRoute from "./components/AdminRoute";
 import DispatcherRoute from "./components/DispatcherRoute";
@@ -122,6 +123,12 @@ function App() {
 
         {/* Meridian design-system preview — isolated, no Firestore. */}
         <Route path="/style-guide" element={<StyleGuide />} />
+
+        {/* TEMPORARY Google Maps feasibility spike — only mounted behind an
+            explicit env flag. Absent/false => normal app is unchanged. */}
+        {import.meta.env.VITE_GOOGLE_MAPS_FEASIBILITY === "true" && (
+          <Route path="/gmaps-feasibility" element={<GoogleMapsFeasibility />} />
+        )}
 
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

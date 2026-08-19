@@ -8,6 +8,7 @@ import '../services/location_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/route_utils.dart';
 import '../widgets/delivery_map.dart';
+import 'google_navigation_screen.dart';
 import 'package:intl/intl.dart';
 
 class DeliveryDetailScreen extends StatefulWidget {
@@ -23,6 +24,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
   final _deliveryService = DeliveryService();
   final _locationService = LocationService();
   bool _updatingStatus = false;
+  bool _launchingNav = false;
   String? _delayReason;
 
   Delivery get d => widget.delivery;
@@ -52,7 +54,9 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
       if (!started && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Live location unavailable — enable location to share your position.'),
+            content: Text(
+              'Live location unavailable — enable location to share your position.',
+            ),
           ),
         );
       }
@@ -99,14 +103,20 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Status updated to $newStatus'), backgroundColor: AppColors.primary),
+          SnackBar(
+            content: Text('Status updated to $newStatus'),
+            backgroundColor: AppColors.primary,
+          ),
         );
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.urgent),
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: AppColors.urgent,
+          ),
         );
       }
     } finally {
@@ -130,14 +140,19 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
             maxLines: 3,
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
             ElevatedButton(
               onPressed: () {
                 _delayReason = controller.text;
                 Navigator.pop(ctx);
                 _updateStatus('delayed');
               },
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.urgent),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.urgent,
+              ),
               child: const Text('Submit'),
             ),
           ],
@@ -169,6 +184,30 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     }
   }
 
+  // Open the in-app Google Navigation screen for this delivery's clinic.
+  // Guarded so a double-tap can't push two screens / start two sessions. Only
+  // reachable when the delivery is active AND has valid clinic coordinates
+  // (button gating below); delivered/cancelled orders are excluded.
+  Future<void> _startGoogleNavigation() async {
+    if (_launchingNav || !d.hasClinicCoords || !d.isActive) return;
+    setState(() => _launchingNav = true);
+    try {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => GoogleNavigationScreen(
+            clinicLat: d.clinicLat!,
+            clinicLng: d.clinicLng!,
+            clinicName: d.clinicName,
+            clinicAddress: d.clinicAddress,
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _launchingNav = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -181,7 +220,9 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
           _routeCard(),
           const SizedBox(height: 12),
           _statusCard(),
-          if (!d.isDelivered && d.status != 'delayed' && d.status != 'cancelled') ...[
+          if (!d.isDelivered &&
+              d.status != 'delayed' &&
+              d.status != 'cancelled') ...[
             const SizedBox(height: 16),
             _actionButtons(),
           ],
@@ -236,7 +277,10 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
             if (showMap) ...[
               DeliveryMap(
                 initialRider: hasRiderLoc
-                    ? LatLng(d.lastLocation!.latitude, d.lastLocation!.longitude)
+                    ? LatLng(
+                        d.lastLocation!.latitude,
+                        d.lastLocation!.longitude,
+                      )
                     : null,
                 clinic: d.hasClinicCoords
                     ? LatLng(d.clinicLat!, d.clinicLng!)
@@ -244,10 +288,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
                 routePolyline: d.routePolyline,
               ),
               const SizedBox(height: 12),
-              if (d.hasRoute) ...[
-                _etaCard(),
-                const SizedBox(height: 12),
-              ],
+              if (d.hasRoute) ...[_etaCard(), const SizedBox(height: 12)],
               _destinationRow(),
               if (!d.hasRoute)
                 Padding(
@@ -256,7 +297,10 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
                     d.hasClinicCoords
                         ? 'Route not generated yet — dispatch can add it. You can still open Google Maps.'
                         : 'Destination pin not set — showing your location only.',
-                    style: const TextStyle(fontSize: 11, color: AppColors.textLight),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textLight,
+                    ),
                   ),
                 ),
               const SizedBox(height: 12),
@@ -264,13 +308,42 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
               _textRouteFallback(),
               const SizedBox(height: 12),
             ],
+            // In-app Google Navigation (SDK). Enabled only for ACTIVE deliveries
+            // that carry valid clinic coordinates; delivered/cancelled orders are
+            // excluded via d.isActive. Missing coords -> disabled + note, with the
+            // OSM map + "Open in Google Maps" fallback below still available.
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: (d.hasClinicCoords && d.isActive && !_launchingNav)
+                    ? _startGoogleNavigation
+                    : null,
+                icon: const Icon(Icons.assistant_navigation),
+                label: const Text('Start Google Navigation'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ),
+            if (!d.hasClinicCoords)
+              const Padding(
+                padding: EdgeInsets.only(top: 6),
+                child: Text(
+                  'Clinic coordinates unavailable — in-app Google Navigation disabled. Use Open in Google Maps.',
+                  style: TextStyle(fontSize: 11, color: AppColors.textLight),
+                ),
+              ),
+            const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: canOpenMaps ? _openNavigation : null,
                 icon: const Icon(Icons.navigation),
                 label: const Text('Open in Google Maps'),
-                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                ),
               ),
             ),
             if (canOpenMaps && !d.hasClinicCoords)
@@ -296,12 +369,27 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
       ),
       child: Row(
         children: [
-          _etaMetric(Icons.straighten, 'Distance', formatDistance(d.routeDistanceMeters)),
+          _etaMetric(
+            Icons.straighten,
+            'Distance',
+            formatDistance(d.routeDistanceMeters),
+          ),
           _etaDivider(),
-          _etaMetric(Icons.schedule, 'Duration', formatDuration(d.routeDurationSeconds)),
+          _etaMetric(
+            Icons.schedule,
+            'Duration',
+            formatDuration(d.routeDurationSeconds),
+          ),
           _etaDivider(),
-          _etaMetric(Icons.access_time, 'ETA',
-              formatEta(d.routeGeneratedAt, d.routeDurationSeconds, d.routeEtaText)),
+          _etaMetric(
+            Icons.access_time,
+            'ETA',
+            formatEta(
+              d.routeGeneratedAt,
+              d.routeDurationSeconds,
+              d.routeEtaText,
+            ),
+          ),
         ],
       ),
     );
@@ -313,10 +401,19 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
         children: [
           Icon(icon, size: 16, color: AppColors.primary),
           const SizedBox(height: 4),
-          Text(label, style: const TextStyle(fontSize: 11, color: AppColors.textLight)),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 11, color: AppColors.textLight),
+          ),
           const SizedBox(height: 2),
-          Text(value,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textDark,
+            ),
+          ),
         ],
       ),
     );
@@ -352,23 +449,39 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
         children: [
           Row(
             children: [
-              const Text('Main Hub', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+              const Text(
+                'Main Hub',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              ),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 8),
-                child: Icon(Icons.arrow_forward, color: AppColors.primary, size: 16),
+                child: Icon(
+                  Icons.arrow_forward,
+                  color: AppColors.primary,
+                  size: 16,
+                ),
               ),
               Expanded(
-                child: Text(d.clinicAddress.isNotEmpty ? d.clinicAddress : d.clinicName,
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                child: Text(
+                  d.clinicAddress.isNotEmpty ? d.clinicAddress : d.clinicName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          Text('Next Stop: ${d.clinicName}',
-              style: const TextStyle(fontSize: 12, color: AppColors.textLight)),
+          Text(
+            'Next Stop: ${d.clinicName}',
+            style: const TextStyle(fontSize: 12, color: AppColors.textLight),
+          ),
           const SizedBox(height: 6),
-          const Text('No map coordinates yet — add clinic coordinates in the web portal.',
-              style: TextStyle(fontSize: 11, color: AppColors.textLight)),
+          const Text(
+            'No map coordinates yet — add clinic coordinates in the web portal.',
+            style: TextStyle(fontSize: 11, color: AppColors.textLight),
+          ),
         ],
       ),
     );
@@ -385,8 +498,16 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
             const SizedBox(height: 12),
             _timelineEntry('Order Created', d.createdAt, true),
             _timelineEntry('Assigned', d.assignedAt, d.assignedAt != null),
-            _timelineEntry('Loading', d.startedAt, d.isLoading || d.isInTransit || d.isDelivered),
-            _timelineEntry('In Transit', d.startedAt, d.isInTransit || d.isDelivered),
+            _timelineEntry(
+              'Loading',
+              d.startedAt,
+              d.isLoading || d.isInTransit || d.isDelivered,
+            ),
+            _timelineEntry(
+              'In Transit',
+              d.startedAt,
+              d.isInTransit || d.isDelivered,
+            ),
             _timelineEntry('Delivered', d.deliveredAt, d.isDelivered),
           ],
         ),
@@ -406,7 +527,9 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
             decoration: BoxDecoration(
               color: done ? AppColors.primaryLight : AppColors.background,
               shape: BoxShape.circle,
-              border: Border.all(color: done ? AppColors.primary : AppColors.border),
+              border: Border.all(
+                color: done ? AppColors.primary : AppColors.border,
+              ),
             ),
             child: done
                 ? const Icon(Icons.check, size: 14, color: AppColors.primary)
@@ -414,14 +537,20 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(label, style: TextStyle(
-              fontSize: 13,
-              fontWeight: done ? FontWeight.w600 : FontWeight.normal,
-              color: done ? AppColors.textDark : AppColors.textMuted,
-            )),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: done ? FontWeight.w600 : FontWeight.normal,
+                color: done ? AppColors.textDark : AppColors.textMuted,
+              ),
+            ),
           ),
           if (time != null)
-            Text(fmt.format(time), style: const TextStyle(fontSize: 11, color: AppColors.textLight)),
+            Text(
+              fmt.format(time),
+              style: const TextStyle(fontSize: 11, color: AppColors.textLight),
+            ),
         ],
       ),
     );
@@ -431,19 +560,44 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     return Column(
       children: [
         if (d.canStartLoading)
-          _actionButton('Start Loading', Icons.inventory, AppColors.info, () => _updateStatus('loading')),
+          _actionButton(
+            'Start Loading',
+            Icons.inventory,
+            AppColors.info,
+            () => _updateStatus('loading'),
+          ),
         if (d.canStartTransit)
-          _actionButton('Start Transit', Icons.local_shipping, AppColors.primary, () => _updateStatus('in_transit')),
+          _actionButton(
+            'Start Transit',
+            Icons.local_shipping,
+            AppColors.primary,
+            () => _updateStatus('in_transit'),
+          ),
         if (d.canDeliver)
-          _actionButton('Mark as Delivered', Icons.check_circle, AppColors.primary, () => _updateStatus('delivered')),
+          _actionButton(
+            'Mark as Delivered',
+            Icons.check_circle,
+            AppColors.primary,
+            () => _updateStatus('delivered'),
+          ),
         const SizedBox(height: 8),
         if (!d.isDelivered)
-          _actionButton('Report Delay', Icons.schedule, AppColors.urgent, _showDelayDialog),
+          _actionButton(
+            'Report Delay',
+            Icons.schedule,
+            AppColors.urgent,
+            _showDelayDialog,
+          ),
       ],
     );
   }
 
-  Widget _actionButton(String label, IconData icon, Color color, VoidCallback onTap) {
+  Widget _actionButton(
+    String label,
+    IconData icon,
+    Color color,
+    VoidCallback onTap,
+  ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: SizedBox(
@@ -459,7 +613,14 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
   }
 
   Widget _cardHeader(String title) {
-    return Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textDark));
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 15,
+        fontWeight: FontWeight.w700,
+        color: AppColors.textDark,
+      ),
+    );
   }
 
   Widget _infoRow(IconData icon, String label, String value) {
@@ -470,8 +631,19 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
         children: [
           Icon(icon, size: 16, color: AppColors.textLight),
           const SizedBox(width: 10),
-          SizedBox(width: 80, child: Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textLight))),
-          Expanded(child: Text(value, style: const TextStyle(fontSize: 13, color: AppColors.textDark))),
+          SizedBox(
+            width: 80,
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: AppColors.textLight),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 13, color: AppColors.textDark),
+            ),
+          ),
         ],
       ),
     );

@@ -50,6 +50,7 @@ dependencies:
   # app via url_launcher (already above).
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
+  google_navigation_flutter: ^0.10.0
 
 dev_dependencies:
   flutter_test:

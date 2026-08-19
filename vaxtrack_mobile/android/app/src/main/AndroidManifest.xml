@@ -7,6 +7,12 @@
         android:label="vaxtrack_mobile"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- Google Navigation/Maps SDK for Android key. Value comes from the
+             ignored local.properties via the MAPS_API_KEY manifest placeholder
+             (build.gradle.kts) — never hardcoded here. Feasibility spike. -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${MAPS_API_KEY}" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
