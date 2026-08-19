@@ -45,6 +45,18 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys();
     }
 
+    // Route-deviation alert helpers (Phase 4). An alert "owned" by the caller is
+    // a route_deviation incident whose riderId is the caller's uid. A rider may
+    // only write it when they are the currently-assigned rider on that order.
+    function isOwnRouteDeviationAlert(data) {
+      return data.type == 'route_deviation' && data.riderId == request.auth.uid;
+    }
+    function riderAssignedToOrder(orderId) {
+      return isRider()
+        && exists(/databases/$(database)/documents/orders/$(orderId))
+        && get(/databases/$(database)/documents/orders/$(orderId)).data.assignedRiderId == request.auth.uid;
+    }
+
     // Order fields each non-admin role is allowed to change. These mirror the
     // app's real writes as of 2026-07-24 — keep them in sync with orderService,
     // cargoLoadingService, and the Flutter delivery_service/location_service.
@@ -173,10 +185,46 @@ service cloud.firestore {
     }
 
     // ---------------- alerts ----------------
-    // Read by Admin + Dispatcher; only Admin resolves / marks read.
+    // Admin + Dispatcher read all alerts; only Admin resolves / marks read.
+    // Phase 4: a rider may create/update ONLY their own route-deviation incident
+    // for an order they are assigned to. Identity fields (type/orderId/riderId)
+    // are immutable after creation, and a rider can never read, create, or
+    // modify another rider's alert or an alert of any other type.
     match /alerts/{id} {
-      allow read: if isAdmin() || isDispatcher();
-      allow write: if isAdmin();
+      // Rider may READ only their own route-deviation incident — required so the
+      // idempotent upsert transaction can read the doc before writing it.
+      allow get: if isAdmin() || isDispatcher()
+        || (isRider() && isOwnRouteDeviationAlert(resource.data));
+      allow list: if isAdmin() || isDispatcher();
+
+      // Admin: full create. Rider: create own route-deviation incident, only for
+      // an order they are currently assigned to.
+      allow create: if isAdmin()
+        || (
+          isRider()
+          && request.resource.data.type == 'route_deviation'
+          && request.resource.data.riderId == request.auth.uid
+          && request.resource.data.severity == 'critical'
+          && request.resource.data.orderId is string
+          && riderAssignedToOrder(request.resource.data.orderId)
+        );
+
+      // Admin: full update (resolve / mark read). Rider: update ONLY their own
+      // route-deviation incident (refresh / reopen / mark returned), with the
+      // type/orderId/riderId identity fields held immutable and the rider still
+      // assigned to that order.
+      allow update: if isAdmin()
+        || (
+          isRider()
+          && isOwnRouteDeviationAlert(resource.data)
+          && request.resource.data.type == resource.data.type
+          && request.resource.data.orderId == resource.data.orderId
+          && request.resource.data.riderId == resource.data.riderId
+          && riderAssignedToOrder(resource.data.orderId)
+        );
+
+      // Deletes remain admin-only.
+      allow delete: if isAdmin();
     }
 
     // ---------------- invoices / counters (admin only) ----------------

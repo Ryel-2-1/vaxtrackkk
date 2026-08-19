@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/delivery.dart';
 import '../services/delivery_service.dart';
 import '../services/location_service.dart';
+import '../services/route_deviation_alert_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/route_utils.dart';
 import '../widgets/delivery_map.dart';
@@ -192,6 +193,20 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     if (_launchingNav || !d.hasClinicCoords || !d.isActive) return;
     setState(() => _launchingNav = true);
     try {
+      // Build the confirmed route-deviation context (order doc id + authed
+      // rider uid + display fields). If the uid or doc id is missing we pass
+      // null, keeping the nav screen local-only rather than inventing an id.
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      final RouteDeviationContext? alertContext =
+          (uid != null && uid.isNotEmpty && d.id.isNotEmpty)
+          ? RouteDeviationContext(
+              orderId: d.id,
+              riderUid: uid,
+              orderNumber: d.orderNumber,
+              clinicName: d.clinicName,
+              riderName: d.assignedRiderName,
+            )
+          : null;
       await Navigator.push(
         context,
         MaterialPageRoute(
@@ -200,6 +215,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
             clinicLng: d.clinicLng!,
             clinicName: d.clinicName,
             clinicAddress: d.clinicAddress,
+            alertContext: alertContext,
           ),
         ),
       );

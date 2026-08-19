@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_navigation_flutter/google_navigation_flutter.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import '../theme/app_theme.dart';
+import '../services/route_deviation_alert_service.dart';
 import '../utils/deviation_detector.dart';
 import '../utils/route_compliance_monitor.dart';
 
@@ -28,12 +29,20 @@ class GoogleNavigationScreen extends StatefulWidget {
   final String? clinicName;
   final String? clinicAddress;
 
+  /// Confirmed identity/display context for a route-deviation incident. When
+  /// non-null (the real delivery flow), confirmed deviation / return-to-route
+  /// transitions upsert ONE idempotent Firestore alert. When null (the
+  /// Firebase-free dev harness), the screen stays fully local — zero Firebase
+  /// calls.
+  final RouteDeviationContext? alertContext;
+
   const GoogleNavigationScreen({
     super.key,
     required this.clinicLat,
     required this.clinicLng,
     this.clinicName,
     this.clinicAddress,
+    this.alertContext,
   });
 
   @override
@@ -63,9 +72,21 @@ class _GoogleNavigationScreenState extends State<GoogleNavigationScreen> {
   int _poorAccuracyCount = 0;
   String? _lastTransition;
 
+  // Firestore incident bridge — only created when a real alert context exists,
+  // so the Firebase-free harness (null context) never touches Firebase. Writes
+  // are serialized through _alertChain so a deviation and a return can never
+  // race; failures are swallowed (guidance must never stop for an alert write).
+  RouteDeviationAlertService? _alertService;
+  Future<void> _alertChain = Future<void>.value();
+  String? _lastAlertWrite; // debug-only status/error
+  int _alertWriteCount = 0;
+
   @override
   void initState() {
     super.initState();
+    if (widget.alertContext != null) {
+      _alertService = RouteDeviationAlertService();
+    }
     _bootstrap();
   }
 
@@ -216,6 +237,8 @@ class _GoogleNavigationScreenState extends State<GoogleNavigationScreen> {
       _lastTransition = transition == DeviationEvent.deviated
           ? 'DEVIATED (local)'
           : 'RETURNED (local)';
+      // Capture the deviation distance NOW (the sample above just updated it).
+      _dispatchAlert(transition, pos, _monitor.latestDistanceMeters);
     }
     if (mounted) {
       setState(() {
@@ -223,6 +246,52 @@ class _GoogleNavigationScreenState extends State<GoogleNavigationScreen> {
         if (acc > _monitor.detector.maxAccuracyMeters) _poorAccuracyCount++;
       });
     }
+  }
+
+  // Serialize the (exactly-once) deviation / return writes onto a single chain
+  // so they can never race. Monitor state is already updated and is NEVER
+  // rolled back on a write failure; a failure only updates the debug status.
+  void _dispatchAlert(
+    DeviationEvent transition,
+    Position pos,
+    double? distanceMeters,
+  ) {
+    final ctx = widget.alertContext;
+    final svc = _alertService;
+    if (ctx == null || svc == null) return; // local-only: zero Firebase calls
+    final double dist = distanceMeters ?? 0;
+    final bool deviated = transition == DeviationEvent.deviated;
+    _alertChain = _alertChain.then((_) async {
+      try {
+        if (deviated) {
+          await svc.recordDeviation(
+            context: ctx,
+            latitude: pos.latitude,
+            longitude: pos.longitude,
+            distanceMeters: dist,
+            accuracyMeters: pos.accuracy,
+          );
+          _setAlertStatus('deviation synced');
+        } else {
+          await svc.recordReturn(
+            context: ctx,
+            latitude: pos.latitude,
+            longitude: pos.longitude,
+            distanceMeters: dist,
+            accuracyMeters: pos.accuracy,
+          );
+          _setAlertStatus('return synced');
+        }
+      } catch (e) {
+        // Never crash / stop guidance because an alert write failed.
+        _setAlertStatus('write failed: $e');
+      }
+    });
+  }
+
+  void _setAlertStatus(String s) {
+    _alertWriteCount++;
+    if (mounted) setState(() => _lastAlertWrite = s);
   }
 
   Future<void> _startGuidance() async {
@@ -432,8 +501,15 @@ class _GoogleNavigationScreenState extends State<GoogleNavigationScreen> {
                 Text('ret: ${_monitor.returnedToRouteEventCount}'),
                 Text('sdkRev: ${_monitor.sdkRouteRevision}'),
                 Text('baseRev: ${_monitor.complianceBaselineRevision}'),
+                Text('validRev: ${_monitor.validSampleRevision}'),
+                Text('candAt: ${_monitor.candidateCreatedAtSampleRevision}'),
                 Text('cand: ${_monitor.candidateStatus.name}/$reason'),
+                Text(
+                  'alertCtx: ${widget.alertContext == null ? "none (local)" : "on"}',
+                ),
+                Text('writes: $_alertWriteCount'),
                 if (_lastTransition != null) Text('last: $_lastTransition'),
+                if (_lastAlertWrite != null) Text('alert: $_lastAlertWrite'),
               ],
             ),
           ],

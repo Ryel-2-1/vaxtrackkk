@@ -463,6 +463,11 @@ class _NavFeasibilityScreenState extends State<NavFeasibilityScreen> {
             '${_monitor.complianceBaselineRevision}',
           ),
           kv('Compliance baseline points', '${_monitor.baselinePointCount}'),
+          kv('Valid sample revision', '${_monitor.validSampleRevision}'),
+          kv(
+            'Candidate created-at sample rev',
+            '${_monitor.candidateCreatedAtSampleRevision}',
+          ),
           kv('Candidate route status', _monitor.candidateStatus.name),
           kv('Candidate defer reason', reason),
           kv('Detector state', _monitor.isDeviated ? 'DEVIATED' : 'on route'),
