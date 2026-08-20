@@ -4,6 +4,7 @@ import { signOut } from "firebase/auth";
 import {
   AlertTriangle,
   CheckCircle2,
+  Download,
   FileText,
   Loader2,
   Printer,
@@ -15,7 +16,9 @@ import { AdminSidebar } from "./Inventory";
 import {
   subscribeInvoiceQueue,
   updateInvoicePriority,
+  vatClassificationLabel,
 } from "../../services/invoiceService";
+import { toCsv, downloadCsv } from "../../utils/csv";
 import KpiCard from "../../components/ui/KpiCard";
 import "./Invoices.css";
 
@@ -35,6 +38,18 @@ function formatCurrency(value) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+}
+
+// ISO date (YYYY-MM-DD) for CSV cells; blank when absent/invalid.
+function csvDate(ts) {
+  if (!ts) return "";
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+}
+
+// Raw numbers for CSV (spreadsheet-friendly, no ₱); blank when there is no value.
+function numOrBlank(v) {
+  return v === null || v === undefined ? "" : Number(v);
 }
 
 function isToday(ms) {
@@ -146,6 +161,57 @@ function Invoices() {
   const currentPage = Math.min(page, totalPages);
   const pageRows = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
+  const handleExportCsv = () => {
+    if (filtered.length === 0) return;
+    const headers = [
+      "Order ID",
+      "Date Order",
+      "Customer / Clinic",
+      "Sales Rep",
+      "Qty",
+      "Unit",
+      "Invoice No.",
+      "Invoice Status",
+      "Priority",
+      "VAT Classification",
+      "VATable Sales",
+      "VAT-Exempt Sales",
+      "Zero-Rated Sales",
+      "VAT Amount",
+      "Subtotal",
+      "Discount",
+      "Other Charges",
+      "Total",
+    ];
+    const rows = filtered.map((r) => [
+      r.orderNumber,
+      csvDate(r.orderDate),
+      r.clinicName,
+      r.salesRepName,
+      r.totalQuantity,
+      r.unit,
+      r.invoiceNumber || "",
+      r.invoiceStatus,
+      r.priority,
+      vatClassificationLabel(r.invoiceVatClassification),
+      numOrBlank(r.invoiceVatableSales),
+      numOrBlank(r.invoiceVatExemptSales),
+      numOrBlank(r.invoiceZeroRatedSales),
+      numOrBlank(r.invoiceVatAmount),
+      numOrBlank(r.invoiceSubtotal),
+      numOrBlank(r.invoiceDiscount),
+      numOrBlank(r.invoiceOtherCharges),
+      numOrBlank(r.invoiceGrandTotal ?? r.amount),
+    ]);
+    downloadCsv(
+      `sales-invoices-${new Date().toISOString().slice(0, 10)}.csv`,
+      toCsv(headers, rows)
+    );
+    showToast(
+      `Exported ${filtered.length} row${filtered.length !== 1 ? "s" : ""} to CSV.`
+    );
+  };
+
   return (
     <div className="inventory-page">
       <AdminSidebar active="invoices" onLogout={handleLogout} />
@@ -193,16 +259,27 @@ function Invoices() {
           <div className="inv-table-toolbar">
             <h2>Approved Orders</h2>
 
-            <div className="inv-search">
-              <Search size={15} />
-              <input
-                placeholder="Search order, customer, or sales rep..."
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
-              />
+            <div className="inv-toolbar-actions">
+              <div className="inv-search">
+                <Search size={15} />
+                <input
+                  placeholder="Search order, customer, or sales rep..."
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
+                />
+              </div>
+
+              <button
+                type="button"
+                className="inv-btn inv-btn-outline"
+                onClick={handleExportCsv}
+                disabled={filtered.length === 0}
+              >
+                <Download size={14} /> Export CSV
+              </button>
             </div>
           </div>
 
@@ -247,7 +324,7 @@ function Invoices() {
               Sort by
               <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
                 <option value="priority">Priority</option>
-                <option value="date">Order date</option>
+                <option value="date">Date Order</option>
                 <option value="customer">Customer name</option>
               </select>
             </label>
@@ -260,7 +337,7 @@ function Invoices() {
                   <th>Order ID</th>
                   <th>Customer / clinic</th>
                   <th>Sales rep</th>
-                  <th>Order date</th>
+                  <th>Date Order</th>
                   <th>Qty</th>
                   <th>Amount</th>
                   <th>Invoice status</th>

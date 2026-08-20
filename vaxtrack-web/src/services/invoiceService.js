@@ -9,6 +9,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { getOrderStatusValue, normalizeStatusKey } from "./deliveryService";
+import { assertConsistentInvoiceTotals } from "./invoiceModel";
 
 const ORDERS = "orders";
 const INVOICES = "invoices";
@@ -21,6 +22,17 @@ const NON_ELIGIBLE_STATUSES = ["cancelled", "canceled"];
 
 const VALID_PRIORITIES = ["Normal", "High", "Urgent"];
 const PRIORITY_RANK = { Urgent: 3, High: 2, Normal: 1 };
+
+// ---- VAT (Philippine sales invoice, VAT-EXCLUSIVE) ----
+// The VAT helpers live in the dependency-free `invoiceModel.js` (so they are
+// unit-testable under node --test without pulling in Firebase). Re-exported
+// here so existing importers of `invoiceService` keep working unchanged.
+export {
+  VAT_STANDARD_RATE,
+  VAT_CLASSIFICATIONS,
+  vatClassificationLabel,
+  computeVatExclusiveTotals,
+} from "./invoiceModel";
 
 function toMillis(ts) {
   return ts?.toMillis?.() ?? 0;
@@ -96,6 +108,21 @@ function buildQueueRow(order, invoice) {
     invoiceId: invoice?.id || null,
     invoiceNumber: invoice?.invoiceNumber || null,
     issuedAtMs: toMillis(invoice?.issuedAt),
+    // Invoice financials — present only once an invoice draft exists (null
+    // otherwise). `vatAmount` falls back to a legacy `taxAmount`. Used by CSV
+    // export; the queue table itself does not render these.
+    invoiceDate: invoice?.invoiceDate || null,
+    invoiceSubtotal: invoice ? Number(invoice.subtotal) || 0 : null,
+    invoiceDiscount: invoice ? Number(invoice.discount) || 0 : null,
+    invoiceOtherCharges: invoice ? Number(invoice.otherCharges) || 0 : null,
+    invoiceVatClassification: invoice?.vatClassification || null,
+    invoiceVatableSales: invoice ? Number(invoice.vatableSales) || 0 : null,
+    invoiceVatExemptSales: invoice ? Number(invoice.vatExemptSales) || 0 : null,
+    invoiceZeroRatedSales: invoice ? Number(invoice.zeroRatedSales) || 0 : null,
+    invoiceVatAmount: invoice
+      ? Number(invoice.vatAmount ?? invoice.taxAmount) || 0
+      : null,
+    invoiceGrandTotal: invoice ? Number(invoice.grandTotal) || 0 : null,
   };
 }
 
@@ -181,6 +208,8 @@ export async function getInvoiceByOrderId(orderId) {
  */
 export async function createInvoiceDraft(orderId, invoiceData, adminUser) {
   if (!orderId) throw new Error("Order ID is required.");
+  // Totals must be derivable from the serialized items (never client-arbitrary).
+  assertConsistentInvoiceTotals(invoiceData);
 
   const invRef = doc(db, INVOICES, orderId);
   const year = new Date().getFullYear();
@@ -231,13 +260,17 @@ export async function updateInvoiceDraft(invoiceId, invoiceData, adminUser) {
   if (snap.data().invoiceStatus === "issued") {
     throw new Error("Issued invoices cannot be edited.");
   }
+  assertConsistentInvoiceTotals(invoiceData);
 
-  // Never let the caller overwrite the reserved number or the create-audit trail.
+  // Never let the caller overwrite the reserved number, the create-audit trail,
+  // the identity (orderId), or the status via a draft save.
   const safe = { ...(invoiceData || {}) };
   delete safe.invoiceNumber;
   delete safe.createdAt;
   delete safe.createdByUid;
   delete safe.createdByEmail;
+  delete safe.orderId;
+  delete safe.invoiceStatus;
 
   return updateDoc(invRef, {
     ...safe,
@@ -294,9 +327,9 @@ export async function issueInvoice(invoiceId, adminUser) {
     if (invalidLine) {
       throw new Error("Every item needs a quantity greater than zero and a valid price.");
     }
-    if (!(Number(data.grandTotal) >= 0)) {
-      throw new Error("Invoice total is not valid.");
-    }
+    // The stored totals must still match the stored line items (nothing was
+    // tampered between the last draft save and issuance).
+    assertConsistentInvoiceTotals(data);
 
     tx.update(invRef, {
       invoiceStatus: "issued",

@@ -163,6 +163,21 @@
   width: 100%;
 }
 
+/* Toolbar right-side actions (search + export) */
+.inv-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* VAT classification select in the totals column */
+.inv-vat-select {
+  width: 150px;
+  height: 32px;
+  cursor: pointer;
+}
+
 .inv-filters {
   display: flex;
   flex-wrap: wrap;
@@ -435,15 +450,556 @@
   margin-bottom: 16px;
 }
 
-/* The A4 document */
+/* ===== Client sales-invoice template (3MGS Pharma, landscape) =====
+   Faithful HTML/CSS recreation of the yellow client form. Compact landscape
+   (8.5in x 5.5in), dense black ruled grid + green accents. Not a background
+   image. */
 .inv-doc {
-  background: #fff;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
-  max-width: 820px;
+  --sit-yellow: #fdf24a;
+  --sit-line: #111111;
+  --sit-soft: #b7ae2e;
+  --sit-green: #0b6b39;
+  --sit-red: #c0261c;
+  background: var(--sit-yellow);
+  color: #111;
+  width: 8.5in;
+  max-width: 100%;
+  min-height: 5in;
   margin: 0 auto;
-  padding: 34px 38px;
+  padding: 0.08in 0.14in 0.05in;
+  border: 1.5px solid var(--sit-line);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14);
+  font-family: "Arial Narrow", Arial, system-ui, sans-serif;
+  font-size: 8px;
+  line-height: 1.15;
+  box-sizing: border-box;
+  overflow: hidden;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+/* Inputs blend into the ruled cells (borderless, transparent, tiny).
+   `!important` overrides the app's aggressive global input styling
+   (min-height:46px, radius:12px, white bg) which would otherwise inflate the
+   dense form. Scoped to .inv-doc so page controls keep their normal look. */
+.inv-doc .inv-input {
+  border: 0; /* no !important, so per-field border-bottom underlines survive */
+  background: transparent !important;
+  border-radius: 0 !important;
+  min-height: 0 !important;
+  height: auto;
+  padding: 0 2px !important;
+  font-size: 8px !important;
+  line-height: 1.15;
+  color: #111 !important;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.inv-doc .inv-input:focus-visible {
+  outline: 1px solid var(--sit-green) !important;
+  background: rgba(255, 255, 255, 0.4) !important;
+}
+.inv-doc .sit-co-name {
+  font-size: 15px !important;
+}
+.inv-doc h2 {
+  color: #111;
+}
+.inv-doc input[type="checkbox"] {
+  min-height: 0 !important;
+  width: 9px;
+  height: 9px;
+  border-radius: 0 !important;
+  accent-color: #111;
+}
+.inv-doc .inv-input-number {
+  text-align: right;
+}
+.inv-doc textarea.inv-input {
+  resize: none;
+}
+
+/* ---- Header ---- */
+.sit-head {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr;
+  gap: 8px;
+  padding-bottom: 4px;
+  align-items: start;
+}
+.sit-head-co {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sit-co-name {
+  font-size: 15px !important;
+  font-weight: 900 !important;
+  letter-spacing: -0.3px;
+}
+.sit-co-line {
+  display: flex;
+  gap: 3px;
+  align-items: baseline;
+}
+.sit-co-line > span,
+.sit-co-addr {
+  font-size: 7.5px !important;
+  white-space: nowrap;
+}
+.sit-head-store {
+  color: var(--sit-green);
+  font-weight: 700;
+  padding-top: 2px;
+}
+.sit-store-1 {
+  margin: 0;
+  font-size: 8.5px;
+}
+.sit-temp {
+  display: flex;
+  gap: 3px;
+  align-items: baseline;
+  margin-top: 3px;
+}
+.sit-temp > span {
+  white-space: nowrap;
+}
+.sit-temp .inv-input {
+  border-bottom: 1px solid var(--sit-line);
+}
+.sit-head-title {
+  text-align: right;
+}
+.sit-head-title h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.sit-head-title h2 b {
+  font-weight: 900;
+}
+.sit-no {
+  margin: 2px 0 0;
+  font-size: 15px;
+  color: var(--sit-red);
+  font-weight: 800;
+}
+.sit-no strong {
+  color: var(--sit-red);
+}
+
+/* ---- Meta grid (cash/charge, date, sold-to) ---- */
+.sit-meta {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  border: 1px solid var(--sit-line);
+}
+.sit-meta-left {
+  border-right: 1px solid var(--sit-line);
+}
+.sit-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--sit-line);
+}
+.sit-checks label {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  font-weight: 700;
+  font-size: 8px;
+}
+.sit-soldto {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+}
+.sit-soldto .inv-input {
+  border-bottom: 1px solid #999;
+  min-width: 40px;
+}
+.sit-lbl {
+  font-weight: 700;
+}
+.sit-soldto .sit-lbl {
+  color: var(--sit-red);
+}
+.sit-meta-right {
+  display: flex;
+  flex-direction: column;
+}
+.sit-mr-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.sit-mr-row:first-child {
+  border-bottom: 1px solid var(--sit-line);
+}
+.sit-mr-cell {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  padding: 2px 4px;
+  min-width: 0;
+}
+.sit-mr-cell + .sit-mr-cell {
+  border-left: 1px solid var(--sit-line);
+}
+.sit-mr-cell .inv-input {
+  border-bottom: 1px solid #999;
+}
+.sit-static {
+  font-weight: 700;
+}
+.sit-static-id {
+  font-size: 7px;
+  word-break: break-all;
+}
+
+/* ---- Registered name block ---- */
+.sit-reg {
+  border: 1px solid var(--sit-line);
+  border-top: 0;
+}
+.sit-reg-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0.5px 4px;
+  border-bottom: 1px solid var(--sit-soft);
+}
+.sit-reg-row:last-child {
+  border-bottom: 0;
+}
+.sit-reg-row .sit-lbl {
+  min-width: 92px;
+}
+.sit-reg-row .inv-input {
+  border-bottom: 1px solid #999;
+  flex: 1;
+}
+.sit-shipto {
+  color: var(--sit-red);
+  margin-left: 8px;
+  min-width: 0 !important;
+}
+
+/* ---- Items grid ---- */
+.sit-items {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--sit-line);
+  border-top: 0;
+}
+.sit-items th {
+  border: 1px solid var(--sit-line);
+  padding: 2px 4px;
+  font-size: 8px;
+  font-weight: 800;
+  text-align: center;
+  background: transparent;
+}
+.sit-items th.sit-desc-h {
+  text-align: left;
+  width: 55%;
+}
+.sit-items td {
+  border: 1px solid var(--sit-line);
+  padding: 0 3px;
+  height: 15px;
+}
+.sit-desc {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: nowrap;
+}
+.sit-desc-name {
+  font-weight: 700;
+  min-width: 70px;
+  max-width: 130px;
+}
+.sit-exp,
+.sit-bn {
+  color: #333;
+  white-space: nowrap;
+  font-size: 7px;
+}
+.sit-exp-in {
+  width: 52px;
+}
+.sit-bn-in {
+  width: 82px;
+}
+.sit-qty {
+  text-align: center;
+}
+.sit-qty .inv-input,
+.sit-price .inv-input {
+  text-align: center;
+}
+.sit-price {
+  text-align: right;
+}
+.sit-amt {
+  text-align: right;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.sit-filler td {
+  color: #777;
+}
+.sit-rm-h {
+  border: 0 !important;
+  width: 16px;
+}
+.sit-items td.inv-no-print {
+  border: 0;
+}
+/* Beat the app's global `th, td { padding: 18px 16px !important; font-size:
+   16px !important }` so the dense ruled grid stays compact. */
+.inv-doc .sit-items th,
+.inv-doc .sit-items td {
+  font-size: 8px !important;
+  font-weight: 400 !important;
+  padding: 0 3px !important;
+  color: #111 !important;
+  line-height: 1.15 !important;
+  background: transparent !important;
+  letter-spacing: normal !important;
+  vertical-align: middle;
+}
+.inv-doc .sit-items th {
+  padding: 2px 4px !important;
+  font-weight: 800 !important;
+}
+.inv-doc .sit-items td {
+  height: 14px !important;
+}
+.inv-doc .sit-items tbody tr:hover {
+  background: transparent !important;
+}
+.inv-doc .sit-items tr {
+  height: 14px !important;
+}
+/* The per-row remove button (edit-only, no-print) must not inflate the row. */
+.inv-doc .inv-icon-btn {
+  min-height: 0 !important;
+  height: 13px;
+  padding: 0;
+  line-height: 1;
+}
+
+/* ---- Bottom: VAT breakdown | handling | totals ---- */
+.sit-bottom {
+  display: grid;
+  grid-template-columns: 1.1fr 0.85fr 1.4fr;
+  border: 1px solid var(--sit-line);
+  border-top: 0;
+}
+.sit-vatbox {
+  border-right: 1px solid var(--sit-line);
+}
+.sit-vat-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 1px 4px;
+  border-bottom: 1px solid var(--sit-soft);
+}
+.sit-vat-row:last-child {
+  border-bottom: 0;
+}
+.sit-handling {
+  border-right: 1px solid var(--sit-line);
+  padding: 2px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.sit-hd-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--sit-green);
+  font-weight: 700;
+}
+.sit-hd-row > span {
+  white-space: nowrap;
+}
+.sit-hd-row .inv-input {
+  border-bottom: 1px solid #999;
+  color: #111;
+}
+.sit-totals {
+  display: flex;
+  flex-direction: column;
+}
+.sit-tt-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  padding: 0.5px 4px;
+  border-bottom: 1px solid var(--sit-soft);
+}
+.sit-tt-row > span {
+  font-weight: 600;
+}
+.sit-tt-row > b {
+  font-weight: 800;
+  white-space: nowrap;
+}
+.sit-tt-row .inv-input {
+  width: 74px;
+  border-bottom: 1px solid #999;
+}
+.sit-tt-grand {
+  border-bottom: 0;
+  background: rgba(0, 0, 0, 0.06);
+}
+.sit-tt-grand > span {
+  font-weight: 900;
+}
+.sit-tt-grand > b {
+  font-weight: 900;
+  font-size: 10px;
+}
+
+/* ---- Acknowledgment + SC/PWD ids ---- */
+.sit-ack {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  border: 1px solid var(--sit-line);
+  border-top: 0;
+}
+.sit-ack-left {
+  border-right: 1px solid var(--sit-line);
+  padding: 3px 4px 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sit-recv {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+}
+.sit-box {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--sit-line);
+  display: inline-block;
+  flex: 0 0 auto;
+}
+.sit-recv .inv-input {
+  border-bottom: 1px solid #999;
+  flex: 1;
+}
+.sit-sign {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.sit-sign-in {
+  border-bottom: 1px solid var(--sit-line) !important;
+  text-align: center;
+  max-width: 220px;
+}
+.sit-sign-lbl {
+  font-size: 7.5px;
+  font-weight: 700;
+}
+.sit-ack-right {
+  display: flex;
+  flex-direction: column;
+}
+.sit-id-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 3px 4px;
+  border-bottom: 1px solid var(--sit-line);
+}
+.sit-id-row:last-child {
+  border-bottom: 0;
+}
+.sit-id-row > span {
+  font-size: 7px;
+  font-weight: 700;
+}
+.sit-id-row .inv-input {
+  flex: 1;
+  border-bottom: 1px solid #999;
+}
+
+/* ---- Legal / printer footer (blank until confirmed client data) ---- */
+.sit-footer {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 8px;
+  padding: 3px 2px 0;
+  font-size: 6.5px;
+}
+.sit-foot-left,
+.sit-foot-right {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sit-foot-line {
+  display: flex;
+  gap: 3px;
+  align-items: baseline;
+}
+.sit-foot-line > span {
+  white-space: nowrap;
+}
+.sit-footer .inv-input {
+  border-bottom: 1px solid var(--sit-soft);
+  font-size: 6.5px !important;
+}
+.sit-foot-printer {
+  min-height: 16px;
+}
+
+/* No-print editing helper strip: VAT classification has no cell on the paper
+   form, so it lives here (off-print); the chosen bucket shows in the totals. */
+.inv-tmpl-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 0 auto 12px;
+  max-width: 8.5in;
+  background: #fff;
+  border: var(--border-card);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.inv-tmpl-controls label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--gray-700);
+}
+.inv-tmpl-hint {
+  font-size: 11px;
+  color: var(--gray-500);
+}
+
+/* ===== (Legacy A4 document styles below are retained but unused by the new
+   template markup; kept to avoid churn. The shared .inv-input base + the
+   .inv-doc--preview rule remain in effect.) ===== */
+.inv-doc-legacy-unused {
+  display: none;
 }
 .inv-doc-top {
   display: flex;
@@ -729,6 +1285,10 @@
     flex-direction: column;
     align-items: stretch;
   }
+  .inv-toolbar-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
   .inv-search {
     min-width: 0;
   }
@@ -754,12 +1314,12 @@
   }
 }
 
-/* ================= Print (A4) ================= */
+/* ================= Print (landscape half-letter 8.5in x 5.5in) ================= */
+@page {
+  size: 8.5in 5.5in;
+  margin: 0.08in;
+}
 @media print {
-  @page {
-    size: A4 portrait;
-    margin: 12mm;
-  }
   /* Show only the invoice document. The visibility reset also protects against
      any other page's global print rules that hide body descendants. */
   body * {
@@ -768,6 +1328,10 @@
   .inv-doc,
   .inv-doc * {
     visibility: visible !important;
+    /* Force the yellow paper + green/red ink to print even without the
+       browser's "Background graphics" toggle. */
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
   .inventory-sidebar,
   .inv-no-print {
@@ -778,35 +1342,27 @@
     background: #fff !important;
   }
   .inv-doc {
-    visibility: visible !important;
     position: absolute;
     left: 0;
     top: 0;
-    max-width: 100% !important;
     width: 100% !important;
+    max-width: 100% !important;
+    min-height: auto !important;
     margin: 0 !important;
-    border: none !important;
     box-shadow: none !important;
-    padding: 0 !important;
-  }
-  /* Render editable fields as plain text on paper */
-  .inv-input,
-  .inv-doc-date input {
-    border-color: transparent !important;
-    background: transparent !important;
-    padding-left: 0 !important;
-    -webkit-appearance: none;
-    appearance: none;
-  }
-  .inv-items-table th,
-  .inv-items-table td {
-    border: 1px solid #000 !important;
-  }
-  .inv-items-table tr,
-  .inv-signature {
+    border: 1.5px solid #000 !important;
+    overflow: hidden;
     page-break-inside: avoid;
+    break-inside: avoid;
   }
-  .inv-doc-top {
-    border-bottom: 2px solid #000 !important;
+  /* Keep grid segments intact on paper. */
+  .sit-meta,
+  .sit-reg,
+  .sit-items,
+  .sit-items tr,
+  .sit-bottom,
+  .sit-ack {
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
 }
