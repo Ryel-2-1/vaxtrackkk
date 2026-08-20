@@ -198,43 +198,124 @@ service cloud.firestore {
       allow list: if isAdmin() || isDispatcher();
 
       // Admin: full create. Rider: create own route-deviation incident, only for
-      // an order they are currently assigned to.
+      // an order they are currently assigned to. A rider-created incident must
+      // open in the exact expected shape — a critical, unread, ACTIVE
+      // route_deviation whose createdAt/firstCreatedAt are the server's write
+      // time (so a rider can never back-date it out of the Admin list).
       allow create: if isAdmin()
         || (
           isRider()
           && request.resource.data.type == 'route_deviation'
           && request.resource.data.riderId == request.auth.uid
           && request.resource.data.severity == 'critical'
+          && request.resource.data.status == 'active'
+          && request.resource.data.read == false
           && request.resource.data.orderId is string
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.firstCreatedAt == request.time
           && riderAssignedToOrder(request.resource.data.orderId)
         );
 
       // Admin: full update (resolve / mark read). Rider: update ONLY their own
-      // route-deviation incident (refresh / reopen / mark returned), with the
-      // type/orderId/riderId identity fields held immutable and the rider still
-      // assigned to that order.
+      // route-deviation incident (refresh / reopen / mark returned). HARDENED
+      // rider transitions:
+      //  * type / orderId / riderId / firstCreatedAt are IMMUTABLE;
+      //  * severity stays 'critical';
+      //  * status may only ever be 'active' or 'resolved' (no arbitrary states);
+      //  * a resolve must carry resolutionReason == 'returned_to_route';
+      //  * createdAt may stay the same or be refreshed to now (reopen) but can
+      //    never be back-dated to an arbitrary earlier time;
+      //  * the rider must still be assigned to the order.
       allow update: if isAdmin()
         || (
           isRider()
           && isOwnRouteDeviationAlert(resource.data)
+          && riderAssignedToOrder(resource.data.orderId)
           && request.resource.data.type == resource.data.type
           && request.resource.data.orderId == resource.data.orderId
           && request.resource.data.riderId == resource.data.riderId
-          && riderAssignedToOrder(resource.data.orderId)
+          && request.resource.data.firstCreatedAt == resource.data.firstCreatedAt
+          && request.resource.data.severity == 'critical'
+          && request.resource.data.status in ['active', 'resolved']
+          && (
+            request.resource.data.status != 'resolved'
+            || request.resource.data.resolutionReason == 'returned_to_route'
+          )
+          && (
+            request.resource.data.createdAt == resource.data.createdAt
+            || request.resource.data.createdAt == request.time
+          )
         );
 
       // Deletes remain admin-only.
       allow delete: if isAdmin();
     }
 
-    // ---------------- invoices / counters (admin only) ----------------
-    // No Sales Rep / Dispatcher / Rider access — the Invoices module is
-    // admin-only, and counters back transactional invoice numbering.
-    match /invoices/{id} {
-      allow read, write: if isAdmin();
+    // ---------------- invoices (admin only) ----------------
+    // No Sales Rep / Dispatcher / Rider access. The invoice doc id IS the order
+    // id (one invoice per order). Phase 5E hardening mirrors invoiceService:
+    //  * create only as a server-timestamped DRAFT with a well-formed
+    //    INV-YYYY-###### number and the creating admin recorded;
+    //  * updates keep orderId / invoiceNumber / creation trail immutable and are
+    //    server-timestamped by the caller;
+    //  * the ONLY status change is draft -> issued, which must be
+    //    server-timestamped, done by the caller, and must NOT re-price the
+    //    invoice (totals frozen);
+    //  * once issued the invoice is frozen (no further update, no delete);
+    //  * legacy / seeded invoices stay readable by admin.
+    match /invoices/{invoiceId} {
+      allow get, list: if isAdmin();
+
+      allow create: if isAdmin()
+        && request.resource.data.orderId == invoiceId
+        && request.resource.data.invoiceStatus == 'draft'
+        && request.resource.data.invoiceNumber is string
+        && request.resource.data.invoiceNumber.matches('INV-[0-9]{4}-[0-9]{6}')
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.createdByUid == request.auth.uid;
+
+      allow update: if isAdmin()
+        // identity + creation trail are immutable
+        && request.resource.data.orderId == resource.data.orderId
+        && request.resource.data.invoiceNumber == resource.data.invoiceNumber
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdByUid == resource.data.createdByUid
+        // only a DRAFT can be updated (an issued invoice is frozen)
+        && resource.data.invoiceStatus == 'draft'
+        && request.resource.data.invoiceStatus in ['draft', 'issued']
+        // server-set audit on every update, by the caller
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedByUid == request.auth.uid
+        // the draft -> issued transition: server time, by the caller, and the
+        // totals are frozen (issuing never re-prices the invoice)
+        && (
+          request.resource.data.invoiceStatus == 'draft'
+          || (
+            request.resource.data.issuedAt == request.time
+            && request.resource.data.issuedByUid == request.auth.uid
+            && request.resource.data.grandTotal == resource.data.grandTotal
+            && request.resource.data.subtotal == resource.data.subtotal
+          )
+        );
+
+      // No client delete (the app never deletes invoices; issued/legacy stay).
     }
-    match /counters/{id} {
-      allow read, write: if isAdmin();
+
+    // ---------------- counters (admin only) ----------------
+    // Back the transactional invoice numbering. `current` is a non-negative
+    // integer that only ever increases (no reset/decrement), so an invoice
+    // number can never be reused.
+    match /counters/{counterId} {
+      allow get, list: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.current is int
+        && request.resource.data.current >= 0
+        && request.resource.data.updatedAt == request.time;
+      allow update: if isAdmin()
+        && request.resource.data.current is int
+        && request.resource.data.current > resource.data.current
+        && request.resource.data.updatedAt == request.time;
     }
 
     // ---------------- deny by default ----------------
