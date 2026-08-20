@@ -122,11 +122,14 @@ Map<String, Object?> _detectionFields({
 /// Decide the write for a CONFIRMED deviation, given the current document data
 /// ([existing] == null when the document does not exist yet).
 ///
-///  * no doc            → [IncidentAction.create] (episodeCount 1, active)
-///  * doc resolved      → [IncidentAction.reopen]  (episodeCount + 1, active,
-///                        original createdAt preserved — not written here)
+///  * no doc            → [IncidentAction.create] (episodeCount 1, active;
+///                        createdAt AND firstCreatedAt both stamped now)
+///  * doc resolved      → [IncidentAction.reopen]  (episodeCount + 1, active;
+///                        createdAt REFRESHED to now so the reopened incident
+///                        resurfaces as recent in the createdAt-ordered Admin
+///                        list, while firstCreatedAt keeps the ORIGINAL time)
 ///  * doc unresolved    → [IncidentAction.updateActive] (latest detection only;
-///                        NO new document, NO episode increment, createdAt kept)
+///                        NO new document, NO episode increment, timestamps kept)
 IncidentPlan planDeviationWrite({
   required Map<String, dynamic>? existing,
   required RouteDeviationContext context,
@@ -171,7 +174,13 @@ IncidentPlan planDeviationWrite({
         'episodeCount': 1,
         ...detection,
       },
-      const <String>['createdAt', 'updatedAt', 'lastDetectedAt'],
+      // firstCreatedAt is stamped once, at creation, and never rewritten.
+      const <String>[
+        'createdAt',
+        'firstCreatedAt',
+        'updatedAt',
+        'lastDetectedAt',
+      ],
     );
   }
 
@@ -190,9 +199,11 @@ IncidentPlan planDeviationWrite({
         'resolvedAt': null,
         'episodeCount': prevCount + 1,
         ...detection,
-        // createdAt is deliberately NOT written here — preserve the original.
       },
-      const <String>['reopenedAt', 'updatedAt', 'lastDetectedAt'],
+      // createdAt is REFRESHED to now (the reopened incident should resurface
+      // as recent); firstCreatedAt is intentionally absent here, preserving the
+      // ORIGINAL creation time.
+      const <String>['createdAt', 'reopenedAt', 'updatedAt', 'lastDetectedAt'],
     );
   }
 

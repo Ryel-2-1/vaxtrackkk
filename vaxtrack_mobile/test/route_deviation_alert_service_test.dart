@@ -10,19 +10,24 @@ const _ctx = RouteDeviationContext(
   riderName: 'Jane Rider',
 );
 
-// Apply a plan to a document map the way the transaction adapter would, using a
-// sentinel string for server timestamps so ordering/preservation is assertable.
+// A monotonically increasing sentinel so each simulated write gets a DISTINCT
+// "server time" — this lets a test tell a refreshed createdAt apart from a
+// preserved firstCreatedAt (they would collide under a single constant).
+int _stampSeq = 0;
+
+// Apply a plan to a document map the way the transaction adapter would. Every
+// serverTimestampField in ONE write shares that write's stamp (one server time
+// per write); fields NOT listed are left untouched — that is exactly how a
+// preserved timestamp (e.g. firstCreatedAt on reopen) keeps its original value.
 Map<String, dynamic> _apply(Map<String, dynamic>? existing, IncidentPlan plan) {
   if (plan.action == IncidentAction.noop) {
     return existing ?? <String, dynamic>{};
   }
   final base = Map<String, dynamic>.from(existing ?? <String, dynamic>{});
   base.addAll(plan.data);
-  // The adapter always stamps these with a server timestamp; fields NOT listed
-  // here (e.g. createdAt on reopen/update) are left untouched — that is exactly
-  // how the original creation time is preserved.
+  final stamp = 'TS${++_stampSeq}';
   for (final f in plan.serverTimestampFields) {
-    base[f] = 'TS';
+    base[f] = stamp;
   }
   return base;
 }
@@ -95,10 +100,15 @@ void main() {
       expect(msg, contains('VT-ORD-999'));
       expect(msg, contains('Meridian Clinic'));
       expect(msg, contains('1124'));
-      // Server timestamps set on create.
+      // Server timestamps set on create — both createdAt AND firstCreatedAt.
       expect(
         plan.serverTimestampFields,
-        containsAll(<String>['createdAt', 'updatedAt', 'lastDetectedAt']),
+        containsAll(<String>[
+          'createdAt',
+          'firstCreatedAt',
+          'updatedAt',
+          'lastDetectedAt',
+        ]),
       );
     });
 
@@ -135,6 +145,7 @@ void main() {
         'status': 'resolved',
         'episodeCount': 1,
         'createdAt': 'ORIGINAL_TS',
+        'firstCreatedAt': 'FIRST_TS',
         'resolutionReason': 'returned_to_route',
       };
       final plan = planDeviationWrite(
@@ -148,11 +159,30 @@ void main() {
       expect(plan.data['status'], 'active');
       expect(plan.data['episodeCount'], 2);
       expect(plan.data['resolutionReason'], isNull); // cleared
-      // createdAt must NOT be re-stamped (preserve original creation time).
-      expect(plan.serverTimestampFields, isNot(contains('createdAt')));
+    });
+
+    test('reopen REFRESHES createdAt to now but PRESERVES firstCreatedAt', () {
+      final existing = <String, dynamic>{
+        'type': 'route_deviation',
+        'status': 'resolved',
+        'episodeCount': 1,
+        'createdAt': 'ORIGINAL_TS',
+        'firstCreatedAt': 'FIRST_TS',
+      };
+      final plan = planDeviationWrite(
+        existing: existing,
+        context: _ctx,
+        latitude: 14.6,
+        longitude: 121.0,
+        distanceMeters: 900,
+      );
+      // createdAt IS re-stamped; firstCreatedAt is NOT (kept immutable).
+      expect(plan.serverTimestampFields, contains('createdAt'));
+      expect(plan.serverTimestampFields, isNot(contains('firstCreatedAt')));
 
       final after = _apply(existing, plan);
-      expect(after['createdAt'], 'ORIGINAL_TS');
+      expect(after['createdAt'], isNot('ORIGINAL_TS')); // refreshed to "now"
+      expect(after['firstCreatedAt'], 'FIRST_TS'); // original preserved
       expect(after['episodeCount'], 2);
       expect(after['status'], 'active');
     });
@@ -230,7 +260,8 @@ void main() {
     );
     expect(doc['status'], 'active');
     expect(doc['episodeCount'], 1);
-    final firstCreatedAt = doc['createdAt'];
+    final originalFirstCreatedAt = doc['firstCreatedAt'];
+    final originalCreatedAt = doc['createdAt'];
 
     doc = _apply(
       doc,
@@ -252,6 +283,8 @@ void main() {
     );
     expect(doc['status'], 'active');
     expect(doc['episodeCount'], 2); // genuine new deviation reopened it
-    expect(doc['createdAt'], firstCreatedAt); // original creation preserved
+    // firstCreatedAt keeps the ORIGINAL time; createdAt is refreshed to "now".
+    expect(doc['firstCreatedAt'], originalFirstCreatedAt);
+    expect(doc['createdAt'], isNot(originalCreatedAt));
   });
 }
