@@ -1,4 +1,6 @@
 vaxtrack_mobile/android/app/google-services.json
+# Per-flavor Firebase configs (staging/production) — never commit these.
+vaxtrack_mobile/android/app/src/*/google-services.json
 # Firebase config files
 
 vaxtrack-web/src/firebase.js

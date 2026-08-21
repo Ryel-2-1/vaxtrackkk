@@ -55,6 +55,30 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    // Environment flavors: production (vaxtrack-bef1b) vs staging (vaxtrack-staging).
+    // The com.google.gms.google-services plugin selects the matching
+    // google-services.json per flavor at build time:
+    //   production → android/app/google-services.json              (vaxtrack-bef1b)
+    //   staging    → android/app/src/staging/google-services.json  (vaxtrack-staging)
+    // Staging gets a distinct applicationId (via suffix) and a visibly different
+    // app name so it installs side-by-side with production and is never mistaken
+    // for it. No Firebase secrets live in Gradle — only the JSON files (ignored).
+    flavorDimensions += "environment"
+
+    productFlavors {
+        create("production") {
+            dimension = "environment"
+            // Uses defaultConfig.applicationId = com.example.vaxtrack_mobile.
+            resValue("string", "app_name", "VaxTrack Rider")
+        }
+        create("staging") {
+            dimension = "environment"
+            // → com.example.vaxtrack_mobile.staging
+            applicationIdSuffix = ".staging"
+            resValue("string", "app_name", "VaxTrack Rider (Staging)")
+        }
+    }
 }
 
 dependencies {
