@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -90,8 +91,15 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
           accuracyMeters: s.accuracyMeters,
         ),
         onChange: _onControllerChange,
+        onLog: _logWrite,
       );
     }
+  }
+
+  // Debug-only write-lifecycle logging. Never logs keys/tokens/PII/payloads —
+  // only the event label + (on failure) the error's toString().
+  void _logWrite(String message) {
+    debugPrint('[RouteMonitor] $message');
   }
 
   @override
@@ -152,6 +160,15 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
         );
       }
       return;
+    }
+    final ctx = _ctx;
+    if (ctx != null) {
+      // Prove which Firebase project the write targets + the deterministic doc
+      // id (opaque ids only — no keys/PII).
+      debugPrint(
+        '[RouteMonitor] start env project=${Firebase.app().options.projectId} '
+        'alertDoc=${routeDeviationAlertId(ctx.orderId, ctx.riderUid)}',
+      );
     }
     c.start();
   }
@@ -310,6 +327,7 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _statusRow(),
+            _syncStatus(),
             const SizedBox(height: 10),
             if (!_eligibility.canStart) _blockersBox(),
             if (_eligibility.canStart) _controlsRow(),
@@ -358,6 +376,43 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
           style: const TextStyle(fontSize: 12, color: AppColors.textLight),
         ),
       ],
+    );
+  }
+
+  // Write/sync status — deliberately SEPARATE from the detection state so the UI
+  // never implies Firestore success just because the local state changed.
+  Widget _syncStatus() {
+    final c = _controller;
+    if (c == null) return const SizedBox.shrink();
+    if (c.writeInFlight) {
+      return _syncLine(Icons.sync, 'Syncing alert…', AppColors.textLight);
+    }
+    if (c.lastWriteFailed) {
+      return _syncLine(
+        Icons.error_outline,
+        'Alert sync failed — ${c.lastError}',
+        Colors.red,
+      );
+    }
+    if (c.dispatchCount > 0) {
+      return _syncLine(Icons.cloud_done, 'Alert synced', Colors.green);
+    }
+    return const SizedBox.shrink();
+  }
+
+  Widget _syncLine(IconData icon, String text, Color color) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 15, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text, style: TextStyle(fontSize: 12, color: color)),
+          ),
+        ],
+      ),
     );
   }
 

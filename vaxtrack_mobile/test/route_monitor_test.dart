@@ -6,6 +6,7 @@ import 'package:vaxtrack_mobile/models/delivery.dart';
 import 'package:vaxtrack_mobile/utils/deviation_detector.dart';
 import 'package:vaxtrack_mobile/utils/route_compliance_monitor.dart';
 import 'package:vaxtrack_mobile/utils/route_monitor.dart';
+import 'package:vaxtrack_mobile/services/route_deviation_alert_service.dart';
 
 // Dependency-free tests for the FREE in-app route-monitoring glue. They import
 // ONLY pure Dart (no Flutter widgets, no Geolocator, no Firebase, no network
@@ -347,4 +348,166 @@ void main() {
       expect(c.dispatchCount, 1);
     });
   });
+
+  group(
+    'write dispatch: invocation, awaiting, surfacing, retry (Phase 6C3)',
+    () {
+      test('a confirmed deviation invokes onDeviation exactly once', () async {
+        final monitor = RouteComplianceMonitor()..setInitialRoute(_routeA);
+        final cap = _Capture();
+        final c = _controller(
+          monitor: monitor,
+          factory: _emptyFactory,
+          cap: cap,
+        );
+
+        c.handleSample(_s(_on));
+        for (var i = 0; i < 3; i++) {
+          c.handleSample(_s(_off));
+        }
+        await c.pendingWrites;
+
+        expect(cap.events, <DeviationEvent>[DeviationEvent.deviated]);
+        expect(c.dispatchCount, 1);
+      });
+
+      test('a confirmed return invokes onReturn exactly once', () async {
+        final monitor = RouteComplianceMonitor()..setInitialRoute(_routeA);
+        final cap = _Capture();
+        final c = _controller(
+          monitor: monitor,
+          factory: _emptyFactory,
+          cap: cap,
+        );
+
+        c.handleSample(_s(_on));
+        for (var i = 0; i < 3; i++) {
+          c.handleSample(_s(_off)); // deviate
+        }
+        for (var i = 0; i < 3; i++) {
+          c.handleSample(_s(_recovery)); // return
+        }
+        await c.pendingWrites;
+
+        expect(cap.events, <DeviationEvent>[
+          DeviationEvent.deviated,
+          DeviationEvent.returnedToRoute,
+        ]);
+      });
+
+      test('the callback Future is awaited (write stays in-flight until it '
+          'completes)', () async {
+        final monitor = RouteComplianceMonitor()..setInitialRoute(_routeA);
+        final gate = Completer<void>();
+        final c = RouteMonitorController(
+          monitor: monitor,
+          sampleStreamFactory: _emptyFactory,
+          onDeviation: (s, d) => gate.future, // not yet complete
+          onReturn: (s, d) async {},
+        );
+
+        c.handleSample(_s(_on));
+        for (var i = 0; i < 3; i++) {
+          c.handleSample(_s(_off));
+        }
+        await Future<void>.delayed(
+          Duration.zero,
+        ); // let the chain reach the await
+        expect(c.writeInFlight, isTrue);
+        expect(c.dispatchCount, 0); // not counted until the write completes
+
+        gate.complete();
+        await c.pendingWrites;
+        expect(c.writeInFlight, isFalse);
+        expect(c.dispatchCount, 1);
+      });
+
+      test('a callback error is SURFACED (not swallowed) and monitoring '
+          'continues', () async {
+        final monitor = RouteComplianceMonitor()..setInitialRoute(_routeA);
+        final logs = <String>[];
+        final c = RouteMonitorController(
+          monitor: monitor,
+          sampleStreamFactory: _emptyFactory,
+          onDeviation: (s, d) async => throw StateError('write boom'),
+          onReturn: (s, d) async {},
+          onLog: logs.add,
+        );
+
+        c.handleSample(_s(_on));
+        for (var i = 0; i < 3; i++) {
+          c.handleSample(_s(_off));
+        }
+        await c.pendingWrites;
+
+        expect(c.lastWriteFailed, isTrue);
+        expect(c.lastError, contains('write boom'));
+        expect(logs.any((l) => l.contains('FAILED')), isTrue);
+        expect(c.isDisposed, isFalse); // monitoring not stopped by the failure
+      });
+
+      test('one failed write does not block a later transition write (retry '
+          'preserved; success clears the error)', () async {
+        final monitor = RouteComplianceMonitor()..setInitialRoute(_routeA);
+        final returned = <String>[];
+        final c = RouteMonitorController(
+          monitor: monitor,
+          sampleStreamFactory: _emptyFactory,
+          onDeviation: (s, d) async => throw StateError('boom'),
+          onReturn: (s, d) async => returned.add('ok'),
+        );
+
+        c.handleSample(_s(_on));
+        for (var i = 0; i < 3; i++) {
+          c.handleSample(_s(_off)); // deviation write throws
+        }
+        await c.pendingWrites;
+        expect(c.lastWriteFailed, isTrue);
+
+        for (var i = 0; i < 3; i++) {
+          c.handleSample(_s(_recovery)); // return write succeeds
+        }
+        await c.pendingWrites;
+        expect(returned, <String>[
+          'ok',
+        ]); // later write ran despite earlier failure
+        expect(c.lastWriteFailed, isFalse); // success cleared the error
+      });
+
+      test('a null/invalid context blocks start: context is null AND not '
+          'eligible', () {
+        final d = _delivery();
+        expect(
+          buildRouteDeviationContext(delivery: d, currentUserUid: null),
+          isNull,
+        );
+        expect(
+          RouteMonitorEligibility.evaluate(
+            delivery: d,
+            currentUserUid: null,
+          ).canStart,
+          isFalse,
+        );
+      });
+
+      test(
+        'deterministic alert path uses the order DOC id + authed rider uid',
+        () {
+          final d = _delivery(id: 'DOC_xyz', orderNumber: 'VT-ORD-42');
+          final ctx = buildRouteDeviationContext(
+            delivery: d,
+            currentUserUid: 'uidZ',
+          )!;
+          expect(
+            routeDeviationAlertId(ctx.orderId, ctx.riderUid),
+            'route_deviation_DOC_xyz_uidZ',
+          );
+          expect(
+            routeDeviationAlertId(ctx.orderId, ctx.riderUid),
+            isNot(contains('VT-ORD-42')), // never the order NUMBER
+          );
+        },
+      );
+    },
+  );
 }

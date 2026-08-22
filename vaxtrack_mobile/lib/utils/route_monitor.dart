@@ -134,6 +134,7 @@ class RouteMonitorController {
     required TransitionDispatch onDeviation,
     required TransitionDispatch onReturn,
     this.onChange,
+    this.onLog,
   }) : _monitor = monitor,
        _sampleStreamFactory = sampleStreamFactory,
        _onDeviation = onDeviation,
@@ -148,6 +149,12 @@ class RouteMonitorController {
   /// change (never after dispose).
   final void Function()? onChange;
 
+  /// Optional debug logger for the write lifecycle (started / succeeded /
+  /// failed). The screen wires this to debugPrint. It is ONLY ever passed the
+  /// event label, and an error's `toString()` on failure — never keys, tokens,
+  /// passwords, personal data, or a full payload.
+  final void Function(String message)? onLog;
+
   StreamSubscription<GpsSample>? _sub;
 
   // Every write is chained here so a deviation and a return can never race.
@@ -159,6 +166,7 @@ class RouteMonitorController {
   DeviationEvent? _lastTransition;
   int _dispatchCount = 0;
   String? _lastError;
+  bool _writeInFlight = false;
 
   RouteComplianceMonitor get monitor => _monitor;
   RouteMonitorPhase get phase => _phase;
@@ -172,9 +180,19 @@ class RouteMonitorController {
   /// Number of transition writes that have completed (for diagnostics/tests).
   int get dispatchCount => _dispatchCount;
 
-  /// Last write error, if any (writes are best-effort; a failure never stops
-  /// monitoring).
+  /// Last write error, if any, as a human-readable string (a FirebaseException's
+  /// `toString()` includes its `[plugin/code] message`). Cleared on the next
+  /// successful write. Writes are best-effort — a failure never stops
+  /// monitoring — but it is SURFACED here (and via [onLog]) so the UI can show
+  /// it instead of implying success from the local detection state.
   String? get lastError => _lastError;
+
+  /// True while a transition write is in flight.
+  bool get writeInFlight => _writeInFlight;
+
+  /// True when the most recent write attempt failed and has not since been
+  /// superseded by a success.
+  bool get lastWriteFailed => _lastError != null;
 
   /// A future that completes once all queued writes have drained.
   Future<void> get pendingWrites => _chain;
@@ -212,8 +230,16 @@ class RouteMonitorController {
 
   void _dispatch(DeviationEvent transition, GpsSample sample, double distance) {
     final deviated = transition == DeviationEvent.deviated;
+    final label = deviated ? 'deviation' : 'return';
+    // Every write is serialized onto _chain so a deviation and a return can
+    // never race. Each link catches its OWN error and completes normally, so the
+    // chain is never poisoned — a failed write does NOT block a later
+    // transition's write (retry-on-next-transition is preserved).
     _chain = _chain.then((_) async {
       if (_disposed) return;
+      _writeInFlight = true;
+      _log('$label write started');
+      _notify();
       try {
         if (deviated) {
           await _onDeviation(sample, distance);
@@ -221,11 +247,23 @@ class RouteMonitorController {
           await _onReturn(sample, distance);
         }
         _dispatchCount++;
+        _lastError = null; // a success clears a prior failure
+        _log('$label write succeeded');
       } catch (e) {
-        // Never crash/stop monitoring because an alert write failed.
+        // Never crash/stop monitoring because an alert write failed — but SURFACE
+        // it (both here and via onLog) so the UI can show a failure instead of
+        // implying success from the local detection state.
         _lastError = e.toString();
+        _log('$label write FAILED: ${e.toString()}');
+      } finally {
+        _writeInFlight = false;
+        _notify();
       }
     });
+  }
+
+  void _log(String message) {
+    if (!_disposed) onLog?.call(message);
   }
 
   /// Stop monitoring by cancelling the GPS subscription. Does NOT feed the
