@@ -191,10 +191,15 @@ service cloud.firestore {
     // are immutable after creation, and a rider can never read, create, or
     // modify another rider's alert or an alert of any other type.
     match /alerts/{id} {
-      // Rider may READ only their own route-deviation incident — required so the
+      // Rider may READ their own route-deviation incident — required so the
       // idempotent upsert transaction can read the doc before writing it.
+      // `resource == null` (a NON-EXISTENT doc) must also be allowed: the
+      // transaction's first `tx.get(ref)` runs before the deterministic doc is
+      // ever created, and denying that read fails the whole transaction (the
+      // Phase 6C2 persistence root cause). A get on a missing doc reveals only
+      // non-existence of a deterministic id the rider can already derive.
       allow get: if isAdmin() || isDispatcher()
-        || (isRider() && isOwnRouteDeviationAlert(resource.data));
+        || (isRider() && (resource == null || isOwnRouteDeviationAlert(resource.data)));
       allow list: if isAdmin() || isDispatcher();
 
       // Admin: full create. Rider: create own route-deviation incident, only for

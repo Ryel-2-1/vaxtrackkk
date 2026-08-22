@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../utils/route_utils.dart';
 import '../widgets/delivery_map.dart';
 import 'google_navigation_screen.dart';
+import 'route_monitoring_screen.dart';
 import 'package:intl/intl.dart';
 
 class DeliveryDetailScreen extends StatefulWidget {
@@ -224,6 +225,18 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     }
   }
 
+  // Open the FREE in-app route-monitoring screen (OpenStreetMap + Geolocator).
+  // Requires the delivery to be active with clinic coordinates; the screen
+  // itself enforces the full start eligibility (auth, assignment, saved route)
+  // and Firestore rules remain the final assignment authority.
+  void _startRouteMonitoring() {
+    if (!d.isActive || !d.hasClinicCoords) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => RouteMonitoringScreen(delivery: d)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -350,6 +363,27 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
                   style: TextStyle(fontSize: 11, color: AppColors.textLight),
                 ),
               ),
+            const SizedBox(height: 8),
+            // FREE in-app route monitoring (flutter_map + OpenStreetMap +
+            // Geolocator, driving the existing RouteComplianceMonitor /
+            // RouteDeviationAlertService). No paid Google Navigation SDK,
+            // MAPS_API_KEY, billing, or Navigation Terms. Enabled for active
+            // deliveries with clinic coordinates; the screen re-checks
+            // assignment + a saved route and explains anything still missing.
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: (d.isActive && d.hasClinicCoords)
+                    ? _startRouteMonitoring
+                    : null,
+                icon: const Icon(Icons.my_location),
+                label: const Text('Start Route Monitoring'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.info,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ),
             const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,

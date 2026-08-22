@@ -25,6 +25,7 @@ import {
   query,
   where,
   serverTimestamp,
+  runTransaction,
 } from "firebase/firestore";
 
 const PROJECT_ID = "vaxtrack-rules-test";
@@ -85,6 +86,10 @@ async function main() {
     await setDoc(doc(db, "orders", "ordSR2"), { createdByUid: otherSalesRepUid, status: "pending_dispatch", assignedRiderId: null });
     await setDoc(doc(db, "orders", "ordRider1"), { createdByUid: salesRepUid, status: "in_transit", assignedRiderId: riderUid });
     await setDoc(doc(db, "orders", "ordRider2"), { createdByUid: salesRepUid, status: "in_transit", assignedRiderId: otherRiderUid });
+    // A THIRD assigned order with NO alert yet — used to reproduce the real
+    // service's transaction upsert, which reads the deterministic alert doc
+    // before it exists.
+    await setDoc(doc(db, "orders", "ordRider3"), { createdByUid: salesRepUid, status: "in_transit", assignedRiderId: riderUid });
 
     await setDoc(doc(db, "inventory", "inv1"), { vaccineName: "X", quantity: 10 });
     await setDoc(doc(db, "clinics", "cl1"), { name: "Clinic A" });
@@ -290,6 +295,43 @@ async function main() {
       updatedAt: serverTimestamp(),
       lastDetectedAt: serverTimestamp(),
     }));
+  });
+
+  // P14b/P14c reproduce the REAL service path (route_deviation_alert_service):
+  // the idempotent upsert runs in a TRANSACTION that reads the deterministic doc
+  // BEFORE it exists. The rider `get` rule must therefore allow reading a
+  // NON-EXISTENT own alert, or the transaction is denied at the read — the
+  // Phase 6C2 persistence root cause (direct setDoc in P14 never hit this path).
+  await check("P14b rider can get a non-existent own route-deviation alert (tx pre-read)", async () => {
+    await assertSucceeds(getDoc(doc(rider, "alerts", "route_deviation_ordRider3_rider1")));
+  });
+
+  await check("P14c rider transaction get-then-create on a fresh assigned order", async () => {
+    const ref = doc(rider, "alerts", "route_deviation_ordRider3_rider1");
+    await assertSucceeds(
+      runTransaction(rider, async (tx) => {
+        await tx.get(ref); // reads the not-yet-existing doc, exactly like the app
+        tx.set(ref, {
+          type: "route_deviation",
+          orderId: "ordRider3",
+          deliveryId: "ordRider3",
+          riderId: riderUid,
+          riderName: "R",
+          clinicName: "Clinic C",
+          status: "active",
+          severity: "critical",
+          read: false,
+          title: "Route Deviation Detected",
+          message: "left the assigned route",
+          episodeCount: 1,
+          distanceMeters: 392,
+          createdAt: serverTimestamp(),
+          firstCreatedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          lastDetectedAt: serverTimestamp(),
+        });
+      })
+    );
   });
 
   await check("P15 rider reads own route-deviation incident", async () => {
