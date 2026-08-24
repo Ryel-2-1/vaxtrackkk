@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import Login from "./pages/Login";
-import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
 import PendingApproval from "./pages/PendingApproval";
 import StyleGuide from "./pages/StyleGuide";
@@ -51,7 +50,6 @@ function App() {
         <Route path="/" element={<Navigate to="/login" replace />} />
 
         <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/pending" element={<PendingApproval />} />
         <Route path="/pending-approval" element={<Navigate to="/pending" replace />} />
