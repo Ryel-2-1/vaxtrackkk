@@ -1,0 +1,16 @@
+# Android splash (Phase B — branding only). Applies to both flavors via the
+# shared main res (LaunchTheme / launch_background). It does not change app
+# names, application IDs, signing, Firebase config, or entrypoints.
+flutter_native_splash:
+  color: "#F7FAF8"
+  image: branding/vaxtrack-splash.png
+  android: true
+  ios: false
+  web: false
+  android_gravity: center
+  # Android 12+ shows only a centered icon: use the white symbol on the brand
+  # green circle to match the adaptive launcher icon.
+  android_12:
+    image: branding/vaxtrack-icon-foreground.png
+    icon_background_color: "#116A44"
+    color: "#F7FAF8"

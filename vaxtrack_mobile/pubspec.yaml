@@ -63,6 +63,11 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
 
+  # Branding-only tooling (Phase B): generates the per-flavor launcher icons and
+  # the Android splash at build time. Not bundled into the shipped app.
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.6
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 

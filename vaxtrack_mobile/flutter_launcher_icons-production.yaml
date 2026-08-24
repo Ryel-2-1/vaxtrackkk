@@ -1,0 +1,12 @@
+# Production flavor launcher icon (Phase B — branding only).
+# The filename suffix "-production" makes flutter_launcher_icons write the
+# generated mipmaps + adaptive icon into android/app/src/production/res/ ONLY.
+# It does NOT modify the AndroidManifest, application IDs, signing, app names,
+# Firebase config, Maps key, permissions, or entrypoints.
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "branding/vaxtrack-icon-production.png"
+  min_sdk_android: 24
+  adaptive_icon_background: "#116A44"
+  adaptive_icon_foreground: "branding/vaxtrack-icon-foreground.png"
