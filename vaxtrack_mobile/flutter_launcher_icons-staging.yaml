@@ -1,0 +1,11 @@
+# Staging flavor launcher icon (Phase B — branding only). Intentionally amber so
+# the staging app is visibly different from production on the device.
+# The filename suffix "-staging" makes flutter_launcher_icons write into
+# android/app/src/staging/res/ ONLY (no manifest / IDs / signing changes).
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "branding/vaxtrack-icon-staging.png"
+  min_sdk_android: 24
+  adaptive_icon_background: "#B85C00"
+  adaptive_icon_foreground: "branding/vaxtrack-icon-foreground.png"
