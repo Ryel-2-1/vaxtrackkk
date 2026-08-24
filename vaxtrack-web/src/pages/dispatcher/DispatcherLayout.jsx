@@ -25,35 +25,9 @@ function DispatcherLayout({
 
   const [searchText, setSearchText] = useState("");
   const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState([
-    {
-      id: 1,
-      title: "Route deviation detected",
-      message: "Rider Juan Dela Cruz is outside the assigned route.",
-      time: "2 min ago",
-      path: "/dispatcher/geofence",
-      read: false,
-      type: "danger",
-    },
-    {
-      id: 2,
-      title: "New order ready for dispatch",
-      message: "A vaccine order is waiting for rider assignment.",
-      time: "8 min ago",
-      path: "/dispatcher",
-      read: false,
-      type: "info",
-    },
-    {
-      id: 3,
-      title: "Cargo loading reminder",
-      message: "Shipment #802 is waiting in the loading queue.",
-      time: "14 min ago",
-      path: "/dispatcher/shipments",
-      read: true,
-      type: "normal",
-    },
-  ]);
+  // No demo/sample data is seeded here — notifications start empty until wired
+  // to real Firestore alerts.
+  const [notifications, setNotifications] = useState([]);
 
   const unreadCount = useMemo(
     () => notifications.filter((notification) => !notification.read).length,
@@ -239,6 +213,19 @@ function DispatcherLayout({
                 </div>
 
                 <div className="dispatcher-notification-list">
+                  {notifications.length === 0 && (
+                    <p
+                      style={{
+                        padding: "18px 16px",
+                        margin: 0,
+                        fontSize: 13,
+                        color: "#6b7280",
+                        textAlign: "center",
+                      }}
+                    >
+                      No notifications.
+                    </p>
+                  )}
                   {notifications.map((notification) => (
                     <button
                       type="button"
