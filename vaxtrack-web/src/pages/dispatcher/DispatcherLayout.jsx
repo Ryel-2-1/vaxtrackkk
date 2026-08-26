@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
@@ -14,7 +14,28 @@ import {
   UserPlus,
 } from "lucide-react";
 import { auth } from "../../firebase";
+import { subscribeActiveAlerts } from "../../services/alertService";
 import "./Dispatcher.css";
+
+// Relative time from a Firestore Timestamp (or "" when unavailable) — an honest
+// fallback, never a fabricated time.
+function alertTimeText(createdAt) {
+  if (!createdAt || typeof createdAt.toDate !== "function") return "";
+  const mins = Math.floor((Date.now() - createdAt.toDate().getTime()) / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hr${hrs !== 1 ? "s" : ""} ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days} day${days !== 1 ? "s" : ""} ago`;
+}
+
+// Map an alert's severity to the dropdown's existing tone classes.
+function alertToneClass(severity) {
+  if (severity === "critical") return "danger";
+  if (severity === "warning") return "info";
+  return "normal";
+}
 
 function DispatcherLayout({
   active = "dashboard",
@@ -34,6 +55,20 @@ function DispatcherLayout({
     [notifications]
   );
 
+  // Live dispatcher notifications = the active Firestore alerts. No fake or
+  // fallback entries are ever inserted; a failure just leaves the empty state.
+  useEffect(() => {
+    let unsubscribe = () => {};
+    try {
+      unsubscribe = subscribeActiveAlerts((alerts) => {
+        setNotifications(Array.isArray(alerts) ? alerts : []);
+      });
+    } catch {
+      setNotifications([]);
+    }
+    return () => unsubscribe();
+  }, []);
+
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -50,7 +85,10 @@ function DispatcherLayout({
     );
 
     setShowNotifications(false);
-    navigate(notification.path);
+    // Real alert docs carry no client route; navigate only when a path exists.
+    if (notification.path) {
+      navigate(notification.path);
+    }
   };
 
   const handleClearNotifications = () => {
@@ -232,7 +270,7 @@ function DispatcherLayout({
                       key={notification.id}
                       className={`dispatcher-notification-item ${
                         notification.read ? "read" : ""
-                      } ${notification.type}`}
+                      } ${alertToneClass(notification.severity)}`}
                       onClick={() => handleNotificationClick(notification)}
                     >
                       <div className="notification-icon">
@@ -244,9 +282,9 @@ function DispatcherLayout({
                       </div>
 
                       <div>
-                        <strong>{notification.title}</strong>
-                        <p>{notification.message}</p>
-                        <small>{notification.time}</small>
+                        <strong>{notification.title || "Alert"}</strong>
+                        <p>{notification.message || "No additional details."}</p>
+                        <small>{alertTimeText(notification.createdAt)}</small>
                       </div>
                     </button>
                   ))}
