@@ -27,6 +27,47 @@ function getOrderMs(order) {
   return order.createdAt?.toMillis?.() ?? 0;
 }
 
+// Milliseconds from a value in any timestamp shape used in the project:
+// a Firestore Timestamp (.toMillis / .toDate), a Date, or an epoch-ms number.
+// Returns null when the value is missing or unrecognized (never NaN).
+function timestampMs(value) {
+  if (!value) return null;
+  if (typeof value.toMillis === "function") return value.toMillis();
+  if (typeof value.toDate === "function") return value.toDate().getTime();
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return null;
+}
+
+// Average dispatch -> delivery duration in minutes over the given orders.
+// Counts ONLY completed deliveries where both startedAt and deliveredAt are
+// valid and delivery happened strictly after dispatch (end > start). Returns
+// null when no such order exists, so the UI can show an honest empty state.
+function computeAvgDeliveryMinutes(orders) {
+  let sum = 0;
+  let count = 0;
+  for (const order of orders) {
+    const isDelivered =
+      order.statusKey === "delivered" || order.statusKey === "completed";
+    if (!isDelivered) continue;
+    const start = timestampMs(order.startedAt);
+    const end = timestampMs(order.deliveredAt);
+    if (start == null || end == null || end <= start) continue;
+    sum += end - start;
+    count++;
+  }
+  if (count === 0) return null;
+  return sum / count / 60000;
+}
+
+// "42 min" below an hour; "1h 25m" at an hour or more; "—" when unavailable.
+function formatAvgDelivery(minutes) {
+  if (minutes == null) return "—";
+  const total = Math.round(minutes);
+  if (total < 60) return `${total} min`;
+  return `${Math.floor(total / 60)}h ${total % 60}m`;
+}
+
 function computeVolumeBuckets(orders, days) {
   const now = Date.now();
   if (days <= 7) {
@@ -200,6 +241,12 @@ function Analytics() {
     ? `${Math.round((completedCount / totalDeliveries) * 100)}%`
     : "—";
 
+  const avgDeliveryMinutes = useMemo(
+    () => computeAvgDeliveryMinutes(filtered),
+    [filtered]
+  );
+  const avgDeliveryText = formatAvgDelivery(avgDeliveryMinutes);
+
   const regions = useMemo(() => computeRegions(timeFiltered), [timeFiltered]);
   const hasRegions = regions.length > 0;
 
@@ -324,18 +371,28 @@ function Analytics() {
 
           <KpiCard
             label="Average delivery time"
-            value="—"
-            context="No dispatch/arrival timestamps yet"
+            value={avgDeliveryText}
+            context={
+              avgDeliveryMinutes == null
+                ? "No completed delivery timing data yet."
+                : "Dispatch → delivery, completed orders in range"
+            }
             tone="neutral"
             onClick={() =>
               openModal({
                 title: "Average delivery time",
                 description: "Average time from hub dispatch to clinic delivery.",
-                rows: [
-                  ["Current average", "Not available"],
-                  ["Reason", "No dispatch or arrival timestamps are recorded in orders yet"],
-                  ["Recommendation", "Add dispatch and delivery timestamps to enable this metric"],
-                ],
+                rows:
+                  avgDeliveryMinutes == null
+                    ? [
+                        ["Current average", "Not available"],
+                        ["Reason", "No completed order has both a dispatch (startedAt) and a delivery (deliveredAt) timestamp yet"],
+                      ]
+                    : [
+                        ["Current average", avgDeliveryText],
+                        ["Measured from", "startedAt (dispatch) → deliveredAt (delivery)"],
+                        ["Scope", "Completed orders in the selected range/filters"],
+                      ],
               })
             }
           />
