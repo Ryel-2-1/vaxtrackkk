@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
@@ -29,43 +29,11 @@ function SalesRepLayout({ active, title, children, topbarTitle, showSearch = tru
     }
   });
 
-  const notifications = useMemo(
-    () => [
-      {
-        id: "sr-order-approved",
-        title: "Order #VX-6667 approved",
-        message: "Cavite, Imus request is ready for dispatch preparation.",
-        time: "5 mins ago",
-        tone: "success",
-        route: "/sales-rep/order-tracking",
-      },
-      {
-        id: "sr-pending-requests",
-        title: "5 requests awaiting approval",
-        message: "Review your pending order requests before the daily cutoff.",
-        time: "18 mins ago",
-        tone: "warning",
-        route: "/sales-rep/request-order",
-      },
-      {
-        id: "sr-cold-chain",
-        title: "Cold chain warning detected",
-        message: "Truck #042 reported a possible temperature deviation.",
-        time: "1 hour ago",
-        tone: "danger",
-        route: "/sales-rep/alerts",
-      },
-      {
-        id: "sr-near-expiry",
-        title: "Near-expiry batch alert",
-        message: "Batch JNJ-2023-X99 should be prioritized for client orders.",
-        time: "2 hours ago",
-        tone: "info",
-        route: "/sales-rep/inventory",
-      },
-    ],
-    []
-  );
+  // No hardcoded/sample notifications. Sales Reps have no `alerts` read access
+  // under the Firestore rules and no Sales-Rep-specific notification feed
+  // exists, so this stays an honest empty list — no fabricated entries and no
+  // subscription added.
+  const notifications = [];
 
   const unreadCount = notifications.filter(
     (notification) => !readNotifications.includes(notification.id)
@@ -253,6 +221,19 @@ function SalesRepLayout({ active, title, children, topbarTitle, showSearch = tru
                   </div>
 
                   <div className="salesrep-notification-list">
+                    {notifications.length === 0 && (
+                      <p
+                        style={{
+                          padding: "18px 16px",
+                          margin: 0,
+                          fontSize: 13,
+                          color: "#6b7280",
+                          textAlign: "center",
+                        }}
+                      >
+                        No notifications.
+                      </p>
+                    )}
                     {notifications.map((notification) => {
                       const isUnread = !readNotifications.includes(notification.id);
 
