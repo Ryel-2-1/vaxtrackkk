@@ -4,6 +4,8 @@ import '../models/delivery.dart';
 import '../services/delivery_service.dart';
 import '../services/location_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/sync_status.dart';
+import '../widgets/sync_indicator.dart';
 import 'delivery_detail_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -41,8 +43,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Rider Dashboard')),
-      body: StreamBuilder<List<Delivery>>(
-        stream: _deliveryService.riderDeliveries(_riderId!),
+      body: StreamBuilder<RiderDeliveriesSnapshot>(
+        stream: _deliveryService.riderDeliveriesWithSync(_riderId!),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -51,16 +53,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
             return Center(child: Text('Error: ${snapshot.error}'));
           }
 
-          final deliveries = snapshot.data ?? [];
+          final result = snapshot.data;
+          final deliveries = result?.deliveries ?? [];
           final active = deliveries.where((d) => d.isActive).toList();
           final completed = deliveries.where((d) => d.isDelivered).toList();
           final urgent = active.where((d) => d.isUrgent).toList();
+          final syncStatus = result == null
+              ? SyncStatus.synced
+              : syncStatusFrom(
+                  hasPendingWrites: result.hasPendingWrites,
+                  isFromCache: result.isFromCache,
+                );
 
           return RefreshIndicator(
             onRefresh: _sendLocation,
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: SyncIndicator(status: syncStatus),
+                ),
+                const SizedBox(height: 10),
                 _buildStatCards(deliveries.length, completed.length, active.length),
                 if (urgent.isNotEmpty) ...[
                   const SizedBox(height: 12),
