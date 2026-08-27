@@ -110,11 +110,7 @@ function Settings() {
 
         <header className="settings-v3-header">
           <div>
-            <h1>
-              {activeTab === "general"
-                ? "Admin Settings - Alert Configuration"
-                : "User Management"}
-            </h1>
+            <h1>Settings</h1>
 
             <p>
               {activeTab === "general"

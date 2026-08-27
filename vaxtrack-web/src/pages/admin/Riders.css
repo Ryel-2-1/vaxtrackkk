@@ -455,13 +455,16 @@
 /* Personnel */
 
 .riders-personnel-card {
-  padding: 18px;
+  padding: 0;
+  overflow: hidden;
 }
 
 .riders-personnel-head {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 0;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--gray-200);
 }
 
 .riders-personnel-head h2 {
@@ -481,24 +484,43 @@
 .riders-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
 }
 
+/* Flattened, operational personnel list — divided rows, not stacked cards */
 .rider-row {
-  border: 1px solid var(--gray-200);
-  border-radius: 12px;
-  background: #ffffff;
-  padding: 14px;
+  border: 0;
+  border-bottom: 1px solid var(--gray-200);
+  border-radius: 0;
+  background: transparent;
+  padding: 14px 18px;
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr) 90px 100px auto;
   align-items: center;
   gap: 14px;
   cursor: pointer;
-  transition: 0.18s ease;
+  transition: background 140ms ease;
+}
+
+.rider-row:last-child {
+  border-bottom: 0;
+}
+
+.rider-row:hover {
+  background: var(--green-50);
+  box-shadow: none;
+  border-color: var(--gray-200);
+}
+
+/* The list container is not an interactive card — keep it static on hover */
+.riders-personnel-card:hover {
+  box-shadow: var(--shadow-card);
+  border-color: var(--gray-200);
+  background: #ffffff;
 }
 
 .rider-row.deviation {
-  box-shadow: inset 4px 0 0 #ef4444;
+  box-shadow: inset 3px 0 0 var(--danger-text);
 }
 
 .rider-main-info {
@@ -553,16 +575,16 @@
 }
 
 .rider-assignment-box {
-  border: 1px solid var(--gray-200);
-  border-radius: 12px;
-  background: var(--gray-50);
-  padding: 10px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
 }
 
 .rider-assignment-box strong {
   color: var(--gray-900);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .rider-assignment-box p {

@@ -358,14 +358,16 @@
 .feature-list {
   display: flex;
   flex-direction: column;
-  gap: 13px;
+  gap: 0;
 }
 
+/* Flat, divided rows instead of a card per feature */
 .feature-toggle-row {
-  border: 1px solid var(--gray-200);
-  border-radius: 12px;
-  background: var(--gray-50);
-  padding: 14px;
+  border: 0;
+  border-bottom: 1px solid var(--gray-200);
+  border-radius: 0;
+  background: transparent;
+  padding: 14px 0;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -373,9 +375,16 @@
   text-align: left;
 }
 
+.feature-toggle-row:last-child {
+  border-bottom: 0;
+}
+
+/* Route-deviation stays flagged, but as a restrained left accent — not a card */
 .feature-toggle-row.important {
-  border-color: #fed7aa;
-  background: #fff7ed;
+  border-color: var(--gray-200);
+  background: transparent;
+  box-shadow: inset 3px 0 0 var(--warning-text);
+  padding-left: 12px;
 }
 
 .feature-toggle-row > div {
@@ -400,40 +409,82 @@
   text-align: left;
 }
 
+/* Compact horizontal capsule switch.
+   ROOT CAUSE of the earlier "square" look: the global reset in styles.css
+   (`button { min-height:46px !important; border-radius:12px !important }`)
+   out-specifies a plain `.settings-toggle` rule, so the whole <button> was
+   forced to ~42×46 with rounded-square corners and its background filled that
+   area. Fix: the <button> itself becomes a TRANSPARENT 44×44 hit target (no
+   colour can render as a square), the visible 40×22 track is a `::before`
+   pseudo-element, and the <span> is the 16×16 thumb. The reset's !important
+   rules are beaten with !important at higher (.class) specificity. Markup
+   unchanged: <button class="settings-toggle"><span/></button>. */
 .settings-toggle {
-  width: 46px;
-  min-width: 46px;
-  height: 24px;
-  border: none;
-  border-radius: 999px;
-  background: var(--gray-300);
-  padding: 3px;
+  position: relative;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-width: 44px;
+  height: 44px !important;      /* beats the global min-height:46 !important */
+  min-height: 44px !important;
+  padding: 0 !important;
+  margin: 0;
+  border: none !important;
+  border-radius: 999px !important;
+  background: transparent !important;   /* no visible square background */
   cursor: pointer;
   flex-shrink: 0;
   align-self: center;
-  transition: background 0.18s ease;
 }
 
-.settings-toggle span {
-  width: 18px;
-  height: 18px;
+/* Visible track — the ONLY coloured element: 40×22 capsule, centred inside
+   the transparent 44×44 hit target. */
+.settings-toggle::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 40px;
+  height: 22px;
   border-radius: 999px;
-  background: #ffffff;
-  display: block;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.2);
-  transition: transform 0.18s ease;
+  background: var(--gray-300);
+  transition: background 150ms ease;
 }
-
-.settings-toggle.enabled {
+.settings-toggle.enabled::before {
   background: var(--green-700);
 }
 
+/* Thumb — 16×16, anchored to the button's left edge (left:0). Track is centred
+   in the 44px button (spans 2→42px); 3px internal padding puts the off-thumb
+   left edge at 5px and the on-thumb at 23px → 18px travel. */
+.settings-toggle span {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translate(5px, -50%);
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.3);
+  transition: transform 150ms ease;
+  z-index: 1;
+}
 .settings-toggle.enabled span {
-  transform: translateX(22px);
+  transform: translate(23px, -50%);
 }
 
-.settings-toggle:focus-visible {
-  outline: 2px solid var(--green-100);
+/* Focus ring hugs the visible track, not the 44×44 transparent button.
+   Scoped under .inventory-page so it beats admin-polish.css's global
+   `.inventory-page main :focus-visible` outline (specificity 0,2,1). */
+.inventory-page .settings-toggle:focus-visible {
+  outline: none !important;
+}
+.inventory-page .settings-toggle:focus-visible::before {
+  outline: 2px solid var(--green-700);
   outline-offset: 2px;
 }
 

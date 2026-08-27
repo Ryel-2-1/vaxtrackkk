@@ -1,0 +1,197 @@
+/* ============================================================
+   VaxTrack — Admin UI cohesion & polish layer
+   ------------------------------------------------------------
+   Purpose: unify the finished-but-independently-built Admin
+   pages into ONE deliberate, restrained application. Every rule
+   is scoped under `.inventory-page` (the Admin-only page wrapper)
+   or `aside.inventory-sidebar` (the Admin-only shell), so Sales
+   Rep, Dispatcher, Login and Flutter tooling are unaffected.
+
+   This file is additive: it does not restyle page internals or
+   fight per-page CSS beyond the specific, agreed cohesion points
+   below (page-title scale, focus ring, scrollbars, selection,
+   reduced motion, sidebar robustness, neutral wrapper). Imported
+   last in main.jsx so it wins deterministically on equal
+   specificity for the few tokens it normalizes.
+   ============================================================ */
+
+/* Admin-scoped design accents (do not leak to other roles) */
+.inventory-page {
+  --admin-focus-ring: 0 0 0 3px var(--green-100);
+  --admin-transition: 140ms ease;
+}
+
+/* ---------- neutral foundation ----------
+   The legacy wrapper used a faint blue tint (#f6f8ff). Pull it to
+   the true-neutral token so the frame matches the page surfaces. */
+.inventory-page {
+  background: var(--gray-50) !important;
+}
+
+/* ============================================================
+   1 · Consistent page-title scale
+   Pages were built independently with headings from 22px up to
+   34px/900 — a "marketing" look. Normalize every Admin page title
+   to one restrained scale and its supporting line to one muted
+   scale, matching the (well-judged) Dashboard header.
+   ============================================================ */
+.inventory-page .adx-header h1,
+.inventory-page .alerts-v2-topbar h1,
+.inventory-page .analytics-v2-header h1,
+.inventory-page .clinics-v2-topbar h1,
+.inventory-page .deliveries-v4-header h1,
+.inventory-page .v2-inventory-topbar h1,
+.inventory-page .inv-header h1,
+.inventory-page .riders-v2-header h1,
+.inventory-page .settings-v3-header h1,
+.inventory-page .form-page-header h1 {
+  font-family: var(--font-ui) !important;
+  font-size: 22px !important;
+  line-height: 1.25 !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.015em !important;
+  color: var(--gray-900) !important;
+}
+
+/* Supporting subtitle line directly under each page title */
+.inventory-page .adx-header p,
+.inventory-page .alerts-v2-topbar small,
+.inventory-page .analytics-v2-header > div p,
+.inventory-page .clinics-v2-topbar p,
+.inventory-page .deliveries-v4-header p,
+.inventory-page .v2-inventory-topbar p,
+.inventory-page .inv-header p,
+.inventory-page .riders-v2-header p,
+.inventory-page .settings-v3-header p,
+.inventory-page .form-page-header small {
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  line-height: 1.45 !important;
+  color: var(--gray-600) !important;
+}
+
+/* ============================================================
+   2 · One focus-visible language (accessibility + consistency)
+   Content controls across pages used mixed focus treatments
+   (blue rings, none, ad-hoc). Give every Admin content control the
+   same calm green ring. The sidebar keeps the shell's own ring.
+   ============================================================ */
+.inventory-page main :focus-visible {
+  outline: 2px solid var(--green-700) !important;
+  outline-offset: 2px !important;
+  border-radius: 4px;
+}
+/* Inputs/selects/textareas read better with the offset tucked in */
+.inventory-page main input:focus-visible,
+.inventory-page main select:focus-visible,
+.inventory-page main textarea:focus-visible {
+  outline-offset: 0 !important;
+}
+
+/* ============================================================
+   3 · Refined scrollbars (webkit + firefox), Admin-scoped
+   Thin, neutral, unobtrusive — a small pro-finish detail.
+   ============================================================ */
+/* Content areas: thin neutral scrollbar on light surfaces */
+.inventory-page,
+.inventory-page main,
+.inventory-page .adx-table-wrap,
+.inventory-page [class*="table-wrap"],
+.inventory-page [class*="table-scroll"] {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gray-300) transparent;
+}
+.inventory-page ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.inventory-page ::-webkit-scrollbar-thumb {
+  background: var(--gray-300);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.inventory-page ::-webkit-scrollbar-thumb:hover {
+  background: var(--gray-500);
+  background-clip: padding-box;
+}
+.inventory-page ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Sidebar sits on a dark pine surface — use a faint translucent thumb so
+   the scrollbar never reads as a bright strip, and keep it slim. */
+aside.inventory-sidebar,
+aside.inventory-sidebar nav {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(233, 244, 238, 0.22) transparent;
+}
+aside.inventory-sidebar ::-webkit-scrollbar {
+  width: 8px;
+}
+aside.inventory-sidebar ::-webkit-scrollbar-track {
+  background: transparent;
+}
+aside.inventory-sidebar ::-webkit-scrollbar-thumb {
+  background: rgba(233, 244, 238, 0.18);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+aside.inventory-sidebar ::-webkit-scrollbar-thumb:hover {
+  background: rgba(233, 244, 238, 0.32);
+  background-clip: padding-box;
+}
+
+/* ============================================================
+   4 · Text selection tint (Admin-scoped)
+   ============================================================ */
+.inventory-page ::selection {
+  background: var(--green-100);
+  color: var(--green-900);
+}
+
+/* ============================================================
+   5 · Application shell robustness (Admin sidebar only)
+   The sidebar is a fixed-height flex column with overflow:hidden.
+   With the full nav + brand + profile + logout it can clip on
+   short viewports. Let the nav scroll internally while brand stays
+   pinned at the top and logout stays pinned at the bottom.
+   ============================================================ */
+aside.inventory-sidebar {
+  display: flex !important;
+  flex-direction: column !important;
+}
+aside.inventory-sidebar nav {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding-right: 2px;
+}
+aside.inventory-sidebar .m-role-chip,
+aside.inventory-sidebar .profile-mini,
+aside.inventory-sidebar > h2 {
+  flex: 0 0 auto !important;
+}
+aside.inventory-sidebar .sidebar-logout {
+  flex: 0 0 auto !important;
+  margin-top: 8px !important;
+}
+
+/* ============================================================
+   6 · Reduced motion (respect the OS setting), Admin-scoped
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .inventory-page *,
+  .inventory-page *::before,
+  .inventory-page *::after,
+  aside.inventory-sidebar *,
+  aside.inventory-sidebar *::before,
+  aside.inventory-sidebar *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
