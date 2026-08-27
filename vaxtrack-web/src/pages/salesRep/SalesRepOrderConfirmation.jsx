@@ -123,8 +123,8 @@ function SalesRepOrderConfirmation() {
     <SalesRepLayout active="request" title="Order Confirmation" showSearch={false}>
       <section className="confirmation-card confirmation-v2-card">
         <div className="confirmation-hero">
-          <CheckCircle2 size={54} />
-          <h1>Order Placed</h1>
+          <CheckCircle2 size={34} />
+          <h2>Order placed</h2>
           <p>Your medical supply request has been successfully queued for fulfillment.</p>
         </div>
 

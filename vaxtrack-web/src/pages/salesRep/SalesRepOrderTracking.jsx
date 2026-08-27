@@ -210,7 +210,7 @@ function SalesRepOrderTracking() {
 
   if (loading) {
     return (
-      <SalesRepLayout active="request" title="Order Tracking Dashboard" showSearch={false}>
+      <SalesRepLayout active="tracking" title="Order Tracking" showSearch={false}>
         <div className="inventory-loading-state">
           <Loader2 size={32} className="spin" />
           <p>Loading your orders...</p>
@@ -221,7 +221,7 @@ function SalesRepOrderTracking() {
 
   if (error) {
     return (
-      <SalesRepLayout active="request" title="Order Tracking Dashboard" showSearch={false}>
+      <SalesRepLayout active="tracking" title="Order Tracking" showSearch={false}>
         <div className="inventory-loading-state">
           <AlertTriangle size={32} />
           <p>{error}</p>
@@ -231,11 +231,11 @@ function SalesRepOrderTracking() {
   }
 
   return (
-    <SalesRepLayout active="request" title="Order Tracking Dashboard" showSearch={false}>
+    <SalesRepLayout active="tracking" title="Order Tracking" showSearch={false}>
       <section className="tracking-v2-page">
         <div className="tracking-v2-header">
           <div>
-            <h1>Order Tracking Dashboard</h1>
+            <h2>Deliveries overview</h2>
             <p>Monitor active deliveries, shipment progress, and completed orders.</p>
           </div>
 
@@ -267,7 +267,7 @@ function SalesRepOrderTracking() {
                 className="primary"
                 onClick={() => navigate("/sales-rep/request-order")}
               >
-                + New Delivery
+                + New Order
               </button>
 
               <div className="tracking-v2-tabs">
