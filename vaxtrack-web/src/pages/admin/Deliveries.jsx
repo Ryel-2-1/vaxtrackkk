@@ -149,7 +149,7 @@ function Deliveries() {
 
         <header className="mdl-header">
           <div>
-            <h1>Delivery management</h1>
+            <h1>Deliveries</h1>
             <p>Monitor and route active cold-chain shipments.</p>
           </div>
 

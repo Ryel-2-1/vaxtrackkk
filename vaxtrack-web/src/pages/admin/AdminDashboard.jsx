@@ -186,7 +186,7 @@ function AdminDashboard() {
 
       <main className="adx-main">
         <header className="adx-header">
-          <h1>Admin dashboard</h1>
+          <h1>Dashboard</h1>
           <p>Live overview of deliveries, alerts, riders, and stock.</p>
         </header>
 

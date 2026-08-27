@@ -320,6 +320,47 @@
   color: #15803d;
 }
 
+/* Flatten Critical & Expiring records into compact divided rows
+   (scoped to .v2-cold-list only — the .v2-alert-summary-list tiles keep
+   their layout). Records no longer read as cards inside a card. */
+.v2-cold-list {
+  gap: 0;
+  margin-top: 8px;
+}
+.v2-cold-list div {
+  padding: 11px 0;
+  border: 0;
+  border-bottom: 1px solid var(--gray-100);
+  border-radius: 0;
+  background: transparent;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  column-gap: 12px;
+}
+.v2-cold-list div:last-child {
+  border-bottom: 0;
+}
+.v2-cold-list span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gray-900);
+}
+.v2-cold-list strong {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-600);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.v2-cold-list small {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .v2-alert-summary-list .critical {
   background: #fee2e2;
 }

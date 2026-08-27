@@ -206,7 +206,7 @@ function Inventory() {
 
         <header className="v2-inventory-topbar">
           <div>
-            <h1>Inventory Monitoring</h1>
+            <h1>Inventory</h1>
             <p>Real-time vaccine stock, batch status, and cold-chain visibility.</p>
           </div>
 
@@ -222,7 +222,7 @@ function Inventory() {
 
             <button
               type="button"
-              className="v2-blue-action"
+              className="v2-light-action"
               onClick={() => navigate("/admin/add-vaccine")}
             >
               <Plus size={16} />

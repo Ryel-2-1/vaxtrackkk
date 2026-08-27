@@ -159,7 +159,7 @@ function Riders() {
 
         <header className="riders-v2-header">
           <div>
-            <h1>Riders Management</h1>
+            <h1>Riders</h1>
             <p>Monitor field personnel and cold-chain assignments.</p>
           </div>
 
