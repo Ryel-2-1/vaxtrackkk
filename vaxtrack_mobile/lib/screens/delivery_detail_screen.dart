@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:latlong2/latlong.dart';
@@ -28,6 +29,9 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
   bool _updatingStatus = false;
   bool _launchingNav = false;
   String? _delayReason;
+  // Fires the "saved, will sync" feedback if a write is still pending after a
+  // few seconds. UI-only — it never clears the pending guard (see _updateStatus).
+  Timer? _statusFeedbackTimer;
 
   Delivery get d => widget.delivery;
 
@@ -44,6 +48,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
   void dispose() {
     // Leaving the screen (or the app being torn down) stops tracking — this is
     // the documented foreground-only MVP; background tracking is out of scope.
+    _statusFeedbackTimer?.cancel();
     _locationService.stopTracking();
     super.dispose();
   }
@@ -67,61 +72,113 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     }
   }
 
-  Future<void> _updateStatus(String newStatus) async {
-    setState(() => _updatingStatus = true);
-    try {
-      switch (newStatus) {
-        case 'loading':
-          await _deliveryService.startLoading(d.id);
-          break;
-        case 'in_transit':
-          await _deliveryService.startTransit(d.id);
-          break;
-        case 'delivered':
-          await _deliveryService.markDelivered(d.id);
-          break;
-        case 'delayed':
-          await _deliveryService.reportDelay(d.id, _delayReason ?? 'Unknown');
-          break;
-        default:
-          await _deliveryService.updateStatus(d.id, newStatus);
-      }
+  // Maps a target status to the matching (audit-stamped) service write. The
+  // order lifecycle and authorization are unchanged — this only routes to the
+  // existing methods.
+  Future<void> _statusWrite(String newStatus) {
+    switch (newStatus) {
+      case 'loading':
+        return _deliveryService.startLoading(d.id);
+      case 'in_transit':
+        return _deliveryService.startTransit(d.id);
+      case 'delivered':
+        return _deliveryService.markDelivered(d.id);
+      case 'delayed':
+        return _deliveryService.reportDelay(d.id, _delayReason ?? 'Unknown');
+      default:
+        return _deliveryService.updateStatus(d.id, newStatus);
+    }
+  }
 
+  // Best-effort one-shot location stamp for a transition. Never blocks or fails
+  // the status flow (continuous tracking is handled separately).
+  Future<void> _stampLocation(String orderId) async {
+    try {
       final pos = await _locationService.getCurrentPosition();
       if (pos != null) {
-        await _locationService.updateOrderLocation(d.id, pos);
+        await _locationService.updateOrderLocation(orderId, pos);
       }
+    } catch (_) {
+      // ignore — location is auxiliary to the status change
+    }
+  }
 
-      // Tracking lifecycle on transitions:
-      // - in_transit  -> begin continuous tracking (persists once the rider
-      //   re-opens the now in_transit delivery; the screen pops right after
-      //   this update to refresh state on the dashboard).
+  Future<void> _updateStatus(String newStatus) async {
+    // Duplicate-submission guard. The action buttons are disabled while this is
+    // true, AND it is cleared ONLY when the Firestore write actually settles
+    // (in the finally below) — never by the feedback timeout. So while a write
+    // is still pending offline, the same action cannot be re-submitted.
+    if (_updatingStatus) return;
+    setState(() => _updatingStatus = true);
+
+    // Auxiliary best-effort location stamp — fire-and-forget so it can never
+    // hang or fail the status flow.
+    unawaited(_stampLocation(d.id));
+
+    // Feedback-only timeout. If the write has not been server-confirmed within
+    // 6 s (e.g. offline), tell the rider it is saved and will sync. This is UI
+    // feedback ONLY: it does NOT clear the pending guard, does NOT pop the
+    // screen, and does NOT treat the write as finished. Firestore stays the
+    // single source of truth; the write remains genuinely in flight.
+    var settled = false;
+    _statusFeedbackTimer?.cancel();
+    _statusFeedbackTimer = Timer(const Duration(seconds: 6), () {
+      if (settled || !mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Saved. Will sync when you are back online.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+    });
+
+    try {
+      // Completes ONLY on server acknowledgement. While offline it stays pending
+      // (Firestore has already applied it to the local cache, so the dashboard
+      // stream reflects it immediately with a "Pending sync" indicator). The
+      // screen stays open and the back button still works, but the action stays
+      // disabled until this resolves.
+      await _statusWrite(newStatus);
+
+      // Server-confirmed. If the rider navigated away while it was pending, skip
+      // the UI side-effects (and never start a GPS stream this screen can no
+      // longer stop) — the write itself already persisted.
+      if (!mounted) return;
+
+      // Tracking lifecycle only on a CONFIRMED transition (unchanged intent):
+      // - in_transit -> begin continuous tracking.
       // - delivered/cancelled -> stop before leaving the screen.
       if (newStatus == 'in_transit') {
         await _startTracking();
       } else if (newStatus == 'delivered' || newStatus == 'cancelled') {
         await _locationService.stopTracking();
       }
+      if (!mounted) return;
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Status updated to $newStatus'),
-            backgroundColor: AppColors.primary,
-          ),
-        );
-        Navigator.pop(context);
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Status updated to $newStatus'),
+          backgroundColor: AppColors.primary,
+        ),
+      );
+      Navigator.pop(context);
     } catch (e) {
+      // A genuine failure (e.g. permission denied, or a queued write rejected on
+      // reconnect). Caught here so it is never an unhandled Future error; the
+      // screen stays open so the rider can retry.
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: $e'),
+            content: Text('Could not save "$newStatus": $e'),
             backgroundColor: AppColors.urgent,
           ),
         );
       }
     } finally {
+      // The guard clears ONLY here — when the write has succeeded or failed —
+      // never merely because the feedback timeout elapsed.
+      settled = true;
+      _statusFeedbackTimer?.cancel();
       if (mounted) setState(() => _updatingStatus = false);
     }
   }

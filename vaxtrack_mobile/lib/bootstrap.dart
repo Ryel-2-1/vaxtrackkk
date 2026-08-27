@@ -1,9 +1,20 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'app.dart';
 import 'environment.dart';
 import 'firebase_options.dart';
+
+/// Upper bound for the on-device Firestore offline cache.
+///
+/// On Android, FlutterFire already enables disk persistence by default, so
+/// previously-loaded rider data (assigned deliveries, order/clinic details,
+/// saved route) is readable offline out of the box. We still set this
+/// explicitly to (a) document the intent and (b) pin a BOUNDED cache — never
+/// [Settings.CACHE_SIZE_UNLIMITED]. 40 MB is far more than a rider's handful of
+/// orders needs and stays inside the SDK's allowed 1 MB–100 MB range.
+const int _firestoreCacheBytes = 40 * 1024 * 1024;
 
 /// Shared startup used by every entrypoint (`main.dart`, `main_production.dart`,
 /// `main_staging.dart`).
@@ -19,6 +30,8 @@ Future<void> bootstrapAndRun(EnvConfig config) async {
     final projectId = await _initFirebaseProjectId(config);
     // Hard gate: refuse to continue unless we are on the expected project.
     assertProjectMatches(config, projectId);
+    // Configure the offline cache BEFORE any Firestore read/listener runs.
+    _configureFirestorePersistence();
     if (kDebugMode) {
       // Debug-only and deliberately minimal: environment + projectId ONLY.
       // Never log API keys, tokens, or the full FirebaseOptions.
@@ -31,6 +44,37 @@ Future<void> bootstrapAndRun(EnvConfig config) async {
   } catch (e, stack) {
     debugPrint('Startup failed for ${config.label} environment: $e\n$stack');
     runApp(StartupErrorApp(environment: config.label, error: e.toString()));
+  }
+}
+
+/// Enable Firestore offline persistence with an explicit, bounded cache.
+///
+/// Ordering: runs after `Firebase.initializeApp` and before the first Firestore
+/// read/listener (`bootstrapAndRun` calls it before `runApp`, and no Firestore
+/// access happens before that) — which is when the SDK requires cache settings
+/// to be applied.
+///
+/// Error handling: applying explicit settings is best-effort and must NEVER
+/// crash startup. Android already enables disk persistence by default, so even
+/// if this fails the app still runs on a safe, persistent cache. Note the Dart
+/// setter only STORES the settings; the SDK's "settings must be set before
+/// first use" rule is enforced natively on the first Firestore call, so the
+/// dev-only hot-restart case does not surface at this call site. We therefore
+/// do not attempt to classify a specific "already configured" error here — any
+/// unexpected synchronous failure is logged (in all build modes; a Firestore
+/// *settings* error carries no secrets) and startup continues on the default
+/// persistence rather than being silently swallowed or turned into a crash.
+void _configureFirestorePersistence() {
+  try {
+    FirebaseFirestore.instance.settings = const Settings(
+      persistenceEnabled: true,
+      cacheSizeBytes: _firestoreCacheBytes,
+    );
+  } catch (e) {
+    debugPrint(
+      '[VaxTrack] Could not apply explicit Firestore cache settings; '
+      'continuing on default persistence: $e',
+    );
   }
 }
 
