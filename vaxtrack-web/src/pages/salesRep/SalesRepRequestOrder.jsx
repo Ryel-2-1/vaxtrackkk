@@ -194,7 +194,7 @@ function SalesRepRequestOrder() {
 
   if (loading) {
     return (
-      <SalesRepLayout active="request" title="Vaccine Inventory" showSearch={false}>
+      <SalesRepLayout active="request" title="Request Order" showSearch={false}>
         <div className="inventory-loading-state">
           <Loader2 size={32} className="spin" />
           <p>Loading vaccine catalog...</p>
@@ -205,7 +205,7 @@ function SalesRepRequestOrder() {
 
   if (error) {
     return (
-      <SalesRepLayout active="request" title="Vaccine Inventory" showSearch={false}>
+      <SalesRepLayout active="request" title="Request Order" showSearch={false}>
         <div className="inventory-loading-state">
           <AlertTriangle size={32} />
           <p>{error}</p>
@@ -215,12 +215,12 @@ function SalesRepRequestOrder() {
   }
 
   return (
-    <SalesRepLayout active="request" title="Vaccine Inventory" showSearch={false}>
+    <SalesRepLayout active="request" title="Request Order" showSearch={false}>
       <section className="request-order-layout request-v2-layout">
         <div className="request-catalog">
           <div className="request-header-row request-v2-header">
             <div>
-              <h1>Vaccine Inventory</h1>
+              <h2>Available vaccines</h2>
               <p>Live hub availability from Firestore inventory.</p>
             </div>
 

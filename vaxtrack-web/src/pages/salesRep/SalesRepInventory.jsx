@@ -216,7 +216,7 @@ function SalesRepInventory() {
 
   if (loading) {
     return (
-      <SalesRepLayout active="inventory" title="Inventory Monitoring" showSearch={false}>
+      <SalesRepLayout active="inventory" title="Inventory" showSearch={false}>
         <div className="inventory-loading-state">
           <Loader2 size={32} className="spin" />
           <p>Loading inventory data...</p>
@@ -227,7 +227,7 @@ function SalesRepInventory() {
 
   if (error) {
     return (
-      <SalesRepLayout active="inventory" title="Inventory Monitoring" showSearch={false}>
+      <SalesRepLayout active="inventory" title="Inventory" showSearch={false}>
         <div className="inventory-loading-state">
           <AlertTriangle size={32} />
           <p>{error}</p>
@@ -238,7 +238,7 @@ function SalesRepInventory() {
 
   if (inventory.length === 0) {
     return (
-      <SalesRepLayout active="inventory" title="Inventory Monitoring" showSearch={false}>
+      <SalesRepLayout active="inventory" title="Inventory" showSearch={false}>
         <div className="inventory-loading-state">
           <PackageCheck size={32} />
           <strong>No inventory data</strong>
@@ -249,10 +249,10 @@ function SalesRepInventory() {
   }
 
   return (
-    <SalesRepLayout active="inventory" title="Inventory Monitoring" showSearch={false}>
+    <SalesRepLayout active="inventory" title="Inventory" showSearch={false}>
       <section className="salesrep-page-title inventory-v2-title">
         <div>
-          <h1>Inventory Monitoring</h1>
+          <h2>Stock overview</h2>
           <p>Real-time stock availability, expiry tracking, and cold-chain status.</p>
         </div>
 

@@ -208,7 +208,7 @@ function SalesRepAlerts() {
 
   if (loading) {
     return (
-      <SalesRepLayout active="alerts" title="Alerts & Notifications" showSearch={false}>
+      <SalesRepLayout active="alerts" title="Alerts" showSearch={false}>
         <div className="inventory-loading-state">
           <Loader2 size={32} className="spin" />
           <p>Loading alerts...</p>
@@ -219,7 +219,7 @@ function SalesRepAlerts() {
 
   if (error) {
     return (
-      <SalesRepLayout active="alerts" title="Alerts & Notifications" showSearch={false}>
+      <SalesRepLayout active="alerts" title="Alerts" showSearch={false}>
         <div className="inventory-loading-state">
           <AlertTriangle size={32} />
           <p>{error}</p>
@@ -229,10 +229,10 @@ function SalesRepAlerts() {
   }
 
   return (
-    <SalesRepLayout active="alerts" title="Alerts & Notifications" showSearch={false}>
+    <SalesRepLayout active="alerts" title="Alerts" showSearch={false}>
       <section className="sales-alerts-header alerts-v2-header no-filter-icon">
         <div>
-          <h1>Alerts & Notifications</h1>
+          <h2>Recent alerts</h2>
           <p>Order status updates and delivery alerts for your orders.</p>
         </div>
 

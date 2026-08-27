@@ -141,7 +141,7 @@ function SalesRepSettings() {
   return (
     <SalesRepLayout active="settings" title="Settings" showSearch={false}>
       <section className="settings-page-header">
-        <h1>Account Settings</h1>
+        <h2>Profile</h2>
         <p>View and update your profile information.</p>
       </section>
 

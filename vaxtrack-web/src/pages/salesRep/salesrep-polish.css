@@ -1,0 +1,479 @@
+/* ============================================================
+   VaxTrack — Sales Rep UI cohesion & polish layer
+   ------------------------------------------------------------
+   Purpose: pull the independently-built Sales Rep pages into ONE
+   deliberate application that belongs to the same product family
+   as the merged Admin redesign — optimised for product selection,
+   clinic ordering, checkout and order tracking.
+
+   Every rule is scoped under `.salesrep-page` (the whole role
+   wrapper), `.salesrep-main` (the content <main>, which wraps ALL
+   Sales Rep page bodies) or `aside.salesrep-sidebar` (the Sales
+   Rep shell). Nothing here can reach Admin (`.inventory-page`),
+   Dispatcher (`.dispatcher-*`), Login, or Flutter — even where a
+   legacy `-v2` class name is shared, the `.salesrep-main` prefix
+   only matches inside the Sales Rep layout.
+
+   Additive only: it does not rebuild page internals or fight
+   per-page CSS beyond the agreed cohesion points below. Imported
+   last in main.jsx so it wins deterministically on equal
+   specificity for the tokens it normalises.
+   ============================================================ */
+
+/* Sales-Rep-scoped accents (do not leak to other roles) */
+.salesrep-page {
+  --sr-transition: 150ms ease;
+}
+
+/* ---------- neutral foundation ----------
+   The legacy wrapper used a faint blue tint (#f5f7ff). Pull it to
+   the true-neutral token so the frame matches the Admin surfaces. */
+.salesrep-page {
+  background: var(--gray-50) !important;
+  font-family: var(--font-ui) !important;
+  color: var(--gray-900) !important;
+}
+
+/* ============================================================
+   1 · One title system (route title in the shell, section
+        headings in the body)
+   The shell topbar <h1> now carries the single, concise route
+   title (Dashboard / Inventory / Request Order / Checkout / …).
+   Each page body used to render a SECOND <h1> with near-identical
+   text — those are demoted to <h2> content headings in the JSX.
+   Here we give every demoted body heading one calm, restrained
+   section scale (no marketing weight, no blue) so the body reads
+   as content beneath the route title, not a duplicate title.
+   ============================================================ */
+.salesrep-main .srd-head h2,
+.salesrep-main .salesrep-page-title h2,
+.salesrep-main .inventory-v2-title h2,
+.salesrep-main .request-v2-header h2,
+.salesrep-main .tracking-v2-header h2,
+.salesrep-main .alerts-v2-header h2,
+.salesrep-main .sales-alerts-header h2,
+.salesrep-main .settings-page-header h2 {
+  font-family: var(--font-ui) !important;
+  font-size: 17px !important;
+  line-height: 1.3 !important;
+  font-weight: 650 !important;
+  letter-spacing: -0.01em !important;
+  color: var(--gray-900) !important;
+  margin: 0 !important;
+}
+
+/* Supporting subtitle line directly under each page title */
+.salesrep-main .srd-head p,
+.salesrep-main .salesrep-page-title p,
+.salesrep-main .inventory-v2-title p,
+.salesrep-main .request-v2-header p,
+.salesrep-main .tracking-v2-header p,
+.salesrep-main .alerts-v2-header p,
+.salesrep-main .sales-alerts-header p,
+.salesrep-main .settings-page-header p {
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  line-height: 1.45 !important;
+  color: var(--gray-600) !important;
+}
+
+/* Section (card) headings — one calm scale, no marketing weight */
+.salesrep-main .srd-card-head h2,
+.salesrep-main .salesrep-card > h2 {
+  font-size: 15px !important;
+  font-weight: 650 !important;
+  letter-spacing: -0.01em !important;
+  color: var(--gray-900) !important;
+}
+
+/* ============================================================
+   2 · One focus-visible language (accessibility + consistency)
+   Controls across pages used mixed focus treatments (blue rings,
+   none, ad-hoc). Give every Sales Rep content control the same
+   calm green ring. The sidebar keeps the shell's own ring.
+   ============================================================ */
+.salesrep-main :focus-visible {
+  outline: 2px solid var(--green-700) !important;
+  outline-offset: 2px !important;
+  border-radius: 4px;
+}
+/* Inputs/selects/textareas read better with the offset tucked in */
+.salesrep-main input:focus-visible,
+.salesrep-main select:focus-visible,
+.salesrep-main textarea:focus-visible {
+  outline-offset: 0 !important;
+}
+
+/* ============================================================
+   3 · Refined scrollbars (webkit + firefox), Sales-Rep-scoped
+   Thin, neutral, unobtrusive — a small pro-finish detail.
+   ============================================================ */
+.salesrep-main,
+.salesrep-main [class*="table-wrap"],
+.salesrep-main [class*="table-scroll"],
+.salesrep-main [class*="overflow"] {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gray-300) transparent;
+}
+.salesrep-main ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.salesrep-main ::-webkit-scrollbar-thumb {
+  background: var(--gray-300);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.salesrep-main ::-webkit-scrollbar-thumb:hover {
+  background: var(--gray-500);
+  background-clip: padding-box;
+}
+.salesrep-main ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Sidebar sits on the dark pine surface — use a faint translucent
+   thumb so the scrollbar never reads as a bright strip. */
+aside.salesrep-sidebar,
+aside.salesrep-sidebar .salesrep-nav {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(233, 244, 238, 0.22) transparent;
+}
+aside.salesrep-sidebar ::-webkit-scrollbar {
+  width: 8px;
+}
+aside.salesrep-sidebar ::-webkit-scrollbar-track {
+  background: transparent;
+}
+aside.salesrep-sidebar ::-webkit-scrollbar-thumb {
+  background: rgba(233, 244, 238, 0.18);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+aside.salesrep-sidebar ::-webkit-scrollbar-thumb:hover {
+  background: rgba(233, 244, 238, 0.32);
+  background-clip: padding-box;
+}
+
+/* ============================================================
+   4 · Text selection tint (Sales-Rep-scoped)
+   ============================================================ */
+.salesrep-page ::selection {
+  background: var(--green-100);
+  color: var(--green-900);
+}
+
+/* ============================================================
+   5 · Application shell robustness (Sales Rep sidebar only)
+   The sidebar is a fixed-height flex column. With the full nav +
+   brand + role chip + profile + logout it can clip on short
+   viewports. Let the nav scroll internally while brand/role/
+   profile stay pinned at the top and logout stays at the bottom.
+   ============================================================ */
+aside.salesrep-sidebar {
+  display: flex !important;
+  flex-direction: column !important;
+}
+aside.salesrep-sidebar .salesrep-nav {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding-right: 2px;
+}
+aside.salesrep-sidebar .salesrep-brand,
+aside.salesrep-sidebar .m-role-chip,
+aside.salesrep-sidebar .salesrep-profile {
+  flex: 0 0 auto !important;
+}
+aside.salesrep-sidebar .salesrep-logout {
+  flex: 0 0 auto !important;
+  margin-top: 8px !important;
+}
+
+/* ============================================================
+   6 · Restrained interaction polish (120–200ms, no libraries)
+   Subtle, consistent feedback on the primary interactive shapes.
+   Kept generic + additive so it never overrides a page's own
+   colour/layout — only smooths the transition.
+   ============================================================ */
+.salesrep-main button,
+.salesrep-main a,
+.salesrep-main input,
+.salesrep-main select,
+.salesrep-main textarea {
+  transition: background-color 150ms ease, border-color 150ms ease,
+    color 150ms ease, box-shadow 150ms ease;
+}
+
+/* ============================================================
+   7 · Reduced motion (respect the OS setting), Sales-Rep-scoped
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .salesrep-page *,
+  .salesrep-page *::before,
+  .salesrep-page *::after,
+  aside.salesrep-sidebar *,
+  aside.salesrep-sidebar *::before,
+  aside.salesrep-sidebar *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================================================
+   8 · Structural refinement (Issues 2–6)
+   ------------------------------------------------------------
+   Scoped under `.salesrep-main` and using !important only where a
+   legacy `-v2` !important rule must be out-specified (the
+   `.salesrep-main` prefix already raises specificity above the
+   page's own `.xxx-v2 …` selectors). No data, handler, key, or
+   field binding is touched — these rules only change appearance.
+   ============================================================ */
+
+/* ---- Issue 2 · Inventory hierarchy -------------------------
+   Compact operational summary: flatten the decorative colored icon
+   boxes, tighten the metric cards, and quiet the type-filter pills. */
+.salesrep-main .inventory-v2-summary .small-metric-card {
+  min-height: 0 !important;
+  padding: 12px 14px !important;
+  gap: 12px !important;
+  border-color: var(--gray-200) !important;
+  box-shadow: none !important;
+}
+.salesrep-main .small-metric-card .metric-icon {
+  width: 34px !important;
+  height: 34px !important;
+  border-radius: 8px !important;
+  background: transparent !important;   /* drop the decorative color box */
+}
+.salesrep-main .small-metric-card .metric-icon svg {
+  width: 20px !important;
+  height: 20px !important;
+}
+.salesrep-main .inventory-v2-summary .small-metric-card h2,
+.salesrep-main .small-metric-card h2 {
+  font-size: 21px !important;
+  font-weight: 700 !important;
+  color: var(--gray-900) !important;
+}
+.salesrep-main .small-metric-card p {
+  color: var(--gray-600) !important;
+  font-weight: 500 !important;
+}
+/* Type-filter pills: compact, less heavy — still clearly a filter row */
+.salesrep-main .inventory-type-tabs {
+  padding: 12px 16px !important;
+  gap: 8px !important;
+}
+.salesrep-main .inventory-type-tabs button {
+  height: 30px !important;
+  padding: 0 12px !important;
+  font-size: 13px !important;
+  min-height: 30px !important;   /* beat global button min-height:46 */
+}
+
+/* ---- Issue 3 · Request Order catalog density --------------
+   Turn tall centered "promotional" cards into a compact, left-
+   aligned operational catalog. Numbers become normal dark text;
+   colour is reserved for the status chip. */
+.salesrep-main .request-v2-product-grid {
+  grid-template-columns: repeat(2, minmax(240px, 1fr)) !important;
+  gap: 14px !important;
+}
+.salesrep-main .request-v2-product-card {
+  min-height: 0 !important;
+  padding: 14px 16px !important;
+  border-radius: 12px !important;
+}
+.salesrep-main .request-v2-product-card:hover {
+  transform: none !important;             /* no marketing lift */
+  box-shadow: var(--shadow-card) !important;
+}
+.salesrep-main .request-v2-product-card h2 {
+  margin: 10px 0 2px !important;
+  font-size: 15px !important;
+  font-weight: 650 !important;
+  text-align: left !important;            /* left-align, not centered */
+  color: var(--gray-900) !important;
+}
+.salesrep-main .request-v2-product-card > p {
+  text-align: left !important;
+  font-size: 12px !important;
+  color: var(--gray-600) !important;
+  margin: 0 !important;
+}
+.salesrep-main .request-v2-product-card .product-meta {
+  margin: 12px 0 14px !important;
+  padding-bottom: 12px !important;
+}
+.salesrep-main .request-v2-product-card .product-meta span {
+  font-size: 10px !important;
+  color: var(--gray-500) !important;
+}
+.salesrep-main .request-v2-product-card .product-meta strong {
+  font-size: 16px !important;             /* was 25px, coloured */
+  font-weight: 700 !important;
+  color: var(--gray-900) !important;      /* normal dark text */
+  margin-top: 2px !important;
+}
+.salesrep-main .request-v2-product-card .product-meta small {
+  color: var(--gray-500) !important;
+}
+/* keep the type/status chips restrained (header row) */
+.salesrep-main .request-v2-product-card .product-type {
+  font-weight: 600 !important;
+}
+
+/* ---- Issue 4 · Checkout summary + controls ---------------
+   Neutralise the solid-green Order Summary block; keep green ONLY
+   for the primary Finalize action. */
+.salesrep-main .place-v2-pricing-card {
+  background: #ffffff !important;
+  color: var(--gray-900) !important;
+  border: var(--border-card) !important;
+}
+.salesrep-main .place-v2-pricing-card h2 {
+  font-size: 15px !important;
+  font-weight: 650 !important;
+  color: var(--gray-900) !important;
+  margin-bottom: 12px !important;
+}
+.salesrep-main .place-v2-pricing-card p {
+  color: var(--gray-600) !important;
+  margin: 10px 0 !important;
+}
+.salesrep-main .place-v2-pricing-card p strong {
+  color: var(--gray-900) !important;
+}
+.salesrep-main .place-v2-pricing-card button {
+  background: var(--green-700) !important;   /* primary action stays green */
+  color: #ffffff !important;
+  height: 46px !important;
+}
+.salesrep-main .place-v2-pricing-card button:hover:not(:disabled) {
+  background: var(--green-800) !important;
+}
+.salesrep-main .place-v2-pricing-card small {
+  color: var(--gray-500) !important;
+}
+/* Compact delete control on the checkout rows (kept ≥36px target) */
+.salesrep-main .place-v2-remove-btn {
+  min-height: 36px !important;
+  height: 36px !important;
+  width: 36px !important;
+  border-radius: 8px !important;
+}
+
+/* ---- Issue 5 · Order Confirmation -------------------------
+   Compact operational confirmation: shrink the hero, trade the
+   large pale-green region for a small accent, neutralise the blue
+   reference block. */
+.salesrep-main .confirmation-card {
+  max-width: 620px !important;
+  margin: 20px auto !important;
+}
+.salesrep-main .confirmation-hero {
+  padding: 22px 24px 18px !important;
+  background: var(--green-50) !important;
+  border-bottom: 1px solid var(--gray-200) !important;
+}
+.salesrep-main .confirmation-hero h2 {
+  font-size: 28px !important;
+  font-weight: 700 !important;
+  color: var(--green-800) !important;
+  margin: 10px 0 6px !important;
+}
+.salesrep-main .confirmation-hero p {
+  color: var(--gray-600) !important;
+  font-size: 13px !important;
+}
+.salesrep-main .order-reference {
+  background: var(--gray-50) !important;   /* was bright blue */
+  border: 1px solid var(--gray-200) !important;
+  margin: 18px 24px !important;
+  padding: 12px 16px !important;
+}
+.salesrep-main .order-reference span,
+.salesrep-main .confirmation-card h3 {
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  color: var(--gray-600) !important;
+}
+.salesrep-main .order-reference button {
+  min-height: 0 !important;
+  border-radius: 8px !important;
+}
+
+/* ---- Issue 6 · Compact-control safety --------------------
+   Where a small icon/stepper button would otherwise be inflated to
+   46px square by the global `button { min-height:46px !important }`
+   reset, hold it compact while keeping a usable click area. The
+   catalog qty steppers already carry explicit sizes; this covers
+   the cart delete + confirmation copy/print controls. */
+.salesrep-main .request-v2-cart-item button {
+  min-height: 34px !important;
+  height: 34px !important;
+  width: 34px !important;
+  border-radius: 8px !important;
+}
+.salesrep-main .confirmation-print-btn {
+  min-height: 0 !important;
+}
+
+/* ============================================================
+   9 · Sidebar full-height fix + checkout nested-scroll fix
+   ============================================================ */
+
+/* ---- Sidebar must fill the viewport (short pages) AND stretch to
+   the full page height (long pages) with no gap beneath it.
+   ROOT CAUSE of the gap: SalesRep.css pins the sidebar to a fixed
+   `height: 100vh !important; position: sticky`, but the page wrapper
+   carries `overflow-x: hidden`, which turns it into the sticky
+   scroll-container. That container never scrolls (the window does),
+   so the sticky is inert and the fixed-100vh column leaves the page
+   background exposed below it once content is taller than one
+   viewport. Fix: drop the fixed height + broken sticky and let the
+   dark column stretch to the flex row's full height, with a
+   viewport floor via 100vh/100dvh. Desktop only — below 768px the
+   sidebar is the fixed bottom nav bar, which must stay untouched. */
+@media (min-width: 769px) {
+  aside.salesrep-sidebar {
+    position: static !important;
+    height: auto !important;
+    min-height: 100vh !important;
+    min-height: 100dvh !important;
+    align-self: stretch !important;
+  }
+}
+
+/* Nav takes the remaining space; logout stays pinned to the bottom.
+   (Reinforces the shell-robustness rules in §5 now that the column
+   height is driven by the flex row rather than a fixed 100vh.) */
+@media (min-width: 769px) {
+  aside.salesrep-sidebar .salesrep-nav {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+  }
+  aside.salesrep-sidebar .salesrep-logout {
+    margin-top: auto !important;   /* anchor to the very bottom */
+  }
+}
+
+/* ---- Checkout: remove the nested vertical scrollbar on the right
+   rail. SalesRep.css (final block) re-declares `.place-v2-side` with
+   `max-height: calc(100vh - 96px); overflow-y: auto`, making the
+   rail its own scroll viewport on top of the page scroll. Let it
+   flow at its natural height so the single page scrollbar governs;
+   the rail may stay sticky (it contributes its full height to the
+   grid row, so Destination / Instructions / Summary / Finalize all
+   remain reachable via the normal page scroll). */
+.salesrep-main .place-v2-side {
+  max-height: none !important;
+  overflow-y: visible !important;
+}

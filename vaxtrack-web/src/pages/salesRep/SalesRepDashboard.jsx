@@ -198,7 +198,7 @@ function SalesRepDashboard() {
 
   if (isLoading) {
     return (
-      <SalesRepLayout active="dashboard" title="Sales Representative Dashboard">
+      <SalesRepLayout active="dashboard" title="Dashboard">
         <div className="srd-loading">
           <Loader2 size={30} className="spin" />
           <p>Loading dashboard...</p>
@@ -208,11 +208,11 @@ function SalesRepDashboard() {
   }
 
   return (
-    <SalesRepLayout active="dashboard" title="Sales Representative Dashboard">
+    <SalesRepLayout active="dashboard" title="Dashboard">
       <div className="srd">
         <header className="srd-head">
           <div>
-            <h1>Order overview</h1>
+            <h2>Order overview</h2>
             <p>Track your vaccine orders and stock at a glance.</p>
           </div>
           <button

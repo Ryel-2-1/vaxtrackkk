@@ -6,7 +6,6 @@ import {
   MapPin,
   Minus,
   PackagePlus,
-  Plus,
   Search,
   Trash2,
   Zap,
@@ -183,7 +182,7 @@ function SalesRepPlaceOrder() {
 
   if (items.length === 0 && !message) {
     return (
-      <SalesRepLayout active="request" title="Place New Order" showSearch={false}>
+      <SalesRepLayout active="request" title="Checkout" showSearch={false}>
         <div className="inventory-loading-state">
           <AlertTriangle size={32} />
           <strong>No items in cart</strong>
@@ -205,8 +204,8 @@ function SalesRepPlaceOrder() {
   return (
     <SalesRepLayout
       active="request"
-      title="Place New Order"
-      topbarTitle="Place New Order"
+      title="Checkout"
+      topbarTitle="Checkout"
       showSearch={false}
     >
       <div className="place-order-session place-v2-session">
@@ -282,11 +281,6 @@ function SalesRepPlaceOrder() {
             </table>
 
             <div className="order-items-footer">
-              <button type="button" onClick={() => navigate("/sales-rep/request-order")}>
-                <Plus size={16} />
-                Add More Items
-              </button>
-
               <p>
                 Total Vials
                 <strong>{totalQuantity.toLocaleString()}</strong>

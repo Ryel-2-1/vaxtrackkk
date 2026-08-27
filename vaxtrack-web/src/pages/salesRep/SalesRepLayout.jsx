@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   LayoutDashboard,
   LogOut,
+  MapPin,
   Search,
   Settings,
   Truck,
@@ -152,6 +153,11 @@ function SalesRepLayout({ active, title, children, topbarTitle, showSearch = tru
           <Link className={active === "request" ? "active" : ""} to="/sales-rep/request-order">
             <Truck size={17} />
             <span>Request Order</span>
+          </Link>
+
+          <Link className={active === "tracking" ? "active" : ""} to="/sales-rep/order-tracking">
+            <MapPin size={17} />
+            <span>Order Tracking</span>
           </Link>
 
           <Link className={active === "alerts" ? "active" : ""} to="/sales-rep/alerts">
