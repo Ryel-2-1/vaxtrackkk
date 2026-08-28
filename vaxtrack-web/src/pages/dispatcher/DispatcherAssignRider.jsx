@@ -132,7 +132,7 @@ function DispatcherAssignRider() {
   const canAssign = !saving && !!selectedRiderId && !!selectedOrder;
 
   return (
-    <DispatcherLayout active="assign-rider" title="VaxTrack Logistics">
+    <DispatcherLayout active="assign-rider" title="Assign Rider">
       <div className="ar-page">
         <header className="ar-header">
           <button
@@ -144,7 +144,7 @@ function DispatcherAssignRider() {
             <ArrowLeft size={16} />
           </button>
           <div>
-            <h1>Assign rider</h1>
+            <h2 className="disp-section-title">Rider assignment</h2>
             <p>
               Order {selectedOrder?.orderNumber || selectedOrder?.id || "—"}
             </p>

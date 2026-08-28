@@ -192,7 +192,7 @@ function DispatcherCargoLoading() {
 
   if (loading) {
     return (
-      <DispatcherLayout active="cargo-loading" title="VaxTrack Logistics">
+      <DispatcherLayout active="cargo-loading" title="Cargo Loading">
         <div className="cl-state">
           <Loader2 size={30} className="cl-spin" />
           <p>Loading cargo data...</p>
@@ -203,7 +203,7 @@ function DispatcherCargoLoading() {
 
   if (error) {
     return (
-      <DispatcherLayout active="cargo-loading" title="VaxTrack Logistics">
+      <DispatcherLayout active="cargo-loading" title="Cargo Loading">
         <div className="cl-state">
           <span className="cl-state-icon">
             <AlertTriangle size={20} />
@@ -226,10 +226,10 @@ function DispatcherCargoLoading() {
   }
 
   return (
-    <DispatcherLayout active="cargo-loading" title="VaxTrack Logistics">
+    <DispatcherLayout active="cargo-loading" title="Cargo Loading">
       <div className="dispatcher-v2-page">
         <div className="cl-header">
-          <h1>Cargo loading</h1>
+          <h2 className="disp-section-title">Loading queue</h2>
           <p>Confirm each order as loaded, then finalize dispatch per rider.</p>
         </div>
 

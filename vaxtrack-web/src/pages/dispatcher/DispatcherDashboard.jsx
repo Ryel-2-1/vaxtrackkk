@@ -109,7 +109,7 @@ function DispatcherDashboard() {
 
   if (loading) {
     return (
-      <DispatcherLayout active="dashboard" title="VaxTrack Logistics">
+      <DispatcherLayout active="dashboard" title="Dashboard">
         <div className="dispatcher-loading-state">
           <Loader2 size={32} className="spin" />
           <p>Loading dispatch data...</p>
@@ -119,14 +119,14 @@ function DispatcherDashboard() {
   }
 
   return (
-    <DispatcherLayout active="dashboard" title="VaxTrack Logistics">
+    <DispatcherLayout active="dashboard" title="Dashboard">
       <div className="dispatcher-dash-page">
         <section className="dispatcher-dash-hero">
           <div>
             <span className="dispatcher-dash-eyebrow">
               Dispatch Control Center
             </span>
-            <h1>Dispatcher Dashboard</h1>
+            <h2 className="disp-section-title">Operations overview</h2>
             <p>
               Review approved orders, monitor live deliveries, and assign riders
               for vaccine distribution.

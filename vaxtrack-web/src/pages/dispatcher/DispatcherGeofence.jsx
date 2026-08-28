@@ -366,7 +366,7 @@ function DispatcherGeofence() {
       <section className="geo3-page">
         <div className="geo3-top-row">
           <div>
-            <h1>Live Monitoring</h1>
+            <h2 className="disp-section-title">Active monitoring</h2>
             <p>Track active vaccine shipments in real time from Firestore orders.</p>
           </div>
         </div>

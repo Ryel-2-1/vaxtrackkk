@@ -216,7 +216,7 @@ function DispatcherLayout({
 
       <main className="dispatcher-main">
         <header className="dispatcher-topbar">
-          <h2>{title}</h2>
+          <h1>{title}</h1>
 
           <form className="dispatcher-search" onSubmit={handleSearchSubmit}>
             <Search size={15} />

@@ -56,9 +56,9 @@ function DispatcherSettings() {
   };
 
   return (
-    <DispatcherLayout active="settings" title="VaxTrack Logistics">
+    <DispatcherLayout active="settings" title="Settings">
       <section className="dispatcher-page-title">
-        <h1>Dispatcher Settings</h1>
+        <h2 className="disp-section-title">Profile &amp; preferences</h2>
         <p>Manage dispatch profile, monitoring preferences, and alert rules.</p>
       </section>
 
