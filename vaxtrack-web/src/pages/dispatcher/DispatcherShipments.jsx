@@ -154,7 +154,7 @@ function DispatcherShipments() {
 
   if (loading) {
     return (
-      <DispatcherLayout active="shipments" title="VaxTrack Logistics">
+      <DispatcherLayout active="shipments" title="Shipments">
         <div className="shp-state">
           <Loader2 size={30} className="spin" />
           <p>Loading shipments...</p>
@@ -165,7 +165,7 @@ function DispatcherShipments() {
 
   if (error) {
     return (
-      <DispatcherLayout active="shipments" title="VaxTrack Logistics">
+      <DispatcherLayout active="shipments" title="Shipments">
         <div className="shp-state">
           <span className="shp-state-icon">
             <AlertTriangle size={18} />
@@ -178,10 +178,10 @@ function DispatcherShipments() {
   }
 
   return (
-    <DispatcherLayout active="shipments" title="VaxTrack Logistics">
+    <DispatcherLayout active="shipments" title="Shipments">
       <div className="shp-page">
         <header className="shp-header">
-          <h1>Shipments</h1>
+          <h2 className="disp-section-title">Shipment queue</h2>
           <p>Track and update the status of assigned shipments.</p>
         </header>
 

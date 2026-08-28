@@ -1,0 +1,273 @@
+/* ============================================================
+   VaxTrack — Dispatcher UI cohesion & polish layer
+   ------------------------------------------------------------
+   Purpose: bring the independently-built Dispatcher pages into ONE
+   deliberate operations console that belongs to the same product
+   family as the merged Admin and Sales Rep redesigns.
+
+   Every rule is scoped under `.dispatcher-page` (the whole role
+   wrapper), `.dispatcher-main` (the content <main>, which wraps ALL
+   Dispatcher page bodies) or `aside.dispatcher-sidebar` (the
+   Dispatcher shell). Nothing here can reach Admin (`.inventory-page`),
+   Sales Rep (`.salesrep-page`), Login, or Flutter — the role root
+   prefixes only match inside the Dispatcher layout.
+
+   Additive only: it does not rebuild page internals or fight the
+   legacy per-page CSS beyond the agreed cohesion points below.
+   Behaviour-sensitive areas (Leaflet map, ORS route, geofence,
+   rider location, assignment, status transitions) are untouched —
+   this layer only affects presentation. Imported last in main.jsx
+   so it wins deterministically on equal specificity for the tokens
+   it normalises.
+   ============================================================ */
+
+/* Dispatcher-scoped accents (do not leak to other roles) */
+.dispatcher-page {
+  --disp-transition: 150ms ease;
+}
+
+/* ---------- neutral foundation ----------
+   The legacy wrapper used a faint blue tint (#f5f7ff). Pull it to
+   the true-neutral token so the frame matches the Admin/Sales Rep
+   content surfaces. */
+.dispatcher-page {
+  background: var(--gray-50) !important;
+  font-family: var(--font-ui) !important;
+  color: var(--gray-900) !important;
+}
+
+/* ============================================================
+   1 · One title system
+   The topbar <h2> now carries the concise route title (Dashboard /
+   Assign Rider / Shipments / Cargo Loading / Live Monitoring /
+   Settings). Each page body's former <h1> is demoted to
+   <h2 class="disp-section-title"> — a descriptive content heading,
+   not a duplicate of the route title. Both get one restrained
+   scale (neutral gray, no blue, no marketing weight).
+   ============================================================ */
+/* Topbar route title — the single semantic <h1> per page. Explicit
+   font-size keeps it at the same compact topbar scale (the browser's
+   default <h1> would otherwise render much larger). */
+.dispatcher-main .dispatcher-topbar h1 {
+  color: var(--gray-900) !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.01em !important;
+  line-height: 1.2 !important;
+  margin: 0 !important;
+  white-space: nowrap !important;
+}
+/* Right-hand hub badge — was a pale-blue pill (fill #eff6ff, border
+   #dbeafe, text #0057d8). Retint to a quiet, restrained green with a
+   thin subtle border. Text/location unchanged. */
+.dispatcher-main .dispatcher-hub {
+  color: var(--green-800) !important;
+  font-weight: 600 !important;
+  background: var(--green-50) !important;
+  border: 1px solid var(--green-100) !important;
+}
+
+/* Body section heading (the demoted page titles) */
+.dispatcher-main .disp-section-title {
+  font-family: var(--font-ui) !important;
+  font-size: 20px !important;
+  line-height: 1.25 !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.015em !important;
+  color: var(--gray-900) !important;
+  margin: 0 !important;
+}
+/* Supporting subtitle line directly under each section heading */
+.dispatcher-main .disp-section-title + p {
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  line-height: 1.45 !important;
+  color: var(--gray-600) !important;
+  margin: 4px 0 0 !important;
+}
+
+/* ============================================================
+   2 · One focus-visible language (accessibility + consistency)
+   Give every Dispatcher content control the same calm green ring.
+   The sidebar keeps the shell's own focus treatment.
+   ============================================================ */
+.dispatcher-main :focus-visible {
+  outline: 2px solid var(--green-700) !important;
+  outline-offset: 2px !important;
+  border-radius: 4px;
+}
+.dispatcher-main input:focus-visible,
+.dispatcher-main select:focus-visible,
+.dispatcher-main textarea:focus-visible {
+  outline-offset: 0 !important;
+}
+
+/* ============================================================
+   3 · Refined scrollbars (webkit + firefox), Dispatcher-scoped
+   ============================================================ */
+.dispatcher-main,
+.dispatcher-main [class*="table-wrap"],
+.dispatcher-main [class*="table-scroll"],
+.dispatcher-main [class*="overflow"] {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gray-300) transparent;
+}
+.dispatcher-main ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.dispatcher-main ::-webkit-scrollbar-thumb {
+  background: var(--gray-300);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.dispatcher-main ::-webkit-scrollbar-thumb:hover {
+  background: var(--gray-500);
+  background-clip: padding-box;
+}
+.dispatcher-main ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Sidebar sits on the dark pine surface — faint translucent thumb
+   so the scrollbar never reads as a bright strip. */
+aside.dispatcher-sidebar,
+aside.dispatcher-sidebar .dispatcher-nav {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(233, 244, 238, 0.22) transparent;
+}
+aside.dispatcher-sidebar ::-webkit-scrollbar {
+  width: 8px;
+}
+aside.dispatcher-sidebar ::-webkit-scrollbar-track {
+  background: transparent;
+}
+aside.dispatcher-sidebar ::-webkit-scrollbar-thumb {
+  background: rgba(233, 244, 238, 0.18);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
+  background: rgba(233, 244, 238, 0.32);
+  background-clip: padding-box;
+}
+
+/* ============================================================
+   4 · Text selection tint (Dispatcher-scoped)
+   ============================================================ */
+.dispatcher-page ::selection {
+  background: var(--green-100);
+  color: var(--green-900);
+}
+
+/* ============================================================
+   5 · Sidebar full-height fix (desktop) + shell robustness
+   ROOT CAUSE of the gap: Dispatcher.css pins the sidebar to a fixed
+   `height: 100vh !important; position: sticky`, but the page wrapper
+   carries `overflow-x: hidden`, which turns it into the sticky
+   scroll-container. That container never scrolls (the window does),
+   so the sticky is inert and the fixed-100vh column leaves the page
+   background exposed below it once content is taller than one
+   viewport. Fix: drop the fixed height + broken sticky and let the
+   dark column stretch to the flex row's full height, with a
+   viewport floor via 100vh/100dvh. Desktop only — at ≤760px the
+   sidebar stacks (relative, auto height), which must stay as-is.
+   ============================================================ */
+@media (min-width: 761px) {
+  aside.dispatcher-sidebar {
+    position: static !important;
+    height: auto !important;
+    min-height: 100vh !important;
+    min-height: 100dvh !important;
+    align-self: stretch !important;
+  }
+  /* Nav takes the remaining space and scrolls internally on short
+     viewports; logout stays anchored at the bottom. */
+  aside.dispatcher-sidebar .dispatcher-nav {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+  aside.dispatcher-sidebar .dispatcher-logout {
+    margin-top: auto !important;
+  }
+}
+
+/* ============================================================
+   6 · Restrained interaction polish (120–200ms, no libraries)
+   Smooths colour/border/background/shadow transitions on the
+   interactive shapes. Additive — never overrides a page's own
+   colour or layout.
+   ============================================================ */
+.dispatcher-main button,
+.dispatcher-main a,
+.dispatcher-main input,
+.dispatcher-main select,
+.dispatcher-main textarea {
+  transition: background-color 150ms ease, border-color 150ms ease,
+    color 150ms ease, box-shadow 150ms ease;
+}
+
+/* ============================================================
+   7 · Reduced motion (respect the OS setting), Dispatcher-scoped
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .dispatcher-page *,
+  .dispatcher-page *::before,
+  .dispatcher-page *::after,
+  aside.dispatcher-sidebar *,
+  aside.dispatcher-sidebar *::before,
+  aside.dispatcher-sidebar *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================================================
+   8 · Targeted visual refinements (Shipments actions, Settings
+        switch colour) — scoped, !important only to out-specify a
+        legacy or global !important rule. No behaviour touched.
+   ============================================================ */
+
+/* ---- Shipments row actions -------------------------------
+   CAUSE of the oversized buttons: `.shp-act-btn` sets height:30px
+   with no !important, so the global reset in styles.css
+   (`button { min-height:46px !important; border-radius:12px !important;
+   font-size:15px !important; font-weight:850 !important }`) wins and
+   inflates every action to a 46px, 15px/850, 12px-radius block.
+   Restore a compact operational button while keeping a usable click
+   target. `.shp-actions` already flex-wraps with a 6px gap, so
+   actions wrap cleanly at narrow widths — left as-is. Tone colours
+   (green primary / amber warning / red-outline danger) come from the
+   existing `.shp-act-btn.primary/.warning/.danger` rules and are not
+   touched, so Mark delivered stays green, Delay amber, Cancel red. */
+.dispatcher-main .shp-act-btn {
+  min-height: 36px !important;   /* beats the global 46px, keeps a ~36px target */
+  height: 36px !important;
+  padding: 0 12px !important;    /* trims the excessive horizontal padding */
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  border-radius: var(--radius-control) !important;
+}
+
+/* ---- Settings preference switches ------------------------
+   The switch is correctly sized/rounded already (48×28 pill, white
+   20px thumb, overflow-hidden so no square background). Only the
+   ENABLED track colour was bright blue (#2563eb). Retint to VaxTrack
+   green; keep the off track neutral gray. Dimensions, thumb, and the
+   accessible button hit target are untouched. Selectors carry the
+   `.dispatcher-settings-card` scope so they out-specify (and, being
+   imported last, win the tie against) the legacy blue rule. */
+.dispatcher-main .dispatcher-toggle,
+.dispatcher-main .dispatcher-settings-card .dispatcher-toggle {
+  background: var(--gray-300) !important;   /* off = neutral gray */
+}
+.dispatcher-main .dispatcher-toggle.enabled,
+.dispatcher-main .dispatcher-settings-card .dispatcher-toggle.enabled {
+  background: var(--green-700) !important;  /* on = VaxTrack green */
+}
