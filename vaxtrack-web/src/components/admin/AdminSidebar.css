@@ -1,0 +1,58 @@
+/* ============================================================
+   Shared Admin sidebar — authoritative layout.
+   Loaded with the AdminSidebar component, so it lands in the shell
+   chunk (after the global stylesheets) and normalizes the sidebar
+   across every Admin page. The green background / nav-item styling
+   still comes from the existing shell layers (meridian-shell,
+   admin-polish); this file owns only width + height + flow so the
+   sidebar is ONE consistent width, reaches the viewport bottom at
+   any content height, and keeps logout pinned at the bottom.
+   `!important` is used narrowly, only to beat the several conflicting
+   legacy width/flex rules (245/248/280px) in styles.css.
+   ============================================================ */
+aside.inventory-sidebar {
+  /* one consistent expanded width everywhere (fallback keeps legacy admin
+     pages at 240px; AdminLayout pages read --admin-sidebar-width off .adl-root
+     so the rail and the main-content offset share a single source of truth) */
+  width: var(--admin-sidebar-width, 240px) !important;
+  min-width: var(--admin-sidebar-width, 240px) !important;
+  max-width: var(--admin-sidebar-width, 240px) !important;
+  flex-shrink: 0 !important;
+
+  /* Default (and legacy-page) attempt: stay in view via sticky. On AdminLayout
+     desktop this is replaced by a fixed rail — see the min-width:901px block in
+     AdminLayout.css — because the global `overflow-x:hidden` on the scroll root
+     (styles.css) turns #root into a scroll container and defeats sticky. Height
+     is driven by the viewport, never by page content. */
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  height: 100dvh;
+
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* nav fills the middle and scrolls internally if it is taller than the rail */
+aside.inventory-sidebar nav {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+/* brand / chip / profile keep their natural size at the top */
+aside.inventory-sidebar > h2,
+aside.inventory-sidebar .m-role-chip,
+aside.inventory-sidebar .profile-mini {
+  flex: 0 0 auto !important;
+}
+
+/* logout pinned to the bottom regardless of nav length or page height */
+aside.inventory-sidebar .sidebar-logout {
+  flex: 0 0 auto !important;
+  margin-top: auto !important;
+}

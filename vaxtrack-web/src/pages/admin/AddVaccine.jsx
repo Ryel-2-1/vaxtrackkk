@@ -8,7 +8,7 @@ import {
   Syringe,
   X,
 } from "lucide-react";
-import { AdminSidebar } from "./Inventory";
+import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import {
   getVaccineTypes,
   addVaccineType,

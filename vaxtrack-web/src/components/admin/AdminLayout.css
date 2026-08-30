@@ -1,0 +1,185 @@
+/* ============================================================
+   Admin responsive shell (pilot) — scoped to `.adl-root`, so it
+   only affects pages that opt in via <AdminLayout>. Consumes the
+   Meridian tokens; adds a mobile drawer + topbar without touching
+   the shared sidebar chrome used by other admin pages.
+   ============================================================ */
+
+/* single source of truth for the desktop rail width (rail + content offset) */
+.adl-root {
+  --admin-sidebar-width: 240px;
+}
+
+/* ---------- shared content area (authoritative, used by every AdminLayout
+   page so Dashboard / Analytics / Inventory get identical padding + width) --- */
+.adl-root .adx-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--gray-50);
+  /* one responsive horizontal padding system — no per-page offsets */
+  padding: clamp(16px, 2.4vw, 26px);
+  font-family: var(--font-ui);
+}
+
+/* ---------- topbar (owns the page <h1> + optional actions) ---------- */
+.adl-root .adl-topbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.adl-root .adl-topbar-heading {
+  min-width: 0;
+  margin-right: auto; /* pushes actions to the right on wide widths */
+}
+.adl-root .adl-topbar-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+/* normalize any <select> relocated into the topbar (e.g. Analytics filters) so
+   they share one compact operational control treatment */
+.adl-root .adl-topbar-actions select {
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control, 8px);
+  background: #ffffff;
+  color: var(--gray-900);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+}
+.adl-root .adl-topbar-actions select:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 1px;
+}
+.adl-root .adl-topbar-heading h1 {
+  margin: 0 !important;
+  font-family: var(--font-ui) !important;
+  font-size: clamp(20px, 2.4vw, 24px) !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em;
+  color: var(--gray-900) !important;
+}
+.adl-root .adl-topbar-desc {
+  margin: 3px 0 0 !important;
+  font-size: 13px !important;
+  color: var(--gray-600) !important;
+}
+
+/* ---------- menu button (mobile only) ---------- */
+.adl-root .adl-menu-btn {
+  display: none; /* hidden on desktop — sidebar is persistent there */
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-control, 8px);
+  background: #ffffff;
+  color: var(--gray-900);
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+.adl-root .adl-menu-btn:hover {
+  background: var(--gray-50);
+}
+.adl-root .adl-menu-btn:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+}
+
+/* ---------- overlay (mobile drawer scrim) ---------- */
+.adl-root .adl-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 55;
+}
+
+/* ============================================================
+   Tablet / mobile: sidebar becomes an off-canvas drawer
+   ============================================================ */
+@media (max-width: 900px) {
+  .adl-root .adl-menu-btn {
+    display: inline-flex;
+  }
+  .adl-root aside.inventory-sidebar {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: 100vh;
+    height: 100dvh;
+    width: 264px;
+    max-width: 84vw;
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 180ms ease;
+    overflow-y: auto;
+  }
+  .adl-root.adl-open aside.inventory-sidebar {
+    transform: translateX(0);
+    box-shadow: 0 12px 32px rgba(16, 24, 40, 0.28);
+  }
+}
+
+/* ============================================================
+   Desktop: fixed rail, immune to the scroll-root overflow that
+   defeats sticky
+   ------------------------------------------------------------
+   `overflow-x: hidden` on html/body/#root (styles.css:5030) — a
+   required global rule shared by every role to suppress the 100vw
+   horizontal scrollbar — computes overflow-y to `auto`, making #root
+   a scroll container that grows with content and never scrolls
+   internally. `position: sticky` binds to that container and so never
+   sticks; the rail scrolls away and a white strip appears below it.
+   A viewport-anchored fixed rail sidesteps the ancestor overflow
+   entirely. No ancestor sets transform/filter/contain/perspective, so
+   `fixed` resolves to the viewport. `!important` here is the minimum
+   needed to beat the global `.inventory-sidebar{position:sticky
+   !important}` (styles.css:5054) — not a blanket escalation.
+   Scoped to `.adl-root`, so the legacy admin pages are untouched.
+   ============================================================ */
+@media (min-width: 901px) {
+  .adl-root .adl-overlay {
+    display: none;
+  }
+  /* neutralize the global `.inventory-page { width: 100vw !important }` for
+     AdminLayout pages: the main column is sized from the rail width instead, so
+     there is no 100vw reliance and no clipped horizontal overflow. Scoped to
+     `.adl-root`, so non-pilot admin pages keep their existing width. */
+  .adl-root.inventory-page {
+    width: 100% !important;
+  }
+  .adl-root > aside.inventory-sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    width: var(--admin-sidebar-width) !important; /* canonical 240px rail */
+    height: 100dvh !important;                     /* full viewport height */
+    z-index: 30;
+  }
+  /* main column clears the fixed rail by exactly its width — no overlap, no gap,
+     and no horizontal overflow (its parent is width:100%, not 100vw) */
+  .adl-root > .adx-main {
+    margin-left: var(--admin-sidebar-width);
+  }
+}
+
+/* ---------- reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .adl-root aside.inventory-sidebar {
+    transition: none !important;
+  }
+  .adl-root .adl-menu-btn {
+    transition: none;
+  }
+}

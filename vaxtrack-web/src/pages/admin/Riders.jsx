@@ -11,7 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
-import { AdminSidebar } from "./Inventory";
+import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import { subscribeRiders, updateRiderStatus } from "../../services/riderService";
 import KpiCard from "../../components/ui/KpiCard";
 import "./Riders.css";
