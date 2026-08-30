@@ -1335,3 +1335,39 @@
     grid-template-columns: 110px 1fr 34px;
   }
 }
+
+/* ---------- loading skeletons (opacity-only animation) ---------- */
+.adx-skel {
+  display: inline-block;
+  vertical-align: middle;
+  background: var(--gray-200);
+  border-radius: 6px;
+  animation: adx-skel-pulse 1.4s ease-in-out infinite;
+}
+@keyframes adx-skel-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+.adx-skel-rows {
+  padding: 6px 0;
+}
+.adx-skel-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--gray-100);
+}
+.adx-skel-row:last-child {
+  border-bottom: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .adx-skel {
+    animation: none;
+  }
+}

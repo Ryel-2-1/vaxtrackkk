@@ -1,25 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { signOut } from "firebase/auth";
-import {
-  AlertTriangle,
-  BarChart3,
-  Bell,
-  Box,
-  Building2,
-  FileDown,
-  FileText,
-  LayoutDashboard,
-  LogOut,
-  Package,
-  Plus,
-  Search,
-  Settings,
-  Truck,
-  Users,
-  X,
-} from "lucide-react";
-import { auth } from "../../firebase";
+import { useNavigate } from "react-router-dom";
+import { FileDown, Package, Plus, Search, X } from "lucide-react";
+import AdminLayout from "../../components/admin/AdminLayout";
 import { subscribeInventory } from "../../services/inventoryService";
 import KpiCard from "../../components/ui/KpiCard";
 import "./Inventory.css";
@@ -83,11 +65,6 @@ function Inventory() {
   }, []);
 
   const pageSize = 3;
-
-  const handleLogout = async () => {
-    await signOut(auth);
-    navigate("/login");
-  };
 
   const showToast = (message) => {
     setToast(message);
@@ -198,55 +175,40 @@ function Inventory() {
   };
 
   return (
-    <div className="inventory-page">
-      <AdminSidebar active="inventory" onLogout={handleLogout} />
-
-      <main className="v2-inventory-main">
-        {toast && <div className="v2-inventory-toast">{toast}</div>}
-
-        <header className="v2-inventory-topbar">
-          <div>
-            <h1>Inventory</h1>
-            <p>Real-time vaccine stock, batch status, and cold-chain visibility.</p>
-          </div>
-
-          <div className="v2-inventory-actions">
-            <button
-              type="button"
-              className="v2-light-action"
-              onClick={() => showToast("Inventory report exported.")}
-            >
-              <FileDown size={16} />
-              Export
-            </button>
-
-            <button
-              type="button"
-              className="v2-light-action"
-              onClick={() => navigate("/admin/add-vaccine")}
-            >
-              <Plus size={16} />
-              Add Vaccine
-            </button>
-
-            <button
-              type="button"
-              className="v2-blue-action"
-              onClick={() => navigate("/admin/add-stock")}
-            >
-              <Plus size={16} />
-              Add Stock
-            </button>
-
-            <button type="button" className="v2-icon-action">
-              <Bell size={15} />
-            </button>
-
-            <button type="button" className="v2-icon-action">
-              <Settings size={15} />
-            </button>
-          </div>
-        </header>
+    <AdminLayout
+      active="inventory"
+      title="Inventory"
+      description="Real-time vaccine stock, batch status, and cold-chain visibility."
+      actions={
+        <>
+          <button
+            type="button"
+            className="v2-light-action"
+            onClick={() => showToast("Inventory report exported.")}
+          >
+            <FileDown size={16} aria-hidden="true" />
+            Export
+          </button>
+          <button
+            type="button"
+            className="v2-light-action"
+            onClick={() => navigate("/admin/add-vaccine")}
+          >
+            <Plus size={16} aria-hidden="true" />
+            Add Vaccine
+          </button>
+          <button
+            type="button"
+            className="v2-blue-action"
+            onClick={() => navigate("/admin/add-stock")}
+          >
+            <Plus size={16} aria-hidden="true" />
+            Add Stock
+          </button>
+        </>
+      }
+    >
+      {toast && <div className="v2-inventory-toast">{toast}</div>}
 
         <section className="v2-inventory-summary-grid">
           <KpiCard
@@ -506,7 +468,6 @@ function Inventory() {
             </div>
           </div>
         </section>
-      </main>
 
       {selectedVaccine && (
         <div className="v2-inventory-modal-backdrop">
@@ -586,7 +547,7 @@ function Inventory() {
           </div>
         </div>
       )}
-    </div>
+    </AdminLayout>
   );
 }
 
@@ -679,96 +640,6 @@ function InventoryAlertCard({ critical, expiringSoon, stable, loading }) {
         </div>
       </div>
     </div>
-  );
-}
-
-export function AdminSidebar({ active, onLogout }) {
-  return (
-    <aside className="inventory-sidebar">
-      <h2>VaxTrack</h2>
-
-      <span className="m-role-chip">
-        <span className="m-role-dot" />
-        Admin Console
-      </span>
-
-      <div className="profile-mini">
-        <div className="avatar">LA</div>
-
-        <div className="profile-mini-text">
-          <h3>Logistics Admin</h3>
-          <p>Manila Central Hub</p>
-          <small>VaxTrack Web</small>
-        </div>
-      </div>
-
-      <nav>
-        <Link className={active === "dashboard" ? "active" : ""} to="/admin">
-          <LayoutDashboard size={16} />
-          <span>Dashboard</span>
-        </Link>
-
-        <Link
-          className={active === "inventory" ? "active" : ""}
-          to="/admin/inventory"
-        >
-          <Box size={16} />
-          <span>Inventory</span>
-        </Link>
-
-        <Link
-          className={active === "deliveries" ? "active" : ""}
-          to="/admin/deliveries"
-        >
-          <Truck size={16} />
-          <span>Deliveries</span>
-        </Link>
-
-        <Link className={active === "riders" ? "active" : ""} to="/admin/riders">
-          <Users size={16} />
-          <span>Riders</span>
-        </Link>
-
-        <Link className={active === "clinics" ? "active" : ""} to="/admin/clinics">
-          <Building2 size={16} />
-          <span>Clinics</span>
-        </Link>
-
-        <Link
-          className={active === "invoices" ? "active" : ""}
-          to="/admin/invoices"
-        >
-          <FileText size={16} />
-          <span>Invoices</span>
-        </Link>
-
-        <Link
-          className={active === "analytics" ? "active" : ""}
-          to="/admin/analytics"
-        >
-          <BarChart3 size={16} />
-          <span>Analytics</span>
-        </Link>
-
-        <Link className={active === "alerts" ? "active" : ""} to="/admin/alerts">
-          <AlertTriangle size={16} />
-          <span>Alerts</span>
-        </Link>
-
-        <Link
-          className={active === "settings" ? "active" : ""}
-          to="/admin/settings"
-        >
-          <Settings size={16} />
-          <span>Settings</span>
-        </Link>
-      </nav>
-
-      <button className="sidebar-logout" onClick={onLogout}>
-        <LogOut size={16} />
-        <span>Logout</span>
-      </button>
-    </aside>
   );
 }
 

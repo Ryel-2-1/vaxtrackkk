@@ -1,0 +1,271 @@
+/* ============================================================
+   VaxTrack — Admin UI Foundation (Phase H1 pilot)
+   ------------------------------------------------------------
+   A cold-chain OPERATIONS CONSOLE layer for the Admin shell and
+   the Admin Dashboard. Every selector is scoped under
+   `.inventory-page` or `aside.inventory-sidebar` (the Admin-only
+   wrappers), so Sales Rep, Dispatcher, Login and Flutter tooling
+   are never touched. Imported after admin-polish.css so it wins
+   on equal specificity for the few shell tokens it refines.
+
+   Consumes the existing Meridian tokens (tokens.css). No new
+   colors are invented — only a restrained, centralized set of
+   Admin-scoped variables (motion, spacing, semantic accents).
+   ============================================================ */
+
+/* ---------- centralized Admin design tokens ---------- */
+.inventory-page {
+  /* surfaces & structure (map onto the neutral Meridian scale) */
+  --admin-bg: var(--gray-50);
+  --admin-surface: #ffffff;
+  --admin-border: var(--gray-200);
+  --admin-divider: var(--gray-100);
+  --admin-text: var(--gray-900);
+  --admin-text-muted: var(--gray-500);
+
+  /* semantic accents — used sparingly, never flooding the UI */
+  --admin-brand: var(--green-700);      /* healthy operations, primary */
+  --admin-cold: var(--info-text);       /* teal — cold-chain / monitoring only */
+  --admin-attention: var(--warning-text); /* amber — pending / attention */
+  --admin-exception: var(--danger-text);  /* red — genuine exceptions only */
+
+  /* radii, kept small/restrained */
+  --admin-radius: 10px;
+  --admin-radius-sm: 8px;
+
+  /* motion — 140–220ms, calm easing */
+  --admin-motion-fast: 140ms;
+  --admin-motion: 180ms;
+  --admin-motion-slow: 220ms;
+  --admin-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* ============================================================
+   Admin navigation shell — compact operations rail
+   (Admin-only overrides of the shared meridian-shell chrome)
+   ============================================================ */
+
+/* smooth, short active/hover feedback within the task's range */
+aside.inventory-sidebar nav a {
+  position: relative !important;
+  transition: background var(--admin-motion-fast) var(--admin-ease),
+    color var(--admin-motion-fast) var(--admin-ease) !important;
+}
+
+/* a narrow precision rail marks the active destination (in addition to the
+   solid highlight) — reads like an operations console, not a floating capsule */
+aside.inventory-sidebar nav a.active::before {
+  content: "" !important;
+  display: block !important;
+  position: absolute !important;
+  left: 0 !important;
+  top: 7px !important;
+  bottom: 7px !important;
+  width: 3px !important;
+  border-radius: 0 999px 999px 0 !important;
+  background: #8fd4b0 !important;
+}
+
+/* small workflow section markers between nav groups */
+aside.inventory-sidebar .admin-nav-group {
+  margin: 14px 0 6px;
+  padding: 0 12px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6f8c80; /* muted pine-gray, quieter than the item labels */
+  user-select: none;
+}
+aside.inventory-sidebar .admin-nav-group:first-of-type {
+  margin-top: 8px;
+}
+
+/* ============================================================
+   Admin Dashboard — operations console composition
+   ============================================================ */
+
+/* section eyebrow above the page H1 (identity marker, not a welcome banner) */
+.inventory-page .adx-eyebrow {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--admin-cold); /* restrained teal cold-chain accent */
+}
+
+/* small section markers before card titles — thin ticks, not icon tiles */
+.inventory-page .adx-card-head h2 {
+  position: relative;
+  padding-left: 12px;
+}
+.inventory-page .adx-card-head h2::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--admin-brand);
+}
+
+/* ---------- operational status strip (ledger) ---------- */
+.inventory-page .adx-ledger {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+.inventory-page .adx-ledger-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--admin-divider); /* hairline connects the cells */
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  transition: background var(--admin-motion-fast) var(--admin-ease);
+}
+.inventory-page .adx-ledger-cell:first-child {
+  border-left: none;
+}
+.inventory-page .adx-ledger-cell:hover {
+  background: var(--gray-50);
+}
+.inventory-page .adx-ledger-cell:focus-visible {
+  outline: none;
+  box-shadow: inset var(--admin-focus-ring);
+}
+.inventory-page .adx-ledger-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--admin-text-muted);
+}
+.inventory-page .adx-ledger-value {
+  font-size: 26px;
+  font-weight: 650;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  color: var(--admin-text);
+  font-variant-numeric: tabular-nums;
+}
+.inventory-page .adx-ledger-note {
+  font-size: 12px;
+  color: var(--gray-500);
+}
+
+/* status ticks: attention (amber) / exception (red). Applied only when the
+   real calculated value warrants it — no decorative coloring. */
+.inventory-page .adx-ledger-cell.is-attention::before,
+.inventory-page .adx-ledger-cell.is-exception::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+}
+.inventory-page .adx-ledger-cell.is-attention::before {
+  background: var(--admin-attention);
+}
+.inventory-page .adx-ledger-cell.is-exception::before {
+  background: var(--admin-exception);
+}
+.inventory-page .adx-ledger-cell.is-attention .adx-ledger-value {
+  color: var(--admin-attention);
+}
+.inventory-page .adx-ledger-cell.is-exception .adx-ledger-value {
+  color: var(--admin-exception);
+}
+
+/* ---------- ledger responsive (2-up, then 1-up) ---------- */
+@media (max-width: 1000px) {
+  .inventory-page .adx-ledger {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .inventory-page .adx-ledger-cell {
+    border-left: 1px solid var(--admin-divider);
+    border-top: 1px solid var(--admin-divider);
+  }
+  .inventory-page .adx-ledger-cell:nth-child(odd) {
+    border-left: none;
+  }
+  .inventory-page .adx-ledger-cell:nth-child(-n + 2) {
+    border-top: none;
+  }
+}
+@media (max-width: 560px) {
+  .inventory-page .adx-ledger {
+    grid-template-columns: 1fr;
+  }
+  .inventory-page .adx-ledger-cell {
+    border-left: none;
+    border-top: 1px solid var(--admin-divider);
+  }
+  .inventory-page .adx-ledger-cell:first-child {
+    border-top: none;
+  }
+}
+
+/* ============================================================
+   Lightweight motion (one-time section entrance + press)
+   ============================================================ */
+@keyframes adx-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.inventory-page .adx-main > header,
+.inventory-page .adx-main > section {
+  animation: adx-rise var(--admin-motion) var(--admin-ease) both;
+}
+.inventory-page .adx-main > section:nth-of-type(1) {
+  animation-delay: 40ms;
+}
+.inventory-page .adx-main > section:nth-of-type(2) {
+  animation-delay: 80ms;
+}
+.inventory-page .adx-main > section:nth-of-type(3) {
+  animation-delay: 120ms;
+}
+
+/* subtle press feedback on interactive console rows/cells */
+.inventory-page .adx-ledger-cell:active {
+  transform: translateY(1px);
+}
+
+/* ============================================================
+   Reduced-motion fallback (complete) — disables nonessential
+   animation and transitions across the Admin surface.
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .inventory-page *,
+  .inventory-page *::before,
+  .inventory-page *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+  .inventory-page .adx-ledger-cell:active {
+    transform: none;
+  }
+}

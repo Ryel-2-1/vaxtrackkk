@@ -19,7 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
-import { AdminSidebar } from "./Inventory";
+import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import KpiCard from "../../components/ui/KpiCard";
 import "./Settings.css";
 import { subscribeUsers, updateUserStatus, updateUserRole } from "../../services/userService";

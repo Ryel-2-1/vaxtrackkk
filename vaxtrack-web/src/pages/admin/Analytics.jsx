@@ -1,7 +1,5 @@
 import "./Analytics.css";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { signOut } from "firebase/auth";
 import {
   Activity,
   Building2,
@@ -10,8 +8,7 @@ import {
   MoreVertical,
   X,
 } from "lucide-react";
-import { auth } from "../../firebase";
-import { AdminSidebar } from "./Inventory";
+import AdminLayout from "../../components/admin/AdminLayout";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeAllAlerts } from "../../services/alertService";
 import KpiCard from "../../components/ui/KpiCard";
@@ -157,8 +154,6 @@ function computeRegions(orders) {
 }
 
 function Analytics() {
-  const navigate = useNavigate();
-
   const [allOrders, setAllOrders] = useState([]);
   const [alertCount, setAlertCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -204,10 +199,6 @@ function Analytics() {
     return () => { unsubOrders(); unsubAlerts(); };
   }, []);
 
-  const handleLogout = async () => {
-    await signOut(auth);
-    navigate("/login");
-  };
 
   const showToast = (message) => {
     setToast(message);
@@ -269,86 +260,75 @@ function Analytics() {
 
   if (loading) {
     return (
-      <div className="inventory-page">
-        <AdminSidebar active="analytics" onLogout={handleLogout} />
-        <main className="analytics-v2-main">
-          <header className="analytics-v2-header">
-            <div>
-              <h1>Analytics Overview</h1>
-              <p>Loading analytics data…</p>
-            </div>
-          </header>
-        </main>
-      </div>
+      <AdminLayout
+        active="analytics"
+        title="Analytics Overview"
+        description="Loading analytics data…"
+      />
     );
   }
 
   if (loadError) {
     return (
-      <div className="inventory-page">
-        <AdminSidebar active="analytics" onLogout={handleLogout} />
-        <main className="analytics-v2-main">
-          <header className="analytics-v2-header">
-            <div>
-              <h1>Analytics Overview</h1>
-              <p style={{ color: "#c0392b" }}>{loadError}</p>
-            </div>
-          </header>
-        </main>
-      </div>
+      <AdminLayout active="analytics" title="Analytics Overview">
+        <div className="analytics-error-banner" role="alert">
+          {loadError}
+        </div>
+      </AdminLayout>
     );
   }
 
   return (
-    <div className="inventory-page">
-      <AdminSidebar active="analytics" onLogout={handleLogout} />
+    <AdminLayout
+      active="analytics"
+      title="Analytics Overview"
+      description="System-wide logistics performance metrics."
+      actions={
+        <>
+          <button type="button" className="analytics-export-btn" onClick={handleExport}>
+            <FileDown size={15} aria-hidden="true" />
+            Export Report
+          </button>
 
-      <main className="analytics-v2-main">
-        {toast && <div className="analytics-toast">{toast}</div>}
+          <select
+            value={timeRange}
+            onChange={(e) => setTimeRange(e.target.value)}
+            aria-label="Time range"
+          >
+            <option value="7">Last 7 Days</option>
+            <option value="30">Last 30 Days</option>
+            <option value="90">Last 90 Days</option>
+          </select>
 
-        <header className="analytics-v2-header">
-          <div>
-            <h1>Analytics Overview</h1>
-            <p>System-wide logistics performance metrics.</p>
-          </div>
-
-          <div className="analytics-v2-actions">
-            <button type="button" className="analytics-export-btn" onClick={handleExport}>
-              <FileDown size={15} />
-              Export Report
-            </button>
-
-            <select value={timeRange} onChange={(e) => setTimeRange(e.target.value)}>
-              <option value="7">Last 7 Days</option>
-              <option value="30">Last 30 Days</option>
-              <option value="90">Last 90 Days</option>
-            </select>
-
-            {hasRegions && (
-              <select
-                value={regionFilter}
-                onChange={(e) => setRegionFilter(e.target.value)}
-              >
-                <option value="all">All Regions</option>
-                {regions.map((region) => (
-                  <option key={region.name} value={region.name}>
-                    {region.name}
-                  </option>
-                ))}
-              </select>
-            )}
-
+          {hasRegions && (
             <select
-              value={vaccineFilter}
-              onChange={(e) => setVaccineFilter(e.target.value)}
+              value={regionFilter}
+              onChange={(e) => setRegionFilter(e.target.value)}
+              aria-label="Region"
             >
-              <option value="all">All Vaccines</option>
-              {vaccineNames.map((v) => (
-                <option key={v} value={v}>{v}</option>
+              <option value="all">All Regions</option>
+              {regions.map((region) => (
+                <option key={region.name} value={region.name}>
+                  {region.name}
+                </option>
               ))}
             </select>
-          </div>
-        </header>
+          )}
+
+          <select
+            value={vaccineFilter}
+            onChange={(e) => setVaccineFilter(e.target.value)}
+            aria-label="Vaccine"
+          >
+            <option value="all">All Vaccines</option>
+            {vaccineNames.map((v) => (
+              <option key={v} value={v}>{v}</option>
+            ))}
+          </select>
+        </>
+      }
+    >
+      {toast && <div className="analytics-toast">{toast}</div>}
 
         <section className="analytics-kpi-grid">
           <KpiCard
@@ -624,12 +604,10 @@ function Analytics() {
             </div>
           </section>
         </section>
-      </main>
-
       {selectedModal && (
         <AnalyticsModal modal={selectedModal} onClose={() => setSelectedModal(null)} />
       )}
-    </div>
+    </AdminLayout>
   );
 }
 

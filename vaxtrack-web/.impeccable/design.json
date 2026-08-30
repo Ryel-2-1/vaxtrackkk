@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-31T00:00:00Z",
+  "title": "Design System: VaxTrack",
+  "extensions": {
+    "colorMeta": {
+      "green-700": { "role": "primary", "displayName": "Deep Pine", "canonical": "#1f5c41", "tonalRamp": ["#0b211a", "#123126", "#1a4534", "#1f5c41", "#27714f", "#4f9a76", "#a9d3bf", "#f1f8f4"] },
+      "green-950": { "role": "primary", "displayName": "Console Pine (sidebar ground)", "canonical": "#0b211a", "tonalRamp": ["#0b211a", "#123126", "#1a4534", "#1f5c41", "#27714f", "#4f9a76", "#a9d3bf", "#f1f8f4"] },
+      "gray-900": { "role": "neutral", "displayName": "Ink", "canonical": "#111827", "tonalRamp": ["#111827", "#1f2937", "#374151", "#4b5563", "#6b7280", "#d1d5db", "#f3f4f6", "#f9fafb"] },
+      "success-text": { "role": "secondary", "displayName": "Normal Green", "canonical": "#15803d", "tonalRamp": ["#0b3d1e", "#12622f", "#15803d", "#3a9a5c", "#7bbd93", "#bbdecb", "#e7f4ec", "#f2faf5"] },
+      "warning-text": { "role": "secondary", "displayName": "Attention Amber", "canonical": "#b45309", "tonalRamp": ["#6b3208", "#8a4109", "#b45309", "#d47b1e", "#e8a557", "#f2dbae", "#fef6e7", "#fffaf0"] },
+      "danger-text": { "role": "secondary", "displayName": "Exception Red", "canonical": "#b42318", "tonalRamp": ["#6b1410", "#8f1a14", "#b42318", "#d1483c", "#e58b83", "#f5c6c0", "#fef1f0", "#fff7f6"] },
+      "info-text": { "role": "secondary", "displayName": "Cold-Chain Teal", "canonical": "#0f766e", "tonalRamp": ["#063d38", "#0a5751", "#0f766e", "#2f9089", "#6bb5ae", "#b9dcd7", "#e8f4f2", "#f2fafa"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "KPI values and headline figures only; tabular." },
+      "headline": { "displayName": "Headline", "purpose": "The page H1, owned by the topbar." },
+      "title": { "displayName": "Title", "purpose": "Card and section headings." },
+      "body": { "displayName": "Body", "purpose": "Table cells and content text." },
+      "label": { "displayName": "Label", "purpose": "Nav items, KPI/field labels, secondary controls (sentence case)." }
+    },
+    "shadows": [
+      { "name": "card-whisper", "value": "0 1px 2px rgba(16,24,40,0.05)", "purpose": "The only shadow on resting surfaces (cards, KPI tiles) — near-invisible lift." },
+      { "name": "float", "value": "0 12px 32px rgba(16,24,40,0.12)", "purpose": "Temporary layers only — modals, drawers, dropdowns, tooltips, open mobile sidebar." }
+    ],
+    "motion": [
+      { "name": "fast", "value": "140ms", "purpose": "Nav hover/active, small state feedback." },
+      { "name": "standard", "value": "180ms", "purpose": "Default transition duration." },
+      { "name": "slow", "value": "220ms", "purpose": "Larger state changes." },
+      { "name": "ease", "value": "cubic-bezier(0.2, 0, 0, 1)", "purpose": "Calm easing for all state transitions; honor prefers-reduced-motion." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "drawer", "value": "900px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Deep-pine primary action; hover darkens.",
+      "html": "<button class=\"ds-btn-primary\">Add stock</button>",
+      "css": ".ds-btn-primary { display:inline-flex; align-items:center; gap:8px; height:40px; padding:0 14px; border:0; border-radius:10px; background:#1f5c41; color:#fff; font-family:Inter,system-ui,sans-serif; font-size:14px; font-weight:500; box-shadow:0 1px 2px rgba(16,24,40,0.05); cursor:pointer; transition:background 140ms cubic-bezier(0.2,0,0,1); } .ds-btn-primary:hover { background:#1a4534; } .ds-btn-primary:focus-visible { outline:2px solid #27714f; outline-offset:1px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Neutral outline action for secondary tasks.",
+      "html": "<button class=\"ds-btn-secondary\">Export</button>",
+      "css": ".ds-btn-secondary { display:inline-flex; align-items:center; gap:8px; height:40px; padding:0 14px; border:1px solid #d1d5db; border-radius:10px; background:#fff; color:#111827; font-family:Inter,system-ui,sans-serif; font-size:14px; font-weight:500; cursor:pointer; transition:background 140ms cubic-bezier(0.2,0,0,1); } .ds-btn-secondary:hover { background:#f9fafb; } .ds-btn-secondary:focus-visible { outline:2px solid #27714f; outline-offset:1px; }"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "badge-delivered",
+      "description": "Pill status badge with a leading state dot; sentence case. Shown: delivered (green).",
+      "html": "<span class=\"ds-badge ds-badge-delivered\"><span class=\"ds-badge-dot\"></span>Delivered</span>",
+      "css": ".ds-badge { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; border:1px solid transparent; font-family:Inter,system-ui,sans-serif; font-size:12px; font-weight:600; line-height:1.2; white-space:nowrap; } .ds-badge-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; } .ds-badge-delivered { color:#15803d; background:#e7f4ec; border-color:#bbdecb; } .ds-badge-delivered .ds-badge-dot { background:#15803d; }"
+    },
+    {
+      "name": "KPI Card",
+      "kind": "card",
+      "refersTo": "kpi-card",
+      "description": "Operations KPI tile: tabular value over a muted label, whisper shadow.",
+      "html": "<div class=\"ds-kpi\"><span class=\"ds-kpi-label\">Active deliveries</span><span class=\"ds-kpi-value\">128</span><span class=\"ds-kpi-context\">4 in transit</span></div>",
+      "css": ".ds-kpi { display:flex; flex-direction:column; justify-content:center; gap:4px; min-height:104px; padding:16px 20px; background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 1px 2px rgba(16,24,40,0.05); font-family:Inter,system-ui,sans-serif; } .ds-kpi-label { font-size:13px; font-weight:500; color:#4b5563; } .ds-kpi-value { font-size:28px; font-weight:700; line-height:1.15; color:#111827; font-variant-numeric:tabular-nums; } .ds-kpi-context { font-size:12px; font-weight:400; color:#6b7280; }"
+    },
+    {
+      "name": "Search Field",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Bordered field wrapper with a green focus ring; inner input is borderless.",
+      "html": "<div class=\"ds-field\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"#6b7280\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/></svg><input placeholder=\"Search batches\" /></div>",
+      "css": ".ds-field { display:flex; align-items:center; gap:8px; height:42px; padding:0 12px; background:#fff; border:1px solid #d1d5db; border-radius:8px; font-family:Inter,system-ui,sans-serif; } .ds-field:focus-within { border-color:#1f5c41; box-shadow:0 0 0 3px #dbeee3; } .ds-field input { border:0; outline:0; height:38px; width:100%; background:transparent; color:#111827; font-size:15px; }"
+    },
+    {
+      "name": "Active Nav Item",
+      "kind": "nav",
+      "refersTo": "nav-item-active",
+      "description": "Sidebar nav in its active state on the pine rail: green fill, white text, 3px mint precision rail.",
+      "html": "<div class=\"ds-navrail\"><a class=\"ds-nav-item\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"7\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\"/></svg><span>Dashboard</span></a><a class=\"ds-nav-item ds-nav-active\" aria-current=\"page\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20 7 9 18l-5-5\"/></svg><span>Inventory</span></a></div>",
+      "css": ".ds-navrail { background:#0b211a; padding:12px; border-radius:12px; display:flex; flex-direction:column; gap:2px; width:220px; } .ds-nav-item { position:relative; display:flex; align-items:center; gap:10px; height:40px; padding:0 12px; border-radius:8px; color:#9db8ac; font-family:Inter,system-ui,sans-serif; font-size:14px; font-weight:500; text-decoration:none; cursor:pointer; transition:background 140ms cubic-bezier(0.2,0,0,1),color 140ms cubic-bezier(0.2,0,0,1); } .ds-nav-item:hover { background:#123126; color:#c9dcd2; } .ds-nav-active { background:#1f5c41; color:#fff; font-weight:600; } .ds-nav-active::before { content:\"\"; position:absolute; left:0; top:7px; bottom:7px; width:3px; border-radius:0 999px 999px 0; background:#8fd4b0; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Standard content card: white surface, hairline border, whisper shadow.",
+      "html": "<div class=\"ds-card\"><h2 class=\"ds-card-title\">Cold storage</h2><p class=\"ds-card-body\">All units within range.</p></div>",
+      "css": ".ds-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 1px 2px rgba(16,24,40,0.05); padding:18px; font-family:Inter,system-ui,sans-serif; } .ds-card-title { margin:0 0 6px; padding-left:12px; position:relative; font-size:16px; font-weight:600; letter-spacing:-0.01em; color:#111827; } .ds-card-title::before { content:\"\"; position:absolute; left:0; top:3px; bottom:3px; width:3px; border-radius:999px; background:#1f5c41; } .ds-card-body { margin:0; font-size:15px; color:#4b5563; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Cold-Chain Console",
+    "overview": "VaxTrack should feel like instrument-grade monitoring equipment entrusted with temperature-sensitive cargo — calm, precise, trustworthy, and operational. The chrome is a deep-pine console that frames the work; the work itself lives on quiet white surfaces over a soft gray field. Color is never decoration: it is a signal reserved for state — a delivery's status, a batch nearing expiry, a genuine exception. The density is balanced and operational — enough per screen for staff coordinating riders and stock under time pressure, without cramming, and deliberately not the oversized, decorative, generic-SaaS look. Depth is flat; motion exists only to clarify a state change, navigation, loading, or urgent exception. This visual system is an evolving foundation, furthest along on the Admin pilot surfaces (Dashboard, Analytics, Inventory) and being unified across Sales Rep and Dispatcher.",
+    "keyCharacteristics": [
+      "Deep-pine console chrome; quiet white-on-gray work surfaces.",
+      "Color reserved for state (green normal, amber attention, red exception, teal cold-chain).",
+      "Flat depth: hairline borders and tonal contrast, near-invisible card shadow.",
+      "Balanced operational density — informative, never oversized or decorative.",
+      "Tabular figures on every count, quantity, temperature, and timestamp.",
+      "Motion only for state, navigation, loading, and exceptions."
+    ],
+    "rules": [
+      { "name": "The State-Only Color Rule", "body": "Color signals state, never decorates chrome. Navigation, page structure, and data text stay pine/neutral; a saturated accent appears only to mark a status, a warning, or an exception. On a healthy screen, colored pixels should be a small minority.", "section": "colors" },
+      { "name": "The Semantic Mapping Rule", "body": "Green = normal/success/delivered/approved. Amber = warning/attention/expiring. Red = critical/error/delayed/cancelled/urgent. Teal = cold-chain/monitoring/assigned/in-transit. These meanings are fixed; never swap them for aesthetic reasons and never use raw hex that bypasses the semantic tokens.", "section": "colors" },
+      { "name": "The Section-Marker Rule", "body": "UPPERCASE is reserved exclusively for tiny structural markers — sidebar nav-group labels and the page eyebrow (10–11px, weight 700, letter-spacing 0.06–0.07em). Data labels, table headers, status text, and buttons stay sentence case.", "section": "typography" },
+      { "name": "The Tabular-Figures Rule", "body": "Every count, quantity, temperature, currency, and timestamp uses font-variant-numeric: tabular-nums (the .tnum utility) so figures align and don't jitter as they update.", "section": "typography" },
+      { "name": "The No-Horizontal-Scroll Rule", "body": "At every width, the page body must not scroll sideways; wide content scrolls inside its own container.", "section": "layout" },
+      { "name": "The Flat-Surface Rule", "body": "Resting surfaces are flat with hairline borders. If a surface has a strong shadow, it must be a temporary layer (modal/drawer/dropdown/tooltip); otherwise the shadow is decoration and does not belong.", "section": "elevation" },
+      { "name": "The No-Stacking Rule", "body": "Do not stack cards on shadows to fake hierarchy. Group with spacing, borders, and background contrast instead.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do reserve color for state: green = normal/success, amber = warning, red = critical/error, teal = cold-chain/in-transit/monitoring — via the semantic tokens, not raw hex.",
+      "Do keep chrome and data neutral (pine + gray); let a single accent do the signaling on an otherwise quiet screen.",
+      "Do keep surfaces flat — hairline gray-200/gray-300 borders and gray-50 contrast for structure; card-whisper shadow only.",
+      "Do reserve the float shadow (0 12px 32px / 12%) for temporary layers — modals, drawers, dropdowns, tooltips.",
+      "Do use tabular figures (.tnum) on every count, quantity, temperature, and timestamp.",
+      "Do keep motion short (140–220ms), calmly eased, and purposeful — state change, navigation, loading, urgent exception only.",
+      "Do use one 240px sidebar width everywhere, with logout pinned bottom and the full-height rail independent of page length.",
+      "Do contain wide tables inside their own scroll wrapper so the page never scrolls horizontally.",
+      "Do treat accessibility, responsiveness, and performance as system requirements: visible green focus rings, aria-current on active nav, honored prefers-reduced-motion, WCAG-legible contrast, working ≤900px drawer, and route-scoped CSS."
+    ],
+    "donts": [
+      "Don't apply generic-SaaS styling: no hero gradients, decorative animation, oversized/marketing-scale cards, or unnecessary color.",
+      "Don't flood green as a decorative brand color — it means normal/success, and its restraint is what makes state readable.",
+      "Don't uppercase data labels, table headers, status text, or buttons; uppercase is only for tiny nav-group markers and the page eyebrow.",
+      "Don't add decorative shadows or stack cards on shadows to fake hierarchy.",
+      "Don't introduce blue as an accent (the info role is muted teal) or invent field/status colors outside the semantic set.",
+      "Don't canonize legacy drift: conflicting 245/248/280px sidebar widths (canonical is 240px), duplicated per-page sidebar rules, the width:100vw + overflow-x:hidden sticky workaround, transitional !important layering, dead geo3-* map CSS, or raw hex like #ef4444 in place of danger-text."
+    ]
+  }
+}
