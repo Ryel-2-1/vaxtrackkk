@@ -8,6 +8,7 @@ import '../services/delivery_service.dart';
 import '../services/location_service.dart';
 import '../services/route_deviation_alert_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/nav_availability.dart';
 import '../utils/route_utils.dart';
 import '../widgets/delivery_map.dart';
 import 'google_navigation_screen.dart';
@@ -236,10 +237,38 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
         '&query=${Uri.encodeComponent(d.clinicAddress)}',
       );
     } else {
+      _showNavSnack('No destination available to open in Google Maps.');
       return;
     }
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    // Surface the outcome honestly instead of failing silently: canLaunchUrl
+    // false (no maps app) or a launch that throws both tell the rider.
+    try {
+      if (await canLaunchUrl(uri) &&
+          await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        return;
+      }
+      _showNavSnack('Could not open Google Maps — no maps app is available.');
+    } catch (_) {
+      _showNavSnack('Could not open Google Maps on this device.');
+    }
+  }
+
+  void _showNavSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  // After returning from a full-screen navigation view, make sure foreground
+  // location reporting is still running for an in_transit delivery. This
+  // deliberately RESPECTS the documented "in_transit only" tracking decision —
+  // it never starts tracking for pre-transit states, and order-level writes stay
+  // gated to in_transit inside LocationService. It only re-asserts continuity so
+  // navigation can never silently leave an in_transit delivery unreported; it
+  // adds no second tracker.
+  Future<void> _ensureTrackingForInTransit() async {
+    if (!mounted) return;
+    if (d.isInTransit && !_locationService.isTracking) {
+      await _startTracking();
     }
   }
 
@@ -277,6 +306,8 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
           ),
         ),
       );
+      // Back on the delivery screen — keep in_transit reporting alive.
+      await _ensureTrackingForInTransit();
     } finally {
       if (mounted) setState(() => _launchingNav = false);
     }
@@ -286,12 +317,14 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
   // Requires the delivery to be active with clinic coordinates; the screen
   // itself enforces the full start eligibility (auth, assignment, saved route)
   // and Firestore rules remain the final assignment authority.
-  void _startRouteMonitoring() {
+  Future<void> _startRouteMonitoring() async {
     if (!d.isActive || !d.hasClinicCoords) return;
-    Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => RouteMonitoringScreen(delivery: d)),
     );
+    // Back on the delivery screen — keep in_transit reporting alive.
+    await _ensureTrackingForInTransit();
   }
 
   @override
@@ -350,7 +383,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     // route summary so coord-less orders still work.
     final hasRiderLoc = d.lastLocation != null;
     final showMap = d.hasClinicCoords || hasRiderLoc;
-    final canOpenMaps = d.hasClinicCoords || d.clinicAddress.isNotEmpty;
+    final nav = NavigationAvailability.of(d);
 
     return Card(
       child: Padding(
@@ -394,75 +427,142 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
               _textRouteFallback(),
               const SizedBox(height: 12),
             ],
-            // In-app Google Navigation (SDK). Enabled only for ACTIVE deliveries
-            // that carry valid clinic coordinates; delivered/cancelled orders are
-            // excluded via d.isActive. Missing coords -> disabled + note, with the
-            // OSM map + "Open in Google Maps" fallback below still available.
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: (d.hasClinicCoords && d.isActive && !_launchingNav)
-                    ? _startGoogleNavigation
-                    : null,
-                icon: const Icon(Icons.assistant_navigation),
-                label: const Text('Start Google Navigation'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
+            // Navigation actions are shown ONLY while the delivery is
+            // in_transit. Assigned/loading/delayed get a lifecycle prompt;
+            // delivered/cancelled show nothing here (the route summary above
+            // stays as read-only history).
+            if (nav.inTransit) ...[
+              // PRIMARY action: one clear "Start navigation" (in-app Google
+              // Navigation SDK). Needs a destination pin; if the SDK is not
+              // configured/available the nav screen itself falls back to
+              // Google Maps with a clear message.
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: (nav.canStartEmbeddedNav && !_launchingNav)
+                      ? _startGoogleNavigation
+                      : null,
+                  icon: const Icon(Icons.assistant_navigation),
+                  label: const Text('Start navigation'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
                 ),
               ),
-            ),
-            if (!d.hasClinicCoords)
+              if (!d.hasClinicCoords)
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text(
+                    'In-app navigation needs a destination pin from dispatch. '
+                    'Use Open in Google Maps below.',
+                    style: TextStyle(fontSize: 11, color: AppColors.textLight),
+                  ),
+                ),
+              const SizedBox(height: 8),
+              // FALLBACK: hand off to the external Google Maps app. Secondary
+              // (outlined) so the primary in-app action stays dominant.
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: nav.canOpenExternalMaps ? _openNavigation : null,
+                  icon: const Icon(Icons.map_outlined),
+                  label: const Text('Open in Google Maps'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.primary),
+                  ),
+                ),
+              ),
+              if (nav.usesAddressSearch)
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text(
+                    'Using address search — exact destination pin not set by dispatch.',
+                    style: TextStyle(fontSize: 11, color: AppColors.textLight),
+                  ),
+                ),
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              // SEPARATE, clearly-labelled VaxTrack compliance feature — NOT a
+              // turn-by-turn navigator. Free flutter_map + OpenStreetMap driving
+              // the existing RouteComplianceMonitor / RouteDeviationAlertService
+              // against the Dispatcher-assigned route. The screen re-checks
+              // assignment + a saved route and explains anything still missing.
+              Row(
+                children: [
+                  const Icon(
+                    Icons.verified_user_outlined,
+                    size: 16,
+                    color: AppColors.info,
+                  ),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'VaxTrack compliance',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textDark,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: nav.canMonitorRoute ? _startRouteMonitoring : null,
+                  icon: const Icon(Icons.my_location),
+                  label: const Text('Monitor assigned route'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.info,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ),
               const Padding(
                 padding: EdgeInsets.only(top: 6),
                 child: Text(
-                  'Clinic coordinates unavailable — in-app Google Navigation disabled. Use Open in Google Maps.',
+                  'Checks your position against the Dispatcher-assigned route '
+                  'and flags deviations. Not turn-by-turn navigation.',
                   style: TextStyle(fontSize: 11, color: AppColors.textLight),
                 ),
               ),
-            const SizedBox(height: 8),
-            // FREE in-app route monitoring (flutter_map + OpenStreetMap +
-            // Geolocator, driving the existing RouteComplianceMonitor /
-            // RouteDeviationAlertService). No paid Google Navigation SDK,
-            // MAPS_API_KEY, billing, or Navigation Terms. Enabled for active
-            // deliveries with clinic coordinates; the screen re-checks
-            // assignment + a saved route and explains anything still missing.
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: (d.isActive && d.hasClinicCoords)
-                    ? _startRouteMonitoring
-                    : null,
-                icon: const Icon(Icons.my_location),
-                label: const Text('Start Route Monitoring'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.info,
-                  foregroundColor: Colors.white,
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: canOpenMaps ? _openNavigation : null,
-                icon: const Icon(Icons.navigation),
-                label: const Text('Open in Google Maps'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                ),
-              ),
-            ),
-            if (canOpenMaps && !d.hasClinicCoords)
-              const Padding(
-                padding: EdgeInsets.only(top: 6),
-                child: Text(
-                  'Using address search — exact destination pin not set by dispatch.',
-                  style: TextStyle(fontSize: 11, color: AppColors.textLight),
-                ),
-              ),
+            ] else if (nav.statusPrompt != null) ...[
+              _statusPromptBox(nav.statusPrompt!),
+            ],
           ],
         ),
+      ),
+    );
+  }
+
+  // Shown in place of the navigation actions when the delivery could be
+  // navigated but is not in_transit yet (assigned/loading/delayed). It points
+  // the rider at the lifecycle action to take first. Terminal statuses
+  // (delivered/cancelled) show nothing here.
+  Widget _statusPromptBox(String message) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_outline, size: 16, color: AppColors.textLight),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(fontSize: 12, color: AppColors.textDark),
+            ),
+          ),
+        ],
       ),
     );
   }
