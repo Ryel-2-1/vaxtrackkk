@@ -5388,8 +5388,22 @@ textarea {
   color: var(--vt-muted);
 }
 
-/* Buttons: bigger touch targets */
-button,
+/* Button foundation. Element-level, no !important, so every component
+   class wins over it. It only guarantees buttons inherit the UI face and
+   keep a sane label size instead of falling back to the 13.33px UA default;
+   each variant owns its own size, weight, and radius. */
+button {
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+/* Legacy chrome — unclassed buttons and the named legacy variants only.
+   `:not([class])` keeps this off the component-classed buttons that define
+   their own appearance (see the matching scoped rule further down). */
+button:not([class]),
 .blue-btn,
 .outline-btn,
 .admin-primary-btn,
@@ -5810,7 +5824,12 @@ body * {
   border-radius: 12px !important;
 }
 
-button,
+/* Scoped to unclassed buttons + named legacy variants. Previously this
+   started with a bare `button` selector, so four !important declarations
+   reached every component button in the app and overrode the design system
+   (weight 850 leaked into quiet captions, 46px inflated text links, and a
+   12px radius replaced the documented control radii). */
+button:not([class]),
 .blue-btn,
 .outline-btn,
 .admin-primary-btn,
@@ -5822,6 +5841,34 @@ button,
   font-size: 15px !important;
   font-weight: 850 !important;
   border-radius: 12px !important;
+}
+
+/* Pagination is the one control group that mixes both kinds of button: its
+   prev/next buttons carry no class, while each page-number button renders
+   class="" when inactive. The unclassed rule above therefore sized prev/next
+   at 46px while the numbers kept the component's 34px, leaving the row
+   uneven. This is scoped to the component's own class (not a global button
+   rule) and needs !important only to outrank the legacy rule directly above
+   it. 40px also gives the row a comfortable tap target on small screens.
+   Listed explicitly for every pagination wrapper in the app rather than
+   matched by wildcard, so the blast radius stays auditable. */
+.v2-pagination button,
+.clinics-pagination button,
+.clinics-v2-pagination button,
+.dashboard-pagination-row button,
+.dispatch-pagination button,
+.inv-pagination button,
+.inventory-pagination button,
+.inventory-v2-pagination button,
+.salesrep-pagination-controls button,
+.salesrep-pagination-row button,
+.staff-pagination button {
+  height: 40px !important;
+  min-height: 40px !important;
+  min-width: 40px !important;
+  border-radius: 9px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
 }
 
 input,

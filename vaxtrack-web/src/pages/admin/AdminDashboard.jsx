@@ -270,7 +270,9 @@ function AdminDashboard() {
                 return (
                   <div key={key} className="adx-breakdown-row">
                     <StatusBadge statusKey={key} />
-                    <div className="adx-breakdown-bar">
+                    {/* purely decorative: the count is already announced as
+                        text in the adjacent cell, so the bar is hidden from AT */}
+                    <div className="adx-breakdown-bar" aria-hidden="true">
                       <i className={`tone-${key}`} style={{ width: `${pct}%` }} />
                     </div>
                     <span className="adx-breakdown-count tnum">{count}</span>
@@ -380,6 +382,10 @@ function AdminDashboard() {
         ) : (
           <div className="adx-table-wrap">
             <table className="adx-table">
+              <caption className="adx-sr-only">
+                Recent orders across all clinics, with delivery status and time
+                since the last update.
+              </caption>
               <thead>
                 <tr>
                   <th scope="col">Order</th>

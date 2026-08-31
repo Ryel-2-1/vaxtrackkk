@@ -1105,7 +1105,7 @@
 .adx-card-head h2 {
   margin: 0 !important;
   font-family: var(--font-ui) !important;
-  font-size: 15px !important;
+  font-size: 16px !important; /* documented title role: 16/600 */
   font-weight: 600 !important;
   color: var(--gray-900) !important;
 }
@@ -1118,6 +1118,10 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  /* owns its own box: the global button rule no longer inflates text
+     links to 46px. min-height keeps a WCAG 2.5.8 target without the
+     card header carrying a button-sized void. */
+  min-height: 24px;
   background: transparent !important;
   border: none !important;
   padding: 0 !important;
@@ -1229,6 +1233,19 @@
 }
 
 /* ---------- recent orders table ---------- */
+/* Visually hidden, still announced. Used for the table caption so the
+   table describes itself when navigated out of its card context. */
+.adx-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 .adx-table-wrap {
   overflow-x: auto;
 }
@@ -1254,7 +1271,8 @@
   padding: 10px 20px !important;
   border-bottom: 1px solid var(--gray-100) !important;
   font-family: var(--font-ui) !important;
-  font-size: 13px !important;
+  font-size: 15px !important; /* documented body role: 15/400 */
+  font-weight: 400 !important;
   color: var(--gray-900);
   vertical-align: middle;
   background: transparent !important;

@@ -146,14 +146,19 @@ aside.inventory-sidebar .admin-nav-group:first-of-type {
   outline: none;
   box-shadow: inset var(--admin-focus-ring);
 }
+/* Ledger type follows the documented ramp: label 13/500, display 28/700,
+   caption 12/400. Each role states its own weight so none of them inherits
+   a weight from the button element the cell is built on. */
 .inventory-page .adx-ledger-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--admin-text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  /* one step darker than the caption below it, so the cell reads
+     value → label → note tonally as well as by size */
+  color: var(--gray-600);
 }
 .inventory-page .adx-ledger-value {
-  font-size: 26px;
-  font-weight: 650;
+  font-size: 28px;
+  font-weight: 700;
   line-height: 1.05;
   letter-spacing: -0.01em;
   color: var(--admin-text);
@@ -161,6 +166,7 @@ aside.inventory-sidebar .admin-nav-group:first-of-type {
 }
 .inventory-page .adx-ledger-note {
   font-size: 12px;
+  font-weight: 400;
   color: var(--gray-500);
 }
 
@@ -218,32 +224,13 @@ aside.inventory-sidebar .admin-nav-group:first-of-type {
 }
 
 /* ============================================================
-   Lightweight motion (one-time section entrance + press)
+   Motion — state feedback only.
+   The page-load entrance (`adx-rise`, staggered 40/80/120ms) was removed:
+   an operations console should be readable the instant it paints, and a
+   decorative entrance is exactly the generic-dashboard mannerism this
+   surface avoids. Motion now marks state, navigation, loading, and
+   exceptions only (hover/press feedback and the loading skeletons).
    ============================================================ */
-@keyframes adx-rise {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.inventory-page .adx-main > header,
-.inventory-page .adx-main > section {
-  animation: adx-rise var(--admin-motion) var(--admin-ease) both;
-}
-.inventory-page .adx-main > section:nth-of-type(1) {
-  animation-delay: 40ms;
-}
-.inventory-page .adx-main > section:nth-of-type(2) {
-  animation-delay: 80ms;
-}
-.inventory-page .adx-main > section:nth-of-type(3) {
-  animation-delay: 120ms;
-}
 
 /* subtle press feedback on interactive console rows/cells */
 .inventory-page .adx-ledger-cell:active {
