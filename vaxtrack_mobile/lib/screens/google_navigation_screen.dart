@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_navigation_flutter/google_navigation_flutter.dart';
 import 'package:latlong2/latlong.dart' as ll;
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../services/route_deviation_alert_service.dart';
 import '../utils/deviation_detector.dart';
+import '../utils/navigation_init_controller.dart';
 import '../utils/route_compliance_monitor.dart';
 
 /// Reusable in-app Google Navigation screen for a real delivery.
@@ -50,11 +52,18 @@ class GoogleNavigationScreen extends StatefulWidget {
 }
 
 class _GoogleNavigationScreenState extends State<GoogleNavigationScreen> {
-  String _status = 'Initializing navigation…';
-  bool _sessionReady = false;
+  // Guidance-phase status line (shown once the session is ready). Pre-ready
+  // status text comes from the init phase (see _headerStatus).
+  String _status = 'Ready. Tap "Start guidance" to begin.';
   bool _starting =
       false; // guards against repeated presses / duplicate sessions
   bool _navigating = false;
+
+  // Consent + session-initialization state machine. Runs the official Google
+  // Navigation Terms flow before initializeNavigationSession(), guards against
+  // duplicate initialization / dialogs, and drives the loading / declined /
+  // failed / ready UI. Created in initState; started after the first frame.
+  late final NavigationInitController _init;
 
   // Destination comes from the constructor (no hardcoded coordinates).
   LatLng get _destination =>
@@ -87,11 +96,48 @@ class _GoogleNavigationScreenState extends State<GoogleNavigationScreen> {
     if (widget.alertContext != null) {
       _alertService = RouteDeviationAlertService();
     }
-    _bootstrap();
+    _init = NavigationInitController(
+      ensurePermission: _ensurePermission,
+      areTermsAccepted: GoogleMapsNavigator.areTermsAccepted,
+      // Official Google Navigation consent dialog — the SDK persists the result;
+      // we never simulate or auto-accept it.
+      showTerms: () => GoogleMapsNavigator.showTermsAndConditionsDialog(
+        'VaxTrack Rider Navigation',
+        '3MGS Pharma Inc.',
+      ),
+      initSession: () => GoogleMapsNavigator.initializeNavigationSession(),
+      disposeSession: () => GoogleMapsNavigator.cleanup(),
+      // Clears the SDK's terms-accepted flag when init reports termsNotAccepted,
+      // so the next "Review navigation terms" tap re-shows the native dialog.
+      resetTerms: () => GoogleMapsNavigator.resetTermsAccepted(),
+      // A late "terms not accepted" from init is treated as a decline (so the
+      // rider can Review terms), not a generic failure.
+      isTermsError: (e) =>
+          e is SessionInitializationException &&
+          e.code == SessionInitializationError.termsNotAccepted,
+      onChange: () {
+        if (mounted) setState(() {});
+      },
+      onError: (e) {
+        if (kDebugMode) debugPrint('[GoogleNavigation] init failed: $e');
+      },
+      // Debug-only stage logging for the consent/init flow (no keys/secrets).
+      onLog: (m) {
+        if (kDebugMode) debugPrint('[GoogleNavigation] $m');
+      },
+    );
+    // Start ONLY after the first frame, when the Android activity is attached —
+    // initializing from initState/build runs too early and makes the Terms
+    // dialog fail to register, which is the confirmed termsNotAccepted cause.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _init.start();
+    });
   }
 
   @override
   void dispose() {
+    // Mark disposed first so no async continuation updates state afterward.
+    _init.markDisposed();
     _cleanup();
     super.dispose();
   }
@@ -100,9 +146,25 @@ class _GoogleNavigationScreenState extends State<GoogleNavigationScreen> {
     if (mounted) setState(() => _status = s);
   }
 
+  /// Foreground location permission (reuse the existing geolocator dep).
+  Future<bool> _ensurePermission() async {
+    try {
+      LocationPermission perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        return false;
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _cleanup() async {
-    // Cancel the Geolocator + SDK listeners this screen owns, then stop guidance
-    // and release the session (preserving the existing teardown).
+    // Cancel the Geolocator + SDK listeners this screen owns.
     try {
       await _posSub?.cancel();
     } catch (_) {}
@@ -112,6 +174,12 @@ class _GoogleNavigationScreenState extends State<GoogleNavigationScreen> {
     try {
       await _routeChangedSub?.cancel();
     } catch (_) {}
+    // Only stop guidance / release the session when THIS screen owns an
+    // initialized session — never clean up a session we did not create (avoids
+    // double cleanup and interfering when init never succeeded). If init is
+    // still in flight, the controller releases the session itself once it
+    // completes and sees the disposed flag.
+    if (!_init.ownsSession) return;
     try {
       if (_navigating) {
         await GoogleMapsNavigator.stopGuidance();
@@ -122,44 +190,38 @@ class _GoogleNavigationScreenState extends State<GoogleNavigationScreen> {
     }
   }
 
-  Future<void> _bootstrap() async {
-    // 1) Foreground location permission (reuse the existing geolocator dep).
-    try {
-      LocationPermission perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) {
-        perm = await Geolocator.requestPermission();
-      }
-      if (perm == LocationPermission.denied ||
-          perm == LocationPermission.deniedForever) {
-        _setStatus('Location permission denied — cannot navigate.');
-        return;
-      }
-    } catch (e) {
-      _setStatus('Permission error: $e');
-      return;
-    }
+  // Re-run the consent + initialization flow ("Review navigation terms"). The
+  // controller guards against concurrent attempts, so a rapid double-tap can
+  // never start two initializations or show two Terms dialogs.
+  Future<void> _reviewTerms() {
+    if (kDebugMode) debugPrint('[GoogleNavigation] retry tapped');
+    return _init.retry();
+  }
 
-    // 2) Google's first-run Navigation Terms & Conditions (shown normally).
+  // External Google Maps fallback used from the init-failure panel. Same URL
+  // format as the delivery screen's handoff; failures are surfaced, not silent.
+  Future<void> _openExternalMaps() async {
+    final Uri uri = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1'
+      '&destination=${widget.clinicLat},${widget.clinicLng}&travelmode=driving',
+    );
     try {
-      final accepted = await GoogleMapsNavigator.areTermsAccepted();
-      if (!accepted) {
-        await GoogleMapsNavigator.showTermsAndConditionsDialog(
-          'VaxTrack Navigation',
-          'VaxTrack',
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not open Google Maps — no maps app is available.'),
+          ),
         );
       }
-    } catch (e) {
-      _setStatus('Terms dialog error: $e');
-      return;
-    }
-
-    // 3) Initialize exactly one navigation session.
-    try {
-      await GoogleMapsNavigator.initializeNavigationSession();
-      _setStatus('Ready. Tap "Start guidance" to begin.');
-      if (mounted) setState(() => _sessionReady = true);
-    } catch (e) {
-      _setStatus('Navigation session init failed: $e');
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not open Google Maps on this device.'),
+          ),
+        );
+      }
     }
   }
 
@@ -295,7 +357,7 @@ class _GoogleNavigationScreenState extends State<GoogleNavigationScreen> {
   }
 
   Future<void> _startGuidance() async {
-    if (!_sessionReady || _starting || _navigating) return;
+    if (_init.phase != NavInitPhase.ready || _starting || _navigating) return;
     setState(() => _starting = true);
     _setStatus('Setting destination + computing route…');
     try {
@@ -397,7 +459,7 @@ class _GoogleNavigationScreenState extends State<GoogleNavigationScreen> {
                     ],
                     Expanded(
                       child: Text(
-                        _status,
+                        _headerStatus(),
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
@@ -409,36 +471,219 @@ class _GoogleNavigationScreenState extends State<GoogleNavigationScreen> {
               ],
             ),
           ),
-          Expanded(
-            child: GoogleMapsNavigationView(
-              onViewCreated: (GoogleNavigationViewController controller) {
-                controller.setMyLocationEnabled(true);
-              },
+          // The platform navigation view is created ONLY after the session has
+          // initialized successfully — never under a preparing/declined/failed
+          // state (which would show a blank interactive map).
+          if (_init.phase == NavInitPhase.ready) ...[
+            Expanded(
+              child: GoogleMapsNavigationView(
+                onViewCreated: (GoogleNavigationViewController controller) {
+                  controller.setMyLocationEnabled(true);
+                },
+              ),
             ),
-          ),
-          if (kDebugMode) _debugPanel(),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: (_sessionReady && !_starting && !_navigating)
-                      ? _startGuidance
-                      : null,
-                  icon: const Icon(Icons.assistant_navigation),
-                  label: Text(
-                    _navigating ? 'Guidance active' : 'Start guidance',
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
+            if (kDebugMode) _debugPanel(),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: (!_starting && !_navigating)
+                        ? _startGuidance
+                        : null,
+                    icon: const Icon(Icons.assistant_navigation),
+                    label: Text(
+                      _navigating ? 'Guidance active' : 'Start guidance',
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                    ),
                   ),
                 ),
               ),
             ),
+          ] else
+            Expanded(child: _phasePanel()),
+        ],
+      ),
+    );
+  }
+
+  // Header status line, driven by the init phase (so it never sticks on
+  // "Initializing navigation…"). Guidance messages take over once ready.
+  String _headerStatus() {
+    switch (_init.phase) {
+      case NavInitPhase.preparing:
+      case NavInitPhase.idle:
+        return 'Preparing navigation…';
+      case NavInitPhase.awaitingTermsDecision:
+        return 'Review the navigation terms to continue';
+      case NavInitPhase.declined:
+        return 'Navigation terms not accepted';
+      case NavInitPhase.failed:
+        return 'In-app navigation unavailable';
+      case NavInitPhase.ready:
+        return _status;
+    }
+  }
+
+  // Non-ready body: an explicit loading / awaiting-terms / declined / failed
+  // panel, so the screen is never an indefinitely blank map or a spinner stuck
+  // behind the native dialog.
+  Widget _phasePanel() {
+    switch (_init.phase) {
+      case NavInitPhase.awaitingTermsDecision:
+        return _awaitingTermsPanel();
+      case NavInitPhase.declined:
+        return _declinedPanel();
+      case NavInitPhase.failed:
+        return _failedPanel();
+      case NavInitPhase.preparing:
+      case NavInitPhase.idle:
+      case NavInitPhase.ready:
+        return _loadingPanel();
+    }
+  }
+
+  // Shown while the native Terms dialog is expected to be on screen. NOT a
+  // spinner (the dialog is user-driven and may stay up while the rider reads) —
+  // just a stable, quiet message behind the dialog. The map is never rendered.
+  Widget _awaitingTermsPanel() {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Text(
+          'Please review and accept Google’s navigation terms to continue.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 14, color: AppColors.textDark),
+        ),
+      ),
+    );
+  }
+
+  // "Preparing navigation…" — shown while checking permission/Terms or showing
+  // the Terms dialog. No interactive map is exposed underneath.
+  Widget _loadingPanel() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 26,
+            height: 26,
+            child: CircularProgressIndicator(strokeWidth: 2.5),
           ),
+          SizedBox(height: 14),
+          Text(
+            'Preparing navigation…',
+            style: TextStyle(fontSize: 14, color: AppColors.textDark),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Rider declined / closed the Terms (or init reported termsNotAccepted). No
+  // session was initialized. Offers Review terms, Google Maps, and Back.
+  Widget _declinedPanel() {
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.assignment_late_outlined,
+              size: 40, color: AppColors.textLight),
+          const SizedBox(height: 12),
+          const Text(
+            'Google’s navigation terms must be accepted before using in-app '
+            'navigation.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, color: AppColors.textDark),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _init.isBusy ? null : _reviewTerms,
+              icon: const Icon(Icons.fact_check_outlined),
+              label: const Text('Review navigation terms'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _openExternalMaps,
+              icon: const Icon(Icons.map_outlined),
+              label: const Text('Open in Google Maps'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: TextButton(
+              onPressed: () => Navigator.of(context).maybePop(),
+              child: const Text('Back to delivery'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Initialization failed for a non-terms reason (e.g. Maps key / SDK config).
+  // Keeps the friendly fallback; the raw error is shown only in debug builds.
+  Widget _failedPanel() {
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.navigation_outlined,
+              size: 40, color: AppColors.textLight),
+          const SizedBox(height: 12),
+          const Text(
+            'In-app Google Navigation is unavailable right now. You can still '
+            'navigate using the Google Maps app.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, color: AppColors.textDark),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _openExternalMaps,
+              icon: const Icon(Icons.map_outlined),
+              label: const Text('Open in Google Maps'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: () => Navigator.of(context).maybePop(),
+              child: const Text('Back to delivery'),
+            ),
+          ),
+          if (kDebugMode && _init.lastError != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Debug: ${_init.lastError}',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 10, color: AppColors.textLight),
+            ),
+          ],
         ],
       ),
     );

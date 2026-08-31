@@ -163,15 +163,43 @@ class _ProofScreenState extends State<ProofScreen> {
                             style: TextStyle(color: AppColors.textMuted, fontSize: 13))
                       else
                         DropdownButtonFormField<String>(
+                          // Fill the available width so long labels ellipsize
+                          // instead of overflowing the field on narrow phones.
+                          isExpanded: true,
                           initialValue: _selectedOrderId,
                           decoration: const InputDecoration(
                             labelText: 'Delivery Order',
                             contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                           ),
+                          // Collapsed (selected) label: width-constrained +
+                          // ellipsized, with the full label on long-press. The
+                          // underlying value stays the full order id.
+                          selectedItemBuilder: (context) {
+                            return eligible.map((d) {
+                              final label = '${d.orderNumber} — ${d.clinicName}';
+                              return Align(
+                                alignment: Alignment.centerLeft,
+                                child: Tooltip(
+                                  message: label,
+                                  child: Text(
+                                    label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    softWrap: false,
+                                  ),
+                                ),
+                              );
+                            }).toList();
+                          },
                           items: eligible.map((d) {
                             return DropdownMenuItem(
                               value: d.id,
-                              child: Text('${d.orderNumber} — ${d.clinicName}', overflow: TextOverflow.ellipsis),
+                              child: Text(
+                                '${d.orderNumber} — ${d.clinicName}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                softWrap: false,
+                              ),
                             );
                           }).toList(),
                           onChanged: (v) => setState(() => _selectedOrderId = v),
