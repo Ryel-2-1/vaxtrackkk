@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
@@ -9,6 +9,7 @@ import {
   CircleHelp,
   Edit,
   Grid3X3,
+  MapPin,
   Plus,
   Search,
   X,
@@ -19,8 +20,12 @@ import {
   subscribeClinics,
   clinicNameExists,
   addClinic,
+  updateClinicLocation,
+  readClinicLocation,
+  validateClinicLocation,
 } from "../../services/clinicService";
 import KpiCard from "../../components/ui/KpiCard";
+import ClinicLocationSection from "./ClinicLocationSection";
 import "./Clinics.css";
 
 const STATUS_LABEL = {
@@ -63,6 +68,10 @@ function normalizeClinic(raw) {
     lastDelivery: raw.lastDelivery || "No delivery yet",
     initials,
     contactTone: raw.contactTone || "blue",
+    // Canonical coordinates (top-level `latitude`/`longitude` numbers), read
+    // backward-compatibly: pre-radius clinics report the 300 m default, and a
+    // clinic with no pin reports hasCoordinates: false rather than a fake one.
+    locationInfo: readClinicLocation(raw),
   };
 }
 
@@ -79,6 +88,7 @@ const EMPTY_CLINIC = {
   status: "active",
   latitude: "",
   longitude: "",
+  geofenceRadiusM: "",
 };
 
 function Clinics() {
@@ -94,6 +104,33 @@ function Clinics() {
   const [showNewClinicModal, setShowNewClinicModal] = useState(false);
   const [toast, setToast] = useState("");
   const [newClinic, setNewClinic] = useState(EMPTY_CLINIC);
+  const [newClinicErrors, setNewClinicErrors] = useState({});
+  // The clinic whose location is being managed, plus the element to restore
+  // focus to when the dialog closes.
+  const [managedClinic, setManagedClinic] = useState(null);
+  const manageTriggerRef = useRef(null);
+
+  const openManageLocation = (clinic, triggerEl) => {
+    manageTriggerRef.current = triggerEl;
+    setManagedClinic(clinic);
+  };
+
+  const closeManageLocation = useCallback(() => {
+    setManagedClinic(null);
+    // Return focus to the row action that opened the dialog.
+    if (manageTriggerRef.current) {
+      manageTriggerRef.current.focus();
+      manageTriggerRef.current = null;
+    }
+  }, []);
+
+  const handleSaveLocation = async (clinic, draft) => {
+    // subscribeClinics remains the source of truth — no local clinic list
+    // mutation here; the snapshot re-renders the row.
+    await updateClinicLocation(clinic.firestoreId, draft);
+    showToast(`Location saved for ${clinic.name}.`);
+    closeManageLocation();
+  };
 
   const handleLogout = async () => {
     await signOut(auth);
@@ -161,6 +198,21 @@ function Clinics() {
       return;
     }
 
+    // Location stays optional, but a PARTIAL or out-of-range entry is caught
+    // here so the admin is told, rather than the coordinates being dropped.
+    const enteredLocation =
+      String(newClinic.latitude).trim() !== "" ||
+      String(newClinic.longitude).trim() !== "";
+    if (enteredLocation) {
+      const check = validateClinicLocation(newClinic);
+      if (!check.ok) {
+        setNewClinicErrors(check.errors);
+        showToast("Check the clinic location before saving.");
+        return;
+      }
+    }
+    setNewClinicErrors({});
+
     setSaving(true);
     try {
       if (await clinicNameExists(newClinic.name)) {
@@ -181,6 +233,7 @@ function Clinics() {
         status: newClinic.status,
         latitude: newClinic.latitude,
         longitude: newClinic.longitude,
+        geofenceRadiusM: newClinic.geofenceRadiusM,
       });
 
       setNewClinic(EMPTY_CLINIC);
@@ -360,6 +413,18 @@ function Clinics() {
                     <div className="clinic-location-cell">
                       <strong>{clinic.location}</strong>
                       <small>{clinic.area}</small>
+                      <span
+                        className={`clinic-geo-chip ${
+                          clinic.locationInfo.hasCoordinates
+                            ? "verified"
+                            : "missing"
+                        }`}
+                      >
+                        <MapPin size={11} aria-hidden="true" />
+                        {clinic.locationInfo.hasCoordinates
+                          ? "Location verified"
+                          : "Needs location"}
+                      </span>
                     </div>
                   </td>
 
@@ -403,6 +468,14 @@ function Clinics() {
                         onClick={() => setSelectedClinic(clinic)}
                       >
                         Details
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) =>
+                          openManageLocation(clinic, e.currentTarget)
+                        }
+                      >
+                        Manage location
                       </button>
                       <button
                         type="button"
@@ -512,11 +585,241 @@ function Clinics() {
         <NewClinicModal
           newClinic={newClinic}
           setNewClinic={setNewClinic}
-          onClose={() => setShowNewClinicModal(false)}
+          errors={newClinicErrors}
+          onClose={() => {
+            setShowNewClinicModal(false);
+            setNewClinicErrors({});
+          }}
           onSubmit={handleCreateClinic}
           saving={saving}
         />
       )}
+
+      {managedClinic && (
+        <ManageLocationModal
+          clinic={managedClinic}
+          onClose={closeManageLocation}
+          onSave={handleSaveLocation}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Edit the location of an EXISTING clinic.
+ *
+ * Reuses [ClinicLocationSection] rather than restating the picker, so the map,
+ * the numeric fallback and the radius rules stay in one place. Saves through
+ * `updateClinicLocation`, which writes only the location fields — clinic name,
+ * contact, status and notes are untouched, and no new clinic can be created.
+ */
+function ManageLocationModal({ clinic, onClose, onSave }) {
+  const initial = useMemo(
+    () => ({
+      latitude:
+        clinic.locationInfo.latitude === null
+          ? ""
+          : String(clinic.locationInfo.latitude),
+      longitude:
+        clinic.locationInfo.longitude === null
+          ? ""
+          : String(clinic.locationInfo.longitude),
+      // Seed from the RAW stored radius when there is one, so a corrupt value
+      // is visible and rejected rather than silently shown as the default.
+      geofenceRadiusM: String(
+        clinic.locationInfo.geofenceRadiusMStored ??
+          clinic.locationInfo.geofenceRadiusM
+      ),
+    }),
+    [clinic]
+  );
+
+  const [draft, setDraft] = useState(initial);
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  const dialogRef = useRef(null);
+  const headingId = `manage-location-${clinic.firestoreId}`;
+
+  const isDirty =
+    draft.latitude !== initial.latitude ||
+    draft.longitude !== initial.longitude ||
+    draft.geofenceRadiusM !== initial.geofenceRadiusM;
+
+  const requestClose = useCallback(() => {
+    if (saving) return; // never abandon an in-flight write
+    if (isDirty) {
+      setConfirmingDiscard(true);
+      return;
+    }
+    onClose();
+  }, [saving, isDirty, onClose]);
+
+  // Escape closes when safe (unsaved edits ask first), and Tab is cycled inside
+  // the dialog. The trap is not optional decoration: this element declares
+  // aria-modal="true", which tells assistive tech the rest of the page is
+  // inert. Letting Tab walk out into the clinics table behind would make that
+  // promise false.
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        requestClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+
+      const root = dialogRef.current;
+      if (!root) return;
+      const items = [
+        ...root.querySelectorAll(
+          'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])'
+        ),
+      ].filter((el) => !el.disabled && el.getClientRects().length > 0);
+      if (items.length === 0) return;
+
+      const first = items[0];
+      const last = items[items.length - 1];
+
+      if (!root.contains(document.activeElement)) {
+        e.preventDefault();
+        first.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [requestClose]);
+
+  // Move focus into the dialog on open.
+  useEffect(() => {
+    const first = dialogRef.current?.querySelector(
+      "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"
+    );
+    first?.focus();
+  }, []);
+
+  const patchDraft = (patch) => {
+    setDraft((prev) => ({ ...prev, ...patch }));
+    setSaveError("");
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const check = validateClinicLocation(draft);
+    if (!check.ok) {
+      setErrors(check.errors);
+      return;
+    }
+    setErrors({});
+    setSaving(true);
+    setSaveError("");
+    try {
+      await onSave(clinic, draft);
+    } catch (error) {
+      console.error("Update clinic location error:", error);
+      setSaveError(
+        error?.message || "The location could not be saved. Please try again."
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="clinics-modal-backdrop">
+      <form
+        ref={dialogRef}
+        className="clinics-modal clinics-form-modal"
+        onSubmit={handleSubmit}
+        // Native constraint validation is disabled so `validateClinicLocation`
+        // is the SINGLE authority. Without this, the radius input's min/max
+        // silently blocked submission before React ran, so an out-of-range
+        // radius produced a browser tooltip instead of the styled,
+        // aria-describedby-linked error — and only for radius, since the
+        // coordinate inputs have no native bounds. The min/max attributes stay
+        // as affordances (spinner steps, mobile keypad), not as gatekeepers.
+        noValidate
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={headingId}
+      >
+        <button
+          type="button"
+          className="clinics-modal-close"
+          onClick={requestClose}
+          disabled={saving}
+          aria-label="Close manage location"
+        >
+          <X size={16} />
+        </button>
+
+        <h3 id={headingId}>Manage location</h3>
+        <p className="clinics-modal-sub">
+          {clinic.name} · {clinic.location}
+        </p>
+
+        <ClinicLocationSection
+          value={draft}
+          onChange={patchDraft}
+          errors={errors}
+          disabled={saving}
+          idPrefix={`manage-${clinic.firestoreId}`}
+        />
+
+        {saveError && (
+          <p className="clinic-loc-save-error" role="alert">
+            {saveError}
+          </p>
+        )}
+
+        {confirmingDiscard && (
+          <div className="clinic-loc-discard" role="alert">
+            <p>Discard the unsaved location changes?</p>
+            <div className="clinic-loc-discard-actions">
+              <button
+                type="button"
+                className="clinics-light-action"
+                onClick={() => setConfirmingDiscard(false)}
+              >
+                Keep editing
+              </button>
+              <button
+                type="button"
+                className="clinics-danger-action"
+                onClick={onClose}
+              >
+                Discard changes
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="clinics-modal-actions">
+          <button
+            type="submit"
+            className="clinics-primary-action"
+            disabled={saving}
+          >
+            {saving ? "Saving..." : "Save location"}
+          </button>
+          <button
+            type="button"
+            className="clinics-light-action"
+            onClick={requestClose}
+            disabled={saving}
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -602,10 +905,23 @@ function ClinicDetailsModal({ clinic, onClose, onCreateDelivery, onEdit }) {
   );
 }
 
-function NewClinicModal({ newClinic, setNewClinic, onClose, onSubmit, saving }) {
+function NewClinicModal({
+  newClinic,
+  setNewClinic,
+  errors = {},
+  onClose,
+  onSubmit,
+  saving,
+}) {
   return (
     <div className="clinics-modal-backdrop">
-      <form className="clinics-modal clinics-form-modal" onSubmit={onSubmit}>
+      {/* noValidate: the clinic + location validators own all feedback, so a
+          native tooltip can never pre-empt the styled inline errors. */}
+      <form
+        className="clinics-modal clinics-form-modal"
+        onSubmit={onSubmit}
+        noValidate
+      >
         <button
           type="button"
           className="clinics-modal-close"
@@ -691,34 +1007,6 @@ function NewClinicModal({ newClinic, setNewClinic, onClose, onSubmit, saving }) 
           </label>
 
           <label>
-            Latitude <span className="clinics-optional">(optional)</span>
-            <input
-              type="number"
-              step="any"
-              placeholder="e.g. 14.5995"
-              value={newClinic.latitude}
-              onChange={(e) =>
-                setNewClinic((prev) => ({ ...prev, latitude: e.target.value }))
-              }
-              disabled={saving}
-            />
-          </label>
-
-          <label>
-            Longitude <span className="clinics-optional">(optional)</span>
-            <input
-              type="number"
-              step="any"
-              placeholder="e.g. 120.9842"
-              value={newClinic.longitude}
-              onChange={(e) =>
-                setNewClinic((prev) => ({ ...prev, longitude: e.target.value }))
-              }
-              disabled={saving}
-            />
-          </label>
-
-          <label>
             Area
             <select
               value={newClinic.area}
@@ -768,6 +1056,14 @@ function NewClinicModal({ newClinic, setNewClinic, onClose, onSubmit, saving }) 
             />
           </label>
         </div>
+
+        <ClinicLocationSection
+          value={newClinic}
+          onChange={(patch) => setNewClinic((prev) => ({ ...prev, ...patch }))}
+          errors={errors}
+          disabled={saving}
+          idPrefix="new-clinic"
+        />
 
         <div className="clinics-modal-actions">
           <button
