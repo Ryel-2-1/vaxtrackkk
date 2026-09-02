@@ -1,0 +1,437 @@
+/* ============================================================
+   VaxTrack — Unified role-aware login (Phase H1)
+   Split-screen production login. Every selector is scoped under
+   `.vlogin` so nothing leaks into dashboards or the other auth
+   pages (Register/ForgotPassword keep their own Auth.css). Colors
+   come from the global Meridian tokens (tokens.css) — no new hues.
+   ============================================================ */
+
+/* Contain the scroll root on this route.
+   `index.css` still carries the Vite scaffold's `#root { width: 1126px }`, and
+   `styles.css` then sets `max-width: none !important` on html/body/#root — which
+   removes the very cap (`max-width: 100%`) that kept that fixed width in check.
+   Below 1126px the root therefore stays 1126px wide and only *looks* contained
+   because of the global `overflow-x: hidden`: children sized from it are simply
+   clipped. On the login that pushed the card and its Sign in button off-screen
+   at phone widths.
+   This is a pre-existing, app-wide bug. The fix here is deliberately scoped to
+   the login route (`:has(> .vlogin)`) so it cannot alter any dashboard layout;
+   the global rule needs its own change and its own verification pass.
+   `!important` is the minimum needed to beat `max-width: none !important`. */
+#root:has(> .vlogin) {
+  width: 100%;
+  max-width: 100% !important;
+}
+
+.vlogin {
+  --vl-motion: 180ms;
+  --vl-motion-fast: 140ms;
+  --vl-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+  background: var(--gray-50);
+  color: var(--gray-900);
+  font-family: var(--font-ui);
+}
+
+/* ---------------- left visual panel ---------------- */
+.vlogin-visual {
+  position: relative;
+  flex: 0 0 48%;
+  max-width: 48%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 40px;
+  background: var(--green-950);
+  color: #ffffff;
+}
+/* restrained cold-chain motif — a single low-opacity glyph, no gradient */
+.vlogin-motif {
+  position: absolute;
+  right: -40px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #ffffff;
+  opacity: 0.05;
+  pointer-events: none;
+}
+.vlogin-brand {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.vlogin-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--green-700);
+  color: #ffffff;
+}
+.vlogin-brand-name {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+}
+.vlogin-visual-msg {
+  position: relative;
+  max-width: 420px;
+}
+.vlogin-visual-msg h2 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+}
+.vlogin-visual-msg p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--green-100);
+}
+
+/* ---------------- right authentication panel ---------------- */
+.vlogin-panel {
+  flex: 1 1 52%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 32px;
+}
+.vlogin-card {
+  width: 100%;
+  max-width: 420px;
+  animation: vlogin-rise var(--vl-motion) var(--vl-ease) both;
+}
+
+/* brand shown only on narrow screens where the left panel is hidden */
+.vlogin-mobile-brand {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.vlogin-mobile-brand .vlogin-brand-name {
+  color: var(--gray-900);
+}
+
+.vlogin-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--gray-900);
+}
+.vlogin-sub {
+  margin: 4px 0 20px;
+  font-size: 13px;
+  color: var(--gray-600);
+}
+
+/* ---------------- role note ----------------
+   A static statement, not a control. Routing is decided solely by the role
+   stored on users/{uid}; the sign-in screen never offers a portal choice,
+   because a selection here could only ever contradict the account. */
+.vlogin-role-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 18px;
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--gray-600);
+}
+.vlogin-role-note svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--gray-500);
+}
+
+/* ---------------- form fields ---------------- */
+.vlogin-form {
+  display: flex;
+  flex-direction: column;
+}
+.vlogin-field {
+  margin-bottom: 14px;
+}
+.vlogin-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.vlogin-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gray-600);
+}
+.vlogin-label-row .vlogin-label {
+  margin-bottom: 0;
+}
+.vlogin-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control);
+  background: #ffffff;
+  /* The wrapper owns the full field surface; overflow hides any inner input
+     box (the global `input {}` rules force a taller, opaque-white box). */
+  overflow: hidden;
+  transition: border-color var(--vl-motion-fast) var(--vl-ease),
+    box-shadow var(--vl-motion-fast) var(--vl-ease);
+}
+.vlogin-input > svg {
+  color: var(--gray-500);
+  flex-shrink: 0;
+}
+.vlogin-input input {
+  flex: 1;
+  min-width: 0;
+  height: 100%; /* fill the 42px wrapper — overrides the global input height:48px */
+  margin: 0;
+  padding: 0; /* the wrapper supplies the horizontal padding + icon gap */
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  /* !important defeats the global `input, textarea, select { background:#fff
+     !important }` that was painting the opaque inner rectangle. */
+  background: transparent !important;
+  box-shadow: none;
+  -webkit-appearance: none;
+  appearance: none;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  color: var(--gray-900);
+}
+.vlogin-input input::placeholder {
+  color: var(--gray-400, #9ca3af);
+}
+/* Chrome/Edge autofill: keep the filled surface transparent so the wrapper's
+   white shows through (matches the field), scoped to the login only. */
+.vlogin-input input:-webkit-autofill,
+.vlogin-input input:-webkit-autofill:hover,
+.vlogin-input input:-webkit-autofill:focus,
+.vlogin-input input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+  box-shadow: 0 0 0 1000px #ffffff inset !important;
+  -webkit-text-fill-color: var(--gray-900) !important;
+  caret-color: var(--gray-900);
+  transition: background-color 9999s ease-in-out 0s;
+}
+.vlogin-input:focus-within {
+  border-color: var(--green-600);
+  box-shadow: 0 0 0 3px var(--green-100);
+}
+/* The global `input:focus` rule (styles.css) adds a blue border + ring to every
+   input. Neutralize it on the login fields so only the container's single green
+   :focus-within ring shows — no second, offset outline overlapping the box. */
+.vlogin-input input:focus,
+.vlogin-input input:focus-visible {
+  border-color: transparent;
+  box-shadow: none;
+  outline: none;
+}
+.vlogin-input.has-error {
+  border-color: var(--danger-border);
+}
+.vlogin-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--gray-500);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+}
+.vlogin-toggle:hover {
+  color: var(--gray-900);
+}
+.vlogin-toggle:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 1px;
+}
+
+.vlogin-forgot {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--green-700);
+  text-decoration: none;
+}
+.vlogin-forgot:hover {
+  color: var(--green-800);
+  text-decoration: underline;
+}
+
+/* ---------------- notices (error / pending) ---------------- */
+.vlogin-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  margin-bottom: 14px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.vlogin-notice svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.vlogin-notice strong {
+  display: block;
+  font-weight: 600;
+}
+.vlogin-notice p {
+  margin: 2px 0 0;
+}
+.vlogin-notice.tone-error {
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
+  color: var(--danger-text);
+}
+.vlogin-notice.tone-pending {
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  color: var(--warning-text);
+}
+.vlogin-notice.tone-info {
+  background: var(--info-bg);
+  border: 1px solid var(--info-border);
+  color: var(--info-text);
+}
+
+/* ---------------- primary button ---------------- */
+.vlogin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 44px;
+  margin-top: 4px;
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--green-700);
+  color: #ffffff;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--vl-motion-fast) var(--vl-ease),
+    transform var(--vl-motion-fast) var(--vl-ease);
+}
+.vlogin-btn:hover:not(:disabled) {
+  background: var(--green-800);
+}
+.vlogin-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.vlogin-btn:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+}
+.vlogin-btn:disabled {
+  background: var(--gray-300);
+  color: var(--gray-500);
+  cursor: not-allowed;
+}
+
+.vlogin-security {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-control);
+  background: var(--gray-50);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--gray-500);
+}
+.vlogin-security svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--gray-500);
+}
+.vlogin-copyright {
+  display: block;
+  margin-top: 16px;
+  font-size: 11px;
+  color: var(--gray-500);
+  text-align: center;
+}
+
+
+/* ---------------- entrance motion ---------------- */
+@keyframes vlogin-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ---------------- responsive ---------------- */
+@media (max-width: 900px) {
+  .vlogin-visual {
+    flex-basis: 38%;
+    max-width: 38%;
+    padding: 28px;
+  }
+  .vlogin-visual-msg h2 {
+    font-size: 19px;
+  }
+}
+@media (max-width: 680px) {
+  .vlogin-visual {
+    display: none;
+  }
+  .vlogin-mobile-brand {
+    display: flex;
+  }
+  .vlogin-panel {
+    padding: 28px 20px;
+    align-items: flex-start;
+  }
+}
+
+/* ---------------- reduced motion ---------------- */
+@media (prefers-reduced-motion: reduce) {
+  .vlogin *,
+  .vlogin *::before,
+  .vlogin *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+  }
+  .vlogin-btn:active:not(:disabled) {
+    transform: none;
+  }
+}
