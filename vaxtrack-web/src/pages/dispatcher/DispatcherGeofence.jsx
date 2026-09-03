@@ -384,6 +384,138 @@ function DispatcherGeofence() {
           </div>
         </div>
 
+        {selected && getLatLng(selected.lastLocation) && (() => {
+          const riderLL = getLatLng(selected.lastLocation);
+          const clinicLL = getClinicLatLng(selected);
+          const distM = clinicLL ? distanceMeters(riderLL, clinicLL) : null;
+          const inside = distM != null && distM <= GEOFENCE_RADIUS_M;
+          return (
+            <div className="geo3-card geo3-live-map-card">
+              <h3>Live map</h3>
+              <RiderLocationMap
+                lat={riderLL[0]}
+                lng={riderLL[1]}
+                clinicLat={clinicLL ? clinicLL[0] : undefined}
+                clinicLng={clinicLL ? clinicLL[1] : undefined}
+                routePolyline={selected.routePolyline}
+              />
+              {clinicLL ? (
+                <p className="geo3-live-map-note">
+                  <span className={inside ? "geo3-geofence-in" : "geo3-geofence-out"}>
+                    {inside
+                      ? "Inside geofence"
+                      : "Outside geofence"}
+                  </span>{" "}
+                  — rider is {Math.round(distM)} m from the destination
+                  (geofence radius {GEOFENCE_RADIUS_M} m)
+                  {isLocationStale(selected.lastLocationUpdate)
+                    ? "; last update is stale"
+                    : ""}
+                  .
+                </p>
+              ) : (
+                <p className="geo3-live-map-note">
+                  Rider position only
+                  {isLocationStale(selected.lastLocationUpdate)
+                    ? " — last update is stale"
+                    : ""}
+                  . Add clinic coordinates in Admin → Clinics to show a
+                  destination marker + geofence.
+                </p>
+              )}
+
+              {(() => {
+                const hasStoredRoute =
+                  !!selected.routePolyline &&
+                  Number.isFinite(selected.routeDistanceMeters);
+                const genAt = selected.routeGeneratedAt?.toDate
+                  ? selected.routeGeneratedAt.toDate()
+                  : null;
+                const liveEta = genAt
+                  ? formatEta(genAt, selected.routeDurationSeconds)
+                  : selected.routeEtaText || "—";
+                const canGenerate = !!clinicLL; // rider location present here
+                return (
+                  <div className="geo3-live-route">
+                    <div className="geo3-live-route-head">
+                      <RouteIcon size={15} />
+                      <span>Route &amp; ETA</span>
+                    </div>
+
+                    {hasStoredRoute && (
+                      <div className="geo3-live-route-metrics">
+                        <div>
+                          <small>Distance</small>
+                          <strong className="tnum">
+                            {formatDistance(selected.routeDistanceMeters)}
+                          </strong>
+                        </div>
+                        <div>
+                          <small>Est. duration</small>
+                          <strong className="tnum">
+                            {formatDuration(selected.routeDurationSeconds)}
+                          </strong>
+                        </div>
+                        <div>
+                          <small>ETA</small>
+                          <strong className="tnum">{liveEta}</strong>
+                        </div>
+                      </div>
+                    )}
+
+                    {hasStoredRoute && (
+                      <p className="geo3-live-route-sub">
+                        Driving route via OpenRouteService
+                        {genAt
+                          ? ` · generated ${formatRelativeTime(selected.routeGeneratedAt)}`
+                          : ""}
+                        .
+                      </p>
+                    )}
+
+                    {!ROUTE_CONFIGURED ? (
+                      <p className="geo3-live-route-missing">
+                        Route ETA unavailable: API key not configured.
+                      </p>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="geo3-live-route-btn"
+                          onClick={handleGenerateRoute}
+                          disabled={!canGenerate || routeBusy}
+                        >
+                          {routeBusy ? (
+                            <Loader2 size={14} className="spin" />
+                          ) : hasStoredRoute ? (
+                            <RefreshCw size={14} />
+                          ) : (
+                            <RouteIcon size={14} />
+                          )}
+                          {routeBusy
+                            ? "Generating…"
+                            : hasStoredRoute
+                            ? "Refresh route"
+                            : "Generate route & ETA"}
+                        </button>
+                        {!canGenerate && (
+                          <p className="geo3-live-route-sub">
+                            Add clinic coordinates (Admin → Clinics) to
+                            enable routing to the destination.
+                          </p>
+                        )}
+                        {activeRouteError && (
+                          <p className="geo3-live-route-error">{activeRouteError}</p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          );
+        })()}
+
         {activeOrders.length === 0 ? (
           <div className="dispatcher-empty-queue">
             <Package size={28} />
@@ -509,138 +641,6 @@ function DispatcherGeofence() {
                       </div>
                     </div>
                   </div>
-
-                  {getLatLng(selected.lastLocation) && (() => {
-                    const riderLL = getLatLng(selected.lastLocation);
-                    const clinicLL = getClinicLatLng(selected);
-                    const distM = clinicLL ? distanceMeters(riderLL, clinicLL) : null;
-                    const inside = distM != null && distM <= GEOFENCE_RADIUS_M;
-                    return (
-                      <div className="geo3-card geo3-live-map-card">
-                        <h3>Live map</h3>
-                        <RiderLocationMap
-                          lat={riderLL[0]}
-                          lng={riderLL[1]}
-                          clinicLat={clinicLL ? clinicLL[0] : undefined}
-                          clinicLng={clinicLL ? clinicLL[1] : undefined}
-                          routePolyline={selected.routePolyline}
-                        />
-                        {clinicLL ? (
-                          <p className="geo3-live-map-note">
-                            <span className={inside ? "geo3-geofence-in" : "geo3-geofence-out"}>
-                              {inside
-                                ? "Inside geofence"
-                                : "Outside geofence"}
-                            </span>{" "}
-                            — rider is {Math.round(distM)} m from the destination
-                            (geofence radius {GEOFENCE_RADIUS_M} m)
-                            {isLocationStale(selected.lastLocationUpdate)
-                              ? "; last update is stale"
-                              : ""}
-                            .
-                          </p>
-                        ) : (
-                          <p className="geo3-live-map-note">
-                            Rider position only
-                            {isLocationStale(selected.lastLocationUpdate)
-                              ? " — last update is stale"
-                              : ""}
-                            . Add clinic coordinates in Admin → Clinics to show a
-                            destination marker + geofence.
-                          </p>
-                        )}
-
-                        {(() => {
-                          const hasStoredRoute =
-                            !!selected.routePolyline &&
-                            Number.isFinite(selected.routeDistanceMeters);
-                          const genAt = selected.routeGeneratedAt?.toDate
-                            ? selected.routeGeneratedAt.toDate()
-                            : null;
-                          const liveEta = genAt
-                            ? formatEta(genAt, selected.routeDurationSeconds)
-                            : selected.routeEtaText || "—";
-                          const canGenerate = !!clinicLL; // rider location present here
-                          return (
-                            <div className="geo3-live-route">
-                              <div className="geo3-live-route-head">
-                                <RouteIcon size={15} />
-                                <span>Route &amp; ETA</span>
-                              </div>
-
-                              {hasStoredRoute && (
-                                <div className="geo3-live-route-metrics">
-                                  <div>
-                                    <small>Distance</small>
-                                    <strong className="tnum">
-                                      {formatDistance(selected.routeDistanceMeters)}
-                                    </strong>
-                                  </div>
-                                  <div>
-                                    <small>Est. duration</small>
-                                    <strong className="tnum">
-                                      {formatDuration(selected.routeDurationSeconds)}
-                                    </strong>
-                                  </div>
-                                  <div>
-                                    <small>ETA</small>
-                                    <strong className="tnum">{liveEta}</strong>
-                                  </div>
-                                </div>
-                              )}
-
-                              {hasStoredRoute && (
-                                <p className="geo3-live-route-sub">
-                                  Driving route via OpenRouteService
-                                  {genAt
-                                    ? ` · generated ${formatRelativeTime(selected.routeGeneratedAt)}`
-                                    : ""}
-                                  .
-                                </p>
-                              )}
-
-                              {!ROUTE_CONFIGURED ? (
-                                <p className="geo3-live-route-missing">
-                                  Route ETA unavailable: API key not configured.
-                                </p>
-                              ) : (
-                                <>
-                                  <button
-                                    type="button"
-                                    className="geo3-live-route-btn"
-                                    onClick={handleGenerateRoute}
-                                    disabled={!canGenerate || routeBusy}
-                                  >
-                                    {routeBusy ? (
-                                      <Loader2 size={14} className="spin" />
-                                    ) : hasStoredRoute ? (
-                                      <RefreshCw size={14} />
-                                    ) : (
-                                      <RouteIcon size={14} />
-                                    )}
-                                    {routeBusy
-                                      ? "Generating…"
-                                      : hasStoredRoute
-                                      ? "Refresh route"
-                                      : "Generate route & ETA"}
-                                  </button>
-                                  {!canGenerate && (
-                                    <p className="geo3-live-route-sub">
-                                      Add clinic coordinates (Admin → Clinics) to
-                                      enable routing to the destination.
-                                    </p>
-                                  )}
-                                  {activeRouteError && (
-                                    <p className="geo3-live-route-error">{activeRouteError}</p>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    );
-                  })()}
 
                   {selected.deliveryInstructions && (
                     <div className="geo3-card geo3-timeline-card">
