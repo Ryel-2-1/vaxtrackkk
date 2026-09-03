@@ -13,7 +13,6 @@ import {
   PackagePlus,
   RotateCcw,
   Search,
-  Snowflake,
 } from "lucide-react";
 import { subscribeInventory } from "../../services/inventoryService";
 import SalesRepLayout from "./SalesRepLayout";
@@ -302,14 +301,6 @@ function SalesRepInventory() {
             value={formatCompact(metrics.safeStock)}
             sub="stable batches"
             tone="green"
-          />
-
-          <SmallMetric
-            icon={<Snowflake size={24} />}
-            label="Cold-Chain Alerts"
-            value={metrics.coldChainAlerts}
-            sub="need monitoring"
-            tone="blue"
           />
         </div>
       </section>
