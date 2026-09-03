@@ -5,9 +5,13 @@
    the shared sidebar chrome used by other admin pages.
    ============================================================ */
 
-/* single source of truth for the desktop rail width (rail + content offset) */
+/* single source of truth for the desktop rail width (rail + content offset).
+   280px matches the legacy admin pages' sidebar (styles.css) so that
+   Dashboard / Inventory / Analytics begin at the SAME left gutter as
+   Deliveries — the var drives both the fixed rail width and the
+   `.adx-main` margin-left, keeping them in lock-step. */
 .adl-root {
-  --admin-sidebar-width: 240px;
+  --admin-sidebar-width: 280px;
 }
 
 /* ---------- shared content area (authoritative, used by every AdminLayout

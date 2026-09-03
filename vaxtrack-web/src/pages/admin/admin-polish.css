@@ -180,6 +180,93 @@ aside.inventory-sidebar .sidebar-logout {
 }
 
 /* ============================================================
+   7 · Sidebar viewport anchoring (desktop) — fix the gap on long pages
+   ------------------------------------------------------------
+   ROOT CAUSE: styles.css gives the sidebar `position: sticky; top:0;
+   height:100vh`, which SHOULD keep it pinned while the page scrolls.
+   But `overflow-x: hidden` is set on the whole ancestor chain —
+   `html, body, #root` (styles.css) AND `.inventory-page`. Per the CSS
+   overflow spec, a non-visible overflow on one axis makes the element
+   a scroll container; each of those becomes a non-scrolling scroll
+   container that traps the sticky (the window scrolls, they don't), so
+   the sticky is inert and the fixed-100vh column exposes the light page
+   background below it once a route (Deliveries / Invoices / Alerts) is
+   taller than one viewport.
+
+   WHY FIXED, NOT STICKY: three of those trapping ancestors
+   (`html`/`body`/`#root`) are global — they cannot be corrected in an
+   Admin-scoped layer without affecting Sales Rep / Dispatcher / Login.
+   So, as the brief allows, the sidebar uses a *properly compensated*
+   `position: fixed` instead: it anchors to the viewport (no ancestor
+   sets transform/filter/perspective/contain, so nothing re-captures a
+   fixed box), always fills the visible height (100dvh with a 100vh
+   fallback), and stays put while only the document scrolls — its
+   controls never leave the screen and it is NOT stretched to the
+   document height. The page wrapper is padded left by the sidebar
+   width so main content is never covered and no horizontal scroll is
+   introduced. Existing width (280px), the dark shell styling, active
+   states, and the §5 internal-nav-scroll / bottom-anchored Logout all
+   remain. Desktop only — at ≤1000px the sidebar stacks (styles.css),
+   which is left untouched.
+   ============================================================ */
+/* IMPORTANT — this fix is for the LEGACY admin pages only
+   (`.inventory-page` WITHOUT `.adl-root`: Deliveries, Invoices, Alerts,
+   Riders, Clinics, Settings). Pages that use <AdminLayout> carry
+   `.inventory-page.adl-root` and are already given an equivalent fixed
+   rail + `.adx-main { margin-left }` by AdminLayout.css. Excluding
+   `.adl-root` here prevents BOTH offsets from stacking (which produced
+   the large empty gap on Dashboard / Inventory / Analytics). */
+@media (min-width: 1001px) {
+  .inventory-page:not(.adl-root) aside.inventory-sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    height: 100vh !important;   /* fallback */
+    height: 100dvh !important;  /* viewport-aware, accounts for mobile chrome */
+  }
+  /* Reserve the sidebar's column so the (now out-of-flow) main content
+     is never overlapped. border-box keeps width:100% + padding from
+     overflowing. */
+  .inventory-page:not(.adl-root) {
+    box-sizing: border-box !important;
+    padding-left: 280px !important;
+  }
+}
+
+/* ============================================================
+   8 · Consistent Admin typography
+   ------------------------------------------------------------
+   The Admin wrapper never declared a font-family, so pages fell back to
+   mixed stacks — the global body `Inter, Arial` for most text, but the
+   native form controls (select / textarea and, on some UAs, buttons)
+   render in the browser default because native controls do NOT inherit
+   `font` automatically. Apply the project's intended UI font
+   (`--font-ui`, an existing token — no new font package/request) at the
+   Admin shell root, and force the native controls to inherit it so
+   every surface — headings, text, links, buttons, inputs, selects,
+   textareas, table cells, status badges, sidebar labels, modal content
+   — shares one stack. Sizes/weights/spacing are set elsewhere and are
+   preserved; only the family is unified. Scoped to Admin; no other role
+   is affected. No blanket !important — the root declaration wins by
+   proximity and the control rules win by their element specificity.
+   ============================================================ */
+.inventory-page,
+aside.inventory-sidebar {
+  font-family: var(--font-ui);
+}
+.inventory-page button,
+.inventory-page input,
+.inventory-page select,
+.inventory-page textarea,
+.inventory-page optgroup,
+.inventory-page option,
+aside.inventory-sidebar button,
+aside.inventory-sidebar input,
+aside.inventory-sidebar select {
+  font-family: inherit;
+}
+
+/* ============================================================
    6 · Reduced motion (respect the OS setting), Admin-scoped
    ============================================================ */
 @media (prefers-reduced-motion: reduce) {
@@ -194,4 +281,91 @@ aside.inventory-sidebar .sidebar-logout {
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ============================================================
+   9 · Invoices "Approved Orders" heading visibility
+   ------------------------------------------------------------
+   The authored rule `.inv-table-toolbar h2` (Invoices.css) sets only
+   font-size/weight and omits `color`, so the heading resolved to an
+   invisible near-white fill on the white `.inv-table-card` (it showed
+   only when text was selected). Supply the normal Admin heading colour
+   — scoped to this one heading, so no global heading colour changes and
+   no other Admin heading is recoloured. `-webkit-text-fill-color`
+   guards against any inherited fill override in the cascade. Visible in
+   normal / hover / focus / selection states (a plain colour, not a
+   state-dependent one).
+   ============================================================ */
+.inventory-page .inv-table-toolbar h2 {
+  color: var(--gray-900) !important;
+  -webkit-text-fill-color: var(--gray-900) !important;
+}
+/* let the toolbar wrap cleanly instead of squeezing search/Export */
+.inventory-page .inv-table-toolbar {
+  flex-wrap: wrap !important;
+}
+
+/* ============================================================
+   10 · Admin search fields — single-surface pattern
+   ------------------------------------------------------------
+   All SIX Admin search controls use a rounded WRAPPER that owns the
+   visible background/border/radius + a single `:focus-within` ring,
+   with an inner <input>:
+     Deliveries `.mdl-search`, Invoices `.inv-search`, Alerts
+     `.alerts-search`, Riders `.riders-v2-search`, Clinics
+     `.clinics-v2-search`, Settings (User Management) `.settings-v3-search`.
+   Two global rules broke them: `input,select,textarea {
+   background-color:#fff !important }` and `input { min-height:46px
+   !important; border-radius:12px !important }` (styles.css) forced the
+   inner input to paint an opaque, 46px-tall, rounded box that overflowed
+   its 36–42px pill (the clipped/covered border + "second surface"); and
+   admin-polish §2 gave the inner input its OWN green :focus-visible
+   outline, drawing a second box inside the wrapper's focus-within ring.
+   The three `-v2`/`-v3` fields each reset border/outline/background but
+   NOT `min-height`/`border-radius`, so the 46px min-height + 12px radius
+   still applied (a 46px rounded inner box inside a 42px pill). Fix:
+   neutralise the inner input to a true single surface, and let the
+   wrapper's :focus-within be the one accessible focus indicator.
+   Keyboard focus stays visible (focus-within fires on input focus).
+   `.settings-v3-search` is the User-Management search only — normal
+   Settings form fields use other classes and are untouched. */
+.inventory-page .mdl-search input,
+.inventory-page .inv-search input,
+.inventory-page .alerts-search input,
+.inventory-page .riders-v2-search input,
+.inventory-page .clinics-v2-search input,
+.inventory-page .settings-v3-search input {
+  min-height: 0 !important;
+  height: auto !important;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  background-color: transparent !important;   /* beat global input{background:#fff!important} */
+  border-radius: 0 !important;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  color: var(--gray-900) !important;
+  font-family: var(--font-ui) !important;
+}
+/* one focus ring, owned by the wrapper (re-affirmed so it wins the cascade) */
+.inventory-page .mdl-search:focus-within,
+.inventory-page .inv-search:focus-within,
+.inventory-page .alerts-search:focus-within,
+.inventory-page .riders-v2-search:focus-within,
+.inventory-page .clinics-v2-search:focus-within,
+.inventory-page .settings-v3-search:focus-within {
+  border-color: var(--green-700) !important;
+  box-shadow: 0 0 0 3px var(--green-100) !important;
+}
+/* suppress the inner input's own outline (§2) — the wrapper ring is the indicator */
+.inventory-page .mdl-search input:focus-visible,
+.inventory-page .inv-search input:focus-visible,
+.inventory-page .alerts-search input:focus-visible,
+.inventory-page .riders-v2-search input:focus-visible,
+.inventory-page .clinics-v2-search input:focus-visible,
+.inventory-page .settings-v3-search input:focus-visible {
+  outline: none !important;
 }
