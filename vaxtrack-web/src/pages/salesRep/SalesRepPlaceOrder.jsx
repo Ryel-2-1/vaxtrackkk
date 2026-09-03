@@ -27,7 +27,9 @@ function getInitialItems() {
         sku: item.sku || item.id || "—",
         chain: item.temp || item.category || "Cold Chain",
         quantity: Number(item.quantity) || 1,
-        stockText: item.stock ? `Available: ${Number(item.stock).toLocaleString()} vials` : "",
+        stockText: item.stock
+          ? `Available: ${Number(item.stock).toLocaleString()} ${Number(item.stock) === 1 ? "vial" : "vials"}`
+          : "",
       }));
     }
   } catch (error) {
@@ -111,8 +113,23 @@ function SalesRepPlaceOrder() {
       return;
     }
 
-    if (!selectedClinicInfo) {
-      setMessage("Please select a clinic destination.");
+    // Re-validate the clinic at submit time (not only while selecting): it must
+    // still be a REAL registered clinic in the live Firestore `clinics` array
+    // AND carry a non-empty canonical `clinicId`. Records without a `clinicId`
+    // are rejected — we never fall back to the Firestore doc id.
+    if (clinicsLoading) {
+      setMessage("Verifying clinic — please wait.");
+      return;
+    }
+    const liveClinic =
+      selectedClinicInfo && clinics.find((c) => c.id === selectedClinicInfo.id);
+    const canonicalClinicId =
+      liveClinic && liveClinic.clinicId != null
+        ? String(liveClinic.clinicId).trim()
+        : "";
+    const verifiedClinic = liveClinic && canonicalClinicId ? liveClinic : null;
+    if (!verifiedClinic) {
+      setMessage("Enter a valid Clinic ID registered in VaxTrack.");
       return;
     }
 
@@ -127,8 +144,9 @@ function SalesRepPlaceOrder() {
           : `${items[0].name} +${items.length - 1} more`;
 
       const orderPayload = {
-        clinicName: selectedClinicInfo.name,
-        clinicAddress: selectedClinicInfo.location || selectedClinicInfo.address || "",
+        clinicId: canonicalClinicId, // canonical Clinic ID (verified non-empty)
+        clinicName: verifiedClinic.name,
+        clinicAddress: verifiedClinic.location || verifiedClinic.address || "",
         vaccineName: vaccineSummary,
         vaccineType: items[0]?.chain || "",
         quantity: totalQuantity,
@@ -156,6 +174,20 @@ function SalesRepPlaceOrder() {
         orderPayload.clinicLng = Number(selectedClinicInfo.longitude);
       }
 
+      // Pre-compute the canonical public order reference the same way
+      // `createSalesRepOrder` would default it (`VT-ORD-<epoch ms>`), and pass
+      // it in the payload. The service uses `orderData.orderNumber || …`, so
+      // this is behavior-neutral — the same value is written to Firestore
+      // regardless. Passing it explicitly lets us carry it to the confirmation
+      // screen (previously we only had the Firestore doc id, which is why
+      // confirmation showed `TVJXOqvC66uXVSswezIr` instead of `VT-ORD-…`).
+      // Date.now() here is inside an async click handler (`handleFinalizeOrder`),
+      // not render — the react-hooks/purity check reports this as a false
+      // positive when analysing event handlers, so disable it narrowly.
+      // eslint-disable-next-line react-hooks/purity
+      const orderNumber = `VT-ORD-${Date.now()}`;
+      orderPayload.orderNumber = orderNumber;
+
       const orderRef = await createSalesRepOrder(orderPayload);
       const orderId = orderRef.id;
 
@@ -164,6 +196,7 @@ function SalesRepPlaceOrder() {
         "latestSalesOrderDetails",
         JSON.stringify({
           id: orderId,
+          orderNumber,
           ...orderPayload,
           status: "pending_dispatch",
         })
@@ -210,7 +243,7 @@ function SalesRepPlaceOrder() {
     >
       <div className="place-order-session place-v2-session">
         <span>Current Session</span>
-        <strong>{items.length} item(s) in order</strong>
+        <strong>{items.length} {items.length === 1 ? "item" : "items"} in order</strong>
         <Bell size={15} />
       </div>
 
@@ -244,14 +277,14 @@ function SalesRepPlaceOrder() {
                 <h2>Order Items</h2>
                 <p>Review selected vaccines before finalizing the order.</p>
               </div>
-              <span>{items.length} Items Selected</span>
+              <span>{items.length} {items.length === 1 ? "Item" : "Items"} Selected</span>
             </div>
 
             <table>
               <thead>
                 <tr>
                   <th>Product</th>
-                  <th>Batch & Type</th>
+                  <th>Batch ID</th>
                   <th>Quantity</th>
                   <th></th>
                 </tr>
@@ -369,7 +402,7 @@ function SalesRepPlaceOrder() {
             <button
               type="button"
               onClick={handleFinalizeOrder}
-              disabled={saving || items.length === 0}
+              disabled={saving || items.length === 0 || clinicsLoading || !selectedClinicInfo}
             >
               {saving ? "Saving Order..." : "Finalize Order →"}
             </button>
@@ -394,7 +427,6 @@ function OrderRow({ item, onDecrease, onIncrease, onRemove }) {
 
       <td>
         {item.sku}
-        <span className="chain-chip">{item.chain}</span>
       </td>
 
       <td>
