@@ -416,7 +416,7 @@ function RiderDetailsModal({
   return (
     <div className="riders-modal-backdrop">
       <div className="riders-modal">
-        <button type="button" className="riders-modal-close" onClick={onClose}>
+        <button type="button" className="riders-modal-close" onClick={onClose} aria-label="Close">
           <X size={18} />
         </button>
 
@@ -533,7 +533,7 @@ function NewRiderModal({ newRider, setNewRider, onClose, onSubmit }) {
   return (
     <div className="riders-modal-backdrop">
       <form className="riders-modal riders-form-modal" onSubmit={onSubmit}>
-        <button type="button" className="riders-modal-close" onClick={onClose}>
+        <button type="button" className="riders-modal-close" onClick={onClose} aria-label="Close">
           <X size={18} />
         </button>
 

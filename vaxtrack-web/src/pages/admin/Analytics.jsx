@@ -626,7 +626,7 @@ function AnalyticsModal({ modal, onClose }) {
   return (
     <div className="analytics-modal-backdrop">
       <div className="analytics-modal">
-        <button type="button" className="analytics-modal-close" onClick={onClose}>
+        <button type="button" className="analytics-modal-close" onClick={onClose} aria-label="Close">
           <X size={18} />
         </button>
 

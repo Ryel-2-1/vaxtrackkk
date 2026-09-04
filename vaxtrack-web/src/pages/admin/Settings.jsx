@@ -876,7 +876,7 @@ function StaffDetailsModal({ person, isSelf, onClose, onApprove, onDeactivate, o
   return (
     <div className="settings-modal-backdrop">
       <div className="settings-modal">
-        <button type="button" className="settings-modal-close" onClick={onClose}>
+        <button type="button" className="settings-modal-close" onClick={onClose} aria-label="Close">
           <X size={18} />
         </button>
 
@@ -969,7 +969,7 @@ function RoleChangeModal({ person, onClose, onConfirm }) {
   return (
     <div className="settings-modal-backdrop">
       <div className="settings-modal confirm-modal">
-        <button type="button" className="settings-modal-close" onClick={onClose}>
+        <button type="button" className="settings-modal-close" onClick={onClose} aria-label="Close">
           <X size={18} />
         </button>
 
@@ -1021,7 +1021,7 @@ function ConfirmModal({ title, message, confirmLabel, onCancel, onConfirm }) {
   return (
     <div className="settings-modal-backdrop">
       <div className="settings-modal confirm-modal">
-        <button type="button" className="settings-modal-close" onClick={onCancel}>
+        <button type="button" className="settings-modal-close" onClick={onCancel} aria-label="Cancel">
           <X size={18} />
         </button>
 
