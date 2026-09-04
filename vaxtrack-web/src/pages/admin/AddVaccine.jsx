@@ -242,8 +242,10 @@ function AddVaccine() {
                   type="button"
                   className="mini-link-btn"
                   onClick={() => setShowAddType(true)}
+                  aria-expanded={showAddType}
+                  aria-controls="add-vaccine-type-panel"
                 >
-                  <Plus size={13} />
+                  <Plus size={12} />
                   Add Type
                 </button>
               </div>
@@ -267,10 +269,13 @@ function AddVaccine() {
           </div>
 
           {showAddType && (
-            <div className="add-type-box">
+            <div className="add-type-box" id="add-vaccine-type-panel">
               <div className="add-type-header">
-                <h3>Add Vaccine Type</h3>
-                <button type="button" onClick={() => setShowAddType(false)}>
+                <div className="add-type-heading">
+                  <h3>Add Vaccine Type</h3>
+                  <p>Create a reusable option for the Vaccine Type list.</p>
+                </div>
+                <button type="button" onClick={() => setShowAddType(false)} aria-label="Cancel new vaccine type">
                   <X size={16} />
                 </button>
               </div>

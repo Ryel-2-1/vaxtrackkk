@@ -476,6 +476,7 @@ function Inventory() {
               type="button"
               className="v2-inventory-modal-close"
               onClick={() => setSelectedVaccine(null)}
+              aria-label="Close"
             >
               <X size={18} />
             </button>

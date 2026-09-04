@@ -185,3 +185,274 @@
 .inventory-main .form-error {
   margin-top: 14px;
 }
+
+/* ============================================================
+   Add Vaccine — single-surface field-with-icon (page-scoped)
+   ------------------------------------------------------------
+   Previous attempt failed because the wrapper's own inherited surface
+   (`.field-with-icon` at styles.css:1741 — `background:#f8fafc;
+   border:1px solid #cbd5e1; border-radius:7px; padding:0 12px`) is
+   NOT reset by the later `.field-with-icon` at styles.css:2100 (which
+   only re-declares `position/display/align-items`). Meanwhile the
+   nested control kept its own border/background from
+   `.inventory-main input,.inventory-main select` at AdminForms.css:61.
+   Result: two visible rectangles.
+
+   Fix strategy (per task): make the INNER INPUT own the one visible
+   field surface (exactly like the plain Vaccine Name input), and make
+   the wrapper layout-only. Scoped to `.vaccine-form-card` — the form
+   container class unique to `/admin/add-vaccine` — so no other page
+   is affected.
+
+     - Wrapper: no background/border/radius/padding; `position:relative`
+       for icon positioning; no `:focus-within` ring (input owns focus).
+     - Input/select: standard Vaccine-Name styling (`.inventory-main
+       input,.inventory-main select`) — the higher-specificity
+       `.vaccine-form-card .field-with-icon input` re-asserts border +
+       background + padding-left (40px gutter for the icon), beating
+       the `.field-with-icon input { border:0; background:transparent;
+       padding:0 }` reset at styles.css:1751 (equal 0,1,1 spec + later
+       import order otherwise, plus this rule at 0,2,1 wins outright).
+     - Icon: absolutely positioned inside the input surface,
+       vertically centered, subdued Admin icon colour, no background,
+       `pointer-events:none` so it never blocks the input.
+     - `<select>`: native browser dropdown arrow is intentionally kept
+       (no `appearance:none`), matching current behaviour.
+     - Focus: the input's own `:focus` ring
+       (`.inventory-main input:focus` at AdminForms.css:67 — green
+       border + green box-shadow) draws ONE ring on the input itself,
+       identical to Vaccine Name. No wrapper focus ring. ============================================================ */
+
+/* wrapper: layout-only (defeat inherited surface from styles.css:1741) */
+.vaccine-form-card .field-with-icon {
+  position: relative;
+  display: block;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+  gap: 0;
+}
+/* wrapper never draws its own focus ring */
+.vaccine-form-card .field-with-icon:focus-within {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+/* inner input/select: own the single visible surface, matching
+   Vaccine Name. Left padding leaves room for the absolutely-positioned
+   icon. Explicit border/bg reasserts what .field-with-icon input at
+   styles.css:1751 stripped away. */
+.vaccine-form-card .field-with-icon input,
+.vaccine-form-card .field-with-icon select {
+  width: 100%;
+  border: 1px solid var(--gray-300);
+  background: #ffffff;
+  padding: 0 12px 0 40px;   /* 40px left = 12px wrapper offset + 16px icon + 12px gap */
+  margin: 0;
+  color: var(--gray-900);
+  box-sizing: border-box;
+}
+
+/* icon: absolute-positioned inside the input's padding area, 16px
+   consistent, vertically centered, subdued colour, non-interactive.
+   Override styles.css:2106 which only positioned it at `left:12px`
+   without a vertical centering guarantee. */
+.vaccine-form-card .field-with-icon > svg {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  color: var(--gray-500);
+  background: transparent;
+  border: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ============================================================
+   Add Vaccine — Add Type trigger + expanded panel (page-scoped)
+   ------------------------------------------------------------
+   Root cause of the blue focus ring: `styles.css:5508-5514` —
+   `button:focus-visible, a:focus-visible, input:focus-visible,
+   select:focus-visible, textarea:focus-visible { outline: 3px solid
+   rgba(11, 99, 246, 0.35); outline-offset: 3px }`. Bare selectors,
+   no !important — beaten by any page-scoped `:focus-visible` rule.
+   The trigger's "circled plus" look came from `.mini-link-btn` at
+   styles.css:4801 (1px solid #0057d8 pill, small icon inside)
+   compressed to `height:22px` by AdminForms.css:156. The "dotted
+   container" is `.add-type-box` at styles.css:2135 (`1px dashed`)
+   later re-styled by AdminForms.css:100 (still dashed, gray). All
+   fixed here with a compact, professional Admin secondary trigger +
+   a clean solid panel, page-scoped to `.vaccine-form-card` so
+   nothing else on the site is affected. ============================================================ */
+
+/* Trigger: clean Admin secondary — plain Plus icon, subtle green
+   border, white background, no colour on the icon that could read
+   as a circle, no layout movement across normal/hover/focus. */
+.vaccine-form-card .mini-link-btn {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--gray-300);
+  background: #ffffff;
+  color: var(--green-800);
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+.vaccine-form-card .mini-link-btn:hover {
+  background: var(--green-50);
+  border-color: var(--green-700);
+}
+.vaccine-form-card .mini-link-btn svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  color: var(--green-700);
+  background: transparent;
+  border: 0;
+}
+
+/* Expanded panel: solid subtle border, very light green background,
+   compact padding — no dotted container, no excessive whitespace. */
+.vaccine-form-card .add-type-box {
+  margin: 16px 0 0;
+  border: 1px solid var(--gray-200);
+  background: var(--green-50);
+  border-radius: 10px;
+  padding: 18px;
+}
+
+/* Header: title (+ short helper) left, small close button top-right */
+.vaccine-form-card .add-type-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.vaccine-form-card .add-type-heading {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.vaccine-form-card .add-type-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--gray-900);
+  letter-spacing: -0.005em;
+}
+.vaccine-form-card .add-type-heading p {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--gray-600);
+  line-height: 1.4;
+}
+.vaccine-form-card .add-type-header > button {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--gray-500);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.vaccine-form-card .add-type-header > button:hover {
+  background: var(--gray-100);
+  color: var(--gray-900);
+}
+
+/* Entry row: input grows, Add button fixed — aligned heights */
+.vaccine-form-card .add-type-row {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+.vaccine-form-card .add-type-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* border/background/height inherited from `.inventory-main input`
+     (AdminForms.css:61) — matches the rest of the Add Vaccine form. */
+}
+.vaccine-form-card .add-type-row .blue-btn {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 46px;              /* matches global input min-height */
+  padding: 0 18px;
+  border-radius: 8px;            /* not the site-wide pill */
+  font-weight: 700;
+  background: var(--green-700);
+  color: #ffffff;
+  /* Defeat the legacy `.blue-btn` block at styles.css:5453 which sets
+     `border: 1px solid var(--vt-primary)` (blue 1px edge) and
+     `box-shadow: 0 8px 18px rgba(11, 99, 246, 0.2)` (soft blue glow).
+     Neither is overridden by the earlier AdminForms `.inventory-main
+     .blue-btn { background: var(--green-700) }` rule, so on the
+     Add button they still painted a thin blue border and blue shadow
+     around the green fill. Explicit green border + no shadow here. */
+  border: 1px solid var(--green-700);
+  box-shadow: none;
+  outline: none;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+.vaccine-form-card .add-type-row .blue-btn:hover:not(:disabled) {
+  background: var(--green-800);
+  border-color: var(--green-800);
+  box-shadow: none;
+  transform: none;               /* no layout jump */
+}
+.vaccine-form-card .add-type-row .blue-btn:active:not(:disabled) {
+  background: var(--green-800);
+  border-color: var(--green-800);
+  box-shadow: none;
+  transform: none;
+}
+/* Green keyboard focus ring — narrow-scoped, no blue anywhere.
+   Also covers the mouse-focus `.blue-btn:focus` path so a click-focused
+   button never carries a residual blue outline. The scoped
+   button:focus-visible rule below still applies for keyboard use. */
+.vaccine-form-card .add-type-row .blue-btn:focus,
+.vaccine-form-card .add-type-row .blue-btn:focus-visible {
+  outline: 2px solid var(--green-700);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* Stack cleanly on narrow widths */
+@media (max-width: 600px) {
+  .vaccine-form-card .add-type-row {
+    flex-direction: column;
+  }
+  .vaccine-form-card .add-type-row .blue-btn {
+    width: 100%;
+  }
+}
+
+/* GREEN focus overrides — beats the bare `button:focus-visible` /
+   `input:focus-visible` blue outline at styles.css:5508-5514 by
+   page-scoped specificity. Keyboard focus stays clearly visible. */
+.vaccine-form-card button:focus-visible,
+.vaccine-form-card input:focus-visible,
+.vaccine-form-card select:focus-visible,
+.vaccine-form-card textarea:focus-visible {
+  outline: 2px solid var(--green-700);
+  outline-offset: 2px;
+}

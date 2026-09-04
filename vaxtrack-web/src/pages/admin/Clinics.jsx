@@ -529,6 +529,7 @@ function ClinicDetailsModal({ clinic, onClose, onCreateDelivery, onEdit }) {
           type="button"
           className="clinics-modal-close"
           onClick={onClose}
+          aria-label="Close"
         >
           <X size={18} />
         </button>
@@ -611,6 +612,7 @@ function NewClinicModal({ newClinic, setNewClinic, onClose, onSubmit, saving }) 
           className="clinics-modal-close"
           onClick={onClose}
           disabled={saving}
+          aria-label="Close"
         >
           <X size={18} />
         </button>
