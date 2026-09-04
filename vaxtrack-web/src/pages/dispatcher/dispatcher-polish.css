@@ -271,3 +271,89 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
 .dispatcher-main .dispatcher-settings-card .dispatcher-toggle.enabled {
   background: var(--green-700) !important;  /* on = VaxTrack green */
 }
+
+/* ============================================================
+   8 · Live Monitoring — full-width map card (Goal 1)
+   ------------------------------------------------------------
+   The "Live map" card was moved (in DispatcherGeofence.jsx) out of the
+   narrow right column and above the Active Shipments / Shipment Details
+   grid, so it is now a full-width block child of `.geo3-page` — the
+   primary visual element. These rules give the promoted card padding +
+   spacing to the grid below and a useful, in-range height. The map's
+   own ResizeObserver (RiderLocationMap) re-measures tiles on the size
+   change, so NO invalidateSize/lifecycle change was needed. On narrow
+   widths the map stays full-width and the grid stacks (Active Shipments
+   then Shipment Details) — order becomes Map → Active Shipments →
+   Details. Scoped to `.dispatcher-page`; higher specificity than the
+   legacy `.geo3-*` rules so it wins regardless of import order. */
+.dispatcher-page .geo3-live-map-card {
+  padding: 16px 18px !important;
+  margin-bottom: 18px !important;
+}
+.dispatcher-page .geo3-live-map {
+  width: 100% !important;
+  height: 440px !important;   /* ~360–460 range, full content width */
+}
+@media (max-width: 1024px) {
+  .dispatcher-page .geo3-live-map { height: 380px !important; }
+}
+@media (max-width: 640px) {
+  .dispatcher-page .geo3-live-map { height: 300px !important; }
+}
+
+/* ============================================================
+   9 · Topbar search — single-surface field (Goal 2)
+   ------------------------------------------------------------
+   The shared topbar search `.dispatcher-search` (a rounded wrapper +
+   inner <input>) drew a second box: its input reset border/outline/bg
+   but NOT min-height / border-radius, so the global
+   `input { min-height:46px !important; border-radius:12px !important }`
+   (styles.css) forced a 46px, 12px-rounded box that overflowed the 40px
+   pill; and §2 gave the inner input its own :focus-visible outline
+   (second ring). Fix: neutralise the inner input to one surface and let
+   the wrapper own the single `:focus-within` ring. Keyboard focus stays
+   visible (focus-within fires on input focus); icon + text alignment
+   from the wrapper are unchanged. Only the topbar search is affected. */
+.dispatcher-page .dispatcher-search input {
+  min-height: 0 !important;
+  height: auto !important;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  background-color: transparent !important;   /* beat global input{background:#fff!important} */
+  border-radius: 0 !important;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  color: var(--gray-900) !important;
+  font-family: var(--font-ui) !important;
+}
+.dispatcher-page .dispatcher-search:focus-within {
+  border-color: var(--green-700) !important;
+  box-shadow: 0 0 0 3px var(--green-100) !important;
+}
+.dispatcher-page .dispatcher-search input:focus-visible {
+  outline: none !important;   /* the wrapper's focus-within is the one indicator */
+}
+
+/* ============================================================
+   10 · Native form controls inherit the Dispatcher font (Goal 3)
+   ------------------------------------------------------------
+   `.dispatcher-page` sets `font-family: var(--font-ui)` (§ neutral
+   foundation), and most text inherits it — but native controls
+   (select / textarea, and buttons on some UAs) do NOT inherit `font`
+   automatically. Force them so KPI selects, settings inputs, search,
+   textareas, buttons, etc. all share one family. Sizes/weights are set
+   elsewhere and untouched. Scoped to Dispatcher; no new font/request.
+   (Leaflet controls/labels are HTML inside the map container and also
+   inherit; the tile-canvas imagery is third-party and not restyled.) */
+.dispatcher-page button,
+.dispatcher-page input,
+.dispatcher-page select,
+.dispatcher-page textarea,
+.dispatcher-page optgroup,
+.dispatcher-page option {
+  font-family: var(--font-ui);
+}
