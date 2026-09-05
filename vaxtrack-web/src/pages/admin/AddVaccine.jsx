@@ -215,8 +215,9 @@ function AddVaccine() {
             Basic Information
           </h2>
 
-          <label>Vaccine Name</label>
+          <label htmlFor="vaccine-name">Vaccine Name</label>
           <input
+            id="vaccine-name"
             placeholder="e.g. Comirnaty BNT162b2"
             value={vaccineName}
             onChange={(e) => setVaccineName(e.target.value)}
@@ -224,10 +225,13 @@ function AddVaccine() {
 
           <div className="two-col-form">
             <div>
-              <label>Manufacturer / Pharma Company</label>
+              <label htmlFor="vaccine-manufacturer">
+                Manufacturer / Pharma Company
+              </label>
               <div className="field-with-icon">
                 <Building2 size={16} />
                 <input
+                  id="vaccine-manufacturer"
                   placeholder="e.g. Pfizer-BioNTech"
                   value={manufacturer}
                   onChange={(e) => setManufacturer(e.target.value)}
@@ -237,7 +241,7 @@ function AddVaccine() {
 
             <div>
               <div className="label-with-action">
-                <label>Vaccine Type</label>
+                <label htmlFor="vaccine-type">Vaccine Type</label>
                 <button
                   type="button"
                   className="mini-link-btn"
@@ -253,6 +257,7 @@ function AddVaccine() {
               <div className="field-with-icon">
                 <FlaskConical size={16} />
                 <select
+                  id="vaccine-type"
                   value={vaccineType}
                   onChange={(e) => setVaccineType(e.target.value)}
                 >
@@ -299,10 +304,11 @@ function AddVaccine() {
             </div>
           )}
 
-          <label>Internal Inventory SKU</label>
+          <label htmlFor="vaccine-sku">Internal Inventory SKU</label>
           <div className="field-with-icon">
             <Package size={16} />
             <input
+              id="vaccine-sku"
               placeholder="VXT-992-XXXXX"
               value={internalSku}
               onChange={(e) => setInternalSku(e.target.value.toUpperCase())}

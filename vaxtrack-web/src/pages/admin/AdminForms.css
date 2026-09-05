@@ -15,7 +15,33 @@
   font-family: var(--font-ui);
 }
 
-/* Breadcrumb + heading */
+/* ------------------------------------------------------------
+   Readable content column.
+   `.vaccine-form-card, .stock-form { max-width: 760px }` (styles.css)
+   already caps the form for readability, but the column was left-aligned
+   inside a 1082px content area, so 322px sat empty on the right and read
+   as a broken layout rather than a deliberate measure. Centering the
+   column — and constraining the page header to the SAME width so the
+   header actions line up with the card's right edge — keeps the readable
+   measure while making the space symmetric and intentional.
+   ------------------------------------------------------------ */
+.inventory-main .form-page-header,
+.inventory-main .vaccine-form-card,
+.inventory-main .stock-form {
+  max-width: 760px;
+  margin-inline: auto;
+}
+
+/* Breadcrumb + heading.
+   The breadcrumb rendered at 15px against a 13px description, so the
+   least important line was the largest — `.form-page-header p` asks for
+   13px (styles.css) but `.inventory-main p { font-size: 15px !important }`
+   (admin-polish) overrode it. `!important` here only matches that one.
+   Resulting hierarchy: crumb 12.5 → description 13 → title 22. */
+.inventory-main .form-page-header p {
+  font-size: 12.5px !important;
+}
+
 .inventory-main .form-page-header p span {
   color: var(--green-700);
 }
@@ -30,25 +56,56 @@
   color: var(--gray-600);
 }
 
-/* Form cards: subtle border, 12px radius, light shadow */
+/* Form cards: subtle border, 12px radius, light shadow.
+   Padding is set here because the legacy pair grew on small screens
+   (`.vaccine-form-card, .form-section-card { padding: 22px }`, then
+   `@media (max-width: 1000px) { padding: 26px }`) — more padding exactly
+   where width is scarcest. These selectors are 0,2,0 against the legacy
+   0,1,0, so they win at every width without `!important`. */
 .inventory-main .vaccine-form-card,
 .inventory-main .form-section-card {
   border: var(--border-card);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-card);
+  padding: 20px;
 }
 
+/* Stacked sections (Add Stock). `.stock-form` is a flex column with its own
+   `gap`, and the cards ALSO carried `margin-bottom: 20px`, so the two
+   stacked into a 34px trough between the bordered sections. The gap is now
+   the single source of that spacing and the margin is cleared. */
+.inventory-main .stock-form {
+  gap: 14px;
+}
+
+.inventory-main .form-section-card {
+  margin-bottom: 0;
+}
+
+/* Section titles. `.inventory-main h2 { font-size: 24px !important }`
+   (admin-polish) applied the page-level heading size inside the cards, so
+   "Product Identification" rendered at 24px and wrapped onto two lines on
+   a phone. `!important` is required to match that rule, not to escalate.
+   16px sits correctly between the 22px page title and the 12px labels. */
 .inventory-main .vaccine-form-card h2,
 .inventory-main .form-section-card h2 {
   color: var(--gray-900);
+  font-size: 16px !important;
   font-weight: 700;
+  margin-bottom: 14px;
 }
 
-/* Card heading icon tile: blue → Meridian green */
+/* Card heading icon tile: blue → Meridian green, sized to the smaller
+   heading instead of the 35x38px block it had become. */
 .inventory-main .vaccine-form-card h2 span,
 .inventory-main .form-section-card h2 svg {
   background: var(--green-700);
   color: #ffffff;
+  box-sizing: content-box;
+  width: 16px;
+  height: 16px;
+  padding: 7px;
+  border-radius: 8px;
 }
 
 /* Labels: sentence weight, neutral */
@@ -57,11 +114,17 @@
   font-weight: 600;
 }
 
-/* Inputs / selects: neutral border, green focus ring */
+/* Inputs / selects: neutral border, green focus ring.
+   Height stays at the global 46px — comfortably above the 44px touch
+   floor — but the 12px radius from `input, select, textarea
+   { border-radius: 12px !important }` (styles.css) reads soft and bulky
+   on a 46px control, so it is tightened to 8px to match the buttons.
+   `!important` only to match that global. */
 .inventory-main input,
 .inventory-main select {
   border: 1px solid var(--gray-300);
   background: #ffffff;
+  border-radius: 8px !important;
 }
 
 .inventory-main input:focus,
@@ -102,9 +165,34 @@
   background: var(--gray-50);
 }
 
-/* Buttons: primary green, secondary neutral */
+/* Buttons: primary green, secondary neutral.
+   Both actions share one treatment. Height stays at the global 46px
+   (above the 44px floor and equal to the inputs); the radius drops from
+   12px to 8px to match them, and the weight from 850 to 650 — 850 on a
+   15px label is what made the actions read as oversized. All three come
+   from `button:not([class]), .blue-btn, .outline-btn, .admin-primary
+   { border-radius: 12px !important; min-height: 46px !important;
+   font-weight: 850 !important }` (styles.css), hence the `!important`.
+   A legacy `@media (max-width: 1000px)` rule turns these into 999px
+   pills; keeping an explicit radius here also keeps that off. */
+.inventory-main .blue-btn,
+.inventory-main .outline-btn {
+  border-radius: 8px !important;
+  font-weight: 650 !important;
+}
+
+/* The legacy `.blue-btn, .admin-primary-btn, .primary-button, …` block
+   (styles.css) sets `border: 1px solid var(--vt-primary)` AND
+   `box-shadow: 0 8px 18px rgba(11, 99, 246, .2)`. Only `background` was
+   overridden here before, so the page's primary action still painted a
+   blue edge and a blue glow around its green fill — measured as
+   `border: 0.8px solid rgb(11,99,246)` with a matching shadow. The same
+   defect was already fixed for the Add Type button further down; this is
+   the header/footer primary. */
 .inventory-main .blue-btn {
   background: var(--green-700);
+  border: 1px solid var(--green-700);
+  box-shadow: none;
 }
 
 .inventory-main .blue-btn:hover {
@@ -126,10 +214,27 @@
    Basic Information layout alignment (Add Vaccine + shared)
    ------------------------------------------------------------ */
 
-/* Two-column grid: even gap, columns top-aligned */
+/* Two-column grid: even gap, columns top-aligned.
+   ------------------------------------------------------------
+   THIS RULE WAS THE MOBILE BUG. Three legacy rules correctly collapse the
+   grid to one column — `.inventory-summary-grid, .two-col-form,
+   .three-col-form` at max-width:1000px and `.two-col-form,
+   .three-col-form` at max-width:900px (styles.css) — but all three are
+   0,1,0 and were beaten by this 0,2,0 selector, which carried no media
+   query of its own. The collapse never fired on either Inventory form,
+   so at 390px the fields were 134px wide and "Select registered
+   vaccine..." rendered as "Select registere".
+
+   `auto-fit` + a minimum track states the actual intent — two columns
+   only while each field stays readable — instead of guessing a
+   breakpoint, and it cannot be silently defeated the same way. The
+   `min(100%, 260px)` floor keeps the track from exceeding a container
+   narrower than 260px, which would overflow. With the card capped at
+   760px the available width never fits a third track, so this stays a
+   two-column grid on desktop and folds to one below roughly 600px. */
 .inventory-main .two-col-form {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 16px 20px;
   align-items: start;
 }
 
@@ -167,18 +272,27 @@
 }
 
 /* Section labels (Vaccine Name, Internal Inventory SKU) get breathing room;
-   the first label right after the card heading keeps its existing spacing. */
+   the first label right after the card heading keeps its existing spacing.
+   16px matches the grid's row gap, so every vertical step in the form is
+   the same distance rather than 20px between some fields and 16px others. */
 .inventory-main .vaccine-form-card > label {
-  margin-top: 20px;
+  margin-top: 16px;
 }
 
 .inventory-main .vaccine-form-card > h2 + label {
   margin-top: 0;
 }
 
-/* SKU helper text + validation message spacing (no cramped overlap) */
+/* SKU helper text + validation message spacing (no cramped overlap).
+   Size is set here because `.inventory-main small { font-size: 15px
+   !important }` (admin-polish) rendered helper text LARGER than the 12px
+   label it explains, which both inverted the hierarchy and added bulk —
+   the Add Stock empty state was three oversized lines. 12.5px keeps it
+   clearly readable and secondary; `!important` only matches that rule. */
 .inventory-main .input-helper {
   margin-top: 8px;
+  font-size: 12.5px !important;
+  line-height: 1.5 !important;
 }
 
 /* Inline action inside helper text — used by the Add Stock empty state to send
@@ -211,6 +325,32 @@
 .inventory-main .form-response,
 .inventory-main .form-error {
   margin-top: 14px;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+}
+
+/* Status tone. `.form-response.error` is already defined red in styles.css
+   (`color: rgb(185, 28, 28)` on a pink field) but `.inventory-main p
+   { color: … !important }` (admin-polish) repainted it the ordinary muted
+   body grey, so a validation failure read as plain text on a pink strip.
+   `.form-response.success` had no colour rule at all. Both tones are
+   restored here on the VaxTrack red/green pair; `!important` only matches
+   the rule that took the colour away. */
+.inventory-main .form-response.error,
+.inventory-main .form-error {
+  color: var(--danger-text) !important;
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.inventory-main .form-response.success {
+  color: var(--green-800) !important;
+  background: var(--green-50);
+  border: 1px solid var(--green-100);
+  border-radius: 8px;
+  padding: 10px 12px;
 }
 
 /* ============================================================
@@ -470,6 +610,43 @@
   }
   .vaccine-form-card .add-type-row .blue-btn {
     width: 100%;
+  }
+}
+
+/* Phone: trim the card padding rather than grow it. The page gutter comes
+   down with it so the usable field width goes up, which is the whole point
+   at this size. */
+@media (max-width: 640px) {
+  /* `.inventory-page` prefix so this outranks the several 0,1,0
+     `.inventory-main { padding: … }` rules regardless of file order. */
+  .inventory-page .inventory-main {
+    padding: 20px 16px;
+  }
+  .inventory-main .vaccine-form-card,
+  .inventory-main .form-section-card {
+    padding: 16px;
+  }
+
+  /* Add Vaccine's header actions were unreachable on a phone.
+     `@media (max-width: 900px) { .blue-btn, .outline-btn { width: 100% } }`
+     gives each button the full row while `.form-header-actions` is
+     `flex-wrap: nowrap`, so Cancel and Register Vaccine came to 642px
+     inside a 358px row and "Register Vaccine" was cut off at x=658 —
+     clipped rather than scrollable, because of the global
+     `overflow-x: hidden`. The header stacks here and the two actions
+     share the row, keeping them the same height and both on screen. */
+  .inventory-main .form-page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .inventory-main .form-header-actions {
+    flex-wrap: wrap;
+  }
+  .inventory-main .form-header-actions .blue-btn,
+  .inventory-main .form-header-actions .outline-btn {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
   }
 }
 
