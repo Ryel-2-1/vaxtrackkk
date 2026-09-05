@@ -187,13 +187,23 @@ service cloud.firestore {
         || (isDispatcher() && resource.data.role == 'rider');
 
       // Admin may create user docs (broad write). Rider self-registration
-      // (Flutter): create own doc, rider + pending only.
+      // (Flutter): own doc only, rider + pending, motorcycle only.
+      //
+      // Riders create their own accounts, so this is the identity boundary:
+      // the uid check stops one rider creating another's document, role and
+      // status stop self-elevation and self-approval, and the vehicle type is
+      // pinned because the company operates motorcycles only. Together these
+      // mean a modified client cannot register anything other than a pending
+      // motorcycle rider owned by the caller.
       allow create: if isAdmin()
         || (
           signedIn()
           && request.auth.uid == uid
           && request.resource.data.role == 'rider'
           && request.resource.data.status == 'pending'
+          // Must stay identical to kRiderVehicleType in
+          // vaxtrack_mobile/lib/utils/rider_registration.dart.
+          && request.resource.data.vehicleType == 'Motorcycle'
         );
 
       // Admin manages any user (approve / disable / reject / role change).

@@ -5,7 +5,6 @@ import {
   Bell,
   CircleHelp,
   PhoneCall,
-  Plus,
   Search,
   Users,
   X,
@@ -13,11 +12,6 @@ import {
 import { auth } from "../../firebase";
 import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import { subscribeRiders, updateRiderStatus } from "../../services/riderService";
-import {
-  RIDER_VEHICLE_TYPE,
-  buildNewRiderPayload,
-  createEmptyNewRider,
-} from "../../services/riderRegistration";
 import KpiCard from "../../components/ui/KpiCard";
 import "./Riders.css";
 
@@ -86,12 +80,7 @@ function Riders() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedRider, setSelectedRider] = useState(null);
-  const [showNewRiderModal, setShowNewRiderModal] = useState(false);
   const [toast, setToast] = useState("");
-
-  // Seeded from the registration module so the draft always starts with the
-  // canonical vehicle type rather than a literal repeated in the page.
-  const [newRider, setNewRider] = useState(createEmptyNewRider);
 
   useEffect(() => {
     const unsubscribe = subscribeRiders(
@@ -142,25 +131,6 @@ function Riders() {
   const standbyCount = riders.filter((r) => r.status === "standby").length;
   const offDutyCount = riders.filter((r) => r.status === "offduty").length;
 
-  const handleCreateRider = (e) => {
-    e.preventDefault();
-
-    // Normalise through the single boundary that owns the canonical vehicle
-    // type, so a value from stale state or a tampered DOM node can never be
-    // what gets stored. No account is created here — rider accounts come from
-    // Firebase Auth self-registration in the Flutter app — but any future write
-    // must go through this same builder.
-    const payload = buildNewRiderPayload(newRider);
-
-    setShowNewRiderModal(false);
-    // Reset to a fresh draft so reopening the modal cannot inherit the previous
-    // one, including its vehicle type.
-    setNewRider(createEmptyNewRider());
-    showToast(
-      `Rider accounts must be created via Firebase Authentication. Once registered and approved in Settings, ${payload.vehicle.toLowerCase()} riders appear here automatically.`
-    );
-  };
-
   return (
     <div className="inventory-page">
       <AdminSidebar active="riders" onLogout={handleLogout} />
@@ -172,6 +142,13 @@ function Riders() {
           <div>
             <h1>Riders</h1>
             <p>Monitor field personnel and cold-chain assignments.</p>
+            {/* Admin does not create rider accounts — riders self-register in
+                the Flutter app and arrive here as pending for approval. Saying
+                so avoids the page implying a capability it does not have. */}
+            <p className="riders-onboarding-note">
+              Riders register through the VaxTrack mobile app. New accounts
+              appear here for approval.
+            </p>
           </div>
 
           <div className="riders-v2-header-actions">
@@ -201,15 +178,6 @@ function Riders() {
               }
             >
               <CircleHelp size={15} />
-            </button>
-
-            <button
-              type="button"
-              className="riders-new-btn"
-              onClick={() => setShowNewRiderModal(true)}
-            >
-              <Plus size={15} />
-              New Rider
             </button>
           </div>
         </header>
@@ -398,19 +366,6 @@ function Riders() {
         />
       )}
 
-      {showNewRiderModal && (
-        <NewRiderModal
-          newRider={newRider}
-          setNewRider={setNewRider}
-          onClose={() => {
-            setShowNewRiderModal(false);
-            // Discard the draft on close too, so reopening always starts from
-            // the canonical defaults rather than a half-filled previous one.
-            setNewRider(createEmptyNewRider());
-          }}
-          onSubmit={handleCreateRider}
-        />
-      )}
     </div>
   );
 }
@@ -541,124 +496,6 @@ function RiderDetailsModal({
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function NewRiderModal({ newRider, setNewRider, onClose, onSubmit }) {
-  return (
-    <div className="riders-modal-backdrop">
-      <form className="riders-modal riders-form-modal" onSubmit={onSubmit}>
-        <button type="button" className="riders-modal-close" onClick={onClose} aria-label="Close">
-          <X size={18} />
-        </button>
-
-        <h2>New Rider</h2>
-        <p>
-          Create a field personnel account for cold-chain delivery operations.
-        </p>
-
-        <div className="riders-form-grid">
-          <label>
-            Full Name
-            <input
-              type="text"
-              placeholder="Enter rider full name"
-              value={newRider.name}
-              onChange={(e) =>
-                setNewRider((prev) => ({ ...prev, name: e.target.value }))
-              }
-            />
-          </label>
-
-          <label>
-            Rider ID
-            <input
-              type="text"
-              placeholder="MCV-0000"
-              value={newRider.id}
-              onChange={(e) =>
-                setNewRider((prev) => ({ ...prev, id: e.target.value }))
-              }
-            />
-          </label>
-
-          <label>
-            Phone Number
-            <input
-              type="text"
-              placeholder="09XX-XXX-XXXX"
-              value={newRider.phone}
-              onChange={(e) =>
-                setNewRider((prev) => ({ ...prev, phone: e.target.value }))
-              }
-            />
-          </label>
-
-          {/* Motorcycle-only: the company runs no other vehicle type for rider
-              delivery work, so this is a fixed value rather than a one-option
-              dropdown — a select implies a choice that does not exist. Kept as
-              a read-only input so it keeps the grid's field styling, stays in
-              the tab order, and is announced with its label. There is no
-              onChange: the draft's vehicle type cannot be altered from the UI,
-              and buildNewRiderPayload sets it unconditionally regardless. */}
-          <label htmlFor="new-rider-vehicle">
-            Vehicle Type
-            <input
-              id="new-rider-vehicle"
-              type="text"
-              value={RIDER_VEHICLE_TYPE}
-              readOnly
-              aria-describedby="new-rider-vehicle-note"
-            />
-            <small id="new-rider-vehicle-note" className="riders-field-note">
-              All delivery riders operate motorcycles.
-            </small>
-          </label>
-
-          <label>
-            Assigned Hub
-            <select
-              value={newRider.hub}
-              onChange={(e) =>
-                setNewRider((prev) => ({ ...prev, hub: e.target.value }))
-              }
-            >
-              <option>Manila Central Hub</option>
-              <option>Quezon City Sub-Hub</option>
-              <option>Makati Cold Hub</option>
-            </select>
-          </label>
-
-          <label className="wide">
-            Initial Status
-            <select
-              value={newRider.status}
-              onChange={(e) =>
-                setNewRider((prev) => ({ ...prev, status: e.target.value }))
-              }
-            >
-              <option value="standby">Standby</option>
-              <option value="active">Active</option>
-              <option value="offduty">Off Duty</option>
-            </select>
-          </label>
-        </div>
-
-        <div className="riders-modal-actions">
-          <button type="submit" className="riders-primary-action">
-            Create Rider
-          </button>
-
-          <button
-            type="button"
-            className="riders-light-action"
-            onClick={onClose}
-          >
-            Cancel
-          </button>
-        </div>
-      </form>
     </div>
   );
 }
