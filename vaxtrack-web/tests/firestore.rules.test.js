@@ -49,6 +49,10 @@ const pendingRiderUid = "pending1";
 const disabledUid = "disabled1";
 const freshRiderUid = "freshRider1"; // used for the registration test
 
+// A fixed clinic location-save time, so an order's copied
+// clinicLocationUpdatedAt can be compared against a known value.
+const CLINIC_STAMP = new Date("2026-08-01T00:00:00.000Z");
+
 let passed = 0;
 let failed = 0;
 const failures = [];
@@ -125,6 +129,28 @@ async function main() {
       latitude: 14.5995,
       longitude: 120.9842,
     });
+    // ---- Phase 02A hardening fixtures ----
+    // Verified AND carrying a source timestamp, so an order's copied
+    // clinicLocationUpdatedAt can be checked against the real clinic value.
+    await setDoc(doc(db, "clinics", "clStamped"), {
+      name: "Stamped Clinic",
+      clinicId: "CLN-7777",
+      latitude: 12.0,
+      longitude: 121.0,
+      geofenceRadiusM: 200,
+      locationVerified: true,
+      locationUpdatedAt: CLINIC_STAMP,
+    });
+    // Verified with NO business id at all — three of five live staging clinics
+    // are in this state, so an order must be creatable without one.
+    await setDoc(doc(db, "clinics", "clNoBusinessId"), {
+      name: "No Business Id Clinic",
+      latitude: 13.0,
+      longitude: 123.0,
+      geofenceRadiusM: 250,
+      locationVerified: true,
+    });
+
     // Verified but with an out-of-bounds radius: no order may inherit it.
     await setDoc(doc(db, "clinics", "clBadRadius"), {
       name: "Bad Radius Clinic",
@@ -1077,6 +1103,95 @@ async function main() {
         updatedAt: serverTimestamp(),
       }));
     }
+  });
+
+  // ---- Phase 02A hardening: snapshot identity + timestamp provenance ----
+
+  await check("Psnap7 a clinic with NO business id yields an order without one", async () => {
+    await assertSucceeds(setDoc(doc(salesRep, "orders", "snapOk7"), newOrder({
+      clinicDocId: "clNoBusinessId",
+      clinicLat: 13.0,
+      clinicLng: 123.0,
+      clinicGeofenceRadiusM: 250,
+      clinicLocationVerified: true,
+      clinicLocationSnapshotAt: serverTimestamp(),
+    })));
+  });
+
+  await check("Psnap8 a snapshot copying the clinic's real source timestamp is accepted", async () => {
+    await assertSucceeds(setDoc(doc(salesRep, "orders", "snapOk8"), newOrder({
+      clinicDocId: "clStamped",
+      clinicId: "CLN-7777",
+      clinicLat: 12.0,
+      clinicLng: 121.0,
+      clinicGeofenceRadiusM: 200,
+      clinicLocationVerified: true,
+      clinicLocationUpdatedAt: CLINIC_STAMP,
+      clinicLocationSnapshotAt: serverTimestamp(),
+    })));
+  });
+
+  await check("Nsnap11 a forged clinicLocationSnapshotAt is rejected", async () => {
+    // A client-chosen time would let an order misrepresent how fresh its
+    // destination copy is. Only the server's request time is acceptable.
+    await assertFails(setDoc(doc(salesRep, "orders", "snapBad11"), newOrder({
+      clinicDocId: "clVerified",
+      clinicId: "CLN-9123",
+      clinicLat: 14.5995,
+      clinicLng: 120.9842,
+      clinicGeofenceRadiusM: 150,
+      clinicLocationVerified: true,
+      clinicLocationSnapshotAt: new Date("2020-01-01T00:00:00.000Z"),
+    })));
+  });
+
+  await check("Nsnap12 a clinicLocationUpdatedAt that is not the clinic's is rejected", async () => {
+    await assertFails(setDoc(doc(salesRep, "orders", "snapBad12"), newOrder({
+      clinicDocId: "clStamped",
+      clinicId: "CLN-7777",
+      clinicLat: 12.0,
+      clinicLng: 121.0,
+      clinicGeofenceRadiusM: 200,
+      clinicLocationVerified: true,
+      clinicLocationUpdatedAt: new Date("2020-01-01T00:00:00.000Z"),
+      clinicLocationSnapshotAt: serverTimestamp(),
+    })));
+  });
+
+  await check("Nsnap13 the document id cannot be substituted into the business id slot", async () => {
+    await assertFails(setDoc(doc(salesRep, "orders", "snapBad13"), newOrder({
+      clinicDocId: "clVerified",
+      clinicId: "clVerified", // document id in the business id field
+      clinicLat: 14.5995,
+      clinicLng: 120.9842,
+      clinicGeofenceRadiusM: 150,
+      clinicLocationVerified: true,
+      clinicLocationSnapshotAt: serverTimestamp(),
+    })));
+  });
+
+  await check("Nsnap14 a business id supplied for a clinic that has none is rejected", async () => {
+    await assertFails(setDoc(doc(salesRep, "orders", "snapBad14"), newOrder({
+      clinicDocId: "clNoBusinessId",
+      clinicId: "CLN-0001", // the clinic has no business id at all
+      clinicLat: 13.0,
+      clinicLng: 123.0,
+      clinicGeofenceRadiusM: 250,
+      clinicLocationVerified: true,
+      clinicLocationSnapshotAt: serverTimestamp(),
+    })));
+  });
+
+  await check("Nsnap15 a snapshot with no clinicLocationSnapshotAt is rejected", async () => {
+    // Omitting the stamp must not be a way around Nsnap11.
+    await assertFails(setDoc(doc(salesRep, "orders", "snapBad15"), newOrder({
+      clinicDocId: "clVerified",
+      clinicId: "CLN-9123",
+      clinicLat: 14.5995,
+      clinicLng: 120.9842,
+      clinicGeofenceRadiusM: 150,
+      clinicLocationVerified: true,
+    })));
   });
 
   await testEnv.cleanup();

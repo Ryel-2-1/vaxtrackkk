@@ -51,7 +51,12 @@ export function subscribeClinics(callback, onError) {
     collection(db, CLINICS),
     (snap) => {
       const docs = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
+        // Document id LAST, so it always wins. Spreading the data afterwards
+        // would let a stored field literally named `id` shadow the real
+        // document id — and that value becomes `clinicDocId`, the order's only
+        // stable reference to its destination clinic. No clinic carries such a
+        // field today, which is exactly why this must not depend on it.
+        .map((d) => ({ ...d.data(), id: d.id }))
         .sort((a, b) => {
           const aMs = a.createdAt?.toMillis?.() ?? 0;
           const bMs = b.createdAt?.toMillis?.() ?? 0;

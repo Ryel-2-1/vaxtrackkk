@@ -58,8 +58,8 @@ function radiusWasSupplied(raw) {
  *
  * @param {string} clinicDocId  Firestore DOCUMENT id of the clinic. Authoritative
  *   and required. This is `clinic.id` as produced by `subscribeClinics`
- *   (`{ id: d.id, ...d.data() }`) — NOT the business `clinicId`, and never
- *   derived from a name or address.
+ *   (`{ ...d.data(), id: d.id }` — id last, so stored data cannot shadow it) —
+ *   NOT the business `clinicId`, and never derived from a name or address.
  * @param {object} clinicRecord The selected clinic's raw Firestore data. Only
  *   `clinicId`, `latitude`, `longitude`, `geofenceRadiusM`, `locationVerified`
  *   and `locationUpdatedAt` are read; nothing else is copied onto the order.
