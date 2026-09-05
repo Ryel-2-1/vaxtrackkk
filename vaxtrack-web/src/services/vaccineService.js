@@ -42,7 +42,11 @@ export async function addVaccine({ vaccineName, manufacturer, vaccineType, inter
 export async function getVaccines() {
   const q = query(collection(db, VACCINES), orderBy("createdAt", "desc"));
   const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  // Document id LAST so it always wins: a stored field named `id` must never
+  // shadow the real document id. That id is the vaccine's authoritative
+  // identity and is written onto each stock batch as `vaccineId`, so it must
+  // never be conflated with the SKU, name or any business identifier.
+  return snap.docs.map((d) => ({ ...d.data(), id: d.id }));
 }
 
 export async function batchIdExists(batchId) {
@@ -51,6 +55,20 @@ export async function batchIdExists(batchId) {
   return !snap.empty;
 }
 
+/**
+ * Add one stock batch to inventory.
+ *
+ * NO STORAGE TEMPERATURE. Add Stock no longer collects one, so none is written
+ * — better than storing a placeholder that would read as a real cold-chain
+ * figure. Dropping the parameters here is required rather than cosmetic:
+ * `addDoc` rejects `undefined` values, so leaving them in the signature would
+ * break the write the moment the caller stopped passing them.
+ *
+ * Existing inventory documents are untouched. Every reader — Admin Inventory,
+ * Sales Rep Inventory, Sales Rep Request Order — already falls back to "—" when
+ * the field is absent, so legacy batches keep showing their recorded
+ * temperature and new ones simply show none.
+ */
 export async function addStockBatch({
   vaccineId,
   vaccineName,
@@ -61,8 +79,6 @@ export async function addStockBatch({
   arrivalDate,
   expiryDate,
   quantity,
-  storageTemp,
-  storageTempDisplay,
   status,
 }) {
   return addDoc(collection(db, INVENTORY), {
@@ -75,8 +91,6 @@ export async function addStockBatch({
     arrivalDate,
     expiryDate,
     quantity,
-    storageTemp,
-    storageTempDisplay,
     status,
     createdAt: serverTimestamp(),
   });

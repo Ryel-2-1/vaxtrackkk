@@ -209,29 +209,17 @@ aside.inventory-sidebar .sidebar-logout {
    remain. Desktop only — at ≤1000px the sidebar stacks (styles.css),
    which is left untouched.
    ============================================================ */
-/* IMPORTANT — this fix is for the LEGACY admin pages only
-   (`.inventory-page` WITHOUT `.adl-root`: Deliveries, Invoices, Alerts,
-   Riders, Clinics, Settings). Pages that use <AdminLayout> carry
-   `.inventory-page.adl-root` and are already given an equivalent fixed
-   rail + `.adx-main { margin-left }` by AdminLayout.css. Excluding
-   `.adl-root` here prevents BOTH offsets from stacking (which produced
-   the large empty gap on Dashboard / Inventory / Analytics). */
-@media (min-width: 1001px) {
-  .inventory-page:not(.adl-root) aside.inventory-sidebar {
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    height: 100vh !important;   /* fallback */
-    height: 100dvh !important;  /* viewport-aware, accounts for mobile chrome */
-  }
-  /* Reserve the sidebar's column so the (now out-of-flow) main content
-     is never overlapped. border-box keeps width:100% + padding from
-     overflowing. */
-  .inventory-page:not(.adl-root) {
-    box-sizing: border-box !important;
-    padding-left: 280px !important;
-  }
-}
+/* MOVED — the desktop rail and its content offset now live in
+   AdminSidebar.css, which loads with the shared sidebar component on EVERY
+   Admin page. The analysis above still holds; only its home changed.
+
+   The rules here were split by shell (`:not(.adl-root)` for the legacy pages,
+   AdminLayout.css for the three pilot pages), which let the two halves drift:
+   this block reserved a 280px column while AdminSidebar.css sized the rail at
+   240px, leaving a 40px dead gutter on the legacy pages. The single definition
+   now reserves and sizes from one `--admin-sidebar-width` variable, so they
+   cannot disagree, and it applies to both shells — the legacy pages also gain
+   the mobile drawer they never had. */
 
 /* ============================================================
    8 · Consistent Admin typography

@@ -1,58 +1,265 @@
 /* ============================================================
-   Shared Admin sidebar — authoritative layout.
-   Loaded with the AdminSidebar component, so it lands in the shell
-   chunk (after the global stylesheets) and normalizes the sidebar
-   across every Admin page. The green background / nav-item styling
-   still comes from the existing shell layers (meridian-shell,
-   admin-polish); this file owns only width + height + flow so the
-   sidebar is ONE consistent width, reaches the viewport bottom at
-   any content height, and keeps logout pinned at the bottom.
-   `!important` is used narrowly, only to beat the several conflicting
-   legacy width/flex rules (245/248/280px) in styles.css.
-   ============================================================ */
-aside.inventory-sidebar {
-  /* one consistent expanded width everywhere (fallback keeps legacy admin
-     pages at 240px; AdminLayout pages read --admin-sidebar-width off .adl-root
-     so the rail and the main-content offset share a single source of truth) */
-  width: var(--admin-sidebar-width, 240px) !important;
-  min-width: var(--admin-sidebar-width, 240px) !important;
-  max-width: var(--admin-sidebar-width, 240px) !important;
-  flex-shrink: 0 !important;
+   Shared Admin sidebar — authoritative layout for EVERY Admin page.
+   Loaded with the AdminSidebar component, so it lands after the global
+   stylesheets and wins the cascade over the legacy rules. The green
+   background and nav-item styling still come from the existing shell
+   layers (meridian-shell, admin-polish); this file owns only geometry:
+   width, height, position, and which element is allowed to scroll.
 
-  /* Default (and legacy-page) attempt: stay in view via sticky. On AdminLayout
-     desktop this is replaced by a fixed rail — see the min-width:901px block in
-     AdminLayout.css — because the global `overflow-x:hidden` on the scroll root
-     (styles.css) turns #root into a scroll container and defeats sticky. Height
-     is driven by the viewport, never by page content. */
-  position: sticky;
-  top: 0;
-  align-self: flex-start;
-  height: 100vh;
-  height: 100dvh;
+   It has to override a lot. Ten separate legacy rules set this element's
+   width or position — 245px (styles.css:1255), 248px (:3584), 280px
+   (:5050 and :5809), 250px (@max-width:1100), 100% (@max-width:1000 and
+   @max-width:800) — several with `!important`. `!important` here is the
+   minimum needed to beat them, not a blanket escalation.
+
+   ONE breakpoint: 1000px. Below it the sidebar is an off-canvas drawer;
+   at 1001px and up it is a fixed rail. That single boundary matches the
+   legacy `.inventory-page` column-stacking rule (styles.css:1836). It
+   previously disagreed with itself — the drawer ended at 900px while the
+   desktop rail began at 1001px, so 901–1000px got neither.
+   ============================================================ */
+
+/* A NOTE ON SPECIFICITY, since it is load-bearing here.
+   admin-polish.css is imported by main.jsx while this file is imported by the
+   AdminSidebar component, so their relative order is decided by the bundler
+   and is not guaranteed to match between `dev` and `build`. Several rules in
+   the two files collide directly — `.sidebar-logout { margin-top: 8px }` vs
+   `auto`, `.inventory-page { width: 100vw }` vs `100%` — and both sides are
+   `!important`, which makes source order the tiebreak. Rather than depend on
+   that, every rule below carries a deliberately higher specificity (an extra
+   `.inventory-page` or `#root`), so the outcome is the same either way. */
+
+/* Single source of truth for the rail width. Both the rail itself and the
+   content offset read this, so they can never drift apart. 280px keeps the
+   long-standing Admin gutter (styles.css:5050, admin-polish's old reserve). */
+.inventory-page {
+  --admin-sidebar-width: 280px;
+}
+
+/* ------------------------------------------------------------------
+   The 100vw trap. `.inventory-page { width: 100vw !important }`
+   (styles.css:5040) is wider than the content box whenever a classic
+   scrollbar is present — 1440 vs 1425 at desktop — so the page always
+   overflowed horizontally and the global `overflow-x: hidden` merely
+   hid the evidence. 100% is the same width without the scrollbar error.
+   ------------------------------------------------------------------ */
+#root > .inventory-page {
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* `#root` is pinned to `width: 1126px` (index.css:58) and uncapped by
+   `max-width: none !important` (styles.css:5027), so on a 390px viewport the
+   root box stays 1126px wide and every Admin page lays out as though it were
+   on a desktop. Correcting it globally would touch all three roles, so this is
+   scoped to the Admin shell only — the same `:has()` approach already used for
+   the login page. The higher specificity beats `#root`; `max-width` still needs
+   `!important` to beat an `!important`. */
+#root:has(> .inventory-page) {
+  width: 100%;
+  max-width: 100% !important;
+}
+
+/* ------------------------------------------------------------------
+   Shared geometry (both shells, every breakpoint)
+   ------------------------------------------------------------------ */
+.inventory-page > aside.inventory-sidebar {
+  width: var(--admin-sidebar-width) !important;
+  min-width: var(--admin-sidebar-width) !important;
+  max-width: var(--admin-sidebar-width) !important;
+  /* Beats the legacy `flex: 0 0 248px` (styles.css:3584). That shorthand sets
+     flex-basis, which is the MAIN axis — and `.inventory-page` becomes
+     `flex-direction: column` below 1000px, so the basis was being applied to
+     the sidebar's HEIGHT, capping it at 248px and squeezing `nav` to 0px. */
+  flex: 0 0 var(--admin-sidebar-width) !important;
 
   display: flex !important;
   flex-direction: column !important;
-  overflow: hidden;
-  box-sizing: border-box;
+  box-sizing: border-box !important;
+
+  /* The rail itself never scrolls — only `nav` does. Two scrollable boxes
+     nested inside one another is what produced the doubled scrollbars. */
+  overflow: hidden !important;
 }
 
-/* nav fills the middle and scrolls internally if it is taller than the rail */
-aside.inventory-sidebar nav {
+/* nav takes the space left between the brand block and Logout, and is the ONLY
+   scrollable region in the sidebar. */
+.inventory-page > aside.inventory-sidebar nav {
   flex: 1 1 auto !important;
   min-height: 0 !important;
   overflow-y: auto !important;
   overflow-x: hidden !important;
+  overscroll-behavior: contain;
 }
 
 /* brand / chip / profile keep their natural size at the top */
-aside.inventory-sidebar > h2,
-aside.inventory-sidebar .m-role-chip,
-aside.inventory-sidebar .profile-mini {
+.inventory-page > aside.inventory-sidebar > h2,
+.inventory-page > aside.inventory-sidebar .m-role-chip,
+.inventory-page > aside.inventory-sidebar .profile-mini {
   flex: 0 0 auto !important;
 }
 
-/* logout pinned to the bottom regardless of nav length or page height */
-aside.inventory-sidebar .sidebar-logout {
+/* Logout is pinned to the bottom of the rail regardless of nav length or page
+   height, so it is always one reach away rather than at the end of the page.
+   admin-polish.css sets `margin-top: 8px !important` on the same element at
+   equal specificity; the extra `.inventory-page` here settles it by weight
+   instead of by whichever file the bundler happened to emit last. */
+.inventory-page > aside.inventory-sidebar .sidebar-logout {
   flex: 0 0 auto !important;
   margin-top: auto !important;
+}
+
+/* ------------------------------------------------------------------
+   Mobile drawer controls (hidden at desktop by the rail block below)
+   ------------------------------------------------------------------ */
+.admin-nav-toggle {
+  display: none; /* only shown under the breakpoint */
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 70; /* above the drawer, so it doubles as the close control */
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--gray-200, #e5e7eb);
+  border-radius: var(--radius-control, 8px);
+  background: #ffffff;
+  color: var(--gray-900, #111827);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08);
+  cursor: pointer;
+}
+.admin-nav-toggle:hover {
+  background: var(--gray-50, #f9fafb);
+}
+.admin-nav-toggle:focus-visible {
+  outline: 2px solid var(--green-600, #16a34a);
+  outline-offset: 2px;
+}
+
+.admin-nav-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+/* ============================================================
+   Desktop (≥1001px): fixed rail
+   ------------------------------------------------------------
+   `position: sticky` cannot work here. `overflow-x: hidden` on
+   html/body/#root (styles.css:5020) — a required global rule that
+   suppresses the 100vw horizontal scrollbar for every role — computes
+   overflow-y to `auto`, which makes #root a scroll container that grows
+   with its content and never scrolls internally. A sticky element binds
+   to that container, so it never sticks: measured on /admin/deliveries,
+   the rail's top went from 0 to −900 after a 900px scroll, carrying the
+   brand, the account card and Logout off the top of the screen.
+   A viewport-anchored fixed rail sidesteps the ancestor overflow. No
+   ancestor sets transform/filter/contain/perspective, so `fixed`
+   resolves against the viewport.
+   ============================================================ */
+@media (min-width: 1001px) {
+  .inventory-page > aside.inventory-sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    height: 100vh !important; /* fallback */
+    height: 100dvh !important; /* accounts for mobile browser chrome */
+    z-index: 30;
+    transform: none !important;
+    visibility: visible !important;
+  }
+
+  /* The rail is out of flow, so the page reserves its column here. Reading the
+     same variable as the rail keeps the two in lock-step — they were 280px and
+     240px respectively, which is where the 40px dead gutter came from.
+     `#root >` outweighs the global `.inventory-page { padding: 0 !important }`
+     (styles.css:5044) regardless of stylesheet order. */
+  #root > .inventory-page {
+    padding-left: var(--admin-sidebar-width) !important;
+  }
+
+  /* AdminLayout's main column previously added its own `margin-left` on top of
+     that reserve. Only one offset may apply or the content is pushed twice. */
+  .adl-root > .adx-main {
+    margin-left: 0 !important;
+  }
+
+  .admin-nav-toggle,
+  .admin-nav-backdrop {
+    display: none !important;
+  }
+}
+
+/* ============================================================
+   Mobile / tablet (≤1000px): off-canvas drawer
+   ============================================================ */
+@media (max-width: 1000px) {
+  #root > .inventory-page {
+    padding-left: 0 !important;
+    /* clears the fixed toggle so no page starts underneath it */
+    padding-top: 64px !important;
+  }
+
+  .inventory-page > aside.inventory-sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    z-index: 60;
+
+    /* never wider than the viewport it slides over */
+    min-width: 0 !important;
+    width: min(var(--admin-sidebar-width), 86vw) !important;
+    max-width: 86vw !important;
+
+    transform: translateX(-100%);
+    /* `visibility: hidden` is what keeps the closed drawer out of the tab
+       order. Translating it off-canvas alone leaves every link and the Logout
+       button focusable, so a keyboard user tabs into a panel they cannot see —
+       measured as 10 of 10 controls off-screen but still reachable.
+
+       Visibility is stepped, never eased. On close it is DELAYED by the length
+       of the slide (`0s linear 180ms`) so the panel stays on screen while it
+       animates out; on open it flips immediately (`0s` below). That ordering
+       matters for more than looks: a `visibility: hidden` element cannot take
+       focus, so easing it made the component's own `focus()` call land on a
+       still-hidden node and silently do nothing — the drawer opened with focus
+       left behind on the page. */
+    visibility: hidden;
+    transition: transform 180ms ease, visibility 0s linear 180ms;
+  }
+
+  .inventory-page > aside.inventory-sidebar.admin-nav-open {
+    transform: translateX(0);
+    visibility: visible;
+    transition: transform 180ms ease, visibility 0s;
+    box-shadow: 0 12px 32px rgba(16, 24, 40, 0.28);
+  }
+
+  .admin-nav-toggle {
+    display: inline-flex;
+  }
+
+  /* The toggle is fixed at 10px and is 44px wide, so it sits over the drawer's
+     own top-left corner once the panel slides under it — measured covering the
+     brand, which read as "…Track". Indenting only the wordmark clears it and
+     reads as the familiar button-then-title mobile header. Indenting is
+     preferred over padding the whole panel down: vertical space is the scarce
+     axis at 563px, where Logout is already the last thing on screen. */
+  .inventory-page > aside.inventory-sidebar > h2 {
+    padding-left: 40px;
+  }
+}
+
+/* ---------- reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .inventory-page > aside.inventory-sidebar {
+    transition: none !important;
+  }
 }

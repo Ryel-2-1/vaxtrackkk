@@ -39,6 +39,8 @@ function AddVaccine() {
     setMessageType(type);
   };
 
+  // Reload after a new type is added. Kept as-is for that caller, which awaits
+  // it so the freshly added type is in the list before it is selected.
   const loadVaccineTypes = async () => {
     try {
       setVaccineTypes(await getVaccineTypes());
@@ -48,8 +50,31 @@ function AddVaccine() {
     }
   };
 
+  // The initial load reads the same service, but the state updates sit inside
+  // the promise callbacks rather than behind an `await` in a helper. The old
+  // form called `loadVaccineTypes()` straight from the effect body, which
+  // `react-hooks/set-state-in-effect` reports: the rule follows the call into
+  // the helper and cannot see that the update happens after an await, so it
+  // reads as a synchronous setState in the effect. Wrapping the helper in
+  // useCallback does not satisfy it either — the analyzer still follows it.
+  // Settling the state in a callback is the pattern the rule documents, and it
+  // adds a real guard the previous version lacked: an unmount before the fetch
+  // resolves no longer sets state on a gone component.
   useEffect(() => {
-    loadVaccineTypes();
+    let active = true;
+    getVaccineTypes()
+      .then((types) => {
+        if (active) setVaccineTypes(types);
+      })
+      .catch((error) => {
+        console.error("Load vaccine types error:", error);
+        if (!active) return;
+        setMessage("Unable to load vaccine types.");
+        setMessageType("error");
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const validateForm = async () => {
@@ -215,8 +240,9 @@ function AddVaccine() {
             Basic Information
           </h2>
 
-          <label>Vaccine Name</label>
+          <label htmlFor="vaccine-name">Vaccine Name</label>
           <input
+            id="vaccine-name"
             placeholder="e.g. Comirnaty BNT162b2"
             value={vaccineName}
             onChange={(e) => setVaccineName(e.target.value)}
@@ -224,10 +250,13 @@ function AddVaccine() {
 
           <div className="two-col-form">
             <div>
-              <label>Manufacturer / Pharma Company</label>
+              <label htmlFor="vaccine-manufacturer">
+                Manufacturer / Pharma Company
+              </label>
               <div className="field-with-icon">
                 <Building2 size={16} />
                 <input
+                  id="vaccine-manufacturer"
                   placeholder="e.g. Pfizer-BioNTech"
                   value={manufacturer}
                   onChange={(e) => setManufacturer(e.target.value)}
@@ -237,7 +266,7 @@ function AddVaccine() {
 
             <div>
               <div className="label-with-action">
-                <label>Vaccine Type</label>
+                <label htmlFor="vaccine-type">Vaccine Type</label>
                 <button
                   type="button"
                   className="mini-link-btn"
@@ -253,6 +282,7 @@ function AddVaccine() {
               <div className="field-with-icon">
                 <FlaskConical size={16} />
                 <select
+                  id="vaccine-type"
                   value={vaccineType}
                   onChange={(e) => setVaccineType(e.target.value)}
                 >
@@ -273,7 +303,9 @@ function AddVaccine() {
               <div className="add-type-header">
                 <div className="add-type-heading">
                   <h3>Add Vaccine Type</h3>
-                  <p>Create a reusable option for the Vaccine Type list.</p>
+                  <p id="add-vaccine-type-help">
+                    Create a reusable option for the Vaccine Type list.
+                  </p>
                 </div>
                 <button type="button" onClick={() => setShowAddType(false)} aria-label="Cancel new vaccine type">
                   <X size={16} />
@@ -281,7 +313,17 @@ function AddVaccine() {
               </div>
 
               <div className="add-type-row">
+                {/* The field had only a placeholder, which is not an
+                    accessible name — it disappears on input and is not
+                    reliably announced. The label is visually hidden rather
+                    than shown so the compact two-control row is unchanged;
+                    the panel's own helper text describes it. */}
+                <label htmlFor="new-vaccine-type" className="admin-sr-only">
+                  New vaccine type
+                </label>
                 <input
+                  id="new-vaccine-type"
+                  aria-describedby="add-vaccine-type-help"
                   placeholder="e.g. mRNA, Inactivated, Viral Vector"
                   value={newTypeName}
                   onChange={(e) => setNewTypeName(e.target.value)}
@@ -299,10 +341,11 @@ function AddVaccine() {
             </div>
           )}
 
-          <label>Internal Inventory SKU</label>
+          <label htmlFor="vaccine-sku">Internal Inventory SKU</label>
           <div className="field-with-icon">
             <Package size={16} />
             <input
+              id="vaccine-sku"
               placeholder="VXT-992-XXXXX"
               value={internalSku}
               onChange={(e) => setInternalSku(e.target.value.toUpperCase())}
