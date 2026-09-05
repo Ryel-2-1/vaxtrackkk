@@ -7,6 +7,11 @@
 // from @firebase/rules-unit-testing. Exits non-zero if any case fails.
 //
 // NOT a deploy. Storage rules are NOT tested here (Storage is not provisioned).
+//
+// This file runs under Node, not the browser, so `process` is a legitimate
+// global here. The shared ESLint config targets browser source and does not
+// declare it — hence this directive rather than a config change.
+/* global process */
 
 import {
   initializeTestEnvironment,
@@ -93,6 +98,63 @@ async function main() {
 
     await setDoc(doc(db, "inventory", "inv1"), { vaccineName: "X", quantity: 10 });
     await setDoc(doc(db, "clinics", "cl1"), { name: "Clinic A" });
+
+    // ---- Phase 02A order-snapshot fixtures ----
+    // Dedicated clinics so these cases never depend on cl1, which Pclin1 mutates.
+    await setDoc(doc(db, "clinics", "clVerified"), {
+      name: "Verified Clinic",
+      clinicId: "CLN-9123",
+      latitude: 14.5995,
+      longitude: 120.9842,
+      geofenceRadiusM: 150, // deliberately NOT the 300 default
+      locationVerified: true,
+    });
+    // Verified, but no stored radius — an order must inherit exactly 300.
+    await setDoc(doc(db, "clinics", "clDefaultRadius"), {
+      name: "Default Radius Clinic",
+      clinicId: "CLN-0300",
+      latitude: 10.5,
+      longitude: 122.5,
+      locationVerified: true,
+    });
+    // Real legacy shape: pinned before Phase 01, so coordinates exist but the
+    // verification flag never does. Coordinates alone must not geofence.
+    await setDoc(doc(db, "clinics", "clUnverified"), {
+      name: "Legacy Pinned Clinic",
+      clinicId: "CLN-6961",
+      latitude: 14.5995,
+      longitude: 120.9842,
+    });
+    // Verified but with an out-of-bounds radius: no order may inherit it.
+    await setDoc(doc(db, "clinics", "clBadRadius"), {
+      name: "Bad Radius Clinic",
+      clinicId: "CLN-5000",
+      latitude: 14.6,
+      longitude: 120.99,
+      geofenceRadiusM: 5000,
+      locationVerified: true,
+    });
+    // An order created BEFORE Phase 02A: no snapshot fields at all. Must stay
+    // readable and keep moving through its normal lifecycle.
+    await setDoc(doc(db, "orders", "ordLegacyNoSnapshot"), {
+      createdByUid: salesRepUid,
+      status: "assigned",
+      assignedRiderId: riderUid,
+      clinicName: "Legacy Clinic",
+    });
+    // An order that already carries a valid snapshot — used for mutation tests.
+    await setDoc(doc(db, "orders", "ordWithSnapshot"), {
+      createdByUid: salesRepUid,
+      status: "assigned",
+      assignedRiderId: riderUid,
+      clinicDocId: "clVerified",
+      clinicId: "CLN-9123",
+      clinicLat: 14.5995,
+      clinicLng: 120.9842,
+      clinicGeofenceRadiusM: 150,
+      clinicLocationVerified: true,
+    });
+
     await setDoc(doc(db, "alerts", "al1"), { status: "active", title: "T" });
     await setDoc(doc(db, "invoices", "invc1"), { orderId: "ordSR1" });
     await setDoc(doc(db, "counters", "invoice_2026"), { value: 1 });
@@ -838,6 +900,183 @@ async function main() {
   await check("Nclin3 unauthenticated cannot read or write clinics", async () => {
     await assertFails(getDoc(doc(anon, "clinics", "cl1")));
     await assertFails(updateDoc(doc(anon, "clinics", "cl1"), { latitude: 1 }));
+  });
+
+  // ================= Phase 02A — order clinic-location snapshot =================
+  //
+  // The client builds the snapshot, so the rules re-derive it from the clinic
+  // document. A client may choose WHICH clinic an order goes to; it may never
+  // choose where that clinic is, or how large its geofence is.
+
+  const newOrder = (extra) => ({
+    createdByUid: salesRepUid,
+    status: "pending_dispatch",
+    clinicName: "Some Clinic",
+    vaccineName: "V",
+    quantity: 1,
+    ...extra,
+  });
+
+  await check("Psnap1 sales rep creates an order with a faithful verified snapshot", async () => {
+    await assertSucceeds(setDoc(doc(salesRep, "orders", "snapOk1"), newOrder({
+      clinicDocId: "clVerified",
+      clinicId: "CLN-9123",
+      clinicLat: 14.5995,
+      clinicLng: 120.9842,
+      clinicGeofenceRadiusM: 150,
+      clinicLocationVerified: true,
+      clinicLocationSnapshotAt: serverTimestamp(),
+    })));
+  });
+
+  await check("Psnap2 a clinic with no stored radius yields exactly the 300 m default", async () => {
+    await assertSucceeds(setDoc(doc(salesRep, "orders", "snapOk2"), newOrder({
+      clinicDocId: "clDefaultRadius",
+      clinicId: "CLN-0300",
+      clinicLat: 10.5,
+      clinicLng: 122.5,
+      clinicGeofenceRadiusM: 300,
+      clinicLocationVerified: true,
+      clinicLocationSnapshotAt: serverTimestamp(),
+    })));
+  });
+
+  await check("Psnap3 unverified clinic order is accepted WITHOUT geofence data", async () => {
+    await assertSucceeds(setDoc(doc(salesRep, "orders", "snapOk3"), newOrder({
+      clinicDocId: "clUnverified",
+      clinicId: "CLN-6961",
+      clinicLocationVerified: false,
+      clinicLocationSnapshotAt: serverTimestamp(),
+    })));
+  });
+
+  await check("Psnap4 an order with no snapshot fields at all is still accepted", async () => {
+    // Legacy shape — creation must not become impossible for callers that
+    // predate the snapshot.
+    await assertSucceeds(setDoc(doc(salesRep, "orders", "snapOk4"), newOrder({})));
+  });
+
+  await check("Psnap5 legacy order (no snapshot) keeps its dispatcher lifecycle", async () => {
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordLegacyNoSnapshot"), {
+      status: "loading",
+      statusUpdatedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Psnap6 legacy order keeps its rider lifecycle", async () => {
+    await assertSucceeds(updateDoc(doc(rider, "orders", "ordLegacyNoSnapshot"), {
+      status: "in_transit",
+      startedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Nsnap1 forged latitude is rejected", async () => {
+    await assertFails(setDoc(doc(salesRep, "orders", "snapBad1"), newOrder({
+      clinicDocId: "clVerified",
+      clinicLat: 1.234, // not the clinic's
+      clinicLng: 120.9842,
+      clinicGeofenceRadiusM: 150,
+      clinicLocationVerified: true,
+    })));
+  });
+
+  await check("Nsnap2 forged longitude is rejected", async () => {
+    await assertFails(setDoc(doc(salesRep, "orders", "snapBad2"), newOrder({
+      clinicDocId: "clVerified",
+      clinicLat: 14.5995,
+      clinicLng: 5.678, // not the clinic's
+      clinicGeofenceRadiusM: 150,
+      clinicLocationVerified: true,
+    })));
+  });
+
+  await check("Nsnap3 forged radius is rejected", async () => {
+    await assertFails(setDoc(doc(salesRep, "orders", "snapBad3"), newOrder({
+      clinicDocId: "clVerified",
+      clinicLat: 14.5995,
+      clinicLng: 120.9842,
+      clinicGeofenceRadiusM: 1000, // clinic is 150
+      clinicLocationVerified: true,
+    })));
+  });
+
+  await check("Nsnap4 a clinicDocId that does not exist is rejected", async () => {
+    await assertFails(setDoc(doc(salesRep, "orders", "snapBad4"), newOrder({
+      clinicDocId: "clDoesNotExist",
+      clinicLocationVerified: false,
+    })));
+  });
+
+  await check("Nsnap5 a business clinicId that is not the clinic's own is rejected", async () => {
+    await assertFails(setDoc(doc(salesRep, "orders", "snapBad5"), newOrder({
+      clinicDocId: "clVerified",
+      clinicId: "CLN-0000", // clinic's is CLN-9123
+      clinicLat: 14.5995,
+      clinicLng: 120.9842,
+      clinicGeofenceRadiusM: 150,
+      clinicLocationVerified: true,
+    })));
+  });
+
+  await check("Nsnap6 claiming verified for an unverified clinic is rejected", async () => {
+    // The clinic has real coordinates but no locationVerified flag. Copying them
+    // and asserting verification must not be possible.
+    await assertFails(setDoc(doc(salesRep, "orders", "snapBad6"), newOrder({
+      clinicDocId: "clUnverified",
+      clinicLat: 14.5995,
+      clinicLng: 120.9842,
+      clinicGeofenceRadiusM: 300,
+      clinicLocationVerified: true,
+    })));
+  });
+
+  await check("Nsnap7 an UNVERIFIED snapshot carrying coordinates is rejected", async () => {
+    // "verified: false" must not become a loophole for smuggling a destination.
+    await assertFails(setDoc(doc(salesRep, "orders", "snapBad7"), newOrder({
+      clinicDocId: "clVerified",
+      clinicLat: 14.5995,
+      clinicLng: 120.9842,
+      clinicLocationVerified: false,
+    })));
+  });
+
+  await check("Nsnap8 an out-of-bounds clinic radius cannot be inherited", async () => {
+    await assertFails(setDoc(doc(salesRep, "orders", "snapBad8"), newOrder({
+      clinicDocId: "clBadRadius",
+      clinicId: "CLN-5000",
+      clinicLat: 14.6,
+      clinicLng: 120.99,
+      clinicGeofenceRadiusM: 5000,
+      clinicLocationVerified: true,
+    })));
+  });
+
+  await check("Nsnap9 sales rep cannot mutate the snapshot after creation", async () => {
+    for (const patch of [
+      { clinicLat: 1.1 },
+      { clinicLng: 2.2 },
+      { clinicGeofenceRadiusM: 1000 },
+      { clinicLocationVerified: false },
+      { clinicDocId: "clUnverified" },
+      { clinicId: "CLN-0000" },
+    ]) {
+      await assertFails(updateDoc(doc(salesRep, "orders", "ordWithSnapshot"), patch));
+    }
+  });
+
+  await check("Nsnap10 dispatcher and rider cannot write snapshot fields", async () => {
+    for (const db of [dispatcher, rider]) {
+      await assertFails(updateDoc(doc(db, "orders", "ordWithSnapshot"), {
+        clinicLat: 1.1,
+        updatedAt: serverTimestamp(),
+      }));
+      await assertFails(updateDoc(doc(db, "orders", "ordWithSnapshot"), {
+        clinicGeofenceRadiusM: 999,
+        updatedAt: serverTimestamp(),
+      }));
+    }
   });
 
   await testEnv.cleanup();

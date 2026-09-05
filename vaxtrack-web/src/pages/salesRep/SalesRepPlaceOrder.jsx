@@ -4,7 +4,6 @@ import {
   FileText,
   Loader2,
   MapPin,
-  Minus,
   PackagePlus,
   Search,
   Trash2,
@@ -144,7 +143,19 @@ function SalesRepPlaceOrder() {
           : `${items[0].name} +${items.length - 1} more`;
 
       const orderPayload = {
-        clinicId: canonicalClinicId, // canonical Clinic ID (verified non-empty)
+        // TWO DISTINCT IDENTIFIERS, never interchangeable:
+        //  - `clinicDocId` is the Firestore DOCUMENT id. `subscribeClinics`
+        //    builds each record as `{ id: d.id, ...d.data() }`, so `.id` is the
+        //    document id (no clinic document carries a field named `id`).
+        //  - the business/display id (`CLN-####`) lives on the record as
+        //    `clinicId` and is read from there by the snapshot builder.
+        // Neither is ever derived from the other, nor from name or address.
+        clinicDocId: verifiedClinic.id,
+        // The selected clinic record itself. The service derives the location
+        // snapshot from this alone — coordinates are no longer passed
+        // separately, so they cannot disagree with the clinic they claim to
+        // come from.
+        clinic: verifiedClinic,
         clinicName: verifiedClinic.name,
         clinicAddress: verifiedClinic.location || verifiedClinic.address || "",
         vaccineName: vaccineSummary,
@@ -159,20 +170,11 @@ function SalesRepPlaceOrder() {
         createdByEmail: user?.email || null,
       };
 
-      // Carry the clinic's manual coordinates onto the order when present, so
-      // Dispatcher Geofence can show the destination + geofence circle.
-      // Clinics without coordinates simply omit these (rider-only map).
-      if (
-        Number.isFinite(Number(selectedClinicInfo.latitude)) &&
-        Number.isFinite(Number(selectedClinicInfo.longitude)) &&
-        selectedClinicInfo.latitude !== "" &&
-        selectedClinicInfo.longitude !== "" &&
-        selectedClinicInfo.latitude != null &&
-        selectedClinicInfo.longitude != null
-      ) {
-        orderPayload.clinicLat = Number(selectedClinicInfo.latitude);
-        orderPayload.clinicLng = Number(selectedClinicInfo.longitude);
-      }
+      // Coordinates are NOT assembled here any more. `createSalesRepOrder`
+      // derives them from the clinic record above via the shared snapshot
+      // builder, which applies the same verification and range rules as the
+      // Admin clinic-location editor. Building them here as well would give a
+      // client a second, unverified way to set a delivery destination.
 
       // Pre-compute the canonical public order reference the same way
       // `createSalesRepOrder` would default it (`VT-ORD-<epoch ms>`), and pass
