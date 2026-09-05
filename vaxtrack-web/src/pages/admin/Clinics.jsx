@@ -932,7 +932,10 @@ function NewClinicModal({
       {/* noValidate: the clinic + location validators own all feedback, so a
           native tooltip can never pre-empt the styled inline errors. */}
       <form
-        className="clinics-modal clinics-form-modal"
+        // `clinics-register-modal` scopes the viewport-aware height + scrolling
+        // rules to THIS dialog. `.clinics-form-modal` is shared with the
+        // Manage-location dialog, so styling that class would couple the two.
+        className="clinics-modal clinics-form-modal clinics-register-modal"
         onSubmit={onSubmit}
         noValidate
       >
@@ -949,136 +952,145 @@ function NewClinicModal({
         <h2>Register New Clinic</h2>
         <p>Add a healthcare facility to the VaxTrack delivery network.</p>
 
-        <div className="clinics-form-grid">
-          <label>
-            Clinic Name
-            <input
-              type="text"
-              placeholder="Enter clinic or hospital name"
-              value={newClinic.name}
-              onChange={(e) =>
-                setNewClinic((prev) => ({ ...prev, name: e.target.value }))
-              }
-              disabled={saving}
-            />
-          </label>
+        {/* Scrollable body. Same structure as the Manage-location dialog, and
+            needed more here: this modal is taller (registration fields PLUS the
+            same location picker), so without a viewport cap its footer - and
+            therefore Register - fell outside a short viewport with no way to
+            reach it. The backdrop is position:fixed so the page cannot scroll to
+            it, and wheel input over the map is consumed by Leaflet for zooming.
+            The action row stays OUTSIDE this element so it remains pinned. */}
+        <div className="clinics-modal-body">
+          <div className="clinics-form-grid">
+            <label>
+              Clinic Name
+              <input
+                type="text"
+                placeholder="Enter clinic or hospital name"
+                value={newClinic.name}
+                onChange={(e) =>
+                  setNewClinic((prev) => ({ ...prev, name: e.target.value }))
+                }
+                disabled={saving}
+              />
+            </label>
 
-          <label>
-            Contact Person
-            <input
-              type="text"
-              placeholder="Dr. Maria Santos"
-              value={newClinic.contact}
-              onChange={(e) =>
-                setNewClinic((prev) => ({
-                  ...prev,
-                  contact: e.target.value,
-                }))
-              }
-              disabled={saving}
-            />
-          </label>
+            <label>
+              Contact Person
+              <input
+                type="text"
+                placeholder="Dr. Maria Santos"
+                value={newClinic.contact}
+                onChange={(e) =>
+                  setNewClinic((prev) => ({
+                    ...prev,
+                    contact: e.target.value,
+                  }))
+                }
+                disabled={saving}
+              />
+            </label>
 
-          <label>
-            Phone Number
-            <input
-              type="text"
-              placeholder="0917-000-0000"
-              value={newClinic.phone}
-              onChange={(e) =>
-                setNewClinic((prev) => ({ ...prev, phone: e.target.value }))
-              }
-              disabled={saving}
-            />
-          </label>
+            <label>
+              Phone Number
+              <input
+                type="text"
+                placeholder="0917-000-0000"
+                value={newClinic.phone}
+                onChange={(e) =>
+                  setNewClinic((prev) => ({ ...prev, phone: e.target.value }))
+                }
+                disabled={saving}
+              />
+            </label>
 
-          <label>
-            Email
-            <input
-              type="email"
-              placeholder="clinic@email.com"
-              value={newClinic.email}
-              onChange={(e) =>
-                setNewClinic((prev) => ({ ...prev, email: e.target.value }))
-              }
-              disabled={saving}
-            />
-          </label>
+            <label>
+              Email
+              <input
+                type="email"
+                placeholder="clinic@email.com"
+                value={newClinic.email}
+                onChange={(e) =>
+                  setNewClinic((prev) => ({ ...prev, email: e.target.value }))
+                }
+                disabled={saving}
+              />
+            </label>
 
-          <label>
-            Location
-            <input
-              type="text"
-              placeholder="Street, City"
-              value={newClinic.location}
-              onChange={(e) =>
-                setNewClinic((prev) => ({
-                  ...prev,
-                  location: e.target.value,
-                }))
-              }
-              disabled={saving}
-            />
-          </label>
+            <label>
+              Location
+              <input
+                type="text"
+                placeholder="Street, City"
+                value={newClinic.location}
+                onChange={(e) =>
+                  setNewClinic((prev) => ({
+                    ...prev,
+                    location: e.target.value,
+                  }))
+                }
+                disabled={saving}
+              />
+            </label>
 
-          <label>
-            Area
-            <select
-              value={newClinic.area}
-              onChange={(e) =>
-                setNewClinic((prev) => ({ ...prev, area: e.target.value }))
-              }
-              disabled={saving}
-            >
-              <option>Metro Manila</option>
-              <option>Laguna</option>
-              <option>Cavite</option>
-              <option>Batangas</option>
-            </select>
-          </label>
+            <label>
+              Area
+              <select
+                value={newClinic.area}
+                onChange={(e) =>
+                  setNewClinic((prev) => ({ ...prev, area: e.target.value }))
+                }
+                disabled={saving}
+              >
+                <option>Metro Manila</option>
+                <option>Laguna</option>
+                <option>Cavite</option>
+                <option>Batangas</option>
+              </select>
+            </label>
 
-          <label>
-            Status
-            <select
-              value={newClinic.status}
-              onChange={(e) =>
-                setNewClinic((prev) => ({
-                  ...prev,
-                  status: e.target.value,
-                }))
-              }
-              disabled={saving}
-            >
-              <option value="active">Active</option>
-              <option value="pending">Pending Resupply</option>
-              <option value="overdue">Overdue</option>
-            </select>
-          </label>
+            <label>
+              Status
+              <select
+                value={newClinic.status}
+                onChange={(e) =>
+                  setNewClinic((prev) => ({
+                    ...prev,
+                    status: e.target.value,
+                  }))
+                }
+                disabled={saving}
+              >
+                <option value="active">Active</option>
+                <option value="pending">Pending Resupply</option>
+                <option value="overdue">Overdue</option>
+              </select>
+            </label>
 
-          <label className="wide">
-            Delivery Notes
-            <input
-              type="text"
-              placeholder="Special delivery notes or cold-chain instructions"
-              value={newClinic.deliveryNotes}
-              onChange={(e) =>
-                setNewClinic((prev) => ({
-                  ...prev,
-                  deliveryNotes: e.target.value,
-                }))
-              }
-              disabled={saving}
-            />
-          </label>
+            <label className="wide">
+              Delivery Notes
+              <input
+                type="text"
+                placeholder="Special delivery notes or cold-chain instructions"
+                value={newClinic.deliveryNotes}
+                onChange={(e) =>
+                  setNewClinic((prev) => ({
+                    ...prev,
+                    deliveryNotes: e.target.value,
+                  }))
+                }
+                disabled={saving}
+              />
+            </label>
+          </div>
+
+          <ClinicLocationSection
+            value={newClinic}
+            onChange={(patch) => setNewClinic((prev) => ({ ...prev, ...patch }))}
+            errors={errors}
+            disabled={saving}
+            idPrefix="new-clinic"
+          />
         </div>
-
-        <ClinicLocationSection
-          value={newClinic}
-          onChange={(patch) => setNewClinic((prev) => ({ ...prev, ...patch }))}
-          errors={errors}
-          disabled={saving}
-          idPrefix="new-clinic"
-        />
 
         <div className="clinics-modal-actions">
           <button

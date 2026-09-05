@@ -1829,27 +1829,32 @@
   }
 }
 /* ============================================================
-   Manage-location dialog — viewport-aware height
+   Clinic form dialogs — viewport-aware height
    ------------------------------------------------------------
-   DEFECT (proved on staging, 2026-09-05): this dialog is ~900px tall
-   (map + coordinate/radius fields + footer) and had no max-height, so on
-   a short viewport it grew past the screen and its action row — Save
-   included — fell outside it. Nothing could recover it: the backdrop is
-   `position: fixed`, so the page cannot scroll down to the button, and
+   DEFECT (proved on staging, 2026-09-05): both dialogs that embed the
+   location picker are tall — Manage location is ~900px (map +
+   coordinate/radius fields + footer) and Register New Clinic is taller
+   still (the full registration grid PLUS the same picker) — and neither
+   had a max-height. On a short viewport each grew past the screen and
+   its action row fell outside it. Nothing could recover it: the backdrop
+   is `position: fixed`, so the page cannot scroll down to the button, and
    wheel input over the map is consumed by Leaflet for zooming. At a
-   563px-tall viewport Save was completely unreachable.
+   563px-tall viewport, Save was completely unreachable.
 
    FIX: cap the dialog to the viewport and scroll ONLY its body, leaving
    the heading, the close button and the action row pinned. Because the
-   footer sits outside the scrolling element, Save and Cancel stay
-   reachable even while the pointer is over the map — Leaflet keeps its
-   wheel-to-zoom, drag and click behaviour untouched.
+   footer sits outside the scrolling element, the primary and cancel
+   actions stay reachable even while the pointer is over the map —
+   Leaflet keeps its wheel-to-zoom, drag and click behaviour untouched.
 
-   Scoped to `.clinics-location-modal`, a class carried only by this
-   dialog: `.clinics-form-modal` is shared with the Register-Clinic
-   modal, so styling that would restyle an unrelated dialog.
+   Scoped to the two per-dialog classes rather than the shared
+   `.clinics-form-modal`, so the rules apply only where the structure
+   actually exists (each dialog carries a `.clinics-modal-body`).
+   `ClinicDetailsModal` uses plain `.clinics-modal` and is untouched.
+   Both are listed on one rule set so the two dialogs cannot drift apart.
    ============================================================ */
-.clinics-location-modal {
+.clinics-location-modal,
+.clinics-register-modal {
   display: flex;
   flex-direction: column;
   /* `vh` first as the fallback, then `dvh` where supported so the cap
@@ -1860,10 +1865,12 @@
   max-height: calc(100dvh - 48px);
 }
 
-/* Heading and subtitle stay above the scroll area (flex items default to
-   shrinking, which would squash them as the body grows). */
+/* Headings stay above the scroll area (flex items default to shrinking,
+   which would squash them as the body grows). */
 .clinics-location-modal > h3,
-.clinics-location-modal > .clinics-modal-sub {
+.clinics-location-modal > .clinics-modal-sub,
+.clinics-register-modal > h2,
+.clinics-register-modal > p {
   flex: 0 0 auto;
 }
 
@@ -1873,7 +1880,8 @@
    and reinstate the bug. The negative margin lets the scrollbar sit
    against the card edge while the padding keeps content aligned with the
    dialog's 28px gutter and leaves room for focus rings. */
-.clinics-location-modal .clinics-modal-body {
+.clinics-location-modal .clinics-modal-body,
+.clinics-register-modal .clinics-modal-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -1883,7 +1891,8 @@
 }
 
 /* Pinned footer. */
-.clinics-location-modal .clinics-modal-actions {
+.clinics-location-modal .clinics-modal-actions,
+.clinics-register-modal .clinics-modal-actions {
   flex: 0 0 auto;
   padding-top: 16px;
 }
@@ -1893,12 +1902,14 @@
    benefits too. Higher specificity than the width-based `.clinic-loc-map`
    rules above, so it wins without `!important`. */
 @media (max-height: 720px) {
-  .clinics-location-modal .clinic-loc-map {
+  .clinics-location-modal .clinic-loc-map,
+  .clinics-register-modal .clinic-loc-map {
     height: 220px;
   }
 }
 @media (max-height: 600px) {
-  .clinics-location-modal .clinic-loc-map {
+  .clinics-location-modal .clinic-loc-map,
+  .clinics-register-modal .clinic-loc-map {
     height: 180px;
   }
 }
