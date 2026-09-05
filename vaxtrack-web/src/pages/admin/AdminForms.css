@@ -181,6 +181,33 @@
   margin-top: 8px;
 }
 
+/* Inline action inside helper text — used by the Add Stock empty state to send
+   the admin to Register New Vaccine. A real <button> (not an anchor) because it
+   navigates via the router, styled to read as a link and keeping a visible
+   keyboard focus ring. */
+.inventory-main .link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  min-height: 0;
+  font: inherit;
+  color: var(--green-700);
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.inventory-main .link-btn:hover {
+  color: var(--green-800);
+}
+
+.inventory-main .link-btn:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
 .inventory-main .form-response,
 .inventory-main .form-error {
   margin-top: 14px;

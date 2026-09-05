@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ClipboardList, Truck } from "lucide-react";
 import { AdminSidebar } from "../../components/admin/AdminSidebar";
@@ -18,13 +18,20 @@ function AddStock() {
   const [batchId, setBatchId] = useState("");
   const [arrivalDate, setArrivalDate] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
-  const [quantity, setQuantity] = useState(1000);
-  const [storageTemp, setStorageTemp] = useState("-80");
+  // Starts empty rather than a pre-filled figure: a default quantity is a
+  // number nobody entered, and it could be submitted unchanged.
+  const [quantity, setQuantity] = useState("");
 
   const [loadingVaccines, setLoadingVaccines] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("error");
+
+  // Duplicate-submit guard. `saving` drives the disabled button, but it is set
+  // AFTER an async validation that queries Firestore for the batch id — two
+  // submits dispatched before that resolves would both pass and both write.
+  // A ref flips synchronously, so only one write is ever in flight.
+  const submittingRef = useRef(false);
 
   const showMessage = (text, type = "error") => {
     setMessage(text);
@@ -66,8 +73,7 @@ function AddStock() {
 
   const validateForm = async () => {
     const cleanedBatchId = batchId.trim().toUpperCase();
-    const quantityNumber = Number(quantity);
-    const cleanedTemp = String(storageTemp).trim();
+    const quantityNumber = Number(String(quantity).trim());
 
     if (!selectedVaccine) {
       showMessage("Please select a registered vaccine.");
@@ -138,6 +144,11 @@ function AddStock() {
       return false;
     }
 
+    if (String(quantity).trim() === "" || Number.isNaN(quantityNumber)) {
+      showMessage("Unit quantity is required.");
+      return false;
+    }
+
     if (!Number.isInteger(quantityNumber)) {
       showMessage("Quantity must be a whole number.");
       return false;
@@ -153,16 +164,6 @@ function AddStock() {
       return false;
     }
 
-    if (!cleanedTemp) {
-      showMessage("Storage temperature is required.");
-      return false;
-    }
-
-    if (!isValidTemperature(cleanedTemp)) {
-      showMessage("Storage temperature must be a valid number.");
-      return false;
-    }
-
     if (await batchIdExists(cleanedBatchId)) {
       showMessage("This Batch ID already exists in inventory.");
       return false;
@@ -173,20 +174,27 @@ function AddStock() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    // One write at a time. Set before the await, because validateForm queries
+    // Firestore and a second submit could otherwise slip through behind it.
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+
     setMessage("");
     setMessageType("error");
 
-    const isValid = await validateForm();
-    if (!isValid) return;
-
-    setSaving(true);
-
     try {
+      const isValid = await validateForm();
+      if (!isValid) return;
+
+      setSaving(true);
+
       const cleanedBatchId = batchId.trim().toUpperCase();
-      const cleanedStorageTemp = String(storageTemp).trim();
       const cleanedManufacturer = manufacturer.trim();
       const status = getBatchStatus(expiryDate);
 
+      // Identity: `selectedVaccine.id` is the Firestore DOCUMENT id, kept
+      // distinct from internalSku (the business SKU) and from the batch id.
+      // No storage temperature is written — none was collected.
       await addStockBatch({
         vaccineId: selectedVaccine.id,
         vaccineName: selectedVaccine.vaccineName,
@@ -196,9 +204,7 @@ function AddStock() {
         batchId: cleanedBatchId,
         arrivalDate,
         expiryDate,
-        quantity: Number(quantity),
-        storageTemp: Number(cleanedStorageTemp),
-        storageTempDisplay: `${cleanedStorageTemp}°C`,
+        quantity: Number(String(quantity).trim()),
         status,
       });
 
@@ -211,6 +217,7 @@ function AddStock() {
       console.error("Add stock error:", error);
       showMessage("Failed to add stock. Please try again.");
     } finally {
+      submittingRef.current = false;
       setSaving(false);
     }
   };
@@ -234,11 +241,11 @@ function AddStock() {
         </header>
 
         <form className="stock-form" onSubmit={handleSubmit}>
-          <div className="step-tabs">
-            <span className="active">1. Product Information</span>
-            <span>2. Batch Details</span>
-          </div>
-
+          {/* The decorative two-step strip at the top of this form is gone. It
+              was not a real stepper — both entries were inert spans on a
+              single-page form — and its second entry merely restated the
+              batch/logistics section below. The real section headings are
+              unchanged. */}
           <section className="form-section-card">
             <h2>
               <ClipboardList size={18} />
@@ -247,8 +254,9 @@ function AddStock() {
 
             <div className="two-col-form">
               <div>
-                <label>Vaccine</label>
+                <label htmlFor="stock-vaccine">Registered Vaccine</label>
                 <select
+                  id="stock-vaccine"
                   value={selectedVaccineId}
                   onChange={(e) => handleVaccineChange(e.target.value)}
                   disabled={loadingVaccines}
@@ -267,20 +275,37 @@ function AddStock() {
                   ))}
                 </select>
 
+                {/* Empty state: stock can only be added against a registered
+                    vaccine, so point the admin at the one action that unblocks
+                    them. No vaccine is created automatically. */}
                 {!loadingVaccines && vaccines.length === 0 && (
-                  <small className="input-helper">
-                    No vaccines registered yet. Please add a vaccine first.
+                  <small className="input-helper" role="status">
+                    No vaccines are registered yet. Stock must be added against
+                    a registered vaccine —{" "}
+                    <button
+                      type="button"
+                      className="link-btn"
+                      onClick={() => navigate("/admin/add-vaccine")}
+                    >
+                      Register New Vaccine
+                    </button>{" "}
+                    first.
                   </small>
                 )}
               </div>
 
               <div>
-                <label>Manufacturer</label>
+                <label htmlFor="stock-manufacturer">Manufacturer</label>
                 <input
+                  id="stock-manufacturer"
                   placeholder="e.g. Pfizer-BioNTech"
                   value={manufacturer}
                   onChange={(e) => setManufacturer(e.target.value)}
+                  aria-describedby="stock-manufacturer-note"
                 />
+                <small id="stock-manufacturer-note" className="input-helper">
+                  Filled in from the selected vaccine when it has one on record.
+                </small>
               </div>
             </div>
 
@@ -300,8 +325,9 @@ function AddStock() {
 
             <div className="three-col-form">
               <div>
-                <label>Batch ID</label>
+                <label htmlFor="stock-batch-id">Batch ID</label>
                 <input
+                  id="stock-batch-id"
                   placeholder="BT-2026-X90"
                   value={batchId}
                   onChange={(e) => setBatchId(e.target.value.toUpperCase())}
@@ -309,8 +335,9 @@ function AddStock() {
               </div>
 
               <div>
-                <label>Arrival Date</label>
+                <label htmlFor="stock-arrival-date">Arrival Date</label>
                 <input
+                  id="stock-arrival-date"
                   type="date"
                   value={arrivalDate}
                   onChange={(e) => setArrivalDate(e.target.value)}
@@ -318,8 +345,9 @@ function AddStock() {
               </div>
 
               <div>
-                <label>Expiry Date</label>
+                <label htmlFor="stock-expiry-date">Expiry Date</label>
                 <input
+                  id="stock-expiry-date"
                   type="date"
                   value={expiryDate}
                   onChange={(e) => setExpiryDate(e.target.value)}
@@ -337,11 +365,12 @@ function AddStock() {
 
             <div className="two-col-form stock-controls">
               <div>
-                <label>Unit Quantity (Doses)</label>
+                <label htmlFor="stock-quantity">Unit Quantity (Doses)</label>
 
                 <div className="number-stepper">
                   <button
                     type="button"
+                    aria-label="Decrease quantity by 100"
                     onClick={() =>
                       setQuantity(Math.max(1, Number(quantity || 0) - 100))
                     }
@@ -350,15 +379,18 @@ function AddStock() {
                   </button>
 
                   <input
+                    id="stock-quantity"
                     type="number"
                     min="1"
                     step="1"
+                    placeholder="e.g. 1000"
                     value={quantity}
                     onChange={(e) => setQuantity(e.target.value)}
                   />
 
                   <button
                     type="button"
+                    aria-label="Increase quantity by 100"
                     onClick={() => setQuantity(Number(quantity || 0) + 100)}
                   >
                     +
@@ -366,41 +398,26 @@ function AddStock() {
                 </div>
               </div>
 
-              <div>
-                <label>Storage Temperature Requirements</label>
-
-                <input
-                  type="text"
-                    placeholder="e.g. -80"
-                   value={storageTemp}
-                  onChange={(e) => {
-                   const value = e.target.value;
-
-                   if (/^-?\d*\.?\d*$/.test(value)) {
-                    setStorageTemp(value);
-                     }
-            }}
-          />
-
-<small className="input-helper">
-  Enter numbers only. The system will automatically display °C.
-  {storageTemp && ` Current value: ${storageTemp}°C`}
-</small>
-              </div>
             </div>
           </section>
 
-          {message && (
-            <p
-              className={
-                messageType === "success"
-                  ? "form-response success"
-                  : "form-error"
-              }
-            >
-              {message}
-            </p>
-          )}
+          {/* Announced, so a validation or write failure is not silent for
+              screen-reader users. assertive because it reports the outcome of
+              an action the admin just took. */}
+          <div aria-live="assertive">
+            {message && (
+              <p
+                role={messageType === "success" ? "status" : "alert"}
+                className={
+                  messageType === "success"
+                    ? "form-response success"
+                    : "form-error"
+                }
+              >
+                {message}
+              </p>
+            )}
+          </div>
 
           <div className="stock-form-footer">
             <button
@@ -452,8 +469,4 @@ function getBatchStatus(expiryDate) {
   if (diffDays <= 90) return "Warning";
   return "Stable";
 }
-function isValidTemperature(value) {
-  return /^-?\d+(\.\d+)?$/.test(value);
-}
-
 export default AddStock;
