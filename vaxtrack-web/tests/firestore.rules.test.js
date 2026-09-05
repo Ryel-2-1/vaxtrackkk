@@ -337,15 +337,67 @@ async function main() {
     }));
   });
 
-  await check("P12 fresh rider self-registers own user doc (rider + pending)", async () => {
+  await check("P12 fresh rider self-registers own user doc (rider + pending + motorcycle)", async () => {
     await assertSucceeds(setDoc(doc(freshRider, "users", freshRiderUid), {
       role: "rider",
       status: "pending",
+      vehicleType: "Motorcycle",
       fullName: "New Rider",
       email: "new@x.com",
       phone: "0917",
       vehiclePlate: "AAA-111",
     }));
+  });
+
+  // ---- Rider self-registration identity boundary ----
+  // Riders create their own accounts, so a modified client must not be able to
+  // register anything other than a pending motorcycle rider owned by itself.
+  const selfRegistration = (extra) => ({
+    role: "rider",
+    status: "pending",
+    vehicleType: "Motorcycle",
+    fullName: "Probe Rider",
+    email: "probe@x.com",
+    phone: "0917",
+    vehiclePlate: "BBB-222",
+    ...extra,
+  });
+
+  await check("Nreg1 self-registration without a vehicle type is rejected", async () => {
+    const payload = selfRegistration();
+    delete payload.vehicleType;
+    await assertFails(setDoc(doc(freshRider, "users", "regNoType"), payload));
+  });
+
+  await check("Nreg2 a non-motorcycle vehicle type is rejected", async () => {
+    for (const vehicleType of ["Van", "Truck", "Auto", "motorcycle", ""]) {
+      await assertFails(
+        setDoc(doc(freshRider, "users", "regBadType"), selfRegistration({ vehicleType }))
+      );
+    }
+  });
+
+  await check("Nreg3 a rider cannot self-register as another role", async () => {
+    for (const role of ["admin", "dispatcher", "salesrep"]) {
+      await assertFails(
+        setDoc(doc(freshRider, "users", "regBadRole"), selfRegistration({ role }))
+      );
+    }
+  });
+
+  await check("Nreg4 a rider cannot self-register already approved", async () => {
+    for (const status of ["approved", "active", "disabled"]) {
+      await assertFails(
+        setDoc(doc(freshRider, "users", "regBadStatus"), selfRegistration({ status }))
+      );
+    }
+  });
+
+  await check("Nreg5 a rider cannot create another user's document", async () => {
+    // Correct shape, wrong owner: the uid must match the document id.
+    await assertFails(
+      setDoc(doc(freshRider, "users", "someoneElseUid"), selfRegistration())
+    );
   });
 
   await check("P13 dispatcher writes route + ETA fields (OpenRouteService)", async () => {
