@@ -85,6 +85,82 @@ service cloud.firestore {
       ];
     }
 
+    // ---------------- order clinic-location snapshot (Phase 02A) ----------------
+    //
+    // An order stores its destination as an order-TIME SNAPSHOT copied from the
+    // clinic, so re-pinning a clinic later cannot rewrite where a historical
+    // delivery was sent. The client builds that snapshot, so these rules
+    // re-derive it from the referenced clinic document and reject anything that
+    // does not match: a client may choose WHICH clinic an order goes to, never
+    // WHERE that clinic is or how large its geofence is.
+    //
+    // Deliberately NOT in dispatcherOrderFields()/riderOrderFields(): a snapshot
+    // is written once at creation. Repairing legacy orders is an admin action.
+    function clinicSnapshotFields() {
+      return [
+        'clinicDocId', 'clinicGeofenceRadiusM', 'clinicId', 'clinicLat',
+        'clinicLng', 'clinicLocationSnapshotAt', 'clinicLocationUpdatedAt',
+        'clinicLocationVerified'
+      ];
+    }
+
+    // Radius bounds — must stay identical to MIN/MAX_GEOFENCE_RADIUS_M and
+    // DEFAULT_GEOFENCE_RADIUS_M in src/services/clinicLocation.js.
+    function minRadiusM() { return 50; }
+    function maxRadiusM() { return 1000; }
+    function defaultRadiusM() { return 300; }
+
+    // A clinic with no stored radius yields the validated default, matching
+    // readClinicLocation(). A clinic whose stored radius is out of bounds fails
+    // the range check below, so no order can inherit an unusable geofence.
+    function clinicEffectiveRadius(c) {
+      return ('geofenceRadiusM' in c) ? c.geofenceRadiusM : defaultRadiusM();
+    }
+
+    // A verified snapshot must reproduce the clinic exactly.
+    function verifiedSnapshotMatches(d, c) {
+      return c.locationVerified == true
+        && d.clinicLat == c.latitude
+        && d.clinicLng == c.longitude
+        && d.clinicGeofenceRadiusM == clinicEffectiveRadius(c)
+        && d.clinicGeofenceRadiusM >= minRadiusM()
+        && d.clinicGeofenceRadiusM <= maxRadiusM();
+    }
+
+    // An unverified snapshot must carry NO usable geofence data at all — no
+    // coordinates, no radius, no borrowed source timestamp. This is what stops
+    // "unverified" being used as a cover for a forged destination.
+    function unverifiedSnapshotIsEmpty(d) {
+      return !('clinicLat' in d)
+        && !('clinicLng' in d)
+        && !('clinicGeofenceRadiusM' in d)
+        && !('clinicLocationUpdatedAt' in d);
+    }
+
+    function snapshotAgreesWithClinic(d, c) {
+      // The business id is optional (clinics registered before it existed have
+      // none), but when the order carries one it must be the clinic's own.
+      return (!('clinicId' in d) || ('clinicId' in c && c.clinicId == d.clinicId))
+        && d.clinicLocationVerified is bool
+        && (d.clinicLocationVerified == true
+              ? verifiedSnapshotMatches(d, c)
+              : unverifiedSnapshotIsEmpty(d));
+    }
+
+    // Orders created before Phase 02A carry no snapshot at all; they are still
+    // valid and must keep working, so absence is allowed. Presence is verified.
+    function clinicSnapshotValidOnCreate() {
+      return !request.resource.data.keys().hasAny(clinicSnapshotFields())
+        || (
+          request.resource.data.clinicDocId is string
+          && exists(/databases/$(database)/documents/clinics/$(request.resource.data.clinicDocId))
+          && snapshotAgreesWithClinic(
+               request.resource.data,
+               get(/databases/$(database)/documents/clinics/$(request.resource.data.clinicDocId)).data
+             )
+        );
+    }
+
     // ---------------- users ----------------
     match /users/{uid} {
       // Self-read at ANY status (so login + route guards can detect
@@ -134,11 +210,17 @@ service cloud.firestore {
         || (isRider() && resource.data.assignedRiderId == request.auth.uid);
 
       // Admin may create orders (broad write). Sales Rep creates orders they own.
-      allow create: if isAdmin()
-        || (
-          isSalesRep()
-          && request.resource.data.createdByUid == request.auth.uid
-        );
+      // Either way, any clinic-location snapshot on the new order must be a
+      // faithful copy of the clinic it names — including for admin, so a single
+      // compromised session cannot fabricate a destination either.
+      allow create: if (
+          isAdmin()
+          || (
+            isSalesRep()
+            && request.resource.data.createdByUid == request.auth.uid
+          )
+        )
+        && clinicSnapshotValidOnCreate();
 
       // Admin: full update.
       // Dispatcher: only dispatch/assignment/status fields (allowlist).
@@ -159,6 +241,11 @@ service cloud.firestore {
           isSalesRep()
           && resource.data.createdByUid == request.auth.uid
           && request.resource.data.createdByUid == request.auth.uid
+          // The snapshot is immutable after creation. Dispatcher and Rider are
+          // already confined by their hasOnly() allowlists, which exclude these
+          // fields; Sales Rep has no allowlist, so it is stated explicitly here.
+          // Admin retains full update — the Phase 02B repair needs it.
+          && !changedKeys().hasAny(clinicSnapshotFields())
         );
 
       allow delete: if isAdmin();

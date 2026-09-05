@@ -10,6 +10,7 @@ import {
   query,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { buildClinicLocationSnapshot } from "./orderLocation";
 
 const ORDERS_COLLECTION = "orders";
 
@@ -64,15 +65,28 @@ export async function createSalesRepOrder(orderData = {}) {
     doc.deliveryInstructions = orderData.deliveryInstructions;
   }
 
-  // Optional destination coordinates copied from the clinic (manual, no
-  // geocoding API). Only stored when both are finite numbers; orders for
-  // clinics without coordinates simply omit these.
-  const clinicLat = Number(orderData.clinicLat);
-  const clinicLng = Number(orderData.clinicLng);
-  if (Number.isFinite(clinicLat) && Number.isFinite(clinicLng)) {
-    doc.clinicLat = clinicLat;
-    doc.clinicLng = clinicLng;
-  }
+  // Order-time snapshot of the clinic's delivery location.
+  //
+  // Derived ONLY from the selected clinic record plus its Firestore document
+  // id. Any `clinicLat` / `clinicLng` / `clinicGeofenceRadiusM` /
+  // `clinicLocationVerified` a caller puts on `orderData` is deliberately
+  // ignored — otherwise a client could pair a real clinic with a destination of
+  // its own choosing. Firestore rules re-verify the result against the clinic
+  // document, so this is the first of two independent checks, not the only one.
+  //
+  // This also fixes a real bug: the caller has always sent a clinic reference,
+  // but the document below is built from an explicit field list, so it was
+  // silently dropped and NO order in the collection carried one.
+  const { fields: clinicLocationFields } = buildClinicLocationSnapshot(
+    orderData.clinicDocId,
+    orderData.clinic
+  );
+  Object.assign(doc, clinicLocationFields);
+
+  // Server-stamped so the snapshot's own age is trustworthy. Always written,
+  // including for a clinic with no usable location — "we looked, and there was
+  // nothing verified to copy" is itself the fact worth recording.
+  doc.clinicLocationSnapshotAt = serverTimestamp();
 
   if (Array.isArray(orderData.items) && orderData.items.length > 0) {
     doc.items = orderData.items.map((item) => ({
@@ -184,6 +198,11 @@ export async function startRiderDelivery(orderId) {
   });
 }
 
+// The canonical status graph, kept as the written record of which transitions
+// are legal. NOT yet enforced by `updateOrderStatus` — wiring it up would change
+// status behaviour, which is out of scope here, so it is deliberately retained
+// rather than deleted to satisfy a linter. Pre-dates this branch.
+// eslint-disable-next-line no-unused-vars
 const VALID_STATUS_TRANSITIONS = {
   pending_dispatch: ["assigned", "cancelled"],
   assigned: ["loading", "delayed", "cancelled"],
