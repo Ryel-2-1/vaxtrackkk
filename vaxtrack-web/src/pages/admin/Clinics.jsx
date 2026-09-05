@@ -109,6 +109,9 @@ function Clinics() {
   // focus to when the dialog closes.
   const [managedClinic, setManagedClinic] = useState(null);
   const manageTriggerRef = useRef(null);
+  // The control that opened the registration dialog, so focus can be handed
+  // back to it on dismissal.
+  const newClinicTriggerRef = useRef(null);
 
   const openManageLocation = (clinic, triggerEl) => {
     manageTriggerRef.current = triggerEl;
@@ -121,6 +124,32 @@ function Clinics() {
     if (manageTriggerRef.current) {
       manageTriggerRef.current.focus();
       manageTriggerRef.current = null;
+    }
+  }, []);
+
+  const openNewClinic = (triggerEl) => {
+    newClinicTriggerRef.current = triggerEl;
+    setShowNewClinicModal(true);
+  };
+
+  // The single dismissal path for the registration dialog: used by Escape, the
+  // close control, Cancel and a completed registration, so the reset and the
+  // focus hand-back cannot drift apart between them.
+  //
+  // The draft is cleared HERE and nowhere else, which is what makes "reset only
+  // after a confirmed dismissal" true: while the dialog is open — including
+  // while the discard confirmation is showing — `newClinic` is left untouched,
+  // so backing out of the confirmation returns the admin to their typed values.
+  const closeNewClinic = useCallback(() => {
+    setShowNewClinicModal(false);
+    setNewClinicErrors({});
+    setNewClinic(EMPTY_CLINIC);
+    // Return focus to the button that opened the dialog. Without this, focus
+    // falls back to <body> and a keyboard user restarts from the top of the
+    // page — the dialog declares aria-modal, so it owed them that focus back.
+    if (newClinicTriggerRef.current) {
+      newClinicTriggerRef.current.focus();
+      newClinicTriggerRef.current = null;
     }
   }, []);
 
@@ -236,8 +265,9 @@ function Clinics() {
         geofenceRadiusM: newClinic.geofenceRadiusM,
       });
 
-      setNewClinic(EMPTY_CLINIC);
-      setShowNewClinicModal(false);
+      // Same dismissal path as Escape/Cancel/close, so a successful
+      // registration also resets the draft and hands focus back to the opener.
+      closeNewClinic();
       setCurrentPage(1);
       showToast(`${newClinic.name.trim()} has been registered.`);
     } catch (error) {
@@ -296,7 +326,7 @@ function Clinics() {
             <button
               type="button"
               className="clinics-v2-primary-btn"
-              onClick={() => setShowNewClinicModal(true)}
+              onClick={(e) => openNewClinic(e.currentTarget)}
             >
               <Plus size={15} />
               Register New Clinic
@@ -586,10 +616,7 @@ function Clinics() {
           newClinic={newClinic}
           setNewClinic={setNewClinic}
           errors={newClinicErrors}
-          onClose={() => {
-            setShowNewClinicModal(false);
-            setNewClinicErrors({});
-          }}
+          onClose={closeNewClinic}
           onSubmit={handleCreateClinic}
           saving={saving}
         />
@@ -927,29 +954,110 @@ function NewClinicModal({
   onSubmit,
   saving,
 }) {
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  const dialogRef = useRef(null);
+  const headingId = "new-clinic-heading";
+
+  // Dirty = ANY user-editable registration or location field differs from the
+  // values the dialog opens with. Comparing key-by-key against EMPTY_CLINIC,
+  // rather than tracking a "touched" flag, gets two things right: opening the
+  // dialog and changing nothing stays pristine even though `area` and `status`
+  // are pre-filled, and no field can be forgotten — EMPTY_CLINIC is the same
+  // object the draft is seeded from, so a field added there is covered here.
+  const isDirty = Object.keys(EMPTY_CLINIC).some(
+    (key) => String(newClinic[key] ?? "") !== String(EMPTY_CLINIC[key] ?? "")
+  );
+
+  // The single dismissal gate. Escape, the close control and Cancel all route
+  // through it, so one keystroke or misclick can never throw away a partially
+  // typed registration — and there is only ever one close path to reason about.
+  const requestClose = useCallback(() => {
+    if (saving) return; // never abandon an in-flight write
+    if (isDirty) {
+      // Setting an already-true boolean is a no-op, so repeated Escapes cannot
+      // stack confirmations.
+      setConfirmingDiscard(true);
+      return;
+    }
+    onClose();
+  }, [saving, isDirty, onClose]);
+
+  // Escape closes when safe (unsaved edits ask first), and Tab is cycled inside
+  // the dialog. The trap is not optional decoration: this element declares
+  // aria-modal="true", which tells assistive tech the rest of the page is
+  // inert. Letting Tab walk out into the clinics table behind would make that
+  // promise false.
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        requestClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+
+      const root = dialogRef.current;
+      if (!root) return;
+      const items = [
+        ...root.querySelectorAll(
+          'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])'
+        ),
+      ].filter((el) => !el.disabled && el.getClientRects().length > 0);
+      if (items.length === 0) return;
+
+      const first = items[0];
+      const last = items[items.length - 1];
+
+      if (!root.contains(document.activeElement)) {
+        e.preventDefault();
+        first.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [requestClose]);
+
+  // Move focus into the dialog on open.
+  useEffect(() => {
+    const first = dialogRef.current?.querySelector(
+      "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"
+    );
+    first?.focus();
+  }, []);
+
   return (
     <div className="clinics-modal-backdrop">
       {/* noValidate: the clinic + location validators own all feedback, so a
           native tooltip can never pre-empt the styled inline errors. */}
       <form
+        ref={dialogRef}
         // `clinics-register-modal` scopes the viewport-aware height + scrolling
         // rules to THIS dialog. `.clinics-form-modal` is shared with the
         // Manage-location dialog, so styling that class would couple the two.
         className="clinics-modal clinics-form-modal clinics-register-modal"
         onSubmit={onSubmit}
         noValidate
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={headingId}
       >
         <button
           type="button"
           className="clinics-modal-close"
-          onClick={onClose}
+          onClick={requestClose}
           disabled={saving}
-          aria-label="Close"
+          aria-label="Close register new clinic"
         >
           <X size={18} />
         </button>
 
-        <h2>Register New Clinic</h2>
+        <h2 id={headingId}>Register New Clinic</h2>
         <p>Add a healthcare facility to the VaxTrack delivery network.</p>
 
         {/* Scrollable body. Same structure as the Manage-location dialog, and
@@ -1092,6 +1200,33 @@ function NewClinicModal({
           />
         </div>
 
+        {/* Deliberately OUTSIDE the scrolling body, unlike the Manage-location
+            dialog: this form is ~1467px tall, so a confirmation rendered inside
+            the scroll area could sit far off-screen — the same class of
+            unreachable-control bug the viewport fix addressed. Pinned above the
+            actions, it is always visible. role="alert" announces it. */}
+        {confirmingDiscard && (
+          <div className="clinic-loc-discard" role="alert">
+            <p>Discard this clinic registration?</p>
+            <div className="clinic-loc-discard-actions">
+              <button
+                type="button"
+                className="clinics-light-action"
+                onClick={() => setConfirmingDiscard(false)}
+              >
+                Keep editing
+              </button>
+              <button
+                type="button"
+                className="clinics-danger-action"
+                onClick={onClose}
+              >
+                Discard changes
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="clinics-modal-actions">
           <button
             type="submit"
@@ -1104,7 +1239,7 @@ function NewClinicModal({
           <button
             type="button"
             className="clinics-light-action"
-            onClick={onClose}
+            onClick={requestClose}
             disabled={saving}
           >
             Cancel

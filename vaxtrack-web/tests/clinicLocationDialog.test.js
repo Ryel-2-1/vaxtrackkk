@@ -193,3 +193,247 @@ test("guard is not vacuous: the slices are distinct and non-trivial", () => {
   assert.notEqual(slices[0], slices[1]);
   assert.notEqual(slices[1], slices[2]);
 });
+
+// ---------------------------------------------------------------------------
+// Keyboard-dismissal safety for the registration dialog.
+//
+// These pin the behaviour that protects a partially typed clinic registration:
+// a focus trap (required because the dialog claims aria-modal), one dismissal
+// gate shared by Escape / Cancel / close, and a draft reset that happens only
+// once the dismissal is actually confirmed.
+// ---------------------------------------------------------------------------
+
+/** The `Clinics` page component itself (parent of the dialogs). */
+function pageSource() {
+  const start = source.indexOf("function Clinics()");
+  assert.notEqual(start, -1, "Clinics component not found");
+  const rest = source.slice(start + 1);
+  const nextTop = rest.search(/\nfunction [A-Z]/);
+  return nextTop === -1 ? rest : rest.slice(0, nextTop);
+}
+
+test("NewClinicModal: traps Tab and Shift+Tab inside the dialog", () => {
+  const dialog = componentSource("NewClinicModal");
+
+  assert.match(
+    dialog,
+    /document\.addEventListener\("keydown", onKeyDown, true\)/,
+    "the dialog needs a keydown listener to contain focus"
+  );
+  assert.match(
+    dialog,
+    /document\.removeEventListener\("keydown", onKeyDown, true\)/,
+    "the listener must be torn down, otherwise reopening stacks handlers"
+  );
+  assert.match(dialog, /e\.key !== "Tab"/, "Tab must be handled");
+  assert.match(
+    dialog,
+    /e\.shiftKey && document\.activeElement === first/,
+    "Shift+Tab must wrap backwards from the first control to the last"
+  );
+  assert.match(
+    dialog,
+    /!e\.shiftKey && document\.activeElement === last/,
+    "Tab must wrap forwards from the last control to the first"
+  );
+  assert.match(
+    dialog,
+    /!root\.contains\(document\.activeElement\)/,
+    "focus that escapes the dialog must be pulled back in"
+  );
+});
+
+test("NewClinicModal: moves focus into the dialog on open", () => {
+  const dialog = componentSource("NewClinicModal");
+  assert.match(
+    dialog,
+    /first\?\.focus\(\)/,
+    "opening the dialog should place focus on its first control"
+  );
+});
+
+test("NewClinicModal: Escape and every close control share one guarded path", () => {
+  const dialog = componentSource("NewClinicModal");
+
+  assert.match(dialog, /const requestClose = useCallback\(/);
+  assert.match(dialog, /if \(saving\) return;/, "must not close mid-write");
+  assert.match(
+    dialog,
+    /if \(isDirty\) \{[\s\S]*?setConfirmingDiscard\(true\);[\s\S]*?return;/,
+    "a dirty form must ask before discarding"
+  );
+
+  assert.match(
+    dialog,
+    /e\.key === "Escape"[\s\S]*?requestClose\(\)/,
+    "Escape must go through requestClose, not straight to onClose"
+  );
+
+  const closeBtn = dialog.match(
+    /<button[^>]*className="clinics-modal-close"[\s\S]*?<\/button>/
+  );
+  assert.ok(closeBtn, "close control not found");
+  assert.match(
+    closeBtn[0],
+    /onClick=\{requestClose\}/,
+    "the close control must be protected by the same gate"
+  );
+
+  assert.match(
+    dialog,
+    /onClick=\{requestClose\}[\s\S]*?Cancel/,
+    "Cancel must be protected by the same gate"
+  );
+});
+
+test("NewClinicModal: dirty state covers every editable field", () => {
+  const dialog = componentSource("NewClinicModal");
+
+  // Derived from EMPTY_CLINIC rather than a hand-listed subset, so a field
+  // added to the draft shape is covered automatically and defaults still read
+  // as pristine.
+  assert.match(
+    dialog,
+    /const isDirty = Object\.keys\(EMPTY_CLINIC\)\.some\(/,
+    "dirty tracking must be derived from EMPTY_CLINIC, not a partial list"
+  );
+
+  const emptyBlock = source.slice(
+    source.indexOf("const EMPTY_CLINIC = {"),
+    source.indexOf("function Clinics()")
+  );
+  for (const field of [
+    "name",
+    "location",
+    "area",
+    "contact",
+    "phone",
+    "email",
+    "deliveryNotes",
+    "status",
+    "latitude",
+    "longitude",
+    "geofenceRadiusM",
+  ]) {
+    assert.match(
+      emptyBlock,
+      new RegExp("\\b" + field + ":"),
+      "EMPTY_CLINIC is missing a field, so dirty tracking would ignore it: " +
+        field
+    );
+  }
+});
+
+test("NewClinicModal: only a confirmed discard bypasses the gate", () => {
+  const dialog = componentSource("NewClinicModal");
+
+  const discardAt = dialog.indexOf('className="clinic-loc-discard"');
+  assert.notEqual(discardAt, -1, "discard confirmation block not found");
+  const discard = dialog.slice(discardAt, discardAt + 1200);
+
+  assert.match(discard, /role="alert"/, "the confirmation must be announced");
+  assert.match(
+    discard,
+    /onClick=\{\(\) => setConfirmingDiscard\(false\)\}[\s\S]*?Keep editing/,
+    "declining must dismiss the confirmation and keep the values"
+  );
+  assert.match(
+    discard,
+    /onClick=\{onClose\}[\s\S]*?Discard changes/,
+    "confirming is the ONLY control that calls onClose directly"
+  );
+
+  // Pinned outside the scrolling body: this form is tall enough that a prompt
+  // inside the scroll area could sit off-screen.
+  const bodyAt = dialog.indexOf('className="clinics-modal-body"');
+  const actionsAt = dialog.indexOf('className="clinics-modal-actions"');
+  assert.ok(
+    discardAt > bodyAt && discardAt < actionsAt,
+    "the confirmation belongs between the scrolling body and the pinned actions"
+  );
+});
+
+test("NewClinicModal: exposes dialog semantics", () => {
+  const dialog = componentSource("NewClinicModal");
+  assert.match(dialog, /role="dialog"/);
+  assert.match(dialog, /aria-modal="true"/);
+  assert.match(
+    dialog,
+    /aria-labelledby=\{headingId\}/,
+    "the dialog needs a title relationship"
+  );
+  assert.match(
+    dialog,
+    /<h2 id=\{headingId\}>/,
+    "the heading must carry the id the dialog points at"
+  );
+  assert.match(
+    dialog,
+    /className="clinics-modal-close"[\s\S]*?aria-label="[^"]+"/,
+    "the close control needs an accessible name"
+  );
+});
+
+test("Clinics page: restores focus to the opener and resets only on dismissal", () => {
+  const page = pageSource();
+
+  assert.match(
+    page,
+    /const newClinicTriggerRef = useRef\(null\)/,
+    "the opener must be remembered so focus can be handed back"
+  );
+  assert.match(
+    page,
+    /onClick=\{\(e\) => openNewClinic\(e\.currentTarget\)\}/,
+    "the Register New Clinic button must register itself as the opener"
+  );
+  assert.match(
+    page,
+    /newClinicTriggerRef\.current\.focus\(\)/,
+    "dismissal must return focus to the opener"
+  );
+
+  // Reset happens in exactly one place — the shared dismissal path — so it
+  // cannot fire while the discard confirmation is still open.
+  const resets = source.match(/setNewClinic\(EMPTY_CLINIC\)/g) ?? [];
+  assert.equal(
+    resets.length,
+    1,
+    "the draft should be reset in exactly one place (the dismissal path)"
+  );
+  const closeFn = page.slice(
+    page.indexOf("const closeNewClinic = useCallback("),
+    page.indexOf("const handleCreateClinic")
+  );
+  assert.match(
+    closeFn,
+    /setNewClinic\(EMPTY_CLINIC\)/,
+    "the single reset must live inside closeNewClinic"
+  );
+});
+
+test("ManageLocationModal keyboard behaviour is unchanged", () => {
+  // The registration dialog reuses this pattern; this guards against the reuse
+  // accidentally rewriting the original.
+  const manage = componentSource("ManageLocationModal");
+  assert.match(manage, /const requestClose = useCallback\(/);
+  assert.match(manage, /e\.key === "Escape"/);
+  assert.match(
+    manage,
+    /document\.addEventListener\("keydown", onKeyDown, true\)/
+  );
+  assert.match(manage, /setConfirmingDiscard\(true\)/);
+  assert.match(
+    manage,
+    /Discard the unsaved location changes\?/,
+    "the location dialog keeps its own confirmation copy"
+  );
+});
+
+test("ClinicDetailsModal gains no dialog machinery", () => {
+  const details = componentSource("ClinicDetailsModal");
+  assert.doesNotMatch(details, /requestClose/);
+  assert.doesNotMatch(details, /addEventListener/);
+  assert.doesNotMatch(details, /confirmingDiscard/);
+  assert.doesNotMatch(details, /aria-modal/);
+});
