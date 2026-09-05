@@ -1828,3 +1828,77 @@
     width: 100%;
   }
 }
+/* ============================================================
+   Manage-location dialog — viewport-aware height
+   ------------------------------------------------------------
+   DEFECT (proved on staging, 2026-09-05): this dialog is ~900px tall
+   (map + coordinate/radius fields + footer) and had no max-height, so on
+   a short viewport it grew past the screen and its action row — Save
+   included — fell outside it. Nothing could recover it: the backdrop is
+   `position: fixed`, so the page cannot scroll down to the button, and
+   wheel input over the map is consumed by Leaflet for zooming. At a
+   563px-tall viewport Save was completely unreachable.
+
+   FIX: cap the dialog to the viewport and scroll ONLY its body, leaving
+   the heading, the close button and the action row pinned. Because the
+   footer sits outside the scrolling element, Save and Cancel stay
+   reachable even while the pointer is over the map — Leaflet keeps its
+   wheel-to-zoom, drag and click behaviour untouched.
+
+   Scoped to `.clinics-location-modal`, a class carried only by this
+   dialog: `.clinics-form-modal` is shared with the Register-Clinic
+   modal, so styling that would restyle an unrelated dialog.
+   ============================================================ */
+.clinics-location-modal {
+  display: flex;
+  flex-direction: column;
+  /* `vh` first as the fallback, then `dvh` where supported so the cap
+     tracks mobile browser chrome as it collapses. 48px matches the
+     backdrop's 24px top + bottom padding, so the dialog never touches
+     the viewport edges. */
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+}
+
+/* Heading and subtitle stay above the scroll area (flex items default to
+   shrinking, which would squash them as the body grows). */
+.clinics-location-modal > h3,
+.clinics-location-modal > .clinics-modal-sub {
+  flex: 0 0 auto;
+}
+
+/* The single scrolling region. `min-height: 0` is required, not
+   decorative: a flex child defaults to `min-height: auto` and refuses to
+   shrink below its content, which would push the footer back off-screen
+   and reinstate the bug. The negative margin lets the scrollbar sit
+   against the card edge while the padding keeps content aligned with the
+   dialog's 28px gutter and leaves room for focus rings. */
+.clinics-location-modal .clinics-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0 -28px;
+  padding: 0 28px;
+}
+
+/* Pinned footer. */
+.clinics-location-modal .clinics-modal-actions {
+  flex: 0 0 auto;
+  padding-top: 16px;
+}
+
+/* Short viewports: reclaim room for the fields by trimming the map, the
+   tallest single element. Height-based, so a wide-but-short window
+   benefits too. Higher specificity than the width-based `.clinic-loc-map`
+   rules above, so it wins without `!important`. */
+@media (max-height: 720px) {
+  .clinics-location-modal .clinic-loc-map {
+    height: 220px;
+  }
+}
+@media (max-height: 600px) {
+  .clinics-location-modal .clinic-loc-map {
+    height: 180px;
+  }
+}

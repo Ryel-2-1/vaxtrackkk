@@ -737,7 +737,11 @@ function ManageLocationModal({ clinic, onClose, onSave }) {
     <div className="clinics-modal-backdrop">
       <form
         ref={dialogRef}
-        className="clinics-modal clinics-form-modal"
+        // `clinics-location-modal` scopes the viewport-aware height + scrolling
+        // rules to THIS dialog. `.clinics-form-modal` is shared with the
+        // Register-Clinic modal, so styling that class instead would silently
+        // restyle an unrelated dialog.
+        className="clinics-modal clinics-form-modal clinics-location-modal"
         onSubmit={handleSubmit}
         // Native constraint validation is disabled so `validateClinicLocation`
         // is the SINGLE authority. Without this, the radius input's min/max
@@ -766,41 +770,50 @@ function ManageLocationModal({ clinic, onClose, onSave }) {
           {clinic.name} · {clinic.location}
         </p>
 
-        <ClinicLocationSection
-          value={draft}
-          onChange={patchDraft}
-          errors={errors}
-          disabled={saving}
-          idPrefix={`manage-${clinic.firestoreId}`}
-        />
+        {/* Scrollable body. The dialog is capped to the viewport height, so
+            without this the map + fields push the footer off-screen and Save
+            becomes unreachable on short viewports — and the page cannot be
+            scrolled to it, because the backdrop is position:fixed. Keeping the
+            actions OUTSIDE this element pins them, so Save stays reachable even
+            while the pointer is over the map (Leaflet consumes wheel events to
+            zoom, which is preserved deliberately). */}
+        <div className="clinics-modal-body">
+          <ClinicLocationSection
+            value={draft}
+            onChange={patchDraft}
+            errors={errors}
+            disabled={saving}
+            idPrefix={`manage-${clinic.firestoreId}`}
+          />
 
-        {saveError && (
-          <p className="clinic-loc-save-error" role="alert">
-            {saveError}
-          </p>
-        )}
+          {saveError && (
+            <p className="clinic-loc-save-error" role="alert">
+              {saveError}
+            </p>
+          )}
 
-        {confirmingDiscard && (
-          <div className="clinic-loc-discard" role="alert">
-            <p>Discard the unsaved location changes?</p>
-            <div className="clinic-loc-discard-actions">
-              <button
-                type="button"
-                className="clinics-light-action"
-                onClick={() => setConfirmingDiscard(false)}
-              >
-                Keep editing
-              </button>
-              <button
-                type="button"
-                className="clinics-danger-action"
-                onClick={onClose}
-              >
-                Discard changes
-              </button>
+          {confirmingDiscard && (
+            <div className="clinic-loc-discard" role="alert">
+              <p>Discard the unsaved location changes?</p>
+              <div className="clinic-loc-discard-actions">
+                <button
+                  type="button"
+                  className="clinics-light-action"
+                  onClick={() => setConfirmingDiscard(false)}
+                >
+                  Keep editing
+                </button>
+                <button
+                  type="button"
+                  className="clinics-danger-action"
+                  onClick={onClose}
+                >
+                  Discard changes
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         <div className="clinics-modal-actions">
           <button
