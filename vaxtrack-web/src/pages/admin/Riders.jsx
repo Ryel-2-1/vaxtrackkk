@@ -13,6 +13,11 @@ import {
 import { auth } from "../../firebase";
 import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import { subscribeRiders, updateRiderStatus } from "../../services/riderService";
+import {
+  RIDER_VEHICLE_TYPE,
+  buildNewRiderPayload,
+  createEmptyNewRider,
+} from "../../services/riderRegistration";
 import KpiCard from "../../components/ui/KpiCard";
 import "./Riders.css";
 
@@ -84,14 +89,9 @@ function Riders() {
   const [showNewRiderModal, setShowNewRiderModal] = useState(false);
   const [toast, setToast] = useState("");
 
-  const [newRider, setNewRider] = useState({
-    name: "",
-    id: "",
-    phone: "",
-    vehicle: "Motorcycle",
-    hub: "Manila Central Hub",
-    status: "standby",
-  });
+  // Seeded from the registration module so the draft always starts with the
+  // canonical vehicle type rather than a literal repeated in the page.
+  const [newRider, setNewRider] = useState(createEmptyNewRider);
 
   useEffect(() => {
     const unsubscribe = subscribeRiders(
@@ -144,9 +144,20 @@ function Riders() {
 
   const handleCreateRider = (e) => {
     e.preventDefault();
+
+    // Normalise through the single boundary that owns the canonical vehicle
+    // type, so a value from stale state or a tampered DOM node can never be
+    // what gets stored. No account is created here — rider accounts come from
+    // Firebase Auth self-registration in the Flutter app — but any future write
+    // must go through this same builder.
+    const payload = buildNewRiderPayload(newRider);
+
     setShowNewRiderModal(false);
+    // Reset to a fresh draft so reopening the modal cannot inherit the previous
+    // one, including its vehicle type.
+    setNewRider(createEmptyNewRider());
     showToast(
-      "Rider accounts must be created via Firebase Authentication. Once registered and approved in Settings, riders appear here automatically."
+      `Rider accounts must be created via Firebase Authentication. Once registered and approved in Settings, ${payload.vehicle.toLowerCase()} riders appear here automatically.`
     );
   };
 
@@ -391,7 +402,12 @@ function Riders() {
         <NewRiderModal
           newRider={newRider}
           setNewRider={setNewRider}
-          onClose={() => setShowNewRiderModal(false)}
+          onClose={() => {
+            setShowNewRiderModal(false);
+            // Discard the draft on close too, so reopening always starts from
+            // the canonical defaults rather than a half-filled previous one.
+            setNewRider(createEmptyNewRider());
+          }}
           onSubmit={handleCreateRider}
         />
       )}
@@ -579,19 +595,25 @@ function NewRiderModal({ newRider, setNewRider, onClose, onSubmit }) {
             />
           </label>
 
-          <label>
+          {/* Motorcycle-only: the company runs no other vehicle type for rider
+              delivery work, so this is a fixed value rather than a one-option
+              dropdown — a select implies a choice that does not exist. Kept as
+              a read-only input so it keeps the grid's field styling, stays in
+              the tab order, and is announced with its label. There is no
+              onChange: the draft's vehicle type cannot be altered from the UI,
+              and buildNewRiderPayload sets it unconditionally regardless. */}
+          <label htmlFor="new-rider-vehicle">
             Vehicle Type
-            <select
-              value={newRider.vehicle}
-              onChange={(e) =>
-                setNewRider((prev) => ({ ...prev, vehicle: e.target.value }))
-              }
-            >
-              <option>Motorcycle</option>
-              <option>Van</option>
-              <option>Truck</option>
-              <option>Auto</option>
-            </select>
+            <input
+              id="new-rider-vehicle"
+              type="text"
+              value={RIDER_VEHICLE_TYPE}
+              readOnly
+              aria-describedby="new-rider-vehicle-note"
+            />
+            <small id="new-rider-vehicle-note" className="riders-field-note">
+              All delivery riders operate motorcycles.
+            </small>
           </label>
 
           <label>
