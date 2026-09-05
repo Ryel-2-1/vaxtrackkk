@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/delivery.dart';
+import '../utils/order_mapping.dart';
+import '../utils/safe_log.dart';
 
 /// The rider's deliveries plus the Firestore sync metadata for that snapshot,
 /// so the UI can honestly show a cached / pending-sync / synced indicator.
@@ -9,6 +11,7 @@ class RiderDeliveriesSnapshot {
     required this.deliveries,
     required this.isFromCache,
     required this.hasPendingWrites,
+    this.malformedDocIds = const <String>[],
   });
 
   final List<Delivery> deliveries;
@@ -18,6 +21,48 @@ class RiderDeliveriesSnapshot {
 
   /// At least one local write in this snapshot has not reached the server yet.
   final bool hasPendingWrites;
+
+  /// Document ids in this snapshot that could not be parsed into a [Delivery]
+  /// and were therefore skipped. Ids only — never document contents.
+  final List<String> malformedDocIds;
+
+  /// True when at least one order in this snapshot was unreadable.
+  bool get hasMalformedDocs => malformedDocIds.isNotEmpty;
+}
+
+/// Firestore adapter over the pure [mapOrderEntries].
+///
+/// Previously every document went through `Delivery.fromFirestore` inside a
+/// single `.map()`, so one malformed order threw out of the whole snapshot
+/// mapping and the rider saw an error instead of ANY deliveries — a single bad
+/// document could hide every valid one assigned to them.
+///
+/// All the isolation logic lives in [mapOrderEntries] (pure, unit-tested); this
+/// only unwraps the snapshot and logs. Diagnostics carry the document id and
+/// the error TYPE — never the error message, which can embed document values.
+///
+/// This deliberately isolates ONLY per-document normalization failures.
+/// Stream-level errors (permission-denied, network) never reach here and still
+/// surface through the stream's error channel.
+({List<Delivery> deliveries, List<String> malformedIds}) _mapOrderDocs(
+  QuerySnapshot<Map<String, dynamic>> snap,
+) {
+  final result = mapOrderEntries(
+    snap.docs.map((doc) => (id: doc.id, data: doc.data())),
+  );
+
+  for (final bad in result.malformed) {
+    logSuppressedError(
+      'DeliveryService',
+      'skipped unreadable order ${bad.id}',
+      bad.error,
+    );
+  }
+
+  return (
+    deliveries: result.deliveries,
+    malformedIds: result.malformed.map((m) => m.id).toList(growable: false),
+  );
 }
 
 class DeliveryService {
@@ -38,17 +83,7 @@ class DeliveryService {
         .collection('orders')
         .where('assignedRiderId', isEqualTo: riderId)
         .snapshots()
-        .map((snap) {
-      final list = snap.docs
-          .map((doc) => Delivery.fromFirestore(doc.id, doc.data()))
-          .toList();
-      list.sort((a, b) {
-        final aMs = a.createdAt?.millisecondsSinceEpoch ?? 0;
-        final bMs = b.createdAt?.millisecondsSinceEpoch ?? 0;
-        return bMs - aMs;
-      });
-      return list;
-    });
+        .map((snap) => _mapOrderDocs(snap).deliveries);
   }
 
   /// Same UID-scoped query as [riderDeliveries], but keeps the snapshot's sync
@@ -61,18 +96,12 @@ class DeliveryService {
         .where('assignedRiderId', isEqualTo: riderId)
         .snapshots(includeMetadataChanges: true)
         .map((snap) {
-      final list = snap.docs
-          .map((doc) => Delivery.fromFirestore(doc.id, doc.data()))
-          .toList();
-      list.sort((a, b) {
-        final aMs = a.createdAt?.millisecondsSinceEpoch ?? 0;
-        final bMs = b.createdAt?.millisecondsSinceEpoch ?? 0;
-        return bMs - aMs;
-      });
+      final mapped = _mapOrderDocs(snap);
       return RiderDeliveriesSnapshot(
-        deliveries: list,
+        deliveries: mapped.deliveries,
         isFromCache: snap.metadata.isFromCache,
         hasPendingWrites: snap.metadata.hasPendingWrites,
+        malformedDocIds: mapped.malformedIds,
       );
     });
   }

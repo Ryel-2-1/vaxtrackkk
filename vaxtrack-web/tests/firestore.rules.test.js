@@ -797,6 +797,49 @@ async function main() {
     }));
   });
 
+  // ---- clinic location / geofence (Phase 01) ----
+  // The clinics rule ALREADY restricted writes to admin, so Phase 01 changed no
+  // rule. These cases lock that in so the new Admin location editor cannot be
+  // widened by accident later, and so the reads other roles depend on stay open.
+
+  await check("Pclin1 admin updates clinic location + geofence fields", async () => {
+    await assertSucceeds(updateDoc(doc(admin, "clinics", "cl1"), {
+      latitude: 14.5995,
+      longitude: 120.9842,
+      geofenceRadiusM: 300,
+      locationVerified: true,
+      locationUpdatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Pclin2 dispatcher, sales rep and rider can still READ clinics", async () => {
+    await assertSucceeds(getDoc(doc(dispatcher, "clinics", "cl1")));
+    await assertSucceeds(getDoc(doc(salesRep, "clinics", "cl1")));
+    await assertSucceeds(getDoc(doc(rider, "clinics", "cl1")));
+  });
+
+  await check("Nclin1 non-admin roles cannot write clinic master location", async () => {
+    for (const db of [dispatcher, salesRep, rider]) {
+      await assertFails(updateDoc(doc(db, "clinics", "cl1"), {
+        latitude: 0,
+        longitude: 0,
+        geofenceRadiusM: 1000,
+      }));
+    }
+  });
+
+  await check("Nclin2 non-admin roles cannot create or delete a clinic", async () => {
+    for (const db of [dispatcher, salesRep, rider]) {
+      await assertFails(setDoc(doc(db, "clinics", "clRogue"), { name: "Rogue" }));
+      await assertFails(deleteDoc(doc(db, "clinics", "cl1")));
+    }
+  });
+
+  await check("Nclin3 unauthenticated cannot read or write clinics", async () => {
+    await assertFails(getDoc(doc(anon, "clinics", "cl1")));
+    await assertFails(updateDoc(doc(anon, "clinics", "cl1"), { latitude: 1 }));
+  });
+
   await testEnv.cleanup();
 
   console.log(`\n==== RESULT: ${passed} passed, ${failed} failed ====`);

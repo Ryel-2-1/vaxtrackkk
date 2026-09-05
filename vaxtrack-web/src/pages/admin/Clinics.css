@@ -1571,3 +1571,260 @@
     width: 100%;
   }
 }
+
+/* ============================================================
+   Clinic location + service area (Phase 01)
+   ------------------------------------------------------------
+   A SECTION inside the existing form card — deliberately not a
+   nested card. Separated by a rule and spacing only: no second
+   border box, no gradient, no elevation.
+   ============================================================ */
+
+.clinic-loc {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--gray-200, #e5e7eb);
+}
+
+.clinic-loc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.clinic-loc-head h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gray-900, #111827);
+}
+
+/* Verification state — semantic, not decorative. */
+.clinic-loc-state {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.clinic-loc-state.is-set {
+  color: var(--success-text, #15803d);
+  background: var(--success-bg, #e7f4ec);
+  border-color: var(--success-border, #bbdecb);
+}
+.clinic-loc-state.is-unset {
+  color: var(--warning-text, #b45309);
+  background: var(--warning-bg, #fef6e7);
+  border-color: var(--warning-border, #f2dbae);
+}
+
+.clinic-loc-help {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--gray-600, #4b5563);
+  max-width: 68ch;
+}
+
+.clinic-loc-map {
+  width: 100%;
+  max-width: 100%;
+  height: 300px;
+  border: 1px solid var(--gray-200, #e5e7eb);
+  border-radius: 8px;
+  overflow: hidden;
+  z-index: 0; /* keep Leaflet panes under the modal chrome */
+}
+
+/* Marker: DOM-only (no image asset), amber to match the destination
+   marker on Dispatcher Geofence so one clinic reads the same on both. */
+.clinic-loc-marker {
+  background: transparent;
+  border: none;
+}
+.clinic-loc-marker-dot {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #b45309;
+  border: 3px solid #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.clinic-loc-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.clinic-loc-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gray-600, #4b5563);
+}
+
+.clinic-loc-fields input {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--gray-300, #d1d5db);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--gray-900, #111827);
+}
+.clinic-loc-fields input:focus-visible {
+  outline: 2px solid var(--green-700, #1f5c41);
+  outline-offset: 1px;
+  border-color: var(--green-700, #1f5c41);
+}
+.clinic-loc-fields input[aria-invalid="true"] {
+  border-color: var(--danger-border, #f5c6c0);
+}
+
+.clinic-loc-hint,
+.clinic-loc-error {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.clinic-loc-hint {
+  color: var(--gray-500, #6b7280);
+}
+.clinic-loc-error {
+  color: var(--danger-text, #b42318);
+}
+
+.clinic-loc-empty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--gray-500, #6b7280);
+}
+
+/* Shown when the radius is out of range: the circle is removed rather than
+   redrawn at a default the admin never chose. */
+.clinic-loc-preview-warn {
+  margin: 0;
+  padding: 7px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--warning-text, #b45309);
+  background: var(--warning-bg, #fef6e7);
+  border: 1px solid var(--warning-border, #f2dbae);
+  border-radius: 8px;
+}
+
+.clinic-loc-save-error {
+  margin: 10px 0 0;
+  padding: 9px 11px;
+  font-size: 12.5px;
+  color: var(--danger-text, #b42318);
+  background: var(--danger-bg, #fef1f0);
+  border: 1px solid var(--danger-border, #f5c6c0);
+  border-radius: 8px;
+}
+
+/* Unsaved-changes guard */
+.clinic-loc-discard {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--warning-border, #f2dbae);
+  background: var(--warning-bg, #fef6e7);
+  border-radius: 8px;
+}
+.clinic-loc-discard p {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--warning-text, #b45309);
+  font-weight: 600;
+}
+.clinic-loc-discard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.clinics-danger-action {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--danger-text, #b42318);
+  border: 1px solid var(--danger-text, #b42318);
+  cursor: pointer;
+}
+
+.clinics-modal-sub {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--gray-600, #4b5563);
+}
+
+/* Row chip: verified / needs location */
+.clinic-geo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 2px 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.clinic-geo-chip.verified {
+  color: var(--success-text, #15803d);
+  background: var(--success-bg, #e7f4ec);
+  border-color: var(--success-border, #bbdecb);
+}
+.clinic-geo-chip.missing {
+  color: var(--warning-text, #b45309);
+  background: var(--warning-bg, #fef6e7);
+  border-color: var(--warning-border, #f2dbae);
+}
+
+/* The shared form modal is a fixed `width: 700px` with no mobile cap, so below
+   ~760px it overflowed the viewport and clipped its own fields and actions.
+   Pre-existing (the Register Clinic modal has always done this), but the
+   location dialog makes it obvious — and a picker you cannot reach the Save
+   button on is unusable. Matches the existing 760px modal breakpoint. */
+@media (max-width: 760px) {
+  .clinics-modal,
+  .clinics-form-modal {
+    width: 100%;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 1024px) {
+  .clinic-loc-map {
+    height: 260px;
+  }
+}
+
+@media (max-width: 640px) {
+  .clinic-loc-map {
+    height: 220px;
+  }
+  .clinic-loc-fields {
+    grid-template-columns: 1fr;
+  }
+  .clinic-loc-discard-actions button {
+    width: 100%;
+  }
+}
