@@ -261,6 +261,49 @@ test("neither identifier is ever derived from the other or from the name", () =>
   assert.notEqual(fields.clinicId, DOC_ID);
 });
 
+test("a stored `id` field cannot shadow the Firestore document id", () => {
+  // subscribeClinics turns each snapshot into a plain object. If the document
+  // DATA were spread AFTER the id, a clinic carrying a field named `id` would
+  // overwrite the real document id — and that value becomes `clinicDocId`, an
+  // order's only stable reference to its destination clinic.
+  const snapshot = {
+    id: "realDocId",
+    data: () => ({ id: "forgedDocId", clinicId: BUSINESS_ID }),
+  };
+
+  const safe = { ...snapshot.data(), id: snapshot.id }; // current mapping
+  const unsafe = { id: snapshot.id, ...snapshot.data() }; // previous mapping
+
+  assert.equal(safe.id, "realDocId", "the document id must win");
+  assert.equal(
+    unsafe.id,
+    "forgedDocId",
+    "sanity check: this is the shadowing the new ordering prevents"
+  );
+
+  // The snapshot built from the safe mapping carries the REAL document id.
+  const { fields } = buildClinicLocationSnapshot(safe.id, safe);
+  assert.equal(fields.clinicDocId, "realDocId");
+  assert.notEqual(fields.clinicDocId, "forgedDocId");
+});
+
+test("subscribeClinics places the document id last", () => {
+  const clinicService = readFileSync(
+    join(here, "..", "src", "services", "clinicService.js"),
+    "utf8"
+  );
+  assert.match(
+    clinicService,
+    /\.\.\.d\.data\(\),\s*id: d\.id/,
+    "the document id must be assigned after the spread"
+  );
+  assert.doesNotMatch(
+    clinicService,
+    /\{\s*id: d\.id,\s*\.\.\.d\.data\(\)\s*\}/,
+    "the shadowable ordering must not return"
+  );
+});
+
 test("a missing document id is a hard error, not a silent drop", () => {
   // The bug this replaces: the caller supplied a reference and it vanished.
   for (const bad of [undefined, null, "", "   ", 123, {}]) {

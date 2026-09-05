@@ -142,6 +142,18 @@ service cloud.firestore {
       // none), but when the order carries one it must be the clinic's own.
       return (!('clinicId' in d) || ('clinicId' in c && c.clinicId == d.clinicId))
         && d.clinicLocationVerified is bool
+        // The snapshot must be stamped by the SERVER, not the client. Without
+        // this, an order could claim its destination copy was taken at any time
+        // — and simply omitting the stamp would be an equally easy way around
+        // it, so presence is required too, not just equality.
+        && 'clinicLocationSnapshotAt' in d
+        && d.clinicLocationSnapshotAt == request.time
+        // Source provenance: when the CLINIC's pin was last saved. Optional
+        // (not every clinic has one), but a value that is not the clinic's own
+        // would misrepresent how fresh the copied location is.
+        && (!('clinicLocationUpdatedAt' in d)
+              || ('locationUpdatedAt' in c
+                  && d.clinicLocationUpdatedAt == c.locationUpdatedAt))
         && (d.clinicLocationVerified == true
               ? verifiedSnapshotMatches(d, c)
               : unverifiedSnapshotIsEmpty(d));
