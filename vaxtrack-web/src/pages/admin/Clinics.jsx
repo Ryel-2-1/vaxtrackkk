@@ -507,16 +507,6 @@ function Clinics() {
                       >
                         Manage location
                       </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          showToast(
-                            `Delivery draft opened for ${clinic.name}.`
-                          )
-                        }
-                      >
-                        Create Delivery
-                      </button>
                     </div>
                   </td>
                 </tr>
@@ -603,10 +593,6 @@ function Clinics() {
         <ClinicDetailsModal
           clinic={selectedClinic}
           onClose={() => setSelectedClinic(null)}
-          onCreateDelivery={() => {
-            showToast(`Delivery draft opened for ${selectedClinic.name}.`);
-            setSelectedClinic(null);
-          }}
           onEdit={() => showToast(`Editing ${selectedClinic.name}.`)}
         />
       )}
@@ -864,7 +850,7 @@ function ManageLocationModal({ clinic, onClose, onSave }) {
   );
 }
 
-function ClinicDetailsModal({ clinic, onClose, onCreateDelivery, onEdit }) {
+function ClinicDetailsModal({ clinic, onClose, onEdit }) {
   return (
     <div className="clinics-modal-backdrop">
       <div className="clinics-modal">
@@ -917,14 +903,11 @@ function ClinicDetailsModal({ clinic, onClose, onCreateDelivery, onEdit }) {
           </div>
         </div>
 
+        {/* Deliveries are not started from Admin Clinics. They originate in the
+            normal order workflow: Sales Rep order → Dispatcher assignment →
+            Rider delivery. The former delivery-draft action here only showed a
+            toast and drafted nothing, so it was removed rather than replaced. */}
         <div className="clinics-modal-actions">
-          <button
-            type="button"
-            className="clinics-primary-action"
-            onClick={onCreateDelivery}
-          >
-            Create Delivery
-          </button>
           <button
             type="button"
             className="clinics-light-action"
