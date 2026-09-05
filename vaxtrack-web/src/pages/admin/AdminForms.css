@@ -547,6 +547,23 @@
   color: var(--gray-900);
 }
 
+/* Visually hidden but still announced. Used for the Add Type field's label,
+   which must not take space in the compact two-control row. `position:
+   absolute` also takes it out of flex flow, so the row's `gap` is unaffected.
+   Defined here rather than reused from AdminDashboard.css, whose `.adx-sr-only`
+   ships in a different lazily-loaded route chunk. */
+.inventory-main .admin-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Entry row: input grows, Add button fixed — aligned heights */
 .vaccine-form-card .add-type-row {
   display: flex;
