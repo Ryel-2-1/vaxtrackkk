@@ -1112,3 +1112,8 @@
   content: none !important;
   display: none !important;
 }
+/* Stock-integrity flags (workflow checkpoint 5). Data problems are shown, not
+   smoothed over: a batch whose quantity is stored as text reads as unusable
+   rather than as zero. */
+.inv-flag { color: var(--danger, #dc2626); cursor: help; font-weight: 700; }
+.inv-flag-list { display: block; margin-top: 4px; color: var(--danger, #dc2626); font-size: 11px; }

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/delivery.dart';
 import '../utils/order_mapping.dart';
@@ -68,6 +69,12 @@ class RiderDeliveriesSnapshot {
 
 class DeliveryService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
+
+  /// Same region as the deployed functions and as staging Firestore. A
+  /// mismatch fails loudly at call time rather than reaching a different
+  /// deployment.
+  final FirebaseFunctions _functions =
+      FirebaseFunctions.instanceFor(region: 'asia-southeast1');
 
   Map<String, dynamic> _auditFields() {
     final user = FirebaseAuth.instance.currentUser;
@@ -179,13 +186,36 @@ class DeliveryService {
   }
 
   /// in_transit → delivered, or delayed → delivered.
-  Future<void> markDelivered(String orderId, String currentStatus) {
+  ///
+  /// Runs on the server. Completing a delivery CONSUMES the order's reserved
+  /// stock — the reservation closes and each batch's on-hand figure drops — and
+  /// that has to commit in the same transaction as the status change, or an
+  /// order could read as delivered while its stock was never deducted.
+  /// Firestore rules now refuse a direct `delivered` write from any client, so
+  /// this callable is the only path.
+  ///
+  /// The client-side transition check stays as fast, local feedback; the server
+  /// re-reads the order and re-checks everything independently, including that
+  /// the caller is the CURRENTLY assigned rider.
+  ///
+  /// Proof of delivery is deliberately still not required — that contract is
+  /// unchanged and remains deferred until the physical-phone checkpoint.
+  Future<void> markDelivered(String orderId, String currentStatus) async {
     assertTransition(kActorRider, currentStatus, 'delivered');
-    return _db.collection('orders').doc(orderId).update({
-      'status': 'delivered',
-      'deliveredAt': FieldValue.serverTimestamp(),
-      ..._auditFields(),
-    });
+    try {
+      await _functions
+          .httpsCallable('markOrderDeliveredWithInventoryConsumption')
+          .call<Map<String, dynamic>>({'orderId': orderId});
+    } on FirebaseFunctionsException catch (e) {
+      // The server's domain code travels in `details`; its message is already
+      // written for the rider. Anything else is reported as a service problem
+      // rather than dressed up as a delivery problem.
+      final code = (e.details is Map) ? e.details['code'] as String? : null;
+      throw WorkflowException(
+        code ?? 'delivery-failed',
+        e.message ?? 'Could not complete this delivery. Please try again.',
+      );
+    }
   }
 
   // Proof of delivery lives in ProofService, not here.

@@ -322,6 +322,16 @@ async function main() {
       episodeCount: 1,
     });
 
+    // ---- direct-write lockdown fixtures (workflow checkpoint 5) ----
+    // Dedicated orders, so the lockdown cases cannot be affected by whatever
+    // earlier tests did to the shared lifecycle fixtures.
+    await setDoc(doc(db, "orders", "lockAssigned"), {
+      createdByUid: salesRepUid, status: "assigned", assignedRiderId: riderUid,
+    });
+    await setDoc(doc(db, "orders", "lockTransit"), {
+      createdByUid: salesRepUid, status: "in_transit", assignedRiderId: riderUid,
+    });
+
     // ---- delivery-evidence fixtures (workflow checkpoint 4) ----
     // One order per case: a proof write is one-shot, so a successful case
     // consumes its order.
@@ -427,7 +437,17 @@ async function main() {
   });
 
   await check("P3 admin writes inventory/clinics/alerts", async () => {
-    await assertSucceeds(setDoc(doc(admin, "inventory", "invAdmin"), { vaccineName: "Y" }));
+    // A new stock batch is now field-validated: an INTEGER quantity, zero
+    // reserved, and the identity fields a batch cannot be ordered without.
+    // The bare `{ vaccineName: "Y" }` this used to write is exactly the shape
+    // that produced staging's hand-seeded string quantities.
+    await assertSucceeds(setDoc(doc(admin, "inventory", "invAdmin"), {
+      vaccineName: "Y",
+      batchId: "ADM-0001",
+      expiryDate: "2027-12-31",
+      quantity: 100,
+      reservedQuantity: 0,
+    }));
     await assertSucceeds(setDoc(doc(admin, "clinics", "clAdmin"), { name: "C" }));
     await assertSucceeds(setDoc(doc(admin, "alerts", "alAdmin"), { status: "active" }));
   });
@@ -457,11 +477,24 @@ async function main() {
     }));
   });
 
-  await check("P7 sales rep creates order with own createdByUid", async () => {
-    await assertSucceeds(setDoc(doc(salesRep, "orders", "srNewOrder"), {
+  // P7 was "sales rep creates order with own createdByUid", and it PASSED until
+  // this checkpoint. It is now the negative control for the direct-write
+  // lockdown: creating an order reserves stock, and a client create cannot be
+  // atomic with the reservation, so the whole path moved to
+  // `createOrderWithReservation`. This is a deliberate contract change.
+  await check("Nlock1 a sales rep can no longer create an order directly", async () => {
+    await assertFails(setDoc(doc(salesRep, "orders", "srNewOrder"), {
       createdByUid: salesRepUid,
       status: "pending_dispatch",
       clinicName: "Clinic A",
+    }));
+    // Not even a well-formed one with a valid clinic snapshot.
+    await assertFails(setDoc(doc(salesRep, "orders", "srNewOrder2"), {
+      createdByUid: salesRepUid,
+      status: "pending_dispatch",
+      clinicName: "Clinic A",
+      allocationVersion: 1,
+      allocationStatus: "reserved",
     }));
   });
 
@@ -492,8 +525,9 @@ async function main() {
     // is covered by Pev1..Pev7, and the combined write it replaces is pinned as
     // a denial in Nev1.
     await assertSucceeds(updateDoc(doc(rider, "orders", "ordRider1"), {
-      status: "delivered",
-      deliveredAt: serverTimestamp(),
+      status: "delayed",
+      delayReason: "Traffic on the bridge",
+      delayedAt: serverTimestamp(),
       lastLocation: { lat: 14.5, lng: 121.0 },
       lastLocationUpdate: "t",
       locationAccuracy: 5,
@@ -1155,6 +1189,14 @@ async function main() {
   // document. A client may choose WHICH clinic an order goes to; it may never
   // choose where that clinic is, or how large its geofence is.
 
+  // These now run in the ADMIN context, not the sales rep's.
+  //
+  // A sales rep can no longer create an order from a client at all (workflow
+  // checkpoint 5) — creating one reserves stock, which only the callable can do
+  // atomically. Admin create survives for data repair and is still subject to
+  // the same clinic-snapshot verification, so these cases keep testing exactly
+  // the rule they were written for. Nsnap-series denials are unchanged in
+  // meaning: a forged snapshot is refused for the creator that remains.
   const newOrder = (extra) => ({
     createdByUid: salesRepUid,
     status: "pending_dispatch",
@@ -1164,8 +1206,8 @@ async function main() {
     ...extra,
   });
 
-  await check("Psnap1 sales rep creates an order with a faithful verified snapshot", async () => {
-    await assertSucceeds(setDoc(doc(salesRep, "orders", "snapOk1"), newOrder({
+  await check("Psnap1 admin creates an order with a faithful verified snapshot", async () => {
+    await assertSucceeds(setDoc(doc(admin, "orders", "snapOk1"), newOrder({
       clinicDocId: "clVerified",
       clinicId: "CLN-9123",
       clinicLat: 14.5995,
@@ -1177,7 +1219,7 @@ async function main() {
   });
 
   await check("Psnap2 a clinic with no stored radius yields exactly the 300 m default", async () => {
-    await assertSucceeds(setDoc(doc(salesRep, "orders", "snapOk2"), newOrder({
+    await assertSucceeds(setDoc(doc(admin, "orders", "snapOk2"), newOrder({
       clinicDocId: "clDefaultRadius",
       clinicId: "CLN-0300",
       clinicLat: 10.5,
@@ -1189,7 +1231,7 @@ async function main() {
   });
 
   await check("Psnap3 unverified clinic order is accepted WITHOUT geofence data", async () => {
-    await assertSucceeds(setDoc(doc(salesRep, "orders", "snapOk3"), newOrder({
+    await assertSucceeds(setDoc(doc(admin, "orders", "snapOk3"), newOrder({
       clinicDocId: "clUnverified",
       clinicId: "CLN-6961",
       clinicLocationVerified: false,
@@ -1200,7 +1242,7 @@ async function main() {
   await check("Psnap4 an order with no snapshot fields at all is still accepted", async () => {
     // Legacy shape — creation must not become impossible for callers that
     // predate the snapshot.
-    await assertSucceeds(setDoc(doc(salesRep, "orders", "snapOk4"), newOrder({})));
+    await assertSucceeds(setDoc(doc(admin, "orders", "snapOk4"), newOrder({})));
   });
 
   // A snapshot-less legacy order still moves through the SAME lifecycle as any
@@ -1230,7 +1272,8 @@ async function main() {
   });
 
   await check("Psnap6 legacy order keeps its rider lifecycle", async () => {
-    // The rider takes over from in_transit: delay, resume, complete.
+    // The rider still takes over from in_transit: delay, then resume. Neither
+    // moves stock, so neither changed.
     await assertSucceeds(updateDoc(doc(rider, "orders", "ordLegacyNoSnapshot"), {
       status: "delayed",
       delayReason: "Traffic on the bridge",
@@ -1246,7 +1289,10 @@ async function main() {
       statusUpdatedByUid: riderUid,
       updatedAt: serverTimestamp(),
     }));
-    await assertSucceeds(updateDoc(doc(rider, "orders", "ordLegacyNoSnapshot"), {
+    // Completing now belongs to the callable, for a legacy order too — the
+    // rules do not distinguish, and the callable is what decides that a legacy
+    // order settles no stock. A client `delivered` write is refused either way.
+    await assertFails(updateDoc(doc(rider, "orders", "ordLegacyNoSnapshot"), {
       status: "delivered",
       deliveredAt: serverTimestamp(),
       statusUpdatedAt: serverTimestamp(),
@@ -1256,7 +1302,7 @@ async function main() {
   });
 
   await check("Nsnap1 forged latitude is rejected", async () => {
-    await assertFails(setDoc(doc(salesRep, "orders", "snapBad1"), newOrder({
+    await assertFails(setDoc(doc(admin, "orders", "snapBad1"), newOrder({
       clinicDocId: "clVerified",
       clinicLat: 1.234, // not the clinic's
       clinicLng: 120.9842,
@@ -1266,7 +1312,7 @@ async function main() {
   });
 
   await check("Nsnap2 forged longitude is rejected", async () => {
-    await assertFails(setDoc(doc(salesRep, "orders", "snapBad2"), newOrder({
+    await assertFails(setDoc(doc(admin, "orders", "snapBad2"), newOrder({
       clinicDocId: "clVerified",
       clinicLat: 14.5995,
       clinicLng: 5.678, // not the clinic's
@@ -1276,7 +1322,7 @@ async function main() {
   });
 
   await check("Nsnap3 forged radius is rejected", async () => {
-    await assertFails(setDoc(doc(salesRep, "orders", "snapBad3"), newOrder({
+    await assertFails(setDoc(doc(admin, "orders", "snapBad3"), newOrder({
       clinicDocId: "clVerified",
       clinicLat: 14.5995,
       clinicLng: 120.9842,
@@ -1286,14 +1332,14 @@ async function main() {
   });
 
   await check("Nsnap4 a clinicDocId that does not exist is rejected", async () => {
-    await assertFails(setDoc(doc(salesRep, "orders", "snapBad4"), newOrder({
+    await assertFails(setDoc(doc(admin, "orders", "snapBad4"), newOrder({
       clinicDocId: "clDoesNotExist",
       clinicLocationVerified: false,
     })));
   });
 
   await check("Nsnap5 a business clinicId that is not the clinic's own is rejected", async () => {
-    await assertFails(setDoc(doc(salesRep, "orders", "snapBad5"), newOrder({
+    await assertFails(setDoc(doc(admin, "orders", "snapBad5"), newOrder({
       clinicDocId: "clVerified",
       clinicId: "CLN-0000", // clinic's is CLN-9123
       clinicLat: 14.5995,
@@ -1306,7 +1352,7 @@ async function main() {
   await check("Nsnap6 claiming verified for an unverified clinic is rejected", async () => {
     // The clinic has real coordinates but no locationVerified flag. Copying them
     // and asserting verification must not be possible.
-    await assertFails(setDoc(doc(salesRep, "orders", "snapBad6"), newOrder({
+    await assertFails(setDoc(doc(admin, "orders", "snapBad6"), newOrder({
       clinicDocId: "clUnverified",
       clinicLat: 14.5995,
       clinicLng: 120.9842,
@@ -1317,7 +1363,7 @@ async function main() {
 
   await check("Nsnap7 an UNVERIFIED snapshot carrying coordinates is rejected", async () => {
     // "verified: false" must not become a loophole for smuggling a destination.
-    await assertFails(setDoc(doc(salesRep, "orders", "snapBad7"), newOrder({
+    await assertFails(setDoc(doc(admin, "orders", "snapBad7"), newOrder({
       clinicDocId: "clVerified",
       clinicLat: 14.5995,
       clinicLng: 120.9842,
@@ -1326,7 +1372,7 @@ async function main() {
   });
 
   await check("Nsnap8 an out-of-bounds clinic radius cannot be inherited", async () => {
-    await assertFails(setDoc(doc(salesRep, "orders", "snapBad8"), newOrder({
+    await assertFails(setDoc(doc(admin, "orders", "snapBad8"), newOrder({
       clinicDocId: "clBadRadius",
       clinicId: "CLN-5000",
       clinicLat: 14.6,
@@ -1365,7 +1411,7 @@ async function main() {
   // ---- Phase 02A hardening: snapshot identity + timestamp provenance ----
 
   await check("Psnap7 a clinic with NO business id yields an order without one", async () => {
-    await assertSucceeds(setDoc(doc(salesRep, "orders", "snapOk7"), newOrder({
+    await assertSucceeds(setDoc(doc(admin, "orders", "snapOk7"), newOrder({
       clinicDocId: "clNoBusinessId",
       clinicLat: 13.0,
       clinicLng: 123.0,
@@ -1376,7 +1422,7 @@ async function main() {
   });
 
   await check("Psnap8 a snapshot copying the clinic's real source timestamp is accepted", async () => {
-    await assertSucceeds(setDoc(doc(salesRep, "orders", "snapOk8"), newOrder({
+    await assertSucceeds(setDoc(doc(admin, "orders", "snapOk8"), newOrder({
       clinicDocId: "clStamped",
       clinicId: "CLN-7777",
       clinicLat: 12.0,
@@ -1391,7 +1437,7 @@ async function main() {
   await check("Nsnap11 a forged clinicLocationSnapshotAt is rejected", async () => {
     // A client-chosen time would let an order misrepresent how fresh its
     // destination copy is. Only the server's request time is acceptable.
-    await assertFails(setDoc(doc(salesRep, "orders", "snapBad11"), newOrder({
+    await assertFails(setDoc(doc(admin, "orders", "snapBad11"), newOrder({
       clinicDocId: "clVerified",
       clinicId: "CLN-9123",
       clinicLat: 14.5995,
@@ -1403,7 +1449,7 @@ async function main() {
   });
 
   await check("Nsnap12 a clinicLocationUpdatedAt that is not the clinic's is rejected", async () => {
-    await assertFails(setDoc(doc(salesRep, "orders", "snapBad12"), newOrder({
+    await assertFails(setDoc(doc(admin, "orders", "snapBad12"), newOrder({
       clinicDocId: "clStamped",
       clinicId: "CLN-7777",
       clinicLat: 12.0,
@@ -1416,7 +1462,7 @@ async function main() {
   });
 
   await check("Nsnap13 the document id cannot be substituted into the business id slot", async () => {
-    await assertFails(setDoc(doc(salesRep, "orders", "snapBad13"), newOrder({
+    await assertFails(setDoc(doc(admin, "orders", "snapBad13"), newOrder({
       clinicDocId: "clVerified",
       clinicId: "clVerified", // document id in the business id field
       clinicLat: 14.5995,
@@ -1428,7 +1474,7 @@ async function main() {
   });
 
   await check("Nsnap14 a business id supplied for a clinic that has none is rejected", async () => {
-    await assertFails(setDoc(doc(salesRep, "orders", "snapBad14"), newOrder({
+    await assertFails(setDoc(doc(admin, "orders", "snapBad14"), newOrder({
       clinicDocId: "clNoBusinessId",
       clinicId: "CLN-0001", // the clinic has no business id at all
       clinicLat: 13.0,
@@ -1441,7 +1487,7 @@ async function main() {
 
   await check("Nsnap15 a snapshot with no clinicLocationSnapshotAt is rejected", async () => {
     // Omitting the stamp must not be a way around Nsnap11.
-    await assertFails(setDoc(doc(salesRep, "orders", "snapBad15"), newOrder({
+    await assertFails(setDoc(doc(admin, "orders", "snapBad15"), newOrder({
       clinicDocId: "clVerified",
       clinicId: "CLN-9123",
       clinicLat: 14.5995,
@@ -1583,11 +1629,19 @@ async function main() {
   });
 
   await check("Passign5 rider status/location writes still work", async () => {
+    // Delay is unchanged — it moves no stock. Completing does, so it left.
     await assertSucceeds(updateDoc(doc(rider, "orders", "ordRider1"), {
-      status: "delivered",
-      deliveredAt: serverTimestamp(),
+      status: "delayed",
+      delayReason: "Traffic on the bridge",
+      delayedAt: serverTimestamp(),
       statusUpdatedAt: serverTimestamp(),
       statusUpdatedByUid: riderUid,
+      updatedAt: serverTimestamp(),
+    }));
+    await assertSucceeds(updateDoc(doc(rider, "orders", "ordRider1"), {
+      lastLocation: { lat: 14.6, lng: 121.0 },
+      lastLocationUpdate: serverTimestamp(),
+      locationAccuracy: 8,
       updatedAt: serverTimestamp(),
     }));
   });
@@ -1685,12 +1739,14 @@ async function main() {
     await assertSucceeds(updateDoc(doc(dispatcher, "orders", "lcLoading2"), dispatchRun()));
   });
 
-  await check("Plc4 dispatcher cancels a non-terminal order with a reason", async () => {
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "lcPending"), cancelWith("Clinic closed")));
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "lcAssigned2"), cancelWith("Rider unavailable")));
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "lcLoading3"), cancelWith("Cold chain breach")));
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "lcTransit"), cancelWith("Recalled")));
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "lcDelayed"), cancelWith("Abandoned")));
+  // Plc4 was "dispatcher cancels a non-terminal order with a reason" and PASSED
+  // until this checkpoint. Cancelling RELEASES reserved stock, so it moved to
+  // `cancelOrderWithInventoryRelease`; every direct path is now refused, from
+  // every non-terminal status. This is the negative control for that lockdown.
+  await check("Nlock2 a dispatcher can no longer cancel directly", async () => {
+    for (const id of ["lcPending", "lcAssigned2", "lcLoading3", "lcTransit", "lcDelayed"]) {
+      await assertFails(updateDoc(doc(dispatcher, "orders", id), cancelWith("Clinic closed")));
+    }
   });
 
   // ---- dispatcher: forbidden ----
@@ -1787,9 +1843,13 @@ async function main() {
     await assertSucceeds(updateDoc(doc(rider, "orders", "lcDelayed3"), resume()));
   });
 
-  await check("Plc7 rider completes from in_transit and from delayed", async () => {
-    await assertSucceeds(updateDoc(doc(rider, "orders", "lcTransit4"), complete()));
-    await assertSucceeds(updateDoc(doc(rider, "orders", "lcTransit3"), complete())); // now delayed
+  // Plc7 was "rider completes from in_transit and from delayed" and PASSED until
+  // this checkpoint. Completing CONSUMES reserved stock, so it moved to
+  // `markOrderDeliveredWithInventoryConsumption`. Negative control for the
+  // rider half of the lockdown.
+  await check("Nlock3 a rider can no longer mark an order delivered directly", async () => {
+    await assertFails(updateDoc(doc(rider, "orders", "lcTransit4"), complete()));
+    await assertFails(updateDoc(doc(rider, "orders", "lcTransit3"), complete())); // delayed
   });
 
   await check("Plc8 rider location writes still need no status change", async () => {
@@ -1837,8 +1897,12 @@ async function main() {
   });
 
   await check("Nlc15 rider cannot resurrect a terminal order", async () => {
-    await assertFails(updateDoc(doc(rider, "orders", "lcTransit4"), resume())); // now delivered
-    await assertFails(updateDoc(doc(rider, "orders", "lcTransit4"), delayWith("Too late")));
+    // lcDelivered/lcCancelled are seeded terminal, and stay terminal now that
+    // the rider cannot deliver lcTransit4 from a client any more.
+    for (const id of ["lcDelivered", "lcCancelled"]) {
+      await assertFails(updateDoc(doc(rider, "orders", id), resume()));
+      await assertFails(updateDoc(doc(rider, "orders", id), delayWith("Too late")));
+    }
   });
 
   await check("Nlc16 a delay needs a meaningful, bounded reason", async () => {
@@ -1974,8 +2038,10 @@ async function main() {
     await assertSucceeds(updateDoc(doc(dispatcher, "orders", "fdFailed2"), recoverTo(otherRiderUid)));
   });
 
-  await check("Pfd5 dispatcher cancels a failed order with a reason", async () => {
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "fdFailed3"), cancelWith("Clinic will not reopen")));
+  await check("Nlock4 a failed order cannot be cancelled directly either", async () => {
+    // Recovery (delivery_failed -> assigned) still works from the client; only
+    // the cancel half moved, because only it settles stock.
+    await assertFails(updateDoc(doc(dispatcher, "orders", "fdFailed3"), cancelWith("Clinic will not reopen")));
   });
 
   // ---- dispatcher recovery: forbidden ----
@@ -2284,6 +2350,89 @@ async function main() {
       lastLocationUpdate: serverTimestamp(),
       locationAccuracy: 8, heading: 90, speed: 3.4,
       updatedAt: serverTimestamp(),
+    }));
+  });
+
+  // ---- direct-write lockdown (workflow checkpoint 5) ----
+  //
+  // Reserving, releasing and consuming stock each have to move several
+  // documents together, which rules cannot express for an arbitrary number of
+  // batches. Those operations moved to trusted callables running on the Admin
+  // SDK — which bypasses these rules by design. What is verified here is the
+  // other half: that no client SDK can reach around them.
+
+  await check("Nlock5 no client may write an allocation field", async () => {
+    const allocation = {
+      allocationVersion: 1,
+      allocationStatus: "released",
+      updatedAt: serverTimestamp(),
+    };
+    for (const ctx of [admin, dispatcher, rider, salesRep]) {
+      await assertFails(updateDoc(doc(ctx, "orders", "ordRider1"), allocation));
+    }
+    // ...nor a single one of them on its own.
+    for (const field of ["allocationStatus", "reservedByUid", "consumedAt", "releasedByUid", "inventoryReconciliation"]) {
+      await assertFails(updateDoc(doc(admin, "orders", "ordRider1"), {
+        [field]: "x", updatedAt: serverTimestamp(),
+      }));
+    }
+  });
+
+  await check("Nlock6 no client may change stock counters", async () => {
+    for (const ctx of [admin, dispatcher, rider, salesRep, anon]) {
+      await assertFails(updateDoc(doc(ctx, "inventory", "invAdmin"), { quantity: 9999 }));
+      await assertFails(updateDoc(doc(ctx, "inventory", "invAdmin"), { reservedQuantity: 5 }));
+    }
+    // An admin may still correct non-settlement fields.
+    await assertSucceeds(updateDoc(doc(admin, "inventory", "invAdmin"), { manufacturer: "Corrected" }));
+  });
+
+  await check("Nlock7 a new stock batch must be a valid integer batch", async () => {
+    const valid = {
+      vaccineName: "V", batchId: "B-1", expiryDate: "2027-12-31",
+      quantity: 10, reservedQuantity: 0,
+    };
+    await assertSucceeds(setDoc(doc(admin, "inventory", "invValid"), valid));
+    // The exact shapes staging already contains, and the ones a migration
+    // would otherwise have to clean up later.
+    for (const bad of [
+      { ...valid, quantity: "10" },
+      { ...valid, quantity: 1.5 },
+      { ...valid, quantity: -1 },
+      { ...valid, reservedQuantity: 3 },
+      { ...valid, reservedQuantity: "0" },
+      { ...valid, batchId: "" },
+      { ...valid, expiryDate: "2027-12-3" },
+    ]) {
+      await assertFails(setDoc(doc(admin, "inventory", "invBad"), bad));
+    }
+    for (const field of ["quantity", "reservedQuantity", "batchId", "vaccineName", "expiryDate"]) {
+      const missing = { ...valid };
+      delete missing[field];
+      await assertFails(setDoc(doc(admin, "inventory", "invMissing"), missing));
+    }
+  });
+
+  await check("Nlock8 reservation and idempotency documents are invisible to clients", async () => {
+    for (const ctx of [admin, dispatcher, rider, salesRep, anon]) {
+      await assertFails(getDoc(doc(ctx, "inventoryReservations", "ordRider1")));
+      await assertFails(setDoc(doc(ctx, "inventoryReservations", "ordRider1"), { status: "released" }));
+      await assertFails(getDoc(doc(ctx, "orderRequestKeys", "k1")));
+      await assertFails(setDoc(doc(ctx, "orderRequestKeys", "k1"), { orderId: "x" }));
+    }
+  });
+
+  await check("Plock1 lifecycle steps that move no stock are untouched", async () => {
+    // The lockdown must not have caught assignment, loading, dispatch, delay,
+    // resume, failure or route generation in its net.
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "lockAssigned"), {
+      status: "loading", isLoaded: true, loadedAt: serverTimestamp(), ...audit(dispatcherUid),
+    }));
+    await assertSucceeds(updateDoc(doc(rider, "orders", "lockTransit"), {
+      status: "delayed", delayReason: "Traffic", delayedAt: serverTimestamp(), ...audit(riderUid),
+    }));
+    await assertSucceeds(updateDoc(doc(rider, "orders", "lockTransit"), {
+      status: "in_transit", startedAt: serverTimestamp(), ...audit(riderUid),
     }));
   });
 

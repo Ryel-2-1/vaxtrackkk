@@ -1,0 +1,38 @@
+[
+  {
+    "id": "4CTWaXmeYXnhyph7jaPD",
+    "data": {
+      "quantity": "120",
+      "batchId": "MOD-STG-001",
+      "vaccineName": "Moderna COVID-19 Vaccine",
+      "vaccineType": "COVID-19",
+      "expiryDate": "2027-12-31",
+      "status": "OK"
+    },
+    "hasReservations": false
+  },
+  {
+    "id": "7C5nUVz0SUJSajTnyJR3",
+    "data": {
+      "quantity": "35",
+      "batchId": "FLU-STG-002",
+      "vaccineName": "Flu Vaccine Quadrivalent",
+      "vaccineType": "Influenza",
+      "expiryDate": "2027-10-30",
+      "status": "Low"
+    },
+    "hasReservations": false
+  },
+  {
+    "id": "WVknHqT40u57Wvzdvs76",
+    "data": {
+      "quantity": "80",
+      "batchId": "HEP-STG-003",
+      "vaccineName": "Hepatitis B Vaccine",
+      "vaccineType": "Hepatitis B",
+      "expiryDate": "2028-01-15",
+      "status": "OK"
+    },
+    "hasReservations": false
+  }
+]

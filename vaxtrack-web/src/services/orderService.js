@@ -42,6 +42,18 @@ export async function getOrderById(orderId) {
   return { ...snap.data(), id: snap.id };
 }
 
+/**
+ * ⚠️ SUPERSEDED — no page calls this, and Firestore rules refuse it.
+ *
+ * Creating an order reserves stock, and a client `addDoc` cannot commit
+ * together with the reservation, so the whole operation moved to the trusted
+ * callable `createOrderWithReservation`. The rules now allow order creation to
+ * ADMIN only, so a sales-rep call fails with permission-denied.
+ *
+ * Kept for its field-shape and clinic-snapshot tests, which still describe what
+ * an order document must look like — the callable builds the same shape. It is
+ * not a live path and must not become one; add fields to the callable instead.
+ */
 export async function createSalesRepOrder(orderData = {}) {
   if (!orderData.clinicName) {
     throw new Error("Clinic name is required.");
@@ -510,6 +522,16 @@ export const MAX_CANCEL_REASON_LENGTH = MAX_REASON_LENGTH;
  * @param {string} reason required, trimmed, non-empty
  * @returns {Promise<{orderId: string, status: 'cancelled', cancelReason: string}>}
  * @throws {WorkflowError}
+ */
+/**
+ * ⚠️ SUPERSEDED — no page calls this, and Firestore rules refuse it.
+ *
+ * Cancelling releases the order's reserved stock, which has to commit with the
+ * status change, so it moved to `cancelOrderWithInventoryRelease`. The rules no
+ * longer accept a client `cancelled` write from any role.
+ *
+ * Kept for its transition and reason tests, which still describe the contract
+ * the callable enforces server-side.
  */
 export async function cancelOrderByDispatcher(orderId, reason) {
   if (typeof orderId !== "string" || orderId.trim() === "") {

@@ -133,11 +133,20 @@ test("the Flutter service exposes no loading, dispatch or arbitrary status write
   assert.match(service, /'deliveryFailedByUid': uid/);
   assert.match(service, /FirebaseAuth\.instance\.currentUser\?\.uid/);
 
-  // Server timestamps and audit identity are unchanged.
+  // Server timestamps and audit identity are unchanged for the writes that
+  // remain client-side.
   assert.match(service, /'delayedAt': FieldValue\.serverTimestamp\(\)/);
-  assert.match(service, /'deliveredAt': FieldValue\.serverTimestamp\(\)/);
   assert.match(service, /'startedAt': FieldValue\.serverTimestamp\(\)/);
   assert.match(service, /_auditFields\(\)/);
+
+  // `deliveredAt` is no longer stamped here. Completing a delivery consumes
+  // reserved stock, so it moved to a trusted callable in workflow checkpoint 5
+  // and the server stamps every field. The client keeps only its local
+  // transition check and must NOT write the status itself.
+  assert.doesNotMatch(service, /'deliveredAt': FieldValue\.serverTimestamp\(\)/);
+  assert.doesNotMatch(service, /'status': 'delivered'/);
+  assert.match(service, /markOrderDeliveredWithInventoryConsumption/);
+  assert.match(service, /httpsCallable/);
 });
 
 test("the Flutter detail screen offers no loading or transit control", () => {

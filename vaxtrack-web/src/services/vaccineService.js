@@ -91,6 +91,14 @@ export async function addStockBatch({
     arrivalDate,
     expiryDate,
     quantity,
+    // Every batch starts with nothing reserved.
+    //
+    // Absent used to mean "treat as zero", which was fine while nothing
+    // reserved anything. Now that availability is `quantity - reservedQuantity`
+    // the field has to exist from the batch's first moment: firestore.rules
+    // requires it to be exactly 0 on create, and the callable refuses a batch
+    // whose reserved figure is present but not a non-negative integer.
+    reservedQuantity: 0,
     status,
     createdAt: serverTimestamp(),
   });

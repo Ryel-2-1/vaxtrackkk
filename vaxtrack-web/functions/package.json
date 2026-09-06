@@ -1,0 +1,18 @@
+{
+  "name": "vaxtrack-functions",
+  "description": "Trusted server boundary for VaxTrack inventory-affecting order operations.",
+  "private": true,
+  "type": "commonjs",
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "test:emulator": "firebase emulators:exec --only firestore --project demo-vaxtrack-functions \"node --test test/integration/\""
+  },
+  "dependencies": {
+    "firebase-admin": "^13.6.0",
+    "firebase-functions": "^6.5.0"
+  }
+}

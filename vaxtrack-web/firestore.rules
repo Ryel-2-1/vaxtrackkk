@@ -226,6 +226,56 @@ service cloud.firestore {
       return ['deliveryFailedAt', 'deliveryFailedByUid', 'deliveryFailureReason'];
     }
 
+    // ---------------- server-only territory (workflow checkpoint 5) ----------------
+    //
+    // Stock is reserved on order creation, released on cancellation and consumed
+    // on delivery. Each of those has to move an order, a reservation document and
+    // one or more inventory counters in a SINGLE atomic step — and Security Rules
+    // cannot express "these three documents changed together and by matching
+    // amounts" for an arbitrary number of batches within the per-request budget.
+    //
+    // So those three operations moved behind trusted callable Cloud Functions,
+    // which run on the Admin SDK and bypass these rules by design. What is left
+    // here is the other half of that boundary: making sure a client SDK cannot
+    // reach around the callable and do it directly. Every rule below is about
+    // what clients may NO LONGER do.
+    function allocationFields() {
+      return [
+        'allocationVersion', 'allocationStatus', 'inventoryReconciliation',
+        'reservedAt', 'reservedByUid', 'consumedAt', 'consumedByUid',
+        'releasedAt', 'releasedByUid'
+      ];
+    }
+
+    // Terminal statuses now belong to the callables alone: `delivered` consumes
+    // stock and `cancelled` releases it, so neither can be written by a client
+    // without the matching inventory movement happening at the same instant.
+    function writesServerOnlyStatus() {
+      return statusChanged()
+        && (nextStatus() == 'delivered' || nextStatus() == 'cancelled');
+    }
+
+    // The guard every client order write now carries.
+    function clientOrderWriteIsAllowed() {
+      return !writesServerOnlyStatus()
+        && !changedKeys().hasAny(allocationFields());
+    }
+
+    // A new stock batch, as Admin Add Stock writes it. Quantities are Firestore
+    // INTEGERS — the three hand-seeded staging batches hold `quantity` as text,
+    // which the callable refuses outright, and this stops another one appearing.
+    // `reservedQuantity` must start at zero: a batch that begins life already
+    // claiming reservations would misstate availability from its first day.
+    function isValidNewStockBatch() {
+      let d = request.resource.data;
+      return d.quantity is int
+        && d.quantity >= 0
+        && d.reservedQuantity == 0
+        && d.batchId is string && d.batchId.size() > 0
+        && d.vaccineName is string && d.vaccineName.size() > 0
+        && d.expiryDate is string && d.expiryDate.size() == 10;
+    }
+
     // ---------------- rider assignment (workflow checkpoint 1) ----------------
     //
     // Who an order belongs to. Deliberately absent from riderOrderFields(), so
@@ -400,14 +450,16 @@ service cloud.firestore {
         && statusAuditIsServerStamped();
     }
 
+    // `isValidCancellation()` is deliberately absent: cancelling releases
+    // reserved stock, so it is now the callable's alone. The function is kept
+    // above only as the shape the callable enforces server-side.
     function isValidDispatcherOrderWrite() {
       return isValidRiderAssignment()
         || isValidLoadingPromotion()
         || isLoadingMetadataUpdate()
         || isRouteGenerationWrite()
         || isValidDispatch()
-        || isValidFailedOrderRecovery()
-        || isValidCancellation();
+        || isValidFailedOrderRecovery();
     }
 
     // --- rider operations ---
@@ -455,13 +507,15 @@ service cloud.firestore {
     // completing the delivery AND attaching a proof URL in one operation, which
     // would otherwise have slipped evidence in through isValidCompletion() with
     // no recipient, no path check and no one-shot marker.
+    // `isValidCompletion()` is deliberately absent: delivering consumes reserved
+    // stock, so it is now the callable's alone. Delay, resume and failure are
+    // unchanged — none of them moves stock.
     function isValidRiderLifecycleWrite() {
       return changedKeys().hasOnly(riderOrderFields())
         && (
           !statusChanged()
           || isValidDelayReport()
           || isValidResume()
-          || isValidCompletion()
           || isValidFailureReport()
         );
     }
@@ -629,13 +683,15 @@ service cloud.firestore {
       // Either way, any clinic-location snapshot on the new order must be a
       // faithful copy of the clinic it names — including for admin, so a single
       // compromised session cannot fabricate a destination either.
-      allow create: if (
-          isAdmin()
-          || (
-            isSalesRep()
-            && request.resource.data.createdByUid == request.auth.uid
-          )
-        )
+      // A Sales Rep can no longer create an order from a client at all.
+      //
+      // Creating one reserves stock, and a client-side create cannot be made
+      // atomic with the reservation — the order would exist for a moment with
+      // no claim on the batch it depends on. Order creation is now
+      // `createOrderWithReservation` only. Admin create is kept for data
+      // repair, and may not fabricate an allocation.
+      allow create: if isAdmin()
+        && !request.resource.data.keys().hasAny(allocationFields())
         && clinicSnapshotValidOnCreate();
 
       // Admin: full update.
@@ -643,7 +699,13 @@ service cloud.firestore {
       // Rider: only status/location/proof fields, on their OWN assigned order,
       //        and cannot reassign it (assignedRiderId is not in the allowlist).
       // Sales Rep: may update only their own orders (rarely used by the app).
-      allow update: if isAdmin()
+      // Every client branch below additionally carries
+      // clientOrderWriteIsAllowed(): no client, admin included, may write a
+      // terminal status or an allocation field. Those belong to the callables,
+      // which run on the Admin SDK and are not subject to these rules.
+      allow update: if clientOrderWriteIsAllowed()
+        && (
+        isAdmin()
         || (
           isDispatcher()
           && changedKeys().hasOnly(dispatcherOrderFields())
@@ -693,17 +755,44 @@ service cloud.firestore {
           // fields; Sales Rep has no allowlist, so it is stated explicitly here.
           // Admin retains full update — the Phase 02B repair needs it.
           && !changedKeys().hasAny(clinicSnapshotFields())
+        )
         );
 
       allow delete: if isAdmin();
     }
 
+    // ---------------- reservations + idempotency (server-only) ----------------
+    //
+    // Written exclusively by the trusted callables through the Admin SDK, which
+    // is not subject to these rules. No client reads them either: the only
+    // figure a UI needs is `inventory.reservedQuantity`, which it already has,
+    // so exposing per-order reservations would widen the surface for nothing.
+    match /inventoryReservations/{orderId} {
+      allow read, write: if false;
+    }
+    // Idempotency records. A client that could read these could replay another
+    // rep's checkout; a client that could write one could suppress a real order.
+    match /orderRequestKeys/{keyId} {
+      allow read, write: if false;
+    }
+
     // ---------------- catalog data ----------------
     // Read by any approved user (Sales Rep needs inventory + clinics; catalog
     // pages need vaccines/types). Writes are admin-only.
+    // Stock levels are settlement state, not ordinary catalog data.
+    //
+    // Admin Add Stock still creates batches from the client, now with the field
+    // validation the rules never had. But NO client may change `quantity` or
+    // `reservedQuantity` afterwards — those move only as part of a reservation,
+    // release or consumption, and only inside a callable's transaction. An admin
+    // correction goes through a future controlled server function or the
+    // console, not a generic client write.
     match /inventory/{id} {
       allow read: if isApprovedUser();
-      allow write: if isAdmin();
+      allow create: if isAdmin() && isValidNewStockBatch();
+      allow update: if isAdmin()
+        && !changedKeys().hasAny(['quantity', 'reservedQuantity']);
+      allow delete: if isAdmin();
     }
     match /vaccines/{id} {
       allow read: if isApprovedUser();

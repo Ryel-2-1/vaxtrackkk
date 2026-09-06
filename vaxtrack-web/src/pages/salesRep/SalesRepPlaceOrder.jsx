@@ -9,12 +9,41 @@ import {
   Trash2,
   Zap,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { createSalesRepOrder } from "../../services/orderService";
+import {
+  createOrderWithReservation,
+  newRequestId,
+} from "../../services/inventoryCallables";
 import { subscribeClinics } from "../../services/clinicService";
-import { auth } from "../../firebase";
 import SalesRepLayout from "./SalesRepLayout";
+
+/**
+ * A server error code turned into something a rep can act on.
+ *
+ * The server already writes a user-facing sentence; this only adds the extra
+ * step where the right next action is not obvious from the message alone.
+ */
+function messageForCallableError(error) {
+  switch (error?.code) {
+    case "insufficient-stock": {
+      const info = error.info;
+      return info
+        ? `Only ${info.available} left in batch ${info.batchId ?? info.inventoryId}. Adjust the quantity and try again.`
+        : error.message;
+    }
+    case "batch-expired":
+      return "One of these batches has expired and can no longer be ordered. Remove it and pick another.";
+    case "inventory-migration-required":
+      return "One of these batches still records its stock as text and needs an admin migration before it can be ordered.";
+    case "idempotency-conflict":
+      return "This checkout was already submitted with different contents. Review your cart and start a new order.";
+    case "duplicate-inventory-line":
+      return "The same batch appears on two lines. Combine them into one.";
+    default:
+      return error?.message || "Unable to create order. Please try again.";
+  }
+}
 
 function getInitialItems() {
   try {
@@ -22,10 +51,16 @@ function getInitialItems() {
 
     if (savedDraft?.items?.length) {
       return savedDraft.items.map((item) => ({
+        // The authoritative Firestore inventory DOCUMENT id, carried through
+        // from the catalog. It used to be dropped here and again in the order
+        // service, which is why no order could be traced back to a batch. It is
+        // the only field the server treats as identity.
+        inventoryId: item.inventoryId || null,
         name: item.name || "Unknown Vaccine",
-        sku: item.sku || item.id || "—",
+        sku: item.sku || "—",
         chain: item.temp || item.category || "Cold Chain",
         quantity: Number(item.quantity) || 1,
+        unitPrice: Number(item.unitPrice) || 0,
         stockText: item.stock
           ? `Available: ${Number(item.stock).toLocaleString()} ${Number(item.stock) === 1 ? "vial" : "vials"}`
           : "",
@@ -43,6 +78,19 @@ function SalesRepPlaceOrder() {
 
   const [saving, setSaving] = useState(false);
   const [items, setItems] = useState(getInitialItems);
+
+  /** Synchronous re-entry guard — see handleFinalizeOrder. */
+  const submittingRef = useRef(false);
+
+  /**
+   * One stable id per checkout ATTEMPT.
+   *
+   * Generated once when the page mounts and kept across a recoverable failure,
+   * so a retry reaches the server as the SAME attempt and replays the original
+   * order instead of creating a second one. Retired only after a confirmed
+   * success (a new attempt is a genuinely new order).
+   */
+  const requestIdRef = useRef(newRequestId());
   const [searchTerm, setSearchTerm] = useState("");
 
   const [clinics, setClinics] = useState([]);
@@ -107,7 +155,17 @@ function SalesRepPlaceOrder() {
   };
 
   const handleFinalizeOrder = async () => {
+    // Synchronous re-entry guard, BEFORE any state update or await.
+    //
+    // `disabled={saving}` is feedback, not concurrency control: setSaving is a
+    // React state update, so several clicks delivered in one event turn all
+    // reach this handler before any rebuild. The server's idempotency key makes
+    // duplicates harmless; this stops them being sent at all.
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+
     if (items.length === 0) {
+      submittingRef.current = false;
       setMessage("Add at least one order item before finalizing.");
       return;
     }
@@ -117,6 +175,7 @@ function SalesRepPlaceOrder() {
     // AND carry a non-empty canonical `clinicId`. Records without a `clinicId`
     // are rejected — we never fall back to the Firestore doc id.
     if (clinicsLoading) {
+      submittingRef.current = false;
       setMessage("Verifying clinic — please wait.");
       return;
     }
@@ -128,7 +187,20 @@ function SalesRepPlaceOrder() {
         : "";
     const verifiedClinic = liveClinic && canonicalClinicId ? liveClinic : null;
     if (!verifiedClinic) {
+      submittingRef.current = false;
       setMessage("Enter a valid Clinic ID registered in VaxTrack.");
+      return;
+    }
+
+    // Every line must carry an authoritative batch. A cart built before this
+    // checkpoint has none, and guessing one from its name or SKU is exactly
+    // what the reservation design forbids.
+    const unallocated = items.filter((item) => !item.inventoryId);
+    if (unallocated.length > 0) {
+      submittingRef.current = false;
+      setMessage(
+        "This cart was built before batch tracking. Please rebuild it from the catalog."
+      );
       return;
     }
 
@@ -136,82 +208,51 @@ function SalesRepPlaceOrder() {
     setMessage("");
 
     try {
-      const user = auth.currentUser;
-      const vaccineSummary =
-        items.length === 1
-          ? items[0].name
-          : `${items[0].name} +${items.length - 1} more`;
-
-      const orderPayload = {
-        // TWO DISTINCT IDENTIFIERS, never interchangeable:
-        //  - `clinicDocId` is the Firestore DOCUMENT id. `subscribeClinics`
-        //    builds each record as `{ id: d.id, ...d.data() }`, so `.id` is the
-        //    document id (no clinic document carries a field named `id`).
-        //  - the business/display id (`CLN-####`) lives on the record as
-        //    `clinicId` and is read from there by the snapshot builder.
-        // Neither is ever derived from the other, nor from name or address.
+      // The order is created SERVER-SIDE so it commits together with the stock
+      // reservation. `clinicDocId` is the Firestore document id; the clinic's
+      // name, address and location snapshot are all re-derived from that
+      // document on the server, so nothing typed here can describe a different
+      // destination. Only the batch id and an integer quantity travel per line.
+      const result = await createOrderWithReservation({
+        requestId: requestIdRef.current,
         clinicDocId: verifiedClinic.id,
-        // The selected clinic record itself. The service derives the location
-        // snapshot from this alone — coordinates are no longer passed
-        // separately, so they cannot disagree with the clinic they claim to
-        // come from.
-        clinic: verifiedClinic,
-        clinicName: verifiedClinic.name,
-        clinicAddress: verifiedClinic.location || verifiedClinic.address || "",
-        vaccineName: vaccineSummary,
-        vaccineType: items[0]?.chain || "",
-        quantity: totalQuantity,
-        unit: "vials",
-        storageTemp: items[0]?.chain || "",
         priority: urgent ? "Urgent" : "Standard",
         deliveryInstructions: instructions.trim(),
-        items,
-        createdByUid: user?.uid || null,
-        createdByEmail: user?.email || null,
-      };
+        items: items.map((item) => ({
+          inventoryId: item.inventoryId,
+          quantity: Number(item.quantity),
+          unitPrice: Number(item.unitPrice) || 0,
+        })),
+      });
 
-      // Coordinates are NOT assembled here any more. `createSalesRepOrder`
-      // derives them from the clinic record above via the shared snapshot
-      // builder, which applies the same verification and range rules as the
-      // Admin clinic-location editor. Building them here as well would give a
-      // client a second, unverified way to set a delivery destination.
-
-      // Pre-compute the canonical public order reference the same way
-      // `createSalesRepOrder` would default it (`VT-ORD-<epoch ms>`), and pass
-      // it in the payload. The service uses `orderData.orderNumber || …`, so
-      // this is behavior-neutral — the same value is written to Firestore
-      // regardless. Passing it explicitly lets us carry it to the confirmation
-      // screen (previously we only had the Firestore doc id, which is why
-      // confirmation showed `TVJXOqvC66uXVSswezIr` instead of `VT-ORD-…`).
-      // Date.now() here is inside an async click handler (`handleFinalizeOrder`),
-      // not render — the react-hooks/purity check reports this as a false
-      // positive when analysing event handlers, so disable it narrowly.
-      // eslint-disable-next-line react-hooks/purity
-      const orderNumber = `VT-ORD-${Date.now()}`;
-      orderPayload.orderNumber = orderNumber;
-
-      const orderRef = await createSalesRepOrder(orderPayload);
-      const orderId = orderRef.id;
-
-      localStorage.setItem("latestSalesOrderId", orderId);
+      // Only now — after the callable confirms the commit — is the cart cleared
+      // and the confirmation shown. Nothing above this line may claim success.
+      localStorage.setItem("latestSalesOrderId", result.orderId);
       localStorage.setItem(
         "latestSalesOrderDetails",
         JSON.stringify({
-          id: orderId,
-          orderNumber,
-          ...orderPayload,
+          id: result.orderId,
+          orderNumber: result.orderNumber,
+          clinicName: verifiedClinic.name,
+          clinicAddress: verifiedClinic.location || verifiedClinic.address || "",
+          items,
+          quantity: totalQuantity,
           status: "pending_dispatch",
         })
       );
-
       localStorage.removeItem("salesRepQuickCart");
+      // A new attempt after this point is a NEW order, so the id is retired.
+      requestIdRef.current = newRequestId();
 
       navigate("/sales-rep/order-confirmation");
     } catch (error) {
-      console.error("Create order error:", error);
-      setMessage(error.message || "Unable to create order. Please try again.");
+      // The cart and the request id both survive: a retry of a recoverable
+      // failure must reach the server as the SAME attempt, or a submission
+      // that actually committed would be duplicated.
+      setMessage(messageForCallableError(error));
     } finally {
       setSaving(false);
+      submittingRef.current = false;
     }
   };
 

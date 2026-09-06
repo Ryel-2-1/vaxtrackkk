@@ -24,8 +24,42 @@ function formatExpiry(dateStr) {
   });
 }
 
+/**
+ * One row per batch, showing on hand / reserved / available.
+ *
+ * Available is DERIVED (`quantity - reservedQuantity`), never stored — a third
+ * persisted total would be a number nothing could keep honest. Data problems
+ * are surfaced as flags rather than smoothed over: a quantity stored as text
+ * reads "—", not "0", because those mean very different things to whoever has
+ * to act on the row.
+ */
 function normalizeInventoryItem(raw) {
   const status = raw.status || "Stable";
+  const onHandOk = typeof raw.quantity === "number" && Number.isInteger(raw.quantity);
+  const reservedRaw = raw.reservedQuantity;
+  const reservedOk =
+    reservedRaw === undefined ||
+    reservedRaw === null ||
+    (typeof reservedRaw === "number" && Number.isInteger(reservedRaw) && reservedRaw >= 0);
+  const reserved = typeof reservedRaw === "number" ? reservedRaw : 0;
+  const available = onHandOk && reservedOk ? raw.quantity - reserved : null;
+
+  const flags = [];
+  if (!onHandOk) {
+    flags.push(
+      typeof raw.quantity === "string"
+        ? "Quantity stored as text — needs migration"
+        : "Quantity is not a whole number"
+    );
+  }
+  if (!reservedOk) flags.push("Reserved figure is invalid");
+  if (reservedRaw === undefined || reservedRaw === null) flags.push("No reserved field yet");
+  if (available !== null && available < 0) flags.push("Reserved exceeds stock on hand");
+  if (raw.expiryDate && /^\d{4}-\d{2}-\d{2}$/.test(raw.expiryDate)) {
+    const todayManila = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    if (raw.expiryDate < todayManila) flags.push("Expired");
+  }
+
   return {
     id: raw.id,
     name: raw.vaccineName || "—",
@@ -33,6 +67,10 @@ function normalizeInventoryItem(raw) {
     batch: raw.batchId || "—",
     expiry: formatExpiry(raw.expiryDate),
     expiryRaw: raw.expiryDate || "",
+    onHand: onHandOk ? raw.quantity.toLocaleString() : "—",
+    reserved: reservedOk ? reserved.toLocaleString() : "—",
+    available: available === null ? "—" : available.toLocaleString(),
+    flags,
     qty: raw.quantity != null ? Number(raw.quantity).toLocaleString() : "—",
     qtyRaw: raw.quantity != null ? Number(raw.quantity) : 0,
     temp: raw.storageTempDisplay || (raw.storageTemp != null ? `${raw.storageTemp}°C` : "—"),
@@ -88,10 +126,6 @@ function Inventory() {
     });
   }, [inventory, searchTerm, statusFilter, expiryFilter]);
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, statusFilter, expiryFilter]);
-
   const stockByType = useMemo(() => {
     if (inventory.length === 0) return [];
     const totals = {};
@@ -139,15 +173,21 @@ function Inventory() {
 
   const totalPages = Math.max(1, Math.ceil(filteredVaccines.length / pageSize));
 
+  // Changing a filter can leave the current page past the end of the results.
+  // Clamped here during render rather than reset from an effect: setting state
+  // in an effect body renders once with the stale page and again with the new
+  // one, and the intermediate frame is the wrong page.
+  const safePage = Math.min(currentPage, totalPages);
+
   const paginatedVaccines = filteredVaccines.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
+    (safePage - 1) * pageSize,
+    safePage * pageSize
   );
 
   const startItem =
-    filteredVaccines.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+    filteredVaccines.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
 
-  const endItem = Math.min(currentPage * pageSize, filteredVaccines.length);
+  const endItem = Math.min(safePage * pageSize, filteredVaccines.length);
 
   const isAllSelected =
     paginatedVaccines.length > 0 &&
@@ -355,7 +395,9 @@ function Inventory() {
                   <th>Vaccine name</th>
                   <th>Batch ID</th>
                   <th>Expiry date</th>
-                  <th>Remaining qty</th>
+                  <th>On hand</th>
+                <th>Reserved</th>
+                <th>Available</th>
                   <th>Temp</th>
                   <th>Status</th>
                 </tr>
@@ -391,7 +433,16 @@ function Inventory() {
 
                     <td>{item.batch}</td>
                     <td>{item.expiry}</td>
-                    <td>{item.qty}</td>
+                    <td>{item.onHand}</td>
+                    <td>{item.reserved}</td>
+                    <td>
+                      {item.available}
+                      {item.flags.length > 0 && (
+                        <span className="inv-flag" title={item.flags.join(" · ")}>
+                          {' '}⚠
+                        </span>
+                      )}
+                    </td>
 
                     <td>
                       <span className="v2-temp-pill">{item.temp}</span>
@@ -437,8 +488,8 @@ function Inventory() {
             <div className="v2-pagination">
               <button
                 type="button"
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                disabled={safePage === 1}
+                onClick={() => setCurrentPage(Math.max(safePage - 1, 1))}
               >
                 Previous
               </button>
@@ -448,7 +499,7 @@ function Inventory() {
                   <button
                     key={page}
                     type="button"
-                    className={currentPage === page ? "active" : ""}
+                    className={safePage === page ? "active" : ""}
                     onClick={() => setCurrentPage(page)}
                   >
                     {page}
@@ -458,9 +509,9 @@ function Inventory() {
 
               <button
                 type="button"
-                disabled={currentPage === totalPages}
+                disabled={safePage === totalPages}
                 onClick={() =>
-                  setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+                  setCurrentPage(Math.min(safePage + 1, totalPages))
                 }
               >
                 Next
@@ -495,8 +546,16 @@ function Inventory() {
               </div>
 
               <div>
-                <span>Remaining Qty</span>
-                <strong>{selectedVaccine.qty}</strong>
+                <span>On hand / Reserved / Available</span>
+                <strong>
+                  {selectedVaccine.onHand} / {selectedVaccine.reserved} /{" "}
+                  {selectedVaccine.available}
+                </strong>
+                {selectedVaccine.flags.length > 0 && (
+                  <small className="inv-flag-list">
+                    {selectedVaccine.flags.join(" · ")}
+                  </small>
+                )}
               </div>
 
               <div>

@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, Package, X } from "lucide-react";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import {
-  cancelOrderByDispatcher,
   MAX_CANCEL_REASON_LENGTH,
   reassignFailedOrder,
 } from "../../services/orderService";
+import { cancelOrderWithInventoryRelease } from "../../services/inventoryCallables";
 import { subscribeRiders } from "../../services/riderService";
 import { ACTOR_DISPATCHER, canTransition } from "../../services/orderWorkflow";
 import DispatcherLayout from "./DispatcherLayout";
@@ -178,9 +178,12 @@ function DispatcherShipments() {
     setUpdating(order.id);
     setToast("");
     try {
-      // The service trims and re-validates the reason and re-reads the order
-      // inside its transaction; this page is not the authority on either.
-      await cancelOrderByDispatcher(order.id, reason);
+      // Cancelling releases the order's reserved stock, so it now runs on the
+      // server: the callable re-reads the order and the reservation inside one
+      // transaction and releases each batch exactly once. The dialog, its reason
+      // validation and its accessibility behaviour are unchanged — only the
+      // service boundary and the error mapping moved.
+      await cancelOrderWithInventoryRelease(order.id, reason);
       closeCancelDialog();
       showToast(
         `Order ${order.orderNumber || order.id} cancelled.`,
@@ -188,8 +191,15 @@ function DispatcherShipments() {
       );
     } catch (err) {
       console.error("Cancel order error:", err);
-      // WorkflowError messages are already phrased for the operator.
-      showToast(err.message || "Failed to cancel order.", "error");
+      // Domain messages are already phrased for the operator; the two cases
+      // below are the ones where the right next action is not obvious.
+      const message =
+        err?.code === "reservation-already-settled"
+          ? "This order's stock was already settled — refresh to see its current state."
+          : err?.code === "service-unavailable"
+            ? "The ordering service is unavailable right now. Please try again."
+            : err.message || "Failed to cancel order.";
+      showToast(message, "error");
       throw err; // lets the dialog keep itself open and release its guard
     } finally {
       setUpdating("");

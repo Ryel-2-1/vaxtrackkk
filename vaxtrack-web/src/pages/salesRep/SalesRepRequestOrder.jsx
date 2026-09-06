@@ -13,6 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { subscribeInventory } from "../../services/inventoryService";
+import { availableStock } from "../../services/inventoryCallables";
 import { subscribeClinics } from "../../services/clinicService";
 import SalesRepLayout from "./SalesRepLayout";
 
@@ -39,23 +40,56 @@ function findRegisteredClinic(clinics, value) {
 
 const CLINIC_INVALID_MSG = "Enter a valid Clinic ID registered in VaxTrack.";
 
-function normalizeProduct(raw) {
-  const qty = raw.quantity != null ? Number(raw.quantity) : 0;
-  let status = "In Stock";
-  if (qty <= 0) status = "Out of Stock";
-  else if (qty <= 100) status = "Low Stock";
+/**
+ * One catalog card per inventory DOCUMENT — one line is one exact batch.
+ *
+ * `inventoryId` is the Firestore document id and is the only identity carried
+ * onward. `sku` stays as a display label; it used to double as the identifier
+ * and was ambiguous (batchId when present, the document id otherwise), which is
+ * why no order before this checkpoint could be traced to a batch with certainty.
+ *
+ * Availability is derived (`quantity - reservedQuantity`), never stored. A
+ * batch that cannot be ordered is still SHOWN — disabled, with the reason — so
+ * stock that exists but is unusable is visible rather than silently missing.
+ */
+function normalizeProduct(raw, todayIso) {
+  const available = availableStock(raw);
+  const onHand = typeof raw.quantity === "number" ? raw.quantity : null;
+  const expiryIso = typeof raw.expiryDate === "string" ? raw.expiryDate.trim() : "";
+  const expired = /^\d{4}-\d{2}-\d{2}$/.test(expiryIso) && expiryIso < todayIso;
+
+  // `available === null` means the batch's own figures are unusable — the three
+  // hand-seeded staging batches store `quantity` as text. Saying "0 in stock"
+  // would be wrong; it needs a migration, and the label says so.
+  let blockedReason = null;
+  if (available === null) blockedReason = "Needs inventory migration";
+  else if (expired) blockedReason = "Expired — unavailable";
+  else if (available <= 0) blockedReason = "Out of stock";
 
   return {
-    id: raw.id,
+    inventoryId: raw.id,
     name: raw.vaccineName || "Unknown Vaccine",
-    sku: raw.batchId || raw.id,
+    sku: raw.batchId || "—",
     category: raw.vaccineType || "Other",
-    stock: qty,
+    onHand,
+    reserved: typeof raw.reservedQuantity === "number" ? raw.reservedQuantity : 0,
+    stock: available ?? 0,
+    available,
+    expiryDate: expiryIso || null,
+    expired,
+    blockedReason,
+    orderable: blockedReason === null,
     temp: raw.storageTemp != null
       ? String(raw.storageTemp).includes("°") ? String(raw.storageTemp) : `${raw.storageTemp}°C`
       : "—",
-    status,
+    status: blockedReason ?? "In Stock",
   };
+}
+
+/** Today in Asia/Manila — the same date-only cutoff the server applies. */
+function manilaToday() {
+  const shifted = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  return shifted.toISOString().slice(0, 10);
 }
 
 function SalesRepRequestOrder() {
@@ -87,19 +121,63 @@ function SalesRepRequestOrder() {
     return unsubscribe;
   }, []);
 
+  /**
+   * Merge anything the Inventory page handed over, once the catalog is known.
+   *
+   * Only orderable batches are added: an expired or unmigrated batch selected
+   * on the previous screen must not slip into the cart and fail at checkout.
+   */
+  const applyPreselection = (products) => {
+    let saved;
+    try {
+      saved = JSON.parse(localStorage.getItem("salesRepSelectedInventory") || "null");
+    } catch {
+      return; // unreadable draft; nothing to merge
+    }
+    if (!Array.isArray(saved) || saved.length === 0) return;
+    localStorage.removeItem("salesRepSelectedInventory");
+
+    const preselected = [];
+    for (const item of saved) {
+      const match = products.find((p) => p.inventoryId === item.id);
+      if (match && match.orderable && !preselected.some((c) => c.inventoryId === match.inventoryId)) {
+        preselected.push({ ...match, quantity: 1 });
+      }
+    }
+    if (preselected.length === 0) return;
+
+    setCart((prev) => {
+      const merged = [...prev];
+      for (const item of preselected) {
+        if (!merged.find((c) => c.inventoryId === item.inventoryId)) merged.push(item);
+      }
+      return merged;
+    });
+    setNotice(`${preselected.length} item(s) added from inventory selection.`);
+  };
+
   useEffect(() => {
     const unsubscribe = subscribeInventory(
       (raw) => {
-        const products = raw.map(normalizeProduct);
+        const todayIso = manilaToday();
+        const products = raw.map((item) => normalizeProduct(item, todayIso));
         setCatalog(products);
 
         setQuantities((prev) => {
           const next = { ...prev };
           for (const p of products) {
-            if (!(p.sku in next)) next[p.sku] = 1;
+            if (!(p.inventoryId in next)) next[p.inventoryId] = 1;
           }
           return next;
         });
+
+        // Items pre-selected on the Inventory page, merged here rather than in
+        // a second effect that watched `catalog`. That effect called setState
+        // synchronously in its body, which cascades renders; this callback is
+        // an external-system (Firestore snapshot) callback, where updating
+        // state is exactly what it is for. Matching is by inventory DOCUMENT
+        // id, never by batch label.
+        applyPreselection(products);
 
         setLoading(false);
         setError("");
@@ -117,43 +195,6 @@ function SalesRepRequestOrder() {
     return unsubscribe;
   }, []);
 
-  useEffect(() => {
-    if (catalog.length === 0) return;
-
-    try {
-      const saved = JSON.parse(localStorage.getItem("salesRepSelectedInventory") || "null");
-      if (!Array.isArray(saved) || saved.length === 0) return;
-
-      localStorage.removeItem("salesRepSelectedInventory");
-
-      const preselected = [];
-      for (const item of saved) {
-        const match = catalog.find((p) => p.id === item.id);
-        if (match && match.stock > 0) {
-          const existing = preselected.find((c) => c.sku === match.sku);
-          if (!existing) {
-            preselected.push({ ...match, quantity: 1 });
-          }
-        }
-      }
-
-      if (preselected.length > 0) {
-        setCart((prev) => {
-          const merged = [...prev];
-          for (const item of preselected) {
-            if (!merged.find((c) => c.sku === item.sku)) {
-              merged.push(item);
-            }
-          }
-          return merged;
-        });
-        setNotice(`${preselected.length} item(s) added from inventory selection.`);
-      }
-    } catch {
-      // ignore parse errors
-    }
-  }, [catalog]);
-
   const filteredProducts = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
     return catalog.filter((product) => {
@@ -162,7 +203,9 @@ function SalesRepRequestOrder() {
         product.sku.toLowerCase().includes(query) ||
         product.category.toLowerCase().includes(query) ||
         product.status.toLowerCase().includes(query);
-      const matchesStock = stockFilter === "all" || product.stock > 0;
+      // "In stock only" now means orderable — an expired or unmigrated batch
+      // has stock on paper but cannot be ordered.
+      const matchesStock = stockFilter === "all" || product.orderable;
       return matchesSearch && matchesStock;
     });
   }, [catalog, searchTerm, stockFilter]);
@@ -170,30 +213,33 @@ function SalesRepRequestOrder() {
   const cartTotal = cart.reduce((total, item) => total + item.quantity, 0);
   const storageSlots = cart.length;
 
-  const changeQuantity = (sku, direction) => {
-    const product = catalog.find((item) => item.sku === sku);
+  // Keyed by the inventory DOCUMENT id, not the batch label: two batches could
+  // share a batchId (nothing enforces uniqueness), and keying by it would let
+  // one card's quantity control another's.
+  const changeQuantity = (key, direction) => {
+    const product = catalog.find((item) => item.inventoryId === key);
     const maxQty = Math.max(product?.stock || 1, 1);
 
     setQuantities((current) => {
-      const currentQty = current[sku] || 1;
+      const currentQty = current[key] || 1;
       const nextQty = direction === "minus" ? currentQty - 1 : currentQty + 1;
-      return { ...current, [sku]: Math.min(Math.max(nextQty, 1), maxQty) };
+      return { ...current, [key]: Math.min(Math.max(nextQty, 1), maxQty) };
     });
   };
 
   const addToCart = (product) => {
-    if (product.stock <= 0) {
+    if (!product.orderable) {
       setNotice(`${product.name} is out of stock.`);
       return;
     }
 
-    const quantity = quantities[product.sku] || 1;
+    const quantity = quantities[product.inventoryId] || 1;
 
     setCart((current) => {
-      const existing = current.find((item) => item.sku === product.sku);
+      const existing = current.find((item) => item.inventoryId === product.inventoryId);
       if (existing) {
         return current.map((item) =>
-          item.sku === product.sku
+          item.inventoryId === product.inventoryId
             ? { ...item, quantity: Math.min(item.quantity + quantity, product.stock) }
             : item
         );
@@ -204,8 +250,8 @@ function SalesRepRequestOrder() {
     setNotice(`${product.name} added to quick cart.`);
   };
 
-  const removeFromCart = (sku) => {
-    setCart((current) => current.filter((item) => item.sku !== sku));
+  const removeFromCart = (key) => {
+    setCart((current) => current.filter((item) => item.inventoryId !== key));
   };
 
   const placeOrder = () => {
@@ -309,7 +355,7 @@ function SalesRepRequestOrder() {
           <div className="product-grid request-v2-product-grid">
             {filteredProducts.length > 0 ? (
               filteredProducts.map((product) => (
-                <div className="product-card request-v2-product-card" key={product.sku}>
+                <div className="product-card request-v2-product-card" key={product.inventoryId}>
                   <div className="product-card-top">
                     <span className="product-type">{product.category}</span>
                     <span className={getStockClass(product.status)}>{product.status}</span>
@@ -320,9 +366,18 @@ function SalesRepRequestOrder() {
 
                   <div className="product-meta">
                     <div>
+                      {/* Available is derived on-hand minus reserved. Both are
+                          shown so a rep can tell "someone else has claimed it"
+                          from "there is none". */}
                       <span>Available Stock</span>
-                      <strong>{product.stock > 0 ? product.stock.toLocaleString() : "--"}</strong>
-                      <small>{product.stock === 1 ? "vial" : "vials"}</small>
+                      <strong>
+                        {product.available === null ? "--" : product.available.toLocaleString()}
+                      </strong>
+                      <small>
+                        {product.available === null
+                          ? "needs migration"
+                          : `of ${product.onHand ?? 0} on hand · ${product.reserved} reserved`}
+                      </small>
                     </div>
 
                     <div>
@@ -335,18 +390,18 @@ function SalesRepRequestOrder() {
                     <div className="qty-control">
                       <button
                         type="button"
-                        onClick={() => changeQuantity(product.sku, "minus")}
-                        disabled={product.stock <= 0}
+                        onClick={() => changeQuantity(product.inventoryId, "minus")}
+                        disabled={!product.orderable}
                       >
                         <Minus size={14} />
                       </button>
 
-                      <span>{quantities[product.sku] || 1}</span>
+                      <span>{quantities[product.inventoryId] || 1}</span>
 
                       <button
                         type="button"
-                        onClick={() => changeQuantity(product.sku, "plus")}
-                        disabled={product.stock <= 0}
+                        onClick={() => changeQuantity(product.inventoryId, "plus")}
+                        disabled={!product.orderable}
                       >
                         <Plus size={14} />
                       </button>
@@ -354,13 +409,17 @@ function SalesRepRequestOrder() {
 
                     <button
                       type="button"
-                      className={product.stock <= 0 ? "disabled" : ""}
+                      className={!product.orderable ? "disabled" : ""}
                       onClick={() => addToCart(product)}
+                      disabled={!product.orderable}
                     >
-                      {product.stock <= 0 ? (
+                      {!product.orderable ? (
                         <>
                           <Bell size={15} />
-                          Out of Stock
+                          {/* The real reason, not a blanket "out of stock":
+                              expired and unmigrated batches are different
+                              problems with different owners. */}
+                          {product.blockedReason}
                         </>
                       ) : (
                         <>
@@ -400,14 +459,14 @@ function SalesRepRequestOrder() {
           ) : (
             <div className="request-v2-cart-items">
               {cart.map((item) => (
-                <div className="request-v2-cart-item" key={item.sku}>
+                <div className="request-v2-cart-item" key={item.inventoryId}>
                   <div>
                     <strong>{item.name}</strong>
                     <p>{item.sku}</p>
                     <span>{item.quantity.toLocaleString()} {item.quantity === 1 ? "vial" : "vials"}</span>
                   </div>
 
-                  <button type="button" onClick={() => removeFromCart(item.sku)}>
+                  <button type="button" onClick={() => removeFromCart(item.inventoryId)}>
                     <Trash2 size={15} />
                   </button>
                 </div>

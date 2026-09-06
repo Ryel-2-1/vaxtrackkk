@@ -39,6 +39,11 @@ dependencies:
   cloud_firestore: ^6.4.1
   google_fonts: ^8.1.0
   firebase_storage: ^13.4.1
+  # Completing a delivery consumes reserved stock, so it moved behind a trusted
+  # callable Cloud Function. The rider app can no longer write `delivered`
+  # directly — Firestore rules refuse it — so this is required, not optional.
+  # Constrained to the same major generation as the installed firebase_core 4.x.
+  cloud_functions: ^6.0.0
   geolocator: ^13.0.2
   image_picker: ^1.1.2
   intl: ^0.19.0
