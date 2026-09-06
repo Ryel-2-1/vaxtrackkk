@@ -40,6 +40,10 @@ function mapTrackingLabel(statusKey) {
       return "Out for Delivery";
     case "delayed":
       return "Delayed";
+    // Without this a failed order fell through to "Processing" and read to the
+    // sales rep as though it were still quietly on its way.
+    case "delivery_failed":
+      return "Delivery Failed";
     case "delivered":
     case "completed":
       return "Delivered";
@@ -157,8 +161,15 @@ function SalesRepOrderTracking() {
   const navigate = useNavigate();
 
   const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  // The signed-out case is decided during the first render rather than in a
+  // mount effect that immediately called setState (which
+  // `react-hooks/set-state-in-effect` reports, and which rendered a spinner for
+  // one frame before correcting itself). `auth.currentUser` is synchronous, so
+  // the initial value is the same one the effect used to write.
+  const [loading, setLoading] = useState(() => auth.currentUser != null);
+  const [error, setError] = useState(() =>
+    auth.currentUser ? "" : "You must be logged in to view orders."
+  );
 
   const [activeTab, setActiveTab] = useState("active");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -168,11 +179,8 @@ function SalesRepOrderTracking() {
 
   useEffect(() => {
     const user = auth.currentUser;
-    if (!user) {
-      setError("You must be logged in to view orders.");
-      setLoading(false);
-      return;
-    }
+    // The signed-out message is already the initial state; nothing to do here.
+    if (!user) return undefined;
 
     const unsubscribe = subscribeSalesRepOrders(
       user.uid,

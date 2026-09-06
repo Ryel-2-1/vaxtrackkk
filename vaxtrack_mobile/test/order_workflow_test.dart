@@ -15,6 +15,7 @@ const expectedDispatcher = <String, List<String>>{
   'loading': ['in_transit', 'cancelled'],
   'in_transit': ['cancelled'],
   'delayed': ['cancelled'],
+  'delivery_failed': ['assigned', 'cancelled'],
   'delivered': <String>[],
   'cancelled': <String>[],
 };
@@ -23,8 +24,9 @@ const expectedRider = <String, List<String>>{
   'pending_dispatch': <String>[],
   'assigned': <String>[],
   'loading': <String>[],
-  'in_transit': ['delayed', 'delivered'],
-  'delayed': ['in_transit', 'delivered'],
+  'in_transit': ['delayed', 'delivered', 'delivery_failed'],
+  'delayed': ['in_transit', 'delivered', 'delivery_failed'],
+  'delivery_failed': <String>[],
   'delivered': <String>[],
   'cancelled': <String>[],
 };
@@ -64,8 +66,8 @@ void main() {
         }
       }
 
-      expect(total, 98);
-      expect(allowed, 12, reason: 'exactly twelve legal transitions');
+      expect(total, 128);
+      expect(allowed, 16, reason: 'exactly sixteen legal transitions');
     });
 
     test('the exported tables agree with the matrix', () {
@@ -127,8 +129,9 @@ void main() {
 
   group('unknown input', () {
     test('unknown statuses are rejected, never guessed at', () {
+      // 'delivery_failed' used to sit here; it is a canonical status now.
       for (final value in <Object?>[
-        'delivery_failed', 'picked_up', 'arrived', 'completed', 'canceled',
+        'picked_up', 'arrived', 'failed', 'completed', 'canceled',
         '', '   ', null, 42,
       ]) {
         expect(normalizeStatus(value), isNull, reason: '$value');
@@ -197,6 +200,64 @@ void main() {
     });
   });
 
+  group('failed delivery', () {
+    test('failure can be reported only from in transit or delayed', () {
+      expect(deliveryWith('in_transit').canReportFailure, isTrue);
+      expect(deliveryWith('delayed').canReportFailure, isTrue);
+      for (final status in [
+        'pending_dispatch', 'assigned', 'loading', 'delivered', 'cancelled',
+      ]) {
+        expect(deliveryWith(status).canReportFailure, isFalse, reason: status);
+      }
+    });
+
+    test('a failed delivery exposes no rider action at all', () {
+      final d = deliveryWith('delivery_failed');
+      expect(d.canReportDelay, isFalse);
+      expect(d.canResumeTransit, isFalse);
+      expect(d.canComplete, isFalse);
+      expect(d.canReportFailure, isFalse, reason: 'it already failed');
+      expect(d.isDeliveryFailed, isTrue);
+    });
+
+    test('a rider cannot retry or reassign a failed delivery', () {
+      for (final to in kOrderStatuses) {
+        expect(canTransition(kActorRider, 'delivery_failed', to).allowed, isFalse,
+            reason: 'rider must not move delivery_failed to $to');
+      }
+    });
+
+    test('a failed delivery is parked, not finished', () {
+      expect(isTerminalStatus('delivery_failed'), isFalse);
+      expect(isAwaitingDispatcher('delivery_failed'), isTrue);
+      expect(isAwaitingDispatcher('in_transit'), isFalse);
+    });
+
+    test('a failed delivery is still visible and labelled to its rider', () {
+      final d = deliveryWith('delivery_failed');
+      expect(d.statusLabel, 'Delivery Failed');
+      expect(d.isActive, isTrue, reason: 'not terminal, so it stays in the list');
+      expect(d.assignedRiderId, 'rider1');
+    });
+  });
+
+  group('reason validation', () {
+    test('a reason must be present, meaningful and bounded', () {
+      expect(validateReason('  Clinic closed  ').valid, isTrue);
+      expect(validateReason('  Clinic closed  ').value, 'Clinic closed');
+      for (final bad in <Object?>['', '   ', '\n\t ', null, 42]) {
+        final r = validateReason(bad);
+        expect(r.valid, isFalse, reason: '$bad');
+        expect(r.code, 'reason-required');
+      }
+      final tooLong = validateReason('x' * (kMaxReasonLength + 1));
+      expect(tooLong.valid, isFalse);
+      expect(tooLong.code, 'reason-too-long');
+      expect(validateReason('x' * kMaxReasonLength).valid, isTrue);
+      expect(kMaxReasonLength, 500);
+    });
+  });
+
   group('labels', () {
     test('canonical statuses have distinct human labels', () {
       expect(statusLabel('pending_dispatch'), 'Pending Dispatch');
@@ -204,6 +265,7 @@ void main() {
       expect(statusLabel('loading'), 'Loading');
       expect(statusLabel('in_transit'), 'In Transit');
       expect(statusLabel('delayed'), 'Delayed');
+      expect(statusLabel('delivery_failed'), 'Delivery Failed');
       expect(statusLabel('delivered'), 'Delivered');
       expect(statusLabel('cancelled'), 'Cancelled');
       expect(kStatusLabels.values.toSet().length, kStatusLabels.length);

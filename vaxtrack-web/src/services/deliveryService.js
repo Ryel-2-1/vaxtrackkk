@@ -56,6 +56,12 @@ export const mapOrderStatusType = (statusKey) => {
     case "cancelled":
     case "canceled":
       return "delayed";
+    // Its own category. Folding it into "delayed" would have inflated the
+    // delayed count with orders that are not delayed but stopped, and folding
+    // it into the "loading" default would have hidden it among orders that are
+    // progressing normally.
+    case "delivery_failed":
+      return "failed";
     default:
       return "loading";
   }

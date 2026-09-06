@@ -164,6 +164,45 @@ async function main() {
       clinicName: "Lifecycle Clinic",
     });
 
+    // ---- failed-delivery fixtures (workflow checkpoint 3) ----
+    const failFixtures = {
+      fdTransit: "in_transit",
+      fdTransit2: "in_transit",
+      fdTransit3: "in_transit",
+      fdDelayed: "delayed",
+      fdAssigned: "assigned",
+      fdLoading: "loading",
+      fdFailed: "delivery_failed",
+      fdFailed2: "delivery_failed",
+      fdFailed3: "delivery_failed",
+      fdFailed4: "delivery_failed",
+      fdFailed5: "delivery_failed",
+      fdFailed6: "delivery_failed",
+      fdFailed7: "delivery_failed",
+    };
+    for (const [id, status] of Object.entries(failFixtures)) {
+      await setDoc(doc(db, "orders", id), {
+        createdByUid: salesRepUid,
+        status,
+        assignedRiderId: riderUid,
+        clinicName: "Failure Clinic",
+        ...(status === "delivery_failed"
+          ? {
+              deliveryFailureReason: "Clinic permanently closed",
+              deliveryFailedAt: CLINIC_STAMP,
+              deliveryFailedByUid: riderUid,
+            }
+          : {}),
+      });
+    }
+    // A failed order belonging to another rider.
+    await setDoc(doc(db, "orders", "fdOtherRider"), {
+      createdByUid: salesRepUid,
+      status: "in_transit",
+      assignedRiderId: otherRiderUid,
+      clinicName: "Failure Clinic",
+    });
+
     // Real staging shapes that must stay readable and must NOT be repaired
     // here: an assignment pointing at a user document that no longer exists,
     // and an order carrying only a rider name.
@@ -1783,6 +1822,184 @@ async function main() {
     for (const payload of [complete(), delayWith("Traffic"), cancelWith("No longer needed")]) {
       await assertFails(updateDoc(doc(salesRep, "orders", "ordSR1"), payload));
     }
+  });
+
+  // =========================================================================
+  // Failed delivery + dispatcher recovery (workflow checkpoint 3)
+  //
+  // Rider:      in_transit | delayed → delivery_failed (reason required)
+  // Dispatcher: delivery_failed → assigned (approved rider) | cancelled
+  // =========================================================================
+
+  const failWith = (reason) => ({
+    status: "delivery_failed",
+    deliveryFailureReason: reason,
+    deliveryFailedAt: serverTimestamp(),
+    deliveryFailedByUid: riderUid,
+    ...audit(riderUid),
+  });
+  const recoverTo = (uid, over = {}) => ({
+    status: "assigned",
+    assignedRiderId: uid,
+    assignedAt: serverTimestamp(),
+    assignedByUid: dispatcherUid,
+    reassignedAt: serverTimestamp(),
+    reassignedByUid: dispatcherUid,
+    previousAssignedRiderId: riderUid,
+    isLoaded: false,
+    ...audit(dispatcherUid),
+    ...over,
+  });
+
+  // ---- rider failure: allowed ----
+
+  await check("Pfd1 assigned rider reports failure from in_transit", async () => {
+    await assertSucceeds(updateDoc(doc(rider, "orders", "fdTransit"), failWith("Clinic closed")));
+  });
+
+  await check("Pfd2 assigned rider reports failure from delayed", async () => {
+    await assertSucceeds(updateDoc(doc(rider, "orders", "fdDelayed"), failWith("Address does not exist")));
+  });
+
+  // ---- rider failure: forbidden ----
+
+  await check("Nfd1 a delivery cannot fail from assigned or loading", async () => {
+    await assertFails(updateDoc(doc(rider, "orders", "fdAssigned"), failWith("Too early")));
+    await assertFails(updateDoc(doc(rider, "orders", "fdLoading"), failWith("Too early")));
+  });
+
+  await check("Nfd2 the failure reason must be meaningful and bounded", async () => {
+    for (const reason of ["", "   ", "\n\t", "x".repeat(501)]) {
+      await assertFails(updateDoc(doc(rider, "orders", "fdTransit2"), failWith(reason)));
+    }
+    // Missing entirely.
+    await assertFails(updateDoc(doc(rider, "orders", "fdTransit2"), {
+      status: "delivery_failed",
+      deliveryFailedAt: serverTimestamp(),
+      deliveryFailedByUid: riderUid,
+      ...audit(riderUid),
+    }));
+  });
+
+  await check("Nfd3 failure timestamps and reporter cannot be forged", async () => {
+    await assertFails(updateDoc(doc(rider, "orders", "fdTransit2"), {
+      ...failWith("Clinic closed"), deliveryFailedAt: new Date("2020-01-01T00:00:00Z"),
+    }));
+    // Attributing the report to another rider.
+    await assertFails(updateDoc(doc(rider, "orders", "fdTransit2"), {
+      ...failWith("Clinic closed"), deliveryFailedByUid: otherRiderUid,
+    }));
+    await assertFails(updateDoc(doc(rider, "orders", "fdTransit2"), {
+      ...failWith("Clinic closed"), statusUpdatedAt: "t",
+    }));
+  });
+
+  await check("Nfd4 a rider cannot fail another rider's delivery", async () => {
+    await assertFails(updateDoc(doc(rider, "orders", "fdOtherRider"), failWith("Not mine")));
+  });
+
+  await check("Nfd5 a dispatcher cannot report a delivery failure", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "fdTransit2"), {
+      ...failWith("Clinic closed"), deliveryFailedByUid: dispatcherUid, ...audit(dispatcherUid),
+    }));
+  });
+
+  await check("Nfd6 a rider cannot move a failed delivery anywhere", async () => {
+    for (const payload of [resume(), complete(), delayWith("Traffic")]) {
+      await assertFails(updateDoc(doc(rider, "orders", "fdFailed"), payload));
+    }
+    // ...including retrying it themselves.
+    await assertFails(updateDoc(doc(rider, "orders", "fdFailed"), {
+      status: "assigned", ...audit(riderUid),
+    }));
+  });
+
+  // ---- dispatcher recovery: allowed ----
+
+  await check("Pfd3 dispatcher retries a failed order with the same rider", async () => {
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "fdFailed"), recoverTo(riderUid)));
+  });
+
+  await check("Pfd4 dispatcher reassigns a failed order to another approved rider", async () => {
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "fdFailed2"), recoverTo(otherRiderUid)));
+  });
+
+  await check("Pfd5 dispatcher cancels a failed order with a reason", async () => {
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "fdFailed3"), cancelWith("Clinic will not reopen")));
+  });
+
+  // ---- dispatcher recovery: forbidden ----
+
+  await check("Nfd7 recovery requires an existing, approved rider", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "fdFailed4"), recoverTo("noSuchUser")));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "fdFailed4"), recoverTo("EMP-4432")));
+    for (const uid of [adminUid, dispatcherUid, salesRepUid, pendingRiderUid, "disabledRider1", "rejectedRider1"]) {
+      await assertFails(updateDoc(doc(dispatcher, "orders", "fdFailed4"), recoverTo(uid)));
+    }
+  });
+
+  await check("Nfd8 recovery timestamps and audit cannot be forged", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "fdFailed4"), {
+      ...recoverTo(riderUid), reassignedAt: new Date("2020-01-01T00:00:00Z"),
+    }));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "fdFailed4"), {
+      ...recoverTo(riderUid), reassignedByUid: adminUid,
+    }));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "fdFailed4"), {
+      ...recoverTo(riderUid), assignedAt: "t",
+    }));
+  });
+
+  await check("Nfd9 recovery cannot erase the failure record", async () => {
+    for (const field of ["deliveryFailureReason", "deliveryFailedAt", "deliveryFailedByUid"]) {
+      await assertFails(updateDoc(doc(dispatcher, "orders", "fdFailed4"), {
+        ...recoverTo(riderUid), [field]: null,
+      }));
+    }
+    await assertFails(updateDoc(doc(dispatcher, "orders", "fdFailed4"), {
+      ...recoverTo(riderUid), deliveryFailureReason: "rewritten",
+    }));
+  });
+
+  await check("Nfd10 cancelling a failed order cannot erase the failure record", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "fdFailed5"), {
+      ...cancelWith("No longer needed"), deliveryFailureReason: "rewritten",
+    }));
+  });
+
+  await check("Nfd11 a failed order cannot jump straight back into the field", async () => {
+    for (const payload of [loadConfirm(), dispatchRun(), {
+      status: "delayed", delayReason: "x", delayedAt: serverTimestamp(), ...audit(dispatcherUid),
+    }, {
+      status: "delivered", deliveredAt: serverTimestamp(), ...audit(dispatcherUid),
+    }]) {
+      await assertFails(updateDoc(doc(dispatcher, "orders", "fdFailed6"), payload));
+    }
+  });
+
+  await check("Nfd12 recovery cannot mutate the clinic snapshot", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "fdFailed6"), {
+      ...recoverTo(riderUid), clinicLat: 1.234,
+    }));
+  });
+
+  await check("Nfd13 a terminal order cannot be revived through recovery", async () => {
+    for (const id of ["lcDelivered", "lcCancelled"]) {
+      await assertFails(updateDoc(doc(dispatcher, "orders", id), recoverTo(riderUid)));
+    }
+  });
+
+  await check("Nfd14 a sales rep cannot fail or recover an order", async () => {
+    await assertFails(updateDoc(doc(salesRep, "orders", "ordSR1"), failWith("Clinic closed")));
+    await assertFails(updateDoc(doc(salesRep, "orders", "ordSR1"), recoverTo(riderUid)));
+  });
+
+  await check("Pfd6 a recovered order still reads correctly for every role", async () => {
+    // fdFailed was recovered in Pfd3; the failure record must still be there.
+    await assertSucceeds(getDoc(doc(dispatcher, "orders", "fdFailed")));
+    await assertSucceeds(getDoc(doc(admin, "orders", "fdFailed")));
+    await assertSucceeds(getDoc(doc(rider, "orders", "fdFailed")));
+    await assertSucceeds(getDoc(doc(salesRep, "orders", "fdFailed")));
   });
 
   await testEnv.cleanup();

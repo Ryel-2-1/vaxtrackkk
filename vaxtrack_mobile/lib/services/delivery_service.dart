@@ -124,15 +124,46 @@ class DeliveryService {
   /// in_transit → delayed. [currentStatus] is the delivery's status as stored.
   Future<void> reportDelay(String orderId, String currentStatus, String reason) {
     assertTransition(kActorRider, currentStatus, 'delayed');
-    final trimmed = reason.trim();
-    if (trimmed.isEmpty) {
-      throw const WorkflowException(
-          'delay-reason-required', 'Please give a reason for the delay.');
+    final checked = validateReason(reason, label: 'reason for the delay');
+    if (!checked.valid) {
+      throw WorkflowException(checked.code!, checked.message!);
     }
     return _db.collection('orders').doc(orderId).update({
       'status': 'delayed',
-      'delayReason': trimmed,
+      'delayReason': checked.value,
       'delayedAt': FieldValue.serverTimestamp(),
+      ..._auditFields(),
+    });
+  }
+
+  /// in_transit → delivery_failed, or delayed → delivery_failed.
+  ///
+  /// The rider reports that the delivery could not be completed and stops
+  /// there. Retrying or cancelling is the dispatcher's decision, so nothing
+  /// here moves the order onward — it parks in `delivery_failed` until the
+  /// dispatcher acts.
+  ///
+  /// `deliveryFailedByUid` is taken from the authenticated session, not from a
+  /// caller argument, so the report cannot be attributed to another rider. The
+  /// Firestore rules require it to equal request.auth.uid and require the
+  /// caller to be the order's assigned rider.
+  Future<void> reportDeliveryFailure(
+      String orderId, String currentStatus, String reason) {
+    assertTransition(kActorRider, currentStatus, 'delivery_failed');
+    final checked = validateReason(reason, label: 'reason this delivery failed');
+    if (!checked.valid) {
+      throw WorkflowException(checked.code!, checked.message!);
+    }
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      throw const WorkflowException(
+          'not-signed-in', 'Your session has expired. Please sign in again.');
+    }
+    return _db.collection('orders').doc(orderId).update({
+      'status': 'delivery_failed',
+      'deliveryFailureReason': checked.value,
+      'deliveryFailedAt': FieldValue.serverTimestamp(),
+      'deliveryFailedByUid': uid,
       ..._auditFields(),
     });
   }

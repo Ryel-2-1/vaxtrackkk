@@ -19,12 +19,19 @@ const List<String> kOrderStatuses = [
   'loading',
   'in_transit',
   'delayed',
+  'delivery_failed',
   'delivered',
   'cancelled',
 ];
 
 /// Once an order reaches one of these it can never move again.
 const List<String> kTerminalStatuses = ['delivered', 'cancelled'];
+
+/// Not terminal, but not progressing either — parked until a dispatcher acts.
+const List<String> kAwaitingDispatcherStatuses = ['delivery_failed'];
+
+/// The longest failure or delay reason that may be stored.
+const int kMaxReasonLength = 500;
 
 const String kActorDispatcher = 'dispatcher';
 const String kActorRider = 'rider';
@@ -37,6 +44,7 @@ const Map<String, List<String>> kDispatcherTransitions = {
   'loading': ['in_transit', 'cancelled'],
   'in_transit': ['cancelled'],
   'delayed': ['cancelled'],
+  'delivery_failed': ['assigned', 'cancelled'],
   'delivered': [],
   'cancelled': [],
 };
@@ -47,8 +55,11 @@ const Map<String, List<String>> kRiderTransitions = {
   'pending_dispatch': [],
   'assigned': [],
   'loading': [],
-  'in_transit': ['delayed', 'delivered'],
-  'delayed': ['in_transit', 'delivered'],
+  'in_transit': ['delayed', 'delivered', 'delivery_failed'],
+  'delayed': ['in_transit', 'delivered', 'delivery_failed'],
+  // A rider reports a failure and stops there. Retrying or reassigning is the
+  // dispatcher's decision.
+  'delivery_failed': [],
   'delivered': [],
   'cancelled': [],
 };
@@ -60,6 +71,7 @@ const Map<String, String> kStatusLabels = {
   'loading': 'Loading',
   'in_transit': 'In Transit',
   'delayed': 'Delayed',
+  'delivery_failed': 'Delivery Failed',
   'delivered': 'Delivered',
   'cancelled': 'Cancelled',
 };
@@ -163,4 +175,40 @@ String assertTransition(String actor, Object? fromStatus, Object? toStatus) {
 String statusLabel(Object? value) {
   final key = normalizeStatus(value);
   return key == null ? (value?.toString() ?? '') : kStatusLabels[key]!;
+}
+
+/// Parked, waiting for a dispatcher — not finished, not progressing.
+bool isAwaitingDispatcher(Object? value) {
+  final key = normalizeStatus(value);
+  return key != null && kAwaitingDispatcherStatuses.contains(key);
+}
+
+/// The outcome of validating a free-text reason.
+class ReasonResult {
+  const ReasonResult.ok(this.value)
+      : valid = true,
+        code = null,
+        message = null;
+  const ReasonResult.invalid(this.code, this.message)
+      : valid = false,
+        value = '';
+
+  final bool valid;
+  final String value;
+  final String? code;
+  final String? message;
+}
+
+/// Present, meaningful once trimmed, and bounded — the same rule every reason
+/// field in this workflow uses, and the same one firestore.rules enforces.
+ReasonResult validateReason(Object? value, {String label = 'reason'}) {
+  final trimmed = value is String ? value.trim() : '';
+  if (trimmed.isEmpty) {
+    return ReasonResult.invalid('reason-required', 'Please give a $label.');
+  }
+  if (trimmed.length > kMaxReasonLength) {
+    return ReasonResult.invalid('reason-too-long',
+        'Please keep the $label under $kMaxReasonLength characters.');
+  }
+  return ReasonResult.ok(trimmed);
 }

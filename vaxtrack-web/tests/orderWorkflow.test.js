@@ -14,10 +14,13 @@ import {
   assertTransition,
   canTransition,
   canUpdateLoadingMetadata,
+  isAwaitingDispatcher,
   isKnownStatus,
   isTerminalStatus,
   normalizeStatus,
   statusLabel,
+  validateReason,
+  MAX_REASON_LENGTH,
 } from "../src/services/orderWorkflow.js";
 
 // The order lifecycle policy.
@@ -42,6 +45,8 @@ const EXPECTED = {
     loading: ["in_transit", "cancelled"],
     in_transit: ["cancelled"],
     delayed: ["cancelled"],
+    // Recovery: back to assigned (through Cargo Loading again), or cancelled.
+    delivery_failed: ["assigned", "cancelled"],
     delivered: [],
     cancelled: [],
   },
@@ -49,8 +54,10 @@ const EXPECTED = {
     pending_dispatch: [],
     assigned: [],
     loading: [],
-    in_transit: ["delayed", "delivered"],
-    delayed: ["in_transit", "delivered"],
+    in_transit: ["delayed", "delivered", "delivery_failed"],
+    delayed: ["in_transit", "delivered", "delivery_failed"],
+    // Reporting a failure is where the rider stops.
+    delivery_failed: [],
     delivered: [],
     cancelled: [],
   },
@@ -80,9 +87,9 @@ test("the full transition matrix matches the approved lifecycle exactly", () => 
     }
   }
 
-  // 2 actors × 7 × 7 = 98 combinations, of which exactly 12 are legal.
-  assert.equal(allowedCount + deniedCount, 98, "every combination was checked");
-  assert.equal(allowedCount, 12, "exactly twelve legal transitions exist");
+  // 2 actors × 8 × 8 = 128 combinations, of which exactly 16 are legal.
+  assert.equal(allowedCount + deniedCount, 128, "every combination was checked");
+  assert.equal(allowedCount, 16, "exactly sixteen legal transitions exist");
 });
 
 test("the exported tables agree with the matrix", () => {
@@ -138,8 +145,63 @@ test("specifically: rider cannot load, dispatch, assign or cancel", () => {
     ["pending_dispatch", "assigned"],
     ["in_transit", "cancelled"],
     ["delayed", "cancelled"],
+    ["delivery_failed", "cancelled"],
   ]) {
     assert.equal(canTransition(ACTOR_RIDER, from, to).ok, false);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Failed delivery + recovery
+// ---------------------------------------------------------------------------
+
+test("a rider may report failure only from in_transit or delayed", () => {
+  assert.equal(canTransition(ACTOR_RIDER, "in_transit", "delivery_failed").ok, true);
+  assert.equal(canTransition(ACTOR_RIDER, "delayed", "delivery_failed").ok, true);
+  for (const from of ["pending_dispatch", "assigned", "loading", "delivered", "cancelled"]) {
+    assert.equal(
+      canTransition(ACTOR_RIDER, from, "delivery_failed").ok,
+      false,
+      `a delivery cannot fail from ${from}`
+    );
+  }
+});
+
+test("a dispatcher can never report a failure", () => {
+  for (const from of ORDER_STATUSES) {
+    assert.equal(canTransition(ACTOR_DISPATCHER, from, "delivery_failed").ok, false);
+  }
+});
+
+test("a failed delivery recovers only to assigned or cancelled", () => {
+  assert.equal(canTransition(ACTOR_DISPATCHER, "delivery_failed", "assigned").ok, true);
+  assert.equal(canTransition(ACTOR_DISPATCHER, "delivery_failed", "cancelled").ok, true);
+  // Never straight back into the field — it re-enters through Cargo Loading.
+  for (const to of ["loading", "in_transit", "delayed", "delivered"]) {
+    assert.equal(
+      canTransition(ACTOR_DISPATCHER, "delivery_failed", to).ok,
+      false,
+      `delivery_failed must not jump to ${to}`
+    );
+  }
+});
+
+test("a rider cannot retry or reassign a failed delivery themselves", () => {
+  for (const to of ORDER_STATUSES) {
+    assert.equal(
+      canTransition(ACTOR_RIDER, "delivery_failed", to).ok,
+      false,
+      `rider must not move delivery_failed to ${to}`
+    );
+  }
+  assert.deepEqual([...allowedTransitions(ACTOR_RIDER, "delivery_failed")], []);
+});
+
+test("delivery_failed is non-terminal but parked, not progressing", () => {
+  assert.equal(isTerminalStatus("delivery_failed"), false, "it can still move");
+  assert.equal(isAwaitingDispatcher("delivery_failed"), true);
+  for (const other of ["in_transit", "delayed", "delivered", "cancelled"]) {
+    assert.equal(isAwaitingDispatcher(other), false);
   }
 });
 
@@ -209,8 +271,9 @@ test("same-status writes are rejected as non-events", () => {
 // ---------------------------------------------------------------------------
 
 test("unknown statuses are rejected, never guessed at", () => {
+  // `delivery_failed` used to sit in this list; it is a canonical status now.
   const bogus = [
-    "delivery_failed", "picked_up", "arrived", "completed", "canceled",
+    "picked_up", "arrived", "failed", "delivery-failure", "completed", "canceled",
     "DELIVERED!", "", "   ", null, undefined, 42, {}, [],
   ];
   for (const value of bogus) {
@@ -287,6 +350,7 @@ test("every canonical status has a distinct human label", () => {
   assert.equal(statusLabel("loading"), "Loading");
   assert.equal(statusLabel("in_transit"), "In Transit");
   assert.equal(statusLabel("delayed"), "Delayed");
+  assert.equal(statusLabel("delivery_failed"), "Delivery Failed");
   assert.equal(statusLabel("delivered"), "Delivered");
   assert.equal(statusLabel("cancelled"), "Cancelled");
 
@@ -299,4 +363,22 @@ test("stored keys are never renamed by the label layer", () => {
     assert.notEqual(STATUS_LABELS[status], status, "label differs from the key");
     assert.equal(normalizeStatus(status), status, "the key itself is unchanged");
   }
+});
+
+// ---------------------------------------------------------------------------
+// Shared reason validation
+// ---------------------------------------------------------------------------
+
+test("a reason must be present, meaningful and bounded", () => {
+  assert.deepEqual(validateReason('  Clinic closed  '), { ok: true, value: 'Clinic closed' });
+  for (const bad of ["", "   ", "\n\t ", null, undefined, 42, {}]) {
+    const r = validateReason(bad);
+    assert.equal(r.ok, false);
+    assert.equal(r.code, 'reason-required');
+  }
+  const tooLong = validateReason('x'.repeat(MAX_REASON_LENGTH + 1));
+  assert.equal(tooLong.ok, false);
+  assert.equal(tooLong.code, 'reason-too-long');
+  assert.equal(validateReason('x'.repeat(MAX_REASON_LENGTH)).ok, true, 'the limit itself is allowed');
+  assert.equal(MAX_REASON_LENGTH, 500);
 });

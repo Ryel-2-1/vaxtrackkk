@@ -73,16 +73,30 @@ service cloud.firestore {
         'routeGeneratedAt', 'routePolyline', 'routeProvider',
         'startedAt',
         'status', 'statusUpdatedAt', 'statusUpdatedByEmail', 'statusUpdatedByUid',
-        'updatedAt'
+        'updatedAt',
+        // Failed-delivery recovery.
+        'previousAssignedRiderId', 'reassignedAt', 'reassignedByUid'
       ];
     }
     function riderOrderFields() {
       return [
-        'delayReason', 'delayedAt', 'deliveredAt', 'heading', 'invoiceUrl',
+        'delayReason', 'delayedAt', 'deliveredAt',
+        // Failed-delivery report. The rider records WHY it failed and when;
+        // deciding what happens next is the dispatcher's, so no recovery field
+        // appears here.
+        'deliveryFailedAt', 'deliveryFailedByUid', 'deliveryFailureReason',
+        'heading', 'invoiceUrl',
         'lastLocation', 'lastLocationUpdate', 'locationAccuracy',
         'proofOfDeliveryUrl', 'speed', 'startedAt', 'status', 'statusUpdatedAt',
         'statusUpdatedByEmail', 'statusUpdatedByUid', 'updatedAt'
       ];
+    }
+
+    // The failure record. Written once by the rider, then IMMUTABLE — recovery
+    // and cancellation must not erase it, or a twice-attempted order would be
+    // indistinguishable from a fresh one.
+    function failureRecordFields() {
+      return ['deliveryFailedAt', 'deliveryFailedByUid', 'deliveryFailureReason'];
     }
 
     // ---------------- rider assignment (workflow checkpoint 1) ----------------
@@ -222,16 +236,40 @@ service cloud.firestore {
         && statusAuditIsServerStamped();
     }
 
-    // Any non-terminal order → cancelled, with a reason.
+    // Any non-terminal order → cancelled, with a reason. A failed delivery is
+    // cancellable too: that is the dispatcher's other recovery option.
     function isValidCancellation() {
       return (priorStatus() == 'pending_dispatch'
            || priorStatus() == 'assigned'
            || priorStatus() == 'loading'
            || priorStatus() == 'in_transit'
-           || priorStatus() == 'delayed')
+           || priorStatus() == 'delayed'
+           || priorStatus() == 'delivery_failed')
         && nextStatus() == 'cancelled'
+        // Cancelling a failed order must not quietly erase why it failed.
+        && !changedKeys().hasAny(failureRecordFields())
         && isMeaningfulReason(request.resource.data.cancelReason)
         && request.resource.data.cancelledAt == request.time
+        && statusAuditIsServerStamped();
+    }
+
+    // delivery_failed → assigned. Recovery: the order goes back out to an
+    // approved rider (the same one, or another) and re-enters the normal path
+    // through Cargo Loading. It is never pushed straight back into transit.
+    //
+    // Deliberately separate from isValidRiderAssignment(), which only accepts
+    // `pending_dispatch` — widening that would have made a failed order look
+    // like a fresh one to the rules.
+    function isValidFailedOrderRecovery() {
+      return priorStatus() == 'delivery_failed'
+        && nextStatus() == 'assigned'
+        && isAssignableRiderUid(request.resource.data.assignedRiderId)
+        && request.resource.data.reassignedAt == request.time
+        && request.resource.data.reassignedByUid == request.auth.uid
+        && request.resource.data.assignedAt == request.time
+        && request.resource.data.assignedByUid == request.auth.uid
+        // The failure record survives the recovery untouched.
+        && !changedKeys().hasAny(failureRecordFields())
         && statusAuditIsServerStamped();
     }
 
@@ -241,6 +279,7 @@ service cloud.firestore {
         || isLoadingMetadataUpdate()
         || isRouteGenerationWrite()
         || isValidDispatch()
+        || isValidFailedOrderRecovery()
         || isValidCancellation();
     }
 
@@ -268,6 +307,18 @@ service cloud.firestore {
         && statusAuditIsServerStamped();
     }
 
+    // in_transit | delayed → delivery_failed. The rider reports that the
+    // delivery could not be completed and stops there; they cannot retry,
+    // reassign or cancel it themselves.
+    function isValidFailureReport() {
+      return (priorStatus() == 'in_transit' || priorStatus() == 'delayed')
+        && nextStatus() == 'delivery_failed'
+        && isMeaningfulReason(request.resource.data.deliveryFailureReason)
+        && request.resource.data.deliveryFailedAt == request.time
+        && request.resource.data.deliveryFailedByUid == request.auth.uid
+        && statusAuditIsServerStamped();
+    }
+
     // A rider write either changes status through one of their three legal
     // moves, or leaves status alone entirely — which is what keeps continuous
     // location tracking and the proof-of-delivery upload working unchanged.
@@ -275,7 +326,8 @@ service cloud.firestore {
       return !statusChanged()
         || isValidDelayReport()
         || isValidResume()
-        || isValidCompletion();
+        || isValidCompletion()
+        || isValidFailureReport();
     }
 
     // ---------------- order clinic-location snapshot (Phase 02A) ----------------
@@ -454,6 +506,7 @@ service cloud.firestore {
           // move an order to a different rider.
           && (
             isValidRiderAssignment()
+            || isValidFailedOrderRecovery()
             || !changedKeys().hasAny(assignmentIdentityFields())
           )
           // ...and the write must be one of the dispatcher's approved
@@ -474,8 +527,14 @@ service cloud.firestore {
           && request.resource.data.createdByUid == request.auth.uid
           // A sales rep raises orders; they do not run deliveries. The order's
           // lifecycle belongs to the dispatcher and the assigned rider, so the
-          // status is off-limits here even on their own order.
+          // status is off-limits here even on their own order — and so is
+          // everything else that records how the delivery went. Blocking only
+          // `status` was not enough: it still left them able to rewrite the
+          // assignment identity or the failure record on their own order, as
+          // long as they left the status alone.
           && !statusChanged()
+          && !changedKeys().hasAny(assignmentIdentityFields())
+          && !changedKeys().hasAny(failureRecordFields())
           // The snapshot is immutable after creation. Dispatcher and Rider are
           // already confined by their hasOnly() allowlists, which exclude these
           // fields; Sales Rep has no allowlist, so it is stated explicitly here.

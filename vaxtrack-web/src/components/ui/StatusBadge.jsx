@@ -11,6 +11,10 @@ const STATUS_META = {
   loading: { tone: "loading", label: "Loading" },
   in_transit: { tone: "transit", label: "In Transit" },
   delayed: { tone: "delayed", label: "Delayed" },
+  // Shares the danger tone with `delayed` — both mean "needs attention" — but
+  // keeps its own label. Without this entry it fell through to the "Pending"
+  // default, which read as though nothing had gone wrong.
+  delivery_failed: { tone: "delayed", label: "Delivery Failed" },
   delivered: { tone: "delivered", label: "Delivered" },
   completed: { tone: "delivered", label: "Delivered" },
   cancelled: { tone: "cancelled", label: "Cancelled" },

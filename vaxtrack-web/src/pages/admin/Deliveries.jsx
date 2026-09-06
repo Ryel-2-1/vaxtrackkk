@@ -205,6 +205,7 @@ function Deliveries() {
             <option value="all">All statuses</option>
             <option value="transit">In transit</option>
             <option value="delayed">Delayed</option>
+            <option value="failed">Delivery failed</option>
             <option value="loading">Loading / assigned</option>
           </select>
 

@@ -22,12 +22,24 @@ export const ORDER_STATUSES = Object.freeze([
   "loading",
   "in_transit",
   "delayed",
+  "delivery_failed",
   "delivered",
   "cancelled",
 ]);
 
 /** Once an order reaches one of these it can never move again. */
 export const TERMINAL_STATUSES = Object.freeze(["delivered", "cancelled"]);
+
+/**
+ * Statuses that are not terminal but are not progressing either — the order is
+ * parked, waiting for someone else to act.
+ *
+ * `delivery_failed` is the only one: the rider has stopped, and nothing moves
+ * until a dispatcher either sends it out again or cancels it. Kept separate
+ * from TERMINAL_STATUSES so summaries can say "needs attention" rather than
+ * "finished", and so nothing mistakes it for a closed order.
+ */
+export const AWAITING_DISPATCHER_STATUSES = Object.freeze(["delivery_failed"]);
 
 export const ACTOR_DISPATCHER = "dispatcher";
 export const ACTOR_RIDER = "rider";
@@ -48,6 +60,10 @@ export const DISPATCHER_TRANSITIONS = Object.freeze({
   loading: Object.freeze(["in_transit", "cancelled"]),
   in_transit: Object.freeze(["cancelled"]),
   delayed: Object.freeze(["cancelled"]),
+  // Recovery. A failed delivery goes back to `assigned` and re-enters the
+  // normal path through Cargo Loading — it is never pushed straight back into
+  // transit, because the cargo has to be handled and confirmed again.
+  delivery_failed: Object.freeze(["assigned", "cancelled"]),
   delivered: Object.freeze([]),
   cancelled: Object.freeze([]),
 });
@@ -63,8 +79,12 @@ export const RIDER_TRANSITIONS = Object.freeze({
   pending_dispatch: Object.freeze([]),
   assigned: Object.freeze([]),
   loading: Object.freeze([]),
-  in_transit: Object.freeze(["delayed", "delivered"]),
-  delayed: Object.freeze(["in_transit", "delivered"]),
+  in_transit: Object.freeze(["delayed", "delivered", "delivery_failed"]),
+  delayed: Object.freeze(["in_transit", "delivered", "delivery_failed"]),
+  // A rider reports a failure and stops there. Retrying or reassigning is a
+  // dispatcher decision, so the rider cannot move it back into transit
+  // themselves, and they can never cancel.
+  delivery_failed: Object.freeze([]),
   delivered: Object.freeze([]),
   cancelled: Object.freeze([]),
 });
@@ -84,6 +104,7 @@ export const STATUS_LABELS = Object.freeze({
   loading: "Loading",
   in_transit: "In Transit",
   delayed: "Delayed",
+  delivery_failed: "Delivery Failed",
   delivered: "Delivered",
   cancelled: "Cancelled",
 });
@@ -227,4 +248,41 @@ export function canUpdateLoadingMetadata(fromStatus) {
 export function statusLabel(value) {
   const key = normalizeStatus(value);
   return key === null ? String(value ?? "") : STATUS_LABELS[key];
+}
+
+/** Parked, waiting for a dispatcher — not finished, not progressing. */
+export function isAwaitingDispatcher(value) {
+  const key = normalizeStatus(value);
+  return key !== null && AWAITING_DISPATCHER_STATUSES.includes(key);
+}
+
+/**
+ * The longest failure or delay reason that may be stored. Mirrored exactly by
+ * `maxReasonLength()` in firestore.rules and by the Dart policy.
+ */
+export const MAX_REASON_LENGTH = 500;
+
+/**
+ * Validate a free-text reason the way every reason field in this workflow is
+ * validated: present, meaningful once trimmed, and bounded.
+ *
+ * @returns {{ok: true, value: string}|{ok: false, code: string, message: string}}
+ */
+export function validateReason(value, { label = "reason" } = {}) {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (trimmed === "") {
+    return {
+      ok: false,
+      code: "reason-required",
+      message: `Please give a ${label}.`,
+    };
+  }
+  if (trimmed.length > MAX_REASON_LENGTH) {
+    return {
+      ok: false,
+      code: "reason-too-long",
+      message: `Please keep the ${label} under ${MAX_REASON_LENGTH} characters.`,
+    };
+  }
+  return { ok: true, value: trimmed };
 }

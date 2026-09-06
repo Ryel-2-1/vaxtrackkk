@@ -19,6 +19,10 @@ class Delivery {
   final String? assignedRiderId;
   final String? assignedRiderName;
   final String? proofOfDeliveryUrl;
+  /// Why the assigned rider reported this delivery as failed. Preserved
+  /// through a later reassignment or cancellation — never cleared to make an
+  /// order look fresh.
+  final String? deliveryFailureReason;
   final String? invoiceUrl;
   final List<String> itemSummaries;
   final DateTime? createdAt;
@@ -57,6 +61,7 @@ class Delivery {
     this.assignedRiderId,
     this.assignedRiderName,
     this.proofOfDeliveryUrl,
+    this.deliveryFailureReason,
     this.invoiceUrl,
     this.itemSummaries = const [],
     this.createdAt,
@@ -95,6 +100,7 @@ class Delivery {
       assignedRiderId: data['assignedRiderId'],
       assignedRiderName: data['assignedRiderName'],
       proofOfDeliveryUrl: data['proofOfDeliveryUrl'],
+      deliveryFailureReason: data['deliveryFailureReason'],
       invoiceUrl: data['invoiceUrl'],
       itemSummaries: _itemSummaries(data['items']),
       createdAt: _toDateTime(data['createdAt']),
@@ -211,12 +217,18 @@ class Delivery {
       canTransition(kActorRider, status, 'in_transit').allowed;
   bool get canComplete =>
       canTransition(kActorRider, status, 'delivered').allowed;
+  bool get canReportFailure =>
+      canTransition(kActorRider, status, 'delivery_failed').allowed;
 
   /// Assigned, but the dispatcher has not begun loading it yet.
   bool get isAwaitingLoading => status == 'assigned';
 
   /// Being loaded; waiting for the dispatcher to finalize dispatch.
   bool get isAwaitingDispatch => status == 'loading';
+
+  /// Reported as failed. Parked until the dispatcher retries or cancels it —
+  /// the rider has no further action.
+  bool get isDeliveryFailed => status == 'delivery_failed';
 
   static String _getStatus(Map<String, dynamic> data) {
     return (data['status'] ??
@@ -232,27 +244,19 @@ class Delivery {
     return raw.trim().toLowerCase().replaceAll('-', '_').replaceAll(RegExp(r'\s+'), '_');
   }
 
+  /// Display label. Canonical statuses come from the shared policy so
+  /// `delivery_failed` cannot show up as "Pending"; the two legacy read-only
+  /// aliases are mapped here because historical documents still carry them.
   static String _statusLabel(String status) {
     switch (status) {
-      case 'pending':
-      case 'pending_dispatch':
-        return 'Pending';
-      case 'assigned':
-        return 'Assigned';
-      case 'loading':
-        return 'Loading';
-      case 'in_transit':
-        return 'In Transit';
-      case 'delivered':
       case 'completed':
-        return 'Delivered';
-      case 'delayed':
-        return 'Delayed';
-      case 'cancelled':
+        return kStatusLabels['delivered']!;
       case 'canceled':
-        return 'Cancelled';
-      default:
+        return kStatusLabels['cancelled']!;
+      case 'pending':
         return 'Pending';
+      default:
+        return kStatusLabels[status] ?? 'Pending';
     }
   }
 

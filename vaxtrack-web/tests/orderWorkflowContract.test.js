@@ -114,14 +114,24 @@ test("the Flutter service exposes no loading, dispatch or arbitrary status write
   assert.doesNotMatch(service, /Future<void>\s+startTransit\s*\(/);
   assert.doesNotMatch(service, /Future<void>\s+updateStatus\s*\(/);
 
-  // The three that remain, each taking the current status so it can validate.
+  // The four that remain, each taking the current status so it can validate.
   assert.match(service, /Future<void>\s+reportDelay\(String orderId, String currentStatus, String reason\)/);
   assert.match(service, /Future<void>\s+resumeTransit\(String orderId, String currentStatus\)/);
   assert.match(service, /Future<void>\s+markDelivered\(String orderId, String currentStatus\)/);
+  assert.match(
+    service,
+    /Future<void>\s+reportDeliveryFailure\(\s*String orderId, String currentStatus, String reason\)/
+  );
 
   // Each validates before writing.
   const calls = service.match(/assertTransition\(kActorRider,/g) ?? [];
-  assert.equal(calls.length, 3, "every rider write validates its transition");
+  assert.equal(calls.length, 4, "every rider write validates its transition");
+
+  // The failure report stamps its own fields server-side and takes the reporter
+  // from the session, never from an argument.
+  assert.match(service, /'deliveryFailedAt': FieldValue\.serverTimestamp\(\)/);
+  assert.match(service, /'deliveryFailedByUid': uid/);
+  assert.match(service, /FirebaseAuth\.instance\.currentUser\?\.uid/);
 
   // Server timestamps and audit identity are unchanged.
   assert.match(service, /'delayedAt': FieldValue\.serverTimestamp\(\)/);
@@ -139,10 +149,29 @@ test("the Flutter detail screen offers no loading or transit control", () => {
   assert.ok(!screen.includes("canStartLoading"));
   assert.ok(!screen.includes("canStartTransit"));
 
-  // The approved rider actions, and the two waiting states.
+  // The approved rider actions, and the waiting states.
   assert.match(screen, /'Resume Transit'/);
   assert.match(screen, /'Complete Delivery'/);
   assert.match(screen, /'Report Delay'/);
+  assert.match(screen, /'Report Delivery Failure'/);
   assert.match(screen, /isAwaitingLoading/);
   assert.match(screen, /isAwaitingDispatch/);
+  assert.match(screen, /isDeliveryFailed/, "the awaiting-dispatcher state");
+  assert.match(screen, /Awaiting dispatcher action/);
+});
+
+test("the Flutter screen stops location tracking when a delivery fails", () => {
+  const screenPath = join(here, "..", "..", "vaxtrack_mobile", "lib", "screens", "delivery_detail_screen.dart");
+  const screen = readFileSync(screenPath, "utf8");
+  // The rider has stopped carrying the order, so streaming their position
+  // against it would record movement unrelated to the delivery.
+  assert.match(
+    screen,
+    /newStatus == 'delivered' \|\|\s*\n?\s*newStatus == 'cancelled' \|\|\s*\n?\s*newStatus == 'delivery_failed'/,
+    "delivery_failed must join the stop-tracking branch"
+  );
+});
+
+test("awaiting-dispatcher statuses match between Dart and JavaScript", () => {
+  assert.deepEqual(parseDartList("kAwaitingDispatcherStatuses"), ["delivery_failed"]);
 });

@@ -31,6 +31,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
   bool _updatingStatus = false;
   bool _launchingNav = false;
   String? _delayReason;
+  String? _failureReason;
   // Fires the "saved, will sync" feedback if a write is still pending after a
   // few seconds. UI-only — it never clears the pending guard (see _updateStatus).
   Timer? _statusFeedbackTimer;
@@ -90,6 +91,9 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
       case 'delayed':
         return _deliveryService.reportDelay(
             d.id, d.status, _delayReason ?? '');
+      case 'delivery_failed':
+        return _deliveryService.reportDeliveryFailure(
+            d.id, d.status, _failureReason ?? '');
       default:
         // Unreachable from the UI; refuse rather than invent a write.
         throw WorkflowException(
@@ -154,12 +158,18 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
       // longer stop) — the write itself already persisted.
       if (!mounted) return;
 
-      // Tracking lifecycle only on a CONFIRMED transition (unchanged intent):
+      // Tracking lifecycle only on a CONFIRMED transition:
       // - in_transit -> begin continuous tracking.
       // - delivered/cancelled -> stop before leaving the screen.
+      // - delivery_failed -> stop too. The rider has stopped carrying this
+      //   order and is waiting on the dispatcher, so continuing to stream
+      //   their position against it would record movement that has nothing to
+      //   do with the delivery.
       if (newStatus == 'in_transit') {
         await _startTracking();
-      } else if (newStatus == 'delivered' || newStatus == 'cancelled') {
+      } else if (newStatus == 'delivered' ||
+          newStatus == 'cancelled' ||
+          newStatus == 'delivery_failed') {
         await _locationService.stopTracking();
       }
       if (!mounted) return;
@@ -224,6 +234,82 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
               child: const Text('Submit'),
             ),
           ],
+        );
+      },
+    );
+  }
+
+  /// Report that the delivery could not be completed.
+  ///
+  /// A reason is required and validated here before the dialog closes, using
+  /// the same shared rule the service and the Firestore rules apply — trimmed,
+  /// non-empty, at most 500 characters. Dismissing changes nothing. Nothing is
+  /// invented: no recipient, no location, no proof, and no default reason.
+  void _showFailureDialog() {
+    if (_updatingStatus) return;
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final controller = TextEditingController();
+        String? error;
+        var submitted = false;
+
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            title: const Text('Report Delivery Failure'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'This marks the delivery as failed and hands it back to the '
+                  'dispatcher, who will retry or cancel it.',
+                  style: TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  maxLines: 3,
+                  maxLength: kMaxReasonLength,
+                  decoration: InputDecoration(
+                    labelText: 'Why did it fail?',
+                    hintText: 'e.g., Clinic permanently closed, recipient refused',
+                    errorText: error,
+                  ),
+                  onChanged: (_) {
+                    if (error != null) setDialogState(() => error = null);
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  // Guard against a second tap landing before the dialog pops.
+                  if (submitted) return;
+                  final checked = validateReason(controller.text,
+                      label: 'reason this delivery failed');
+                  if (!checked.valid) {
+                    setDialogState(() => error = checked.message);
+                    return;
+                  }
+                  submitted = true;
+                  _failureReason = checked.value;
+                  Navigator.pop(ctx);
+                  _updateStatus('delivery_failed');
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.urgent,
+                ),
+                child: const Text('Report Failure'),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -832,6 +918,20 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
       );
     }
 
+    // Reported as failed: the rider is done with it. Retrying or cancelling is
+    // the dispatcher's decision, so no action is offered here — only the
+    // reported reason, so the rider can see what was recorded.
+    if (d.isDeliveryFailed) {
+      final reason = d.deliveryFailureReason;
+      return _waitingNotice(
+        Icons.report_problem_outlined,
+        'Awaiting dispatcher action',
+        reason == null || reason.isEmpty
+            ? 'You reported this delivery as failed. The dispatcher will retry or cancel it.'
+            : 'You reported this delivery as failed: "$reason". The dispatcher will retry or cancel it.',
+      );
+    }
+
     return Column(
       children: [
         if (d.canResumeTransit)
@@ -855,6 +955,15 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
             Icons.schedule,
             AppColors.urgent,
             _showDelayDialog,
+          ),
+        ],
+        if (d.canReportFailure) ...[
+          const SizedBox(height: 8),
+          _actionButton(
+            'Report Delivery Failure',
+            Icons.cancel_schedule_send,
+            AppColors.urgent,
+            _showFailureDialog,
           ),
         ],
       ],

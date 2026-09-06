@@ -15,7 +15,9 @@ import { buildClinicLocationSnapshot } from "./orderLocation";
 import {
   ACTOR_DISPATCHER,
   assertTransition,
+  MAX_REASON_LENGTH,
   normalizeStatus,
+  validateReason,
   WorkflowError,
 } from "./orderWorkflow";
 
@@ -358,10 +360,137 @@ export async function startRiderDelivery(orderId) {
 }
 
 /**
- * The longest cancellation reason that may be stored. Mirrored exactly by
- * `maxCancelReasonLength()` in firestore.rules.
+ * Recover a failed delivery by sending it back out to an approved rider.
+ *
+ * A DELIBERATELY SEPARATE entry point from `assignRiderToOrder`, not a relaxed
+ * mode of it. That function only ever accepts `pending_dispatch`, and widening
+ * it to also accept `delivery_failed` would have meant one function with two
+ * meanings and a weaker precondition — exactly the kind of drift that lets a
+ * failed order be treated as a fresh one. Both remain narrow.
+ *
+ * The order returns to `assigned` and re-enters the normal path through Cargo
+ * Loading; it is never pushed straight back into transit, because the cargo has
+ * to be handled and confirmed again.
+ *
+ * The same rider may be chosen again (a retry) or a different approved one (a
+ * reassignment). Either way the rider's display fields are read from the user
+ * DOCUMENT, never from the caller.
+ *
+ * The failure record — reason, timestamp, and which rider reported it — is
+ * deliberately left untouched. Clearing it would make a twice-attempted order
+ * indistinguishable from a new one.
+ *
+ * @param {string} orderId
+ * @param {string} riderUid the users document id / Auth UID
+ * @returns {Promise<{orderId: string, riderUid: string, previousAssignedRiderId: string|null, assignedRiderName: string|null}>}
+ * @throws {AssignmentError}
  */
-export const MAX_CANCEL_REASON_LENGTH = 500;
+export async function reassignFailedOrder(orderId, riderUid) {
+  if (typeof orderId !== "string" || orderId.trim() === "") {
+    throw new AssignmentError("order-id-required", "Order ID is required.");
+  }
+  if (typeof riderUid !== "string" || riderUid.trim() === "") {
+    throw new AssignmentError("rider-uid-required", "Please select an available rider.");
+  }
+
+  const currentUser = auth.currentUser;
+  if (!currentUser?.uid) {
+    throw new AssignmentError(
+      "not-signed-in",
+      "Your session has expired. Please sign in again."
+    );
+  }
+
+  const orderRef = doc(db, ORDERS_COLLECTION, orderId);
+  const riderRef = doc(db, USERS_COLLECTION, riderUid);
+
+  return runTransaction(db, async (tx) => {
+    const orderSnap = await tx.get(orderRef);
+    if (!orderSnap.exists()) {
+      throw new AssignmentError("order-not-found", "That order no longer exists.");
+    }
+    const order = orderSnap.data();
+
+    // Only a failed delivery may be recovered. Re-read inside the transaction,
+    // so a screen that rendered before a dispatcher already recovered — or
+    // cancelled — the order cannot act on the stale view.
+    const current = normalizeStatus(order.status);
+    if (current !== "delivery_failed") {
+      throw new AssignmentError(
+        "order-not-failed",
+        "That order is no longer awaiting recovery. Refresh the list."
+      );
+    }
+    // Belt and braces: the move itself must also be legal for a dispatcher.
+    assertTransition(ACTOR_DISPATCHER, current, "assigned");
+
+    const riderSnap = await tx.get(riderRef);
+    if (!riderSnap.exists()) {
+      throw new AssignmentError("rider-not-found", "That rider account no longer exists.");
+    }
+    const rider = riderSnap.data();
+    if (rider.role !== RIDER_ROLE) {
+      throw new AssignmentError("not-a-rider", "That account is not a rider.");
+    }
+    if (rider.status !== RIDER_APPROVED_STATUS) {
+      throw new AssignmentError(
+        "rider-not-approved",
+        "That rider is not approved for assignment."
+      );
+    }
+
+    const assignedRiderName = firstNonEmptyString(
+      rider.fullName,
+      rider.name,
+      rider.displayName,
+      rider.email
+    );
+    const assignedRiderPhone = firstNonEmptyString(rider.phone, rider.contactNumber);
+    const previousAssignedRiderId = firstNonEmptyString(order.assignedRiderId);
+
+    const update = {
+      status: "assigned",
+      assignedRiderId: riderUid,
+      assignedAt: serverTimestamp(),
+      assignedByUid: currentUser.uid,
+      reassignedAt: serverTimestamp(),
+      reassignedByUid: currentUser.uid,
+      statusUpdatedAt: serverTimestamp(),
+      statusUpdatedByUid: currentUser.uid,
+      updatedAt: serverTimestamp(),
+      // The order goes back through Cargo Loading, so the previous run's
+      // loaded confirmation must not carry over.
+      isLoaded: false,
+    };
+    if (previousAssignedRiderId) {
+      update.previousAssignedRiderId = previousAssignedRiderId;
+    }
+    if (assignedRiderName) update.assignedRiderName = assignedRiderName;
+    if (assignedRiderPhone) update.assignedRiderPhone = assignedRiderPhone;
+    if (currentUser.email) {
+      update.assignedByEmail = currentUser.email;
+      update.statusUpdatedByEmail = currentUser.email;
+    }
+
+    // deliveryFailureReason / deliveryFailedAt / deliveryFailedByUid are NOT in
+    // this update, so they survive untouched.
+    tx.update(orderRef, update);
+
+    return {
+      orderId,
+      riderUid,
+      previousAssignedRiderId: previousAssignedRiderId ?? null,
+      assignedRiderName,
+    };
+  });
+}
+
+/**
+ * The longest cancellation reason that may be stored. Mirrored exactly by
+ * `maxReasonLength()` in firestore.rules and by MAX_REASON_LENGTH in
+ * orderWorkflow.
+ */
+export const MAX_CANCEL_REASON_LENGTH = MAX_REASON_LENGTH;
 
 /**
  * Cancel a non-terminal order, with a reason.
@@ -387,19 +516,17 @@ export async function cancelOrderByDispatcher(orderId, reason) {
     throw new WorkflowError("order-id-required", "Order ID is required.");
   }
 
-  const cancelReason = typeof reason === "string" ? reason.trim() : "";
-  if (cancelReason === "") {
+  // Same shared rule every reason field in this workflow uses.
+  const checked = validateReason(reason, { label: "reason to cancel this order" });
+  if (!checked.ok) {
     throw new WorkflowError(
-      "cancel-reason-required",
-      "A reason is required to cancel an order."
+      checked.code === "reason-required"
+        ? "cancel-reason-required"
+        : "cancel-reason-too-long",
+      checked.message
     );
   }
-  if (cancelReason.length > MAX_CANCEL_REASON_LENGTH) {
-    throw new WorkflowError(
-      "cancel-reason-too-long",
-      `Please keep the reason under ${MAX_CANCEL_REASON_LENGTH} characters.`
-    );
-  }
+  const cancelReason = checked.value;
 
   const currentUser = auth.currentUser;
   if (!currentUser?.uid) {

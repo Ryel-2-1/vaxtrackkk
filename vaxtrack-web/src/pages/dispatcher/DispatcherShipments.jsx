@@ -4,7 +4,9 @@ import { subscribeDeliveries } from "../../services/deliveryService";
 import {
   cancelOrderByDispatcher,
   MAX_CANCEL_REASON_LENGTH,
+  reassignFailedOrder,
 } from "../../services/orderService";
+import { subscribeRiders } from "../../services/riderService";
 import { ACTOR_DISPATCHER, canTransition } from "../../services/orderWorkflow";
 import DispatcherLayout from "./DispatcherLayout";
 import StatusBadge from "../../components/ui/StatusBadge";
@@ -32,6 +34,13 @@ import KpiCard from "../../components/ui/KpiCard";
 // rules enforce.
 function canCancel(statusKey) {
   return canTransition(ACTOR_DISPATCHER, statusKey, "cancelled").ok;
+}
+
+// Recovery. Only a failed delivery can go back to `assigned`, so this is true
+// for `delivery_failed` and nothing else — again derived from the policy rather
+// than restated as a status literal.
+function canReassign(statusKey) {
+  return canTransition(ACTOR_DISPATCHER, statusKey, "assigned").ok;
 }
 
 function formatTime(ts) {
@@ -80,19 +89,29 @@ function DispatcherShipments() {
     const loadingO = orders.filter((o) => o.statusKey === "loading");
     const transit = orders.filter((o) => o.statusKey === "in_transit");
     const delayed = orders.filter((o) => o.statusKey === "delayed");
+    // Failed deliveries are the dispatcher's queue: nothing moves until they
+    // retry or cancel, so they get their own group and are counted as active.
+    const failed = orders.filter((o) => o.statusKey === "delivery_failed");
     const delivered = orders.filter((o) => o.statusKey === "delivered" || o.statusKey === "completed");
     const cancelled = orders.filter((o) => o.statusKey === "cancelled" || o.statusKey === "canceled");
-    return { assigned, loading: loadingO, transit, delayed, delivered, cancelled };
+    return { assigned, loading: loadingO, transit, delayed, failed, delivered, cancelled };
   }, [orders]);
 
   const activeOrders = useMemo(() => {
     if (filterStatus === "active") {
-      return [...grouped.assigned, ...grouped.loading, ...grouped.transit, ...grouped.delayed];
+      return [
+        ...grouped.failed,
+        ...grouped.assigned,
+        ...grouped.loading,
+        ...grouped.transit,
+        ...grouped.delayed,
+      ];
     }
     if (filterStatus === "assigned") return grouped.assigned;
     if (filterStatus === "loading") return grouped.loading;
     if (filterStatus === "in_transit") return grouped.transit;
     if (filterStatus === "delayed") return grouped.delayed;
+    if (filterStatus === "delivery_failed") return grouped.failed;
     if (filterStatus === "delivered") return grouped.delivered;
     if (filterStatus === "cancelled") return grouped.cancelled;
     return orders;
@@ -115,6 +134,45 @@ function DispatcherShipments() {
       cancelTriggerRef.current = null;
     }
   }, []);
+
+  // Recovery of a failed delivery.
+  const [reassignTarget, setReassignTarget] = useState(null);
+  const reassignTriggerRef = useRef(null);
+
+  const openReassignDialog = (order, triggerEl) => {
+    reassignTriggerRef.current = triggerEl;
+    setReassignTarget(order);
+  };
+
+  const closeReassignDialog = useCallback(() => {
+    setReassignTarget(null);
+    if (reassignTriggerRef.current) {
+      reassignTriggerRef.current.focus();
+      reassignTriggerRef.current = null;
+    }
+  }, []);
+
+  const handleConfirmReassign = async (order, riderUid) => {
+    setUpdating(order.id);
+    setToast("");
+    try {
+      // A dedicated recovery entry point — NOT the normal assignment service,
+      // which only ever accepts `pending_dispatch`. It re-reads the order and
+      // the rider inside its own transaction and preserves the failure record.
+      const result = await reassignFailedOrder(order.id, riderUid);
+      closeReassignDialog();
+      showToast(
+        `Order ${order.orderNumber || order.id} reassigned to ${result.assignedRiderName || "the selected rider"}.`,
+        "success"
+      );
+    } catch (err) {
+      console.error("Reassign failed order error:", err);
+      showToast(err.message || "Failed to reassign order.", "error");
+      throw err; // keeps the dialog open and releases its guard
+    } finally {
+      setUpdating("");
+    }
+  };
 
   const handleConfirmCancel = async (order, reason) => {
     setUpdating(order.id);
@@ -143,7 +201,12 @@ function DispatcherShipments() {
     setToastType(type);
   };
 
-  const totalActive = grouped.assigned.length + grouped.loading.length + grouped.transit.length + grouped.delayed.length;
+  const totalActive =
+    grouped.assigned.length +
+    grouped.loading.length +
+    grouped.transit.length +
+    grouped.delayed.length +
+    grouped.failed.length;
   const totalDone = grouped.delivered.length;
 
   const FILTERS = [
@@ -152,6 +215,7 @@ function DispatcherShipments() {
     { id: "loading", label: "Loading", count: grouped.loading.length },
     { id: "in_transit", label: "In transit", count: grouped.transit.length },
     { id: "delayed", label: "Delayed", count: grouped.delayed.length },
+    { id: "delivery_failed", label: "Delivery failed", count: grouped.failed.length },
     { id: "delivered", label: "Delivered", count: totalDone },
     { id: "cancelled", label: "Cancelled", count: grouped.cancelled.length },
   ];
@@ -257,6 +321,7 @@ function DispatcherShipments() {
                       order={order}
                       updating={updating === order.id}
                       onRequestCancel={openCancelDialog}
+                      onRequestReassign={openReassignDialog}
                     />
                   ))}
                 </tbody>
@@ -273,7 +338,200 @@ function DispatcherShipments() {
           onConfirm={handleConfirmCancel}
         />
       )}
+
+      {reassignTarget && (
+        <ReassignFailedOrderDialog
+          order={reassignTarget}
+          onDismiss={closeReassignDialog}
+          onConfirm={handleConfirmReassign}
+        />
+      )}
     </DispatcherLayout>
+  );
+}
+
+/**
+ * Choose an approved rider to carry a failed delivery again.
+ *
+ * The same rider may be picked (a retry) or a different one (a reassignment).
+ * Only approved riders are listed, and only their document UID is ever sent —
+ * employee id is display-only, exactly as on the assignment page. The service
+ * re-reads and re-validates the rider regardless of what this list shows.
+ */
+function ReassignFailedOrderDialog({ order, onDismiss, onConfirm }) {
+  const [riders, setRiders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [selected, setSelected] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const dialogRef = useRef(null);
+  const firstFieldRef = useRef(null);
+
+  const titleId = "reassign-order-title";
+  const descId = "reassign-order-desc";
+  const errorId = "reassign-order-error";
+
+  useEffect(() => {
+    const unsubscribe = subscribeRiders(
+      (list) => {
+        setRiders(list);
+        setLoading(false);
+        setLoadError("");
+      },
+      (err) => {
+        setLoadError(
+          err?.code === "permission-denied"
+            ? "No permission to view riders."
+            : "Unable to load riders."
+        );
+        setLoading(false);
+      }
+    );
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    firstFieldRef.current?.focus();
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onDismiss();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusable = dialogRef.current?.querySelectorAll(
+        'button:not([disabled]), select, input, [href], [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onDismiss]);
+
+  const approvedRiders = riders.filter((r) => r.status === "approved");
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (submittingRef.current) return;
+    if (!selected) {
+      setError("Please choose an approved rider.");
+      firstFieldRef.current?.focus();
+      return;
+    }
+    submittingRef.current = true;
+    setSubmitting(true);
+    setError("");
+    try {
+      await onConfirm(order, selected);
+    } catch {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="shp-dialog-backdrop" onMouseDown={onDismiss}>
+      <div
+        className="shp-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descId}
+        ref={dialogRef}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="shp-dialog-head">
+          <h2 id={titleId}>Retry failed delivery</h2>
+          <button
+            type="button"
+            className="shp-dialog-close"
+            aria-label="Close without reassigning the order"
+            onClick={onDismiss}
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+
+        <p id={descId} className="shp-dialog-desc">
+          Order {order.orderNumber || order.id} for {order.clinicName || "this clinic"} failed
+          {order.deliveryFailureReason ? `: "${order.deliveryFailureReason}"` : "."} Choosing a
+          rider sends it back to Assigned, and it passes through Cargo Loading again.
+        </p>
+
+        <form onSubmit={submit}>
+          <label htmlFor="reassign-rider">Rider</label>
+          {loading ? (
+            <p className="shp-muted">Loading riders...</p>
+          ) : loadError ? (
+            <p className="shp-dialog-error" role="alert">{loadError}</p>
+          ) : approvedRiders.length === 0 ? (
+            <p className="shp-dialog-error" role="alert">
+              No approved riders are available.
+            </p>
+          ) : (
+            <select
+              id="reassign-rider"
+              ref={firstFieldRef}
+              value={selected}
+              aria-describedby={error ? errorId : undefined}
+              aria-invalid={error ? "true" : undefined}
+              onChange={(e) => {
+                setSelected(e.target.value);
+                if (error) setError("");
+              }}
+            >
+              <option value="">Select an approved rider...</option>
+              {approvedRiders.map((r) => (
+                // The VALUE is the document uid — the assignment identity.
+                <option key={r.uid} value={r.uid}>
+                  {r.fullName || r.name || r.displayName || r.email}
+                  {r.uid === order.assignedRiderId ? " (same rider — retry)" : ""}
+                </option>
+              ))}
+            </select>
+          )}
+
+          <div aria-live="assertive">
+            {error && (
+              <p id={errorId} role="alert" className="shp-dialog-error">
+                {error}
+              </p>
+            )}
+          </div>
+
+          <div className="shp-dialog-actions">
+            <button type="button" className="shp-act-btn" onClick={onDismiss}>
+              Keep as failed
+            </button>
+            <button
+              type="submit"
+              className="shp-act-btn primary"
+              disabled={submitting || loading || approvedRiders.length === 0}
+            >
+              {submitting && <Loader2 size={12} className="spin" aria-hidden="true" />}
+              {submitting ? "Reassigning..." : "Reassign order"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -435,10 +693,11 @@ function CancelOrderDialog({ order, onDismiss, onConfirm }) {
   );
 }
 
-function ShipmentRow({ order, updating, onRequestCancel }) {
+function ShipmentRow({ order, updating, onRequestCancel, onRequestReassign }) {
   const sKey = order.statusKey;
   const cancellable = canCancel(sKey);
-  const isDelayed = sKey === "delayed";
+  const reassignable = canReassign(sKey);
+  const isDelayed = sKey === "delayed" || sKey === "delivery_failed";
 
   const riderName = order.assignedRiderName || "Unassigned";
   const riderPhone = order.assignedRiderPhone || "";
@@ -478,16 +737,28 @@ function ShipmentRow({ order, updating, onRequestCancel }) {
       </td>
       <td className="shp-td-meta">{updated}</td>
       <td>
-        {cancellable ? (
+        {cancellable || reassignable ? (
           <div className="shp-actions">
-            <button
-              type="button"
-              className="shp-act-btn danger"
-              disabled={updating}
-              onClick={(e) => onRequestCancel(order, e.currentTarget)}
-            >
-              Cancel order
-            </button>
+            {reassignable && (
+              <button
+                type="button"
+                className="shp-act-btn primary"
+                disabled={updating}
+                onClick={(e) => onRequestReassign(order, e.currentTarget)}
+              >
+                Retry / Reassign
+              </button>
+            )}
+            {cancellable && (
+              <button
+                type="button"
+                className="shp-act-btn danger"
+                disabled={updating}
+                onClick={(e) => onRequestCancel(order, e.currentTarget)}
+              >
+                Cancel order
+              </button>
+            )}
           </div>
         ) : (
           <span className="shp-muted">—</span>
