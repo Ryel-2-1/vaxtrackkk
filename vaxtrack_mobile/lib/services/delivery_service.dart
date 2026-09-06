@@ -188,17 +188,15 @@ class DeliveryService {
     });
   }
 
-  Future<void> saveProofOfDelivery(String orderId, String imageUrl) {
-    return _db.collection('orders').doc(orderId).update({
-      'proofOfDeliveryUrl': imageUrl,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-  }
-
-  Future<void> saveInvoicePhoto(String orderId, String imageUrl) {
-    return _db.collection('orders').doc(orderId).update({
-      'invoiceUrl': imageUrl,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-  }
+  // Proof of delivery lives in ProofService, not here.
+  //
+  // `saveProofOfDelivery` and `saveInvoicePhoto` used to sit at this spot: two
+  // unconditional `update()` calls that took any order id and any string and
+  // verified nothing — not the caller, not the assignment, not the order's
+  // state, not which object the URL pointed at. Leaving them in place while the
+  // screen moved to the validated path would have left the unchecked write
+  // callable from anywhere, so they went with it.
+  //
+  // See services/proof_service.dart: the same two operations, re-read
+  // transactionally and authorized against the order as it is on the server.
 }

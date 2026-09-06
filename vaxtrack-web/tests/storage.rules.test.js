@@ -50,6 +50,12 @@ const ORDER_REJECTED_RIDER = "orderRejectedRider";
 // Reassigned mid-test to prove access follows the CURRENT assignment.
 const ORDER_REASSIGN = "orderReassign";
 const MISSING_ORDER = "orderDoesNotExist";
+// Evidence replacement policy (workflow checkpoint 4). All assigned to rider1,
+// so the only thing that can refuse a write is the order's own state.
+const ORDER_DELIVERED = "orderDelivered";
+const ORDER_CANCELLED = "orderCancelled";
+const ORDER_PROOF_FINAL = "orderProofFinal";     // proofSubmittedAt recorded
+const ORDER_INVOICE_FINAL = "orderInvoiceFinal"; // invoiceSubmittedAt recorded
 
 let passed = 0;
 let failed = 0;
@@ -143,6 +149,31 @@ async function main() {
     // Starts with rider1; reassigned to rider2 inside NS20.
     await set(`orders/${ORDER_REASSIGN}`, {
       status: "in_transit", assignedRiderId: riderUid, createdByUid: salesRepUid,
+    });
+
+    // ---- evidence replacement policy (workflow checkpoint 4) ----
+    // Closed deliveries take no new evidence at all.
+    await set(`orders/${ORDER_DELIVERED}`, {
+      status: "delivered", assignedRiderId: riderUid, createdByUid: salesRepUid,
+    });
+    await set(`orders/${ORDER_CANCELLED}`, {
+      status: "cancelled", assignedRiderId: riderUid, createdByUid: salesRepUid,
+    });
+    // Live orders whose evidence has been RECORDED. The marker written by the
+    // Firestore submission is what closes the object to further writes; the two
+    // markers are independent, so one being set must not lock the other.
+    await set(`orders/${ORDER_PROOF_FINAL}`, {
+      status: "in_transit", assignedRiderId: riderUid, createdByUid: salesRepUid,
+      proofOfDeliveryUrl: "https://storage/p.jpg",
+      proofRecipientName: "Maria Santos",
+      proofSubmittedAt: new Date("2026-09-01T00:00:00Z"),
+      proofSubmittedByUid: riderUid,
+    });
+    await set(`orders/${ORDER_INVOICE_FINAL}`, {
+      status: "in_transit", assignedRiderId: riderUid, createdByUid: salesRepUid,
+      invoiceUrl: "https://storage/i.jpg",
+      invoiceSubmittedAt: new Date("2026-09-01T00:00:00Z"),
+      invoiceSubmittedByUid: riderUid,
     });
   });
 
@@ -393,6 +424,99 @@ async function main() {
     await assertFails(
       fileFor(adminUid, proofPath(ORDER_A, "del.jpg")).put(Buffer.from(imageBytes), imageMeta)
     );
+  });
+
+  console.log("\n--- Storage rules: evidence replacement policy ---");
+
+  // Generous BEFORE the metadata is recorded, closed after.
+  //
+  // A submission is two steps — upload the object, then write the metadata —
+  // and the second can fail alone. Freezing the object at the first attempt
+  // would strand a rider whose save failed: they could neither replace the
+  // photo nor delete it. So a retry may overwrite, right up until the moment
+  // the metadata lands and the object becomes the evidence.
+
+  await check("PS9 an unproven order still accepts a re-upload (failed-save retry)", async () => {
+    // ORDER_A carries no proofSubmittedAt, so a retry overwrites its own
+    // earlier attempt instead of leaving a second, undeletable object.
+    const ref = fileFor(riderUid, proofPath(ORDER_A, "retry.jpg"));
+    await assertSucceeds(ref.put(Buffer.from(imageBytes), imageMeta));
+    await assertSucceeds(ref.put(Buffer.from(imageBytes), imageMeta));
+  });
+
+  await check("NS22 a FINALIZED proof object cannot be overwritten", async () => {
+    // Once the order records proofSubmittedAt, the object it points at stops
+    // being a draft. Even the correctly assigned, approved rider is refused.
+    await seedObject(proofPath(ORDER_PROOF_FINAL));
+    await assertFails(
+      fileFor(riderUid, proofPath(ORDER_PROOF_FINAL)).put(Buffer.from(imageBytes), imageMeta)
+    );
+  });
+
+  await check("PS10 finalizing the proof does NOT lock the invoice", async () => {
+    // Independent markers: an order proven before its paper invoice arrived
+    // must still be able to carry one.
+    await assertSucceeds(
+      fileFor(riderUid, invoicePath(ORDER_PROOF_FINAL)).put(Buffer.from(imageBytes), imageMeta)
+    );
+  });
+
+  await check("NS23 a FINALIZED invoice object cannot be overwritten", async () => {
+    await seedObject(invoicePath(ORDER_INVOICE_FINAL));
+    await assertFails(
+      fileFor(riderUid, invoicePath(ORDER_INVOICE_FINAL)).put(Buffer.from(imageBytes), imageMeta)
+    );
+  });
+
+  await check("PS11 finalizing the invoice does NOT lock the proof", async () => {
+    await assertSucceeds(
+      fileFor(riderUid, proofPath(ORDER_INVOICE_FINAL)).put(Buffer.from(imageBytes), imageMeta)
+    );
+  });
+
+  await check("NS24 a delivered or cancelled order takes no new evidence", async () => {
+    // Evidence is gathered while the delivery is happening. A closed delivery
+    // with no proof is a gap for staff to review, not something a rider can
+    // fill in afterwards.
+    for (const orderId of [ORDER_DELIVERED, ORDER_CANCELLED]) {
+      await assertFails(
+        fileFor(riderUid, proofPath(orderId)).put(Buffer.from(imageBytes), imageMeta)
+      );
+      await assertFails(
+        fileFor(riderUid, invoicePath(orderId)).put(Buffer.from(imageBytes), imageMeta)
+      );
+    }
+  });
+
+  await check("NS25 nor can a closed order's existing evidence be overwritten", async () => {
+    await seedObject(proofPath(ORDER_DELIVERED, "old.jpg"));
+    await assertFails(
+      fileFor(riderUid, proofPath(ORDER_DELIVERED, "old.jpg")).put(Buffer.from(imageBytes), imageMeta)
+    );
+  });
+
+  await check("PS12 evidence stays READABLE after the delivery closes", async () => {
+    // Locking the object must not hide it: admin, dispatcher, the creating
+    // sales rep and the assigned rider all still read a delivered order's proof.
+    for (const uid of [adminUid, dispatcherUid, salesRepUid, riderUid]) {
+      await assertSucceeds(
+        fileFor(uid, proofPath(ORDER_DELIVERED, "old.jpg")).getDownloadURL()
+      );
+    }
+  });
+
+  await check("NS26 delete stays denied on finalized and closed orders", async () => {
+    // `request.resource` is null on a delete, so isImageUnder10MB() cannot
+    // evaluate and every delete is refused — unchanged by this checkpoint, and
+    // pinned here so the policy above cannot be read as opening one.
+    for (const [orderId, file] of [
+      [ORDER_PROOF_FINAL, "proof.jpg"],
+      [ORDER_DELIVERED, "old.jpg"],
+    ]) {
+      for (const uid of [riderUid, adminUid, dispatcherUid, salesRepUid, null]) {
+        await assertFails(fileFor(uid, proofPath(orderId, file)).delete());
+      }
+    }
   });
 
   console.log("\n--- Storage rules: catch-all ---");

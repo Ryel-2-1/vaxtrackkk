@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../utils/order_workflow.dart';
+import '../utils/proof_validation.dart';
 
 class Delivery {
   final String id;
@@ -19,6 +20,19 @@ class Delivery {
   final String? assignedRiderId;
   final String? assignedRiderName;
   final String? proofOfDeliveryUrl;
+
+  /// Canonical Storage object behind [proofOfDeliveryUrl]. Absent on orders
+  /// proven through the temporary manual-link fallback, which has no object.
+  final String? proofOfDeliveryPath;
+
+  /// Who took delivery. Captured with the proof photo.
+  final String? proofRecipientName;
+
+  /// When the proof was recorded, server-stamped. Its presence is what makes
+  /// the evidence FINAL: the rider may no longer replace the object, and the
+  /// screen shows the proof read-only.
+  final DateTime? proofSubmittedAt;
+
   /// Why the assigned rider reported this delivery as failed. Preserved
   /// through a later reassignment or cancellation — never cleared to make an
   /// order look fresh.
@@ -61,6 +75,9 @@ class Delivery {
     this.assignedRiderId,
     this.assignedRiderName,
     this.proofOfDeliveryUrl,
+    this.proofOfDeliveryPath,
+    this.proofRecipientName,
+    this.proofSubmittedAt,
     this.deliveryFailureReason,
     this.invoiceUrl,
     this.itemSummaries = const [],
@@ -100,6 +117,9 @@ class Delivery {
       assignedRiderId: data['assignedRiderId'],
       assignedRiderName: data['assignedRiderName'],
       proofOfDeliveryUrl: data['proofOfDeliveryUrl'],
+      proofOfDeliveryPath: data['proofOfDeliveryPath'],
+      proofRecipientName: data['proofRecipientName'],
+      proofSubmittedAt: _toDateTime(data['proofSubmittedAt']),
       deliveryFailureReason: data['deliveryFailureReason'],
       invoiceUrl: data['invoiceUrl'],
       itemSummaries: _itemSummaries(data['items']),
@@ -229,6 +249,27 @@ class Delivery {
   /// Reported as failed. Parked until the dispatcher retries or cancels it —
   /// the rider has no further action.
   bool get isDeliveryFailed => status == 'delivery_failed';
+
+  /// This order carries a proof image to display.
+  bool get hasProof => (proofOfDeliveryUrl ?? '').isNotEmpty;
+
+  /// The proof has been recorded through the canonical path and is final. The
+  /// rider may no longer replace it; changing it is an admin repair.
+  bool get isProofFinalized => proofSubmittedAt != null;
+
+  /// The rider may attach proof right now.
+  ///
+  /// Gated on the same statuses the service and the Firestore rules accept, so
+  /// the screen never offers an upload the server would refuse. `delivered` is
+  /// excluded deliberately — proof is gathered while delivering, and inviting a
+  /// rider to produce evidence for an already-closed delivery is exactly the
+  /// after-the-fact record this workflow must not create.
+  bool get canSubmitProof =>
+      kProofSubmittableStatuses.contains(status) && !isProofFinalized;
+
+  /// A delivered order that has no proof. Nothing the rider can fix — it is a
+  /// gap for staff to review, not an invitation to upload.
+  bool get needsProofReview => isDelivered && !hasProof;
 
   static String _getStatus(Map<String, dynamic> data) {
     return (data['status'] ??

@@ -322,6 +322,51 @@ async function main() {
       episodeCount: 1,
     });
 
+    // ---- delivery-evidence fixtures (workflow checkpoint 4) ----
+    // One order per case: a proof write is one-shot, so a successful case
+    // consumes its order.
+    for (const id of [
+      "evTransit1", "evTransit2", "evTransit3", "evTransit4", "evTransit5",
+      "evTransit6", "evTransit7", "evTransit8", "evUnicode", "evInvoice1",
+      "evInvoice2", "evCombined", "evAmend",
+    ]) {
+      await setDoc(doc(db, "orders", id), {
+        createdByUid: salesRepUid, status: "in_transit", assignedRiderId: riderUid,
+      });
+    }
+    await setDoc(doc(db, "orders", "evDelayed"), {
+      createdByUid: salesRepUid, status: "delayed", assignedRiderId: riderUid,
+    });
+    await setDoc(doc(db, "orders", "evAssigned"), {
+      createdByUid: salesRepUid, status: "assigned", assignedRiderId: riderUid,
+    });
+    await setDoc(doc(db, "orders", "evLoading"), {
+      createdByUid: salesRepUid, status: "loading", assignedRiderId: riderUid,
+    });
+    await setDoc(doc(db, "orders", "evDelivered"), {
+      createdByUid: salesRepUid, status: "delivered", assignedRiderId: riderUid,
+    });
+    await setDoc(doc(db, "orders", "evCancelled"), {
+      createdByUid: salesRepUid, status: "cancelled", assignedRiderId: riderUid,
+    });
+    // Already proven: the one-shot marker is present.
+    await setDoc(doc(db, "orders", "evFinalized"), {
+      createdByUid: salesRepUid, status: "in_transit", assignedRiderId: riderUid,
+      proofOfDeliveryUrl: "https://storage/first.jpg",
+      proofOfDeliveryPath: "proof_of_delivery/evFinalized/proof.jpg",
+      proofRecipientName: "First Recipient",
+      proofSubmittedAt: CLINIC_STAMP,
+      proofSubmittedByUid: riderUid,
+    });
+    // Assigned to the OTHER rider, so only the assignment can refuse rider1.
+    await setDoc(doc(db, "orders", "evOtherRider"), {
+      createdByUid: salesRepUid, status: "in_transit", assignedRiderId: otherRiderUid,
+    });
+    // Assigned to a PENDING rider, so only their standing can refuse them.
+    await setDoc(doc(db, "orders", "evPendingRider"), {
+      createdByUid: salesRepUid, status: "in_transit", assignedRiderId: pendingRiderUid,
+    });
+
     // ---- Phase 5E invoice / counter fixtures ----
     // A legacy ISSUED invoice (old taxRate shape): admin must still read it, and
     // it must be frozen (no financial mutation, no delete).
@@ -435,11 +480,17 @@ async function main() {
     await assertSucceeds(getDocs(query(collection(rider, "orders"), where("assignedRiderId", "==", riderUid))));
   });
 
-  await check("P11 rider updates allowed status/location/proof fields on their own order", async () => {
+  await check("P11 rider updates allowed status and location fields on their own order", async () => {
     // Completing in_transit → delivered. The status audit and deliveredAt are
     // now required to be server-stamped (workflow checkpoint 2); they used to
-    // be the client strings "t". The allowlisted field set is unchanged, so
-    // this still proves a rider may write status, location and proof together.
+    // be the client strings "t".
+    //
+    // `proofOfDeliveryUrl` USED to be part of this same write. It was removed
+    // in workflow checkpoint 4, and that is a deliberate contract change, not a
+    // relaxed test: proof and completion are now separate operations, and a
+    // write that changes status may no longer carry evidence. Attaching proof
+    // is covered by Pev1..Pev7, and the combined write it replaces is pinned as
+    // a denial in Nev1.
     await assertSucceeds(updateDoc(doc(rider, "orders", "ordRider1"), {
       status: "delivered",
       deliveredAt: serverTimestamp(),
@@ -448,7 +499,6 @@ async function main() {
       locationAccuracy: 5,
       heading: 0,
       speed: 0,
-      proofOfDeliveryUrl: "https://x/p.jpg",
       statusUpdatedAt: serverTimestamp(),
       statusUpdatedByUid: riderUid,
       statusUpdatedByEmail: "r@x.com",
@@ -2000,6 +2050,241 @@ async function main() {
     await assertSucceeds(getDoc(doc(admin, "orders", "fdFailed")));
     await assertSucceeds(getDoc(doc(rider, "orders", "fdFailed")));
     await assertSucceeds(getDoc(doc(salesRep, "orders", "fdFailed")));
+  });
+
+  // ---- delivery evidence (workflow checkpoint 4) ----
+  //
+  // Proof used to be writable by any allowlisted rider write that left the
+  // status alone — a bare `proofOfDeliveryUrl: "..."` was accepted, with no
+  // recipient, no path check, no attribution and no limit on how many times.
+  // These cases pin the replacement contract.
+
+  const proofWrite = (extra = {}) => ({
+    proofOfDeliveryUrl: "https://storage/proof.jpg",
+    proofRecipientName: "Maria Santos",
+    proofSubmittedAt: serverTimestamp(),
+    proofSubmittedByUid: riderUid,
+    updatedAt: serverTimestamp(),
+    ...extra,
+  });
+  const invoiceWrite = (orderId, extra = {}) => ({
+    invoiceUrl: "https://storage/invoice.jpg",
+    invoicePath: `invoices/${orderId}/invoice.jpg`,
+    invoiceSubmittedAt: serverTimestamp(),
+    invoiceSubmittedByUid: riderUid,
+    updatedAt: serverTimestamp(),
+    ...extra,
+  });
+
+  // ---- evidence: allowed ----
+
+  await check("Pev1 assigned rider records proof on an in_transit order", async () => {
+    await assertSucceeds(updateDoc(doc(rider, "orders", "evTransit1"), proofWrite({
+      proofOfDeliveryPath: "proof_of_delivery/evTransit1/proof.jpg",
+    })));
+  });
+
+  await check("Pev2 assigned rider records proof on a DELAYED order", async () => {
+    await assertSucceeds(updateDoc(doc(rider, "orders", "evDelayed"), proofWrite({
+      proofOfDeliveryPath: "proof_of_delivery/evDelayed/proof.jpg",
+    })));
+  });
+
+  await check("Pev3 proof with NO storage path is accepted (manual fallback)", async () => {
+    // The debug-only manual-link fallback records a URL with no object behind
+    // it. This is exactly why the path cannot yet be REQUIRED — remove the
+    // fallback and this case becomes a denial.
+    await assertSucceeds(updateDoc(doc(rider, "orders", "evTransit2"), proofWrite()));
+  });
+
+  await check("Pev4 a 120-unit Unicode recipient name is accepted", async () => {
+    // Pins the client and the rules to the same counting unit. The Dart side
+    // measures String.length (UTF-16 code units); if `size()` counted runes or
+    // bytes instead, a name the app accepts would be refused here.
+    const astral = "\u{1D49C}".repeat(60); // 60 astral chars = 120 UTF-16 units
+    if (astral.length !== 120) throw new Error(`expected 120 units, got ${astral.length}`);
+    await assertSucceeds(updateDoc(doc(rider, "orders", "evUnicode"), proofWrite({
+      proofRecipientName: astral,
+      proofOfDeliveryPath: "proof_of_delivery/evUnicode/proof.jpg",
+    })));
+  });
+
+  await check("Pev5 the invoice photo is recorded independently of the proof", async () => {
+    await assertSucceeds(updateDoc(doc(rider, "orders", "evInvoice1"), invoiceWrite("evInvoice1")));
+    // And on an order whose proof is already final: finalizing one must not
+    // lock the other.
+    await assertSucceeds(updateDoc(doc(rider, "orders", "evFinalized"), invoiceWrite("evFinalized")));
+  });
+
+  await check("Pev6 an invoice with no storage path is accepted", async () => {
+    await assertSucceeds(updateDoc(doc(rider, "orders", "evInvoice2"), {
+      invoiceUrl: "https://storage/invoice.jpg",
+      invoiceSubmittedAt: serverTimestamp(),
+      invoiceSubmittedByUid: riderUid,
+      updatedAt: serverTimestamp(),
+    }));
+  });
+
+  // ---- evidence: forbidden ----
+
+  await check("Nev1 proof cannot be attached in the same write as a status change", async () => {
+    // The decisive case. Proof does not complete a delivery and completing one
+    // does not require proof; allowing both in one write would have let
+    // evidence in through the completion rule with none of its own checks.
+    await assertFails(updateDoc(doc(rider, "orders", "evCombined"), {
+      status: "delivered", deliveredAt: serverTimestamp(),
+      ...audit(riderUid), ...proofWrite(),
+    }));
+    await assertFails(updateDoc(doc(rider, "orders", "evCombined"), {
+      status: "delayed", delayReason: "Traffic", delayedAt: serverTimestamp(),
+      ...audit(riderUid), proofOfDeliveryUrl: "https://storage/proof.jpg",
+    }));
+  });
+
+  await check("Nev2 a bare proof URL with no recipient or attribution is rejected", async () => {
+    // This is precisely what the old rules accepted.
+    await assertFails(updateDoc(doc(rider, "orders", "evAmend"), {
+      proofOfDeliveryUrl: "https://storage/proof.jpg",
+      updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Nev3 an amendment to a single evidence field is rejected", async () => {
+    for (const payload of [
+      { proofRecipientName: "Someone Else", updatedAt: serverTimestamp() },
+      { proofOfDeliveryPath: "proof_of_delivery/evAmend/proof.jpg", updatedAt: serverTimestamp() },
+      { proofSubmittedByUid: riderUid, updatedAt: serverTimestamp() },
+      { invoiceUrl: "https://storage/i.jpg", updatedAt: serverTimestamp() },
+    ]) {
+      await assertFails(updateDoc(doc(rider, "orders", "evAmend"), payload));
+    }
+  });
+
+  await check("Nev4 a blank, whitespace-only or oversized recipient name is rejected", async () => {
+    for (const proofRecipientName of ["", "   ", "\t\n ", "a".repeat(121)]) {
+      await assertFails(updateDoc(doc(rider, "orders", "evTransit3"), proofWrite({
+        proofRecipientName,
+        proofOfDeliveryPath: "proof_of_delivery/evTransit3/proof.jpg",
+      })));
+    }
+  });
+
+  await check("Nev5 a missing recipient name is rejected", async () => {
+    const payload = proofWrite();
+    delete payload.proofRecipientName;
+    await assertFails(updateDoc(doc(rider, "orders", "evTransit3"), payload));
+  });
+
+  await check("Nev6 an empty proof URL is rejected", async () => {
+    await assertFails(updateDoc(doc(rider, "orders", "evTransit3"), proofWrite({
+      proofOfDeliveryUrl: "",
+    })));
+  });
+
+  await check("Nev7 client-supplied timestamps are rejected", async () => {
+    // proofSubmittedAt must be the SERVER's time, so the record cannot claim
+    // the delivery was proven at a moment of the caller's choosing.
+    await assertFails(updateDoc(doc(rider, "orders", "evTransit3"), proofWrite({
+      proofSubmittedAt: new Date("2020-01-01T00:00:00Z"),
+    })));
+    await assertFails(updateDoc(doc(rider, "orders", "evTransit3"), proofWrite({
+      updatedAt: new Date("2020-01-01T00:00:00Z"),
+    })));
+  });
+
+  await check("Nev8 proof cannot be attributed to another rider", async () => {
+    // Nor to an employee id, a display name or a uid fragment — none of those
+    // is request.auth.uid.
+    for (const uid of [otherRiderUid, "EMP-4432", "QA Rider", riderUid.slice(0, 4)]) {
+      await assertFails(updateDoc(doc(rider, "orders", "evTransit3"), proofWrite({
+        proofSubmittedByUid: uid,
+      })));
+    }
+  });
+
+  await check("Nev9 a non-canonical storage path is rejected", async () => {
+    for (const proofOfDeliveryPath of [
+      "proof_of_delivery/evTransit4/1788246428806.jpg", // the old timestamp name
+      "proof_of_delivery/someOtherOrder/proof.jpg",     // another delivery's object
+      "proof_of_delivery/evTransit4/proof.png",
+      "invoices/evTransit4/proof.jpg",
+      "proof.jpg",
+      "",
+    ]) {
+      await assertFails(updateDoc(doc(rider, "orders", "evTransit4"), proofWrite({
+        proofOfDeliveryPath,
+      })));
+    }
+  });
+
+  await check("Nev10 a second proof submission is rejected once finalized", async () => {
+    await assertFails(updateDoc(doc(rider, "orders", "evFinalized"), proofWrite({
+      proofOfDeliveryUrl: "https://storage/replacement.jpg",
+      proofOfDeliveryPath: "proof_of_delivery/evFinalized/proof.jpg",
+    })));
+  });
+
+  await check("Nev11 evidence is rejected outside in_transit and delayed", async () => {
+    for (const id of ["evAssigned", "evLoading", "evDelivered", "evCancelled"]) {
+      await assertFails(updateDoc(doc(rider, "orders", id), proofWrite({
+        proofOfDeliveryPath: `proof_of_delivery/${id}/proof.jpg`,
+      })));
+      await assertFails(updateDoc(doc(rider, "orders", id), invoiceWrite(id)));
+    }
+  });
+
+  await check("Nev12 a rider cannot record proof on another rider's order", async () => {
+    await assertFails(updateDoc(doc(rider, "orders", "evOtherRider"), proofWrite({
+      proofOfDeliveryPath: "proof_of_delivery/evOtherRider/proof.jpg",
+    })));
+  });
+
+  await check("Nev13 an unapproved rider cannot record proof on their OWN order", async () => {
+    // evPendingRider IS assigned to this account, so the only thing that can
+    // refuse it is their standing.
+    await assertFails(updateDoc(doc(pendingRider, "orders", "evPendingRider"), proofWrite({
+      proofSubmittedByUid: pendingRiderUid,
+      proofOfDeliveryPath: "proof_of_delivery/evPendingRider/proof.jpg",
+    })));
+  });
+
+  await check("Nev14 a sales rep cannot manufacture proof on their own order", async () => {
+    // A sales rep has no field allowlist, so before this checkpoint they could
+    // write a proof URL and a recipient name onto an order they raised —
+    // evidence for a delivery they never made.
+    await assertFails(updateDoc(doc(salesRep, "orders", "evTransit5"), proofWrite({
+      proofSubmittedByUid: salesRepUid,
+    })));
+    await assertFails(updateDoc(doc(salesRep, "orders", "evTransit5"), {
+      proofOfDeliveryUrl: "https://storage/fake.jpg", updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Nev15 a dispatcher cannot write delivery evidence", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "evTransit6"), proofWrite()));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "evTransit6"), {
+      proofOfDeliveryUrl: "https://storage/fake.jpg", updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Nev16 an invoice path for a different order is rejected", async () => {
+    await assertFails(updateDoc(doc(rider, "orders", "evTransit7"), invoiceWrite("evTransit7", {
+      invoicePath: "invoices/someOtherOrder/invoice.jpg",
+    })));
+    await assertFails(updateDoc(doc(rider, "orders", "evTransit7"), invoiceWrite("evTransit7", {
+      invoicePath: "invoices/evTransit7/1788246428806.jpg",
+    })));
+  });
+
+  await check("Pev7 location tracking still works alongside the new rules", async () => {
+    // The evidence branch must not have narrowed the ordinary non-status write
+    // that continuous tracking depends on.
+    await assertSucceeds(updateDoc(doc(rider, "orders", "evTransit8"), {
+      lastLocation: { lat: 14.6, lng: 121.0 },
+      lastLocationUpdate: serverTimestamp(),
+      locationAccuracy: 8, heading: 90, speed: 3.4,
+      updatedAt: serverTimestamp(),
+    }));
   });
 
   await testEnv.cleanup();

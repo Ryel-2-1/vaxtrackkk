@@ -26,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>VaxTrack uses the camera to photograph proof of delivery and paper invoices when you complete a vaccine delivery.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>VaxTrack lets you attach a photo of the paper invoice from your library to a completed delivery.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

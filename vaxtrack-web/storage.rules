@@ -1,17 +1,20 @@
 rules_version = '2';
 
-// VaxTrack Cloud Storage security rules — production-oriented DRAFT (2026-07-24).
+// VaxTrack Cloud Storage security rules.
 //
-// NOT DEPLOYED, and Firebase Storage is NOT yet provisioned for this project
-// (a Blaze decision is pending). These rules describe the intended access for
-// when Storage is enabled and the real camera -> Storage proof-upload path is
-// switched on. Until then the app uses a temporary manual-URL proof fallback
-// that writes to Firestore only and never touches Storage.
+// DEPLOYED TO STAGING (vaxtrack-staging) only. Production (vaxtrack-bef1b) has
+// no Storage bucket provisioned and these rules have never been released there.
 //
 // Paths (written by the Flutter Rider app):
-//   proof_of_delivery/{orderId}/{fileName}
-//   invoices/{orderId}/{fileName}
+//   proof_of_delivery/{orderId}/proof.jpg
+//   invoices/{orderId}/invoice.jpg
 // where {orderId} is the Firestore orders/ document ID.
+//
+// The client writes one deterministic object name per order, so a retry
+// overwrites its own failed attempt rather than leaving an orphan behind (there
+// is no delete). These rules do NOT pin the file name — they authorize any
+// object under an order's prefix — so the one-object-per-order guarantee is
+// currently client-side only. Pinning it here is a follow-up.
 //
 // LIMITATION: Storage rules cannot inspect image pixels/EXIF — they can only
 // gate on size + contentType and cross-check the order doc in Firestore. Deeper
@@ -71,21 +74,58 @@ service firebase.storage {
       return isRider() && orderDoc(orderId).assignedRiderId == request.auth.uid;
     }
 
+    // --- evidence replacement policy ---
+    //
+    // Deliberately generous BEFORE the evidence is recorded and closed after.
+    //
+    // A submission is two steps — upload the object, then write the metadata —
+    // and the second can fail on its own. If the first attempt's object were
+    // frozen in place, a rider whose save failed would be stuck: they could
+    // neither replace the photo nor delete it. So while the order carries no
+    // finalized metadata, the assigned rider may overwrite the canonical object
+    // as often as a retry needs. The moment the metadata is recorded, the
+    // object it refers to stops being a draft and becomes the evidence.
+    //
+    // Both conditions read live from Firestore, so they need nothing revoked:
+    // the write stops being permitted on the request after the save lands.
+
+    // The delivery is still under way. A delivered or cancelled order takes no
+    // new evidence at all, whether or not it already has some.
+    function orderAcceptsEvidence(orderId) {
+      return orderDoc(orderId).status != 'delivered'
+        && orderDoc(orderId).status != 'cancelled';
+    }
+
+    // Set by the Firestore proof/invoice submission. Its presence means the
+    // metadata is committed and the object is now referenced by the order.
+    function proofIsFinalized(orderId) {
+      return 'proofSubmittedAt' in orderDoc(orderId);
+    }
+    function invoiceIsFinalized(orderId) {
+      return 'invoiceSubmittedAt' in orderDoc(orderId);
+    }
+
     // Proof-of-delivery photos: written only by the rider the order is assigned
-    // to; read by admin, dispatcher, or the sales rep who created the order.
+    // to, only while the delivery is live and unproven; read by admin,
+    // dispatcher, the sales rep who created the order, or that rider.
     match /proof_of_delivery/{orderId}/{fileName} {
       allow write: if isAssignedRider(orderId)
-        && isImageUnder10MB();
+        && isImageUnder10MB()
+        && orderAcceptsEvidence(orderId)
+        && !proofIsFinalized(orderId);
       allow read: if isAdmin()
         || isDispatcher()
         || (isApproved() && orderDoc(orderId).createdByUid == request.auth.uid)
         || isAssignedRider(orderId);
     }
 
-    // Rider's photo of the paper invoice — same access pattern as proof.
+    // Rider's photo of the paper invoice — same access pattern as proof, with
+    // its own finalization marker so recording one does not lock the other.
     match /invoices/{orderId}/{fileName} {
       allow write: if isAssignedRider(orderId)
-        && isImageUnder10MB();
+        && isImageUnder10MB()
+        && orderAcceptsEvidence(orderId)
+        && !invoiceIsFinalized(orderId);
       allow read: if isAdmin()
         || isDispatcher()
         || (isApproved() && orderDoc(orderId).createdByUid == request.auth.uid)

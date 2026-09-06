@@ -78,6 +78,12 @@ service cloud.firestore {
         'previousAssignedRiderId', 'reassignedAt', 'reassignedByUid'
       ];
     }
+    // A rider's ordinary writes: the lifecycle moves and continuous location.
+    //
+    // Delivery evidence is deliberately ABSENT. It is allowed by its own rules
+    // below, each carrying its own hasOnly(), so an ordinary write simply
+    // cannot name a proof or invoice field — no separate exclusion needed, and
+    // one fewer changedKeys() evaluation on the hot path.
     function riderOrderFields() {
       return [
         'delayReason', 'delayedAt', 'deliveredAt',
@@ -85,11 +91,132 @@ service cloud.firestore {
         // deciding what happens next is the dispatcher's, so no recovery field
         // appears here.
         'deliveryFailedAt', 'deliveryFailedByUid', 'deliveryFailureReason',
-        'heading', 'invoiceUrl',
+        'heading',
         'lastLocation', 'lastLocationUpdate', 'locationAccuracy',
-        'proofOfDeliveryUrl', 'speed', 'startedAt', 'status', 'statusUpdatedAt',
+        'speed', 'startedAt', 'status', 'statusUpdatedAt',
         'statusUpdatedByEmail', 'statusUpdatedByUid', 'updatedAt'
       ];
+    }
+
+    // ---------------- delivery evidence (workflow checkpoint 4) ----------------
+    //
+    // Everything that records HOW a delivery was proven. Any rider write that
+    // touches one of these must be a complete, valid evidence submission —
+    // there is no path that changes a status and attaches evidence in the same
+    // operation, and no path that quietly amends a URL on its own.
+    function evidenceFields() {
+      return [
+        'invoicePath', 'invoiceSubmittedAt', 'invoiceSubmittedByUid',
+        'invoiceUrl', 'proofOfDeliveryPath', 'proofOfDeliveryUrl',
+        'proofRecipientName', 'proofSubmittedAt', 'proofSubmittedByUid'
+      ];
+    }
+
+    // Cheap discriminators: does this write ADD an evidence record?
+    //
+    // Deliberately expressed with `in` on the two documents rather than through
+    // changedKeys(), which recomputes a full `diff()` of the order every time
+    // it is called. Routing on a diff here measurably inflated the per-request
+    // expression count on the rider's ordinary write path — enough to reach the
+    // engine's 1000-expression ceiling, which denies. These two checks cost a
+    // handful of map lookups and let a location write skip the evidence rules
+    // entirely.
+    //
+    // Requiring the marker to be ABSENT before the write is what makes the
+    // record one-shot: a second submission is not an evidence write at all, so
+    // it falls through to the lifecycle rule and is refused there.
+    function isProofSubmissionWrite() {
+      return 'proofSubmittedAt' in request.resource.data
+        && !('proofSubmittedAt' in resource.data);
+    }
+    function isInvoiceSubmissionWrite() {
+      return 'invoiceSubmittedAt' in request.resource.data
+        && !('invoiceSubmittedAt' in resource.data);
+    }
+
+    // Must stay identical to kMaxRecipientNameLength in
+    // vaxtrack_mobile/lib/utils/proof_validation.dart.
+    function maxRecipientNameLength() { return 120; }
+
+    // The person who took delivery: present, meaningful once trimmed, and
+    // bounded. Same shape as isMeaningfulReason, different limit.
+    function isMeaningfulRecipientName(value) {
+      return value is string
+        && value.trim().size() > 0
+        && value.size() <= maxRecipientNameLength();
+    }
+
+    // One object per order, named deterministically, so a retry overwrites its
+    // own failed attempt instead of leaving an undeletable orphan. Must stay
+    // identical to proofObjectPath()/invoiceObjectPath() in proof_validation.dart.
+    function canonicalProofPath(orderId)   { return 'proof_of_delivery/' + orderId + '/proof.jpg'; }
+    function canonicalInvoicePath(orderId) { return 'invoices/' + orderId + '/invoice.jpg'; }
+
+    // Evidence is attached while the delivery is happening — never bolted onto
+    // a delivery that has already closed. `delivered` is deliberately absent:
+    // proof added after the fact is a record of a record, not evidence.
+    function orderAcceptsEvidence() {
+      return priorStatus() == 'in_transit' || priorStatus() == 'delayed';
+    }
+
+    // A rider records proof exactly once.
+    //
+    // Status is untouched: proof does not complete a delivery, and completing
+    // one does not require proof — the two are separate decisions in this
+    // phase. The submission is written whole, server-stamped, and attributed to
+    // the session that made it, so none of the three can be supplied by a
+    // caller.
+    function isValidProofSubmission(orderId) {
+      return !statusChanged()
+        && orderAcceptsEvidence()
+        // Written once. Replacing recorded evidence is an admin repair.
+        && !('proofSubmittedAt' in resource.data)
+        && changedKeys().hasOnly([
+             'proofOfDeliveryPath', 'proofOfDeliveryUrl', 'proofRecipientName',
+             'proofSubmittedAt', 'proofSubmittedByUid', 'updatedAt'
+           ])
+        && changedKeys().hasAll([
+             'proofOfDeliveryUrl', 'proofRecipientName', 'proofSubmittedAt',
+             'proofSubmittedByUid', 'updatedAt'
+           ])
+        && request.resource.data.proofOfDeliveryUrl is string
+        && request.resource.data.proofOfDeliveryUrl.size() > 0
+        && isMeaningfulRecipientName(request.resource.data.proofRecipientName)
+        && request.resource.data.proofSubmittedAt == request.time
+        && request.resource.data.proofSubmittedByUid == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        // When a Storage path is recorded it must be THIS order's canonical
+        // object, so a URL belonging to another delivery cannot be filed here.
+        //
+        // It cannot yet be REQUIRED: the debug-only manual-link fallback records
+        // a URL with no Storage object behind it. Once that fallback is removed
+        // (after the physical-phone camera test), change this to a mandatory
+        // key check and the path becomes fully enforced server-side.
+        && (!('proofOfDeliveryPath' in request.resource.data)
+            || request.resource.data.proofOfDeliveryPath == canonicalProofPath(orderId));
+    }
+
+    // The optional photo of the paper invoice. Same contract, its own one-shot
+    // marker so recording one does not lock the other.
+    function isValidInvoiceSubmission(orderId) {
+      return !statusChanged()
+        && orderAcceptsEvidence()
+        && !('invoiceSubmittedAt' in resource.data)
+        && changedKeys().hasOnly([
+             'invoicePath', 'invoiceSubmittedAt', 'invoiceSubmittedByUid',
+             'invoiceUrl', 'updatedAt'
+           ])
+        && changedKeys().hasAll([
+             'invoiceUrl', 'invoiceSubmittedAt', 'invoiceSubmittedByUid',
+             'updatedAt'
+           ])
+        && request.resource.data.invoiceUrl is string
+        && request.resource.data.invoiceUrl.size() > 0
+        && request.resource.data.invoiceSubmittedAt == request.time
+        && request.resource.data.invoiceSubmittedByUid == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && (!('invoicePath' in request.resource.data)
+            || request.resource.data.invoicePath == canonicalInvoicePath(orderId));
     }
 
     // The failure record. Written once by the rider, then IMMUTABLE — recovery
@@ -319,15 +446,37 @@ service cloud.firestore {
         && statusAuditIsServerStamped();
     }
 
-    // A rider write either changes status through one of their three legal
-    // moves, or leaves status alone entirely — which is what keeps continuous
-    // location tracking and the proof-of-delivery upload working unchanged.
-    function isValidRiderOrderWrite() {
-      return !statusChanged()
-        || isValidDelayReport()
-        || isValidResume()
-        || isValidCompletion()
-        || isValidFailureReport();
+    // A rider's ordinary write: only their own fields, and either one of their
+    // four legal status moves or no status change at all — which is what keeps
+    // continuous location tracking working.
+    //
+    // Because riderOrderFields() excludes every evidence field, this branch can
+    // never carry a proof or an invoice. That is what stops a write from
+    // completing the delivery AND attaching a proof URL in one operation, which
+    // would otherwise have slipped evidence in through isValidCompletion() with
+    // no recipient, no path check and no one-shot marker.
+    function isValidRiderLifecycleWrite() {
+      return changedKeys().hasOnly(riderOrderFields())
+        && (
+          !statusChanged()
+          || isValidDelayReport()
+          || isValidResume()
+          || isValidCompletion()
+          || isValidFailureReport()
+        );
+    }
+
+    // A rider write is a lifecycle write, a proof submission, or an invoice
+    // submission — never a blend. Each alternative carries its own hasOnly(),
+    // and the three key sets are disjoint by construction, so nothing can
+    // satisfy two of them.
+    //
+    // The cheap `in`-based discriminators gate the evidence rules so that an
+    // ordinary location or status write never evaluates them at all.
+    function isValidRiderOrderWrite(orderId) {
+      return (isProofSubmissionWrite() && isValidProofSubmission(orderId))
+        || (isInvoiceSubmissionWrite() && isValidInvoiceSubmission(orderId))
+        || isValidRiderLifecycleWrite();
     }
 
     // ---------------- order clinic-location snapshot (Phase 02A) ----------------
@@ -518,8 +667,7 @@ service cloud.firestore {
         || (
           isRider()
           && resource.data.assignedRiderId == request.auth.uid
-          && changedKeys().hasOnly(riderOrderFields())
-          && isValidRiderOrderWrite()
+          && isValidRiderOrderWrite(orderId)
         )
         || (
           isSalesRep()
@@ -535,6 +683,11 @@ service cloud.firestore {
           && !statusChanged()
           && !changedKeys().hasAny(assignmentIdentityFields())
           && !changedKeys().hasAny(failureRecordFields())
+          // Nor the delivery evidence. A sales rep has no allowlist, so
+          // without this they could write proofOfDeliveryUrl and a recipient
+          // name onto their own order — manufacturing proof for a delivery
+          // they never made. Evidence belongs to the assigned rider alone.
+          && !changedKeys().hasAny(evidenceFields())
           // The snapshot is immutable after creation. Dispatcher and Rider are
           // already confined by their hasOnly() allowlists, which exclude these
           // fields; Sales Rep has no allowlist, so it is stated explicitly here.
