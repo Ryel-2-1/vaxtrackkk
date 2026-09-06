@@ -42,6 +42,13 @@ const disabledSalesRepUid = "disabledSr1";
 const ORDER_A = "orderA";
 const ORDER_B = "orderB"; // assigned to rider2, raised by sr2
 const ORDER_C = "orderC"; // assigned to rider1, raised by a NOW-DISABLED sales rep
+// Orders whose assignedRiderId IS an unapproved rider, so the only thing that
+// can refuse those riders is their standing.
+const ORDER_PENDING_RIDER = "orderPendingRider";
+const ORDER_DISABLED_RIDER = "orderDisabledRider";
+const ORDER_REJECTED_RIDER = "orderRejectedRider";
+// Reassigned mid-test to prove access follows the CURRENT assignment.
+const ORDER_REASSIGN = "orderReassign";
 const MISSING_ORDER = "orderDoesNotExist";
 
 let passed = 0;
@@ -122,6 +129,21 @@ async function main() {
     await set(`orders/${ORDER_C}`, {
       status: "in_transit", assignedRiderId: riderUid, createdByUid: disabledSalesRepUid,
     });
+    // Each is assigned to an unapproved rider, so the assignment half of the
+    // read clause matches and only their standing can refuse them.
+    await set(`orders/${ORDER_PENDING_RIDER}`, {
+      status: "in_transit", assignedRiderId: pendingRiderUid, createdByUid: salesRepUid,
+    });
+    await set(`orders/${ORDER_DISABLED_RIDER}`, {
+      status: "in_transit", assignedRiderId: disabledRiderUid, createdByUid: salesRepUid,
+    });
+    await set(`orders/${ORDER_REJECTED_RIDER}`, {
+      status: "in_transit", assignedRiderId: rejectedRiderUid, createdByUid: salesRepUid,
+    });
+    // Starts with rider1; reassigned to rider2 inside NS20.
+    await set(`orders/${ORDER_REASSIGN}`, {
+      status: "in_transit", assignedRiderId: riderUid, createdByUid: salesRepUid,
+    });
   });
 
   const ctxFor = (uid) =>
@@ -161,6 +183,26 @@ async function main() {
     await assertSucceeds(
       fileFor(riderUid, invoicePath(ORDER_A, "ok1.jpg")).put(Buffer.from(imageBytes), imageMeta)
     );
+  });
+
+  // The exact ImageUploadService sequence, end to end.
+  //
+  // It does `putFile(...)` then `getDownloadURL()` on the SAME ref and returns
+  // the URL for proof_screen to write to Firestore. Under the pre-fix rules the
+  // first call succeeded and the second was denied — the object was stored with
+  // no URL recorded anywhere and the rider could not finish the proof step.
+  // This case is the regression guard for that: asserting only the upload would
+  // have kept passing throughout the defect.
+  await check("PS6 assigned rider completes upload -> getDownloadURL for proof", async () => {
+    const ref = fileFor(riderUid, proofPath(ORDER_A, "seq.jpg"));
+    await assertSucceeds(ref.put(Buffer.from(imageBytes), imageMeta));
+    await assertSucceeds(ref.getDownloadURL());
+  });
+
+  await check("PS7 assigned rider completes upload -> getDownloadURL for invoice", async () => {
+    const ref = fileFor(riderUid, invoicePath(ORDER_A, "seq.jpg"));
+    await assertSucceeds(ref.put(Buffer.from(imageBytes), imageMeta));
+    await assertSucceeds(ref.getDownloadURL());
   });
 
   await check("NS4 a rider assigned to a DIFFERENT order is rejected", async () => {
@@ -276,11 +318,55 @@ async function main() {
     );
   });
 
-  await check("NS15 a rider cannot read files back — documented, not broadened", async () => {
-    // The read clause names admin, dispatcher and the creating sales rep only.
-    // Recorded here as the CURRENT contract rather than quietly widened.
-    await assertFails(fileFor(riderUid, proofPath(ORDER_A, "read.jpg")).getDownloadURL());
+  await check("PS8 the ASSIGNED rider can read their own order's evidence", async () => {
+    await assertSucceeds(fileFor(riderUid, proofPath(ORDER_A, "read.jpg")).getDownloadURL());
+    await assertSucceeds(fileFor(riderUid, invoicePath(ORDER_A, "read.jpg")).getDownloadURL());
+  });
+
+  await check("NS15 an UNRELATED rider still cannot read another order's evidence", async () => {
+    // The grant is scoped to the order the rider is assigned to, nothing wider.
     await assertFails(fileFor(otherRiderUid, proofPath(ORDER_A, "read.jpg")).getDownloadURL());
+    await assertFails(fileFor(otherRiderUid, invoicePath(ORDER_A, "read.jpg")).getDownloadURL());
+  });
+
+  await check("NS19 an unapproved assigned rider cannot read", async () => {
+    // Seeded so the ONLY thing refusing them is their standing: each of these
+    // accounts IS the assignedRiderId on its own order.
+    for (const [orderId, uid] of [
+      [ORDER_PENDING_RIDER, pendingRiderUid],
+      [ORDER_DISABLED_RIDER, disabledRiderUid],
+      [ORDER_REJECTED_RIDER, rejectedRiderUid],
+    ]) {
+      await seedObject(proofPath(orderId, "read.jpg"));
+      await assertFails(fileFor(uid, proofPath(orderId, "read.jpg")).getDownloadURL());
+    }
+  });
+
+  await check("NS20 a PREVIOUS rider loses read access once the order is reassigned", async () => {
+    await seedObject(proofPath(ORDER_REASSIGN, "read.jpg"));
+    // rider1 holds it first and can read.
+    await assertSucceeds(fileFor(riderUid, proofPath(ORDER_REASSIGN, "read.jpg")).getDownloadURL());
+
+    // The dispatcher reassigns it to rider2 (seeded directly, as the Firestore
+    // lifecycle is not under test here).
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await ctx.firestore().doc(`orders/${ORDER_REASSIGN}`).set(
+        { assignedRiderId: otherRiderUid }, { merge: true }
+      );
+    });
+
+    // The rule reads assignedRiderId live, so access flips on the next request.
+    await assertFails(fileFor(riderUid, proofPath(ORDER_REASSIGN, "read.jpg")).getDownloadURL());
+    await assertSucceeds(
+      fileFor(otherRiderUid, proofPath(ORDER_REASSIGN, "read.jpg")).getDownloadURL()
+    );
+  });
+
+  await check("NS21 an employee id, name, email or uid fragment cannot read", async () => {
+    await seedObject(proofPath(ORDER_A, "read.jpg"));
+    for (const fake of ["EMP-4432", "QA Rider", "rider@vaxtrack.com", riderUid.slice(0, 4)]) {
+      await assertFails(fileFor(fake, proofPath(ORDER_A, "read.jpg")).getDownloadURL());
+    }
   });
 
   console.log("\n--- Storage rules: delete and overwrite ---");

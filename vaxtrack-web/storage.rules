@@ -23,6 +23,15 @@ rules_version = '2';
 // delivery-evidence photos of every order they ever raised. Every role helper
 // in firestore.rules already gates on approved standing; this brings Storage
 // into line. Access follows current standing, not past authorship.
+//
+// The assigned rider can also READ their own order's evidence. That is not a
+// convenience: ImageUploadService does `putFile(...)` then `getDownloadURL()`
+// on the same ref and returns the URL for proof_screen to write to Firestore.
+// With upload allowed but every rider read denied, the first call succeeded and
+// the second failed — leaving the object stored in the bucket with no URL
+// recorded anywhere, and no way for the rider to finish the proof step. The
+// grant is scoped by `isAssignedRider`, so it covers only the order they are
+// CURRENTLY assigned to.
 
 service firebase.storage {
   match /b/{bucket}/o {
@@ -50,25 +59,37 @@ service firebase.storage {
         && request.resource.contentType.matches('image/.*');
     }
 
+    // The one identity test used by BOTH write and read on a piece of evidence:
+    // an approved rider who is the order's CURRENTLY assigned rider. Reading
+    // `assignedRiderId` live from the order doc is what makes reassignment take
+    // effect immediately — a rider who has been replaced loses access on their
+    // next request, with nothing to revoke.
+    //
+    // Sharing one helper is deliberate: if write and read each restated the
+    // condition, one could later be relaxed without the other.
+    function isAssignedRider(orderId) {
+      return isRider() && orderDoc(orderId).assignedRiderId == request.auth.uid;
+    }
+
     // Proof-of-delivery photos: written only by the rider the order is assigned
     // to; read by admin, dispatcher, or the sales rep who created the order.
     match /proof_of_delivery/{orderId}/{fileName} {
-      allow write: if isRider()
-        && isImageUnder10MB()
-        && orderDoc(orderId).assignedRiderId == request.auth.uid;
+      allow write: if isAssignedRider(orderId)
+        && isImageUnder10MB();
       allow read: if isAdmin()
         || isDispatcher()
-        || (isApproved() && orderDoc(orderId).createdByUid == request.auth.uid);
+        || (isApproved() && orderDoc(orderId).createdByUid == request.auth.uid)
+        || isAssignedRider(orderId);
     }
 
     // Rider's photo of the paper invoice — same access pattern as proof.
     match /invoices/{orderId}/{fileName} {
-      allow write: if isRider()
-        && isImageUnder10MB()
-        && orderDoc(orderId).assignedRiderId == request.auth.uid;
+      allow write: if isAssignedRider(orderId)
+        && isImageUnder10MB();
       allow read: if isAdmin()
         || isDispatcher()
-        || (isApproved() && orderDoc(orderId).createdByUid == request.auth.uid);
+        || (isApproved() && orderDoc(orderId).createdByUid == request.auth.uid)
+        || isAssignedRider(orderId);
     }
 
     // Deny everything else.
