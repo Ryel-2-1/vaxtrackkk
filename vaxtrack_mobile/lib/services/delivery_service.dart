@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/delivery.dart';
 import '../utils/order_mapping.dart';
+import '../utils/order_workflow.dart';
 import '../utils/safe_log.dart';
 
 /// The rider's deliveries plus the Firestore sync metadata for that snapshot,
@@ -106,22 +107,39 @@ class DeliveryService {
     });
   }
 
-  Future<void> updateStatus(String orderId, String newStatus) {
+  // The rider's lifecycle authority, and nothing more.
+  //
+  // `updateStatus`, `startLoading` and `startTransit` are gone. The first
+  // accepted ANY status string, so a screen could send whatever it liked; the
+  // other two performed assigned → loading and loading → in_transit, which are
+  // Cargo Loading's authority — the dispatcher confirms the cargo is loaded and
+  // finalizes the run. Removing the buttons alone would have left those methods
+  // callable, so the methods went too.
+  //
+  // Each remaining method validates the move against the shared policy BEFORE
+  // touching Firestore, using the delivery's current status. That is a client
+  // guard for fast, clear feedback; the Firestore rules re-check every one of
+  // these independently and remain the authority.
+
+  /// in_transit → delayed. [currentStatus] is the delivery's status as stored.
+  Future<void> reportDelay(String orderId, String currentStatus, String reason) {
+    assertTransition(kActorRider, currentStatus, 'delayed');
+    final trimmed = reason.trim();
+    if (trimmed.isEmpty) {
+      throw const WorkflowException(
+          'delay-reason-required', 'Please give a reason for the delay.');
+    }
     return _db.collection('orders').doc(orderId).update({
-      'status': newStatus,
+      'status': 'delayed',
+      'delayReason': trimmed,
+      'delayedAt': FieldValue.serverTimestamp(),
       ..._auditFields(),
     });
   }
 
-  Future<void> startLoading(String orderId) {
-    return _db.collection('orders').doc(orderId).update({
-      'status': 'loading',
-      'startedAt': FieldValue.serverTimestamp(),
-      ..._auditFields(),
-    });
-  }
-
-  Future<void> startTransit(String orderId) {
+  /// delayed → in_transit.
+  Future<void> resumeTransit(String orderId, String currentStatus) {
+    assertTransition(kActorRider, currentStatus, 'in_transit');
     return _db.collection('orders').doc(orderId).update({
       'status': 'in_transit',
       'startedAt': FieldValue.serverTimestamp(),
@@ -129,19 +147,12 @@ class DeliveryService {
     });
   }
 
-  Future<void> markDelivered(String orderId) {
+  /// in_transit → delivered, or delayed → delivered.
+  Future<void> markDelivered(String orderId, String currentStatus) {
+    assertTransition(kActorRider, currentStatus, 'delivered');
     return _db.collection('orders').doc(orderId).update({
       'status': 'delivered',
       'deliveredAt': FieldValue.serverTimestamp(),
-      ..._auditFields(),
-    });
-  }
-
-  Future<void> reportDelay(String orderId, String reason) {
-    return _db.collection('orders').doc(orderId).update({
-      'status': 'delayed',
-      'delayReason': reason,
-      'delayedAt': FieldValue.serverTimestamp(),
       ..._auditFields(),
     });
   }

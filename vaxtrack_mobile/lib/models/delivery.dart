@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../utils/order_workflow.dart';
+
 class Delivery {
   final String id;
   final String orderNumber;
@@ -194,9 +196,27 @@ class Delivery {
   bool get isCancelled => status == 'cancelled' || status == 'canceled';
   bool get isActive => !isDelivered && !isCancelled;
   bool get isUrgent => priority == 'Urgent' && !isDelivered;
-  bool get canStartLoading => status == 'assigned';
-  bool get canStartTransit => status == 'loading';
-  bool get canDeliver => status == 'in_transit';
+
+  // What the assigned rider may do, derived from the shared lifecycle policy
+  // rather than restated here.
+  //
+  // `canStartLoading` and `canStartTransit` are gone. Loading and dispatch are
+  // Cargo Loading's authority: the dispatcher confirms the cargo is physically
+  // loaded and finalizes the run, and the rider receives an order that is
+  // already in transit. A rider marking their own order "loading" recorded a
+  // warehouse fact they were not in a position to observe.
+  bool get canReportDelay =>
+      canTransition(kActorRider, status, 'delayed').allowed;
+  bool get canResumeTransit =>
+      canTransition(kActorRider, status, 'in_transit').allowed;
+  bool get canComplete =>
+      canTransition(kActorRider, status, 'delivered').allowed;
+
+  /// Assigned, but the dispatcher has not begun loading it yet.
+  bool get isAwaitingLoading => status == 'assigned';
+
+  /// Being loaded; waiting for the dispatcher to finalize dispatch.
+  bool get isAwaitingDispatch => status == 'loading';
 
   static String _getStatus(Map<String, dynamic> data) {
     return (data['status'] ??

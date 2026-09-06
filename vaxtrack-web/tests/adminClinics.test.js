@@ -166,8 +166,14 @@ test("Sales Rep order creation is untouched", () => {
 test("Dispatcher assignment and status flow are untouched", () => {
   const orderService = src("services", "orderService.js");
   assert.match(orderService, /export async function assignRiderToOrder\(/);
-  assert.match(orderService, /export async function updateOrderStatus\(/);
   assert.match(orderService, /export async function createSalesRepOrder\(/);
+  // The dispatcher's status writer is `cancelOrderByDispatcher`. It replaced
+  // the generic `updateOrderStatus(orderId, anyString)` when the lifecycle was
+  // enforced — cancellation is the only status change a dispatcher makes
+  // outside assignment and cargo loading. This case exists to prove the CLINIC
+  // work leaves that flow alone, so it names the current writer.
+  assert.match(orderService, /export async function cancelOrderByDispatcher\(/);
+  assert.doesNotMatch(orderService, /export async function updateOrderStatus\(/);
 });
 
 test("the Phase 02 order location snapshot is untouched", () => {

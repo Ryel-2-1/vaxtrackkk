@@ -3,13 +3,20 @@ import {
   doc,
   onSnapshot,
   query,
+  runTransaction,
   serverTimestamp,
-  updateDoc,
   where,
-  writeBatch,
 } from "firebase/firestore";
-import { db } from "../firebase";
+import { auth, db } from "../firebase";
 import { getOrderStatusValue, normalizeStatusKey } from "./deliveryService";
+import {
+  ACTOR_DISPATCHER,
+  assertTransition,
+  canTransition,
+  canUpdateLoadingMetadata,
+  normalizeStatus,
+  WorkflowError,
+} from "./orderWorkflow";
 
 const ORDERS = "orders";
 const USERS = "users";
@@ -195,45 +202,71 @@ export function subscribeCargoLoadingGroups(callback, onError) {
  * @param {string} [currentStatusKey] normalized status of the order as shown in
  *   the UI; only `"assigned"` triggers the promotion to `loading`.
  */
-export async function updateOrderLoadedState(
-  orderId,
-  isLoaded,
-  dispatcher,
-  currentStatusKey
-) {
-  if (!orderId) throw new Error("Order ID is required.");
+export async function updateOrderLoadedState(orderId, isLoaded) {
+  if (typeof orderId !== "string" || orderId.trim() === "") {
+    throw new WorkflowError("order-id-required", "Order ID is required.");
+  }
+
+  const currentUser = auth.currentUser;
+  if (!currentUser?.uid) {
+    throw new WorkflowError(
+      "not-signed-in",
+      "Your session has expired. Please sign in again."
+    );
+  }
 
   const ref = doc(db, ORDERS, orderId);
   const loaded = !!isLoaded;
 
-  const update = {
-    isLoaded: loaded,
-    updatedAt: serverTimestamp(),
-  };
-
-  if (loaded) {
-    update.loadedAt = serverTimestamp();
-    if (dispatcher?.uid) update.loadedByUid = dispatcher.uid;
-    if (dispatcher?.email) update.loadedByEmail = dispatcher.email;
-
-    // Promote assigned → loading on first confirmation. Uses the same status
-    // audit fields as updateOrderStatus / finalizeRiderDispatch so Admin,
-    // Sales Rep and Shipments all read a consistent trail.
-    if (currentStatusKey === "assigned") {
-      update.status = "loading";
-      update.statusUpdatedAt = serverTimestamp();
-      if (dispatcher?.uid) update.statusUpdatedByUid = dispatcher.uid;
-      if (dispatcher?.email) update.statusUpdatedByEmail = dispatcher.email;
+  // The order's own status decides what may happen, re-read here rather than
+  // taken from the caller. It used to arrive as a `currentStatusKey` argument
+  // derived from the rendered list, so a stale screen could promote an order
+  // that had already moved on.
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) {
+      throw new WorkflowError("order-not-found", "That order no longer exists.");
     }
-  } else {
-    // Clearing a confirmation removes the audit fields so they never go stale.
-    // Status is intentionally left as-is (no regression to `assigned`).
-    update.loadedAt = null;
-    update.loadedByUid = null;
-    update.loadedByEmail = null;
-  }
+    const order = snap.data();
+    const status = normalizeStatus(getOrderStatusValue(order));
 
-  return updateDoc(ref, update);
+    const permitted = canUpdateLoadingMetadata(status);
+    if (!permitted.ok) throw new WorkflowError(permitted.code, permitted.message);
+
+    const update = {
+      isLoaded: loaded,
+      updatedAt: serverTimestamp(),
+    };
+
+    if (loaded) {
+      update.loadedAt = serverTimestamp();
+      update.loadedByUid = currentUser.uid;
+      if (currentUser.email) update.loadedByEmail = currentUser.email;
+
+      // First confirmation of an `assigned` order promotes it to `loading`.
+      // Cargo Loading is the ONLY authority for this step, and the transition
+      // is checked against the shared policy rather than an inline literal.
+      if (status === "assigned") {
+        assertTransition(ACTOR_DISPATCHER, status, "loading");
+        update.status = "loading";
+        update.statusUpdatedAt = serverTimestamp();
+        update.statusUpdatedByUid = currentUser.uid;
+        if (currentUser.email) update.statusUpdatedByEmail = currentUser.email;
+      }
+    } else {
+      // Clearing a confirmation removes the audit fields so they never go
+      // stale. The status is deliberately NOT regressed from `loading` back to
+      // `assigned`: `loading` means preparation has begun, and a silent
+      // backwards move would corrupt the audit trail. `loading → assigned` is
+      // not in the dispatcher matrix at all, so the rules refuse it too.
+      update.loadedAt = null;
+      update.loadedByUid = null;
+      update.loadedByEmail = null;
+    }
+
+    tx.update(ref, update);
+    return { orderId, isLoaded: loaded, status: update.status ?? status };
+  });
 }
 
 /**
@@ -243,39 +276,95 @@ export async function updateOrderLoadedState(
  * or none are — the group is never left partially finalized. Writes dispatch
  * audit fields using server timestamps and does not overwrite unrelated fields.
  */
-export async function finalizeRiderDispatch(riderId, orderIds, dispatcher) {
-  if (!riderId) throw new Error("Rider is required.");
+export async function finalizeRiderDispatch(riderId, orderIds) {
+  if (typeof riderId !== "string" || riderId.trim() === "") {
+    throw new WorkflowError("rider-required", "Rider is required.");
+  }
   if (!Array.isArray(orderIds) || orderIds.length === 0) {
-    throw new Error("No orders to finalize.");
+    throw new WorkflowError("no-orders", "No orders to finalize.");
+  }
+  const uniqueIds = [...new Set(orderIds)];
+
+  const currentUser = auth.currentUser;
+  if (!currentUser?.uid) {
+    throw new WorkflowError(
+      "not-signed-in",
+      "Your session has expired. Please sign in again."
+    );
   }
 
-  const batch = writeBatch(db);
+  // A writeBatch cannot read, so the previous version validated nothing: it
+  // wrote `in_transit` onto whatever ids the rendered group happened to hold.
+  // A transaction reads every order first, rejects the whole dispatch if any
+  // one of them fails, and — because Firestore retries a transaction whose read
+  // set changed — cannot commit against a group that moved underneath it.
+  return runTransaction(db, async (tx) => {
+    const refs = uniqueIds.map((id) => doc(db, ORDERS, id));
 
-  orderIds.forEach((orderId) => {
-    const ref = doc(db, ORDERS, orderId);
-    const update = {
-      // `in_transit` is the existing normalized VaxTrack dispatch status.
-      status: "in_transit",
-      dispatchedAt: serverTimestamp(),
-      loadingFinalizedAt: serverTimestamp(),
-      // Keep the standard status-transition audit fields consistent with
-      // updateOrderStatus so Shipments / Geofence reflect the change correctly.
-      startedAt: serverTimestamp(),
-      statusUpdatedAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    };
-
-    if (dispatcher?.uid) {
-      update.dispatchedByUid = dispatcher.uid;
-      update.statusUpdatedByUid = dispatcher.uid;
-    }
-    if (dispatcher?.email) {
-      update.dispatchedByEmail = dispatcher.email;
-      update.statusUpdatedByEmail = dispatcher.email;
+    // All reads must precede all writes inside a transaction.
+    const snaps = [];
+    for (const ref of refs) {
+      snaps.push(await tx.get(ref));
     }
 
-    batch.update(ref, update);
+    snaps.forEach((snap, index) => {
+      const orderId = uniqueIds[index];
+      if (!snap.exists()) {
+        throw new WorkflowError(
+          "order-not-found",
+          `Order ${orderId} no longer exists. Refresh cargo loading.`
+        );
+      }
+      const order = snap.data();
+
+      // Every order must belong to the rider being dispatched. Without this a
+      // stale or tampered group could sweep another rider's order along.
+      if (order.assignedRiderId !== riderId) {
+        throw new WorkflowError(
+          "order-not-for-rider",
+          "One of these orders is no longer assigned to this rider. Refresh cargo loading."
+        );
+      }
+
+      const status = normalizeStatus(getOrderStatusValue(order));
+      const check = canTransition(ACTOR_DISPATCHER, status, "in_transit");
+      if (!check.ok) {
+        throw new WorkflowError(
+          "order-not-dispatchable",
+          "One of these orders is no longer ready for dispatch. Refresh cargo loading."
+        );
+      }
+
+      // The same condition the UI enables the button on — every order in the
+      // group physically confirmed as loaded.
+      if (order.isLoaded !== true) {
+        throw new WorkflowError(
+          "order-not-loaded",
+          "Every order must be confirmed as loaded before dispatch."
+        );
+      }
+    });
+
+    refs.forEach((ref) => {
+      tx.update(ref, {
+        status: "in_transit",
+        dispatchedAt: serverTimestamp(),
+        loadingFinalizedAt: serverTimestamp(),
+        // Standard status audit fields, consistent with the rest of the app.
+        startedAt: serverTimestamp(),
+        statusUpdatedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        dispatchedByUid: currentUser.uid,
+        statusUpdatedByUid: currentUser.uid,
+        ...(currentUser.email
+          ? {
+              dispatchedByEmail: currentUser.email,
+              statusUpdatedByEmail: currentUser.email,
+            }
+          : {}),
+      });
+    });
+
+    return { riderId, dispatchedOrderIds: uniqueIds };
   });
-
-  return batch.commit();
 }

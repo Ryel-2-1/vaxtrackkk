@@ -9,6 +9,7 @@ import '../services/location_service.dart';
 import '../services/route_deviation_alert_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/nav_availability.dart';
+import '../utils/order_workflow.dart';
 import '../utils/route_utils.dart';
 import '../widgets/delivery_map.dart';
 import 'google_navigation_screen.dart';
@@ -73,21 +74,28 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     }
   }
 
-  // Maps a target status to the matching (audit-stamped) service write. The
-  // order lifecycle and authorization are unchanged — this only routes to the
-  // existing methods.
+  // Routes a target status to the matching audit-stamped service write.
+  //
+  // The `loading` / `in_transit`-from-loading branches are gone with the
+  // buttons that drove them, and there is no longer a `default` that forwards
+  // an arbitrary string: every remaining branch is one of the rider's four
+  // legal moves, and each service method re-validates it against the shared
+  // policy using the delivery's stored status before writing.
   Future<void> _statusWrite(String newStatus) {
     switch (newStatus) {
-      case 'loading':
-        return _deliveryService.startLoading(d.id);
-      case 'in_transit':
-        return _deliveryService.startTransit(d.id);
       case 'delivered':
-        return _deliveryService.markDelivered(d.id);
+        return _deliveryService.markDelivered(d.id, d.status);
+      case 'in_transit':
+        return _deliveryService.resumeTransit(d.id, d.status);
       case 'delayed':
-        return _deliveryService.reportDelay(d.id, _delayReason ?? 'Unknown');
+        return _deliveryService.reportDelay(
+            d.id, d.status, _delayReason ?? '');
       default:
-        return _deliveryService.updateStatus(d.id, newStatus);
+        // Unreachable from the UI; refuse rather than invent a write.
+        throw WorkflowException(
+          'transition-not-allowed',
+          'A rider cannot move a delivery to ${statusLabel(newStatus)}.',
+        );
     }
   }
 
@@ -763,38 +771,92 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     );
   }
 
+  /// A calm, non-actionable panel for the stages the dispatcher owns.
+  Widget _waitingNotice(IconData icon, String title, String detail) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.info.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.info.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: AppColors.info),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, fontSize: 14)),
+                const SizedBox(height: 4),
+                Text(detail,
+                    style: const TextStyle(fontSize: 12.5, height: 1.4)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Rider actions — strictly the assigned rider's authority.
+  ///
+  /// "Start Loading" and "Start Transit" are gone: loading and dispatch belong
+  /// to Cargo Loading, where the dispatcher confirms the cargo is physically
+  /// loaded and finalizes the run. Those two stages now render as waiting
+  /// states, so the rider still sees the order and understands what it is
+  /// waiting for rather than losing it from view.
+  ///
+  /// Report Delay is also no longer offered on every non-delivered order — it
+  /// is a transit action, so it appears only while the delivery is actually
+  /// moving or already delayed.
   Widget _actionButtons() {
+    if (d.isAwaitingLoading) {
+      return _waitingNotice(
+        Icons.inventory_2_outlined,
+        'Waiting for loading',
+        'The dispatcher will confirm this order is loaded. Nothing is needed from you yet.',
+      );
+    }
+
+    if (d.isAwaitingDispatch) {
+      return _waitingNotice(
+        Icons.local_shipping_outlined,
+        'Waiting for dispatch',
+        'This order is being loaded. It becomes in transit once the dispatcher finalizes the run.',
+      );
+    }
+
     return Column(
       children: [
-        if (d.canStartLoading)
+        if (d.canResumeTransit)
           _actionButton(
-            'Start Loading',
-            Icons.inventory,
-            AppColors.info,
-            () => _updateStatus('loading'),
-          ),
-        if (d.canStartTransit)
-          _actionButton(
-            'Start Transit',
-            Icons.local_shipping,
+            'Resume Transit',
+            Icons.play_arrow,
             AppColors.primary,
             () => _updateStatus('in_transit'),
           ),
-        if (d.canDeliver)
+        if (d.canComplete)
           _actionButton(
-            'Mark as Delivered',
+            'Complete Delivery',
             Icons.check_circle,
             AppColors.primary,
             () => _updateStatus('delivered'),
           ),
-        const SizedBox(height: 8),
-        if (!d.isDelivered)
+        if (d.canReportDelay) ...[
+          const SizedBox(height: 8),
           _actionButton(
             'Report Delay',
             Icons.schedule,
             AppColors.urgent,
             _showDelayDialog,
           ),
+        ],
       ],
     );
   }

@@ -1,54 +1,37 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, Package, X } from "lucide-react";
 import { subscribeDeliveries } from "../../services/deliveryService";
-import { updateOrderStatus } from "../../services/orderService";
-import { auth } from "../../firebase";
+import {
+  cancelOrderByDispatcher,
+  MAX_CANCEL_REASON_LENGTH,
+} from "../../services/orderService";
+import { ACTOR_DISPATCHER, canTransition } from "../../services/orderWorkflow";
 import DispatcherLayout from "./DispatcherLayout";
 import StatusBadge from "../../components/ui/StatusBadge";
 import KpiCard from "../../components/ui/KpiCard";
 
-function statusLabel(key) {
-  switch (key) {
-    case "pending_dispatch": return "Pending Dispatch";
-    case "assigned": return "Assigned";
-    case "loading": return "Loading";
-    case "in_transit": return "In Transit";
-    case "delayed": return "Delayed";
-    case "delivered":
-    case "completed": return "Delivered";
-    case "cancelled":
-    case "canceled": return "Cancelled";
-    default: return key || "Unknown";
-  }
-}
+// A local status-label copy used to live here for the status-change toasts.
+// Those toasts are gone with the Delivered/Delay/Resume actions, and the
+// canonical labels now come from the shared policy (orderWorkflow.STATUS_LABELS)
+// so there is one place to correct them.
 
-// Shipments is a monitoring + exception-handling surface, not a dispatch path.
-// Cargo Loading is the canonical route for assigned → loading → in_transit,
-// so "Start loading" and "Dispatch" are intentionally absent here.
-// Delay / Cancel / Resume transit remain as exception handling, and
-// "Mark delivered" stays as a dispatcher override — the normal completion
-// path is the Rider mobile app.
-function nextActions(statusKey) {
-  switch (statusKey) {
-    case "assigned": return [
-      { label: "Delay", next: "delayed", tone: "warning" },
-      { label: "Cancel", next: "cancelled", tone: "danger" },
-    ];
-    case "loading": return [
-      { label: "Delay", next: "delayed", tone: "warning" },
-      { label: "Cancel", next: "cancelled", tone: "danger" },
-    ];
-    case "in_transit": return [
-      { label: "Mark delivered (override)", next: "delivered", tone: "primary" },
-      { label: "Delay", next: "delayed", tone: "warning" },
-      { label: "Cancel", next: "cancelled", tone: "danger" },
-    ];
-    case "delayed": return [
-      { label: "Resume transit", next: "in_transit", tone: "primary" },
-      { label: "Cancel", next: "cancelled", tone: "danger" },
-    ];
-    default: return [];
-  }
+// Shipments is a monitoring surface. Cargo Loading is the canonical route for
+// assigned → loading → in_transit, so "Start loading" and "Dispatch" have long
+// been absent here.
+//
+// "Mark delivered (override)", "Delay" and "Resume transit" are now gone too.
+// Delivering, delaying and resuming belong to the assigned rider who is
+// actually carrying the order — a dispatcher marking an order delivered from a
+// desk records an observation nobody made. Removing the buttons is only half
+// of it: the service they called has been replaced as well, so there is no
+// reachable path left for a dispatcher to perform a rider transition.
+//
+// Cancellation is the one status change a dispatcher still owns here, and it
+// now requires a reason. The decision is derived from the shared policy rather
+// than restated, so this page cannot drift from the matrix the services and
+// rules enforce.
+function canCancel(statusKey) {
+  return canTransition(ACTOR_DISPATCHER, statusKey, "cancelled").ok;
 }
 
 function formatTime(ts) {
@@ -115,20 +98,41 @@ function DispatcherShipments() {
     return orders;
   }, [filterStatus, grouped, orders]);
 
-  const handleStatusUpdate = async (orderId, newStatus) => {
-    setUpdating(orderId);
+  // The order awaiting cancellation confirmation, plus the control that opened
+  // the dialog so focus can be handed back to it.
+  const [cancelTarget, setCancelTarget] = useState(null);
+  const cancelTriggerRef = useRef(null);
+
+  const openCancelDialog = (order, triggerEl) => {
+    cancelTriggerRef.current = triggerEl;
+    setCancelTarget(order);
+  };
+
+  const closeCancelDialog = useCallback(() => {
+    setCancelTarget(null);
+    if (cancelTriggerRef.current) {
+      cancelTriggerRef.current.focus();
+      cancelTriggerRef.current = null;
+    }
+  }, []);
+
+  const handleConfirmCancel = async (order, reason) => {
+    setUpdating(order.id);
     setToast("");
     try {
-      const user = auth.currentUser;
-      await updateOrderStatus(
-        orderId,
-        newStatus,
-        { uid: user?.uid || null, email: user?.email || null }
+      // The service trims and re-validates the reason and re-reads the order
+      // inside its transaction; this page is not the authority on either.
+      await cancelOrderByDispatcher(order.id, reason);
+      closeCancelDialog();
+      showToast(
+        `Order ${order.orderNumber || order.id} cancelled.`,
+        "success"
       );
-      showToast(`Order updated to ${statusLabel(newStatus)}.`, "success");
     } catch (err) {
-      console.error("Status update error:", err);
-      showToast(err.message || "Failed to update status.", "error");
+      console.error("Cancel order error:", err);
+      // WorkflowError messages are already phrased for the operator.
+      showToast(err.message || "Failed to cancel order.", "error");
+      throw err; // lets the dialog keep itself open and release its guard
     } finally {
       setUpdating("");
     }
@@ -252,7 +256,7 @@ function DispatcherShipments() {
                       key={order.id}
                       order={order}
                       updating={updating === order.id}
-                      onStatusUpdate={handleStatusUpdate}
+                      onRequestCancel={openCancelDialog}
                     />
                   ))}
                 </tbody>
@@ -261,13 +265,179 @@ function DispatcherShipments() {
           )}
         </section>
       </div>
+
+      {cancelTarget && (
+        <CancelOrderDialog
+          order={cancelTarget}
+          onDismiss={closeCancelDialog}
+          onConfirm={handleConfirmCancel}
+        />
+      )}
     </DispatcherLayout>
   );
 }
 
-function ShipmentRow({ order, updating, onStatusUpdate }) {
+/**
+ * Confirm-with-reason dialog for cancelling an order.
+ *
+ * Deliberately not `window.prompt`: that is unstyled, unlabelled, cannot be
+ * validated before it closes, and is invisible to the page's own error
+ * handling. This is a real dialog — labelled, focus-contained, Escape-closable,
+ * and it hands focus back to the control that opened it.
+ *
+ * Dismissing changes nothing, and confirming with an empty or whitespace-only
+ * reason performs no write at all: the guard here is for the operator's benefit,
+ * and the service and the Firestore rules each re-check the reason
+ * independently.
+ */
+function CancelOrderDialog({ order, onDismiss, onConfirm }) {
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const dialogRef = useRef(null);
+  const reasonRef = useRef(null);
+
+  const titleId = "cancel-order-title";
+  const descId = "cancel-order-desc";
+  const errorId = "cancel-order-error";
+
+  // Focus the reason field on open, keep Tab inside the dialog, and close on
+  // Escape. Background scrolling is locked while it is open.
+  useEffect(() => {
+    reasonRef.current?.focus();
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onDismiss();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusable = dialogRef.current?.querySelectorAll(
+        'button:not([disabled]), textarea, input, [href], select, [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onDismiss]);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (submittingRef.current) return;
+
+    const trimmed = reason.trim();
+    if (trimmed === "") {
+      setError("Please give a reason for cancelling this order.");
+      reasonRef.current?.focus();
+      return;
+    }
+    if (trimmed.length > MAX_CANCEL_REASON_LENGTH) {
+      setError(`Please keep the reason under ${MAX_CANCEL_REASON_LENGTH} characters.`);
+      reasonRef.current?.focus();
+      return;
+    }
+
+    submittingRef.current = true;
+    setSubmitting(true);
+    setError("");
+    try {
+      await onConfirm(order, trimmed);
+    } catch {
+      // The page has already surfaced the message in its toast; keep the
+      // dialog open so the operator can retry or dismiss.
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="shp-dialog-backdrop" onMouseDown={onDismiss}>
+      <div
+        className="shp-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descId}
+        ref={dialogRef}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="shp-dialog-head">
+          <h2 id={titleId}>Cancel order</h2>
+          <button
+            type="button"
+            className="shp-dialog-close"
+            aria-label="Close without cancelling the order"
+            onClick={onDismiss}
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+
+        <p id={descId} className="shp-dialog-desc">
+          Order {order.orderNumber || order.id} for {order.clinicName || "this clinic"} will
+          be cancelled. This cannot be undone.
+        </p>
+
+        <form onSubmit={submit}>
+          <label htmlFor="cancel-reason">Reason for cancellation</label>
+          <textarea
+            id="cancel-reason"
+            ref={reasonRef}
+            rows={3}
+            value={reason}
+            maxLength={MAX_CANCEL_REASON_LENGTH}
+            aria-describedby={error ? errorId : undefined}
+            aria-invalid={error ? "true" : undefined}
+            onChange={(e) => {
+              setReason(e.target.value);
+              if (error) setError("");
+            }}
+            placeholder="e.g. Clinic closed for the day"
+          />
+
+          <div aria-live="assertive">
+            {error && (
+              <p id={errorId} role="alert" className="shp-dialog-error">
+                {error}
+              </p>
+            )}
+          </div>
+
+          <div className="shp-dialog-actions">
+            <button type="button" className="shp-act-btn" onClick={onDismiss}>
+              Keep order
+            </button>
+            <button type="submit" className="shp-act-btn danger" disabled={submitting}>
+              {submitting && <Loader2 size={12} className="spin" aria-hidden="true" />}
+              {submitting ? "Cancelling..." : "Cancel order"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ShipmentRow({ order, updating, onRequestCancel }) {
   const sKey = order.statusKey;
-  const actions = nextActions(sKey);
+  const cancellable = canCancel(sKey);
   const isDelayed = sKey === "delayed";
 
   const riderName = order.assignedRiderName || "Unassigned";
@@ -308,22 +478,16 @@ function ShipmentRow({ order, updating, onStatusUpdate }) {
       </td>
       <td className="shp-td-meta">{updated}</td>
       <td>
-        {actions.length > 0 ? (
+        {cancellable ? (
           <div className="shp-actions">
-            {actions.map((action) => (
-              <button
-                key={action.next}
-                type="button"
-                className={`shp-act-btn ${action.tone}`}
-                disabled={updating}
-                onClick={() => onStatusUpdate(order.id, action.next)}
-              >
-                {updating && action.tone === "primary" ? (
-                  <Loader2 size={12} className="spin" />
-                ) : null}
-                {action.label}
-              </button>
-            ))}
+            <button
+              type="button"
+              className="shp-act-btn danger"
+              disabled={updating}
+              onClick={(e) => onRequestCancel(order, e.currentTarget)}
+            >
+              Cancel order
+            </button>
           </div>
         ) : (
           <span className="shp-muted">—</span>

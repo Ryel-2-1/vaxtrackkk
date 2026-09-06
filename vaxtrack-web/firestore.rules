@@ -136,6 +136,148 @@ service cloud.firestore {
         && request.resource.data.assignedByUid == request.auth.uid;
     }
 
+    // ---------------- order lifecycle (workflow checkpoint 2) ----------------
+    //
+    // The approved matrix, enforced here independently of the client:
+    //
+    //   Dispatcher: pending_dispatch → assigned      (assignment)
+    //               assigned         → loading       (cargo loading)
+    //               loading          → in_transit    (finalize dispatch)
+    //               any non-terminal → cancelled     (reason required)
+    //   Rider:      in_transit → delayed | delivered
+    //               delayed    → in_transit | delivered
+    //
+    // Nothing else. In particular a dispatcher may not deliver, delay or
+    // resume — those belong to the rider actually carrying the order — and a
+    // rider may not load, dispatch or cancel. `delivered` and `cancelled` are
+    // terminal for everyone: no rule below accepts them as a FROM status.
+    function maxReasonLength() { return 500; }
+
+    function statusChanged() { return changedKeys().hasAny(['status']); }
+    function priorStatus()   { return resource.data.status; }
+    function nextStatus()    { return request.resource.data.status; }
+
+    // Every status write carries the same audit stamp, server-side.
+    function statusAuditIsServerStamped() {
+      return request.resource.data.statusUpdatedAt == request.time
+        && request.resource.data.statusUpdatedByUid == request.auth.uid;
+    }
+
+    // A reason that is actually a reason: present, not blank once trimmed, and
+    // bounded so a single field cannot be used to store arbitrary payloads.
+    function isMeaningfulReason(value) {
+      return value is string
+        && value.trim().size() > 0
+        && value.size() <= maxReasonLength();
+    }
+
+    // --- dispatcher operations ---
+
+    // assigned → loading. Reached only by confirming cargo is loaded.
+    function isValidLoadingPromotion() {
+      return priorStatus() == 'assigned'
+        && nextStatus() == 'loading'
+        && request.resource.data.isLoaded == true
+        && request.resource.data.loadedAt == request.time
+        && statusAuditIsServerStamped();
+    }
+
+    // Ticking/unticking the loaded flag without moving the order. Permitted
+    // only while it is still assigned or loading — never once it has left —
+    // and only over the loading fields themselves.
+    function loadingMetadataFields() {
+      return ['isLoaded', 'loadedAt', 'loadedByEmail', 'loadedByUid', 'updatedAt'];
+    }
+    function isLoadingMetadataUpdate() {
+      return !statusChanged()
+        && (priorStatus() == 'assigned' || priorStatus() == 'loading')
+        && changedKeys().hasOnly(loadingMetadataFields());
+    }
+
+    // Generating a route + ETA touches no status. Enumerated rather than
+    // allowed as a blanket "any write that leaves status alone", which would
+    // have let a dispatcher stamp deliveredAt or delayedAt on any order.
+    function routeFields() {
+      return [
+        'routeDistanceMeters', 'routeDurationSeconds', 'routeEtaText',
+        'routeGeneratedAt', 'routePolyline', 'routeProvider', 'updatedAt'
+      ];
+    }
+    // `routeGeneratedAt` must actually change, so this cannot be used as a
+    // catch-all for a write that only bumps `updatedAt` — `updatedAt` is in the
+    // list below, so hasOnly() alone would have accepted a bare touch of any
+    // order in any status.
+    function isRouteGenerationWrite() {
+      return !statusChanged()
+        && changedKeys().hasOnly(routeFields())
+        && changedKeys().hasAny(['routeGeneratedAt']);
+    }
+
+    // loading → in_transit. The finalize-dispatch step.
+    function isValidDispatch() {
+      return priorStatus() == 'loading'
+        && nextStatus() == 'in_transit'
+        && request.resource.data.dispatchedAt == request.time
+        && request.resource.data.startedAt == request.time
+        && statusAuditIsServerStamped();
+    }
+
+    // Any non-terminal order → cancelled, with a reason.
+    function isValidCancellation() {
+      return (priorStatus() == 'pending_dispatch'
+           || priorStatus() == 'assigned'
+           || priorStatus() == 'loading'
+           || priorStatus() == 'in_transit'
+           || priorStatus() == 'delayed')
+        && nextStatus() == 'cancelled'
+        && isMeaningfulReason(request.resource.data.cancelReason)
+        && request.resource.data.cancelledAt == request.time
+        && statusAuditIsServerStamped();
+    }
+
+    function isValidDispatcherOrderWrite() {
+      return isValidRiderAssignment()
+        || isValidLoadingPromotion()
+        || isLoadingMetadataUpdate()
+        || isRouteGenerationWrite()
+        || isValidDispatch()
+        || isValidCancellation();
+    }
+
+    // --- rider operations ---
+
+    function isValidDelayReport() {
+      return priorStatus() == 'in_transit'
+        && nextStatus() == 'delayed'
+        && isMeaningfulReason(request.resource.data.delayReason)
+        && request.resource.data.delayedAt == request.time
+        && statusAuditIsServerStamped();
+    }
+
+    function isValidResume() {
+      return priorStatus() == 'delayed'
+        && nextStatus() == 'in_transit'
+        && request.resource.data.startedAt == request.time
+        && statusAuditIsServerStamped();
+    }
+
+    function isValidCompletion() {
+      return (priorStatus() == 'in_transit' || priorStatus() == 'delayed')
+        && nextStatus() == 'delivered'
+        && request.resource.data.deliveredAt == request.time
+        && statusAuditIsServerStamped();
+    }
+
+    // A rider write either changes status through one of their three legal
+    // moves, or leaves status alone entirely — which is what keeps continuous
+    // location tracking and the proof-of-delivery upload working unchanged.
+    function isValidRiderOrderWrite() {
+      return !statusChanged()
+        || isValidDelayReport()
+        || isValidResume()
+        || isValidCompletion();
+    }
+
     // ---------------- order clinic-location snapshot (Phase 02A) ----------------
     //
     // An order stores its destination as an order-TIME SNAPSHOT copied from the
@@ -314,16 +456,26 @@ service cloud.firestore {
             isValidRiderAssignment()
             || !changedKeys().hasAny(assignmentIdentityFields())
           )
+          // ...and the write must be one of the dispatcher's approved
+          // operations. There is no blanket "anything that leaves status
+          // alone" escape: the two legitimate non-status writes (loading
+          // metadata and route generation) are enumerated inside.
+          && isValidDispatcherOrderWrite()
         )
         || (
           isRider()
           && resource.data.assignedRiderId == request.auth.uid
           && changedKeys().hasOnly(riderOrderFields())
+          && isValidRiderOrderWrite()
         )
         || (
           isSalesRep()
           && resource.data.createdByUid == request.auth.uid
           && request.resource.data.createdByUid == request.auth.uid
+          // A sales rep raises orders; they do not run deliveries. The order's
+          // lifecycle belongs to the dispatcher and the assigned rider, so the
+          // status is off-limits here even on their own order.
+          && !statusChanged()
           // The snapshot is immutable after creation. Dispatcher and Rider are
           // already confined by their hasOnly() allowlists, which exclude these
           // fields; Sales Rep has no allowlist, so it is stated explicitly here.

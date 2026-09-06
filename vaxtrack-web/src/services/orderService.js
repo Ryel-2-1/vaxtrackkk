@@ -12,6 +12,12 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { buildClinicLocationSnapshot } from "./orderLocation";
+import {
+  ACTOR_DISPATCHER,
+  assertTransition,
+  normalizeStatus,
+  WorkflowError,
+} from "./orderWorkflow";
 
 const ORDERS_COLLECTION = "orders";
 const USERS_COLLECTION = "users";
@@ -351,50 +357,82 @@ export async function startRiderDelivery(orderId) {
   });
 }
 
-// The canonical status graph, kept as the written record of which transitions
-// are legal. NOT yet enforced by `updateOrderStatus` — wiring it up would change
-// status behaviour, which is out of scope here, so it is deliberately retained
-// rather than deleted to satisfy a linter. Pre-dates this branch.
-// eslint-disable-next-line no-unused-vars
-const VALID_STATUS_TRANSITIONS = {
-  pending_dispatch: ["assigned", "cancelled"],
-  assigned: ["loading", "delayed", "cancelled"],
-  loading: ["in_transit", "delayed", "cancelled"],
-  in_transit: ["delivered", "delayed", "cancelled"],
-  delayed: ["in_transit", "cancelled"],
-};
+/**
+ * The longest cancellation reason that may be stored. Mirrored exactly by
+ * `maxCancelReasonLength()` in firestore.rules.
+ */
+export const MAX_CANCEL_REASON_LENGTH = 500;
 
-export async function updateOrderStatus(orderId, newStatus, dispatcher, extra) {
-  if (!orderId) throw new Error("Order ID is required.");
-  if (!newStatus) throw new Error("New status is required.");
+/**
+ * Cancel a non-terminal order, with a reason.
+ *
+ * This REPLACES the former `updateOrderStatus(orderId, newStatus, …)`, which
+ * accepted any string at all — it would happily write `delivered`, `delayed`,
+ * or a typo, from any current status, on behalf of a dispatcher. Cancellation
+ * is the only status change a dispatcher performs outside Cargo Loading and
+ * assignment, so that is the only operation exported here: there is no longer
+ * a generic writer to route around the policy with.
+ *
+ * The order is re-read inside a transaction and the move is checked against
+ * the shared matrix, so an order that has already been delivered, cancelled, or
+ * changed since the screen rendered cannot be cancelled.
+ *
+ * @param {string} orderId
+ * @param {string} reason required, trimmed, non-empty
+ * @returns {Promise<{orderId: string, status: 'cancelled', cancelReason: string}>}
+ * @throws {WorkflowError}
+ */
+export async function cancelOrderByDispatcher(orderId, reason) {
+  if (typeof orderId !== "string" || orderId.trim() === "") {
+    throw new WorkflowError("order-id-required", "Order ID is required.");
+  }
+
+  const cancelReason = typeof reason === "string" ? reason.trim() : "";
+  if (cancelReason === "") {
+    throw new WorkflowError(
+      "cancel-reason-required",
+      "A reason is required to cancel an order."
+    );
+  }
+  if (cancelReason.length > MAX_CANCEL_REASON_LENGTH) {
+    throw new WorkflowError(
+      "cancel-reason-too-long",
+      `Please keep the reason under ${MAX_CANCEL_REASON_LENGTH} characters.`
+    );
+  }
+
+  const currentUser = auth.currentUser;
+  if (!currentUser?.uid) {
+    throw new WorkflowError(
+      "not-signed-in",
+      "Your session has expired. Please sign in again."
+    );
+  }
 
   const orderRef = doc(db, ORDERS_COLLECTION, orderId);
 
-  const update = {
-    status: newStatus,
-    updatedAt: serverTimestamp(),
-    statusUpdatedAt: serverTimestamp(),
-  };
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(orderRef);
+    if (!snap.exists()) {
+      throw new WorkflowError("order-not-found", "That order no longer exists.");
+    }
+    const current = normalizeStatus(snap.data().status);
 
-  if (dispatcher?.uid) update.statusUpdatedByUid = dispatcher.uid;
-  if (dispatcher?.email) update.statusUpdatedByEmail = dispatcher.email;
+    // Rejects terminal orders, unknown statuses and every non-cancel move.
+    assertTransition(ACTOR_DISPATCHER, current, "cancelled");
 
-  if (newStatus === "delivered" || newStatus === "completed") {
-    update.deliveredAt = serverTimestamp();
-  }
-  if (newStatus === "delayed") {
-    update.delayedAt = serverTimestamp();
-    if (extra?.delayReason) update.delayReason = extra.delayReason;
-  }
-  if (newStatus === "in_transit") {
-    update.startedAt = serverTimestamp();
-  }
-  if (newStatus === "cancelled" || newStatus === "canceled") {
-    update.cancelledAt = serverTimestamp();
-    if (extra?.cancelReason) update.cancelReason = extra.cancelReason;
-  }
+    tx.update(orderRef, {
+      status: "cancelled",
+      cancelReason,
+      cancelledAt: serverTimestamp(),
+      statusUpdatedAt: serverTimestamp(),
+      statusUpdatedByUid: currentUser.uid,
+      updatedAt: serverTimestamp(),
+      ...(currentUser.email ? { statusUpdatedByEmail: currentUser.email } : {}),
+    });
 
-  return updateDoc(orderRef, update);
+    return { orderId, status: "cancelled", cancelReason };
+  });
 }
 
 // Persist a generated route + ETA onto an order (Dispatcher Geofence,

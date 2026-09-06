@@ -1,5 +1,6 @@
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
+import { STATUS_LABELS } from "./orderWorkflow";
 
 const ORDERS = "orders";
 
@@ -18,25 +19,30 @@ export const getOrderStatusValue = (data) =>
   data.dispatchStatus ||
   "pending";
 
+/**
+ * Display label for an order status.
+ *
+ * `pending_dispatch`, `assigned` and `loading` all used to render as "Loading",
+ * which said something untrue about the first two: an order awaiting dispatch
+ * has not been given to anyone, and an assigned order has not been loaded. Each
+ * canonical status now shows its own name, taken from the shared policy so the
+ * label exists in exactly one place.
+ *
+ * The legacy read-only aliases stay mapped here — `completed` and `canceled`
+ * appear on historical documents and must still display correctly. This is the
+ * display layer, not the write policy; orderWorkflow deliberately refuses them.
+ * Stored values are never rewritten.
+ */
 export const mapOrderStatusLabel = (statusKey) => {
   switch (statusKey) {
-    case "pending":
-    case "pending_dispatch":
-    case "assigned":
-    case "loading":
-      return "Loading";
-    case "in_transit":
-      return "In Transit";
-    case "delayed":
-      return "Delayed";
-    case "cancelled":
-    case "canceled":
-      return "Cancelled";
     case "completed":
-    case "delivered":
-      return "Delivered";
-    default:
+      return STATUS_LABELS.delivered;
+    case "canceled":
+      return STATUS_LABELS.cancelled;
+    case "pending":
       return "Pending";
+    default:
+      return STATUS_LABELS[statusKey] ?? "Pending";
   }
 };
 

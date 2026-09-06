@@ -138,13 +138,12 @@ function DispatcherCargoLoading() {
     if (savingOrders[order.id]) return; // block duplicate writes
     setSavingOrders((prev) => ({ ...prev, [order.id]: true }));
     try {
-      // statusKey lets the service promote assigned → loading on confirmation.
-      await updateOrderLoadedState(
-        order.id,
-        nextLoaded,
-        dispatcher,
-        order.statusKey
-      );
+      // The service re-reads the order and decides for itself whether the
+      // status permits this and whether to promote assigned → loading. The
+      // rendered `statusKey` is no longer passed — a stale list must not be
+      // able to drive a status change — and the dispatcher's audit identity
+      // now comes from the session inside the service.
+      await updateOrderLoadedState(order.id, nextLoaded);
     } catch (err) {
       console.error("updateOrderLoadedState error:", err);
       showToast(err.message || "Failed to save loaded state.", "error");
@@ -162,10 +161,11 @@ function DispatcherCargoLoading() {
     setFinalizingRider(group.riderId);
     setConfirmGroup(null);
     try {
+      // Every order is re-read and validated inside the service's transaction;
+      // the whole dispatch fails if any one of them is no longer eligible.
       await finalizeRiderDispatch(
         group.riderId,
-        group.orders.map((o) => o.id),
-        dispatcher
+        group.orders.map((o) => o.id)
       );
       // Show the "Dispatched" state briefly; the snapshot then removes the group.
       setDispatchedRiders((prev) => ({ ...prev, [group.riderId]: true }));

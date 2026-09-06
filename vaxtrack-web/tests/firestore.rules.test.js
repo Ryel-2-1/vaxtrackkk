@@ -124,6 +124,46 @@ async function main() {
       createdByUid: salesRepUid, status: "pending_dispatch", assignedRiderId: null,
     });
 
+    // ---- lifecycle fixtures (workflow checkpoint 2) ----
+    // One order per status, per actor under test, since a successful
+    // transition consumes the fixture.
+    const lifecycle = {
+      lcAssigned: "assigned",
+      lcAssigned2: "assigned",
+      lcAssigned3: "assigned",
+      lcLoading: "loading",
+      lcLoading2: "loading",
+      lcLoading3: "loading",
+      lcTransit: "in_transit",
+      lcTransit2: "in_transit",
+      lcTransit3: "in_transit",
+      lcTransit4: "in_transit",
+      lcTransit5: "in_transit",
+      lcDelayed: "delayed",
+      lcDelayed2: "delayed",
+      lcDelayed3: "delayed",
+      lcPending: "pending_dispatch",
+      lcPending2: "pending_dispatch",
+      lcDelivered: "delivered",
+      lcCancelled: "cancelled",
+    };
+    for (const [id, status] of Object.entries(lifecycle)) {
+      await setDoc(doc(db, "orders", id), {
+        createdByUid: salesRepUid,
+        status,
+        assignedRiderId: status === "pending_dispatch" ? null : riderUid,
+        isLoaded: status === "loading",
+        clinicName: "Lifecycle Clinic",
+      });
+    }
+    // Assigned to somebody else — used for the wrong-rider cases.
+    await setDoc(doc(db, "orders", "lcOtherRider"), {
+      createdByUid: salesRepUid,
+      status: "in_transit",
+      assignedRiderId: otherRiderUid,
+      clinicName: "Lifecycle Clinic",
+    });
+
     // Real staging shapes that must stay readable and must NOT be repaired
     // here: an assignment pointing at a user document that no longer exists,
     // and an order carrying only a rider name.
@@ -356,17 +396,21 @@ async function main() {
     await assertSucceeds(getDocs(query(collection(rider, "orders"), where("assignedRiderId", "==", riderUid))));
   });
 
-  await check("P11 rider updates allowed status/location/proof fields on assigned order", async () => {
+  await check("P11 rider updates allowed status/location/proof fields on their own order", async () => {
+    // Completing in_transit → delivered. The status audit and deliveredAt are
+    // now required to be server-stamped (workflow checkpoint 2); they used to
+    // be the client strings "t". The allowlisted field set is unchanged, so
+    // this still proves a rider may write status, location and proof together.
     await assertSucceeds(updateDoc(doc(rider, "orders", "ordRider1"), {
       status: "delivered",
-      deliveredAt: "t",
+      deliveredAt: serverTimestamp(),
       lastLocation: { lat: 14.5, lng: 121.0 },
       lastLocationUpdate: "t",
       locationAccuracy: 5,
       heading: 0,
       speed: 0,
       proofOfDeliveryUrl: "https://x/p.jpg",
-      statusUpdatedAt: "t",
+      statusUpdatedAt: serverTimestamp(),
       statusUpdatedByUid: riderUid,
       statusUpdatedByEmail: "r@x.com",
       updatedAt: "t",
@@ -1070,18 +1114,54 @@ async function main() {
     await assertSucceeds(setDoc(doc(salesRep, "orders", "snapOk4"), newOrder({})));
   });
 
+  // A snapshot-less legacy order still moves through the SAME lifecycle as any
+  // other. These now carry the fields each transition requires (workflow
+  // checkpoint 2) — previously they were bare status writes, which the rules no
+  // longer accept from anyone. The point of the cases is unchanged: missing
+  // Phase 02A snapshot fields must not block the lifecycle.
   await check("Psnap5 legacy order (no snapshot) keeps its dispatcher lifecycle", async () => {
+    // assigned → loading, via the cargo-loading confirmation.
     await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordLegacyNoSnapshot"), {
       status: "loading",
+      isLoaded: true,
+      loadedAt: serverTimestamp(),
       statusUpdatedAt: serverTimestamp(),
+      statusUpdatedByUid: dispatcherUid,
+      updatedAt: serverTimestamp(),
+    }));
+    // loading → in_transit, via finalize dispatch.
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordLegacyNoSnapshot"), {
+      status: "in_transit",
+      dispatchedAt: serverTimestamp(),
+      startedAt: serverTimestamp(),
+      statusUpdatedAt: serverTimestamp(),
+      statusUpdatedByUid: dispatcherUid,
       updatedAt: serverTimestamp(),
     }));
   });
 
   await check("Psnap6 legacy order keeps its rider lifecycle", async () => {
+    // The rider takes over from in_transit: delay, resume, complete.
+    await assertSucceeds(updateDoc(doc(rider, "orders", "ordLegacyNoSnapshot"), {
+      status: "delayed",
+      delayReason: "Traffic on the bridge",
+      delayedAt: serverTimestamp(),
+      statusUpdatedAt: serverTimestamp(),
+      statusUpdatedByUid: riderUid,
+      updatedAt: serverTimestamp(),
+    }));
     await assertSucceeds(updateDoc(doc(rider, "orders", "ordLegacyNoSnapshot"), {
       status: "in_transit",
       startedAt: serverTimestamp(),
+      statusUpdatedAt: serverTimestamp(),
+      statusUpdatedByUid: riderUid,
+      updatedAt: serverTimestamp(),
+    }));
+    await assertSucceeds(updateDoc(doc(rider, "orders", "ordLegacyNoSnapshot"), {
+      status: "delivered",
+      deliveredAt: serverTimestamp(),
+      statusUpdatedAt: serverTimestamp(),
+      statusUpdatedByUid: riderUid,
       updatedAt: serverTimestamp(),
     }));
   });
@@ -1448,6 +1528,261 @@ async function main() {
       assignment(riderUid, { clinicLat: 1.23 })));
     // and the plain assignment on the same order still succeeds
     await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordAssignLater"), assignment(riderUid)));
+  });
+
+  // =========================================================================
+  // Order lifecycle (workflow checkpoint 2)
+  //
+  // Dispatcher: pending_dispatch → assigned → loading → in_transit,
+  //             plus any non-terminal → cancelled (reason required).
+  // Rider:      in_transit ⇄ delayed, and either → delivered.
+  // Nothing else, for anyone.
+  // =========================================================================
+
+  const audit = (uid) => ({
+    statusUpdatedAt: serverTimestamp(),
+    statusUpdatedByUid: uid,
+    updatedAt: serverTimestamp(),
+  });
+  const loadConfirm = () => ({
+    status: "loading",
+    isLoaded: true,
+    loadedAt: serverTimestamp(),
+    ...audit(dispatcherUid),
+  });
+  const dispatchRun = () => ({
+    status: "in_transit",
+    dispatchedAt: serverTimestamp(),
+    startedAt: serverTimestamp(),
+    ...audit(dispatcherUid),
+  });
+  const cancelWith = (reason) => ({
+    status: "cancelled",
+    cancelReason: reason,
+    cancelledAt: serverTimestamp(),
+    ...audit(dispatcherUid),
+  });
+  const delayWith = (reason) => ({
+    status: "delayed",
+    delayReason: reason,
+    delayedAt: serverTimestamp(),
+    ...audit(riderUid),
+  });
+  const resume = () => ({
+    status: "in_transit",
+    startedAt: serverTimestamp(),
+    ...audit(riderUid),
+  });
+  const complete = () => ({
+    status: "delivered",
+    deliveredAt: serverTimestamp(),
+    ...audit(riderUid),
+  });
+
+  // ---- dispatcher: allowed ----
+
+  await check("Plc1 dispatcher confirms loading (assigned → loading)", async () => {
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "lcAssigned"), loadConfirm()));
+  });
+
+  await check("Plc2 dispatcher may re-tick loading metadata without moving the order", async () => {
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "lcLoading"), {
+      isLoaded: false, loadedAt: null, loadedByUid: null, loadedByEmail: null,
+      updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Plc3 dispatcher finalizes dispatch (loading → in_transit)", async () => {
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "lcLoading2"), dispatchRun()));
+  });
+
+  await check("Plc4 dispatcher cancels a non-terminal order with a reason", async () => {
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "lcPending"), cancelWith("Clinic closed")));
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "lcAssigned2"), cancelWith("Rider unavailable")));
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "lcLoading3"), cancelWith("Cold chain breach")));
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "lcTransit"), cancelWith("Recalled")));
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "lcDelayed"), cancelWith("Abandoned")));
+  });
+
+  // ---- dispatcher: forbidden ----
+
+  await check("Nlc1 dispatcher cannot skip loading (assigned → in_transit)", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "lcAssigned3"), dispatchRun()));
+  });
+
+  await check("Nlc2 dispatcher cannot skip assignment (pending_dispatch → loading)", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "lcPending2"), loadConfirm()));
+  });
+
+  await check("Nlc3 dispatcher cannot deliver, delay or resume", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "lcTransit2"), {
+      status: "delivered", deliveredAt: serverTimestamp(), ...audit(dispatcherUid),
+    }));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "lcTransit2"), {
+      status: "delayed", delayReason: "Traffic", delayedAt: serverTimestamp(), ...audit(dispatcherUid),
+    }));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "lcDelayed2"), {
+      status: "in_transit", startedAt: serverTimestamp(), ...audit(dispatcherUid),
+    }));
+  });
+
+  await check("Nlc4 dispatcher cannot promote to loading without confirming the load", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "lcAssigned3"), {
+      status: "loading", ...audit(dispatcherUid),
+    }));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "lcAssigned3"), {
+      status: "loading", isLoaded: false, loadedAt: serverTimestamp(), ...audit(dispatcherUid),
+    }));
+  });
+
+  await check("Nlc5 cancellation requires a meaningful, bounded reason", async () => {
+    for (const reason of ["", "   ", "\n\t", "x".repeat(501)]) {
+      await assertFails(updateDoc(doc(dispatcher, "orders", "lcAssigned3"), cancelWith(reason)));
+    }
+    // Missing entirely.
+    await assertFails(updateDoc(doc(dispatcher, "orders", "lcAssigned3"), {
+      status: "cancelled", cancelledAt: serverTimestamp(), ...audit(dispatcherUid),
+    }));
+  });
+
+  await check("Nlc6 cancellation timestamps and audit cannot be client-forged", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "lcAssigned3"), {
+      ...cancelWith("Clinic closed"), cancelledAt: new Date("2020-01-01T00:00:00Z"),
+    }));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "lcAssigned3"), {
+      ...cancelWith("Clinic closed"), statusUpdatedAt: "t",
+    }));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "lcAssigned3"), {
+      ...cancelWith("Clinic closed"), statusUpdatedByUid: adminUid,
+    }));
+  });
+
+  await check("Nlc7 dispatcher cannot resurrect a terminal order", async () => {
+    for (const id of ["lcDelivered", "lcCancelled"]) {
+      await assertFails(updateDoc(doc(dispatcher, "orders", id), loadConfirm()));
+      await assertFails(updateDoc(doc(dispatcher, "orders", id), dispatchRun()));
+      await assertFails(updateDoc(doc(dispatcher, "orders", id), cancelWith("Reopen")));
+    }
+  });
+
+  await check("Nlc8 dispatcher cannot write an arbitrary status string", async () => {
+    for (const status of ["delivery_failed", "picked_up", "arrived", "completed", "DONE", ""]) {
+      await assertFails(updateDoc(doc(dispatcher, "orders", "lcAssigned3"), {
+        status, ...audit(dispatcherUid),
+      }));
+    }
+  });
+
+  await check("Nlc9 dispatcher cannot touch loading metadata once the order has left", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "lcTransit2"), {
+      isLoaded: false, updatedAt: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "lcDelivered"), {
+      isLoaded: true, loadedAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Nlc10 dispatcher cannot change the clinic snapshot during a lifecycle write", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "lcAssigned3"), {
+      ...loadConfirm(), clinicLat: 1.234,
+    }));
+  });
+
+  // ---- rider: allowed ----
+
+  await check("Plc5 rider reports a delay (in_transit → delayed)", async () => {
+    await assertSucceeds(updateDoc(doc(rider, "orders", "lcTransit3"), delayWith("Heavy traffic")));
+  });
+
+  await check("Plc6 rider resumes transit (delayed → in_transit)", async () => {
+    await assertSucceeds(updateDoc(doc(rider, "orders", "lcDelayed3"), resume()));
+  });
+
+  await check("Plc7 rider completes from in_transit and from delayed", async () => {
+    await assertSucceeds(updateDoc(doc(rider, "orders", "lcTransit4"), complete()));
+    await assertSucceeds(updateDoc(doc(rider, "orders", "lcTransit3"), complete())); // now delayed
+  });
+
+  await check("Plc8 rider location writes still need no status change", async () => {
+    // Continuous tracking is unchanged by this checkpoint.
+    await assertSucceeds(updateDoc(doc(rider, "orders", "lcTransit5"), {
+      lastLocation: { lat: 14.6, lng: 121.0 },
+      lastLocationUpdate: serverTimestamp(),
+      locationAccuracy: 8, heading: 90, speed: 3.4,
+      updatedAt: serverTimestamp(),
+    }));
+  });
+
+  // ---- rider: forbidden ----
+
+  await check("Nlc11 rider cannot start loading or dispatch", async () => {
+    await assertFails(updateDoc(doc(rider, "orders", "lcAssigned3"), {
+      status: "loading", isLoaded: true, ...audit(riderUid),
+    }));
+    await assertFails(updateDoc(doc(rider, "orders", "lcLoading"), {
+      status: "in_transit", startedAt: serverTimestamp(), ...audit(riderUid),
+    }));
+  });
+
+  await check("Nlc12 rider cannot cancel", async () => {
+    await assertFails(updateDoc(doc(rider, "orders", "lcTransit5"), {
+      status: "cancelled", cancelReason: "Cannot be bothered",
+      cancelledAt: serverTimestamp(), ...audit(riderUid),
+    }));
+  });
+
+  await check("Nlc13 rider cannot move an order backwards", async () => {
+    for (const status of ["pending_dispatch", "assigned", "loading"]) {
+      await assertFails(updateDoc(doc(rider, "orders", "lcTransit5"), {
+        status, ...audit(riderUid),
+      }));
+    }
+  });
+
+  await check("Nlc14 rider cannot write an arbitrary status string", async () => {
+    for (const status of ["delivery_failed", "arrived", "completed", "DELIVERED", ""]) {
+      await assertFails(updateDoc(doc(rider, "orders", "lcTransit5"), {
+        status, ...audit(riderUid),
+      }));
+    }
+  });
+
+  await check("Nlc15 rider cannot resurrect a terminal order", async () => {
+    await assertFails(updateDoc(doc(rider, "orders", "lcTransit4"), resume())); // now delivered
+    await assertFails(updateDoc(doc(rider, "orders", "lcTransit4"), delayWith("Too late")));
+  });
+
+  await check("Nlc16 a delay needs a meaningful, bounded reason", async () => {
+    for (const reason of ["", "   ", "x".repeat(501)]) {
+      await assertFails(updateDoc(doc(rider, "orders", "lcTransit5"), delayWith(reason)));
+    }
+    await assertFails(updateDoc(doc(rider, "orders", "lcTransit5"), {
+      status: "delayed", delayedAt: serverTimestamp(), ...audit(riderUid),
+    }));
+  });
+
+  await check("Nlc17 rider timestamps and audit cannot be client-forged", async () => {
+    await assertFails(updateDoc(doc(rider, "orders", "lcTransit5"), {
+      ...complete(), deliveredAt: new Date("2020-01-01T00:00:00Z"),
+    }));
+    await assertFails(updateDoc(doc(rider, "orders", "lcTransit5"), {
+      ...complete(), statusUpdatedByUid: dispatcherUid,
+    }));
+    await assertFails(updateDoc(doc(rider, "orders", "lcTransit5"), {
+      ...delayWith("Traffic"), delayedAt: "t",
+    }));
+  });
+
+  await check("Nlc18 a rider cannot act on another rider's order", async () => {
+    await assertFails(updateDoc(doc(rider, "orders", "lcOtherRider"), complete()));
+    await assertFails(updateDoc(doc(rider, "orders", "lcOtherRider"), delayWith("Traffic")));
+    await assertFails(getDoc(doc(rider, "orders", "lcOtherRider")));
+  });
+
+  await check("Nlc19 sales rep cannot change delivery status at all", async () => {
+    for (const payload of [complete(), delayWith("Traffic"), cancelWith("No longer needed")]) {
+      await assertFails(updateDoc(doc(salesRep, "orders", "ordSR1"), payload));
+    }
   });
 
   await testEnv.cleanup();

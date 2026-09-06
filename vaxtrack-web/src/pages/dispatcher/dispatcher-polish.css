@@ -357,3 +357,124 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
 .dispatcher-page option {
   font-family: var(--font-ui);
 }
+
+/* ============================================================
+   Cancel-order confirmation dialog (Shipments).
+   Scoped to the Dispatcher layer like everything else in this file.
+   ============================================================ */
+.dispatcher-page .shp-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.dispatcher-page .shp-dialog {
+  width: 100%;
+  max-width: 460px;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 20px;
+  border: 1px solid var(--gray-200);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 12px 32px rgba(16, 24, 40, 0.22);
+}
+
+.dispatcher-page .shp-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dispatcher-page .shp-dialog-head h2 {
+  margin: 0 !important;
+  font-size: 16px !important;
+  font-weight: 700;
+  color: var(--gray-900);
+}
+
+.dispatcher-page .shp-dialog-close {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  min-height: 0 !important;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--gray-500);
+  cursor: pointer;
+}
+.dispatcher-page .shp-dialog-close:hover {
+  background: var(--gray-100);
+  color: var(--gray-900);
+}
+
+.dispatcher-page .shp-dialog-desc {
+  margin: 8px 0 14px !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+  color: var(--gray-600) !important;
+}
+
+.dispatcher-page .shp-dialog label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--gray-700);
+}
+
+.dispatcher-page .shp-dialog textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  min-height: 76px !important;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  font-size: 14px !important;
+  resize: vertical;
+}
+.dispatcher-page .shp-dialog textarea:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 1px;
+}
+
+.dispatcher-page .shp-dialog-error {
+  margin: 8px 0 0 !important;
+  padding: 8px 10px;
+  border: 1px solid var(--danger-border);
+  border-radius: 8px;
+  background: var(--danger-bg);
+  color: var(--danger-text) !important;
+  font-size: 12.5px !important;
+}
+
+.dispatcher-page .shp-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* Keep both actions reachable without horizontal scrolling on a phone. */
+@media (max-width: 480px) {
+  .dispatcher-page .shp-dialog-actions {
+    flex-direction: column-reverse;
+  }
+  .dispatcher-page .shp-dialog-actions .shp-act-btn {
+    width: 100%;
+  }
+}
