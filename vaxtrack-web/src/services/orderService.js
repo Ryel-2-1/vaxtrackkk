@@ -4,21 +4,34 @@ import {
   doc,
   getDoc,
   onSnapshot,
+  runTransaction,
   serverTimestamp,
   updateDoc,
   where,
   query,
 } from "firebase/firestore";
-import { db } from "../firebase";
+import { auth, db } from "../firebase";
 import { buildClinicLocationSnapshot } from "./orderLocation";
 
 const ORDERS_COLLECTION = "orders";
+const USERS_COLLECTION = "users";
 
+// IDENTITY RULE for every order read in this file.
+//
+// The Firestore document id is the order's only identity: every write in the
+// app targets `orders/{id}`, and the rules match a rider's own orders on that
+// path. Spreading the document data AFTER `id` let a stored field named `id`
+// silently replace it, which would point a later assign/status/cargo write at
+// a different document. So the document id is always assigned last and wins.
+//
+// It is never derived from `orderNumber`, an invoice number, `clinicId`,
+// `clinicDocId`, or a rider identifier — those are business identifiers and
+// are not interchangeable with document identity.
 export async function getOrderById(orderId) {
   if (!orderId) return null;
   const snap = await getDoc(doc(db, ORDERS_COLLECTION, orderId));
   if (!snap.exists()) return null;
-  return { id: snap.id, ...snap.data() };
+  return { ...snap.data(), id: snap.id };
 }
 
 export async function createSalesRepOrder(orderData = {}) {
@@ -111,7 +124,8 @@ export function subscribeSalesRepOrders(uid, callback, onError) {
     q,
     (snapshot) => {
       const orders = snapshot.docs
-        .map((docItem) => ({ id: docItem.id, ...docItem.data() }))
+        // document id last — see the identity rule above
+        .map((docItem) => ({ ...docItem.data(), id: docItem.id }))
         .sort((a, b) => {
           const aMs = a.createdAt?.toMillis?.() ?? 0;
           const bMs = b.createdAt?.toMillis?.() ?? 0;
@@ -133,35 +147,173 @@ export function subscribePendingDispatchOrders(callback) {
   );
 
   return onSnapshot(q, (snapshot) => {
+    // document id last — see the identity rule above
     const orders = snapshot.docs.map((docItem) => ({
-      id: docItem.id,
       ...docItem.data(),
+      id: docItem.id,
     }));
 
     callback(orders);
   });
 }
 
-export async function assignRiderToOrder(orderId, rider, dispatcher) {
-  if (!orderId) {
-    throw new Error("Order ID is required.");
+/**
+ * A rejected assignment. `code` is stable and machine-readable; `message` is
+ * already phrased for display, so the page can surface it without translating.
+ */
+export class AssignmentError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "AssignmentError";
+    this.code = code;
+  }
+}
+
+// The canonical rider identity, matched exactly. A user is assignable only when
+// their STORED role and status say so — never because the UI offered them.
+const RIDER_ROLE = "rider";
+const RIDER_APPROVED_STATUS = "approved";
+const ASSIGNABLE_FROM_STATUS = "pending_dispatch";
+
+/** First non-empty trimmed string, or null. Never invents a value. */
+function firstNonEmptyString(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim() !== "") return value.trim();
+  }
+  return null;
+}
+
+/**
+ * Whether an order already carries a rider.
+ *
+ * Absent, null and the empty string mean unassigned — sales-rep-created orders
+ * start with an explicit null. Deliberately uses the RAW string length rather
+ * than a trimmed one so this agrees exactly with `hasNoAssignedRider()` in
+ * firestore.rules, which can only test `size() == 0`. If the two disagreed, a
+ * whitespace-only value would pass here and then be refused by the rules.
+ * Anything that is not a string is treated as assigned, matching the rule.
+ */
+function hasAssignedRider(order) {
+  const value = order.assignedRiderId;
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.length > 0;
+  return true;
+}
+
+/**
+ * Assign an approved rider to a pending order, atomically.
+ *
+ * Takes the order DOCUMENT id and the rider's Firestore/Auth UID — the same
+ * value as the `users` document id. An employee id or any other display
+ * identifier is never accepted as the assignment identity.
+ *
+ * Everything that decides whether the assignment is legal is re-read INSIDE a
+ * transaction, so the caller's view of the world is never trusted:
+ *
+ *   - the order must exist, still be `pending_dispatch`, and still carry no
+ *     usable `assignedRiderId`;
+ *   - the user must exist, with stored role exactly `rider` and stored status
+ *     exactly `approved`.
+ *
+ * That closes the race the previous version had: the order id arrived from
+ * localStorage and was written with `updateDoc`, so two dispatchers acting on
+ * the same queue entry both succeeded and the later write silently replaced the
+ * earlier rider. Firestore re-runs a transaction whose read set changed, so the
+ * loser now re-reads an order that is already `assigned` and is rejected.
+ *
+ * A rider may hold any number of active deliveries — no per-rider limit is
+ * enforced here, by decision.
+ *
+ * Display fields are copied from the rider DOCUMENT, never from the caller, and
+ * only when genuinely present: a rider with no phone on record simply gets no
+ * `assignedRiderPhone` rather than an invented one.
+ *
+ * @returns {Promise<{orderId: string, riderUid: string, assignedRiderName: string|null}>}
+ * @throws {AssignmentError}
+ */
+export async function assignRiderToOrder(orderId, riderUid) {
+  if (typeof orderId !== "string" || orderId.trim() === "") {
+    throw new AssignmentError("order-id-required", "Order ID is required.");
+  }
+  if (typeof riderUid !== "string" || riderUid.trim() === "") {
+    throw new AssignmentError("rider-uid-required", "Please select an available rider.");
+  }
+
+  // The dispatcher's own identity comes from the session, not from a caller
+  // argument, so the audit trail cannot be attributed to someone else. The
+  // Firestore rule also requires this to equal request.auth.uid.
+  const currentUser = auth.currentUser;
+  if (!currentUser?.uid) {
+    throw new AssignmentError(
+      "not-signed-in",
+      "Your session has expired. Please sign in again."
+    );
   }
 
   const orderRef = doc(db, ORDERS_COLLECTION, orderId);
+  const riderRef = doc(db, USERS_COLLECTION, riderUid);
 
-  const update = {
-    status: "assigned",
-    assignedRiderId: rider.id,
-    assignedRiderName: rider.name,
-    assignedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  };
+  return runTransaction(db, async (tx) => {
+    // Both reads happen before any write, as Firestore transactions require.
+    const orderSnap = await tx.get(orderRef);
+    if (!orderSnap.exists()) {
+      throw new AssignmentError("order-not-found", "That order no longer exists.");
+    }
+    const order = orderSnap.data();
 
-  if (rider.phone) update.assignedRiderPhone = rider.phone;
-  if (dispatcher?.uid) update.assignedByUid = dispatcher.uid;
-  if (dispatcher?.email) update.assignedByEmail = dispatcher.email;
+    if (order.status !== ASSIGNABLE_FROM_STATUS) {
+      throw new AssignmentError(
+        "order-not-pending",
+        "That order is no longer awaiting dispatch. Refresh the queue."
+      );
+    }
+    if (hasAssignedRider(order)) {
+      throw new AssignmentError(
+        "order-already-assigned",
+        "That order has already been assigned to a rider."
+      );
+    }
 
-  return updateDoc(orderRef, update);
+    const riderSnap = await tx.get(riderRef);
+    if (!riderSnap.exists()) {
+      throw new AssignmentError("rider-not-found", "That rider account no longer exists.");
+    }
+    const rider = riderSnap.data();
+
+    if (rider.role !== RIDER_ROLE) {
+      throw new AssignmentError("not-a-rider", "That account is not a rider.");
+    }
+    if (rider.status !== RIDER_APPROVED_STATUS) {
+      throw new AssignmentError(
+        "rider-not-approved",
+        "That rider is not approved for assignment."
+      );
+    }
+
+    // Authoritative display values, read from the rider document.
+    const assignedRiderName = firstNonEmptyString(
+      rider.fullName,
+      rider.name,
+      rider.displayName,
+      rider.email
+    );
+    const assignedRiderPhone = firstNonEmptyString(rider.phone, rider.contactNumber);
+
+    const update = {
+      status: "assigned",
+      assignedRiderId: riderUid,
+      assignedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      assignedByUid: currentUser.uid,
+    };
+    if (assignedRiderName) update.assignedRiderName = assignedRiderName;
+    if (assignedRiderPhone) update.assignedRiderPhone = assignedRiderPhone;
+    if (currentUser.email) update.assignedByEmail = currentUser.email;
+
+    tx.update(orderRef, update);
+
+    return { orderId, riderUid, assignedRiderName };
+  });
 }
 
 export function subscribeAssignedRiderOrders(riderId, callback) {
@@ -172,9 +324,10 @@ export function subscribeAssignedRiderOrders(riderId, callback) {
 
   return onSnapshot(q, (snapshot) => {
     const orders = snapshot.docs
+      // document id last — see the identity rule above
       .map((docItem) => ({
-        id: docItem.id,
         ...docItem.data(),
+        id: docItem.id,
       }))
       .filter(
         (order) => order.status === "assigned" || order.status === "in_transit"

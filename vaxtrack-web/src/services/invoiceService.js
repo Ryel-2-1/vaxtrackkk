@@ -163,7 +163,10 @@ export function subscribeInvoiceQueue(callback, onError) {
   const unsubOrders = onSnapshot(
     collection(db, ORDERS),
     (snap) => {
-      orders = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      // Document id last: this order id becomes the invoice document id (one
+      // invoice per order) and is written back to orders/{id} by
+      // updateInvoicePriority, so a stored `id` field must not displace it.
+      orders = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
       ordersLoaded = true;
       emit();
     },

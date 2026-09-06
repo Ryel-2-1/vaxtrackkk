@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
@@ -14,7 +14,9 @@ import {
 } from "lucide-react";
 import { assignRiderToOrder } from "../../services/orderService";
 import { subscribeRiders } from "../../services/riderService";
-import { auth } from "../../firebase";
+// `auth` is no longer imported here: the dispatcher's audit identity is taken
+// from the session inside assignRiderToOrder, so this page cannot supply — or
+// mis-supply — who performed the assignment.
 import DispatcherLayout from "./DispatcherLayout";
 import StatusBadge from "../../components/ui/StatusBadge";
 
@@ -38,21 +40,26 @@ function DispatcherAssignRider() {
   const [ridersError, setRidersError] = useState("");
 
   const [selectedRiderId, setSelectedRiderId] = useState("");
-  const [selectedOrder, setSelectedOrder] = useState(null);
+  // The handed-off order is read once, during the first render, rather than in
+  // a mount effect that immediately called setState — which `react-hooks/
+  // set-state-in-effect` reports, and which rendered once with `null` before
+  // correcting itself. localStorage is synchronous, so a lazy initializer reads
+  // exactly the same value at the same point in the lifecycle, without the
+  // extra render. This is display data for the order summary panel only; the
+  // authoritative order id is re-read from localStorage at submit time and
+  // re-validated inside the service transaction.
+  const [selectedOrder] = useState(() => {
+    try {
+      const stored = localStorage.getItem("selectedDispatchOrder");
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null; // ignore parse errors
+    }
+  });
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [toastType, setToastType] = useState("success");
-
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem("selectedDispatchOrder");
-      if (stored) {
-        setSelectedOrder(JSON.parse(stored));
-      }
-    } catch {
-      // ignore parse errors
-    }
-  }, []);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     const unsubscribe = subscribeRiders(
@@ -78,6 +85,16 @@ function DispatcherAssignRider() {
   const otherRiders = riders.filter((r) => r.status !== "approved");
 
   const handleConfirmAssignment = async () => {
+    // Synchronous guard: `saving` is React state and is not visible to a second
+    // click fired before the next render, so it cannot stop a double submit on
+    // its own. The service is transactional and would reject the duplicate
+    // anyway, but rejecting it here avoids showing the operator an error for
+    // something they did not really do twice.
+    if (submittingRef.current) return;
+
+    // The order id travels through localStorage purely as navigation state. It
+    // is NOT evidence that the order is still assignable — the service re-reads
+    // and re-validates the order inside its transaction.
     const orderId = localStorage.getItem("selectedDispatchOrderId");
     if (!orderId) {
       showToast("No order selected. Go back to Dashboard.", "error");
@@ -90,21 +107,18 @@ function DispatcherAssignRider() {
       return;
     }
 
+    submittingRef.current = true;
     setSaving(true);
     setToast("");
 
     try {
-      const user = auth.currentUser;
-      const riderName = rider.fullName || rider.name || rider.displayName || rider.email;
-      const riderPhone = rider.phone || rider.contactNumber || "";
+      // Only the two identities are sent. The rider's name and phone are read
+      // from the rider document by the service, so nothing this page holds can
+      // become the stored assignment data.
+      const result = await assignRiderToOrder(orderId, rider.uid);
 
-      await assignRiderToOrder(
-        orderId,
-        { id: rider.uid, name: riderName, phone: riderPhone },
-        { uid: user?.uid || null, email: user?.email || null }
-      );
-
-      showToast(`Rider ${riderName} assigned successfully.`, "success");
+      const assignedName = result?.assignedRiderName || "Rider";
+      showToast(`Rider ${assignedName} assigned successfully.`, "success");
 
       localStorage.removeItem("selectedDispatchOrderId");
       localStorage.removeItem("selectedDispatchOrder");
@@ -112,7 +126,12 @@ function DispatcherAssignRider() {
       setTimeout(() => navigate("/dispatcher"), 1200);
     } catch (err) {
       console.error("Assign rider error:", err);
+      // AssignmentError messages are already written for the operator.
       showToast(err.message || "Unable to assign rider. Please try again.", "error");
+      // Released only on failure. After a success the guard stays closed
+      // through the 1.2s confirmation delay, so the operator cannot fire a
+      // second assignment while the redirect is pending.
+      submittingRef.current = false;
     } finally {
       setSaving(false);
     }
@@ -126,7 +145,13 @@ function DispatcherAssignRider() {
   const getRiderName = (r) => r.fullName || r.name || r.displayName || r.email || "Unknown";
   const getRiderVehicle = (r) => r.vehiclePlate || r.motorcycle || r.motorcycleId || r.vehicle || "Motorcycle";
   const getRiderPhone = (r) => r.phone || r.contactNumber || "";
-  const getRiderEmployeeId = (r) => r.employeeId || r.uid?.slice(0, 8) || "—";
+  // Employee id is display-only, and only when the rider actually has one.
+  // This used to fall back to `uid.slice(0, 8)`, which rendered a fragment of
+  // the rider's Auth UID under an "ID" label — an identifier the operator could
+  // reasonably read back as an employee number. Riders without an employee id
+  // now show nothing rather than a borrowed one. The UID is never displayed;
+  // it is only ever used as the assignment identity.
+  const getRiderEmployeeId = (r) => r.employeeId || "";
 
   const selectedRider = approvedRiders.find((r) => r.uid === selectedRiderId) || null;
   const canAssign = !saving && !!selectedRiderId && !!selectedOrder;
@@ -216,7 +241,8 @@ function DispatcherAssignRider() {
                       <div className="ar-rider-info">
                         <strong>{name}</strong>
                         <small>
-                          {vehicle} · ID {empId}
+                          {vehicle}
+                          {empId && ` · ID ${empId}`}
                         </small>
                         {phone && (
                           <small className="ar-rider-phone">

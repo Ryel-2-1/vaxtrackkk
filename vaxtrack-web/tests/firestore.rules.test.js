@@ -103,6 +103,38 @@ async function main() {
     await setDoc(doc(db, "inventory", "inv1"), { vaccineName: "X", quantity: 10 });
     await setDoc(doc(db, "clinics", "cl1"), { name: "Clinic A" });
 
+    // ---- rider-assignment fixtures (workflow checkpoint 1) ----
+    await setDoc(doc(db, "users", "disabledRider1"), { role: "rider", status: "disabled", email: "dr@x.com" });
+    await setDoc(doc(db, "users", "rejectedRider1"), { role: "rider", status: "rejected", email: "rr@x.com" });
+
+    // One order per positive case, since a successful assignment consumes it.
+    for (const id of ["ordAssignOk", "ordAssignOk2", "ordAssignSame", "ordAssignLater"]) {
+      await setDoc(doc(db, "orders", id), {
+        createdByUid: salesRepUid, status: "pending_dispatch", assignedRiderId: null,
+      });
+    }
+    // Rejection fixtures.
+    await setDoc(doc(db, "orders", "ordAssignBadStatus"), {
+      createdByUid: salesRepUid, status: "loading", assignedRiderId: null,
+    });
+    await setDoc(doc(db, "orders", "ordAssignTaken"), {
+      createdByUid: salesRepUid, status: "pending_dispatch", assignedRiderId: otherRiderUid,
+    });
+    await setDoc(doc(db, "orders", "ordAssignReject"), {
+      createdByUid: salesRepUid, status: "pending_dispatch", assignedRiderId: null,
+    });
+
+    // Real staging shapes that must stay readable and must NOT be repaired
+    // here: an assignment pointing at a user document that no longer exists,
+    // and an order carrying only a rider name.
+    await setDoc(doc(db, "orders", "ordOrphanAssignment"), {
+      createdByUid: salesRepUid, status: "in_transit", assignedRiderId: "ghostRiderUid",
+      assignedRiderName: "Ghost Rider",
+    });
+    await setDoc(doc(db, "orders", "ordNameOnly"), {
+      createdByUid: salesRepUid, status: "delayed", assignedRiderName: "Name Only Rider",
+    });
+
     // ---- Phase 02A order-snapshot fixtures ----
     // Dedicated clinics so these cases never depend on cl1, which Pclin1 mutates.
     await setDoc(doc(db, "clinics", "clVerified"), {
@@ -285,12 +317,16 @@ async function main() {
   });
 
   await check("P6 dispatcher updates allowed order fields", async () => {
+    // `assignedAt` is now required to be server-stamped (workflow checkpoint 1)
+    // — it used to be the client string "t". The field list is otherwise
+    // unchanged; this case still proves the dispatcher allowlist accepts the
+    // full assignment payload.
     await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordSR1"), {
       status: "assigned",
       assignedRiderId: riderUid,
       assignedRiderName: "R",
       assignedRiderPhone: "0917",
-      assignedAt: "t",
+      assignedAt: serverTimestamp(),
       assignedByUid: dispatcherUid,
       assignedByEmail: "d@x.com",
       updatedAt: "t",
@@ -1244,6 +1280,174 @@ async function main() {
       clinicGeofenceRadiusM: 150,
       clinicLocationVerified: true,
     })));
+  });
+
+  // =========================================================================
+  // Rider assignment (workflow checkpoint 1)
+  //
+  // The rules must reach the same verdict as assignRiderToOrder's transaction
+  // even when the client is bypassed entirely.
+  // =========================================================================
+
+  /** A well-formed assignment payload, overridable per case. */
+  const assignment = (riderId, over = {}) => ({
+    status: "assigned",
+    assignedRiderId: riderId,
+    assignedRiderName: "QA Rider",
+    assignedAt: serverTimestamp(),
+    assignedByUid: dispatcherUid,
+    updatedAt: serverTimestamp(),
+    ...over,
+  });
+
+  await check("Passign1 dispatcher assigns an approved rider to a pending order", async () => {
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordAssignOk"), assignment(riderUid)));
+  });
+
+  await check("Passign2 the same approved rider may take another order (no per-rider limit)", async () => {
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordAssignSame"), assignment(riderUid)));
+  });
+
+  await check("Passign3 assignment without the optional display name is allowed", async () => {
+    const payload = assignment(otherRiderUid);
+    delete payload.assignedRiderName;
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordAssignOk2"), payload));
+  });
+
+  await check("Nassign1 cannot assign an order that is not pending_dispatch", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignBadStatus"), assignment(riderUid)));
+  });
+
+  await check("Nassign2 cannot assign an order that already has a rider", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignTaken"), assignment(riderUid)));
+  });
+
+  await check("Nassign3 cannot assign a uid with no users document", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignReject"), assignment("noSuchUser")));
+  });
+
+  await check("Nassign4 an employee id cannot substitute for the rider UID", async () => {
+    // A display identifier is not a document id, so exists() fails.
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignReject"), assignment("EMP-4432")));
+  });
+
+  await check("Nassign5 cannot assign an admin, dispatcher or sales rep account", async () => {
+    for (const uid of [adminUid, dispatcherUid, salesRepUid]) {
+      await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignReject"), assignment(uid)));
+    }
+  });
+
+  await check("Nassign6 cannot assign a pending, disabled or rejected rider", async () => {
+    for (const uid of [pendingRiderUid, "disabledRider1", "rejectedRider1"]) {
+      await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignReject"), assignment(uid)));
+    }
+  });
+
+  await check("Nassign7 assignedRiderId must be a non-empty string", async () => {
+    for (const bad of ["", null]) {
+      await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignReject"), assignment(bad)));
+    }
+  });
+
+  await check("Nassign8 assignedAt must be server-stamped, not client-chosen", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignReject"),
+      assignment(riderUid, { assignedAt: new Date("2020-01-01T00:00:00Z") })));
+  });
+
+  await check("Nassign9 the assignment audit must name the caller", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignReject"),
+      assignment(riderUid, { assignedByUid: adminUid })));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignReject"),
+      assignment(riderUid, { assignedByUid: riderUid })));
+  });
+
+  await check("Nassign10 the new status must be exactly 'assigned'", async () => {
+    for (const status of ["in_transit", "delivered", "loading"]) {
+      await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignReject"),
+        assignment(riderUid, { status })));
+    }
+  });
+
+  // ---- assignment identity is frozen outside a valid assignment ----
+
+  await check("Nassign11 dispatcher cannot move an assigned order to another rider", async () => {
+    // ordAssignOk is now assigned to riderUid.
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignOk"), {
+      assignedRiderId: otherRiderUid, updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Nassign12 dispatcher cannot smuggle an identity change into a status update", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignOk"), {
+      status: "in_transit",
+      assignedRiderId: otherRiderUid,
+      statusUpdatedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignOk"), {
+      status: "in_transit",
+      assignedRiderName: "Someone Else",
+      statusUpdatedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Nassign13 rider cannot reassign their own order", async () => {
+    await assertFails(updateDoc(doc(rider, "orders", "ordRider1"), {
+      assignedRiderId: otherRiderUid, updatedAt: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(doc(rider, "orders", "ordRider1"), {
+      assignedRiderName: "Impostor", updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Passign4 ordinary dispatcher lifecycle updates still work", async () => {
+    // No assignment identity touched — the existing flow must not regress.
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordAssignOk"), {
+      status: "loading",
+      isLoaded: true,
+      loadedAt: serverTimestamp(),
+      statusUpdatedAt: serverTimestamp(),
+      statusUpdatedByUid: dispatcherUid,
+      updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Passign5 rider status/location writes still work", async () => {
+    await assertSucceeds(updateDoc(doc(rider, "orders", "ordRider1"), {
+      status: "delivered",
+      deliveredAt: serverTimestamp(),
+      statusUpdatedAt: serverTimestamp(),
+      statusUpdatedByUid: riderUid,
+      updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Passign6 admin retains assignment repair authority", async () => {
+    await assertSucceeds(updateDoc(doc(admin, "orders", "ordOrphanAssignment"), {
+      assignedRiderId: riderUid, updatedAt: serverTimestamp(),
+    }));
+  });
+
+  // ---- legacy / orphaned documents stay readable ----
+
+  await check("Passign7 orphaned and name-only orders remain readable by admin + dispatcher", async () => {
+    for (const db of [admin, dispatcher]) {
+      await assertSucceeds(getDoc(doc(db, "orders", "ordNameOnly")));
+    }
+    // ordOrphanAssignment was just repaired above; ordNameOnly still has no id.
+    await assertSucceeds(getDoc(doc(salesRep, "orders", "ordNameOnly")));
+  });
+
+  await check("Nassign14 a name-only order is still not readable by an unrelated rider", async () => {
+    await assertFails(getDoc(doc(rider, "orders", "ordNameOnly")));
+  });
+
+  await check("Passign8 the clinic snapshot stays immutable during assignment", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignLater"),
+      assignment(riderUid, { clinicLat: 1.23 })));
+    // and the plain assignment on the same order still succeeds
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordAssignLater"), assignment(riderUid)));
   });
 
   await testEnv.cleanup();

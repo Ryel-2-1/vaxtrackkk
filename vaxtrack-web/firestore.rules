@@ -85,6 +85,57 @@ service cloud.firestore {
       ];
     }
 
+    // ---------------- rider assignment (workflow checkpoint 1) ----------------
+    //
+    // Who an order belongs to. Deliberately absent from riderOrderFields(), so
+    // a rider can never reassign their own order; a dispatcher may change these
+    // only as part of a valid assignment, defined below.
+    function assignmentIdentityFields() {
+      return [
+        'assignedAt', 'assignedByEmail', 'assignedByUid', 'assignedRiderId',
+        'assignedRiderName', 'assignedRiderPhone'
+      ];
+    }
+
+    // An order counts as unassigned when the field is absent, null, or an empty
+    // string. Sales-rep-created orders start with an explicit null, and a blank
+    // string must not be usable to make a touched order look free again.
+    function hasNoAssignedRider(d) {
+      return !('assignedRiderId' in d)
+        || d.assignedRiderId == null
+        || (d.assignedRiderId is string && d.assignedRiderId.size() == 0);
+    }
+
+    function riderUserData(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    // The assignment identity must be a real users DOCUMENT ID whose stored
+    // role and status say the account may ride. Because that id is used as the
+    // document path, an employee id or any other display identifier simply
+    // fails exists() — it cannot be substituted for the UID.
+    function isAssignableRiderUid(uid) {
+      return uid is string
+        && uid.size() > 0
+        && exists(/databases/$(database)/documents/users/$(uid))
+        && riderUserData(uid).role == 'rider'
+        && riderUserData(uid).status == 'approved';
+    }
+
+    // A dispatcher assigning a rider: the order must still be awaiting dispatch
+    // and still unassigned, the target must be an approved rider, the timestamp
+    // must be server-stamped, and the audit must name the caller. This mirrors
+    // the transaction in assignRiderToOrder, so the guarantee survives a client
+    // that bypasses the app entirely.
+    function isValidRiderAssignment() {
+      return resource.data.status == 'pending_dispatch'
+        && request.resource.data.status == 'assigned'
+        && hasNoAssignedRider(resource.data)
+        && isAssignableRiderUid(request.resource.data.assignedRiderId)
+        && request.resource.data.assignedAt == request.time
+        && request.resource.data.assignedByUid == request.auth.uid;
+    }
+
     // ---------------- order clinic-location snapshot (Phase 02A) ----------------
     //
     // An order stores its destination as an order-TIME SNAPSHOT copied from the
@@ -253,6 +304,16 @@ service cloud.firestore {
         || (
           isDispatcher()
           && changedKeys().hasOnly(dispatcherOrderFields())
+          // A dispatcher write either IS a valid assignment, or it leaves the
+          // assignment identity completely alone. That covers both directions:
+          // an assignment cannot be made on an order that is not awaiting
+          // dispatch or is already taken, and an ordinary lifecycle write
+          // (status change, cargo loading, route generation) can never quietly
+          // move an order to a different rider.
+          && (
+            isValidRiderAssignment()
+            || !changedKeys().hasAny(assignmentIdentityFields())
+          )
         )
         || (
           isRider()

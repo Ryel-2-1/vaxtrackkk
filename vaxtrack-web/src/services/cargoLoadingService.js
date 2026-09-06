@@ -132,7 +132,11 @@ export function subscribeCargoLoadingGroups(callback, onError) {
       snap.docs.forEach((d) => {
         const data = d.data();
         if (isApprovedRider(data)) {
-          map[d.id] = { uid: d.id, ...data };
+          // Document id last. This uid is what groups a rider's orders and is
+          // handed to finalizeRiderDispatch, whose batch writes target those
+          // orders — so a stored `uid` field must never displace it. Same
+          // ordering riderService already uses.
+          map[d.id] = { ...data, uid: d.id };
         }
       });
       ridersById = map;
@@ -151,7 +155,9 @@ export function subscribeCargoLoadingGroups(callback, onError) {
       ordersRaw = snap.docs.map((d) => {
         const data = d.data();
         const statusKey = normalizeStatusKey(getOrderStatusValue(data));
-        return { id: d.id, ...data, statusKey };
+        // Document id last — this id is passed to updateOrderLoadedState and
+        // finalizeRiderDispatch, which write to orders/{id}.
+        return { ...data, id: d.id, statusKey };
       });
       ordersLoaded = true;
       emit();

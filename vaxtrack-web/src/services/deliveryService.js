@@ -65,8 +65,12 @@ export function subscribeDeliveries(callback, onError) {
           const rawStatus = getOrderStatusValue(data);
           const statusKey = normalizeStatusKey(rawStatus);
           return {
-            id: d.id,
+            // Document data first, then the Firestore document id, so a
+            // stored field named `id` can never replace the identity that
+            // every order write targets. The derived status fields below
+            // already sat after the spread and keep that position.
             ...data,
+            id: d.id,
             rawStatus,
             statusKey,
             statusLabel: mapOrderStatusLabel(statusKey),
