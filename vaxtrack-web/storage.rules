@@ -16,6 +16,13 @@ rules_version = '2';
 // LIMITATION: Storage rules cannot inspect image pixels/EXIF — they can only
 // gate on size + contentType and cross-check the order doc in Firestore. Deeper
 // validation (e.g. that the photo is genuinely a delivery) is out of scope.
+//
+// The creator read branch requires isApproved(), not merely signedIn(). It used
+// to accept any signed-in user whose uid matched the order's createdByUid, so a
+// sales rep who had since been DISABLED or REJECTED kept read access to the
+// delivery-evidence photos of every order they ever raised. Every role helper
+// in firestore.rules already gates on approved standing; this brings Storage
+// into line. Access follows current standing, not past authorship.
 
 service firebase.storage {
   match /b/{bucket}/o {
@@ -51,7 +58,7 @@ service firebase.storage {
         && orderDoc(orderId).assignedRiderId == request.auth.uid;
       allow read: if isAdmin()
         || isDispatcher()
-        || (signedIn() && orderDoc(orderId).createdByUid == request.auth.uid);
+        || (isApproved() && orderDoc(orderId).createdByUid == request.auth.uid);
     }
 
     // Rider's photo of the paper invoice — same access pattern as proof.
@@ -61,7 +68,7 @@ service firebase.storage {
         && orderDoc(orderId).assignedRiderId == request.auth.uid;
       allow read: if isAdmin()
         || isDispatcher()
-        || (signedIn() && orderDoc(orderId).createdByUid == request.auth.uid);
+        || (isApproved() && orderDoc(orderId).createdByUid == request.auth.uid);
     }
 
     // Deny everything else.

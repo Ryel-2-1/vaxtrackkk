@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:rules": "firebase emulators:exec --only firestore \"node tests/firestore.rules.test.js\"",
-    "test:invoices": "node --test tests/invoiceModel.test.js"
+    "test:invoices": "node --test tests/invoiceModel.test.js",
+    "test:storage-rules": "firebase emulators:exec --only firestore,storage --project demo-vaxtrack-storage \"node tests/storage.rules.test.js\""
   },
   "dependencies": {
     "firebase": "^12.13.0",
