@@ -5,16 +5,17 @@ rules_version = '2';
 // DEPLOYED TO STAGING (vaxtrack-staging) only. Production (vaxtrack-bef1b) has
 // no Storage bucket provisioned and these rules have never been released there.
 //
-// Paths (written by the Flutter Rider app):
+// The ONLY object paths these rules permit, for read or write:
 //   proof_of_delivery/{orderId}/proof.jpg
 //   invoices/{orderId}/invoice.jpg
-// where {orderId} is the Firestore orders/ document ID.
+// where {orderId} is the Firestore orders/ document ID. Everything else in the
+// bucket — any other name, extension, case or nesting — is denied.
 //
-// The client writes one deterministic object name per order, so a retry
-// overwrites its own failed attempt rather than leaving an orphan behind (there
-// is no delete). These rules do NOT pin the file name — they authorize any
-// object under an order's prefix — so the one-object-per-order guarantee is
-// currently client-side only. Pinning it here is a follow-up.
+// One deterministic object per order means a retry overwrites its own failed
+// attempt instead of leaving an orphan behind, which matters because delete is
+// denied to everyone. The name is pinned HERE, not only in the client, so that
+// is a server-side guarantee rather than a convention a modified client could
+// ignore.
 //
 // LIMITATION: Storage rules cannot inspect image pixels/EXIF — they can only
 // gate on size + contentType and cross-check the order doc in Firestore. Deeper
@@ -74,6 +75,31 @@ service firebase.storage {
       return isRider() && orderDoc(orderId).assignedRiderId == request.auth.uid;
     }
 
+    // --- one object per order ---
+    //
+    // The exact object names the Rider app writes. Leaving {fileName} free made
+    // the deterministic naming a client CONVENTION rather than a guarantee: an
+    // assigned, approved rider who bypassed the app could write
+    // proof_of_delivery/{orderId}/arbitrary.jpg, then another.jpg, then a
+    // timestamped name, accumulating objects under one order that nobody can
+    // ever remove — delete is denied to everyone. Proven against the previous
+    // rules in the emulator before this was added: five differently-named
+    // uploads under a single order, all accepted.
+    //
+    // Comparison is exact, so it is also case-sensitive and extension-exact:
+    // 'Proof.jpg' and 'proof.png' are simply different strings and fail. A
+    // nested child path never reaches here at all — {fileName} matches exactly
+    // one segment, so deeper paths fall through to the catch-all and are denied.
+    //
+    // Applied to READ as well as write. The contract is which object paths may
+    // exist and be served, not merely which may be created; pinning only the
+    // write half is how the two would drift apart later.
+    //
+    // Must stay identical to kProofFileName / kInvoiceFileName in
+    // vaxtrack_mobile/lib/utils/proof_validation.dart.
+    function canonicalProofFile()   { return 'proof.jpg'; }
+    function canonicalInvoiceFile() { return 'invoice.jpg'; }
+
     // --- evidence replacement policy ---
     //
     // Deliberately generous BEFORE the evidence is recorded and closed after.
@@ -105,31 +131,45 @@ service firebase.storage {
       return 'invoiceSubmittedAt' in orderDoc(orderId);
     }
 
-    // Proof-of-delivery photos: written only by the rider the order is assigned
-    // to, only while the delivery is live and unproven; read by admin,
-    // dispatcher, the sales rep who created the order, or that rider.
+    // Proof-of-delivery photo: exactly one object per order, written only by
+    // the rider the order is assigned to and only while the delivery is live
+    // and unproven; read by admin, dispatcher, the sales rep who created the
+    // order, or that rider.
+    //
+    // The name check comes first on both rules — it is a string comparison, so
+    // a request for a non-canonical name is refused without spending any
+    // cross-service firestore.get.
     match /proof_of_delivery/{orderId}/{fileName} {
-      allow write: if isAssignedRider(orderId)
+      allow write: if fileName == canonicalProofFile()
+        && isAssignedRider(orderId)
         && isImageUnder10MB()
         && orderAcceptsEvidence(orderId)
         && !proofIsFinalized(orderId);
-      allow read: if isAdmin()
-        || isDispatcher()
-        || (isApproved() && orderDoc(orderId).createdByUid == request.auth.uid)
-        || isAssignedRider(orderId);
+      allow read: if fileName == canonicalProofFile()
+        && (
+          isAdmin()
+          || isDispatcher()
+          || (isApproved() && orderDoc(orderId).createdByUid == request.auth.uid)
+          || isAssignedRider(orderId)
+        );
     }
 
     // Rider's photo of the paper invoice — same access pattern as proof, with
-    // its own finalization marker so recording one does not lock the other.
+    // its own canonical name and its own finalization marker so recording one
+    // does not lock the other.
     match /invoices/{orderId}/{fileName} {
-      allow write: if isAssignedRider(orderId)
+      allow write: if fileName == canonicalInvoiceFile()
+        && isAssignedRider(orderId)
         && isImageUnder10MB()
         && orderAcceptsEvidence(orderId)
         && !invoiceIsFinalized(orderId);
-      allow read: if isAdmin()
-        || isDispatcher()
-        || (isApproved() && orderDoc(orderId).createdByUid == request.auth.uid)
-        || isAssignedRider(orderId);
+      allow read: if fileName == canonicalInvoiceFile()
+        && (
+          isAdmin()
+          || isDispatcher()
+          || (isApproved() && orderDoc(orderId).createdByUid == request.auth.uid)
+          || isAssignedRider(orderId)
+        );
     }
 
     // Deny everything else.

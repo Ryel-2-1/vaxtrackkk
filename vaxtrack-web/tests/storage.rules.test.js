@@ -209,10 +209,10 @@ async function main() {
 
   await check("PS1 the assigned approved rider uploads proof and invoice", async () => {
     await assertSucceeds(
-      fileFor(riderUid, proofPath(ORDER_A, "ok1.jpg")).put(Buffer.from(imageBytes), imageMeta)
+      fileFor(riderUid, proofPath(ORDER_A)).put(Buffer.from(imageBytes), imageMeta)
     );
     await assertSucceeds(
-      fileFor(riderUid, invoicePath(ORDER_A, "ok1.jpg")).put(Buffer.from(imageBytes), imageMeta)
+      fileFor(riderUid, invoicePath(ORDER_A)).put(Buffer.from(imageBytes), imageMeta)
     );
   });
 
@@ -225,13 +225,13 @@ async function main() {
   // This case is the regression guard for that: asserting only the upload would
   // have kept passing throughout the defect.
   await check("PS6 assigned rider completes upload -> getDownloadURL for proof", async () => {
-    const ref = fileFor(riderUid, proofPath(ORDER_A, "seq.jpg"));
+    const ref = fileFor(riderUid, proofPath(ORDER_A));
     await assertSucceeds(ref.put(Buffer.from(imageBytes), imageMeta));
     await assertSucceeds(ref.getDownloadURL());
   });
 
   await check("PS7 assigned rider completes upload -> getDownloadURL for invoice", async () => {
-    const ref = fileFor(riderUid, invoicePath(ORDER_A, "seq.jpg"));
+    const ref = fileFor(riderUid, invoicePath(ORDER_A));
     await assertSucceeds(ref.put(Buffer.from(imageBytes), imageMeta));
     await assertSucceeds(ref.getDownloadURL());
   });
@@ -294,7 +294,7 @@ async function main() {
   await check("NS10 non-image content is rejected", async () => {
     for (const contentType of ["application/pdf", "text/plain", "application/octet-stream"]) {
       await assertFails(
-        fileFor(riderUid, proofPath(ORDER_A, "bad.bin")).put(Buffer.from(imageBytes), { contentType })
+        fileFor(riderUid, proofPath(ORDER_A)).put(Buffer.from(imageBytes), { contentType })
       );
     }
   });
@@ -302,62 +302,62 @@ async function main() {
   await check("NS11 a file AT the 10MB limit is rejected", async () => {
     // The rule is `size < 10 * 1024 * 1024`, so exactly 10MB must fail.
     await assertFails(
-      fileFor(riderUid, proofPath(ORDER_A, "atlimit.jpg")).put(Buffer.from(atLimitBytes), imageMeta)
+      fileFor(riderUid, proofPath(ORDER_A)).put(Buffer.from(atLimitBytes), imageMeta)
     );
   });
 
   await check("NS12 a file ABOVE the 10MB limit is rejected", async () => {
     await assertFails(
-      fileFor(riderUid, proofPath(ORDER_A, "over.jpg")).put(Buffer.from(overLimitBytes), imageMeta)
+      fileFor(riderUid, proofPath(ORDER_A)).put(Buffer.from(overLimitBytes), imageMeta)
     );
   });
 
   await check("PS2 a file safely below the limit is accepted", async () => {
     const underLimit = new Uint8Array(1024 * 1024); // 1 MB
     await assertSucceeds(
-      fileFor(riderUid, proofPath(ORDER_A, "under.jpg")).put(Buffer.from(underLimit), imageMeta)
+      fileFor(riderUid, proofPath(ORDER_A)).put(Buffer.from(underLimit), imageMeta)
     );
   });
 
   console.log("\n--- Storage rules: read access ---");
 
   await check("PS3 admin and dispatcher can read proof and invoice", async () => {
-    await seedObject(proofPath(ORDER_A, "read.jpg"));
-    await seedObject(invoicePath(ORDER_A, "read.jpg"));
+    await seedObject(proofPath(ORDER_A));
+    await seedObject(invoicePath(ORDER_A));
     for (const uid of [adminUid, dispatcherUid]) {
-      await assertSucceeds(fileFor(uid, proofPath(ORDER_A, "read.jpg")).getDownloadURL());
-      await assertSucceeds(fileFor(uid, invoicePath(ORDER_A, "read.jpg")).getDownloadURL());
+      await assertSucceeds(fileFor(uid, proofPath(ORDER_A)).getDownloadURL());
+      await assertSucceeds(fileFor(uid, invoicePath(ORDER_A)).getDownloadURL());
     }
   });
 
   await check("PS4 the sales rep who raised the order can read it", async () => {
-    await assertSucceeds(fileFor(salesRepUid, proofPath(ORDER_A, "read.jpg")).getDownloadURL());
-    await assertSucceeds(fileFor(salesRepUid, invoicePath(ORDER_A, "read.jpg")).getDownloadURL());
+    await assertSucceeds(fileFor(salesRepUid, proofPath(ORDER_A)).getDownloadURL());
+    await assertSucceeds(fileFor(salesRepUid, invoicePath(ORDER_A)).getDownloadURL());
   });
 
   await check("NS13 an unrelated sales rep cannot read another rep's order", async () => {
-    await assertFails(fileFor(otherSalesRepUid, proofPath(ORDER_A, "read.jpg")).getDownloadURL());
+    await assertFails(fileFor(otherSalesRepUid, proofPath(ORDER_A)).getDownloadURL());
   });
 
   await check("NS14 a DISABLED sales rep cannot read the order THEY raised", async () => {
     // ORDER_C's createdByUid IS this disabled account, so the authorship half
     // of the read clause matches. The only thing that can refuse this is the
     // account's current standing — which is exactly what is under test.
-    await seedObject(proofPath(ORDER_C, "read.jpg"));
+    await seedObject(proofPath(ORDER_C));
     await assertFails(
-      fileFor(disabledSalesRepUid, proofPath(ORDER_C, "read.jpg")).getDownloadURL()
+      fileFor(disabledSalesRepUid, proofPath(ORDER_C)).getDownloadURL()
     );
   });
 
   await check("PS8 the ASSIGNED rider can read their own order's evidence", async () => {
-    await assertSucceeds(fileFor(riderUid, proofPath(ORDER_A, "read.jpg")).getDownloadURL());
-    await assertSucceeds(fileFor(riderUid, invoicePath(ORDER_A, "read.jpg")).getDownloadURL());
+    await assertSucceeds(fileFor(riderUid, proofPath(ORDER_A)).getDownloadURL());
+    await assertSucceeds(fileFor(riderUid, invoicePath(ORDER_A)).getDownloadURL());
   });
 
   await check("NS15 an UNRELATED rider still cannot read another order's evidence", async () => {
     // The grant is scoped to the order the rider is assigned to, nothing wider.
-    await assertFails(fileFor(otherRiderUid, proofPath(ORDER_A, "read.jpg")).getDownloadURL());
-    await assertFails(fileFor(otherRiderUid, invoicePath(ORDER_A, "read.jpg")).getDownloadURL());
+    await assertFails(fileFor(otherRiderUid, proofPath(ORDER_A)).getDownloadURL());
+    await assertFails(fileFor(otherRiderUid, invoicePath(ORDER_A)).getDownloadURL());
   });
 
   await check("NS19 an unapproved assigned rider cannot read", async () => {
@@ -368,15 +368,15 @@ async function main() {
       [ORDER_DISABLED_RIDER, disabledRiderUid],
       [ORDER_REJECTED_RIDER, rejectedRiderUid],
     ]) {
-      await seedObject(proofPath(orderId, "read.jpg"));
-      await assertFails(fileFor(uid, proofPath(orderId, "read.jpg")).getDownloadURL());
+      await seedObject(proofPath(orderId));
+      await assertFails(fileFor(uid, proofPath(orderId)).getDownloadURL());
     }
   });
 
   await check("NS20 a PREVIOUS rider loses read access once the order is reassigned", async () => {
-    await seedObject(proofPath(ORDER_REASSIGN, "read.jpg"));
+    await seedObject(proofPath(ORDER_REASSIGN));
     // rider1 holds it first and can read.
-    await assertSucceeds(fileFor(riderUid, proofPath(ORDER_REASSIGN, "read.jpg")).getDownloadURL());
+    await assertSucceeds(fileFor(riderUid, proofPath(ORDER_REASSIGN)).getDownloadURL());
 
     // The dispatcher reassigns it to rider2 (seeded directly, as the Firestore
     // lifecycle is not under test here).
@@ -387,25 +387,25 @@ async function main() {
     });
 
     // The rule reads assignedRiderId live, so access flips on the next request.
-    await assertFails(fileFor(riderUid, proofPath(ORDER_REASSIGN, "read.jpg")).getDownloadURL());
+    await assertFails(fileFor(riderUid, proofPath(ORDER_REASSIGN)).getDownloadURL());
     await assertSucceeds(
-      fileFor(otherRiderUid, proofPath(ORDER_REASSIGN, "read.jpg")).getDownloadURL()
+      fileFor(otherRiderUid, proofPath(ORDER_REASSIGN)).getDownloadURL()
     );
   });
 
   await check("NS21 an employee id, name, email or uid fragment cannot read", async () => {
-    await seedObject(proofPath(ORDER_A, "read.jpg"));
+    await seedObject(proofPath(ORDER_A));
     for (const fake of ["EMP-4432", "QA Rider", "rider@vaxtrack.com", riderUid.slice(0, 4)]) {
-      await assertFails(fileFor(fake, proofPath(ORDER_A, "read.jpg")).getDownloadURL());
+      await assertFails(fileFor(fake, proofPath(ORDER_A)).getDownloadURL());
     }
   });
 
   console.log("\n--- Storage rules: delete and overwrite ---");
 
   await check("NS16 nobody may delete a stored file", async () => {
-    await seedObject(proofPath(ORDER_A, "del.jpg"));
+    await seedObject(proofPath(ORDER_A));
     for (const uid of [riderUid, adminUid, dispatcherUid, salesRepUid, null]) {
-      await assertFails(fileFor(uid, proofPath(ORDER_A, "del.jpg")).delete());
+      await assertFails(fileFor(uid, proofPath(ORDER_A)).delete());
     }
   });
 
@@ -413,16 +413,16 @@ async function main() {
     // `allow write` covers create AND update, so a re-upload to the same path
     // succeeds when every other condition holds. Recorded as the real contract.
     await assertSucceeds(
-      fileFor(riderUid, proofPath(ORDER_A, "del.jpg")).put(Buffer.from(imageBytes), imageMeta)
+      fileFor(riderUid, proofPath(ORDER_A)).put(Buffer.from(imageBytes), imageMeta)
     );
   });
 
   await check("NS17 an unauthorized overwrite of an existing file is rejected", async () => {
     await assertFails(
-      fileFor(otherRiderUid, proofPath(ORDER_A, "del.jpg")).put(Buffer.from(imageBytes), imageMeta)
+      fileFor(otherRiderUid, proofPath(ORDER_A)).put(Buffer.from(imageBytes), imageMeta)
     );
     await assertFails(
-      fileFor(adminUid, proofPath(ORDER_A, "del.jpg")).put(Buffer.from(imageBytes), imageMeta)
+      fileFor(adminUid, proofPath(ORDER_A)).put(Buffer.from(imageBytes), imageMeta)
     );
   });
 
@@ -439,7 +439,7 @@ async function main() {
   await check("PS9 an unproven order still accepts a re-upload (failed-save retry)", async () => {
     // ORDER_A carries no proofSubmittedAt, so a retry overwrites its own
     // earlier attempt instead of leaving a second, undeletable object.
-    const ref = fileFor(riderUid, proofPath(ORDER_A, "retry.jpg"));
+    const ref = fileFor(riderUid, proofPath(ORDER_A));
     await assertSucceeds(ref.put(Buffer.from(imageBytes), imageMeta));
     await assertSucceeds(ref.put(Buffer.from(imageBytes), imageMeta));
   });
@@ -489,9 +489,9 @@ async function main() {
   });
 
   await check("NS25 nor can a closed order's existing evidence be overwritten", async () => {
-    await seedObject(proofPath(ORDER_DELIVERED, "old.jpg"));
+    await seedObject(proofPath(ORDER_DELIVERED));
     await assertFails(
-      fileFor(riderUid, proofPath(ORDER_DELIVERED, "old.jpg")).put(Buffer.from(imageBytes), imageMeta)
+      fileFor(riderUid, proofPath(ORDER_DELIVERED)).put(Buffer.from(imageBytes), imageMeta)
     );
   });
 
@@ -500,7 +500,7 @@ async function main() {
     // sales rep and the assigned rider all still read a delivered order's proof.
     for (const uid of [adminUid, dispatcherUid, salesRepUid, riderUid]) {
       await assertSucceeds(
-        fileFor(uid, proofPath(ORDER_DELIVERED, "old.jpg")).getDownloadURL()
+        fileFor(uid, proofPath(ORDER_DELIVERED)).getDownloadURL()
       );
     }
   });
@@ -509,14 +509,157 @@ async function main() {
     // `request.resource` is null on a delete, so isImageUnder10MB() cannot
     // evaluate and every delete is refused — unchanged by this checkpoint, and
     // pinned here so the policy above cannot be read as opening one.
-    for (const [orderId, file] of [
-      [ORDER_PROOF_FINAL, "proof.jpg"],
-      [ORDER_DELIVERED, "old.jpg"],
-    ]) {
+    for (const orderId of [ORDER_PROOF_FINAL, ORDER_DELIVERED]) {
       for (const uid of [riderUid, adminUid, dispatcherUid, salesRepUid, null]) {
-        await assertFails(fileFor(uid, proofPath(orderId, file)).delete());
+        await assertFails(fileFor(uid, proofPath(orderId)).delete());
       }
     }
+  });
+
+  console.log("\n--- Storage rules: one object per order ---");
+
+  // The client uploads to exactly one name per order. Until the rules pinned
+  // that name it was only a convention: an assigned, approved rider bypassing
+  // the app could write arbitrary.jpg, then another.jpg, then a timestamped
+  // name, and since delete is denied to everyone nothing could ever clear them.
+  // Reproduced against the previous rules before the fix — five differently
+  // named uploads under one order, all accepted.
+
+  await check("PS13 the canonical proof and invoice objects are accepted", async () => {
+    await assertSucceeds(
+      fileFor(riderUid, proofPath(ORDER_A)).put(Buffer.from(imageBytes), imageMeta)
+    );
+    await assertSucceeds(
+      fileFor(riderUid, invoicePath(ORDER_A)).put(Buffer.from(imageBytes), imageMeta)
+    );
+  });
+
+  await check("PS14 getDownloadURL works on both canonical objects", async () => {
+    await assertSucceeds(fileFor(riderUid, proofPath(ORDER_A)).getDownloadURL());
+    await assertSucceeds(fileFor(riderUid, invoicePath(ORDER_A)).getDownloadURL());
+  });
+
+  await check("NS27 an arbitrary proof filename is denied", async () => {
+    for (const file of ["arbitrary.jpg", "photo.jpg", "a.jpg", "proof (1).jpg"]) {
+      await assertFails(
+        fileFor(riderUid, proofPath(ORDER_A, file)).put(Buffer.from(imageBytes), imageMeta)
+      );
+    }
+  });
+
+  await check("NS28 a timestamp filename is denied", async () => {
+    // The convention this checkpoint replaced. It must not survive as a
+    // fallback for a client that has not been updated.
+    for (const file of ["1788246428806.jpg", "1788246428806.png"]) {
+      await assertFails(
+        fileFor(riderUid, proofPath(ORDER_A, file)).put(Buffer.from(imageBytes), imageMeta)
+      );
+      await assertFails(
+        fileFor(riderUid, invoicePath(ORDER_A, file)).put(Buffer.from(imageBytes), imageMeta)
+      );
+    }
+  });
+
+  await check("NS29 a SECOND object cannot be added beside the canonical one", async () => {
+    // The canonical object already exists from PS13; this is the orphan
+    // accumulation the pinning exists to stop.
+    await assertSucceeds(fileFor(riderUid, proofPath(ORDER_A)).getDownloadURL());
+    await assertFails(
+      fileFor(riderUid, proofPath(ORDER_A, "another.jpg")).put(Buffer.from(imageBytes), imageMeta)
+    );
+    await assertFails(
+      fileFor(riderUid, invoicePath(ORDER_A, "another.jpg")).put(Buffer.from(imageBytes), imageMeta)
+    );
+  });
+
+  await check("NS30 a non-canonical extension is denied", async () => {
+    // The object name is fixed, not merely the base name — the stored content
+    // type is what records the real format.
+    for (const file of ["proof.png", "proof.jpeg", "proof.webp", "proof", "proof.jpg.png"]) {
+      await assertFails(
+        fileFor(riderUid, proofPath(ORDER_A, file)).put(Buffer.from(imageBytes), imageMeta)
+      );
+    }
+    for (const file of ["invoice.png", "invoice.jpeg", "invoice"]) {
+      await assertFails(
+        fileFor(riderUid, invoicePath(ORDER_A, file)).put(Buffer.from(imageBytes), imageMeta)
+      );
+    }
+  });
+
+  await check("NS31 case variants are denied", async () => {
+    // Comparison is exact, so it is case-sensitive. Object names in Cloud
+    // Storage are case-sensitive too, so Proof.jpg really would be a second
+    // object rather than the same one.
+    for (const file of ["Proof.jpg", "PROOF.JPG", "proof.JPG", "pRoOf.jpg"]) {
+      await assertFails(
+        fileFor(riderUid, proofPath(ORDER_A, file)).put(Buffer.from(imageBytes), imageMeta)
+      );
+    }
+    for (const file of ["Invoice.jpg", "INVOICE.JPG"]) {
+      await assertFails(
+        fileFor(riderUid, invoicePath(ORDER_A, file)).put(Buffer.from(imageBytes), imageMeta)
+      );
+    }
+  });
+
+  await check("NS32 a nested child path is denied", async () => {
+    // {fileName} matches exactly ONE segment, so these never reach the evidence
+    // rules at all — they fall through to the catch-all.
+    for (const path of [
+      `proof_of_delivery/${ORDER_A}/sub/proof.jpg`,
+      `proof_of_delivery/${ORDER_A}/proof.jpg/extra.jpg`,
+      `invoices/${ORDER_A}/sub/invoice.jpg`,
+    ]) {
+      await assertFails(fileFor(riderUid, path).put(Buffer.from(imageBytes), imageMeta));
+      await assertFails(fileFor(riderUid, path).getDownloadURL());
+    }
+  });
+
+  await check("NS33 a non-canonical name is not READABLE either", async () => {
+    // The contract is which object paths may exist AND be served. Pinning only
+    // the write half is how read and write would drift apart later.
+    await seedObject(proofPath(ORDER_A, "legacy.jpg"));
+    for (const uid of [adminUid, dispatcherUid, salesRepUid, riderUid, null]) {
+      await assertFails(fileFor(uid, proofPath(ORDER_A, "legacy.jpg")).getDownloadURL());
+    }
+  });
+
+  await check("NS34 prefix listing stays denied", async () => {
+    // No rule grants list on a prefix, so an order's folder cannot be
+    // enumerated even by someone who may read the object inside it.
+    for (const uid of [adminUid, dispatcherUid, riderUid, salesRepUid, null]) {
+      await assertFails(ctxFor(uid).storage().ref(`proof_of_delivery/${ORDER_A}`).listAll());
+      await assertFails(ctxFor(uid).storage().ref("proof_of_delivery").listAll());
+      await assertFails(ctxFor(uid).storage().ref(`invoices/${ORDER_A}`).listAll());
+    }
+  });
+
+  await check("NS35 the canonical name does not bypass any other condition", async () => {
+    // Pinning the name narrows the contract; it must not have widened anything.
+    // Wrong rider, unapproved rider, missing order, non-image, oversize and a
+    // closed order are all still refused ON the canonical path.
+    await assertFails(
+      fileFor(otherRiderUid, proofPath(ORDER_A)).put(Buffer.from(imageBytes), imageMeta)
+    );
+    await assertFails(
+      fileFor(pendingRiderUid, proofPath(ORDER_PENDING_RIDER)).put(Buffer.from(imageBytes), imageMeta)
+    );
+    await assertFails(
+      fileFor(riderUid, proofPath(MISSING_ORDER)).put(Buffer.from(imageBytes), imageMeta)
+    );
+    await assertFails(
+      fileFor(riderUid, proofPath(ORDER_A)).put(Buffer.from(imageBytes), { contentType: "application/pdf" })
+    );
+    await assertFails(
+      fileFor(riderUid, proofPath(ORDER_A)).put(Buffer.from(atLimitBytes), imageMeta)
+    );
+    await assertFails(
+      fileFor(riderUid, proofPath(ORDER_DELIVERED)).put(Buffer.from(imageBytes), imageMeta)
+    );
+    await assertFails(
+      fileFor(riderUid, proofPath(ORDER_PROOF_FINAL)).put(Buffer.from(imageBytes), imageMeta)
+    );
   });
 
   console.log("\n--- Storage rules: catch-all ---");
