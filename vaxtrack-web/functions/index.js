@@ -3,10 +3,12 @@
 /**
  * VaxTrack trusted server boundary.
  *
- * Three explicit callables — create+reserve, cancel+release, deliver+consume.
- * Deliberately NOT a generic "update status" or "adjust inventory" entry point:
- * a generic mutation function would put the whole lifecycle back in the
- * caller's hands, which is exactly what this boundary exists to remove.
+ * Five explicit callables — create+reserve, cancel+release, deliver+consume,
+ * and the two invoice-pricing operations. Every one names a single business
+ * action. Deliberately NOT a generic "update status", "adjust inventory" or
+ * "write invoice" entry point: a generic mutation function would put the
+ * lifecycle and the pricing straight back in the caller's hands, which is
+ * exactly what this boundary exists to remove.
  *
  * RUNTIME / REGION
  *   nodejs22  — GA in firebase-tools 15.17.0 (deprecates 2027-04-30).
@@ -26,11 +28,18 @@
  * is not App Check and is not claimed to be. Enabling App Check enforcement is
  * a required RELEASE-SECURITY GATE before production.
  *
- * ⚠️ PRICING IS NOT SERVER-AUTHORITATIVE. Inventory documents carry no price
- * field, so `unitPrice` is accepted from the caller and stored for invoice
- * compatibility only. It is explicitly untrusted, takes no part in any
- * inventory, identity or authorization decision, and must not be read as a
- * verified figure. An authoritative pricing source is a separate checkpoint.
+ * PRICING IS SERVER-AUTHORITATIVE. Each inventory batch owns a VAT-exclusive
+ * clinic selling price in PHP centavos (`sellingPriceCentavos`, integer > 0),
+ * written only by an admin. `createOrderWithReservation` reads that price from
+ * the batch INSIDE the reservation transaction and writes an immutable snapshot
+ * onto the order. The caller supplies no price at all — only the price it
+ * EXPECTED, which is compared and, on any difference in either direction,
+ * refuses the checkout with `price-changed` for human review. A batch with no
+ * valid price cannot be ordered; the catalog shows it disabled and says why.
+ *
+ * Orders placed before this checkpoint carry no `pricingVersion` and keep the
+ * manual invoice-time pricing they have always had. Nothing back-fills a price
+ * onto them: an invented figure would misstate what a clinic was charged.
  */
 
 const { setGlobalOptions } = require("firebase-functions/v2");
@@ -40,6 +49,7 @@ const admin = require("firebase-admin");
 
 const { PolicyError } = require("./src/policy");
 const operations = require("./src/operations");
+const invoiceOperations = require("./src/invoiceOperations");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -82,6 +92,22 @@ function toHttpsError(error, context) {
       "inventory-invalid-quantity": "failed-precondition",
       "inventory-invalid-reserved": "failed-precondition",
       "inventory-invariant-broken": "failed-precondition",
+      "batch-unpriced": "failed-precondition",
+      "price-not-confirmed": "failed-precondition",
+      // ---- invoice pricing ----
+      "invoice-not-found": "not-found",
+      "order-not-priced": "failed-precondition",
+      "order-has-no-items": "failed-precondition",
+      "order-snapshot-invalid": "failed-precondition",
+      "invoice-already-issued": "failed-precondition",
+      "invalid-invoice-status": "failed-precondition",
+      "discount-exceeds-subtotal": "failed-precondition",
+      // Someone changed the stored base pricing out from under the draft.
+      "invoice-base-mismatch": "aborted",
+      "invoice-total-mismatch": "aborted",
+      // `aborted` — like an idempotency conflict, the state moved underneath
+      // the caller. It is retryable, but only after a human has looked.
+      "price-changed": "aborted",
       "idempotency-conflict": "aborted",
     };
     const httpsCode = map[error.code] ?? "invalid-argument";
@@ -143,4 +169,27 @@ exports.markOrderDeliveredWithInventoryConsumption = callable(
       orderId: data.orderId,
       now,
     })
+);
+
+/**
+ * Invoice pricing for SERVER-PRICED orders only.
+ *
+ * Two named operations, not a generic invoice mutation entry point. Neither
+ * accepts a base price, quantity or total: those are read from the order inside
+ * the transaction. The caller supplies presentation text and explicit
+ * adjustments, and nothing else is even accepted as input.
+ *
+ * Orders with no `pricingVersion` do not reach these at all — they keep the
+ * existing client-side manual invoice path unchanged.
+ */
+exports.saveInvoiceDraftForPricedOrder = callable(
+  "saveInvoiceDraftForPricedOrder",
+  ({ db, FieldValue, uid, data, now }) =>
+    invoiceOperations.saveInvoiceDraftForPricedOrder({ db, FieldValue, uid, payload: data, now })
+);
+
+exports.issueInvoiceForPricedOrder = callable(
+  "issueInvoiceForPricedOrder",
+  ({ db, FieldValue, uid, data, now }) =>
+    invoiceOperations.issueInvoiceForPricedOrder({ db, FieldValue, uid, payload: data, now })
 );

@@ -413,6 +413,60 @@ async function main() {
     await setDoc(doc(db, "invoices", "ordDraftI"), draftSeed("ordDraftI", "INV-2026-000006"));
     // A counter with a value, for the monotonic-update + decrement-denial tests.
     await setDoc(doc(db, "counters", "invoice_2050"), { current: 5, updatedAt: "seed" });
+
+    // ---- server-priced order + its invoice (pricing checkpoint) ----
+    // The invoice doc id IS the order id, which is how the rules reach the
+    // order to decide whether the client may write here at all.
+    await setDoc(doc(db, "orders", "ordPriced"), {
+      createdByUid: salesRepUid,
+      status: "delivered",
+      allocationVersion: 1,
+      pricingVersion: 1,
+      priceCurrency: "PHP",
+      priceIsVatInclusive: false,
+      subtotalCentavos: 500000,
+      items: [
+        { inventoryId: "inv1", batchId: "MOD-1", name: "Moderna", quantity: 4,
+          unitPriceCentavos: 125000, lineTotalCentavos: 500000, unitPrice: 1250 },
+      ],
+    });
+    await setDoc(doc(db, "invoices", "ordPriced"), {
+      orderId: "ordPriced",
+      invoiceStatus: "draft",
+      invoiceNumber: "INV-2026-000007",
+      createdByUid: adminUid,
+      createdAt: "seedPricedCreated",
+      updatedAt: "seedPricedUpdated",
+      pricingVersion: 1,
+      invoicePricingSource: "order-snapshot",
+      subtotalCentavos: 500000,
+      subtotal: 5000,
+      grandTotalCentavos: 560000,
+      grandTotal: 5600,
+      items: [
+        { inventoryId: "inv1", quantity: 4, unitPriceCentavos: 125000,
+          lineTotalCentavos: 500000, unitPrice: 1250 },
+      ],
+    });
+    // A second priced order with NO invoice yet, so the CREATE path can be
+    // tested (a setDoc over an existing document is an update, not a create).
+    await setDoc(doc(db, "orders", "ordPriced2"), {
+      createdByUid: salesRepUid,
+      status: "delivered",
+      pricingVersion: 1,
+      subtotalCentavos: 125000,
+      items: [
+        { inventoryId: "inv9", batchId: "B-9", name: "V", quantity: 1,
+          unitPriceCentavos: 125000, lineTotalCentavos: 125000, unitPrice: 1250 },
+      ],
+    });
+    // An order with NO pricingVersion — the manual invoice path must still work
+    // for it, unchanged.
+    await setDoc(doc(db, "orders", "ordLegacyPrice"), {
+      createdByUid: salesRepUid,
+      status: "delivered",
+      items: [{ name: "Hepatitis B", sku: "HEP-3", quantity: 5, unitPrice: 0 }],
+    });
   });
 
   const admin = testEnv.authenticatedContext(adminUid).firestore();
@@ -447,6 +501,7 @@ async function main() {
       expiryDate: "2027-12-31",
       quantity: 100,
       reservedQuantity: 0,
+      sellingPriceCentavos: 125000,
     }));
     await assertSucceeds(setDoc(doc(admin, "clinics", "clAdmin"), { name: "C" }));
     await assertSucceeds(setDoc(doc(admin, "alerts", "alAdmin"), { status: "active" }));
@@ -2390,7 +2445,7 @@ async function main() {
   await check("Nlock7 a new stock batch must be a valid integer batch", async () => {
     const valid = {
       vaccineName: "V", batchId: "B-1", expiryDate: "2027-12-31",
-      quantity: 10, reservedQuantity: 0,
+      quantity: 10, reservedQuantity: 0, sellingPriceCentavos: 125000,
     };
     await assertSucceeds(setDoc(doc(admin, "inventory", "invValid"), valid));
     // The exact shapes staging already contains, and the ones a migration
@@ -2406,7 +2461,7 @@ async function main() {
     ]) {
       await assertFails(setDoc(doc(admin, "inventory", "invBad"), bad));
     }
-    for (const field of ["quantity", "reservedQuantity", "batchId", "vaccineName", "expiryDate"]) {
+    for (const field of ["quantity", "reservedQuantity", "sellingPriceCentavos", "batchId", "vaccineName", "expiryDate"]) {
       const missing = { ...valid };
       delete missing[field];
       await assertFails(setDoc(doc(admin, "inventory", "invMissing"), missing));
@@ -2420,6 +2475,209 @@ async function main() {
       await assertFails(getDoc(doc(ctx, "orderRequestKeys", "k1")));
       await assertFails(setDoc(doc(ctx, "orderRequestKeys", "k1"), { orderId: "x" }));
     }
+  });
+
+  // ---------------- server-authoritative pricing ----------------
+  //
+  // The direct-write half of the pricing boundary. The callable decides what an
+  // order costs; these prove a client SDK cannot reach around it — neither to
+  // set a price on an order, nor to restate one after the fact.
+
+  await check("Nprice1 no client may write an order pricing field", async () => {
+    const pricing = {
+      pricingVersion: 1,
+      subtotalCentavos: 1,
+      priceCurrency: "PHP",
+      updatedAt: serverTimestamp(),
+    };
+    for (const ctx of [admin, dispatcher, rider, salesRep]) {
+      await assertFails(updateDoc(doc(ctx, "orders", "ordRider1"), pricing));
+    }
+    // ...nor any single one of them alone. An admin quietly editing
+    // `subtotalCentavos` would be restating what a clinic was charged.
+    for (const field of [
+      "pricingVersion", "priceCurrency", "priceIsVatInclusive",
+      "subtotalCentavos", "subtotal", "pricedAt",
+    ]) {
+      await assertFails(updateDoc(doc(admin, "orders", "ordRider1"), {
+        [field]: 1, updatedAt: serverTimestamp(),
+      }));
+    }
+  });
+
+  await check("Nprice2 an admin cannot create an order carrying a price", async () => {
+    // Admin create survives for data repair, and must not become a way to
+    // mint a priced order outside the reservation transaction.
+    await assertFails(setDoc(doc(admin, "orders", "ordPriceCreate"), {
+      status: "pending_dispatch",
+      clinicDocId: "clinic1",
+      clinicName: "Clinic One",
+      pricingVersion: 1,
+      subtotalCentavos: 500000,
+      createdAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Nprice3 a new stock batch must carry a valid positive price", async () => {
+    const valid = {
+      vaccineName: "V", batchId: "B-PRICE", expiryDate: "2027-12-31",
+      quantity: 10, reservedQuantity: 0, sellingPriceCentavos: 125000,
+    };
+    await assertSucceeds(setDoc(doc(admin, "inventory", "invPriced"), valid));
+    // Zero is refused as firmly as text: a batch priced at ₱0.00 would ship a
+    // vaccine for free, and nothing downstream would flag it.
+    for (const bad of [
+      { ...valid, sellingPriceCentavos: 0 },
+      { ...valid, sellingPriceCentavos: -1 },
+      { ...valid, sellingPriceCentavos: "125000" },
+      { ...valid, sellingPriceCentavos: 1250.5 },
+      { ...valid, sellingPriceCentavos: null },
+    ]) {
+      await assertFails(setDoc(doc(admin, "inventory", "invBadPrice"), bad));
+    }
+  });
+
+  await check("Nprice4 only an admin may re-price, and only to a valid amount", async () => {
+    for (const ctx of [dispatcher, rider, salesRep, anon]) {
+      await assertFails(updateDoc(doc(ctx, "inventory", "invAdmin"), {
+        sellingPriceCentavos: 1,
+      }));
+    }
+    // A VALID audit is supplied throughout, so each of these fails on the
+    // amount alone rather than incidentally on the audit rule.
+    const audit = { priceSetAt: serverTimestamp(), priceSetByUid: adminUid };
+    for (const bad of [0, -1, "125000", 1250.5]) {
+      await assertFails(updateDoc(doc(admin, "inventory", "invAdmin"), {
+        sellingPriceCentavos: bad, ...audit,
+      }));
+    }
+    // Re-pricing must not become a back door onto the stock counters.
+    await assertFails(updateDoc(doc(admin, "inventory", "invAdmin"), {
+      sellingPriceCentavos: 130000, quantity: 9999, ...audit,
+    }));
+  });
+
+  await check("Nprice5 a re-price cannot forge its own audit trail", async () => {
+    const base = { sellingPriceCentavos: 141000, priceCurrency: "PHP" };
+    // No audit at all.
+    await assertFails(updateDoc(doc(admin, "inventory", "invAdmin"), base));
+    // A uid that is not the caller — one admin recording a re-price as another.
+    await assertFails(updateDoc(doc(admin, "inventory", "invAdmin"), {
+      ...base, priceSetAt: serverTimestamp(), priceSetByUid: "someone-else",
+    }));
+    await assertFails(updateDoc(doc(admin, "inventory", "invAdmin"), {
+      ...base, priceSetAt: serverTimestamp(), priceSetByUid: null,
+    }));
+    // A client-chosen timestamp instead of server time.
+    await assertFails(updateDoc(doc(admin, "inventory", "invAdmin"), {
+      ...base, priceSetAt: new Date("2020-01-01"), priceSetByUid: adminUid,
+    }));
+    await assertFails(updateDoc(doc(admin, "inventory", "invAdmin"), {
+      ...base, priceSetAt: "2020-01-01", priceSetByUid: adminUid,
+    }));
+    // Missing one half of the pair.
+    await assertFails(updateDoc(doc(admin, "inventory", "invAdmin"), {
+      ...base, priceSetByUid: adminUid,
+    }));
+    await assertFails(updateDoc(doc(admin, "inventory", "invAdmin"), {
+      ...base, priceSetAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Pprice2 a non-price correction needs no re-price audit", async () => {
+    // The audit is required only when the PRICE changes, so an unrelated fix
+    // does not have to pretend to be one.
+    await assertSucceeds(updateDoc(doc(admin, "inventory", "invAdmin"), {
+      manufacturer: "Corrected Again",
+    }));
+  });
+
+  await check("Pprice1 an admin re-prices a batch forward, with audit", async () => {
+    await assertSucceeds(updateDoc(doc(admin, "inventory", "invAdmin"), {
+      sellingPriceCentavos: 140000,
+      priceCurrency: "PHP",
+      priceIsVatInclusive: false,
+      priceSetAt: serverTimestamp(),
+      priceSetByUid: adminUid,
+    }));
+    // A batch that predates pricing can still be corrected on other fields —
+    // the rule is guarded by presence, so it does not strand legacy stock.
+    await assertSucceeds(setDoc(doc(admin, "inventory", "invLegacyNoPrice"), {
+      vaccineName: "Legacy", batchId: "LEG-1", expiryDate: "2027-12-31",
+      quantity: 5, reservedQuantity: 0, sellingPriceCentavos: 100,
+    }));
+    await assertSucceeds(updateDoc(doc(admin, "inventory", "invLegacyNoPrice"), {
+      manufacturer: "Corrected",
+    }));
+  });
+
+  // ---------------- server-priced invoices ----------------
+  //
+  // Rules cannot iterate an invoice's item array, so they cannot verify that
+  // every line still matches the order. Rather than write a partial check that
+  // LOOKS complete, the client write is closed entirely and the callables are
+  // the only way in. These cases prove that closure.
+
+  await check("Ninv5 no client may create an invoice for a priced order", async () => {
+    // `ordPriced2` is a priced order with no invoice yet, so this really is a
+    // CREATE. Even a perfectly well-formed one is refused: the base pricing has
+    // to be computed from the order, and a client-side create is not that.
+    await assertFails(setDoc(doc(admin, "invoices", "ordPriced2"), {
+      orderId: "ordPriced2", invoiceStatus: "draft", invoiceNumber: "INV-2026-000123",
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp(), createdByUid: adminUid,
+    }));
+  });
+
+  await check("Ninv6 no client may edit a priced order's invoice", async () => {
+    // Every one of these is the tampering the callable re-checks at issue time.
+    // Rules stop them one step earlier: the write never lands.
+    const attempts = [
+      { items: [{ inventoryId: "inv1", quantity: 4, unitPriceCentavos: 1, lineTotalCentavos: 4 }] },
+      { subtotalCentavos: 1 },
+      { grandTotalCentavos: 1 },
+      { grandTotal: 0.01 },
+      { discountCentavos: 999999 },
+      { customerName: "Renamed" },
+      { invoiceStatus: "issued", issuedAt: serverTimestamp(), issuedByUid: adminUid },
+    ];
+    for (const patch of attempts) {
+      await assertFails(updateDoc(doc(admin, "invoices", "ordPriced"), {
+        ...patch, updatedAt: serverTimestamp(), updatedByUid: adminUid,
+      }));
+    }
+    // Not even the admin, and not any other role.
+    for (const ctx of [dispatcher, salesRep, rider, anon]) {
+      await assertFails(updateDoc(doc(ctx, "invoices", "ordPriced"), { subtotalCentavos: 1 }));
+    }
+  });
+
+  await check("Ninv7 a priced invoice stays READABLE to an admin", async () => {
+    // The lockdown is on writes only — the editor still has to display it.
+    await assertSucceeds(getDoc(doc(admin, "invoices", "ordPriced")));
+  });
+
+  await check("Pinv5 a LEGACY order keeps the manual invoice path", async () => {
+    // No pricingVersion on the order, so the client-side create/update flow is
+    // untouched — this is the workflow that must be preserved.
+    await assertSucceeds(setDoc(doc(admin, "invoices", "ordLegacyPrice"), {
+      orderId: "ordLegacyPrice",
+      invoiceStatus: "draft",
+      invoiceNumber: "INV-2026-000200",
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      createdByUid: adminUid,
+      subtotal: 800,
+      grandTotal: 896,
+      items: [{ itemDescription: "Hepatitis B", quantity: 8, unitPrice: 100 }],
+    }));
+    // ...and the admin can still type a price on it.
+    await assertSucceeds(updateDoc(doc(admin, "invoices", "ordLegacyPrice"), {
+      items: [{ itemDescription: "Hepatitis B", quantity: 8, unitPrice: 125 }],
+      subtotal: 1000,
+      grandTotal: 1120,
+      updatedAt: serverTimestamp(),
+      updatedByUid: adminUid,
+    }));
   });
 
   await check("Plock1 lifecycle steps that move no stock are untouched", async () => {

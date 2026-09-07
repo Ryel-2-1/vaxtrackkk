@@ -424,3 +424,91 @@ test("assertConsistentInvoiceTotals: serializer output is always consistent", ()
   assert.equal(built.subtotal, 150); // 3 x 50
   assert.doesNotThrow(() => assertConsistentInvoiceTotals(built));
 });
+
+// ------------------------------------------------- server-priced orders
+//
+// An order created after the pricing checkpoint carries an immutable snapshot
+// in integer centavos. The invoice opens from THAT figure rather than the
+// derived peso mirror beside it, and a legacy order is left exactly as it was.
+
+test("an invoice line opens at the order's centavo snapshot", () => {
+  const items = itemsFromOrder({
+    pricingVersion: 1,
+    items: [
+      {
+        inventoryId: "inv1",
+        name: "Moderna COVID-19 Vaccine",
+        batchId: "MOD-STG-001",
+        quantity: 4,
+        unitPriceCentavos: 125000,
+        unitPrice: 1250,
+      },
+    ],
+  });
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].unitPrice, 1250, "centavos converted to pesos for the invoice layer");
+  assert.equal(items[0].quantity, 4);
+  assert.equal(items[0].inventoryId, "inv1", "the batch is still traceable");
+});
+
+test("the centavo snapshot wins over a disagreeing peso mirror", () => {
+  // If the two ever disagree, the integer is the authoritative one — it is what
+  // the server computed inside the reservation transaction.
+  const items = itemsFromOrder({
+    pricingVersion: 1,
+    items: [{ name: "V", quantity: 1, unitPriceCentavos: 1999, unitPrice: 19.98 }],
+  });
+  assert.equal(items[0].unitPrice, 19.99, "read from centavos, not from the mirror");
+});
+
+test("a centavo price survives conversion without float drift", () => {
+  const items = itemsFromOrder({
+    pricingVersion: 1,
+    items: [
+      { name: "A", quantity: 3, unitPriceCentavos: 10 },  // ₱0.10 each
+      { name: "B", quantity: 1, unitPriceCentavos: 2999 }, // ₱29.99
+    ],
+  });
+  assert.equal(items[0].unitPrice, 0.1);
+  assert.equal(items[1].unitPrice, 29.99);
+
+  const totals = computeVatExclusiveTotals({
+    items,
+    discount: 0,
+    withholdingTax: 0,
+    otherCharges: 0,
+    vatClassification: "vatable",
+  });
+  assert.equal(totals.subtotal, 30.29); // 0.30 + 29.99, exactly
+});
+
+test("a LEGACY order keeps manual invoice pricing and gets nothing invented", () => {
+  // No pricingVersion, no unitPriceCentavos — the state of every order placed
+  // before this checkpoint. It opens at whatever it actually stored, and the
+  // admin types the price as they always have.
+  const legacy = itemsFromOrder({
+    items: [{ name: "Hepatitis B Vaccine", sku: "HEP-STG-003", quantity: 5, unitPrice: 0 }],
+  });
+  assert.equal(legacy[0].unitPrice, 0, "no price is fabricated for a legacy line");
+  assert.equal(legacy[0].quantity, 5);
+  assert.equal(legacy[0].batchId, "HEP-STG-003");
+
+  // An order with no items at all still degrades to a single manual line.
+  const itemless = itemsFromOrder({ vaccineName: "Flu Vaccine", quantity: 12 });
+  assert.equal(itemless.length, 1);
+  assert.equal(itemless[0].unitPrice, 0);
+  assert.equal(itemless[0].quantity, 12);
+});
+
+test("a malformed centavo figure falls back rather than becoming a price", () => {
+  // Same discipline as everywhere else: a string, a float or a zero is not a
+  // price, so the line falls back to the peso field instead of coercing.
+  for (const bad of ["125000", 1250.5, 0, -1, null, undefined, NaN]) {
+    const items = itemsFromOrder({
+      pricingVersion: 1,
+      items: [{ name: "V", quantity: 1, unitPriceCentavos: bad, unitPrice: 42 }],
+    });
+    assert.equal(items[0].unitPrice, 42, `fell back for ${String(bad)}`);
+  }
+});

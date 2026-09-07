@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { subscribeInventory } from "../../services/inventoryService";
 import { availableStock } from "../../services/inventoryCallables";
+import { formatCentavos, readPriceCentavos } from "../../services/money";
 import { subscribeClinics } from "../../services/clinicService";
 import SalesRepLayout from "./SalesRepLayout";
 
@@ -57,17 +58,29 @@ function normalizeProduct(raw, todayIso) {
   const onHand = typeof raw.quantity === "number" ? raw.quantity : null;
   const expiryIso = typeof raw.expiryDate === "string" ? raw.expiryDate.trim() : "";
   const expired = /^\d{4}-\d{2}-\d{2}$/.test(expiryIso) && expiryIso < todayIso;
+  const unitPriceCentavos = readPriceCentavos(raw.sellingPriceCentavos);
 
   // `available === null` means the batch's own figures are unusable — the three
   // hand-seeded staging batches store `quantity` as text. Saying "0 in stock"
   // would be wrong; it needs a migration, and the label says so.
+  //
+  // An unpriced batch gets its own reason for the same purpose. It is not out
+  // of stock and it is not expired — it is waiting on an admin, which is a
+  // different problem with a different owner. Blocking it here means a rep can
+  // never build a cart the server will refuse, and can never be quoted ₱0.00.
   let blockedReason = null;
   if (available === null) blockedReason = "Needs inventory migration";
   else if (expired) blockedReason = "Expired — unavailable";
+  else if (unitPriceCentavos === null) blockedReason = "Not priced — unavailable";
   else if (available <= 0) blockedReason = "Out of stock";
 
   return {
     inventoryId: raw.id,
+    // The price shown on this card, and the exact figure the checkout will ask
+    // the server to confirm. Carried into the cart so a price that moves while
+    // the rep is deciding is caught rather than silently applied.
+    unitPriceCentavos,
+    priceLabel: formatCentavos(unitPriceCentavos),
     name: raw.vaccineName || "Unknown Vaccine",
     sku: raw.batchId || "—",
     category: raw.vaccineType || "Other",
@@ -229,7 +242,10 @@ function SalesRepRequestOrder() {
 
   const addToCart = (product) => {
     if (!product.orderable) {
-      setNotice(`${product.name} is out of stock.`);
+      // The real reason, not a blanket "out of stock" — an unpriced or
+      // unmigrated batch is an admin task, not an empty shelf, and telling a
+      // rep the wrong one sends them to the wrong person.
+      setNotice(`${product.name}: ${product.blockedReason}.`);
       return;
     }
 
@@ -381,6 +397,20 @@ function SalesRepRequestOrder() {
                     </div>
 
                     <div>
+                      {/* VAT-exclusive, and labelled as such. An unlabelled
+                          price invites the reader to assume whichever
+                          convention they are used to, and the invoice adds 12%
+                          on top of this figure. */}
+                      <span>Unit Price</span>
+                      <strong>{product.priceLabel}</strong>
+                      <small>
+                        {product.unitPriceCentavos === null
+                          ? "not priced yet"
+                          : "per vial, excl. VAT"}
+                      </small>
+                    </div>
+
+                    <div>
                       <span>Storage Temp</span>
                       <strong>{product.temp}</strong>
                     </div>
@@ -417,8 +447,8 @@ function SalesRepRequestOrder() {
                         <>
                           <Bell size={15} />
                           {/* The real reason, not a blanket "out of stock":
-                              expired and unmigrated batches are different
-                              problems with different owners. */}
+                              expired, unmigrated and unpriced batches are
+                              different problems with different owners. */}
                           {product.blockedReason}
                         </>
                       ) : (

@@ -239,11 +239,19 @@ service cloud.firestore {
     // here is the other half of that boundary: making sure a client SDK cannot
     // reach around the callable and do it directly. Every rule below is about
     // what clients may NO LONGER do.
-    function allocationFields() {
+    //
+    // Money is in this list for the same reason stock is. An order's prices are
+    // read from the batch inside the reservation transaction and snapshotted; a
+    // client that could WRITE them could sell itself a vaccine at any price it
+    // liked, and a client that could EDIT them could restate what a clinic was
+    // charged after the fact. Neither is a client's decision to make.
+    function serverOnlyOrderFields() {
       return [
         'allocationVersion', 'allocationStatus', 'inventoryReconciliation',
         'reservedAt', 'reservedByUid', 'consumedAt', 'consumedByUid',
-        'releasedAt', 'releasedByUid'
+        'releasedAt', 'releasedByUid',
+        'pricingVersion', 'priceCurrency', 'priceIsVatInclusive',
+        'subtotalCentavos', 'subtotal', 'pricedAt'
       ];
     }
 
@@ -258,7 +266,7 @@ service cloud.firestore {
     // The guard every client order write now carries.
     function clientOrderWriteIsAllowed() {
       return !writesServerOnlyStatus()
-        && !changedKeys().hasAny(allocationFields());
+        && !changedKeys().hasAny(serverOnlyOrderFields());
     }
 
     // A new stock batch, as Admin Add Stock writes it. Quantities are Firestore
@@ -266,15 +274,57 @@ service cloud.firestore {
     // which the callable refuses outright, and this stops another one appearing.
     // `reservedQuantity` must start at zero: a batch that begins life already
     // claiming reservations would misstate availability from its first day.
+    //
+    // A price is REQUIRED from the batch's first moment. The alternative — let
+    // a batch exist unpriced and hope someone prices it later — is how a line
+    // ends up costing ₱0.00 in a real invoice. An unpriced batch is refused at
+    // creation, so the only unpriced batches that can exist are the ones that
+    // predate this rule, which the catalog shows as disabled.
     function isValidNewStockBatch() {
       let d = request.resource.data;
       return d.quantity is int
         && d.quantity >= 0
         && d.reservedQuantity == 0
+        && d.sellingPriceCentavos is int
+        && d.sellingPriceCentavos > 0
+        && d.sellingPriceCentavos <= maxSafeInteger()
         && d.batchId is string && d.batchId.size() > 0
         && d.vaccineName is string && d.vaccineName.size() > 0
         && d.expiryDate is string && d.expiryDate.size() == 10;
     }
+
+    // Re-pricing an existing batch is an ordinary admin update — that IS the
+    // price-management workflow — but the value that lands must still be a
+    // positive integer number of centavos. Guarded by presence so an admin can
+    // still correct an unrelated field on a batch that predates pricing, and so
+    // that adding a price to such a batch is validated on the way in.
+    function stockPriceValidIfPresent() {
+      let d = request.resource.data;
+      return !('sellingPriceCentavos' in d)
+        || (
+          d.sellingPriceCentavos is int
+          && d.sellingPriceCentavos > 0
+          && d.sellingPriceCentavos <= maxSafeInteger()
+        );
+    }
+
+    // Re-pricing must record WHO and WHEN, and neither may be chosen by the
+    // caller. `priceSetByUid` was previously a parameter the client passed,
+    // which would have let one admin record a re-price as another's — or as
+    // null. Pinned to request.auth.uid and request.time, so the audit trail on
+    // a price change is evidence rather than a claim.
+    function stockPriceAuditValid() {
+      let d = request.resource.data;
+      return !changedKeys().hasAny(['sellingPriceCentavos'])
+        || (d.priceSetAt == request.time && d.priceSetByUid == request.auth.uid);
+    }
+
+    // Number.MAX_SAFE_INTEGER. NOT a price cap — there is deliberately no
+    // business maximum on a price. Firestore integers are 64-bit, but every
+    // reader of this value is JavaScript, where integers past 2^53-1 collide
+    // silently. A figure that cannot survive the round trip exactly is refused
+    // rather than stored as something subtly different from what was meant.
+    function maxSafeInteger() { return 9007199254740991; }
 
     // ---------------- rider assignment (workflow checkpoint 1) ----------------
     //
@@ -691,7 +741,7 @@ service cloud.firestore {
       // `createOrderWithReservation` only. Admin create is kept for data
       // repair, and may not fabricate an allocation.
       allow create: if isAdmin()
-        && !request.resource.data.keys().hasAny(allocationFields())
+        && !request.resource.data.keys().hasAny(serverOnlyOrderFields())
         && clinicSnapshotValidOnCreate();
 
       // Admin: full update.
@@ -791,7 +841,9 @@ service cloud.firestore {
       allow read: if isApprovedUser();
       allow create: if isAdmin() && isValidNewStockBatch();
       allow update: if isAdmin()
-        && !changedKeys().hasAny(['quantity', 'reservedQuantity']);
+        && !changedKeys().hasAny(['quantity', 'reservedQuantity'])
+        && stockPriceValidIfPresent()
+        && stockPriceAuditValid();
       allow delete: if isAdmin();
     }
     match /vaccines/{id} {
@@ -891,10 +943,38 @@ service cloud.firestore {
     //    invoice (totals frozen);
     //  * once issued the invoice is frozen (no further update, no delete);
     //  * legacy / seeded invoices stay readable by admin.
+    // ---------------- server-priced invoices (pricing checkpoint) ----------------
+    //
+    // An invoice for an order that carries a price snapshot is written ONLY by
+    // `saveInvoiceDraftForPricedOrder` / `issueInvoiceForPricedOrder`, which run
+    // on the Admin SDK and bypass these rules by design.
+    //
+    // Why the client write is denied outright rather than validated here: an
+    // invoice's base pricing is an ARRAY of lines that each have to agree with
+    // the matching line on the order. Rules cannot iterate an array, so they
+    // cannot express "every line matches" for an arbitrary number of lines —
+    // any rule written here would check the first line, or the length, and call
+    // that validation. A partial check that looks complete is worse than none,
+    // so the whole path is closed and the callable is the only way in.
+    //
+    // The invoice document id IS the order id, so the order is reachable
+    // directly — one get(), on a path that is not hot.
+    //
+    // `.data.get('pricingVersion', 0)` rather than `.data.pricingVersion`:
+    // reading a key that is absent is an ERROR in rules, not a null, and an
+    // erroring condition denies. Written the direct way, every LEGACY order —
+    // which by definition has no pricingVersion — would have had its manual
+    // invoice path denied outright. The default keeps that path open.
+    function invoiceOrderIsServerPriced(invoiceId) {
+      return exists(/databases/$(database)/documents/orders/$(invoiceId))
+        && get(/databases/$(database)/documents/orders/$(invoiceId)).data.get('pricingVersion', 0) == 1;
+    }
+
     match /invoices/{invoiceId} {
       allow get, list: if isAdmin();
 
       allow create: if isAdmin()
+        && !invoiceOrderIsServerPriced(invoiceId)
         && request.resource.data.orderId == invoiceId
         && request.resource.data.invoiceStatus == 'draft'
         && request.resource.data.invoiceNumber is string
@@ -904,6 +984,8 @@ service cloud.firestore {
         && request.resource.data.createdByUid == request.auth.uid;
 
       allow update: if isAdmin()
+        // A priced order's invoice is the callable's alone — see above.
+        && !invoiceOrderIsServerPriced(invoiceId)
         // identity + creation trail are immutable
         && request.resource.data.orderId == resource.data.orderId
         && request.resource.data.invoiceNumber == resource.data.invoiceNumber

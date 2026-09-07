@@ -25,13 +25,22 @@ import {
   updateInvoiceDraft,
 } from "../../services/invoiceService";
 import {
+  adjustmentsFromForm,
   buildInitialForm,
   computeVatExclusiveTotals,
   formatOrderDate,
+  isServerPricedOrder,
   nextKey,
   normalizeStoredTotals,
+  presentationFromForm,
   serializeInvoiceDoc,
 } from "../../services/invoiceModel";
+import {
+  issueInvoiceForPricedOrder,
+  messageForInvoiceError,
+  saveInvoiceDraftForPricedOrder,
+} from "../../services/invoiceCallables";
+import { parseAdjustmentPesosToCentavos } from "../../services/money";
 import "./Invoices.css";
 
 function formatCurrency(value) {
@@ -76,6 +85,21 @@ function InvoiceEditor() {
 
   const issued = invoice?.invoiceStatus === "issued";
   const readOnly = issued;
+
+  /**
+   * Is this order's invoice priced by the server?
+   *
+   * When true the base pricing — every line's quantity and unit price, and the
+   * subtotal — comes from the order snapshot. The editor stops collecting them,
+   * stops sending them, and routes save and issue through the callables.
+   *
+   * The read-only inputs below are a COURTESY, not the control. The real
+   * enforcement is that this page sends no base pricing at all, that Firestore
+   * rules refuse a direct client write to such an invoice, and that the
+   * callable recomputes everything from the order regardless of what arrives.
+   */
+  const serverPriced = isServerPricedOrder(order);
+  const baseLocked = readOnly || serverPriced;
 
   // Load order + invoice on mount (and on retry via reloadKey). All setState
   // runs after an await inside this async effect, so it never fires
@@ -203,18 +227,36 @@ function InvoiceEditor() {
     setSaving(true);
     setMessage(null);
     try {
-      const data = buildInvoiceData();
-      if (invoice?.id) {
-        await updateInvoiceDraft(invoice.id, data, admin());
+      if (serverPriced) {
+        // Presentation text and explicit adjustments only. No item, quantity,
+        // price or total leaves this page — the callable reads all of those
+        // from the order inside its transaction.
+        await saveInvoiceDraftForPricedOrder({
+          orderId,
+          presentation: presentationFromForm(form),
+          adjustments: adjustmentsFromForm(form, parseAdjustmentPesosToCentavos),
+        });
+      } else if (invoice?.id) {
+        await updateInvoiceDraft(invoice.id, buildInvoiceData(), admin());
       } else {
-        await createInvoiceDraft(orderId, data, admin());
+        await createInvoiceDraft(orderId, buildInvoiceData(), admin());
       }
       const fresh = await getInvoiceByOrderId(orderId);
       setInvoice(fresh);
+      // Re-seed the form from what was actually stored, so the screen shows the
+      // server's figures rather than the ones this page computed for preview.
+      if (serverPriced && fresh) {
+        setForm((prev) => ({ ...buildInitialForm(order, fresh, prev?.salesRepName || "") }));
+      }
       setDirty(false);
       setMessage({ type: "success", text: "Draft saved." });
     } catch (err) {
-      setMessage({ type: "error", text: err.message || "Failed to save draft." });
+      setMessage({
+        type: "error",
+        text: serverPriced
+          ? messageForInvoiceError(err)
+          : err.message || "Failed to save draft.",
+      });
     } finally {
       setSaving(false);
     }
@@ -249,13 +291,25 @@ function InvoiceEditor() {
     setConfirmIssue(false);
     setMessage(null);
     try {
-      await issueInvoice(invoice.id, admin());
+      if (serverPriced) {
+        // Re-checks the stored draft against the order before locking it, so a
+        // base price substituted directly in Firestore cannot become an issued,
+        // legally-meaningful bill.
+        await issueInvoiceForPricedOrder(orderId);
+      } else {
+        await issueInvoice(invoice.id, admin());
+      }
       const fresh = await getInvoiceByOrderId(orderId);
       setInvoice(fresh);
       setDirty(false);
       setMessage({ type: "success", text: "Invoice issued." });
     } catch (err) {
-      setMessage({ type: "error", text: err.message || "Failed to issue invoice." });
+      setMessage({
+        type: "error",
+        text: serverPriced
+          ? messageForInvoiceError(err)
+          : err.message || "Failed to issue invoice.",
+      });
     } finally {
       setIssuing(false);
     }
@@ -392,6 +446,17 @@ function InvoiceEditor() {
             <button type="button" aria-label="Dismiss" onClick={() => setMessage(null)}>
               <X size={14} />
             </button>
+          </div>
+        )}
+
+        {serverPriced && !issued && (
+          <div className="inv-priced-banner inv-no-print">
+            <CheckCircle2 size={16} />
+            <span>
+              Prices and quantities on this invoice come from the order and
+              cannot be edited here. Discounts, other charges, withholding tax
+              and the VAT classification are still yours to set.
+            </span>
           </div>
         )}
 
@@ -667,7 +732,7 @@ function InvoiceEditor() {
                     <NumberInput
                       value={it.quantity}
                       onChange={(v) => setItem(it.key, "quantity", v)}
-                      readOnly={readOnly}
+                      readOnly={baseLocked}
                       aria-label={`Item ${i + 1} quantity`}
                     />
                   </td>
@@ -675,7 +740,7 @@ function InvoiceEditor() {
                     <NumberInput
                       value={it.unitPrice}
                       onChange={(v) => setItem(it.key, "unitPrice", v)}
-                      readOnly={readOnly}
+                      readOnly={baseLocked}
                       aria-label={`Item ${i + 1} unit price`}
                     />
                   </td>
@@ -684,7 +749,7 @@ function InvoiceEditor() {
                       (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0)
                     )}
                   </td>
-                  {!readOnly && (
+                  {!baseLocked && (
                     <td className="inv-no-print">
                       <button
                         type="button"
@@ -704,13 +769,13 @@ function InvoiceEditor() {
                   <td />
                   <td />
                   <td className="sit-amt">-</td>
-                  {!readOnly && <td className="inv-no-print" />}
+                  {!baseLocked && <td className="inv-no-print" />}
                 </tr>
               ))}
             </tbody>
           </table>
 
-          {!readOnly && (
+          {!baseLocked && (
             <button
               type="button"
               className="inv-btn inv-btn-outline inv-add-item inv-no-print"

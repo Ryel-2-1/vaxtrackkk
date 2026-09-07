@@ -42,7 +42,7 @@ const servicePath = join(here, "..", "src", "services", "vaccineService.js");
 // `"../firebase"` is extensionless (Vite resolves that, Node does not) and
 // would initialise a real Firebase app from Vite-only `import.meta.env` vars.
 // Everything between the imports and the assertions is the shipped code.
-const state = { addDoc: [], collection: [], getDocs: 0, snapshot: { docs: [], empty: true } };
+const state = { addDoc: [], updateDoc: [], doc: [], collection: [], getDocs: 0, currentUser: { uid: "admin1" }, snapshot: { docs: [], empty: true } };
 globalThis.__vaxtrackCalls = state;
 
 const tmp = mkdtempSync(join(tmpdir(), "vaxtrack-addstock-"));
@@ -57,9 +57,19 @@ export const query = (ref) => ref;
 export const where = (...a) => ({ where: a });
 export const orderBy = (...a) => ({ orderBy: a });
 export const serverTimestamp = () => "__SERVER_TIMESTAMP__";
+export const doc = (_db, name, id) => { s.doc.push({ name, id }); return { __doc: name + "/" + id }; };
+export const updateDoc = (ref, data) => { s.updateDoc.push({ ref, data }); return Promise.resolve(); };
 `
 );
-writeFileSync(join(tmp, "firebase.mjs"), `export const db = { __mockDb: true };\n`);
+// `auth` is stubbed because updateStockPrice now reads the signed-in uid
+// itself rather than accepting one as a parameter — which is what stops one
+// admin recording a re-price as another's.
+writeFileSync(
+  join(tmp, "firebase.mjs"),
+  `export const db = { __mockDb: true };
+export const auth = { get currentUser() { return globalThis.__vaxtrackCalls.currentUser; } };
+`
+);
 
 const original = readFileSync(servicePath, "utf8");
 const rewritten = original
@@ -82,8 +92,11 @@ const opts = {};
 /** Reset the capture state before each execution. */
 function loadService() {
   state.addDoc = [];
+  state.updateDoc = [];
+  state.doc = [];
   state.collection = [];
   state.getDocs = 0;
+  state.currentUser = { uid: "admin1" };
   state.snapshot = { docs: [], empty: true };
   return {
     mod: service,
@@ -111,6 +124,9 @@ const payloadFor = (vaccine) => ({
   arrivalDate: "2026-09-01",
   expiryDate: "2027-03-01",
   quantity: 1200,
+  // ₱1,250.00 per vial, VAT-exclusive. Required from the batch's first moment:
+  // the service refuses a write without it.
+  sellingPriceCentavos: 125000,
   status: "stable",
 });
 
@@ -205,4 +221,115 @@ test("batchIdExists reports duplicates from the query result, not from a guess",
 
   setSnapshot({ empty: true, docs: [] });
   assert.equal(await mod.batchIdExists("BATCH-QA-0002"), false, "an unused batch id is free");
+});
+
+// ---------------------------------------------------------------- pricing
+//
+// The service is the last place a bad price can be stopped before it reaches
+// Firestore. The rules refuse one too, and the callable refuses to sell it —
+// but a price that got stored is a price something will eventually read.
+
+test("a batch is written with its VAT-exclusive selling price and currency", opts, async () => {
+  const { mod, calls } = await loadService();
+  await mod.addStockBatch(payloadFor(SELECTED_VACCINE));
+  const w = calls.addDoc[0].data;
+
+  assert.equal(w.sellingPriceCentavos, 125000, "integer centavos, exactly as given");
+  assert.equal(w.priceCurrency, "PHP");
+  assert.equal(
+    w.priceIsVatInclusive,
+    false,
+    "recorded, not implied — the invoice adds 12% on top of this figure"
+  );
+});
+
+test("a batch cannot be created without a usable price", opts, async () => {
+  const { mod, calls } = await loadService();
+
+  for (const bad of [undefined, null, 0, -1, 1250.5, "125000", NaN, Infinity]) {
+    await assert.rejects(
+      () => mod.addStockBatch({ ...payloadFor(SELECTED_VACCINE), sellingPriceCentavos: bad }),
+      /selling price/i,
+      `refused: ${String(bad)}`
+    );
+  }
+  assert.equal(calls.addDoc.length, 0, "not one of them reached Firestore");
+});
+
+test("updateStockPrice re-prices one batch and records who and when", opts, async () => {
+  const { mod, calls } = await loadService();
+  await mod.updateStockPrice({
+    inventoryId: "batchDocId",
+    sellingPriceCentavos: 140000,
+  });
+
+  assert.equal(calls.updateDoc.length, 1, "exactly one document is updated");
+  assert.deepEqual(calls.doc[0], { name: "inventory", id: "batchDocId" });
+
+  const w = calls.updateDoc[0].data;
+  assert.equal(w.sellingPriceCentavos, 140000);
+  assert.equal(w.priceCurrency, "PHP");
+  assert.equal(w.priceIsVatInclusive, false);
+  assert.equal(w.priceSetAt, "__SERVER_TIMESTAMP__");
+  assert.equal(w.priceSetByUid, "admin1");
+});
+
+test("re-pricing can never become a way to move stock", opts, async () => {
+  // The rules refuse a client write naming either counter, but the service must
+  // not be the thing that tries: a re-price is a price change and nothing else.
+  const { mod, calls } = await loadService();
+  await mod.updateStockPrice({ inventoryId: "batchDocId", sellingPriceCentavos: 1 });
+
+  const keys = Object.keys(calls.updateDoc[0].data);
+  assert.ok(!keys.includes("quantity"), "no on-hand figure is touched");
+  assert.ok(!keys.includes("reservedQuantity"), "no reserved figure is touched");
+  assert.deepEqual(keys.sort(), [
+    "priceCurrency", "priceIsVatInclusive", "priceSetAt", "priceSetByUid",
+    "sellingPriceCentavos",
+  ]);
+});
+
+test("updateStockPrice refuses a bad amount or a missing batch", opts, async () => {
+  const { mod, calls } = await loadService();
+
+  for (const bad of [0, -1, 1250.5, "140000", null, undefined, NaN]) {
+    await assert.rejects(
+      () => mod.updateStockPrice({ inventoryId: "batchDocId", sellingPriceCentavos: bad }),
+      /whole number of centavos/i,
+      `refused: ${String(bad)}`
+    );
+  }
+  for (const id of ["", "   ", null, undefined, 5]) {
+    await assert.rejects(
+      () => mod.updateStockPrice({ inventoryId: id, sellingPriceCentavos: 140000 }),
+      /batch is required/i
+    );
+  }
+  assert.equal(calls.updateDoc.length, 0, "nothing was written");
+});
+
+test("the re-price audit uid comes from the session, not a parameter", opts, async () => {
+  // The signature no longer HAS a uid parameter, so a caller cannot record a
+  // re-price as another admin. Passing one is inert.
+  const { mod, calls } = await loadService();
+  calls.currentUser = { uid: "the-real-caller" };
+  await mod.updateStockPrice({
+    inventoryId: "batchDocId",
+    sellingPriceCentavos: 140000,
+    adminUid: "someone-else",
+  });
+
+  const w = calls.updateDoc[0].data;
+  assert.equal(w.priceSetByUid, "the-real-caller", "read from the signed-in session");
+  assert.notEqual(w.priceSetByUid, "someone-else", "a supplied uid is ignored entirely");
+  assert.equal(w.priceSetAt, "__SERVER_TIMESTAMP__", "server time, not a client clock");
+});
+
+test("a signed-out caller records no uid rather than a forged one", opts, async () => {
+  // The rules refuse this write anyway (priceSetByUid must equal the caller);
+  // the point is that the service never invents a value to fill the gap.
+  const { mod, calls } = await loadService();
+  calls.currentUser = null;
+  await mod.updateStockPrice({ inventoryId: "batchDocId", sellingPriceCentavos: 140000 });
+  assert.equal(calls.updateDoc[0].data.priceSetByUid, null);
 });

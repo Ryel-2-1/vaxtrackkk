@@ -1366,3 +1366,24 @@
     break-inside: avoid;
   }
 }
+
+/* Server-priced invoice notice. Informational (teal), not a success state —
+   the green issued-banner means "this is finished"; this means "these fields
+   belong to the order". */
+.inv-priced-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: #ecfeff;
+  border: 1px solid #a5f3fc;
+  color: #0e7490;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+.inv-priced-banner svg {
+  flex: none;
+  margin-top: 2px;
+}

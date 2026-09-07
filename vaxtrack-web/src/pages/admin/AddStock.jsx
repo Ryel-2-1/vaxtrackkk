@@ -7,6 +7,7 @@ import {
   batchIdExists,
   addStockBatch,
 } from "../../services/vaccineService";
+import { parsePesosToCentavos } from "../../services/money";
 import "./AdminForms.css";
 
 function AddStock() {
@@ -21,6 +22,9 @@ function AddStock() {
   // Starts empty rather than a pre-filled figure: a default quantity is a
   // number nobody entered, and it could be submitted unchanged.
   const [quantity, setQuantity] = useState("");
+  // Also starts empty. A default price would be worse than a default quantity:
+  // a plausible-looking figure nobody chose is exactly what gets invoiced.
+  const [unitPrice, setUnitPrice] = useState("");
 
   const [loadingVaccines, setLoadingVaccines] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -164,6 +168,23 @@ function AddStock() {
       return false;
     }
 
+    // A batch cannot enter inventory unpriced. Sales Rep ordering reads this
+    // figure and the invoice bills from it, so "price it later" means shipping
+    // a vaccine at ₱0.00 the moment someone forgets.
+    const price = parsePesosToCentavos(unitPrice);
+    if (!price.ok) {
+      showMessage(
+        {
+          empty: "Unit selling price is required.",
+          "not-positive": "Selling price must be greater than zero.",
+          "not-safe-integer":
+            "That amount is too large to record exactly. Please check the encoded figure.",
+        }[price.reason] ??
+          "Enter the selling price in pesos, e.g. 1250 or 1250.50."
+      );
+      return false;
+    }
+
     if (await batchIdExists(cleanedBatchId)) {
       showMessage("This Batch ID already exists in inventory.");
       return false;
@@ -205,6 +226,10 @@ function AddStock() {
         arrivalDate,
         expiryDate,
         quantity: Number(String(quantity).trim()),
+        // Re-parsed rather than carried from validateForm: parsing the typed
+        // text in one place means the value written is the value validated,
+        // even if the two ever drift apart.
+        sellingPriceCentavos: parsePesosToCentavos(unitPrice).value,
         status,
       });
 
@@ -396,6 +421,26 @@ function AddStock() {
                     +
                   </button>
                 </div>
+              </div>
+
+              <div>
+                <label htmlFor="stock-unit-price">Unit Selling Price (₱)</label>
+                <input
+                  id="stock-unit-price"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="e.g. 1250.00"
+                  value={unitPrice}
+                  onChange={(e) => setUnitPrice(e.target.value)}
+                  aria-describedby="stock-unit-price-help"
+                />
+                {/* Says which convention applies. The invoice adds 12% to this
+                    figure, and an unlabelled price is read as whichever
+                    convention the reader already had in mind. */}
+                <small id="stock-unit-price-help">
+                  Price per vial charged to the clinic, excluding VAT. Applies to
+                  this batch only.
+                </small>
               </div>
 
             </div>

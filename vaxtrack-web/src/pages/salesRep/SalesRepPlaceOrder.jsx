@@ -16,6 +16,11 @@ import {
   newRequestId,
 } from "../../services/inventoryCallables";
 import { subscribeClinics } from "../../services/clinicService";
+import {
+  centavosToPesos,
+  formatCentavos,
+  readPriceCentavos,
+} from "../../services/money";
 import SalesRepLayout from "./SalesRepLayout";
 
 /**
@@ -34,6 +39,22 @@ function messageForCallableError(error) {
     }
     case "batch-expired":
       return "One of these batches has expired and can no longer be ordered. Remove it and pick another.";
+    case "price-changed": {
+      // The whole point of the check is that a rep sees the real numbers and
+      // decides, so both figures are named rather than summarised as "changed".
+      const info = error.info;
+      if (!info) return error.message;
+      const batch = info.batchId ?? info.inventoryId;
+      return `The price of batch ${batch} changed from ${formatCentavos(
+        info.expectedUnitPriceCentavos
+      )} to ${formatCentavos(
+        info.currentUnitPriceCentavos
+      )} while you were ordering. Nothing was placed. Rebuild the cart from the catalog to order at the new price.`;
+    }
+    case "batch-unpriced":
+      return "One of these batches has no selling price yet. An admin needs to price it before it can be ordered.";
+    case "price-not-confirmed":
+      return "This cart was built before batch pricing. Please rebuild it from the catalog so the prices can be confirmed.";
     case "inventory-migration-required":
       return "One of these batches still records its stock as text and needs an admin migration before it can be ordered.";
     case "idempotency-conflict":
@@ -43,6 +64,51 @@ function messageForCallableError(error) {
     default:
       return error?.message || "Unable to create order. Please try again.";
   }
+}
+
+/**
+ * The confirmation screen's line data, built from the callable's own reply.
+ *
+ * `pricing` is what the server recorded on the order. The cart lines are used
+ * only for the display fields the server does not return (batch label, chain).
+ * If the server sends no pricing block — an old deployment, or an order it
+ * could not read back on a replay — the lines carry NO price at all rather than
+ * falling back to the client's expectation: an unproven number shown as a bill
+ * is worse than a dash.
+ */
+function confirmationPricing(pricing, cartItems) {
+  const byId = new Map(cartItems.map((item) => [item.inventoryId, item]));
+  const serverItems = Array.isArray(pricing?.items) ? pricing.items : null;
+
+  if (!serverItems) {
+    return {
+      items: cartItems.map((item) => ({ ...item, unitPrice: null, unitPriceCentavos: null })),
+      subtotalCentavos: null,
+      subtotal: null,
+      pricingSource: "unavailable",
+    };
+  }
+
+  return {
+    items: serverItems.map((line) => {
+      const cartLine = byId.get(line.inventoryId);
+      return {
+        inventoryId: line.inventoryId,
+        name: line.name ?? cartLine?.name ?? "Selected Vaccine",
+        sku: line.batchId ?? cartLine?.sku ?? "—",
+        chain: cartLine?.chain ?? "Cold Chain",
+        quantity: line.quantity,
+        unitPriceCentavos: line.unitPriceCentavos,
+        lineTotalCentavos: line.lineTotalCentavos,
+        unitPrice: centavosToPesos(line.unitPriceCentavos),
+      };
+    }),
+    subtotalCentavos: pricing.subtotalCentavos,
+    subtotal: centavosToPesos(pricing.subtotalCentavos),
+    priceCurrency: pricing.priceCurrency,
+    priceIsVatInclusive: pricing.priceIsVatInclusive,
+    pricingSource: "server",
+  };
 }
 
 function getInitialItems() {
@@ -60,7 +126,11 @@ function getInitialItems() {
         sku: item.sku || "—",
         chain: item.temp || item.category || "Cold Chain",
         quantity: Number(item.quantity) || 1,
-        unitPrice: Number(item.unitPrice) || 0,
+        // The price the catalog showed when this line entered the cart, read
+        // back through the same validator the catalog used — so a hand-edited
+        // localStorage value does not become a price, it becomes null, and the
+        // submit guard below refuses the cart rather than quoting it.
+        expectedUnitPriceCentavos: readPriceCentavos(item.unitPriceCentavos),
         stockText: item.stock
           ? `Available: ${Number(item.stock).toLocaleString()} ${Number(item.stock) === 1 ? "vial" : "vials"}`
           : "",
@@ -139,6 +209,24 @@ function SalesRepPlaceOrder() {
 
   const totalQuantity = items.reduce((total, item) => total + item.quantity, 0);
 
+  /**
+   * The cart's VAT-exclusive subtotal, in centavos — an ESTIMATE, and labelled
+   * as one on screen.
+   *
+   * The authoritative subtotal is the one the server computes from the batches
+   * inside the reservation transaction and writes onto the order. This figure
+   * exists so the rep can see what they are about to commit to; if it disagrees
+   * with the server the checkout is refused with `price-changed` rather than
+   * quietly reconciled. Null when any line has no readable price, because a
+   * partial total is a wrong total.
+   */
+  const subtotalCentavos = items.some((item) => item.expectedUnitPriceCentavos === null)
+    ? null
+    : items.reduce(
+        (total, item) => total + item.expectedUnitPriceCentavos * item.quantity,
+        0
+      );
+
   const handleQuantityChange = (sku, action) => {
     setItems((current) =>
       current.map((item) => {
@@ -204,6 +292,18 @@ function SalesRepPlaceOrder() {
       return;
     }
 
+    // And every line must carry the price it was quoted at. The server refuses
+    // an unconfirmed price anyway; catching it here means the rep is told to
+    // rebuild the cart instead of watching a submit fail.
+    const unpriced = items.filter((item) => item.expectedUnitPriceCentavos === null);
+    if (unpriced.length > 0) {
+      submittingRef.current = false;
+      setMessage(
+        "This cart was built before batch pricing. Please rebuild it from the catalog."
+      );
+      return;
+    }
+
     setSaving(true);
     setMessage("");
 
@@ -221,7 +321,7 @@ function SalesRepPlaceOrder() {
         items: items.map((item) => ({
           inventoryId: item.inventoryId,
           quantity: Number(item.quantity),
-          unitPrice: Number(item.unitPrice) || 0,
+          expectedUnitPriceCentavos: item.expectedUnitPriceCentavos,
         })),
       });
 
@@ -235,7 +335,13 @@ function SalesRepPlaceOrder() {
           orderNumber: result.orderNumber,
           clinicName: verifiedClinic.name,
           clinicAddress: verifiedClinic.location || verifiedClinic.address || "",
-          items,
+          // Prices come from `result.pricing` — what the SERVER wrote onto the
+          // order — never from `expectedUnitPriceCentavos`, which is only ever
+          // the client's claim about what it was shown. The two agree by
+          // construction here, since a difference would have been refused with
+          // `price-changed`; showing the server's copy means the confirmation
+          // still cannot drift from the document if that ever stops holding.
+          ...confirmationPricing(result.pricing, items),
           quantity: totalQuantity,
           status: "pending_dispatch",
         })
@@ -329,6 +435,8 @@ function SalesRepPlaceOrder() {
                   <th>Product</th>
                   <th>Batch ID</th>
                   <th>Quantity</th>
+                  <th>Unit price</th>
+                  <th>Line total</th>
                   <th></th>
                 </tr>
               </thead>
@@ -346,7 +454,7 @@ function SalesRepPlaceOrder() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="4">
+                    <td colSpan="6">
                       <div className="place-v2-empty">
                         No matching order item found.
                       </div>
@@ -442,6 +550,20 @@ function SalesRepPlaceOrder() {
               <strong>{urgent ? "Urgent" : "Standard"}</strong>
             </p>
 
+            {/* Named "estimated" and "excl. VAT" on purpose. The server writes
+                the binding figure, and the invoice adds 12% on top of it —
+                a number labelled just "Total" would be read as neither. */}
+            <p>
+              Estimated subtotal
+              <strong className="tnum">
+                {subtotalCentavos === null ? "—" : formatCentavos(subtotalCentavos)}
+              </strong>
+            </p>
+            <p className="place-v2-price-note">
+              Excludes 12% VAT, added at invoicing. Prices are confirmed against
+              the batch when the order is placed.
+            </p>
+
             <button
               type="button"
               onClick={handleFinalizeOrder}
@@ -478,6 +600,18 @@ function OrderRow({ item, onDecrease, onIncrease, onRemove }) {
           <span>{item.quantity}</span>
           <button type="button" onClick={onIncrease}>+</button>
         </div>
+      </td>
+
+      {/* Both figures come from the catalog snapshot, and the server will
+          confirm the unit price against the live batch before anything is
+          placed. A line whose price could not be read shows a dash rather than
+          a zero — zero is a price, and this is the absence of one. */}
+      <td className="tnum">{formatCentavos(item.expectedUnitPriceCentavos)}</td>
+
+      <td className="tnum">
+        {item.expectedUnitPriceCentavos === null
+          ? "—"
+          : formatCentavos(item.expectedUnitPriceCentavos * item.quantity)}
       </td>
 
       <td>

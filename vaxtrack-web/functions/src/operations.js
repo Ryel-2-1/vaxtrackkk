@@ -15,6 +15,11 @@
 
 const {
   ALLOCATION_VERSION,
+  PRICING_VERSION,
+  PRICE_CURRENCY,
+  PRICE_IS_VAT_INCLUSIVE,
+  centavosToPesos,
+  sumLineTotalsCentavos,
   PolicyError,
   canonicalRequestFingerprint,
   evaluateBatch,
@@ -96,7 +101,19 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
       }
       // A retry of the SAME request. Return what the first call committed and
       // write nothing — this is what makes five simultaneous submits one order.
-      return { orderId: prior.orderId, orderNumber: prior.orderNumber, replayed: true };
+      //
+      // The committed order is re-read so a replay reports the SAME
+      // server-generated prices as the original call. Without this a retry
+      // would hand the confirmation screen nothing to show and it would fall
+      // back to the client's own expectation, which is the exact figure the
+      // whole boundary exists to stop anyone trusting.
+      const priorSnap = await tx.get(db.collection(ORDERS).doc(prior.orderId));
+      return {
+        orderId: prior.orderId,
+        orderNumber: prior.orderNumber,
+        replayed: true,
+        pricing: pricingFromOrder(priorSnap.exists ? priorSnap.data() : null),
+      };
     }
 
     const clinicSnap = await tx.get(clinicRef);
@@ -119,21 +136,29 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
         inventoryId: snap.id,
         data: snap.exists ? snap.data() : null,
         requested: line.quantity,
+        // Compared against the batch's live price, never used as one. A
+        // difference in either direction refuses the checkout.
+        expectedUnitPriceCentavos: line.expectedUnitPriceCentavos,
         now,
       });
     });
 
     const clinic = clinicSnap.data();
-    const orderItems = evaluated.map((e, index) => ({
+    const subtotalCentavos = sumLineTotalsCentavos(evaluated);
+    const orderItems = evaluated.map((e) => ({
       inventoryId: e.inventoryId,
       batchId: e.batchId,
       name: e.name,
       chain: e.chain,
       quantity: e.quantity,
-      // CALLER-SUPPLIED AND UNTRUSTED — see the pricing note in index.js. It is
-      // carried for display/invoice compatibility only and takes no part in any
-      // inventory or authorization decision.
-      unitPrice: Number(items[index].unitPrice) || 0,
+      // Money, read from the batch INSIDE this transaction. The caller supplied
+      // no price — only the price it expected, which was checked above — so a
+      // reduced, inflated or malformed figure cannot reach this document.
+      unitPriceCentavos: e.unitPriceCentavos,
+      lineTotalCentavos: e.lineTotalCentavos,
+      // Decimal pesos, derived. The invoice module and every invoice already
+      // written speak this; centavos above stay the authoritative figure.
+      unitPrice: centavosToPesos(e.unitPriceCentavos),
     }));
 
     // ---- writes ----
@@ -160,6 +185,20 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
           ? payload.deliveryInstructions.trim().slice(0, 1000)
           : "",
       items: orderItems,
+      // ---- immutable price snapshot ----
+      //
+      // What this clinic was quoted, at this instant, in integers. A later
+      // price change on the batch does not reach back into a placed order:
+      // re-deriving a total from today's catalog would misreport what was
+      // actually agreed. The currency and the VAT convention are RECORDED
+      // rather than implied, so no future reader has to infer them from the
+      // fact that the invoice happens to apply 12%.
+      pricingVersion: PRICING_VERSION,
+      priceCurrency: PRICE_CURRENCY,
+      priceIsVatInclusive: PRICE_IS_VAT_INCLUSIVE,
+      subtotalCentavos,
+      subtotal: centavosToPesos(subtotalCentavos),
+      pricedAt: FieldValue.serverTimestamp(),
       allocationVersion: ALLOCATION_VERSION,
       allocationStatus: "reserved",
       reservedAt: FieldValue.serverTimestamp(),
@@ -193,8 +232,57 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
       createdAt: FieldValue.serverTimestamp(),
     });
 
-    return { orderId: orderRef.id, orderNumber, replayed: false };
+    // The prices the SERVER wrote, returned so the confirmation screen shows
+    // what was actually recorded rather than what the client asked for. The two
+    // agree by construction — a difference would have been refused above — but
+    // displaying the server's copy means the screen cannot drift from the
+    // document even if that ever stops being true.
+    return {
+      orderId: orderRef.id,
+      orderNumber,
+      replayed: false,
+      pricing: {
+        items: orderItems.map((i) => ({
+          inventoryId: i.inventoryId,
+          batchId: i.batchId,
+          name: i.name,
+          quantity: i.quantity,
+          unitPriceCentavos: i.unitPriceCentavos,
+          lineTotalCentavos: i.lineTotalCentavos,
+        })),
+        subtotalCentavos,
+        priceCurrency: PRICE_CURRENCY,
+        priceIsVatInclusive: PRICE_IS_VAT_INCLUSIVE,
+        pricingVersion: PRICING_VERSION,
+      },
+    };
   });
+}
+
+/**
+ * The pricing block of an already-committed order, for a replayed create.
+ *
+ * Returns null rather than a zeroed shape when the order cannot be read: a
+ * confirmation screen must show nothing rather than ₱0.00, which would read as
+ * a real price.
+ */
+function pricingFromOrder(order) {
+  if (!order || order.pricingVersion !== PRICING_VERSION) return null;
+  const items = Array.isArray(order.items) ? order.items : [];
+  return {
+    items: items.map((i) => ({
+      inventoryId: i.inventoryId ?? null,
+      batchId: i.batchId ?? null,
+      name: i.name ?? null,
+      quantity: i.quantity,
+      unitPriceCentavos: i.unitPriceCentavos,
+      lineTotalCentavos: i.lineTotalCentavos,
+    })),
+    subtotalCentavos: order.subtotalCentavos,
+    priceCurrency: order.priceCurrency ?? PRICE_CURRENCY,
+    priceIsVatInclusive: order.priceIsVatInclusive ?? PRICE_IS_VAT_INCLUSIVE,
+    pricingVersion: PRICING_VERSION,
+  };
 }
 
 /**

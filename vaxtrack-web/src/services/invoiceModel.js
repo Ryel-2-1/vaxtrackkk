@@ -109,6 +109,26 @@ export function nextKey() {
   return `it-${itemKeySeed}`;
 }
 
+/**
+ * The unit price to open an invoice line at, in decimal pesos.
+ *
+ * A server-priced order carries `unitPriceCentavos` — the exact integer the
+ * clinic was quoted at reservation time — and that is preferred over the
+ * derived peso field beside it, so the invoice starts from the authoritative
+ * figure rather than from a float that was rounded on the way out.
+ *
+ * A LEGACY order has neither, and gets 0: unchanged behaviour, where the admin
+ * types the price. Nothing here invents a price for an order that never had
+ * one — a fabricated figure would misstate what a clinic was actually charged.
+ */
+function openingUnitPrice(item) {
+  const centavos = item?.unitPriceCentavos;
+  if (typeof centavos === "number" && Number.isInteger(centavos) && centavos > 0) {
+    return centavos / 100;
+  }
+  return Number(item?.unitPrice) || 0;
+}
+
 export function itemsFromOrder(order) {
   if (Array.isArray(order?.items) && order.items.length > 0) {
     return order.items.map((it) => ({
@@ -122,7 +142,7 @@ export function itemsFromOrder(order) {
       expiry: it.expiry || it.expiryDate || "",
       quantity: Number(it.quantity) || 0,
       unit: it.unit || order.unit || "vials",
-      unitPrice: Number(it.unitPrice) || 0,
+      unitPrice: openingUnitPrice(it),
     }));
   }
   return [
@@ -253,6 +273,85 @@ export function buildInitialForm(order, invoice, salesRepName) {
 /** Whether an invoice document is locked (issued, read-only). */
 export function isIssued(invoice) {
   return invoice?.invoiceStatus === "issued";
+}
+
+// ---- server-priced orders (pricing checkpoint) ----
+//
+// An order carrying a price snapshot is invoiced through the callables in
+// invoiceCallables.js: its base pricing comes from the order and the editor
+// neither collects nor sends one. An order WITHOUT the stamp keeps the manual
+// path exactly as it has always worked.
+
+/** The pricing schema version. Must match PRICING_VERSION in functions/src/policy.js. */
+export const PRICING_VERSION = 1;
+
+/** Detected ONLY by the version stamp — never by inspecting item shape. */
+export function isServerPricedOrder(order) {
+  return order?.pricingVersion === PRICING_VERSION;
+}
+
+/**
+ * Free-text fields the admin owns on a priced invoice.
+ *
+ * Must stay identical to PRESENTATION_FIELDS in
+ * functions/src/invoicePricing.js — the server rejects anything not on its own
+ * list, so a field added here alone would fail at save time rather than being
+ * silently dropped. tests/invoiceContract.test.js pins the two together.
+ */
+export const PRESENTATION_FIELDS = Object.freeze([
+  "customerName", "registeredName", "customerAddress", "customerContact",
+  "customerTin", "customerCode", "shipTo",
+  "salesRepName", "salesRepCode",
+  "invoiceDate", "saleType", "purchaseOrderNumber", "referenceNumber",
+  "vaccinesTemp",
+  "companyName", "companyAddress", "companyContact", "companyTin",
+  "paymentTerms", "deliveryTerms", "notes", "remarks",
+  "processedBy", "packedBy", "deliveredBy", "preparedBy", "checkedBy",
+  "approvedBy", "receivedBy", "authorizedRepresentative",
+  "customerAcknowledgment", "soloParentId", "bookletInfo",
+  "atpNumber", "atpDate", "printerBlock", "accreditationNo", "accreditationDates",
+]);
+
+/**
+ * The presentation half of the editor form — text only, no money.
+ *
+ * Built by picking from an allowlist rather than by deleting known money
+ * fields: a new pricing field added to the form later is excluded by default
+ * instead of travelling to the server until someone remembers to remove it.
+ */
+export function presentationFromForm(form) {
+  const out = {};
+  for (const key of PRESENTATION_FIELDS) {
+    const value = form?.[key];
+    out[key] = typeof value === "string" ? value : value == null ? "" : String(value);
+  }
+  return out;
+}
+
+/**
+ * The adjustment half — the only money the client sends for a priced invoice.
+ *
+ * These are explicit, separate fields. None of them can restate a unit price:
+ * the server applies them on top of a base it computed itself.
+ */
+export function adjustmentsFromForm(form, parseAdjustment) {
+  const read = (key) => {
+    const parsed = parseAdjustment(form?.[key]);
+    if (!parsed.ok) {
+      throw new Error(
+        `${key === "discount" ? "Discount" : key === "otherCharges" ? "Other charges" : "Withholding tax"} must be a valid amount.`
+      );
+    }
+    return parsed.value;
+  };
+  return {
+    discountCentavos: read("discount"),
+    otherChargesCentavos: read("otherCharges"),
+    withholdingTaxCentavos: read("withholdingTax"),
+    vatClassification: VAT_CLASSIFICATIONS.includes(form?.vatClassification)
+      ? form.vatClassification
+      : "vatable",
+  };
 }
 
 /**

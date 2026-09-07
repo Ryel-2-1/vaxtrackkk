@@ -3,6 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { FileDown, Package, Plus, Search, X } from "lucide-react";
 import AdminLayout from "../../components/admin/AdminLayout";
 import { subscribeInventory } from "../../services/inventoryService";
+import { updateStockPrice } from "../../services/vaccineService";
+import {
+  centavosToInputValue,
+  formatCentavos,
+  parsePesosToCentavos,
+  readPriceCentavos,
+} from "../../services/money";
 import KpiCard from "../../components/ui/KpiCard";
 import "./Inventory.css";
 
@@ -53,6 +60,16 @@ function normalizeInventoryItem(raw) {
     );
   }
   if (!reservedOk) flags.push("Reserved figure is invalid");
+  // Surfaced as a flag, not smoothed over: an unpriced batch is invisible to
+  // ordering, and the admin looking at this row is the person who can fix it.
+  const priceCentavos = readPriceCentavos(raw.sellingPriceCentavos);
+  if (priceCentavos === null) {
+    flags.push(
+      raw.sellingPriceCentavos === undefined || raw.sellingPriceCentavos === null
+        ? "No selling price — cannot be ordered"
+        : "Selling price is invalid — cannot be ordered"
+    );
+  }
   if (reservedRaw === undefined || reservedRaw === null) flags.push("No reserved field yet");
   if (available !== null && available < 0) flags.push("Reserved exceeds stock on hand");
   if (raw.expiryDate && /^\d{4}-\d{2}-\d{2}$/.test(raw.expiryDate)) {
@@ -70,6 +87,8 @@ function normalizeInventoryItem(raw) {
     onHand: onHandOk ? raw.quantity.toLocaleString() : "—",
     reserved: reservedOk ? reserved.toLocaleString() : "—",
     available: available === null ? "—" : available.toLocaleString(),
+    priceCentavos,
+    price: formatCentavos(priceCentavos),
     flags,
     qty: raw.quantity != null ? Number(raw.quantity).toLocaleString() : "—",
     qtyRaw: raw.quantity != null ? Number(raw.quantity) : 0,
@@ -94,6 +113,18 @@ function Inventory() {
   const [selectedVaccine, setSelectedVaccine] = useState(null);
   const [toast, setToast] = useState("");
 
+  /**
+   * Price-management dialog state.
+   *
+   * `pricing` holds the batch being re-priced, or null. Deliberately a separate
+   * piece of state from `selectedVaccine` so opening the price editor does not
+   * also open the detail drawer behind it.
+   */
+  const [pricing, setPricing] = useState(null);
+  const [priceInput, setPriceInput] = useState("");
+  const [priceError, setPriceError] = useState("");
+  const [savingPrice, setSavingPrice] = useState(false);
+
   useEffect(() => {
     const unsubscribe = subscribeInventory((raw) => {
       setInventory(raw.map(normalizeInventoryItem));
@@ -107,6 +138,62 @@ function Inventory() {
   const showToast = (message) => {
     setToast(message);
     setTimeout(() => setToast(""), 2200);
+  };
+
+  const openPriceDialog = (item) => {
+    setPricing(item);
+    setPriceInput(centavosToInputValue(item.priceCentavos));
+    setPriceError("");
+  };
+
+  const closePriceDialog = () => {
+    setPricing(null);
+    setPriceInput("");
+    setPriceError("");
+  };
+
+  /**
+   * Save a new selling price for one batch.
+   *
+   * FORWARD-ONLY, and the dialog says so. Orders already placed keep the price
+   * snapshot they were created with; re-pricing here changes what the NEXT
+   * order will be quoted and nothing else.
+   */
+  const handleSavePrice = async () => {
+    if (savingPrice || !pricing) return;
+
+    const parsed = parsePesosToCentavos(priceInput);
+    if (!parsed.ok) {
+      setPriceError(
+        {
+          empty: "Enter a selling price.",
+          "not-positive": "The price must be greater than zero.",
+          "not-safe-integer":
+            "That amount is too large to record exactly. Please check the figure.",
+        }[parsed.reason] ?? "Enter an amount in pesos, e.g. 1250 or 1250.50."
+      );
+      return;
+    }
+
+    setSavingPrice(true);
+    setPriceError("");
+    try {
+      // No uid is passed: the service reads the authenticated session
+      // itself, and the rules refuse anything that is not the caller.
+      await updateStockPrice({
+        inventoryId: pricing.id,
+        sellingPriceCentavos: parsed.value,
+      });
+      // The live subscription re-renders the row; nothing is patched locally,
+      // so what is on screen is what Firestore actually holds.
+      closePriceDialog();
+      showToast(`Price updated for batch ${pricing.batch}.`);
+    } catch (error) {
+      console.error("Update price error:", error);
+      setPriceError("Could not save the price. Please try again.");
+    } finally {
+      setSavingPrice(false);
+    }
   };
 
   const filteredVaccines = useMemo(() => {
@@ -398,8 +485,10 @@ function Inventory() {
                   <th>On hand</th>
                 <th>Reserved</th>
                 <th>Available</th>
+                  <th>Unit price</th>
                   <th>Temp</th>
                   <th>Status</th>
+                  <th></th>
                 </tr>
               </thead>
 
@@ -444,6 +533,13 @@ function Inventory() {
                       )}
                     </td>
 
+                    {/* An unpriced batch reads "—", never "₱0.00". Zero is a
+                        price someone chose; this is the absence of one, and
+                        the two lead to different actions. */}
+                    <td className={item.priceCentavos === null ? "inv-unpriced" : "tnum"}>
+                      {item.price}
+                    </td>
+
                     <td>
                       <span className="v2-temp-pill">{item.temp}</span>
                     </td>
@@ -452,6 +548,16 @@ function Inventory() {
                       <span className={`v2-stock-status ${item.level}`}>
                         {item.status}
                       </span>
+                    </td>
+
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        className="inv-price-btn"
+                        onClick={() => openPriceDialog(item)}
+                      >
+                        {item.priceCentavos === null ? "Set price" : "Edit price"}
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -602,6 +708,74 @@ function Inventory() {
                 onClick={() => showToast("Batch flagged for review.")}
               >
                 Flag for Review
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pricing && (
+        <div className="v2-inventory-modal-backdrop" onClick={closePriceDialog}>
+          <div
+            className="v2-inventory-modal inv-price-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="inv-price-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="v2-inventory-modal-close"
+              onClick={closePriceDialog}
+              aria-label="Close"
+            >
+              <X size={18} />
+            </button>
+
+            <h2 id="inv-price-title">Set selling price</h2>
+
+            <p className="inv-price-batch">
+              <strong>{pricing.name}</strong>
+              <span>Batch {pricing.batch}</span>
+            </p>
+
+            <label htmlFor="inv-price-input">Unit selling price (₱)</label>
+            <input
+              id="inv-price-input"
+              type="text"
+              inputMode="decimal"
+              placeholder="e.g. 1250.00"
+              value={priceInput}
+              onChange={(e) => setPriceInput(e.target.value)}
+              aria-describedby="inv-price-help"
+            />
+            <small id="inv-price-help">
+              Price per vial charged to the clinic, excluding VAT. Applies to
+              this batch only, and only to orders placed from now on — orders
+              already placed keep the price they were quoted.
+            </small>
+
+            {/* assertive: it reports the outcome of an action just taken. */}
+            <div aria-live="assertive">
+              {priceError && <p className="inv-price-error">{priceError}</p>}
+            </div>
+
+            <div className="inv-price-actions">
+              <button
+                type="button"
+                className="inv-price-cancel"
+                onClick={closePriceDialog}
+                disabled={savingPrice}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inv-price-save"
+                onClick={handleSavePrice}
+                disabled={savingPrice}
+              >
+                {savingPrice ? "Saving…" : "Save price"}
               </button>
             </div>
           </div>

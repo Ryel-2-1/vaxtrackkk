@@ -30,6 +30,39 @@ const MAX_ORDER_LINES = 20;
 const MAX_LINE_QUANTITY = 1000000;
 const MAX_REASON_LENGTH = 500; // identical to orderWorkflow.js / firestore.rules
 
+/** Pricing schema version stamped on every server-priced order. */
+const PRICING_VERSION = 1;
+
+/**
+ * Money is PHP CENTAVOS as an integer. Never a float, never a decimal string.
+ *
+ * A peso float cannot represent ₱0.10 exactly, so a subtotal built from floats
+ * drifts — which is precisely what the invoice layer's 0.01 tolerance was
+ * absorbing. Centavos make every figure exact, and the only rounding in the
+ * system becomes the VAT calculation the invoice already documents.
+ *
+ * The price stored on a batch is the VAT-EXCLUSIVE clinic selling price;
+ * invoices add 12% on top. Both facts are recorded on the order itself rather
+ * than inferred, so a reader never has to guess which convention applied.
+ */
+const PRICE_CURRENCY = "PHP";
+const PRICE_IS_VAT_INCLUSIVE = false;
+
+/**
+ * There is NO business maximum on a unit price.
+ *
+ * An earlier draft invented a ₱100,000.00 ceiling. Nobody approved that figure,
+ * and a made-up limit is a business rule smuggled in as a validation: the first
+ * legitimately expensive product would be refused for a reason no one decided.
+ *
+ * What remains is arithmetic safety, which is not a business rule: a price must
+ * be a whole number of centavos that JavaScript can represent EXACTLY. Beyond
+ * Number.MAX_SAFE_INTEGER integers silently collide (2^53 and 2^53+1 are the
+ * same value), so a figure past that point cannot be stored or summed honestly.
+ * Every multiplication and sum below is checked against the same limit rather
+ * than being assumed safe by a ceiling that no longer exists.
+ */
+
 /**
  * Batch expiry cutoff — DATE-ONLY, Asia/Manila (UTC+8, no DST).
  *
@@ -105,6 +138,55 @@ function readReservedQuantity(raw) {
   return readStockInteger(raw);
 }
 
+/**
+ * The selling price stored on an inventory batch.
+ *
+ * Strictly positive: a batch priced at zero would ship a vaccine for free, and
+ * no clinic price is legitimately ₱0.00. Absent is its own reason rather than a
+ * default, because "this batch has never been priced" is an admin task, not an
+ * error in the rep's cart — the catalog disables such a batch and says so.
+ *
+ * Numeric strings are refused for the same reason `quantity` refuses them: a
+ * coerced "500" would make a stored-type problem invisible while arithmetic
+ * appeared to work.
+ */
+function readSellingPriceCentavos(value) {
+  if (value === undefined || value === null) return { ok: false, reason: "missing" };
+  if (typeof value === "string") return { ok: false, reason: "legacy-string" };
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    return { ok: false, reason: "invalid" };
+  }
+  // Not a price cap — an exactness cap. Past MAX_SAFE_INTEGER the stored figure
+  // is no longer the figure that was meant.
+  if (!Number.isSafeInteger(value)) return { ok: false, reason: "not-safe-integer" };
+  if (value <= 0) return { ok: false, reason: "not-positive" };
+  return { ok: true, value };
+}
+
+/**
+ * The price the CALLER believed applied when the cart was built.
+ *
+ * This is never used as a price. It is compared against the batch's live price
+ * and, on any difference, the checkout is refused so a human can review it —
+ * which is what makes a silently re-priced cart impossible in either direction.
+ * A caller that omits it is refused too: an unconfirmed price is not a
+ * confirmed one, and defaulting would turn the check off for stale clients.
+ */
+function validateExpectedPriceCentavos(value) {
+  if (value === undefined || value === null) {
+    return { ok: false, code: "price-not-confirmed" };
+  }
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    !Number.isSafeInteger(value) ||
+    value <= 0
+  ) {
+    return { ok: false, code: "invalid-expected-price" };
+  }
+  return { ok: true, value };
+}
+
 /** A requested line quantity: a positive integer within bounds. */
 function validateLineQuantity(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -116,7 +198,19 @@ function validateLineQuantity(value) {
   return { ok: true, value };
 }
 
-const ALLOWED_LINE_KEYS = Object.freeze(["inventoryId", "quantity", "unitPrice"]);
+/**
+ * `unitPrice` is deliberately GONE.
+ *
+ * It used to be accepted from the caller and stored verbatim. Now the price is
+ * read from the batch, so a caller that still sends one is refused with
+ * `unknown-field` rather than having it quietly ignored — a stale client that
+ * believes it is setting prices must fail loudly, not appear to succeed.
+ */
+const ALLOWED_LINE_KEYS = Object.freeze([
+  "inventoryId",
+  "quantity",
+  "expectedUnitPriceCentavos",
+]);
 
 /**
  * The create payload, validated by shape before anything is read.
@@ -124,7 +218,8 @@ const ALLOWED_LINE_KEYS = Object.freeze(["inventoryId", "quantity", "unitPrice"]
  * Unknown keys are REJECTED rather than ignored: silently dropping a field the
  * caller believed was meaningful is how a client and a server drift apart.
  * Display text (name, batch, chain, type) is deliberately not accepted at all —
- * every one of those is snapshotted server-side from the inventory document.
+ * every one of those is snapshotted server-side from the inventory document,
+ * and so is every figure of money.
  */
 function validateCreatePayload(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -180,7 +275,22 @@ function validateCreatePayload(payload) {
           : "Quantity must be a whole number greater than zero."
       );
     }
-    return { inventoryId, quantity: qty.value };
+
+    const expected = validateExpectedPriceCentavos(line.expectedUnitPriceCentavos);
+    if (!expected.ok) {
+      throw new PolicyError(
+        expected.code,
+        expected.code === "price-not-confirmed"
+          ? "This cart was built before prices were recorded. Please rebuild it from the catalog."
+          : "A price on this order was not a valid amount. Please rebuild the cart from the catalog."
+      );
+    }
+
+    return {
+      inventoryId,
+      quantity: qty.value,
+      expectedUnitPriceCentavos: expected.value,
+    };
   });
 
   return { items };
@@ -193,7 +303,7 @@ function validateCreatePayload(payload) {
  * DOCUMENT id, passed separately and used verbatim. A stored field named `id`
  * is never consulted, so it cannot redirect the allocation.
  */
-function evaluateBatch({ inventoryId, data, requested, now }) {
+function evaluateBatch({ inventoryId, data, requested, expectedUnitPriceCentavos, now }) {
   if (!data) {
     throw new PolicyError("inventory-not-found", "That batch no longer exists.", {
       inventoryId,
@@ -239,6 +349,51 @@ function evaluateBatch({ inventoryId, data, requested, now }) {
     });
   }
 
+  // ---- price: a property of the batch, then a contract with the cart ----
+  //
+  // Read BEFORE the stock arithmetic because an unpriced batch is unorderable
+  // for the same kind of reason an expired one is, regardless of how much of it
+  // is on the shelf.
+  const price = readSellingPriceCentavos(data.sellingPriceCentavos);
+  if (!price.ok) {
+    throw new PolicyError(
+      "batch-unpriced",
+      price.reason === "missing"
+        ? "This batch has no selling price yet. An admin must price it before it can be ordered."
+        : "This batch's selling price is not a valid amount and needs admin review.",
+      { inventoryId, batchId: data.batchId ?? null, reason: price.reason }
+    );
+  }
+
+  // The one check that makes pricing tamper-evident in BOTH directions. A cart
+  // that expected less than the batch now costs is refused just as firmly as
+  // one that expected more: the rep is buying at a price they were not shown,
+  // and only a human can decide whether that is still the order they want.
+  if (expectedUnitPriceCentavos !== price.value) {
+    throw new PolicyError(
+      "price-changed",
+      "The price of one of these batches changed while you were ordering. Please review the cart.",
+      {
+        inventoryId,
+        batchId: data.batchId ?? null,
+        expectedUnitPriceCentavos: expectedUnitPriceCentavos ?? null,
+        currentUnitPriceCentavos: price.value,
+      }
+    );
+  }
+
+  // With no price ceiling, this multiplication is the first place a figure can
+  // leave the exactly-representable range, so it is checked here rather than
+  // being inferred safe from bounds that no longer exist.
+  const lineTotalCentavos = requested * price.value;
+  if (!Number.isSafeInteger(lineTotalCentavos)) {
+    throw new PolicyError(
+      "line-total-out-of-range",
+      "This line's total is too large to record accurately.",
+      { inventoryId, batchId: data.batchId ?? null }
+    );
+  }
+
   const available = onHand.value - reserved.value;
   if (available < 0) {
     // reservedQuantity > quantity is a broken invariant, not "no stock".
@@ -265,10 +420,45 @@ function evaluateBatch({ inventoryId, data, requested, now }) {
     chain: stringOrNull(data.vaccineType),
     manufacturer: stringOrNull(data.manufacturer),
     quantity: requested,
+    // Money, snapshotted from the batch document at the instant of reservation
+    // and never again derived. The line total is computed here, in integers, so
+    // no consumer has to multiply two fields and hope it matches.
+    unitPriceCentavos: price.value,
+    lineTotalCentavos,
     nextReservedQuantity: reserved.value + requested,
     onHand: onHand.value,
     available,
   };
+}
+
+/**
+ * Sum line totals into an order subtotal, in centavos.
+ *
+ * With no price ceiling this check is LOAD-BEARING, not defensive: nothing
+ * upstream bounds the total any more, so an order genuinely large enough to
+ * leave the exact-integer range is refused here rather than silently recorded
+ * as a figure that is off by some amount nobody can see.
+ */
+function sumLineTotalsCentavos(lines) {
+  const subtotal = lines.reduce((sum, line) => sum + line.lineTotalCentavos, 0);
+  if (!Number.isSafeInteger(subtotal)) {
+    throw new PolicyError(
+      "order-total-out-of-range",
+      "This order's total is too large to record accurately."
+    );
+  }
+  return subtotal;
+}
+
+/**
+ * Centavos as a peso number, for the invoice layer only.
+ *
+ * The invoice module and every existing invoice document speak decimal pesos.
+ * Centavos remain the authoritative figure on the order; this is a derived
+ * convenience carried alongside it so legacy readers keep working unchanged.
+ */
+function centavosToPesos(centavos) {
+  return Math.round(centavos) / 100;
 }
 
 /**
@@ -338,7 +528,14 @@ function canonicalRequestFingerprint({ uid, clinicDocId, items }) {
     uid,
     clinicDocId: clinicDocId ?? null,
     items: [...items]
-      .map((i) => ({ inventoryId: i.inventoryId, quantity: i.quantity }))
+      .map((i) => ({
+        inventoryId: i.inventoryId,
+        quantity: i.quantity,
+        // The agreed price is part of what makes this request that request.
+        // Two submissions of the same batches at different prices are two
+        // different orders and must not share an idempotency key.
+        expectedUnitPriceCentavos: i.expectedUnitPriceCentavos ?? null,
+      }))
       .sort((a, b) => (a.inventoryId < b.inventoryId ? -1 : 1)),
   });
   return crypto.createHash("sha256").update(canonical).digest("hex");
@@ -381,8 +578,28 @@ function isLegacyOrder(orderData) {
   return orderData?.allocationVersion !== ALLOCATION_VERSION;
 }
 
+/**
+ * An order carrying a server-generated price snapshot.
+ *
+ * Detected ONLY by the version stamp, exactly as allocation is. An order
+ * without it keeps the manual invoice-time pricing it has always had; nothing
+ * back-fills a price onto it, because a made-up figure would misstate what a
+ * clinic was actually charged.
+ */
+function hasServerPricing(orderData) {
+  return orderData?.pricingVersion === PRICING_VERSION;
+}
+
 module.exports = {
   ALLOCATION_VERSION,
+  PRICING_VERSION,
+  PRICE_CURRENCY,
+  PRICE_IS_VAT_INCLUSIVE,
+  readSellingPriceCentavos,
+  validateExpectedPriceCentavos,
+  sumLineTotalsCentavos,
+  centavosToPesos,
+  hasServerPricing,
   RESERVATION_STATUSES,
   DELIVERABLE_FROM,
   CANCELLABLE_FROM,

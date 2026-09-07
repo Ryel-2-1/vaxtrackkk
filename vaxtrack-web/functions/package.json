@@ -9,7 +9,8 @@
   },
   "scripts": {
     "test": "node --test test/",
-    "test:emulator": "firebase emulators:exec --only firestore --project demo-vaxtrack-functions \"node --test test/integration/\""
+    "test:emulator": "firebase emulators:exec --only firestore --project demo-vaxtrack-functions \"node --test test/integration/\"",
+    "test:emulator-invoices": "firebase emulators:exec --only firestore --project demo-vaxtrack-invoices \"node --test test/integration/invoiceOperations.test.js\""
   },
   "dependencies": {
     "firebase-admin": "^13.6.0",

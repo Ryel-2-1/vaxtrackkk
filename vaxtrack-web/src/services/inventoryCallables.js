@@ -80,9 +80,11 @@ function rethrow(error) {
 /**
  * Create an order and reserve its stock.
  *
- * `items` carry the authoritative inventory DOCUMENT id and an integer
- * quantity, nothing else — every display value on the stored order is
- * snapshotted server-side from the batch itself.
+ * `items` carry the authoritative inventory DOCUMENT id, an integer quantity,
+ * and the price the rep was SHOWN — nothing else. Every display value and every
+ * figure of money on the stored order is snapshotted server-side from the batch
+ * itself; the expected price is only ever compared, never used as a price, and
+ * a mismatch in either direction refuses the checkout.
  */
 export async function createOrderWithReservation({
   requestId,
@@ -100,10 +102,10 @@ export async function createOrderWithReservation({
       items: items.map((item) => ({
         inventoryId: item.inventoryId,
         quantity: item.quantity,
-        // Carried for invoice compatibility only. The server stores it
-        // untrusted and never uses it in any decision — see the pricing note
-        // in functions/index.js.
-        unitPrice: Number(item.unitPrice) || 0,
+        // The price this cart was built against. Sent so the server can prove
+        // it has not moved — NOT so the server can use it. `unitPrice` is
+        // deliberately no longer sent at all; the callable now rejects it.
+        expectedUnitPriceCentavos: item.expectedUnitPriceCentavos,
       })),
     });
     return result.data;

@@ -1,13 +1,15 @@
 import {
   addDoc,
   collection,
+  doc,
   getDocs,
   orderBy,
   query,
   serverTimestamp,
+  updateDoc,
   where,
 } from "firebase/firestore";
-import { db } from "../firebase";
+import { auth, db } from "../firebase";
 
 const VACCINES = "vaccines";
 const VACCINE_TYPES = "vaccineTypes";
@@ -79,8 +81,19 @@ export async function addStockBatch({
   arrivalDate,
   expiryDate,
   quantity,
+  sellingPriceCentavos,
   status,
 }) {
+  // Refused here as well as in the rules and the callable. A price that reaches
+  // Firestore as a float, a string or a zero is a price that will eventually be
+  // read as one, and the cheapest place to stop it is before the write.
+  if (
+    !Number.isInteger(sellingPriceCentavos) ||
+    !Number.isSafeInteger(sellingPriceCentavos) ||
+    sellingPriceCentavos <= 0
+  ) {
+    throw new Error("A stock batch needs a selling price in whole centavos.");
+  }
   return addDoc(collection(db, INVENTORY), {
     vaccineId,
     vaccineName,
@@ -99,7 +112,50 @@ export async function addStockBatch({
     // requires it to be exactly 0 on create, and the callable refuses a batch
     // whose reserved figure is present but not a non-negative integer.
     reservedQuantity: 0,
+    // The VAT-EXCLUSIVE clinic selling price for this batch, in PHP centavos.
+    // Price belongs to the BATCH rather than the vaccine because the same
+    // vaccine bought in two procurement lots can legitimately sell at two
+    // prices, and a product-level field could not express that.
+    sellingPriceCentavos,
+    priceCurrency: "PHP",
+    priceIsVatInclusive: false,
     status,
     createdAt: serverTimestamp(),
+  });
+}
+
+/**
+ * Re-price an existing batch.
+ *
+ * FORWARD-ONLY. This changes what future orders will be quoted; it never
+ * reaches back into an order that has already been placed, because those carry
+ * their own immutable snapshot of what was actually agreed.
+ *
+ * `quantity` and `reservedQuantity` are untouched and unreachable from here —
+ * the rules refuse a client write that names either, so re-pricing can never
+ * become a way to move stock.
+ */
+export async function updateStockPrice({ inventoryId, sellingPriceCentavos }) {
+  if (typeof inventoryId !== "string" || inventoryId.trim() === "") {
+    throw new Error("A batch is required to set a price.");
+  }
+  if (
+    !Number.isInteger(sellingPriceCentavos) ||
+    !Number.isSafeInteger(sellingPriceCentavos) ||
+    sellingPriceCentavos <= 0
+  ) {
+    throw new Error("A selling price must be a whole number of centavos above zero.");
+  }
+  return updateDoc(doc(db, INVENTORY, inventoryId), {
+    sellingPriceCentavos,
+    priceCurrency: "PHP",
+    priceIsVatInclusive: false,
+    // Audit taken from the SESSION, never from a parameter. A caller-supplied
+    // uid would let one admin record a re-price as another's — and the rules
+    // now refuse any value that is not the authenticated caller, so passing one
+    // could only ever fail. `serverTimestamp()` resolves to `request.time`,
+    // which the rules pin for the same reason: a client clock is not evidence.
+    priceSetAt: serverTimestamp(),
+    priceSetByUid: auth.currentUser?.uid ?? null,
   });
 }
