@@ -2611,6 +2611,83 @@ async function main() {
     }));
   });
 
+  // ---------------- role + authentication (checkpoint 10) ----------------
+
+  await check("Nrole1 no client may create itself as anything but a pending rider", async () => {
+    // The self-registration boundary. A rider creates its own document; every
+    // other shape — including a plausible pending admin — is refused.
+    const fresh = testEnv.authenticatedContext("brandNewUid").firestore();
+    for (const role of ["admin", "dispatcher", "salesrep", "wizard"]) {
+      await assertFails(setDoc(doc(fresh, "users", "brandNewUid"), {
+        role, status: "pending", vehicleType: "Motorcycle", email: "x@y.com",
+      }));
+    }
+    // ...nor an APPROVED rider (self-approval at creation time).
+    await assertFails(setDoc(doc(fresh, "users", "brandNewUid"), {
+      role: "rider", status: "approved", vehicleType: "Motorcycle",
+    }));
+    // ...nor a document belonging to someone else.
+    await assertFails(setDoc(doc(fresh, "users", adminUid), {
+      role: "rider", status: "pending", vehicleType: "Motorcycle",
+    }));
+    // The one permitted shape still works.
+    await assertSucceeds(setDoc(doc(fresh, "users", "brandNewUid"), {
+      role: "rider", status: "pending", vehicleType: "Motorcycle", email: "x@y.com",
+    }));
+  });
+
+  await check("Nrole2 no user may promote or approve themselves", async () => {
+    // Self-update is allowed for profile fields only; role and status must be
+    // byte-identical to what is already stored.
+    for (const [ctx, uid] of [[salesRep, salesRepUid], [rider, riderUid], [dispatcher, dispatcherUid]]) {
+      await assertFails(updateDoc(doc(ctx, "users", uid), { role: "admin" }));
+      await assertFails(updateDoc(doc(ctx, "users", uid), { status: "disabled" }));
+      await assertFails(updateDoc(doc(ctx, "users", uid), { role: "admin", status: "approved" }));
+      // A profile edit that leaves both alone is still fine.
+      await assertSucceeds(updateDoc(doc(ctx, "users", uid), { name: "Edited Name" }));
+    }
+
+    // The case that matters most: a user who is NOT yet approved approving
+    // themselves. Writing a status you already hold is a no-op, so it has to be
+    // tested from an account whose status would actually CHANGE.
+    await assertFails(updateDoc(doc(pendingRider, "users", pendingRiderUid), { status: "approved" }));
+    await assertFails(updateDoc(doc(pendingRider, "users", pendingRiderUid), { role: "admin" }));
+    await assertFails(updateDoc(doc(disabled, "users", disabledUid), { status: "approved" }));
+    // ...and a pending user may still correct their own profile.
+    await assertSucceeds(updateDoc(doc(pendingRider, "users", pendingRiderUid), { name: "Still Pending" }));
+  });
+
+  await check("Nrole3 an admin cannot write an unknown role or status", async () => {
+    // The client validates both against an allowlist, but that lived only in
+    // JavaScript. An unknown status was especially dangerous: the guards used
+    // to read a missing/unknown status as approved.
+    for (const role of ["wizard", "superuser", "Admin", "ADMIN", "", "rider "]) {
+      await assertFails(updateDoc(doc(admin, "users", salesRepUid), { role }));
+    }
+    for (const status of ["active", "inactive", "Approved", "APPROVED", "", "ok"]) {
+      await assertFails(updateDoc(doc(admin, "users", salesRepUid), { status }));
+    }
+  });
+
+  await check("Prole1 an admin may set any KNOWN role and status", async () => {
+    for (const role of ["admin", "dispatcher", "salesrep", "rider"]) {
+      await assertSucceeds(updateDoc(doc(admin, "users", salesRepUid), { role }));
+    }
+    for (const status of ["approved", "pending", "pending_approval", "rejected", "disabled"]) {
+      await assertSucceeds(updateDoc(doc(admin, "users", salesRepUid), { status }));
+    }
+  });
+
+  await check("Nrole4 a non-admin cannot manage anyone else's role or status", async () => {
+    for (const ctx of [dispatcher, salesRep, rider, anon]) {
+      await assertFails(updateDoc(doc(ctx, "users", otherSalesRepUid), { role: "admin" }));
+      await assertFails(updateDoc(doc(ctx, "users", otherSalesRepUid), { status: "approved" }));
+      await assertFails(setDoc(doc(ctx, "users", "someoneNew"), {
+        role: "admin", status: "approved",
+      }));
+    }
+  });
+
   // ---------------- server-priced invoices ----------------
   //
   // Rules cannot iterate an invoice's item array, so they cannot verify that

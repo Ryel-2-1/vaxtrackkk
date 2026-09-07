@@ -14,6 +14,7 @@ import {
   Snowflake,
 } from "lucide-react";
 import { auth, db } from "../firebase";
+import { PENDING_PATH, resolveLoginDestination } from "../services/authorization";
 import "./Login.css";
 
 // Presentation-only refresh of the sign-in screen.
@@ -86,56 +87,41 @@ function Login() {
       return;
     }
 
-    const userData = userSnap.data();
+    // ONE decision function, shared with all three route guards. Login and the
+    // guards previously each carried their own copy of the status/role logic,
+    // and each defaulted a MISSING status to "approved" — so an account with no
+    // status field was signed in and admitted. That default is gone; anything
+    // unrecognised now fails closed here and at the guard identically.
+    const decision = resolveLoginDestination(userSnap.data());
 
-    const role = (userData.role || "").toLowerCase().trim();
-    const status = (userData.status || "approved").toLowerCase().trim();
-
-    if (status === "pending" || status === "pending_approval") {
-      navigate("/pending");
+    if (decision.allowed) {
+      navigate(decision.redirectTo);
       return;
     }
 
-    if (status === "rejected") {
-      await signOut(auth);
-      showError("Your account was rejected. Please contact the administrator.");
+    if (decision.reason === "pending") {
+      navigate(PENDING_PATH);
       return;
     }
 
-    if (status === "disabled") {
-      await signOut(auth);
-      showError("Your account is disabled. Please contact the administrator.");
-      return;
-    }
-
-    if (role === "admin") {
-      navigate("/admin");
-      return;
-    }
-
-    if (role === "dispatcher") {
-      navigate("/dispatcher");
-      return;
-    }
-
-    if (
-      role === "salesrep" ||
-      role === "sales_rep" ||
-      role === "sales-rep" ||
-      role === "sales representative"
-    ) {
-      navigate("/sales-rep");
-      return;
-    }
-
-    if (role === "rider") {
-      await signOut(auth);
-      showInfo("Rider accounts must use the VaxTrack mobile app.");
-      return;
-    }
-
+    // Every remaining outcome ends the session. The message says which state
+    // the account is in, because that tells the user who to contact — but an
+    // unknown role and an unknown status deliberately read the same, since
+    // neither is something the user can act on beyond calling an admin.
     await signOut(auth);
-    showError("Unknown account role. Please contact the administrator.");
+    switch (decision.reason) {
+      case "rejected":
+        showError("Your account was rejected. Please contact the administrator.");
+        break;
+      case "disabled":
+        showError("Your account is disabled. Please contact the administrator.");
+        break;
+      case "rider-web-blocked":
+        showInfo("Rider accounts must use the VaxTrack mobile app.");
+        break;
+      default:
+        showError("This account is not set up for portal access. Please contact the administrator.");
+    }
   };
 
   const handleLogin = async (e) => {

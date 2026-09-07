@@ -16,7 +16,17 @@ const VALID_ROLES = ["admin", "dispatcher", "salesrep", "rider"];
 export function subscribeUsers(callback) {
   return onSnapshot(collection(db, USERS_COLLECTION), (snapshot) => {
     const users = snapshot.docs
-      .map((d) => ({ id: d.id, ...d.data() }))
+      // Document id LAST so it always wins.
+      //
+      // This was `{ id: d.id, ...d.data() }`, which let a stored `id` field
+      // SHADOW the real document id. Admin Settings turns that value into the
+      // uid it approves, rejects, disables and re-roles — so a user document
+      // carrying an `id` field would have sent an admin's action to a different
+      // account than the row they clicked. The identical shadowing bug was
+      // already fixed in inventoryService, vaccineService, clinicService,
+      // invoiceService and riderService; `users` was the one that was missed,
+      // and it is the collection where it mattered most.
+      .map((d) => ({ ...d.data(), id: d.id }))
       .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     callback(users);
   });

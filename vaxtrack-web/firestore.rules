@@ -672,6 +672,19 @@ service cloud.firestore {
     }
 
     // ---------------- users ----------------
+    // The only roles and statuses that exist. Must stay identical to ROLES and
+    // STATUSES in src/services/authorization.js, and to VALID_ROLES /
+    // VALID_STATUSES in src/services/userService.js — the guards fail closed on
+    // anything else, so a value stored outside these lists is an account nobody
+    // can use and an admin action nobody can undo from the UI.
+    function isKnownRole() {
+      return request.resource.data.role in ['admin', 'dispatcher', 'salesrep', 'rider'];
+    }
+    function isKnownStatus() {
+      return request.resource.data.status
+        in ['approved', 'pending', 'pending_approval', 'rejected', 'disabled'];
+    }
+
     match /users/{uid} {
       // Self-read at ANY status (so login + route guards can detect
       // pending/disabled/rejected). Admin reads all; Dispatcher reads only
@@ -704,10 +717,17 @@ service cloud.firestore {
           && request.resource.data.vehicleType == 'Motorcycle'
         );
 
-      // Admin manages any user (approve / disable / reject / role change).
+      // Admin manages any user (approve / disable / reject / role change), but
+      // only to a role and status that EXIST. The client already validates both
+      // against an allowlist; that validation lived only in JavaScript, so a
+      // modified client or a console write could store `role: "wizard"` or
+      // `status: "active"`. An unknown role fails closed at the guards — but an
+      // unknown STATUS used to be read as approved, so the two gaps together
+      // were a way to mint access. Both allowlists are enforced here now.
+      //
       // A user may edit their own profile/location but may NOT change their own
       // role or status (no self-approval, no self-elevation).
-      allow update: if isAdmin()
+      allow update: if (isAdmin() && isKnownRole() && isKnownStatus())
         || (
           signedIn()
           && request.auth.uid == uid
