@@ -5,6 +5,7 @@ import '../services/auth_service.dart';
 import '../services/delivery_service.dart';
 import '../models/delivery.dart';
 import '../theme/app_theme.dart';
+import '../widgets/route_monitoring_card.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -50,7 +51,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const SizedBox(height: 16),
                   _detailsCard(user),
                   const SizedBox(height: 16),
-                  _geofenceCard(),
+                  const RouteMonitoringCard(),
                   const SizedBox(height: 24),
                   SizedBox(
                     width: double.infinity,
@@ -158,51 +159,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _detailRow('Region', user.region ?? 'N/A'),
             _detailRow('Role', 'Rider'),
             _detailRow('Status', user.isApproved ? 'Active' : user.status),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _geofenceCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Geofence & Deviation Status', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 4),
-            const Text('Your current route compliance', style: TextStyle(fontSize: 12, color: AppColors.textLight)),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppColors.primaryBg,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.borderLight),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.check_circle, color: AppColors.primary, size: 20),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Within Geofence', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.primary)),
-                        Text('No deviations detected', style: TextStyle(fontSize: 11, color: AppColors.textLight)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Geofence status is monitored by the dispatch system. If you deviate from your assigned route, an alert will be displayed here.',
-              style: TextStyle(fontSize: 11, color: AppColors.textMuted),
-            ),
           ],
         ),
       ),
