@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   Building2,
-  FileDown,
   Lightbulb,
   MoreVertical,
   X,
@@ -36,9 +35,19 @@ function timestampMs(value) {
   return null;
 }
 
-// Average dispatch -> delivery duration in minutes over the given orders.
-// Counts ONLY completed deliveries where both startedAt and deliveredAt are
-// valid and delivery happened strictly after dispatch (end > start). Returns
+// Average LATEST-TRANSIT-SEGMENT duration in minutes over the given orders:
+// startedAt -> deliveredAt.
+//
+// `startedAt` is not the original dispatch. Every transition into in_transit
+// stamps it, and `resumeTransit` fires that transition again when a delayed
+// order goes back on the road — so on a resumed delivery this measures the
+// final leg only, with the earlier transit and the delay excluded. That is a
+// real, server-stamped segment; it is simply not the whole journey, and the
+// metric is labelled accordingly. Recording total elapsed time would need a
+// first-dispatch timestamp the schema does not keep.
+//
+// Counts ONLY completed deliveries where both timestamps are valid and
+// delivery happened strictly after that transit start (end > start). Returns
 // null when no such order exists, so the UI can show an honest empty state.
 function computeAvgDeliveryMinutes(orders) {
   let sum = 0;
@@ -65,8 +74,10 @@ function formatAvgDelivery(minutes) {
   return `${Math.floor(total / 60)}h ${total % 60}m`;
 }
 
-function computeVolumeBuckets(orders, days) {
-  const now = Date.now();
+// `now` is passed in rather than read here. Every range on this page — the
+// filter cutoff and these buckets — is then measured from one instant, so the
+// chart and the filter cannot disagree about when "now" was.
+function computeVolumeBuckets(orders, days, now) {
   if (days <= 7) {
     const buckets = [];
     for (let i = 6; i >= 0; i--) {
@@ -124,34 +135,42 @@ function computeHeatmap(orders) {
     grid[`${dayName}-${period}`]++;
   });
 
+  // `level` is a SHADE, relative to the busiest cell in the current range — it
+  // is not a quantity. With three orders in the whole range the busiest cell is
+  // still level 4, so the level alone says nothing about volume. The real
+  // `count` therefore travels with it and is what the UI reports; the level
+  // only picks a colour.
   const maxVal = Math.max(...Object.values(grid), 1);
   return HEATMAP_PERIODS.map((period) =>
-    HEATMAP_DAYS.map((day) => ({
-      day,
-      period,
-      level: Math.max(1, Math.ceil((grid[`${day}-${period}`] / maxVal) * 4)),
-    }))
+    HEATMAP_DAYS.map((day) => {
+      const count = grid[`${day}-${period}`];
+      return {
+        day,
+        period,
+        count,
+        // An empty cell stays at the lowest shade rather than being promoted
+        // to 1 by Math.max, so "no orders" and "a few orders" look different.
+        level: count === 0 ? 0 : Math.max(1, Math.ceil((count / maxVal) * 4)),
+      };
+    })
   );
 }
 
-function computeRegions(orders) {
-  const counts = {};
-  let withRegion = 0;
-  orders.forEach((o) => {
-    const r = (o.region || "").trim();
-    if (!r) return;
-    counts[r] = (counts[r] || 0) + 1;
-    withRegion++;
-  });
-  if (withRegion === 0) return [];
-  return Object.entries(counts)
-    .sort((a, b) => b[1] - a[1])
-    .map(([name, value]) => ({
-      name,
-      value,
-      percent: Math.round((value / withRegion) * 100),
-    }));
-}
+/*
+  "Distribution by Region" was removed, along with its computation, its filter
+  and its card.
+
+  It read `order.region`, which the live order-creation path
+  (`createOrderWithReservation`) does not write — only the superseded
+  `createSalesRepOrder` ever did. So no order created today can carry one, and
+  the section could only ever show an empty state or a distribution of legacy
+  documents presented as current.
+
+  Nothing replaced it. A region is not derivable from what an order does hold:
+  `clinicAddress` is free text, and parsing a region out of it would be
+  inference presented as fact. Restoring the section means adding a canonical
+  region to order creation first — a schema and rules change, not a UI one.
+*/
 
 function Analytics() {
   const [allOrders, setAllOrders] = useState([]);
@@ -160,10 +179,16 @@ function Analytics() {
   const [loadError, setLoadError] = useState("");
 
   const [timeRange, setTimeRange] = useState("30");
-  const [regionFilter, setRegionFilter] = useState("all");
   const [vaccineFilter, setVaccineFilter] = useState("all");
   const [selectedModal, setSelectedModal] = useState(null);
-  const [toast, setToast] = useState("");
+
+  // The instant every range on this page is measured from. Reading the clock
+  // during render made the render impure — two renders with identical props and
+  // state could produce different cutoffs. It is now stamped on exactly the two
+  // occasions that previously caused a fresh read: an arriving orders snapshot,
+  // and the operator changing the range. Both are events rather than render, so
+  // the date-range behaviour is unchanged.
+  const [nowMs, setNowMs] = useState(null);
 
   useEffect(() => {
     let loaded = { orders: false, alerts: false };
@@ -172,12 +197,17 @@ function Analytics() {
     const unsubOrders = subscribeDeliveries(
       (orders) => {
         setAllOrders(orders);
+        // Stamped where the data arrives, not during render.
+        setNowMs(Date.now());
         loaded.orders = true;
         checkDone();
       },
       (error) => {
         console.error("Analytics orders error:", error);
         setLoadError(error.message || "Failed to load order data.");
+        // The error banner renders alongside the page, so the ranges still
+        // need a reference time even though no orders arrived.
+        setNowMs(Date.now());
         loaded.orders = true;
         checkDone();
       }
@@ -199,19 +229,16 @@ function Analytics() {
     return () => { unsubOrders(); unsubAlerts(); };
   }, []);
 
-
-  const showToast = (message) => {
-    setToast(message);
-    setTimeout(() => setToast(""), 2200);
-  };
-
   const days = parseInt(timeRange);
   const rangeLabel = RANGE_LABELS[timeRange];
 
   const timeFiltered = useMemo(() => {
-    const cutoff = Date.now() - days * MS_PER_DAY;
+    // Before the reference time is established the page is still in its loading
+    // state, so this only ever returns [] for renders nothing reads.
+    if (nowMs == null) return [];
+    const cutoff = nowMs - days * MS_PER_DAY;
     return allOrders.filter((o) => getOrderMs(o) >= cutoff);
-  }, [allOrders, days]);
+  }, [allOrders, days, nowMs]);
 
   const vaccineNames = useMemo(() => {
     const set = new Set(allOrders.map((o) => o.vaccineName).filter(Boolean));
@@ -221,9 +248,8 @@ function Analytics() {
   const filtered = useMemo(() => {
     let result = timeFiltered;
     if (vaccineFilter !== "all") result = result.filter((o) => o.vaccineName === vaccineFilter);
-    if (regionFilter !== "all") result = result.filter((o) => (o.region || "").trim() === regionFilter);
     return result;
-  }, [timeFiltered, vaccineFilter, regionFilter]);
+  }, [timeFiltered, vaccineFilter]);
 
   const totalDeliveries = filtered.length;
   const delayedCount = filtered.filter((o) => o.statusKey === "delayed").length;
@@ -238,17 +264,11 @@ function Analytics() {
   );
   const avgDeliveryText = formatAvgDelivery(avgDeliveryMinutes);
 
-  const regions = useMemo(() => computeRegions(timeFiltered), [timeFiltered]);
-  const hasRegions = regions.length > 0;
-
-  const visibleRegions = regionFilter === "all"
-    ? regions
-    : regions.filter((r) => r.name === regionFilter);
-
   const volumeData = useMemo(() => {
-    const buckets = computeVolumeBuckets(filtered, days);
+    if (nowMs == null) return [{ label: "—", adjustedValue: 0 }];
+    const buckets = computeVolumeBuckets(filtered, days, nowMs);
     return buckets.length > 0 ? buckets : [{ label: "—", adjustedValue: 0 }];
-  }, [filtered, days]);
+  }, [filtered, days, nowMs]);
 
   const maxVolume = Math.max(...volumeData.map((d) => d.adjustedValue), 1);
 
@@ -256,7 +276,6 @@ function Analytics() {
 
   const openModal = (modal) => setSelectedModal(modal);
 
-  const handleExport = () => showToast("Analytics report generated.");
 
   if (loading) {
     return (
@@ -285,35 +304,26 @@ function Analytics() {
       description="System-wide logistics performance metrics."
       actions={
         <>
-          <button type="button" className="analytics-export-btn" onClick={handleExport}>
-            <FileDown size={15} aria-hidden="true" />
-            Export Report
-          </button>
-
+          {/* "Export Report" was removed. It produced no file — it raised
+              "Analytics report generated." and nothing else, so an admin could
+              believe a report had been generated and downloaded. A real export
+              is small but it is work, and inventing one here would exceed an
+              audit. */}
           <select
             value={timeRange}
-            onChange={(e) => setTimeRange(e.target.value)}
+            onChange={(e) => {
+              setTimeRange(e.target.value);
+              // The other occasion the clock was read before this change:
+              // choosing a range re-measures it from now, not from whenever the
+              // last snapshot happened to land.
+              setNowMs(Date.now());
+            }}
             aria-label="Time range"
           >
             <option value="7">Last 7 Days</option>
             <option value="30">Last 30 Days</option>
             <option value="90">Last 90 Days</option>
           </select>
-
-          {hasRegions && (
-            <select
-              value={regionFilter}
-              onChange={(e) => setRegionFilter(e.target.value)}
-              aria-label="Region"
-            >
-              <option value="all">All Regions</option>
-              {regions.map((region) => (
-                <option key={region.name} value={region.name}>
-                  {region.name}
-                </option>
-              ))}
-            </select>
-          )}
 
           <select
             value={vaccineFilter}
@@ -328,7 +338,6 @@ function Analytics() {
         </>
       }
     >
-      {toast && <div className="analytics-toast">{toast}</div>}
 
         <section className="analytics-kpi-grid">
           <KpiCard
@@ -341,7 +350,6 @@ function Analytics() {
                 title: "Total orders",
                 description: `Orders for ${rangeLabel}.`,
                 rows: [
-                  ["Selected region", regionFilter === "all" ? "All regions" : regionFilter],
                   ["Selected vaccine", vaccineFilter === "all" ? "All vaccines" : vaccineFilter],
                   ["Order count", totalDeliveries.toLocaleString()],
                 ],
@@ -349,28 +357,36 @@ function Analytics() {
             }
           />
 
+          {/* Was "Average delivery time", described as "hub dispatch to clinic
+              delivery". That overstated what the figure covers: `resumeTransit`
+              re-stamps `startedAt` every time a delayed order goes back on the
+              road, so for any resumed delivery the value measures only the last
+              leg — the earlier transit and the delay itself are not in it. The
+              label now says which segment it is rather than implying the whole
+              journey. The computation is unchanged; only the claim about it is. */}
           <KpiCard
-            label="Average delivery time"
+            label="Average latest transit segment"
             value={avgDeliveryText}
             context={
               avgDeliveryMinutes == null
                 ? "No completed delivery timing data yet."
-                : "Dispatch → delivery, completed orders in range"
+                : "Latest transit start → delivery, completed orders in range"
             }
             tone="neutral"
             onClick={() =>
               openModal({
-                title: "Average delivery time",
-                description: "Average time from hub dispatch to clinic delivery.",
+                title: "Average latest transit segment",
+                description:
+                  "Calculated from each delivered order's latest startedAt timestamp to deliveredAt. Resumed deliveries exclude earlier transit and delayed time.",
                 rows:
                   avgDeliveryMinutes == null
                     ? [
                         ["Current average", "Not available"],
-                        ["Reason", "No completed order has both a dispatch (startedAt) and a delivery (deliveredAt) timestamp yet"],
+                        ["Reason", "No completed order has both a startedAt and a deliveredAt timestamp yet"],
                       ]
                     : [
                         ["Current average", avgDeliveryText],
-                        ["Measured from", "startedAt (dispatch) → deliveredAt (delivery)"],
+                        ["Measured from", "startedAt (latest transit start) → deliveredAt"],
                         ["Scope", "Completed orders in the selected range/filters"],
                       ],
               })
@@ -406,9 +422,13 @@ function Analytics() {
                 title: "Active alerts",
                 description: "Unresolved alerts and delayed orders.",
                 rows: [
+                  // A "Suggested action" row sat here reading "Review alerts
+                  // and delayed orders for intervention" — fixed text shown
+                  // whatever the counts were, including when both were zero.
+                  // Nothing computed it, so it is the same invented advice the
+                  // heatmap and the insight card carried.
                   ["Unresolved alerts", alertCount],
                   ["Delayed orders", delayedCount],
-                  ["Suggested action", "Review alerts and delayed orders for intervention"],
                 ],
               })
             }
@@ -465,80 +485,40 @@ function Analytics() {
             </div>
           </section>
 
-          <section className="analytics-card analytics-region-card">
-            <CardHeader
-              title="Distribution by Region"
-              onClick={() =>
-                openModal({
-                  title: "Distribution by Region",
-                  description: hasRegions
-                    ? "Order distribution across regions."
-                    : "No region data available on orders.",
-                  rows: hasRegions
-                    ? visibleRegions.map((r) => [r.name, `${r.value.toLocaleString()} orders — ${r.percent}%`])
-                    : [["Status", "Orders do not have a region field yet"]],
-                })
-              }
-            />
-
-            <div className="analytics-region-list">
-              {hasRegions ? (
-                visibleRegions.map((region) => (
-                  <button
-                    type="button"
-                    className="analytics-region-item"
-                    key={region.name}
-                    onClick={() => setRegionFilter(region.name)}
-                  >
-                    <div>
-                      <span>{region.name}</span>
-                      <strong>{region.value.toLocaleString()}</strong>
-                    </div>
-
-                    <div>
-                      <small>{region.percent}%</small>
-                      <div className="analytics-region-progress">
-                        <span style={{ width: `${region.percent * 3}%` }}></span>
-                      </div>
-                    </div>
-                  </button>
-                ))
-              ) : (
-                <p style={{ padding: "1rem", color: "#888", fontSize: "0.85rem" }}>
-                  No region data available. Add a region field to orders to enable this section.
-                </p>
-              )}
-            </div>
-          </section>
-
           <section className="analytics-card analytics-ai-card">
             <div className="analytics-ai-icon">
               <Lightbulb size={22} />
             </div>
 
+            {/* Was "Operational insight" with a recommendation attached. The
+                COUNTS were real; the advice was not — nothing analyses peak
+                hours or rider capacity, and the cold-chain procedures the old
+                copy told admins to maintain do not exist in this system at all.
+                What is left states the two figures and stops there. */}
             <div>
-              <h2>Operational insight</h2>
+              <h2>Current exceptions</h2>
               <p>
-                {delayedCount > 0
-                  ? `There ${delayedCount === 1 ? "is" : "are"} currently ${delayedCount} delayed order${delayedCount !== 1 ? "s" : ""}. Review delayed shipments and consider assigning additional riders during peak hours.`
-                  : "No delayed orders detected. Maintain current dispatch schedules and cold-chain procedures."}
+                {delayedCount > 0 || alertCount > 0
+                  ? `${delayedCount} delayed order${delayedCount !== 1 ? "s" : ""} and ${alertCount} active alert${alertCount !== 1 ? "s" : ""} in the selected range.`
+                  : "No delayed orders and no active alerts in the selected range."}
               </p>
 
               <button
                 type="button"
                 onClick={() =>
                   openModal({
-                    title: "Operational insight",
-                    description: "Rule-based insight derived from current order and alert data.",
+                    title: "Current exceptions",
+                    description:
+                      "Counted directly from orders and alerts. No recommendation is derived — nothing in the system analyses cause or capacity.",
                     rows: [
-                      ["Delayed Orders", delayedCount],
-                      ["Active Alerts", alertCount],
-                      ["Suggested Action", delayedCount > 0 ? "Review delayed orders and assign backup riders" : "Continue current operations"],
+                      ["Delayed orders", delayedCount],
+                      ["Active alerts", alertCount],
+                      ["Range", rangeLabel],
                     ],
                   })
                 }
               >
-                View Recommendation
+                View details
               </button>
             </div>
           </section>
@@ -561,16 +541,27 @@ function Analytics() {
 
           <section className="analytics-card analytics-heatmap-card">
             <div className="analytics-card-title-row">
-              <h2>Peak Order Hours</h2>
+              {/* Was "Peak Order Hours", which promised an hour-level reading
+                  the grid does not provide and a "peak" judgement nothing
+                  computed. It counts when orders were CREATED, grouped into
+                  three broad periods — that is what the title now says. */}
+              <h2>Order activity by day and period</h2>
 
               <div className="analytics-heatmap-legend">
-                <span>Low</span>
+                <span>Fewer</span>
                 <i></i>
-                <span>High</span>
+                <span>More</span>
               </div>
             </div>
 
+            <p className="analytics-heatmap-note">
+              Counts orders by their creation time, {rangeLabel.toLowerCase()}.
+              Shading is relative to the busiest cell in this range, so it shows
+              distribution rather than volume — select a cell for its order count.
+            </p>
+
             <div className="analytics-heatmap-labels">
+              <span className="analytics-heatmap-period" aria-hidden="true"></span>
               <span>Mon</span>
               <span>Tue</span>
               <span>Wed</span>
@@ -579,29 +570,40 @@ function Analytics() {
               <span>Sat</span>
             </div>
 
-            <div className="analytics-heatmap-grid">
-              {heatmapData.flatMap((row) =>
-                row.map((cell) => (
-                  <button
-                    type="button"
-                    key={`${cell.day}-${cell.period}`}
-                    className={`analytics-heat-cell level-${cell.level}`}
-                    title={`${cell.day} ${cell.period}: Level ${cell.level}`}
-                    onClick={() =>
-                      openModal({
-                        title: `${cell.day} ${cell.period}`,
-                        description: "Peak order heatmap detail.",
-                        rows: [
-                          ["Order Load", `Level ${cell.level}`],
-                          ["Interpretation", cell.level >= 4 ? "Peak demand" : "Normal demand"],
-                          ["Suggested Action", cell.level >= 4 ? "Prepare backup riders" : "Standard schedule is enough"],
-                        ],
-                      })
-                    }
-                  ></button>
-                ))
-              )}
-            </div>
+            {/* One labelled row per period. The grid previously rendered three
+                unlabelled rows under six day headings, so nothing on screen
+                said which row was morning, afternoon or evening. */}
+            {heatmapData.map((row, rowIndex) => (
+              <div className="analytics-heatmap-row" key={HEATMAP_PERIODS[rowIndex]}>
+                <span className="analytics-heatmap-period">{HEATMAP_PERIODS[rowIndex]}</span>
+
+                <div className="analytics-heatmap-grid">
+                  {row.map((cell) => (
+                    <button
+                      type="button"
+                      key={`${cell.day}-${cell.period}`}
+                      className={`analytics-heat-cell level-${cell.level}`}
+                      // The cells are empty elements, so without this a screen
+                      // reader announces eighteen unnamed buttons. The name is
+                      // the real figure, not the shade.
+                      aria-label={`${cell.day} ${cell.period}: ${cell.count} ${cell.count === 1 ? "order" : "orders"}`}
+                      title={`${cell.day} ${cell.period}: ${cell.count} ${cell.count === 1 ? "order" : "orders"}`}
+                      onClick={() =>
+                        openModal({
+                          title: `${cell.day} ${cell.period}`,
+                          description: `Orders created in this period across ${rangeLabel.toLowerCase()}.`,
+                          rows: [
+                            ["Orders created", cell.count.toLocaleString()],
+                            ["Day", cell.day],
+                            ["Period", cell.period],
+                          ],
+                        })
+                      }
+                    ></button>
+                  ))}
+                </div>
+              </div>
+            ))}
           </section>
         </section>
       {selectedModal && (

@@ -488,9 +488,13 @@
   gap: 16px;
 }
 
-/* Peak Order Hours spans the full content width so the second column is never
-   left blank beside it (no other meaningful panel occupies that row). */
-.analytics-heatmap-card {
+/* These span the full content width so the second column is never left blank
+   beside them (no other meaningful panel occupies their row). The hub card
+   joined them when the Region section was removed: it had been the second card
+   of that row, and without it the hub card sat alone against 488px of nothing.
+   Below 1200px the grid is a single column and this is a no-op. */
+.analytics-heatmap-card,
+.analytics-hub-card {
   grid-column: 1 / -1;
 }
 
@@ -626,53 +630,9 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Region */
-
-.analytics-region-list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.analytics-region-item {
-  border: 0;
-  background: transparent;
-  padding: 0;
-  text-align: left;
-  cursor: pointer;
-}
-
-.analytics-region-item > div:first-child {
-  display: flex;
-  justify-content: space-between;
-  color: var(--gray-900);
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 6px;
-}
-
-.analytics-region-item small {
-  display: block;
-  margin-bottom: 5px;
-  color: var(--gray-500);
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.analytics-region-progress {
-  height: 8px;
-  border-radius: 999px;
-  background: var(--gray-200);
-  overflow: hidden;
-}
-
-.analytics-region-progress span {
-  display: block;
-  height: 100%;
-  max-width: 100%;
-  border-radius: 999px;
-  background: var(--green-700);
-}
+/* The Region section's rules were deleted with the section itself: the list,
+   the item, its figure and the progress track. `order.region` is not written by
+   the live order-creation path, so there was no current source behind them. */
 
 /* AI Card */
 
@@ -860,13 +820,22 @@
   background: rgba(15, 23, 42, 0.46);
   display: grid;
   place-items: center;
-  padding: 24px;
+  /* Matches the modal's own 16px viewport inset below, so the two agree at
+     every width instead of the item overflowing its own grid area. */
+  padding: 16px;
 }
 
 .analytics-modal {
   position: relative;
-  width: 580px;
-  max-width: 100%;
+  /* `width: 580px; max-width: 100%` did not hold on a narrow screen. The
+     backdrop is a grid and `place-items: center` leaves the item unstretched,
+     so its column track sizes to the item's max-content — 580px. The percentage
+     then resolved against that same 580px and the clamp could never engage: the
+     dialog rendered 580px wide inside a 375px viewport and pushed the page
+     sideways. A viewport-relative cap breaks the circularity, because `100vw`
+     does not depend on the item. Desktop is unchanged at 580px; below 612px the
+     dialog is the viewport less 16px on each side. */
+  width: min(580px, 100vw - 32px);
   background: #ffffff;
   border-radius: 16px;
   border: var(--border-card);
@@ -1035,5 +1004,75 @@
 
   .analytics-modal-actions button {
     width: 100%;
+  }
+}
+
+/* -------- heatmap: labelled period rows (checkpoint #9 audit) --------
+   The grid previously rendered three unlabelled rows beneath six day headings,
+   so nothing on screen said which row was Morning, Afternoon or Evening. Each
+   row now carries its period name, and the day-label row gains a matching
+   leading cell so the columns still line up. Meridian tokens only. */
+
+/* The row is TWO columns — the period name and the day grid — while the label
+   row above it is seven, so its day names sit over the columns they name. That
+   correspondence only holds while all three gaps match: the label row spreads
+   six day names over six gutters, and the cell grid spreads six cells over five
+   gutters plus the row's own. Equal gaps make those two arithmetics resolve to
+   the same column positions at every width. */
+.analytics-heatmap-row {
+  display: grid;
+  grid-template-columns: 74px 1fr;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 7px;
+}
+
+.analytics-heatmap-labels {
+  grid-template-columns: 74px repeat(6, 1fr);
+  gap: 7px;
+}
+
+.analytics-heatmap-period {
+  color: var(--gray-500, #6b7280);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* A cell with no orders reads as empty rather than as the lowest shade of
+   "some". Level 0 did not exist before: Math.max(1, …) promoted every empty
+   cell to level 1, so "none" and "a few" looked identical. */
+.analytics-heat-cell.level-0 {
+  background: var(--gray-100, #f3f4f6);
+  border: 1px dashed var(--gray-200, #e5e7eb);
+}
+
+.analytics-heatmap-note {
+  margin: 0 0 12px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--gray-500, #6b7280);
+}
+
+@media (max-width: 640px) {
+  /* The period column narrows; the row stays two-column. Giving the row the
+     label row's seven tracks put the whole cell grid inside one 1fr of seven,
+     which collapsed the cells to 12px and left the day names pointing at
+     nothing. The two grids are shaped differently and must be set separately. */
+  .analytics-heatmap-row {
+    grid-template-columns: 56px 1fr;
+  }
+  .analytics-heatmap-labels {
+    grid-template-columns: 56px repeat(6, 1fr);
+  }
+  /* All three still share one gap, for the reason given above. */
+  .analytics-heatmap-row,
+  .analytics-heatmap-labels,
+  .analytics-heatmap-grid {
+    gap: 5px;
+  }
+  .analytics-heatmap-period {
+    font-size: 10px;
   }
 }
