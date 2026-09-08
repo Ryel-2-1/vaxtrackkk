@@ -278,10 +278,13 @@ function Inventory() {
 
   const isAllSelected =
     paginatedVaccines.length > 0 &&
-    paginatedVaccines.every((item) => selectedBatches.includes(item.batch));
+    paginatedVaccines.every((item) => selectedBatches.includes(item.id));
 
   const toggleAll = () => {
-    const visibleBatchIds = paginatedVaccines.map((item) => item.batch);
+    // Selection is keyed on the DOCUMENT id, not batchId.  falls
+    // back to "—" when a batch has no batchId, so two such rows would share a
+    // key and tick together.
+    const visibleBatchIds = paginatedVaccines.map((item) => item.id);
 
     if (isAllSelected) {
       setSelectedBatches((prev) =>
@@ -495,15 +498,15 @@ function Inventory() {
               <tbody>
                 {paginatedVaccines.map((item) => (
                   <tr
-                    key={item.batch}
+                    key={item.id}
                     className={`v2-row-${item.level}`}
                     onClick={() => setSelectedVaccine(item)}
                   >
                     <td onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
-                        checked={selectedBatches.includes(item.batch)}
-                        onChange={() => toggleBatch(item.batch)}
+                        checked={selectedBatches.includes(item.id)}
+                        onChange={() => toggleBatch(item.id)}
                       />
                     </td>
 
@@ -831,7 +834,7 @@ function CriticalExpiringCard({ batches, loading }) {
           batches.map((item) => {
             const days = getDaysUntilExpiry(item.expiryRaw);
             return (
-              <div key={item.batch}>
+              <div key={item.id}>
                 <span>{item.name}</span>
                 <strong>{item.expiry}</strong>
                 <small className={item.level}>

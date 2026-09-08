@@ -179,7 +179,9 @@ export function subscribeInvoiceQueue(callback, onError) {
       invoicesByOrder = {};
       snap.docs.forEach((d) => {
         const data = d.data();
-        if (data.orderId) invoicesByOrder[data.orderId] = { id: d.id, ...data };
+        // Document id LAST so a stored `id` cannot shadow it — the queue's
+        // `invoiceId` is derived from this value.
+        if (data.orderId) invoicesByOrder[data.orderId] = { ...data, id: d.id };
       });
       invoicesLoaded = true;
       emit();
@@ -199,7 +201,13 @@ export async function getInvoiceByOrderId(orderId) {
   // order and prevents duplicates.
   const snap = await getDoc(doc(db, INVOICES, orderId));
   if (!snap.exists()) return null;
-  return { id: snap.id, ...snap.data() };
+  // Document id LAST so it always wins.
+  //
+  // This was `{ id: snap.id, ...snap.data() }`. InvoiceEditor writes with this
+  // value — `updateInvoiceDraft(invoice.id, …)` and `issueInvoice(invoice.id)`
+  // — so a stored `id` field would have saved, and permanently ISSUED, a
+  // different clinic's invoice than the one on screen.
+  return { ...snap.data(), id: snap.id };
 }
 
 /**

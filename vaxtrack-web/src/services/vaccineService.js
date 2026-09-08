@@ -18,7 +18,10 @@ const INVENTORY = "inventory";
 export async function getVaccineTypes() {
   const q = query(collection(db, VACCINE_TYPES), orderBy("name", "asc"));
   const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  // Document id LAST so it always wins. Add Vaccine keys its dropdown options
+  // by this value, and two types carrying the same stored `id` would collapse
+  // into a single option.
+  return snap.docs.map((d) => ({ ...d.data(), id: d.id }));
 }
 
 export async function addVaccineType(name) {

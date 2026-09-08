@@ -30,9 +30,10 @@ export function subscribeActiveAlerts(callback) {
   );
 
   return onSnapshot(q, (snapshot) => {
+    // Document id LAST so it always wins — see subscribeAllAlerts below.
     const alerts = snapshot.docs.map((docItem) => ({
-      id: docItem.id,
       ...docItem.data(),
+      id: docItem.id,
     }));
 
     callback(alerts);
@@ -46,7 +47,17 @@ export function subscribeAllAlerts(callback) {
   );
 
   return onSnapshot(q, (snapshot) => {
-    callback(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+    // Document id LAST so it always wins.
+    //
+    // This was `{ id: d.id, ...d.data() }`, which let a stored `id` field
+    // shadow the real document id. Admin Alerts writes with that value —
+    // `resolveAlert(selectedAlert.id)` and `markAlertRead(alert.id)` — and
+    // keys its rows by it. A rider CAN reach this: the alerts rule lets a
+    // rider create its own route_deviation incident and constrains type,
+    // riderId, severity, status and the timestamps, but not extra fields, so
+    // an `id` could travel in and re-aim an admin's Resolve at someone else's
+    // critical alert.
+    callback(snapshot.docs.map((d) => ({ ...d.data(), id: d.id })));
   });
 }
 

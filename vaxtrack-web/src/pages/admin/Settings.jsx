@@ -487,7 +487,11 @@ function UserManagement({ searchTerm, showToast }) {
   const [branchFilter, setBranchFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedStaff, setSelectedStaff] = useState(null);
-  const [actionMenuEmail, setActionMenuEmail] = useState(null);
+  // Tracked by UID, not email. `normalizeUser` falls back to "—" when a user
+  // has no email, so two such rows shared a key AND opened each other's action
+  // menu — an admin could act on a menu belonging to a different person than
+  // the row they clicked. The writes themselves already used person.uid.
+  const [actionMenuUid, setActionMenuUid] = useState(null);
   const [roleChangeTarget, setRoleChangeTarget] = useState(null);
 
   useEffect(() => {
@@ -537,7 +541,7 @@ function UserManagement({ searchTerm, showToast }) {
     } catch {
       showToast("Failed to update user status. Please try again.");
     } finally {
-      setActionMenuEmail(null);
+      setActionMenuUid(null);
     }
   };
 
@@ -556,7 +560,7 @@ function UserManagement({ searchTerm, showToast }) {
       showToast("Failed to update user role. Please try again.");
     } finally {
       setRoleChangeTarget(null);
-      setActionMenuEmail(null);
+      setActionMenuUid(null);
     }
   };
 
@@ -666,7 +670,7 @@ function UserManagement({ searchTerm, showToast }) {
 
             <tbody>
               {paginatedStaff.map((person) => (
-                <tr key={person.email} onClick={() => setSelectedStaff(person)}>
+                <tr key={person.uid} onClick={() => setSelectedStaff(person)}>
                   <td>
                     <div className="staff-profile">
                       <div className={`staff-avatar ${person.status}`}>
@@ -696,15 +700,15 @@ function UserManagement({ searchTerm, showToast }) {
                         type="button"
                         className="table-action-btn"
                         onClick={() =>
-                          setActionMenuEmail((prev) =>
-                            prev === person.email ? null : person.email
+                          setActionMenuUid((prev) =>
+                            prev === person.uid ? null : person.uid
                           )
                         }
                       >
                         <MoreVertical size={16} />
                       </button>
 
-                      {actionMenuEmail === person.email && (
+                      {actionMenuUid === person.uid && (
                         <div className="staff-action-menu">
                           <button type="button" onClick={() => setSelectedStaff(person)}>
                             View Profile
@@ -753,7 +757,7 @@ function UserManagement({ searchTerm, showToast }) {
                               type="button"
                               onClick={() => {
                                 setRoleChangeTarget(person);
-                                setActionMenuEmail(null);
+                                setActionMenuUid(null);
                               }}
                             >
                               Change Role

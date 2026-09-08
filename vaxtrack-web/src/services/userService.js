@@ -49,7 +49,11 @@ export async function updateUserRole(uid, role) {
 export async function getUserProfile(uid) {
   const snap = await getDoc(doc(db, USERS_COLLECTION, uid));
   if (!snap.exists()) return null;
-  return { id: snap.id, ...snap.data() };
+  // Document id LAST so it always wins. Every caller today writes with the
+  // AUTH uid rather than this field, so nothing is currently redirected — but
+  // `users` is the collection where identity decides access, and returning a
+  // shadowable `id` is a trap for the next caller who reaches for it.
+  return { ...snap.data(), id: snap.id };
 }
 
 const PROFILE_EDITABLE_FIELDS = ["name", "phone", "contactNumber", "organization", "company", "clinic"];
