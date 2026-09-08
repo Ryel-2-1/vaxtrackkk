@@ -7,6 +7,7 @@ import { subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeAllAlerts } from "../../services/alertService";
 import { subscribeRiders } from "../../services/riderService";
 import { subscribeInventory } from "../../services/inventoryService";
+import { ORDER_STATUSES } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
 
 // Small shimmer placeholder used while the first snapshots load, so sections
@@ -38,13 +39,18 @@ const ALERT_TYPE_MAP = {
   stock_expiry: "warning",
   route_deviation: "critical",
   delivery_delay: "warning",
-  resolved: "success",
 };
 
 function normalizeAlert(raw) {
   return {
     id: raw.id,
-    type: ALERT_TYPE_MAP[raw.type] || (raw.status === "resolved" ? "success" : "warning"),
+    // An unrecognised type falls back to "unknown", which paints the neutral
+    // dot. It used to fall back to "warning", which assigned a severity the
+    // alert never declared — an alert of an unmapped type was shown to an admin
+    // as amber on nothing more than the absence of a mapping. (The old
+    // `status === "resolved" ? "success"` arm was unreachable: this list is
+    // filtered to unresolved alerts before it gets here.)
+    type: ALERT_TYPE_MAP[raw.type] || "unknown",
     title: raw.title || raw.type || "Alert",
     desc: raw.message || raw.description || "—",
     time: formatRelativeTime(raw.createdAt),
@@ -52,15 +58,14 @@ function normalizeAlert(raw) {
 }
 
 // Status rows shown in the delivery breakdown, in operational order.
-const BREAKDOWN_ORDER = [
-  "pending_dispatch",
-  "assigned",
-  "loading",
-  "in_transit",
-  "delayed",
-  "delivered",
-  "cancelled",
-];
+//
+// Derived from the canonical list rather than retyped. The hardcoded copy that
+// stood here omitted `delivery_failed`, so a failed delivery was counted in the
+// total — and in the percentage denominator — but had no row of its own and
+// never appeared. The one status that most needs an admin's attention was the
+// one the breakdown silently dropped. Taking the order from ORDER_STATUSES
+// means a status added there cannot go missing here again.
+const BREAKDOWN_ORDER = ORDER_STATUSES;
 
 const ALERT_DOT = {
   critical: "var(--danger-text)",
@@ -185,8 +190,19 @@ function AdminDashboard() {
 
   const ledgerCells = [
     { label: "Total orders", value: deliveryCount, note: "All deliveries", to: "/admin/deliveries", tone: "" },
-    { label: "Delayed / missing", value: delayedCount, note: delayedCount > 0 ? "Needs review" : "None flagged", to: "/admin/deliveries", tone: delayedCount > 0 ? " is-exception" : "" },
-    { label: "Critical stock", value: criticalCount, note: criticalCount > 0 ? "Batches critical" : "Stock healthy", to: "/admin/inventory", tone: criticalCount > 0 ? " is-attention" : "" },
+    // Was "Delayed / missing". Nothing here is missing: the figure is delayed
+    // plus cancelled orders, and a cancelled order is one somebody closed on
+    // purpose. The system does have a status for a delivery that stopped —
+    // `delivery_failed` — and calling cancelled orders "missing" both named the
+    // wrong thing and implied that status was covered when it was not.
+    { label: "Delayed / cancelled", value: delayedCount, note: delayedCount > 0 ? "Needs review" : "None flagged", to: "/admin/deliveries", tone: delayedCount > 0 ? " is-exception" : "" },
+    // "Stock healthy" was a verdict the data cannot support. `inventory.status`
+    // is stamped once, when the batch is added, from its expiry date, and no
+    // writer ever recomputes it — so a batch that has since entered the 30-day
+    // window still reads "Stable". The count is honest about what it is (how
+    // many batches carry the critical flag) and no longer pronounces on the
+    // health of the stock.
+    { label: "Critical stock", value: criticalCount, note: criticalCount > 0 ? "Batches flagged critical" : "No batch flagged critical", to: "/admin/inventory", tone: criticalCount > 0 ? " is-attention" : "" },
     { label: "Registered riders", value: riderCount, note: "On the platform", to: "/admin/riders", tone: "" },
   ];
 
@@ -382,9 +398,13 @@ function AdminDashboard() {
         ) : (
           <div className="adx-table-wrap">
             <table className="adx-table">
+              {/* The last column was headed "Updated" and the caption said
+                  "time since the last update", but the value has always been
+                  `createdAt` — when the order was placed, not when it last
+                  changed. The column is named for the value it carries. */}
               <caption className="adx-sr-only">
-                Recent orders across all clinics, with delivery status and time
-                since the last update.
+                Recent orders across all clinics, with delivery status and how
+                long ago each order was placed.
               </caption>
               <thead>
                 <tr>
@@ -392,7 +412,7 @@ function AdminDashboard() {
                   <th scope="col">Clinic</th>
                   <th scope="col">Vaccine</th>
                   <th scope="col">Status</th>
-                  <th scope="col">Updated</th>
+                  <th scope="col">Placed</th>
                 </tr>
               </thead>
               <tbody>
