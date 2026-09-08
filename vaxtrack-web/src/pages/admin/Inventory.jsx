@@ -631,21 +631,18 @@ function Inventory() {
                 Add Stock
               </button>
 
-              <button
-                type="button"
-                className="v2-light-action"
-                onClick={() => showToast("Batch history opened.")}
-              >
-                View Batch History
-              </button>
+              {/* "View Batch History" and "Flag for Review" were removed.
+                  Neither had anything behind it: there is no history source to
+                  open — a batch document holds only its current state, with no
+                  audit trail of changes — and no flag schema, writer, reader or
+                  review workflow exists, so "flagged for review" recorded
+                  nothing and no one would ever have seen it.
 
-              <button
-                type="button"
-                className="v2-danger-action"
-                onClick={() => showToast("Batch flagged for review.")}
-              >
-                Flag for Review
-              </button>
+                  Both are worth building, and neither is invented here: a
+                  history view needs an append-only trail that does not exist
+                  yet, and a review flag needs a decision about what a flag
+                  means and who acts on it. "Add Stock" stays because it really
+                  navigates, and the batch's price is edited from its table row. */}
             </div>
           </div>
         </div>

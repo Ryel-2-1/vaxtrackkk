@@ -163,22 +163,12 @@ test("no admin page reports success without an awaited write", () => {
   // A toast that is not preceded by an `await` in its own handler is a claim
   // with nothing behind it. Both pages are checked as a pair so neither drifts.
   //
-  // KNOWN OUTSTANDING — deliberately not covered here, and NOT a claim that the
-  // rest of the app is free of no-op controls. Two instances remain:
-  //
-  //   1. `src/pages/admin/Settings.jsx` — the same defect on a larger surface.
-  //      "Save Settings" is `showToast("Settings saved successfully.")` with no
-  //      writer, and the organization profile, regional settings and System
-  //      Features toggles persist nothing. Removing or wiring that form is its
-  //      own scoped decision (does org profile belong in Firestore at all?).
-  //
-  //   2. `src/pages/admin/Inventory.jsx` detail drawer — "Batch history opened."
-  //      and "Batch flagged for review." are toast-only. They sit outside this
-  //      subtask's scope (bulk controls), and "flag for review" in particular
-  //      needs a decision about what a flag would even be.
-  //
-  // Add each path to the loop below when its decision is made; until then this
-  // rule covers only the two surfaces this change actually corrected.
+  // Both instances that were outstanding here have since been corrected:
+  // Admin Settings' false save and its inert org/regional/feature controls, and
+  // the Inventory drawer's "Batch history" / "Flag for review". Those are
+  // asserted in tests/adminSettings.test.js, whose own copy of this rule now
+  // covers all three admin pages — so this loop deliberately stays on the two
+  // surfaces it was written for rather than duplicating that coverage.
   for (const p of ["src/pages/admin/Alerts.jsx", "src/pages/admin/Inventory.jsx"]) {
     const src = read(p);
     const toasts = [...src.matchAll(/showToast\((["'`])(.*?)\1/g)].map((m) => m[2]);

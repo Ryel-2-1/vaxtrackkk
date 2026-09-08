@@ -1035,3 +1035,59 @@
   border-color: var(--green-700);
   box-shadow: 0 0 0 3px var(--green-100);
 }
+/* ---------------- read-only General tab (checkpoint #9) ----------------
+   The organization, regional and feature CONTROLS were removed: none of the
+   eleven fields had a consumer, and none persisted. What is left states the
+   configuration the system actually has. Definition lists rather than form
+   rows, so the markup itself says "this is information", not "this is a form".
+   Meridian tokens only; no new colour. */
+
+.settings-readonly-lede {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--gray-500, #6b7280);
+}
+
+.settings-fact-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-fact-list > div {
+  border: 1px solid var(--gray-200, #e5e7eb);
+  border-radius: 10px;
+  background: var(--gray-50, #f9fafb);
+  padding: 12px 14px;
+}
+
+.settings-fact-list dt {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--gray-500, #6b7280);
+  margin-bottom: 4px;
+}
+
+.settings-fact-list dd {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.settings-fact-list dd strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--gray-900, #111827);
+  /* Values like the invoice issuer can be long; wrap rather than overflow. */
+  overflow-wrap: anywhere;
+}
+
+.settings-fact-list dd span {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--gray-500, #6b7280);
+}

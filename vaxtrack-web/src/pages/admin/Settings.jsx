@@ -2,15 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
-  AlertTriangle,
   Bell,
   Building2,
-  Clock,
-  Eye,
   Globe,
+  Clock,
   MoreVertical,
-  RefreshCcw,
-  Save,
   Search,
   Settings as SettingsIcon,
   ShieldCheck,
@@ -23,26 +19,8 @@ import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import KpiCard from "../../components/ui/KpiCard";
 import "./Settings.css";
 import { subscribeUsers, updateUserStatus, updateUserRole } from "../../services/userService";
-
-const defaultOrg = {
-  organizationName: "VaxTrack Philippines",
-  registrationId: "ORG-PH-2023-8842",
-  primaryContact: "admin@vaxtrack.ph",
-};
-
-const defaultRegional = {
-  timeZone: "Asia/Manila GMT+8",
-  language: "English (US)",
-  dateFormat: "DD/MM/YYYY",
-};
-
-const defaultFeatures = {
-  inventoryAlerts: true,
-  lowStockAlerts: true,
-  expiryAlerts: true,
-  routeDeviationAlerts: false,
-  deliveryStatusNotifications: true,
-};
+// The invoice issuer is a constant in the invoice model, not a stored setting.
+import { COMPANY_NAME } from "../../services/invoiceModel";
 
 const ROLE_DISPLAY = {
   admin: "Admin",
@@ -188,294 +166,199 @@ function Settings() {
   );
 }
 
-function GeneralSettings({ searchTerm, showToast }) {
-  const [org, setOrg] = useState(defaultOrg);
-  const [regional, setRegional] = useState(defaultRegional);
-  const [features, setFeatures] = useState(defaultFeatures);
-  const [pendingDisable, setPendingDisable] = useState(null);
-
-  const enabledCount = Object.values(features).filter(Boolean).length;
-  const disabledCount = Object.values(features).length - enabledCount;
-
-  const featureItems = [
-    {
-      key: "inventoryAlerts",
-      title: "Enable inventory alerts",
-      desc: "Receive notifications for warehouse movements.",
-      preview: "Inventory warnings appear on Admin Dashboard and Alerts page.",
-    },
-    {
-      key: "lowStockAlerts",
-      title: "Enable low stock alerts",
-      desc: "Notify when vaccine levels drop below threshold.",
-      preview: "Low-stock batches will be highlighted in Inventory Monitoring.",
-    },
-    {
-      key: "expiryAlerts",
-      title: "Enable expired/near-expiry vaccine alerts",
-      desc: "Warnings for stock reaching end-of-life.",
-      preview: "Near-expiry warnings appear before batches reach unsafe dates.",
-    },
-    {
-      key: "routeDeviationAlerts",
-      title: "Enable route deviation alerts",
-      desc: "Track real-time courier pathing anomalies.",
-      preview: "Route deviation alerts appear on Dashboard, Alerts, and Dispatcher pages.",
-      important: true,
-    },
-    {
-      key: "deliveryStatusNotifications",
-      title: "Enable delivery status notifications",
-      desc: "Automatic updates on shipment progress.",
-      preview: "Delivery updates notify admins when shipments are loading or in transit.",
-    },
-  ];
-
-  const filteredFeatures = featureItems.filter((item) => {
-    const searchValue = `${item.title} ${item.desc} ${item.preview}`.toLowerCase();
-    return searchValue.includes(searchTerm.toLowerCase());
+/**
+ * The General tab — entirely read-only.
+ *
+ * It previously held eleven editable fields across Organization Profile,
+ * Regional Settings and System Features, with Save and Discard buttons. A trace
+ * of every field found NO consumer anywhere in the application, and there was
+ * no settingsService and no `settings` collection to save into: "Save Settings"
+ * showed "Settings saved successfully." and wrote nothing.
+ *
+ * Nothing was persisted to fix it. Storing `lowStockAlerts: true` where no
+ * reader exists is the same false claim relocated into Firestore, and it would
+ * then need rules, an audit trail and a migration to maintain a value that
+ * changes nothing. The tab now reports the configuration the system actually
+ * has, with each value's real source named.
+ */
+function GeneralSettings() {
+  // What the app genuinely renders: en-US short month, e.g. "Sep 8, 2026".
+  // Derived rather than written out, so it cannot drift from the real
+  // formatting the way the old hardcoded "DD/MM/YYYY" label did.
+  const sampleDateDisplay = new Date().toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   });
-
-  const handleFeatureToggle = (key) => {
-    if (key === "routeDeviationAlerts" && features[key]) {
-      setPendingDisable(key);
-      return;
-    }
-
-    setFeatures((prev) => ({
-      ...prev,
-      [key]: !prev[key],
-    }));
-  };
-
-  const handleSave = () => {
-    showToast("Settings saved successfully.");
-  };
-
-  const handleDiscard = () => {
-    setOrg(defaultOrg);
-    setRegional(defaultRegional);
-    setFeatures(defaultFeatures);
-    showToast("Changes discarded.");
-  };
-
-  const confirmDisableImportantAlert = () => {
-    if (!pendingDisable) return;
-
-    setFeatures((prev) => ({
-      ...prev,
-      [pendingDisable]: false,
-    }));
-
-    setPendingDisable(null);
-    showToast("Route deviation alerts disabled.");
-  };
 
   return (
     <>
       <section className="settings-summary-grid">
         <KpiCard
-          label="Enabled alerts"
-          value={enabledCount}
-          context="Currently active"
-          tone="info"
-        />
-
-        <KpiCard
-          label="Disabled alerts"
-          value={disabledCount}
-          context="Needs review if critical"
-          tone="warning"
-        />
-
-        <KpiCard
-          label="Timezone"
-          value="GMT+8"
-          context="Asia/Manila"
+          label="Time zone"
+          value="UTC+8"
+          context="Asia/Manila — enforced in code"
           tone="neutral"
         />
 
         <KpiCard
-          label="Admin profile"
-          value="Active"
-          context="System configuration"
-          tone="success"
+          label="Date display"
+          value={sampleDateDisplay}
+          context="en-US, used throughout"
+          tone="neutral"
+        />
+
+        <KpiCard
+          label="Alert delivery"
+          value="In-app"
+          context="Push and email not configured"
+          tone="info"
+        />
+
+        <KpiCard
+          label="Organization record"
+          value="None"
+          context="Invoice issuer is fixed in code"
+          tone="neutral"
         />
       </section>
 
-      <section className="settings-v3-grid">
+
+      {/* READ-ONLY. Every control here used to be editable with a "Save
+          Settings" button that reported success and wrote nothing: no
+          settingsService existed, no `settings` collection existed, and a trace
+          of all eleven fields found ZERO consumers anywhere in the app.
+
+          Persisting them to make the button work was rejected — a stored
+          `lowStockAlerts: true` that nothing reads is the same false promise,
+          moved into the database. What is shown instead is what the system
+          actually does, and where each value really comes from. */}
+      <section className="settings-v3-grid settings-v3-grid--readonly">
         <div className="settings-v3-left">
           <div className="settings-v3-card">
             <div className="settings-card-title">
               <Building2 size={17} />
-              <h2>Organization Profile</h2>
+              <h2>Organization</h2>
             </div>
 
-            <div className="settings-form-grid">
-              <label>
-                Organization Name
-                <input
-                  value={org.organizationName}
-                  onChange={(e) =>
-                    setOrg((prev) => ({
-                      ...prev,
-                      organizationName: e.target.value,
-                    }))
-                  }
-                />
-              </label>
+            <p className="settings-readonly-lede">
+              VaxTrack stores no organization record. These values are fixed in
+              the application, not configured here.
+            </p>
 
-              <label>
-                Registration ID
-                <input
-                  value={org.registrationId}
-                  onChange={(e) =>
-                    setOrg((prev) => ({
-                      ...prev,
-                      registrationId: e.target.value,
-                    }))
-                  }
-                />
-              </label>
-
-              <label>
-                Primary Contact
-                <input
-                  value={org.primaryContact}
-                  onChange={(e) =>
-                    setOrg((prev) => ({
-                      ...prev,
-                      primaryContact: e.target.value,
-                    }))
-                  }
-                />
-              </label>
-            </div>
+            <dl className="settings-fact-list">
+              <div>
+                <dt>Invoice issuer</dt>
+                <dd>
+                  <strong>{COMPANY_NAME}</strong>
+                  <span>
+                    Fixed in code. Printed on every invoice as the issuing
+                    company.
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt>Company address, contact and TIN</dt>
+                <dd>
+                  <strong>Entered per invoice</strong>
+                  <span>
+                    Typed on each invoice in the Invoice Editor and stored on
+                    that invoice — there is no shared company record to edit.
+                  </span>
+                </dd>
+              </div>
+            </dl>
           </div>
 
           <div className="settings-v3-card">
             <div className="settings-card-title">
               <Globe size={17} />
-              <h2>Regional Settings</h2>
+              <h2>Regional</h2>
             </div>
 
-            <div className="settings-form-grid three">
-              <label>
-                Time Zone
-                <select
-                  value={regional.timeZone}
-                  onChange={(e) =>
-                    setRegional((prev) => ({
-                      ...prev,
-                      timeZone: e.target.value,
-                    }))
-                  }
-                >
-                  <option>Asia/Manila GMT+8</option>
-                  <option>Asia/Singapore GMT+8</option>
-                  <option>UTC</option>
-                </select>
-              </label>
-
-              <label>
-                Language
-                <select
-                  value={regional.language}
-                  onChange={(e) =>
-                    setRegional((prev) => ({
-                      ...prev,
-                      language: e.target.value,
-                    }))
-                  }
-                >
-                  <option>English (US)</option>
-                  <option>Filipino</option>
-                </select>
-              </label>
-
-              <label>
-                Date Format
-                <select
-                  value={regional.dateFormat}
-                  onChange={(e) =>
-                    setRegional((prev) => ({
-                      ...prev,
-                      dateFormat: e.target.value,
-                    }))
-                  }
-                >
-                  <option>DD/MM/YYYY</option>
-                  <option>MM/DD/YYYY</option>
-                  <option>YYYY-MM-DD</option>
-                </select>
-              </label>
-            </div>
-          </div>
-
-          <div className="settings-v3-card preview-card">
-            <div className="settings-card-title">
-              <Eye size={17} />
-              <h2>Notification Preview</h2>
-            </div>
-
-            <p>
-              Enabled alerts will appear in the Admin Dashboard, Alerts page, and
-              related role dashboards. Critical alerts such as route deviation should
-              stay enabled during live delivery monitoring.
+            <p className="settings-readonly-lede">
+              Fixed configuration. The time zone below is enforced in code on
+              both the client and the server; the others are not configurable.
             </p>
-          </div>
 
-          <div className="settings-action-row">
-            <button type="button" className="discard-btn" onClick={handleDiscard}>
-              <RefreshCcw size={14} />
-              Discard Changes
-            </button>
-
-            <button type="button" className="save-settings-btn" onClick={handleSave}>
-              <Save size={14} />
-              Save Settings
-            </button>
+            <dl className="settings-fact-list">
+              <div>
+                <dt>Time zone</dt>
+                <dd>
+                  <strong>Asia/Manila (UTC+8)</strong>
+                  <span>
+                    Real and load-bearing: batch expiry uses a date-only Manila
+                    cutoff, so stock stays usable through the whole of its
+                    expiry date locally.
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt>Date display</dt>
+                <dd>
+                  <strong>{sampleDateDisplay}</strong>
+                  <span>
+                    en-US short-month format, used on every date the
+                    application renders.
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt>Language</dt>
+                <dd>
+                  <strong>English (US)</strong>
+                  <span>
+                    The interface is English-only. No translation layer exists,
+                    so there is no alternative to choose.
+                  </span>
+                </dd>
+              </div>
+            </dl>
           </div>
         </div>
 
         <aside className="settings-v3-card system-card">
           <div className="settings-card-title">
             <SettingsIcon size={17} />
-            <h2>System Features</h2>
+            <h2>Alert delivery</h2>
           </div>
 
-          <div className="feature-list">
-            {filteredFeatures.map((item) => (
-              <FeatureToggle
-                key={item.key}
-                title={item.title}
-                desc={item.desc}
-                enabled={features[item.key]}
-                important={item.important}
-                onToggle={() => handleFeatureToggle(item.key)}
-              />
-            ))}
+          {/* The System Features toggles are gone. Five switches — inventory,
+              low-stock, expiry, route-deviation and delivery-status alerts —
+              had no executable reader: alerts are written to Firestore by the
+              services and rendered from that collection regardless of any
+              toggle. One even opened a confirmation dialog warning that
+              disabling it "may prevent admins from receiving rider route
+              warnings", which it could not do. */}
+          <p className="settings-readonly-lede">
+            Alerts cannot be switched off. Every alert written to Firestore is
+            shown to admins and dispatchers.
+          </p>
 
-            {filteredFeatures.length === 0 && (
-              <div className="settings-empty">
-                <SettingsIcon size={24} />
-                <strong>No settings found</strong>
-                <p>Try another search keyword.</p>
-              </div>
-            )}
-          </div>
+          <dl className="settings-fact-list">
+            <div>
+              <dt>In-app alerts</dt>
+              <dd>
+                <strong>Always on</strong>
+                <span>
+                  Read live on the Alerts page and the dashboard.
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt>Push and email</dt>
+              <dd>
+                <strong>Not configured</strong>
+                <span>
+                  No messaging or email channel exists, so alerts do not leave
+                  the dashboard.
+                </span>
+              </dd>
+            </div>
+          </dl>
         </aside>
       </section>
 
-      {pendingDisable && (
-        <ConfirmModal
-          title="Disable route deviation alerts?"
-          message="This may prevent admins from receiving rider route warnings. This alert is important for geofence and delivery route monitoring."
-          confirmLabel="Disable Alert"
-          onCancel={() => setPendingDisable(null)}
-          onConfirm={confirmDisableImportantAlert}
-        />
-      )}
     </>
   );
 }
@@ -856,26 +739,6 @@ function UserManagement({ searchTerm, showToast }) {
   );
 }
 
-function FeatureToggle({ title, desc, enabled, important, onToggle }) {
-  return (
-    <div className={`feature-toggle-row ${important ? "important" : ""}`}>
-      <div>
-        <h3>{title}</h3>
-        <p>{desc}</p>
-      </div>
-
-      <button
-        type="button"
-        className={`settings-toggle ${enabled ? "enabled" : ""}`}
-        onClick={onToggle}
-        aria-label={title}
-      >
-        <span></span>
-      </button>
-    </div>
-  );
-}
-
 function StaffDetailsModal({ person, isSelf, onClose, onApprove, onDeactivate, onReactivate, onChangeRole }) {
   return (
     <div className="settings-modal-backdrop">
@@ -1013,35 +876,6 @@ function RoleChangeModal({ person, onClose, onConfirm }) {
           </button>
 
           <button type="button" className="settings-light-action" onClick={onClose}>
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ConfirmModal({ title, message, confirmLabel, onCancel, onConfirm }) {
-  return (
-    <div className="settings-modal-backdrop">
-      <div className="settings-modal confirm-modal">
-        <button type="button" className="settings-modal-close" onClick={onCancel} aria-label="Cancel">
-          <X size={18} />
-        </button>
-
-        <div className="settings-modal-avatar warning">
-          <AlertTriangle size={28} />
-        </div>
-
-        <h2>{title}</h2>
-        <p>{message}</p>
-
-        <div className="settings-modal-actions">
-          <button type="button" className="settings-danger-action" onClick={onConfirm}>
-            {confirmLabel}
-          </button>
-
-          <button type="button" className="settings-light-action" onClick={onCancel}>
             Cancel
           </button>
         </div>
