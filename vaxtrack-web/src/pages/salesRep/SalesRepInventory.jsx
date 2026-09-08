@@ -15,18 +15,17 @@ import {
   Search,
 } from "lucide-react";
 import { subscribeInventory } from "../../services/inventoryService";
+import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
 import SalesRepLayout from "./SalesRepLayout";
 
-const statusTypes = ["All", "Critical", "Warning", "Stable"];
+// The derived expiry levels, in the order a rep cares about them. These are
+// labels from the shared helper, not values of the stored `status` field.
+const statusTypes = ["All", "Expired", "Expiring soon", "Expiring later", "In date", "No expiry date"];
 const rowsPerPage = 5;
 
-function getDaysUntilExpiry(rawDateStr) {
-  if (!rawDateStr) return Infinity;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const expiry = new Date(rawDateStr + "T00:00:00");
-  return Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-}
+/* `getDaysUntilExpiry` was deleted: it measured from local midnight, while the
+   server and every other surface use a date-only Manila cutoff. The days now
+   come from the shared helper, alongside the level they belong to. */
 
 function formatExpiry(dateStr) {
   if (!dateStr) return "—";
@@ -38,9 +37,10 @@ function formatExpiry(dateStr) {
   });
 }
 
-function normalizeStock(raw) {
-  const status = raw.status || "Stable";
-  const daysRemaining = getDaysUntilExpiry(raw.expiryDate);
+function normalizeStock(raw, todayIso) {
+  // Derived from the expiry date. The stored `status` is stamped once when the
+  // batch is created and never recomputed, so it cannot describe the batch now.
+  const { level, label, daysRemaining } = deriveExpiryCondition(raw, todayIso);
   return {
     id: raw.id,
     batchId: raw.batchId || raw.id,
@@ -52,8 +52,8 @@ function normalizeStock(raw) {
     daysRemaining,
     quantity: raw.quantity != null ? Number(raw.quantity) : 0,
     temp: raw.storageTempDisplay || (raw.storageTemp != null ? `${raw.storageTemp}°C` : "—"),
-    status,
-    statusLower: status.toLowerCase(),
+    status: label,
+    statusLower: level,
   };
 }
 
@@ -74,7 +74,10 @@ function SalesRepInventory() {
   useEffect(() => {
     const unsubscribe = subscribeInventory(
       (raw) => {
-        setInventory(raw.map(normalizeStock));
+        // One Manila date per snapshot, resolved where the data arrives so no
+        // render reads the clock.
+        const today = manilaToday(Date.now());
+        setInventory(raw.map((item) => normalizeStock(item, today)));
         setLoading(false);
         setError("");
       },
@@ -107,9 +110,9 @@ function SalesRepInventory() {
 
       const matchesType = selectedType === "All" || stock.type === selectedType;
       const matchesStatus = selectedStatus === "All" || stock.status === selectedStatus;
+      const days = stock.daysRemaining ?? Infinity;
       const matchesExpiry =
-        expiryWindow === "all" ||
-        (stock.daysRemaining >= 0 && stock.daysRemaining <= Number(expiryWindow));
+        expiryWindow === "all" || (days >= 0 && days <= Number(expiryWindow));
 
       return matchesSearch && matchesType && matchesStatus && matchesExpiry;
     });
@@ -122,16 +125,17 @@ function SalesRepInventory() {
 
   const metrics = useMemo(() => {
     const expiringSoon = inventory
-      .filter((stock) => stock.daysRemaining <= 30 && stock.daysRemaining >= 0)
+      .filter((stock) => stock.statusLower === "critical")
       .reduce((total, stock) => total + stock.quantity, 0);
 
-    const safeStock = inventory
+    // Vials in batches in date beyond 90 days. Deliberately NOT called "safe":
+    // expiry is the only thing measured, and it says nothing about quantity,
+    // reserved figures, pricing or storage temperature.
+    const inDateStock = inventory
       .filter((stock) => stock.statusLower === "stable")
       .reduce((total, stock) => total + stock.quantity, 0);
 
-    const coldChainAlerts = inventory.filter((stock) => stock.statusLower !== "stable").length;
-
-    return { expiringSoon, safeStock, coldChainAlerts };
+    return { expiringSoon, inDateStock };
   }, [inventory]);
 
   const stockByType = useMemo(() => {
@@ -297,9 +301,9 @@ function SalesRepInventory() {
 
           <SmallMetric
             icon={<CheckCircle2 size={24} />}
-            label="Total Safe Stock"
-            value={formatCompact(metrics.safeStock)}
-            sub="stable batches"
+            label="In Date > 90 Days"
+            value={formatCompact(metrics.inDateStock)}
+            sub="vials, by expiry date only"
             tone="green"
           />
         </div>
@@ -364,10 +368,13 @@ function SalesRepInventory() {
             {selectedRows.length > 0 && <span> · {selectedRows.length} selected</span>}
           </div>
 
-          {filteredStocks.some((stock) => stock.statusLower === "critical") && (
+          {filteredStocks.some(
+            (stock) => stock.statusLower === "expired" || stock.statusLower === "critical"
+          ) && (
             <p>
               <AlertTriangle size={14} />
-              Critical batches should be requested or escalated first.
+              Expired batches cannot be ordered; batches within 30 days should be
+              requested first.
             </p>
           )}
         </div>

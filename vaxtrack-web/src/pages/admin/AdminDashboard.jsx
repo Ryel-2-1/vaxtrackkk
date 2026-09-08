@@ -7,6 +7,7 @@ import { subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeAllAlerts } from "../../services/alertService";
 import { subscribeRiders } from "../../services/riderService";
 import { subscribeInventory } from "../../services/inventoryService";
+import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
 import { ORDER_STATUSES } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
 
@@ -162,10 +163,14 @@ function AdminDashboard() {
     let unsubInventory = () => {};
     try {
       unsubInventory = subscribeInventory((batches) => {
+        // Derived from each batch's expiry date, not from the stored `status`
+        // that Add Stock stamped once and nothing recomputes. Resolved here,
+        // where the snapshot arrives, so no render reads the clock.
+        const today = manilaToday(Date.now());
         setCriticalCount(
           batches.filter((b) => {
-            const s = (b.status || "").toLowerCase();
-            return s === "critical";
+            const { level } = deriveExpiryCondition(b, today);
+            return level === "expired" || level === "critical";
           }).length
         );
         loaded.inventory = true;
@@ -196,13 +201,13 @@ function AdminDashboard() {
     // `delivery_failed` — and calling cancelled orders "missing" both named the
     // wrong thing and implied that status was covered when it was not.
     { label: "Delayed / cancelled", value: delayedCount, note: delayedCount > 0 ? "Needs review" : "None flagged", to: "/admin/deliveries", tone: delayedCount > 0 ? " is-exception" : "" },
-    // "Stock healthy" was a verdict the data cannot support. `inventory.status`
-    // is stamped once, when the batch is added, from its expiry date, and no
-    // writer ever recomputes it — so a batch that has since entered the 30-day
-    // window still reads "Stable". The count is honest about what it is (how
-    // many batches carry the critical flag) and no longer pronounces on the
-    // health of the stock.
-    { label: "Critical stock", value: criticalCount, note: criticalCount > 0 ? "Batches flagged critical" : "No batch flagged critical", to: "/admin/inventory", tone: criticalCount > 0 ? " is-attention" : "" },
+    // Counts batches that are expired or within 30 days of expiring, worked out
+    // from each batch's expiry date. It used to count the stored `status`,
+    // which Add Stock stamps once at creation and nothing recomputes — so a
+    // batch that had since expired still counted as healthy stock. The label
+    // says what is measured; quantity and reserved figures are separate
+    // concerns and are not folded into it.
+    { label: "Expiring or expired stock", value: criticalCount, note: criticalCount > 0 ? "Within 30 days or past expiry" : "None within 30 days", to: "/admin/inventory", tone: criticalCount > 0 ? " is-attention" : "" },
     { label: "Registered riders", value: riderCount, note: "On the platform", to: "/admin/riders", tone: "" },
   ];
 

@@ -118,9 +118,13 @@ test("the date format shown is derived, not asserted", () => {
 test("the time zone claim is the one the code actually enforces", () => {
   const src = read("src/pages/admin/Settings.jsx");
   assert.match(src, /Asia\/Manila \(UTC\+8\)/);
-  // Load-bearing elsewhere: the expiry cutoff really is Manila date-only.
+  // Load-bearing elsewhere: the expiry cutoff really is Manila date-only, on
+  // both sides. The web anchor moved from a comment in the Sales Rep catalog to
+  // the shared helper every surface now derives from — a stronger claim, since
+  // it is the implementation rather than a note about one.
   assert.match(read("functions/src/policy.js"), /MANILA_OFFSET_MINUTES = 8 \* 60/);
-  assert.match(read("src/pages/salesRep/SalesRepRequestOrder.jsx"), /Asia\/Manila/);
+  assert.match(read("src/services/expiry.js"), /Asia\/Manila is UTC\+8/);
+  assert.match(read("src/services/expiry.js"), /MANILA_OFFSET_MS = 8 \* 60 \* 60 \* 1000/);
 });
 
 test("System Features toggles are gone, along with their warning dialog", () => {

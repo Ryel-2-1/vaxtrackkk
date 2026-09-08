@@ -320,6 +320,15 @@
   color: #15803d;
 }
 
+.v2-cold-list small.expired {
+  color: #991b1b;
+  font-weight: 700;
+}
+
+.v2-cold-list small.unknown {
+  color: var(--gray-600, #4b5563);
+}
+
 /* Flatten Critical & Expiring records into compact divided rows
    (scoped to .v2-cold-list only — the .v2-alert-summary-list tiles keep
    their layout). Records no longer read as cards inside a card. */
@@ -603,6 +612,20 @@
   color: var(--success-text);
 }
 
+/* Two levels the chip never had, because the stored status could not express
+   them: a batch past its expiry date, and one whose date cannot be read. Both
+   are refused by the server, so neither may look like ordinary stock. */
+.v2-stock-status.expired {
+  background: var(--danger-text);
+  color: #ffffff;
+}
+
+.v2-stock-status.unknown {
+  background: var(--gray-100, #f3f4f6);
+  color: var(--gray-600, #4b5563);
+  border: 1px dashed var(--gray-300, #d1d5db);
+}
+
 /* Clean inventory checkboxes */
 
 .v2-vaccine-table input[type="checkbox"] {
@@ -756,6 +779,17 @@
 .v2-modal-badge.stable {
   background: var(--success-bg);
   color: var(--success-text);
+}
+
+.v2-modal-badge.expired {
+  background: var(--danger-text);
+  color: #ffffff;
+}
+
+.v2-modal-badge.unknown {
+  background: var(--gray-100, #f3f4f6);
+  color: var(--gray-600, #4b5563);
+  border: 1px dashed var(--gray-300, #d1d5db);
 }
 
 .v2-inventory-modal h2 {

@@ -151,10 +151,11 @@ test("the Placed column is named for the value it carries", () => {
 
 test("no KPI states a verdict its field cannot support", () => {
   // "Stock healthy" claimed a condition from a flag stamped once at creation
-  // and never recomputed, so a batch that has since become critical still
-  // reads Stable. The note reports the flag instead.
+  // and never recomputed. The KPI now measures the expiry date itself — see
+  // tests/expiryStatus.test.js for the derivation and its boundaries.
   assert.equal(/Stock healthy/.test(CODE), false);
-  assert.match(SRC, /"No batch flagged critical"/);
+  assert.match(SRC, /label: "Expiring or expired stock"/);
+  assert.match(SRC, /deriveExpiryCondition\(b, today\)/);
   // And nothing is called missing: the figure is delayed plus cancelled.
   assert.equal(/missing/i.test(CODE), false, "no order is described as missing");
   assert.match(SRC, /label: "Delayed \/ cancelled"/);

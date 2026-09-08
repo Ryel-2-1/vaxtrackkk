@@ -15,6 +15,7 @@ import {
 import { subscribeInventory } from "../../services/inventoryService";
 import { availableStock } from "../../services/inventoryCallables";
 import { formatCentavos, readPriceCentavos } from "../../services/money";
+import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
 import { subscribeClinics } from "../../services/clinicService";
 import SalesRepLayout from "./SalesRepLayout";
 
@@ -56,8 +57,16 @@ const CLINIC_INVALID_MSG = "Enter a valid Clinic ID registered in VaxTrack.";
 function normalizeProduct(raw, todayIso) {
   const available = availableStock(raw);
   const onHand = typeof raw.quantity === "number" ? raw.quantity : null;
-  const expiryIso = typeof raw.expiryDate === "string" ? raw.expiryDate.trim() : "";
-  const expired = /^\d{4}-\d{2}-\d{2}$/.test(expiryIso) && expiryIso < todayIso;
+  // The shared derivation, so this catalog, Admin Inventory and the server all
+  // mean the same thing by "expired". The hand-rolled test it replaces set
+  // `expired` only when the date PARSED and was past, so a batch with a missing
+  // or malformed date fell through as orderable here and was then refused by
+  // the callable with `batch-expired` — exactly the cart the comment above
+  // promises a rep can never build.
+  const expiryCondition = deriveExpiryCondition(raw, todayIso);
+  const expiryIso = expiryCondition.expiryDate ?? "";
+  const expired = expiryCondition.level === "expired";
+  const undated = expiryCondition.level === "unknown";
   const unitPriceCentavos = readPriceCentavos(raw.sellingPriceCentavos);
 
   // `available === null` means the batch's own figures are unusable — the three
@@ -71,6 +80,10 @@ function normalizeProduct(raw, todayIso) {
   let blockedReason = null;
   if (available === null) blockedReason = "Needs inventory migration";
   else if (expired) blockedReason = "Expired — unavailable";
+  // Its own reason rather than "Expired": nobody knows when this batch expires,
+  // which is a different problem with a different owner — and the server
+  // refuses it just as firmly.
+  else if (undated) blockedReason = "No usable expiry date — unavailable";
   else if (unitPriceCentavos === null) blockedReason = "Not priced — unavailable";
   else if (available <= 0) blockedReason = "Out of stock";
 
@@ -99,11 +112,9 @@ function normalizeProduct(raw, todayIso) {
   };
 }
 
-/** Today in Asia/Manila — the same date-only cutoff the server applies. */
-function manilaToday() {
-  const shifted = new Date(Date.now() + 8 * 60 * 60 * 1000);
-  return shifted.toISOString().slice(0, 10);
-}
+/* The local `manilaToday()` was deleted — a second copy of the same date-only
+   Manila cutoff. It now comes from services/expiry.js, which takes its
+   reference time explicitly instead of reading the clock itself. */
 
 function SalesRepRequestOrder() {
   const navigate = useNavigate();
@@ -172,7 +183,7 @@ function SalesRepRequestOrder() {
   useEffect(() => {
     const unsubscribe = subscribeInventory(
       (raw) => {
-        const todayIso = manilaToday();
+        const todayIso = manilaToday(Date.now());
         const products = raw.map((item) => normalizeProduct(item, todayIso));
         setCatalog(products);
 

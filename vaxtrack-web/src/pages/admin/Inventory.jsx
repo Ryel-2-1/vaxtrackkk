@@ -3,6 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { Package, Plus, Search, X } from "lucide-react";
 import AdminLayout from "../../components/admin/AdminLayout";
 import { subscribeInventory } from "../../services/inventoryService";
+import {
+  deriveExpiryCondition,
+  manilaToday,
+  WARNING_WITHIN_DAYS,
+} from "../../services/expiry";
 import { updateStockPrice } from "../../services/vaccineService";
 import {
   centavosToInputValue,
@@ -13,13 +18,10 @@ import {
 import KpiCard from "../../components/ui/KpiCard";
 import "./Inventory.css";
 
-function getDaysUntilExpiry(rawDateStr) {
-  if (!rawDateStr) return Infinity;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const expiry = new Date(rawDateStr + "T00:00:00");
-  return Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-}
+/* `getDaysUntilExpiry` was deleted. It built its answer from LOCAL midnight
+   while the Expired flag beside it used Manila — two date conventions on the
+   same row — and every caller now reads `daysRemaining` off the normalized
+   item, which the shared helper derives once, date-only, in Manila. */
 
 function formatExpiry(dateStr) {
   if (!dateStr) return "—";
@@ -40,8 +42,11 @@ function formatExpiry(dateStr) {
  * reads "—", not "0", because those mean very different things to whoever has
  * to act on the row.
  */
-function normalizeInventoryItem(raw) {
-  const status = raw.status || "Stable";
+function normalizeInventoryItem(raw, todayIso) {
+  // The CURRENT expiry condition, derived from the date. The stored `status` is
+  // not consulted: it was stamped when the batch was created and nothing has
+  // recomputed it since, so it describes what was true then, not now.
+  const expiryCondition = deriveExpiryCondition(raw, todayIso);
   const onHandOk = typeof raw.quantity === "number" && Number.isInteger(raw.quantity);
   const reservedRaw = raw.reservedQuantity;
   const reservedOk =
@@ -72,9 +77,11 @@ function normalizeInventoryItem(raw) {
   }
   if (reservedRaw === undefined || reservedRaw === null) flags.push("No reserved field yet");
   if (available !== null && available < 0) flags.push("Reserved exceeds stock on hand");
-  if (raw.expiryDate && /^\d{4}-\d{2}-\d{2}$/.test(raw.expiryDate)) {
-    const todayManila = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    if (raw.expiryDate < todayManila) flags.push("Expired");
+  if (expiryCondition.level === "expired") flags.push("Expired");
+  // A batch nobody can date is a batch nobody can judge, and the server refuses
+  // it for that reason. Surfaced rather than quietly treated as healthy.
+  if (expiryCondition.level === "unknown") {
+    flags.push("No usable expiry date — cannot be ordered");
   }
 
   return {
@@ -93,8 +100,12 @@ function normalizeInventoryItem(raw) {
     qty: raw.quantity != null ? Number(raw.quantity).toLocaleString() : "—",
     qtyRaw: raw.quantity != null ? Number(raw.quantity) : 0,
     temp: raw.storageTempDisplay || (raw.storageTemp != null ? `${raw.storageTemp}°C` : "—"),
-    status,
-    level: status.toLowerCase(),
+    // `status` is the derived condition's label, `level` its key. Both used to
+    // come from the stored field; every consumer of them — the chip, the drawer,
+    // the filter and the KPI cards — now follows the expiry date instead.
+    status: expiryCondition.label,
+    level: expiryCondition.level,
+    daysRemaining: expiryCondition.daysRemaining,
     location: raw.location || "—",
     manufacturer: raw.manufacturer || "—",
   };
@@ -126,7 +137,11 @@ function Inventory() {
 
   useEffect(() => {
     const unsubscribe = subscribeInventory((raw) => {
-      setInventory(raw.map(normalizeInventoryItem));
+      // Today in Manila, resolved once per snapshot, where the data arrives.
+      // The clock is never read during render, so normalization stays pure and
+      // two renders of the same batch cannot disagree about what day it is.
+      const today = manilaToday(Date.now());
+      setInventory(raw.map((item) => normalizeInventoryItem(item, today)));
       setLoading(false);
     });
     return () => unsubscribe();
@@ -203,7 +218,9 @@ function Inventory() {
       const matchesSearch = searchValue.includes(searchTerm.toLowerCase());
       const matchesStatus = statusFilter === "all" || item.level === statusFilter;
 
-      const daysUntilExpiry = getDaysUntilExpiry(item.expiryRaw);
+      // Read off the row rather than recomputed, so the window filter and the
+      // level it sits beside can never be measured from two different days.
+      const daysUntilExpiry = item.daysRemaining ?? Infinity;
       const matchesExpiry =
         expiryFilter === "all" ||
         (daysUntilExpiry >= 0 && daysUntilExpiry <= Number(expiryFilter));
@@ -231,12 +248,10 @@ function Inventory() {
   }, [inventory]);
 
   const criticalAndExpiring = useMemo(() => {
+    const days = (i) => i.daysRemaining ?? Infinity;
     return inventory
-      .filter((i) => {
-        const days = getDaysUntilExpiry(i.expiryRaw);
-        return i.level === "critical" || (days >= 0 && days <= 30);
-      })
-      .sort((a, b) => getDaysUntilExpiry(a.expiryRaw) - getDaysUntilExpiry(b.expiryRaw))
+      .filter((i) => i.level === "expired" || i.level === "critical")
+      .sort((a, b) => days(a) - days(b))
       .slice(0, 4);
   }, [inventory]);
 
@@ -247,8 +262,8 @@ function Inventory() {
   const expiringSoonCount = useMemo(
     () =>
       inventory.filter((i) => {
-        const days = getDaysUntilExpiry(i.expiryRaw);
-        return days >= 0 && days <= 90;
+        const days = i.daysRemaining ?? Infinity;
+        return days >= 0 && days <= WARNING_WITHIN_DAYS;
       }).length,
     [inventory]
   );
@@ -317,29 +332,41 @@ function Inventory() {
             onClick={() => setStatusFilter("all")}
           />
 
+          {/* Each card counts one derived expiry level, so its figure always
+              matches the list its click filters to. The old set counted the
+              stored status and mislabelled it: "Warning batches / Temperature
+              exceptions" described a temperature check this page has never
+              performed, and "Stable batches / No action required" pronounced a
+              batch fine on its expiry date alone — quantity, reserved figures
+              and pricing are separate concerns, surfaced as row flags. */}
           <KpiCard
-            label="Critical stock"
-            value={loading ? "—" : inventory.filter((i) => i.level === "critical").length}
-            context="Needs immediate review"
+            label="Expired"
+            value={loading ? "—" : inventory.filter((i) => i.level === "expired").length}
+            context="Past expiry date — not orderable"
             tone="danger"
             attention
+            onClick={() => setStatusFilter("expired")}
+          />
+
+          <KpiCard
+            label="Expiring within 30 days"
+            value={loading ? "—" : inventory.filter((i) => i.level === "critical").length}
+            context="By expiry date"
+            tone="warning"
             onClick={() => setStatusFilter("critical")}
           />
 
+          {/* The three ranges are exclusive, so each batch is counted once and
+              the labels say which band they cover. "Expiring within 90 days"
+              read as 0–90 while the count was only the warning level, so a
+              batch expiring next week was missing from the figure its label
+              promised. */}
           <KpiCard
-            label="Warning batches"
+            label="Expiring in 31–90 days"
             value={loading ? "—" : inventory.filter((i) => i.level === "warning").length}
-            context="Temperature exceptions"
-            tone="warning"
+            context="By expiry date"
+            tone="neutral"
             onClick={() => setStatusFilter("warning")}
-          />
-
-          <KpiCard
-            label="Stable batches"
-            value={loading ? "—" : inventory.filter((i) => i.level === "stable").length}
-            context="No action required"
-            tone="success"
-            onClick={() => setStatusFilter("stable")}
           />
         </section>
 
@@ -376,12 +403,23 @@ function Inventory() {
                 All
               </button>
 
+              {/* One chip per derived level, so every batch is reachable —
+                  including the two the old chips had no way to show: expired,
+                  and undated. */}
+              <button
+                type="button"
+                className={statusFilter === "expired" ? "active" : ""}
+                onClick={() => setStatusFilter("expired")}
+              >
+                Expired
+              </button>
+
               <button
                 type="button"
                 className={statusFilter === "critical" ? "active" : ""}
                 onClick={() => setStatusFilter("critical")}
               >
-                Critical
+                Within 30 days
               </button>
 
               <button
@@ -389,7 +427,7 @@ function Inventory() {
                 className={statusFilter === "warning" ? "active" : ""}
                 onClick={() => setStatusFilter("warning")}
               >
-                Warning
+                Within 90 days
               </button>
 
               <button
@@ -397,7 +435,15 @@ function Inventory() {
                 className={statusFilter === "stable" ? "active" : ""}
                 onClick={() => setStatusFilter("stable")}
               >
-                Stable
+                In date
+              </button>
+
+              <button
+                type="button"
+                className={statusFilter === "unknown" ? "active" : ""}
+                onClick={() => setStatusFilter("unknown")}
+              >
+                No expiry date
               </button>
 
               <select
@@ -763,15 +809,17 @@ function CriticalExpiringCard({ batches, loading }) {
           <div><span>No critical or near-expiry batches</span></div>
         ) : (
           batches.map((item) => {
-            const days = getDaysUntilExpiry(item.expiryRaw);
+            const days = item.daysRemaining;
             return (
               <div key={item.id}>
                 <span>{item.name}</span>
                 <strong>{item.expiry}</strong>
                 <small className={item.level}>
-                  {item.level === "critical"
-                    ? `Critical — ${days >= 0 ? `${days}d left` : "expired"}`
-                    : `${days} day${days !== 1 ? "s" : ""} left`}
+                  {item.level === "expired"
+                    ? "Expired"
+                    : days === null
+                      ? "No expiry date"
+                      : `${days} day${days !== 1 ? "s" : ""} left`}
                 </small>
               </div>
             );
