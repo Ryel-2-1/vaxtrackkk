@@ -304,7 +304,11 @@ function DispatcherAssignRider() {
             {selectedOrder ? (
               <div className="ar-order">
                 <div className="ar-order-top">
-                  <StatusBadge statusKey={selectedOrder.statusKey || "pending_dispatch"} />
+                  {/* The `|| "pending_dispatch"` that stood here substituted a
+                      real lifecycle state for an absent one before the badge
+                      could see it, so an order with no resolvable status read
+                      as awaiting dispatch. It is shown as Unknown instead. */}
+                  <StatusBadge statusKey={selectedOrder.statusKey} />
                   <span
                     className={`ar-priority ${
                       (selectedOrder.priority || "").toLowerCase() === "urgent" ? "urgent" : ""

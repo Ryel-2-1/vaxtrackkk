@@ -50,8 +50,14 @@ function mapTrackingLabel(statusKey) {
     case "cancelled":
     case "canceled":
       return "Cancelled";
+    // Was "Processing", which read to the rep as an order quietly under way.
+    // This branch is reached only by a status the system does not define, and
+    // it is passed straight to StatusBadge as a label override — so a
+    // real-sounding word here would have survived the badge's own Unknown
+    // fallback and contradicted its neutral tone. No filter option maps to this
+    // value, so nothing selectable changes.
     default:
-      return "Processing";
+      return "Unknown";
   }
 }
 

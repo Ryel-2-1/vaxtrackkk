@@ -6,14 +6,18 @@ import {
   ChevronDown,
   Filter,
   PhoneCall,
-  Plus,
   Search,
   Truck,
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
 import { AdminSidebar } from "../../components/admin/AdminSidebar";
-import { subscribeDeliveries } from "../../services/deliveryService";
+import {
+  subscribeDeliveries,
+  UNKNOWN_STATUS_KEY,
+  UNKNOWN_STATUS_LABEL,
+} from "../../services/deliveryService";
+import { ORDER_STATUSES, STATUS_LABELS } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
 import KpiCard from "../../components/ui/KpiCard";
 import "./Deliveries.css";
@@ -33,19 +37,24 @@ function normalizeDelivery(raw) {
     id: raw.orderNumber || raw.id.slice(0, 10).toUpperCase(),
     rider: riderName,
     initials,
-    vehicle: raw.vehicle || "—",
-    plate: raw.plate || "—",
+    // `vehicle`, `plate`, `temp` and `region` were read here. NOTHING has ever
+    // written vehicle or plate — not the live callable, not the superseded
+    // client path — and `storageTemp`/`region` only ever came from the
+    // superseded one, so no order created today carries either. They rendered a
+    // permanent dash under headings promising vehicle, cold-chain and regional
+    // detail the order does not hold, so the fields are gone rather than
+    // dashed forever.
+    //
+    // `eta` was not an estimate: it restated the status ("In Transit" /
+    // "Needs Review" / "Preparing") under a heading that read as an arrival
+    // time. No order carries an arrival estimate, so there is nothing to show.
     destination: raw.clinicName || "—",
     address: raw.clinicAddress || "—",
-    region: raw.region || "—",
     rawStatus: raw.rawStatus,
     statusKey: raw.statusKey,
     status: raw.statusLabel,
     statusType: raw.statusType,
-    temp: raw.storageTemp || "—",
     priority: raw.priority || "Normal",
-    eta: raw.statusType === "transit" ? "In Transit" : raw.statusType === "delayed" ? "Needs Review" : "Preparing",
-    etaType: raw.statusType === "delayed" ? "late" : raw.statusType === "transit" ? "normal" : "neutral",
     vaccineName: raw.vaccineName || "—",
     quantity: raw.quantity || 0,
     unit: raw.unit || "doses",
@@ -85,10 +94,8 @@ function Deliveries() {
   const [loadError, setLoadError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [regionFilter, setRegionFilter] = useState("all");
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [selectedDelivery, setSelectedDelivery] = useState(null);
-  const [toast, setToast] = useState("");
 
   useEffect(() => {
     const unsubscribe = subscribeDeliveries(
@@ -110,79 +117,95 @@ function Deliveries() {
     navigate("/login");
   };
 
-  const showToast = (message) => {
-    setToast(message);
-    setTimeout(() => setToast(""), 2200);
-  };
+  /* The toast and its `showToast` helper went with the five actions that used
+     them. Each raised a message and did nothing else, so the page now has no
+     control that could report a result it did not produce. */
 
   const filteredDeliveries = useMemo(() => {
     return deliveryList.filter((delivery) => {
       const searchValue =
-        `${delivery.id} ${delivery.rider} ${delivery.destination} ${delivery.region} ${delivery.status}`.toLowerCase();
+        `${delivery.id} ${delivery.rider} ${delivery.destination} ${delivery.status}`.toLowerCase();
       const matchesSearch = searchValue.includes(searchTerm.toLowerCase());
+      // One filter value per canonical status, so what the operator picks is
+      // what the list shows. The old four buckets meant "In transit" also
+      // returned delivered orders and "Delayed" also returned cancelled ones.
       const matchesStatus =
         statusFilter === "all" || delivery.statusType === statusFilter;
-      const matchesRegion =
-        regionFilter === "all" ||
-        delivery.region.toLowerCase() === regionFilter.toLowerCase();
-      return matchesSearch && matchesStatus && matchesRegion;
+      return matchesSearch && matchesStatus;
     });
-  }, [deliveryList, searchTerm, statusFilter, regionFilter]);
+  }, [deliveryList, searchTerm, statusFilter]);
 
-  const transitCount = deliveryList.filter((d) => d.statusType === "transit").length;
-  const delayedCount = deliveryList.filter((d) => d.statusType === "delayed").length;
-  const loadingCount = deliveryList.filter((d) => d.statusType === "loading").length;
+  // Counted per canonical status. `delivered` and `cancelled` are no longer
+  // folded into "in transit" and "delayed", and `delivery_failed` — which had
+  // no count at all — now has its own.
+  const countOf = (key) => deliveryList.filter((d) => d.statusType === key).length;
+  const inTransitCount = countOf("in_transit");
+  const delayedCount = countOf("delayed");
+  const failedCount = countOf("delivery_failed");
+  const preparingCount =
+    countOf("pending_dispatch") + countOf("assigned") + countOf("loading");
+  const unknownCount = countOf(UNKNOWN_STATUS_KEY);
 
-  const delayedDelivery = deliveryList.find((d) => d.statusType === "delayed");
-
-  const regions = useMemo(() => {
-    const set = new Set(deliveryList.map((d) => d.region).filter((r) => r !== "—"));
-    return Array.from(set).sort();
-  }, [deliveryList]);
+  // The banner covers orders that have stopped and need a person: delayed and
+  // failed. A cancelled order is closed, not stalled, and used to be counted here.
+  const needsReview = useMemo(
+    () =>
+      deliveryList.filter(
+        (d) => d.statusType === "delayed" || d.statusType === "delivery_failed"
+      ),
+    [deliveryList]
+  );
 
   return (
     <div className="inventory-page">
       <AdminSidebar active="deliveries" onLogout={handleLogout} />
 
       <main className="deliveries-v4-page">
-        {toast && <div className="deliveries-toast">{toast}</div>}
 
         <header className="mdl-header">
           <div>
             <h1>Deliveries</h1>
-            <p>Monitor and route active cold-chain shipments.</p>
+            {/* Was "Monitor and route active cold-chain shipments." Admin does
+                not route anything and this page performs no cold-chain
+                measurement; it reads the orders collection. */}
+            <p>Read-only view of every order and its current status.</p>
           </div>
 
-          <button
-            type="button"
-            className="mdl-btn mdl-btn-secondary"
-            onClick={() =>
-              showToast(
-                "Deliveries are created through Sales Rep orders and dispatched by a Dispatcher."
-              )
-            }
-          >
-            <Plus size={14} />
-            New delivery
-          </button>
+          {/* A "New delivery" button stood here and raised a toast explaining
+              that deliveries are created elsewhere. A control that cannot do
+              the thing it is labelled with is not a control — the same fact is
+              stated as text, where it belongs. */}
+          <p className="mdl-header-note">
+            Orders are created by Sales Reps and dispatched by a Dispatcher.
+          </p>
         </header>
 
-        {delayedCount > 0 && delayedDelivery && (
+        {needsReview.length > 0 && (
           <section className="mdl-banner mdl-banner-danger">
-            <AlertTriangle size={16} />
+            <AlertTriangle size={16} aria-hidden="true" />
             <div>
               <strong>
-                {delayedCount} delayed deliver{delayedCount === 1 ? "y" : "ies"}{" "}
-                require{delayedCount === 1 ? "s" : ""} review
+                {needsReview.length} deliver{needsReview.length === 1 ? "y" : "ies"}{" "}
+                stopped and need{needsReview.length === 1 ? "s" : ""} review
               </strong>
-              <p>{delayedDelivery.id} needs attention.</p>
+              {/* Names the two statuses it covers, so the figure can be checked
+                  against the cards below it. It used to say "delayed" while
+                  counting cancelled orders too. */}
+              <p>
+                {delayedCount} delayed, {failedCount} failed. Oldest:{" "}
+                {needsReview[0].id}.
+              </p>
             </div>
+            {/* The order number stays in the sentence above rather than in the
+                label: at 375px a button carrying a full VT-ORD- number is wider
+                than the banner can give it. */}
             <button
               type="button"
               className="mdl-btn mdl-btn-danger-ghost"
-              onClick={() => setSelectedDelivery(delayedDelivery)}
+              onClick={() => setSelectedDelivery(needsReview[0])}
+              aria-label={`Review ${needsReview[0].id}`}
             >
-              Review Now
+              Review
             </button>
           </section>
         )}
@@ -202,25 +225,22 @@ function Deliveries() {
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
+            {/* Straight from the canonical list, so every status an order can
+                hold is selectable and none can be forgotten here. `unknown` is
+                offered too — a document carrying a value the system does not
+                define is findable rather than buried in another bucket. */}
             <option value="all">All statuses</option>
-            <option value="transit">In transit</option>
-            <option value="delayed">Delayed</option>
-            <option value="failed">Delivery failed</option>
-            <option value="loading">Loading / assigned</option>
-          </select>
-
-          <select
-            className="mdl-select"
-            value={regionFilter}
-            onChange={(e) => setRegionFilter(e.target.value)}
-          >
-            <option value="all">All regions</option>
-            {regions.map((r) => (
-              <option key={r} value={r}>
-                {r}
+            {ORDER_STATUSES.map((key) => (
+              <option key={key} value={key}>
+                {STATUS_LABELS[key]}
               </option>
             ))}
+            <option value={UNKNOWN_STATUS_KEY}>{UNKNOWN_STATUS_LABEL}</option>
           </select>
+
+          {/* The region select was removed with the field behind it. `region` is
+              written only by the superseded client order path, so no order
+              created today has one and the list was permanently empty. */}
 
           <button
             type="button"
@@ -256,7 +276,6 @@ function Deliveries() {
               className="mdl-chip"
               onClick={() => {
                 setStatusFilter("all");
-                setRegionFilter("all");
                 setSearchTerm("");
               }}
             >
@@ -274,31 +293,72 @@ function Deliveries() {
             onClick={() => setStatusFilter("all")}
           />
 
+          {/* "In transit" counted delivered and completed orders too, so
+              finished deliveries were reported as on route. It now counts the
+              one status it names. */}
           <KpiCard
             label="In transit"
-            value={transitCount}
+            value={inTransitCount}
             context="On route"
             tone="info"
-            onClick={() => setStatusFilter("transit")}
+            onClick={() => setStatusFilter("in_transit")}
           />
 
+          {/* "Delayed" counted cancelled orders as well, which both overstated
+              the figure and put closed orders behind a "Needs review" label. */}
           <KpiCard
             label="Delayed"
             value={delayedCount}
-            context="Needs review"
+            context="Still open"
             tone="danger"
             attention={delayedCount > 0}
             onClick={() => setStatusFilter("delayed")}
           />
 
+          {/* A canonical status with no count anywhere before this pass: a
+              failed delivery was in the total and in the filter, and in no card. */}
           <KpiCard
-            label="Loading / assigned"
-            value={loadingCount}
-            context="Preparing"
+            label="Delivery failed"
+            value={failedCount}
+            context="Rider stopped"
+            tone="danger"
+            attention={failedCount > 0}
+            onClick={() => setStatusFilter("delivery_failed")}
+          />
+
+          <KpiCard
+            label="Preparing"
+            value={preparingCount}
+            context="Pending, assigned or loading"
             tone="warning"
-            onClick={() => setStatusFilter("loading")}
+            onClick={() => setStatusFilter("pending_dispatch")}
           />
         </section>
+
+        {/* Only rendered when such a document exists, so it is a real finding
+            rather than a permanent empty slot. */}
+        {unknownCount > 0 && (
+          <section className="mdl-banner">
+            <AlertTriangle size={16} aria-hidden="true" />
+            <div>
+              <strong>
+                {unknownCount} order{unknownCount === 1 ? "" : "s"} with an
+                unrecognised status
+              </strong>
+              <p>
+                Their stored status is not one this system defines. They are
+                shown as Unknown rather than assumed to be pending.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="mdl-btn mdl-btn-secondary"
+              onClick={() => setStatusFilter(UNKNOWN_STATUS_KEY)}
+            >
+              Show them
+            </button>
+          </section>
+        )}
 
         <section className="mdl-card">
           <div className="mdl-card-head">
@@ -316,7 +376,7 @@ function Deliveries() {
               <thead>
                 <tr>
                   <th>Order</th>
-                  <th>Rider &amp; vehicle</th>
+                  <th>Rider</th>
                   <th>Destination</th>
                   <th>Status</th>
                   <th>Actions</th>
@@ -341,11 +401,6 @@ function Deliveries() {
                         <span className="mdl-avatar">{delivery.initials}</span>
                         <div>
                           <strong>{delivery.rider}</strong>
-                          <small>
-                            {delivery.vehicle !== "—"
-                              ? `${delivery.vehicle} • Plate: ${delivery.plate}`
-                              : "Vehicle not assigned"}
-                          </small>
                         </div>
                       </div>
                     </td>
@@ -371,15 +426,19 @@ function Deliveries() {
                           View
                         </button>
 
-                        <button
-                          type="button"
-                          className="mdl-btn mdl-btn-ghost mdl-btn-sm"
-                          onClick={() =>
-                            showToast(`Contacting ${delivery.rider}...`)
-                          }
-                        >
-                          Call
-                        </button>
+                        {/* Was a button that raised "Contacting {rider}…" and
+                            placed no call. The order does carry the assigned
+                            rider's number, so this is now a real tel: link —
+                            and it only appears when there is a number to dial. */}
+                        {delivery.riderPhone ? (
+                          <a
+                            className="mdl-btn mdl-btn-ghost mdl-btn-sm"
+                            href={`tel:${delivery.riderPhone}`}
+                            aria-label={`Call ${delivery.rider} on ${delivery.riderPhone}`}
+                          >
+                            Call
+                          </a>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -427,30 +486,22 @@ function Deliveries() {
         </section>
       </main>
 
+      {/* `onResolve`, `onContact` and `onRoute` are gone with the buttons they
+          drove. "Mark Reviewed" announced a state change nothing wrote — there
+          is no reviewed field, and Admin is a read-only view of the orders
+          collection. "View Route" promised a live route Admin has no source
+          for. "Contact Rider" is now a tel: link inside the drawer. */}
       {selectedDelivery && (
         <DeliveryModal
           delivery={selectedDelivery}
           onClose={() => setSelectedDelivery(null)}
-          onContact={() =>
-            showToast(`Contacting ${selectedDelivery.rider}...`)
-          }
-          onRoute={() => {
-            setSelectedDelivery(null);
-            showToast(
-              "Live route view activates once rider GPS updates are available."
-            );
-          }}
-          onResolve={() => {
-            setSelectedDelivery(null);
-            showToast(`${selectedDelivery.id} marked as reviewed.`);
-          }}
         />
       )}
     </div>
   );
 }
 
-function DeliveryModal({ delivery, onClose, onContact, onRoute, onResolve }) {
+function DeliveryModal({ delivery, onClose }) {
   const created = formatDateTime(delivery.createdAt);
   const assigned = formatDateTime(delivery.assignedAt);
   const statusUpdated = formatDateTime(delivery.statusUpdatedAt);
@@ -492,12 +543,6 @@ function DeliveryModal({ delivery, onClose, onContact, onRoute, onResolve }) {
               <span>Address</span>
               <strong>{delivery.address}</strong>
             </div>
-            {delivery.region !== "—" && (
-              <div className="mdl-drawer-row">
-                <span>Region</span>
-                <strong>{delivery.region}</strong>
-              </div>
-            )}
           </section>
 
           <section className="mdl-drawer-section">
@@ -513,10 +558,6 @@ function DeliveryModal({ delivery, onClose, onContact, onRoute, onResolve }) {
               </strong>
             </div>
             <div className="mdl-drawer-row">
-              <span>Temperature</span>
-              <strong>{delivery.temp}</strong>
-            </div>
-            <div className="mdl-drawer-row">
               <span>Priority</span>
               <strong>{delivery.priority}</strong>
             </div>
@@ -528,12 +569,11 @@ function DeliveryModal({ delivery, onClose, onContact, onRoute, onResolve }) {
               <span className="mdl-avatar">{delivery.initials}</span>
               <div>
                 <strong>{delivery.rider}</strong>
-                <small>
-                  {delivery.vehicle !== "—"
-                    ? `${delivery.vehicle} • Plate: ${delivery.plate}`
-                    : "Vehicle not assigned"}
-                </small>
-                {delivery.riderPhone && <small>{delivery.riderPhone}</small>}
+                {delivery.riderPhone ? (
+                  <small>{delivery.riderPhone}</small>
+                ) : (
+                  <small>No phone number on this order</small>
+                )}
               </div>
             </div>
           </section>
@@ -620,29 +660,22 @@ function DeliveryModal({ delivery, onClose, onContact, onRoute, onResolve }) {
         </div>
 
         <footer className="mdl-drawer-actions">
-          <button
-            type="button"
-            className="mdl-btn mdl-btn-primary"
-            onClick={onResolve}
-          >
-            Mark Reviewed
-          </button>
+          {delivery.riderPhone ? (
+            <a
+              className="mdl-btn mdl-btn-secondary"
+              href={`tel:${delivery.riderPhone}`}
+            >
+              <PhoneCall size={14} aria-hidden="true" />
+              Call {delivery.rider} on {delivery.riderPhone}
+            </a>
+          ) : (
+            <p className="mdl-drawer-note">
+              No rider phone number on this order.
+            </p>
+          )}
 
-          <button
-            type="button"
-            className="mdl-btn mdl-btn-secondary"
-            onClick={onContact}
-          >
-            <PhoneCall size={14} />
-            Contact Rider
-          </button>
-
-          <button
-            type="button"
-            className="mdl-btn mdl-btn-ghost"
-            onClick={onRoute}
-          >
-            View Route
+          <button type="button" className="mdl-btn mdl-btn-ghost" onClick={onClose}>
+            Close
           </button>
         </footer>
       </aside>

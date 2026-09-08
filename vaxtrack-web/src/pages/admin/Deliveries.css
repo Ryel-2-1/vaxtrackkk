@@ -223,7 +223,10 @@
 
 .deliveries-summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* Five, since Delivery failed gained a card of its own — at four the new card
+     wrapped alone onto a second row. The ≤1200px and ≤760px rules further down
+     still take this to two columns and then one. */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 18px;
 }
@@ -1675,4 +1678,44 @@
   padding: 16px 20px;
   border-top: 1px solid var(--gray-200);
   background: var(--gray-50);
+}
+
+/* ------------------------------------------------------------------
+   Added with the Admin Deliveries honesty pass.
+   ------------------------------------------------------------------ */
+
+/* Replaces the "New delivery" button, which raised a toast explaining that
+   deliveries are created elsewhere. The same fact, stated rather than dressed
+   as a control. */
+.mdl-header-note {
+  margin: 0;
+  max-width: 34ch;
+  text-align: right;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--gray-500, #6b7280);
+}
+
+/* `.mdl-banner` declares `border: 1px solid` and leaves the colour to a
+   modifier, so the unmodified banner used for the unrecognised-status notice
+   had no colour of its own. Neutral by default; `-danger` still overrides. */
+.mdl-banner {
+  background: var(--gray-50, #f9fafb);
+  border-color: var(--gray-200, #e5e7eb);
+  color: var(--gray-700, #374151);
+}
+
+/* The rider Call control is a real `tel:` link now rather than a button that
+   reported a call it never placed, so the button styling has to cover anchors. */
+a.mdl-btn,
+a.mdl-btn:hover,
+a.mdl-btn:focus-visible {
+  text-decoration: none !important;
+}
+
+@media (max-width: 760px) {
+  .mdl-header-note {
+    max-width: none;
+    text-align: left;
+  }
 }

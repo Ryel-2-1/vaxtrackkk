@@ -82,6 +82,17 @@
 }
 .m-badge-cancelled .m-badge-dot { background: #374151 !important; }
 
+/* A status the system does not define. Deliberately the only DASHED badge, so
+   it cannot be mistaken at a glance for a real state: `pending` and `cancelled`
+   already use the grey fill, and an unknown status must not look like either. */
+.m-badge-unknown {
+  color: var(--gray-600) !important;
+  background: transparent !important;
+  border-style: dashed !important;
+  border-color: var(--gray-400, #9ca3af) !important;
+}
+.m-badge-unknown .m-badge-dot { background: var(--gray-400, #9ca3af) !important; }
+
 /* ---------------- KPI card ---------------- */
 
 .m-kpi {
