@@ -958,3 +958,32 @@
   fill: none !important;
   display: block !important;
 }
+/* ---------------- alert delivery status (read-only) ----------------
+   Replaces the toggle that used to sit at the end of each row. A word, not a
+   control: green for a channel that works, neutral grey for one that does not
+   exist. Deliberately NOT red — an unconfigured channel is a gap, not a fault.
+   Meridian tokens only; no new colour is introduced. */
+.alerts-channel-state {
+  flex: none;
+  /* The row becomes a column at <=760px with align-items: stretch, which was
+     harmless for the fixed-size toggle this replaced but stretched a text pill
+     to the full row width - reading as a banner rather than a status. Hugging
+     its own content keeps it a chip at every width. */
+  align-self: flex-start;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.alerts-channel-state.on {
+  background: var(--green-50, #f0f7f3);
+  border-color: var(--green-600, #27714f);
+  color: var(--green-700, #1f5c41);
+}
+.alerts-channel-state.off {
+  background: var(--gray-100, #f3f4f6);
+  border-color: var(--gray-300, #d1d5db);
+  color: var(--gray-600, #4b5563);
+}

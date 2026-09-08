@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FileDown, Package, Plus, Search, X } from "lucide-react";
+import { Package, Plus, Search, X } from "lucide-react";
 import AdminLayout from "../../components/admin/AdminLayout";
 import { subscribeInventory } from "../../services/inventoryService";
 import { updateStockPrice } from "../../services/vaccineService";
@@ -109,7 +109,6 @@ function Inventory() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [expiryFilter, setExpiryFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
-  const [selectedBatches, setSelectedBatches] = useState([]);
   const [selectedVaccine, setSelectedVaccine] = useState(null);
   const [toast, setToast] = useState("");
 
@@ -276,34 +275,6 @@ function Inventory() {
 
   const endItem = Math.min(safePage * pageSize, filteredVaccines.length);
 
-  const isAllSelected =
-    paginatedVaccines.length > 0 &&
-    paginatedVaccines.every((item) => selectedBatches.includes(item.id));
-
-  const toggleAll = () => {
-    // Selection is keyed on the DOCUMENT id, not batchId.  falls
-    // back to "—" when a batch has no batchId, so two such rows would share a
-    // key and tick together.
-    const visibleBatchIds = paginatedVaccines.map((item) => item.id);
-
-    if (isAllSelected) {
-      setSelectedBatches((prev) =>
-        prev.filter((batch) => !visibleBatchIds.includes(batch))
-      );
-      return;
-    }
-
-    setSelectedBatches((prev) => Array.from(new Set([...prev, ...visibleBatchIds])));
-  };
-
-  const toggleBatch = (batch) => {
-    setSelectedBatches((prev) =>
-      prev.includes(batch)
-        ? prev.filter((item) => item !== batch)
-        : [...prev, batch]
-    );
-  };
-
   return (
     <AdminLayout
       active="inventory"
@@ -311,14 +282,11 @@ function Inventory() {
       description="Real-time vaccine stock, batch status, and cold-chain visibility."
       actions={
         <>
-          <button
-            type="button"
-            className="v2-light-action"
-            onClick={() => showToast("Inventory report exported.")}
-          >
-            <FileDown size={16} aria-hidden="true" />
-            Export
-          </button>
+          {/* "Export" was removed alongside the bulk actions. It produced no
+              file — it raised "Inventory report exported." and nothing else, so
+              an admin could believe a report had been generated and downloaded.
+              A real CSV export is a small piece of work, but it is work, and
+              inventing it here would exceed this change. */}
           <button
             type="button"
             className="v2-light-action"
@@ -445,43 +413,17 @@ function Inventory() {
             </div>
           </div>
 
-          {selectedBatches.length > 0 && (
-            <div className="v2-bulk-bar">
-              <strong>{selectedBatches.length} batch selected</strong>
-
-              <div>
-                <button
-                  type="button"
-                  onClick={() => showToast("Selected batches marked as checked.")}
-                >
-                  Mark as Checked
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => showToast("Batch report generated.")}
-                >
-                  Generate Report
-                </button>
-
-                <button type="button" onClick={() => setSelectedBatches([])}>
-                  Clear
-                </button>
-              </div>
-            </div>
-          )}
-
+          {/* The bulk bar is gone.
+              "Mark as Checked" and "Generate Report" only raised a toast — no
+              batch was marked, no report produced — and "Clear" existed solely
+              to undo a selection that did nothing. Selecting rows had no
+              supported operation behind it at all, so the checkboxes went with
+              it. Per-batch actions are unaffected: Set/Edit price still writes,
+              and a row still opens its detail drawer. */}
           <div className="v2-table-scroll">
             <table className="v2-vaccine-table">
               <thead>
                 <tr>
-                  <th>
-                    <input
-                      type="checkbox"
-                      checked={isAllSelected}
-                      onChange={toggleAll}
-                    />
-                  </th>
                   <th>Vaccine name</th>
                   <th>Batch ID</th>
                   <th>Expiry date</th>
@@ -502,14 +444,6 @@ function Inventory() {
                     className={`v2-row-${item.level}`}
                     onClick={() => setSelectedVaccine(item)}
                   >
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={selectedBatches.includes(item.id)}
-                        onChange={() => toggleBatch(item.id)}
-                      />
-                    </td>
-
                     <td>
                       <div className="v2-vaccine-cell">
                         <span>

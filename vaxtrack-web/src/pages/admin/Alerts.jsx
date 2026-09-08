@@ -96,15 +96,6 @@ function Alerts() {
   const [showSettings, setShowSettings] = useState(false);
   const [toast, setToast] = useState("");
 
-  const [alertSettings, setAlertSettings] = useState({
-    routeDeviation: true,
-    coldChain: true,
-    inventory: true,
-    deliveryDelay: true,
-    push: true,
-    email: false,
-  });
-
   useEffect(() => {
     const unsubscribe = subscribeAllAlerts((raw) => {
       setAlerts(raw.map(normalizeAlert));
@@ -175,11 +166,6 @@ function Alerts() {
     showToast("Alert marked as resolved.");
   };
 
-  const handleSaveSettings = () => {
-    setShowSettings(false);
-    showToast("Alert settings saved.");
-  };
-
   const categoryCounts = {
     route: alerts.filter(
       (alert) => alert.status !== "resolved" && alert.type === "Route Deviation"
@@ -222,7 +208,7 @@ function Alerts() {
               onClick={() => setShowSettings(true)}
             >
               <Bell size={16} />
-              Alert Settings
+              Alert delivery
             </button>
           </div>
         </header>
@@ -469,12 +455,7 @@ function Alerts() {
       )}
 
       {showSettings && (
-        <AlertSettingsModal
-          settings={alertSettings}
-          setSettings={setAlertSettings}
-          onClose={() => setShowSettings(false)}
-          onSave={handleSaveSettings}
-        />
+        <AlertChannelsModal onClose={() => setShowSettings(false)} />
       )}
     </div>
   );
@@ -571,19 +552,54 @@ function AlertReviewModal({ alert, onClose, onResolve, onContact, onRoute }) {
   );
 }
 
-function AlertSettingsModal({ settings, setSettings, onClose, onSave }) {
-  const settingItems = [
-    ["routeDeviation", "Route deviation alerts", "Notify when a rider leaves the assigned route."],
-    ["coldChain", "Cold-chain warnings", "Notify when temperature reports require review."],
-    ["inventory", "Inventory warnings", "Notify for low stock and expiring batches."],
-    ["deliveryDelay", "Delivery delay alerts", "Notify when ETA is delayed or missing."],
-    ["push", "Push notifications", "Show alerts inside the VaxTrack dashboard."],
-    ["email", "Email notifications", "Send important alert summaries by email."],
+/**
+ * How alerts actually reach an admin — stated, not configured.
+ *
+ * This was an editable form with six toggles and a "Save Settings" button that
+ * reported "Alert settings saved." Nothing in the app ever read
+ * `alertSettings`, no service wrote it, and no Firestore field or localStorage
+ * key existed for it: every toggle was inert and the confirmation was false.
+ * Two of them ("Push notifications", "Email notifications") offered to
+ * configure delivery channels the system does not have at all.
+ *
+ * Persisting the preferences instead would only have moved the lie from the
+ * toast into the database — a stored `email: true` that nothing reads is still
+ * a promise the system cannot keep. So the form is gone and what remains is a
+ * read-only statement of which channels exist. Building the channels
+ * themselves (FCM, email) is separate work and is deliberately not done here.
+ */
+function AlertChannelsModal({ onClose }) {
+  const channels = [
+    {
+      key: "in-app",
+      available: true,
+      title: "In-app alerts",
+      description:
+        "Read live from Firestore and shown here and on the dashboard for admins and dispatchers. Always on — there is nothing to switch.",
+    },
+    {
+      key: "push",
+      available: false,
+      title: "Push notifications",
+      description:
+        "Not configured. There is no push messaging channel, so alerts do not reach a device while the dashboard is closed.",
+    },
+    {
+      key: "email",
+      available: false,
+      title: "Email notifications",
+      description: "Not configured. No alert summaries are sent by email.",
+    },
   ];
 
   return (
     <div className="alerts-modal-backdrop">
-      <div className="alerts-modal settings-modal">
+      <div
+        className="alerts-modal settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="alert-channels-title"
+      >
         <button type="button" className="alerts-modal-close" onClick={onClose} aria-label="Close">
           <X size={18} />
         </button>
@@ -592,40 +608,30 @@ function AlertSettingsModal({ settings, setSettings, onClose, onSave }) {
           <Settings size={24} />
         </div>
 
-        <h2>Alert Settings</h2>
-        <p>Choose which system alerts should be monitored by the admin dashboard.</p>
+        <h2 id="alert-channels-title">Alert delivery</h2>
+        <p>Where alerts are delivered today. These are not settings — there is nothing to switch on.</p>
 
         <div className="alerts-settings-list">
-          {settingItems.map(([key, title, description]) => (
+          {channels.map(({ key, available, title, description }) => (
             <div className="alerts-setting-row" key={key}>
               <div>
                 <strong>{title}</strong>
                 <p>{description}</p>
               </div>
 
-              <button
-                type="button"
-                className={`alerts-toggle ${settings[key] ? "on" : ""}`}
-                onClick={() =>
-                  setSettings((prev) => ({
-                    ...prev,
-                    [key]: !prev[key],
-                  }))
-                }
-              >
-                <span></span>
-              </button>
+              {/* A status word, not a control. Green for what works, neutral
+                  for what does not exist — never a toggle an admin could flip
+                  believing it changed something. */}
+              <span className={`alerts-channel-state ${available ? "on" : "off"}`}>
+                {available ? "Available" : "Not configured"}
+              </span>
             </div>
           ))}
         </div>
 
         <div className="alerts-modal-actions">
-          <button type="button" className="alerts-primary-action" onClick={onSave}>
-            Save Settings
-          </button>
-
           <button type="button" className="alerts-light-action" onClick={onClose}>
-            Cancel
+            Close
           </button>
         </div>
       </div>
