@@ -55,7 +55,19 @@ body {
 }
 
 #root {
-  width: 1126px;
+  /* Was the Vite scaffold's `width: 1126px`.
+     Two rules combined to make that a real defect below 1126px:
+     this declaration lands LAST in the built bundle — after
+     `html, body, #root { width: 100% }` in styles.css — and at equal
+     specificity the later rule wins; and styles.css also sets
+     `max-width: none !important`, which strips the `max-width: 100%`
+     cap on the line below that would otherwise have contained it.
+     `min-width: 100%` (also styles.css) is why viewports at or above
+     1126px were never affected: there the minimum already exceeds the
+     fixed width, so this change leaves desktop byte-for-byte identical.
+     Below 1126px the root box stayed 1126px wide and the global
+     `overflow-x: hidden` merely hid the clipped content. */
+  width: 100%;
   max-width: 100%;
   margin: 0 auto;
   text-align: center;
