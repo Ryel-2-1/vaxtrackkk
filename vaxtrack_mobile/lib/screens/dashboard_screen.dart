@@ -202,8 +202,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(d.orderNumber, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                  // Neither child of this Row was flexible, so both took their
+                  // full intrinsic width and the Row overflowed whenever the
+                  // order number plus both badges exceeded the card's 288dp of
+                  // content width — by 6.6px on a 384dp-wide device, which
+                  // clipped the trailing status badge to "In Tra".
+                  //
+                  // The order number is the only variable-length item here; the
+                  // badges are short, fixed-vocabulary labels that must stay
+                  // fully readable. Flexible (not Expanded) lets the number —
+                  // and only the number — give way, so the row is byte-identical
+                  // wherever it already fits and the badges are never clipped
+                  // where it does not. The right padding keeps the ellipsis off
+                  // the badge once the text does have to shrink.
+                  Flexible(
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Text(d.orderNumber,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
                   Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       _badge(d.priority, d.priority == 'Urgent' ? AppColors.urgentBg : AppColors.primaryLight,
                           d.priority == 'Urgent' ? AppColors.urgent : AppColors.primary),
@@ -228,8 +250,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 children: [
                   const Icon(Icons.vaccines, size: 14, color: AppColors.textLight),
                   const SizedBox(width: 4),
-                  Text('${d.vaccineName} — ${d.quantity} ${d.unit}',
-                      style: const TextStyle(fontSize: 12, color: AppColors.textLight)),
+                  // Same defect as the header row, and the same fix the address
+                  // row directly above already uses: the vaccine name is
+                  // variable-length, so without a flex child this Row overflows
+                  // on longer names. Expanded (not ellipsis) so the full name
+                  // stays readable by wrapping, matching the address row.
+                  Expanded(
+                    child: Text('${d.vaccineName} — ${d.quantity} ${d.unit}',
+                        style: const TextStyle(fontSize: 12, color: AppColors.textLight)),
+                  ),
                 ],
               ),
               if (d.isDelivered) ...[
