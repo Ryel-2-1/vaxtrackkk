@@ -4,6 +4,94 @@
 
 VaxTrack is a vaccine cold-chain logistics platform for the Philippines. This repository is the **React web portal only**.
 
+---
+
+## Current State — updated 2026-09-04
+
+**`main` is at `ae69efd`.** Every feature branch is merged into `main` **except `feat/geofence-workflow`** — that is the only outstanding work.
+
+**Read this section before trusting anything below it.** Most of this file is a chronological build log written between 2026-07-02 and 2026-07-27. A large amount of work merged after that date is not reflected in those older sections, and a few of their statements are now wrong. The corrections here take precedence.
+
+### Corrections to older sections
+
+| Older claim | Reality now |
+|---|---|
+| "`AdminSidebar` is exported from `src/pages/admin/Inventory.jsx` … do not move it" | **Resolved.** It now lives at `src/components/admin/AdminSidebar.jsx` (+ `.css`), with `src/components/admin/AdminLayout.jsx` (+ `.css`) as the shell. Every admin page imports from there; `Inventory.jsx` no longer exports it. The old "do not move it" instruction is obsolete. |
+| "Route deviation is deferred" (stated in several places) | **No longer true.** Deviation detection is implemented, mostly on Flutter — see below. |
+| Rider app has minimal test coverage | Flutter now carries a real test suite (10 test files) plus production/staging entrypoints. |
+
+One nuance to keep straight: the Dispatcher Geofence info banner still reads *"Geofence, route deviation, and destination markers will activate once clinics have coordinates."* That refers to the **web map visualisation**, which genuinely is still gated on clinic coordinates. It is not a claim that deviation detection is unimplemented — the Flutter detection path exists independently.
+
+### Work merged since the older log was written
+
+Recorded from **observed file structure and code, not runtime verification** — these features were not built or exercised while writing this. Treat behaviour as unconfirmed until tested.
+
+- **Route deviation + monitoring (Flutter):** `lib/utils/deviation_detector.dart`, `deviation_utils.dart`, `route_monitor.dart`, `route_compliance_monitor.dart`; `lib/services/route_deviation_alert_service.dart`; `lib/screens/route_monitoring_screen.dart`. Web side: `alertService.createRouteDeviationAlert()` writes alerts with `type: "route_deviation"`, `title: "Route Deviation Detected"`.
+- **Rider offline cache / sync visibility:** `lib/utils/sync_status.dart`, `lib/widgets/sync_indicator.dart`.
+- **Flutter environment separation + branding:** `lib/environment.dart`, `lib/bootstrap.dart`, `lib/main_production.dart`, `lib/main_staging.dart`, `lib/firebase_options.dart`, `lib/dev/`. Plus Android release signing.
+- **Flutter tests** (`vaxtrack_mobile/test/`): `deviation_detector_test`, `deviation_utils_test`, `route_compliance_monitor_test`, `route_deviation_alert_service_test`, `route_monitor_test`, `sync_status_test`, `sync_indicator_test`, `environment_config_test`, `nav_availability_test`, `navigation_init_controller_test`.
+- **Invoice module:** `invoiceModel.js` split out from `invoiceService.js`.
+- **Web UI passes** across all three roles — see the CSS layering convention below.
+
+### Current CSS architecture — read this before restyling any role
+
+`main.jsx` imports stylesheets in a **deliberate order**, with the per-role layers last so they win ties on equal specificity:
+
+```
+index.css → styles.css → styles/tokens.css → styles/meridian-shell.css
+→ pages/admin/admin-polish.css → pages/admin/admin-foundation.css
+→ pages/salesRep/salesrep-polish.css → pages/dispatcher/dispatcher-polish.css
+```
+
+Work in these layers rather than editing legacy per-page CSS. Their rules:
+
+- **Strictly role-scoped.** Every selector sits under that role's root — `.inventory-page` / `aside.inventory-sidebar` (Admin), `.salesrep-page` / `.salesrep-main` / `aside.salesrep-sidebar`, `.dispatcher-page` / `.dispatcher-main` / `aside.dispatcher-sidebar`. Nothing may reach another role, Login, or Flutter.
+- **Additive only** — they do not rebuild page internals.
+- **`!important` is used only to out-specify a legacy or global `!important`** — notably the global `button { min-height: 46px !important; … }` and `input { min-height: 46px !important; background: #fff !important }` resets in `styles.css`, which otherwise inflate every control. That is the documented reason, not blanket escalation.
+- **Behaviour-sensitive areas stay untouched** by these layers: Leaflet map, ORS route, geofence, rider location, assignment, status transitions.
+
+### Other current-architecture notes
+
+- **Route-level code splitting.** `App.jsx` loads pages via `lazy()` inside `<Suspense fallback={<RouteFallback />}>` (`src/components/RouteFallback.jsx` + `.css`). New routes should follow this pattern.
+- **Dispatcher Geofence live map is now the primary element.** `RiderLocationMap` is a component inside `DispatcherGeofence.jsx`, and the map card (`.geo3-live-map-card`) was promoted **out of the narrow right column to a full-width block above** the Active Shipments / Shipment Details grid. Heights live in `dispatcher-polish.css`: **440px desktop / 380px ≤1024px / 300px ≤640px**. The map's own `ResizeObserver` handles resizes, so no `invalidateSize` lifecycle change was needed. At narrow widths the order becomes Map → Active Shipments → Details.
+- **New Sales Rep page:** `SalesRepOrderConfirmation` at `/sales-rep/order-confirmation`.
+- **Login is email-only** and had a presentation/accessibility pass (`Login.jsx` + `Login.css`, merged `b2b154d`). Authentication authority is unchanged — `redirectUserByRole` still routes purely on the role stored in `users/{uid}`. There is deliberately **no role picker**: a UI-selected role could only ever contradict the account. Credential failures collapse to one generic `Invalid email or password.` so the form cannot be used to probe which emails have accounts, and only the Firebase error *code* is ever logged.
+
+### ⚠️ Known global CSS bug — affects every page, not just Login
+
+`src/index.css` still carries the Vite scaffold's `#root { width: 1126px; max-width: 100% }`, and `src/styles.css` then sets `html, body, #root { max-width: none !important }`, which **removes the cap** that kept that fixed width in check. Below 1126px the root stays 1126px wide and only *looks* contained because of the global `overflow-x: hidden` — children sized from it are silently **clipped**.
+
+A scoped workaround exists for the login route only:
+
+```css
+#root:has(> .vlogin) { width: 100%; max-width: 100% !important; }
+```
+
+**The global rule is still unfixed.** Correcting `index.css` is a one-line change but needs its own verification pass across all three role layouts — do it as a dedicated task.
+
+### Outstanding branch: `feat/geofence-workflow` (not merged)
+
+Worktree `C:\VAXTRACK-geofence`, at `433ae7f`. Two phases are committed but **not merged and not verified end to end**:
+
+- **Phase 00 — safety repairs (Flutter):** `lib/utils/map_fit.dart` (extent-based camera fit, replacing a count guard that produced a zero-area bounds → infinite zoom → `Infinity or NaN toInt` crash **on arrival**), quantity-parsing hardening in `lib/models/delivery.dart`, `lib/utils/order_mapping.dart` (per-document isolation so one malformed order cannot break the whole list), `lib/utils/safe_log.dart` (privacy-safe logging — component + opaque doc id + `error.runtimeType` only, outside debug builds).
+- **Phase 01 — Admin clinic coordinates + reusable geofence config:** `src/services/clinicLocation.js` (pure validation that **rejects** an out-of-range radius rather than clamping it), `clinicService.updateClinicLocation()`, and `src/pages/admin/ClinicLocationSection.jsx` (shared Leaflet click-to-place picker used by both the register form and a Manage-location dialog).
+- **Locked decisions:** geofence arrival is **advisory only** and must never auto-change an order to Delivered; per-clinic `geofenceRadiusM` is optional, defaulting to 300 m; the picker is Leaflet click-to-place.
+- **Pending:** the real Firestore save test on clinic `E7dOIaxZVH9bpt3Hy48W` was deliberately not performed — still pending end-to-end verification.
+
+### Worktrees
+
+| Path | Branch | Notes |
+|---|---|---|
+| `C:\VAXTRACK` | `feat/rider-navigation-polish` @ `de7b96f` | Primary working dir. Has 3 uncommitted files — `Login.jsx`, `Login.css`, `Dispatcher.css` — all **superseded by work already on `main`**. |
+| `C:\VAXTRACK-main` | `main` | Canonical |
+| `C:\VAXTRACK-geofence` | `feat/geofence-workflow` | Phase 00 + 01 above |
+| `C:\VAXTRACK-web-ui` | `feat/admin-dashboard-redesign` | Merged into main |
+| `C:\VAXTRACK-ui-sync` | `feat/login-ui-polish` | Merged into main |
+
+**Obsolete design reference:** the uncommitted `Dispatcher.css` edit in `C:\VAXTRACK` (which widened the geofence left column and raised `.geo3-live-map` to 560px) was retained as a design reference for enlarging the live map. That goal has since been **achieved differently and better on `main`** — the map is now a full-width card. Do not re-land that CSS.
+
+---
+
 ## Architecture: Role Boundaries
 
 | Role | Platform | Location |
@@ -18,11 +106,12 @@ VaxTrack is a vaccine cold-chain logistics platform for the Philippines. This re
 ## Tech Stack
 
 - React 18 + Vite
-- React Router v6 (BrowserRouter)
+- React Router v6 (BrowserRouter), with route-level `lazy()` + `Suspense`
 - Firebase: Auth, Firestore, Analytics
 - Lucide React (icons)
 - Leaflet + OpenStreetMap tiles (Dispatcher Geofence live map — **no API key**; added 2026-07-23)
-- No UI framework — custom CSS per page
+- OpenRouteService (route + ETA; client key, free tier)
+- No UI framework — custom CSS per page, plus the per-role cohesion layers described in **Current State**
 
 ## Firebase Collections (source of truth)
 
@@ -731,6 +820,8 @@ These exist in the codebase but have not been addressed:
 - **Rider (pending):** rider.qa1@vaxtrack.com (riders rider / QA-1234)
 - **Legacy corrupt docs (ignore/clean up in console):** test321@gmail.com (`role: "pending"`), rider@email.com (`role: "staff"`) — from the old monolithic app's signup; invisible to rider lists by design
 
-## AdminSidebar Note
+## AdminSidebar Note — ✅ RESOLVED
 
-`AdminSidebar` is exported from `src/pages/admin/Inventory.jsx` and imported by all other admin pages. This is a known architectural smell. Do not move it until the service layer is complete, to avoid merge conflicts during active development.
+**Historical:** `AdminSidebar` used to be exported from `src/pages/admin/Inventory.jsx` and imported by every other admin page — a known architectural smell, deliberately left alone during active service-layer work.
+
+**Current:** it has been extracted to `src/components/admin/AdminSidebar.jsx` (+ `AdminSidebar.css`), alongside `src/components/admin/AdminLayout.jsx` (+ `AdminLayout.css`) as the shell. All admin pages import from `../../components/admin/AdminSidebar`, and `Inventory.jsx` no longer exports it. Nothing here is blocked any more.

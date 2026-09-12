@@ -2,194 +2,418 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
-import { Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
+import {
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  ArrowRight,
+  ShieldCheck,
+  ClipboardList,
+  Truck,
+  Bike,
+  Smartphone,
+  AlertCircle,
+  Clock,
+  Info,
+  Snowflake,
+} from "lucide-react";
 import { auth, db } from "../firebase";
-import "./Auth.css";
+import "./Login.css";
+
+// Portal options. The selected portal is only the intended destination — the
+// authenticated Firestore role is always the authority (see handleLogin).
+const ROLES = [
+  {
+    key: "admin",
+    label: "Admin",
+    Icon: ShieldCheck,
+    subtitle: "Inventory, users, alerts, and system oversight",
+  },
+  {
+    key: "salesrep",
+    label: "Sales Rep",
+    Icon: ClipboardList,
+    subtitle: "Place clinic orders and track requests",
+  },
+  {
+    key: "dispatcher",
+    label: "Dispatcher",
+    Icon: Truck,
+    subtitle: "Assign riders and manage active shipments",
+  },
+  {
+    key: "rider",
+    label: "Rider",
+    Icon: Bike,
+    subtitle: "Continue through the VaxTrack Rider mobile app",
+  },
+];
+
+// Canonical role conventions, mirrored from the existing route guards.
+const SALES_REP_ROLES = [
+  "salesrep",
+  "sales_rep",
+  "sales-rep",
+  "sales representative",
+];
+const ROLE_ROUTES = {
+  admin: "/admin",
+  salesrep: "/sales-rep",
+  dispatcher: "/dispatcher",
+};
+
+function storedRoleMatchesSelection(storedRole, selectedKey) {
+  if (selectedKey === "admin") return storedRole === "admin";
+  if (selectedKey === "dispatcher") return storedRole === "dispatcher";
+  if (selectedKey === "salesrep") return SALES_REP_ROLES.includes(storedRole);
+  return false; // rider is never a web portal
+}
+
+// Human label + the portal tab for a stored role, for the mismatch message.
+function portalForStoredRole(storedRole) {
+  if (storedRole === "admin") return { name: "Administrator", tab: "Admin" };
+  if (storedRole === "dispatcher")
+    return { name: "Dispatcher", tab: "Dispatcher" };
+  if (SALES_REP_ROLES.includes(storedRole))
+    return { name: "Sales Representative", tab: "Sales Rep" };
+  return null;
+}
+
+// Map Firebase auth error codes to understandable, non-technical messages.
+function mapAuthError(err) {
+  const code = err?.code || "";
+  if (
+    code === "auth/invalid-credential" ||
+    code === "auth/wrong-password" ||
+    code === "auth/user-not-found" ||
+    code === "auth/invalid-email"
+  ) {
+    return "Incorrect email or password.";
+  }
+  if (code === "auth/network-request-failed") {
+    return "Unable to connect. Check your internet connection and try again.";
+  }
+  if (code === "auth/too-many-requests") {
+    return "Too many attempts. Please wait before trying again.";
+  }
+  if (code === "auth/user-disabled") {
+    return "This account is currently disabled. Contact your administrator for assistance.";
+  }
+  return "Something went wrong. Please try again.";
+}
+
+const NOTICE_ICON = { error: AlertCircle, pending: Clock, info: Info };
 
 function Login() {
   const navigate = useNavigate();
 
+  const [selectedRole, setSelectedRole] = useState("admin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [remember, setRemember] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
+  const [notice, setNotice] = useState(null); // { tone, title, body? }
   const [loading, setLoading] = useState(false);
 
-  const redirectUserByRole = async (user) => {
-    const userRef = doc(db, "users", user.uid);
-    const userSnap = await getDoc(userRef);
+  const activeRole = ROLES.find((r) => r.key === selectedRole) || ROLES[0];
+  const isRider = selectedRole === "rider";
 
-    if (!userSnap.exists()) {
+  const chooseRole = (key) => {
+    if (key === selectedRole) return;
+    setSelectedRole(key);
+    setNotice(null); // a mismatch/error for one portal shouldn't linger on another
+  };
+
+  // Non-approved status / mismatch / missing profile all end here: sign the
+  // Firebase session out, clear the password, and explain inline.
+  const rejectAndSignOut = async (nextNotice) => {
+    try {
       await signOut(auth);
-      setError("No user profile found. Please contact the administrator.");
-      return;
+    } catch {
+      // ignore sign-out failures; we still show the notice and never route
     }
-
-    const userData = userSnap.data();
-
-    const role = (userData.role || "").toLowerCase().trim();
-    const status = (userData.status || "approved").toLowerCase().trim();
-
-    if (status === "pending" || status === "pending_approval") {
-      navigate("/pending");
-      return;
-    }
-
-    if (status === "rejected") {
-      await signOut(auth);
-      setError("Your account was rejected. Please contact the administrator.");
-      return;
-    }
-
-    if (status === "disabled") {
-      await signOut(auth);
-      setError("Your account is disabled. Please contact the administrator.");
-      return;
-    }
-
-    if (role === "admin") {
-      navigate("/admin");
-      return;
-    }
-
-    if (role === "dispatcher") {
-      navigate("/dispatcher");
-      return;
-    }
-
-    if (
-      role === "salesrep" ||
-      role === "sales_rep" ||
-      role === "sales-rep" ||
-      role === "sales representative"
-    ) {
-      navigate("/sales-rep");
-      return;
-    }
-
-    if (role === "rider") {
-      await signOut(auth);
-      setError("Rider accounts must use the VaxTrack mobile app.");
-      return;
-    }
-
-    await signOut(auth);
-    setError("Unknown account role. Please contact the administrator.");
+    setPassword("");
+    setNotice(nextNotice);
   };
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setError("");
+    if (loading) return; // prevent duplicate submissions / Firebase calls
+    setNotice(null);
 
     const loginEmail = email.trim();
-
-    if (!loginEmail || !password.trim()) {
-      setError("Please enter your email and password.");
+    if (!loginEmail || !password) {
+      setNotice({ tone: "error", title: "Enter your email and password." });
       return;
     }
-
-    // Email/password login only. Employee-ID login was removed for production
-    // security — it required an unauthenticated read of the users collection,
-    // which exposed the staff directory. Sign in with your email address.
     if (!loginEmail.includes("@")) {
-      setError("Please log in with your email address.");
+      setNotice({ tone: "error", title: "Please log in with your email address." });
       return;
     }
 
+    setLoading(true);
     try {
-      setLoading(true);
+      const cred = await signInWithEmailAndPassword(auth, loginEmail, password);
 
-      const userCredential = await signInWithEmailAndPassword(
-        auth,
-        loginEmail,
-        password
-      );
+      // Authoritative profile from users/{uid}.
+      const snap = await getDoc(doc(db, "users", cred.user.uid));
+      if (!snap.exists()) {
+        await rejectAndSignOut({
+          tone: "error",
+          title: "Account profile not found",
+          body: "Your account profile could not be found. Contact your administrator.",
+        });
+        return;
+      }
 
-      await redirectUserByRole(userCredential.user);
+      const data = snap.data();
+      const role = String(data.role || "").toLowerCase().trim();
+      const status = String(data.status || "approved").toLowerCase().trim();
+
+      // 1) Status gate — any non-approved status blocks portal access + signs out.
+      if (status === "pending" || status === "pending_approval") {
+        await rejectAndSignOut({
+          tone: "pending",
+          title: "Account pending approval",
+          body: "Your administrator is currently reviewing this account. You’ll receive access once it is approved.",
+        });
+        return;
+      }
+      if (status === "rejected") {
+        await rejectAndSignOut({
+          tone: "error",
+          title: "Account not approved",
+          body: "Account access was not approved. Contact your administrator if you believe this is incorrect.",
+        });
+        return;
+      }
+      if (status === "disabled") {
+        await rejectAndSignOut({
+          tone: "error",
+          title: "Account disabled",
+          body: "This account is currently disabled. Contact your administrator for assistance.",
+        });
+        return;
+      }
+
+      // 2) Rider accounts are mobile-only — never authenticate into a web portal.
+      if (role === "rider") {
+        await rejectAndSignOut({
+          tone: "info",
+          title: "Use the VaxTrack Rider app",
+          body: "This account is registered as a Rider. Sign in with the same email and password in the VaxTrack Rider mobile app.",
+        });
+        return;
+      }
+
+      // 3) Selected portal vs stored role. The UI selection never grants access.
+      if (!storedRoleMatchesSelection(role, selectedRole)) {
+        const portal = portalForStoredRole(role);
+        await rejectAndSignOut({
+          tone: "error",
+          title: portal
+            ? `This account is registered as ${portal.name}. Select ${portal.tab} to continue.`
+            : "This account's role is not recognized for web access. Contact your administrator.",
+        });
+        return;
+      }
+
+      // 4) Approved + role matches → route. Route guards remain the final check.
+      navigate(ROLE_ROUTES[selectedRole]);
     } catch (err) {
       console.error("Login error:", err);
-      setError("Invalid login credentials. Please try again.");
+      setNotice({ tone: "error", title: mapAuthError(err) });
     } finally {
       setLoading(false);
     }
   };
 
+  const NoticeIcon = notice ? NOTICE_ICON[notice.tone] || AlertCircle : null;
+
   return (
-    <div className="auth-page">
-      <div className="auth-card login-card">
-        <div className="auth-brand">
-          <h1>VaxTrack Portal</h1>
+    <div className="vlogin">
+      {/* Left visual panel */}
+      <aside className="vlogin-visual" aria-hidden="true">
+        <Snowflake className="vlogin-motif" size={280} strokeWidth={1} />
+        <div className="vlogin-brand">
+          <span className="vlogin-brand-mark">
+            <Snowflake size={18} />
+          </span>
+          <span className="vlogin-brand-name">VaxTrack</span>
         </div>
+        <div className="vlogin-visual-msg">
+          <h2>Secure Cold-Chain Operations</h2>
+          <p>
+            Authorized access for pharmaceutical inventory, dispatch, and
+            delivery monitoring.
+          </p>
+        </div>
+      </aside>
 
-        <form onSubmit={handleLogin} className="auth-form" autoComplete="off">
-          <label>Email</label>
-
-          <div className="auth-input">
-            <Mail size={16} />
-            <input
-              type="email"
-              name="vaxtrack_login_email"
-              autoComplete="off"
-              placeholder="Enter your email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
+      {/* Right authentication panel */}
+      <main className="vlogin-panel">
+        <div className="vlogin-card">
+          <div className="vlogin-mobile-brand">
+            <span className="vlogin-brand-mark">
+              <Snowflake size={18} />
+            </span>
+            <span className="vlogin-brand-name">VaxTrack</span>
           </div>
 
-          <div className="auth-label-row">
-            <label>Password</label>
+          <h1 className="vlogin-title">Sign in to VaxTrack</h1>
+          <p className="vlogin-sub">
+            Select your role and enter your credentials.
+          </p>
 
-            <Link to="/forgot-password" className="text-link small-link">
-              Forgot Password?
-            </Link>
+          {/* Role selector */}
+          <div
+            className="vlogin-roles"
+            role="group"
+            aria-label="Select your portal"
+          >
+            {ROLES.map((r) => {
+              const selected = r.key === selectedRole;
+              return (
+                <button
+                  key={r.key}
+                  type="button"
+                  className="vlogin-role"
+                  aria-pressed={selected}
+                  onClick={() => chooseRole(r.key)}
+                >
+                  <r.Icon size={16} aria-hidden="true" />
+                  <span>{r.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="vlogin-role-sub">{activeRole.subtitle}</p>
+
+          {/* Inline authentication feedback (announced to assistive tech) */}
+          <div aria-live="assertive">
+            {notice && (
+              <div
+                id="vlogin-notice"
+                className={`vlogin-notice tone-${notice.tone}`}
+                role="alert"
+              >
+                {NoticeIcon && <NoticeIcon size={16} aria-hidden="true" />}
+                <div>
+                  <strong>{notice.title}</strong>
+                  {notice.body && <p>{notice.body}</p>}
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="auth-input">
-            <Lock size={16} />
-            <input
-              type={showPassword ? "text" : "password"}
-              name="vaxtrack_login_password"
-              autoComplete="new-password"
-              placeholder="Enter password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+          {isRider ? (
+            /* Rider mobile-app handoff — no web portal, no invented links */
+            <div className="vlogin-rider">
+              <span className="vlogin-rider-icon">
+                <Smartphone size={22} aria-hidden="true" />
+              </span>
+              <h2>VaxTrack Rider Mobile App</h2>
+              <p>
+                Rider operations are handled in the Android app — real-time GPS
+                tracking, delivery updates, in-app navigation, and route
+                compliance.
+              </p>
+              <ul>
+                <li>Sign in with the same approved VaxTrack email and password.</li>
+                <li>Deliveries, proof of delivery, and status updates live here.</li>
+              </ul>
+              <div className="vlogin-rider-note">
+                <Info size={15} aria-hidden="true" />
+                <span>
+                  Install the official VaxTrack Rider app provided by your
+                  administrator. To sign in to a web portal instead, choose
+                  Admin, Sales Rep, or Dispatcher above.
+                </span>
+              </div>
+            </div>
+          ) : (
+            /* Admin / Sales Rep / Dispatcher credential form */
+            <form className="vlogin-form" onSubmit={handleLogin}>
+              <div className="vlogin-field">
+                <label className="vlogin-label" htmlFor="vlogin-email">
+                  Email address
+                </label>
+                <div
+                  className={`vlogin-input${
+                    notice?.tone === "error" ? " has-error" : ""
+                  }`}
+                >
+                  <Mail size={16} aria-hidden="true" />
+                  <input
+                    id="vlogin-email"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="Enter your work email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    aria-describedby={notice ? "vlogin-notice" : undefined}
+                    aria-invalid={notice?.tone === "error" || undefined}
+                  />
+                </div>
+              </div>
 
-            <button
-              type="button"
-              className="icon-ghost"
-              onClick={() => setShowPassword((prev) => !prev)}
-            >
-              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
+              <div className="vlogin-field">
+                <div className="vlogin-label-row">
+                  <label className="vlogin-label" htmlFor="vlogin-password">
+                    Password
+                  </label>
+                  <Link to="/forgot-password" className="vlogin-forgot">
+                    Forgot password?
+                  </Link>
+                </div>
+                <div
+                  className={`vlogin-input${
+                    notice?.tone === "error" ? " has-error" : ""
+                  }`}
+                >
+                  <Lock size={16} aria-hidden="true" />
+                  <input
+                    id="vlogin-password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="current-password"
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    aria-describedby={notice ? "vlogin-notice" : undefined}
+                    aria-invalid={notice?.tone === "error" || undefined}
+                  />
+                  <button
+                    type="button"
+                    className="vlogin-toggle"
+                    onClick={() => setShowPassword((p) => !p)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    aria-pressed={showPassword}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
 
-          <div className="auth-check-row">
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={remember}
-                onChange={() => setRemember((prev) => !prev)}
-              />
-              <span>Remember me</span>
-            </label>
-          </div>
+              <button type="submit" className="vlogin-btn" disabled={loading}>
+                {loading ? "Signing in…" : "Sign in"}
+                {!loading && <ArrowRight size={16} aria-hidden="true" />}
+              </button>
 
-          {error && <div className="auth-error">{error}</div>}
+              <div className="vlogin-security">
+                <ShieldCheck size={15} aria-hidden="true" />
+                <span>
+                  Access is restricted to authorized personnel. Activity is
+                  monitored for security and compliance.
+                </span>
+              </div>
+            </form>
+          )}
 
-          <button type="submit" className="primary-auth-btn" disabled={loading}>
-            {loading ? "Signing in..." : "Login to Portal"}
-            {!loading && <ArrowRight size={16} />}
-          </button>
-
-          <small className="auth-copyright">
-            © 2026 VaxTrack Philippines Medical Logistics.
-            <br />
-            Authorized Access Only.
+          <small className="vlogin-copyright">
+            © 2026 VaxTrack Philippines Medical Logistics — Authorized access only.
           </small>
-        </form>
-      </div>
+        </div>
+      </main>
     </div>
   );
 }
