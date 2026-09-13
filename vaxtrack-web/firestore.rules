@@ -40,6 +40,51 @@ service cloud.firestore {
     // Any approved, signed-in user (staff or rider).
     function isApprovedUser() { return isApproved(); }
 
+    // Area master data. Names are immutable after creation so the deterministic
+    // document identity remains stable; retiring an area is an active toggle,
+    // never a delete that would strand clinic/doctor references.
+    function validNewArea(areaId) {
+      let d = request.resource.data;
+      return d.keys().hasAll([
+          'key', 'name', 'nameNormalized', 'active', 'createdAt', 'updatedAt'
+        ])
+        && d.keys().hasOnly([
+          'key', 'name', 'nameNormalized', 'active', 'createdAt', 'updatedAt'
+        ])
+        && d.key is string
+        && d.key == areaId
+        && d.key.size() >= 2
+        && d.key.size() <= 960
+        && d.name is string
+        && d.name.size() >= 2
+        && d.name.size() <= 80
+        && d.nameNormalized is string
+        && d.nameNormalized.size() >= 2
+        && d.nameNormalized.size() <= 80
+        && d.active == true
+        && d.createdAt == request.time
+        && d.updatedAt == request.time;
+    }
+
+    function validAreaStatusUpdate() {
+      return changedKeys().hasOnly(['active', 'updatedAt'])
+        && request.resource.data.active is bool
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validActiveClinicArea() {
+      let d = request.resource.data;
+      return d.areaId is string
+        && d.areaId.size() >= 2
+        && d.areaId.size() <= 960
+        && d.area is string
+        && d.area.size() >= 2
+        && d.area.size() <= 80
+        && exists(/databases/$(database)/documents/areas/$(d.areaId))
+        && get(/databases/$(database)/documents/areas/$(d.areaId)).data.active == true
+        && get(/databases/$(database)/documents/areas/$(d.areaId)).data.name == d.area;
+    }
+
     // Keys whose value changed in this write.
     function changedKeys() {
       return request.resource.data.diff(resource.data).affectedKeys();
@@ -874,9 +919,23 @@ service cloud.firestore {
       allow read: if isApprovedUser();
       allow write: if isAdmin();
     }
+    match /areas/{areaId} {
+      allow read: if isApprovedUser();
+      allow create: if isAdmin() && validNewArea(areaId);
+      allow update: if isAdmin() && validAreaStatusUpdate();
+      allow delete: if false;
+    }
     match /clinics/{id} {
       allow read: if isApprovedUser();
-      allow write: if isAdmin();
+      allow create: if isAdmin() && validActiveClinicArea();
+      // Existing clinics predate `areaId`, so ordinary edits remain available;
+      // every new or changed area relationship must point to active master data.
+      allow update: if isAdmin()
+        && (
+          !changedKeys().hasAny(['areaId', 'area'])
+          || validActiveClinicArea()
+        );
+      allow delete: if isAdmin();
     }
 
     // ---------------- alerts ----------------

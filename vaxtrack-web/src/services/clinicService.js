@@ -81,6 +81,7 @@ export async function addClinic({
   clinicId,
   name,
   location,
+  areaId,
   area,
   contact,
   phone,
@@ -91,11 +92,21 @@ export async function addClinic({
   longitude,
   geofenceRadiusM,
 }) {
+  const stableAreaId = typeof areaId === "string" ? areaId.trim() : "";
+  const areaName = typeof area === "string" ? area.trim() : "";
+  if (!stableAreaId || stableAreaId.includes("/") || !areaName) {
+    throw new Error("Select an active area for this clinic.");
+  }
+
   const clinic = {
     clinicId,
     name: name.trim(),
     location: location.trim(),
-    area,
+    // `areaId` is the stable relationship; `area` stays as a readable snapshot
+    // for existing clinic rows and downstream code while legacy records are
+    // migrated incrementally.
+    areaId: stableAreaId,
+    area: areaName,
     contact: contact.trim(),
     phone: phone.trim(),
     email: email.trim(),

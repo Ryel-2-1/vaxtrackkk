@@ -101,6 +101,12 @@ async function main() {
     await setDoc(doc(db, "orders", "ordRider3"), { createdByUid: salesRepUid, status: "in_transit", assignedRiderId: riderUid });
 
     await setDoc(doc(db, "inventory", "inv1"), { vaccineName: "X", quantity: 10 });
+    await setDoc(doc(db, "areas", "seed-area"), {
+      key: "seed-area",
+      name: "Seed Area",
+      nameNormalized: "seed area",
+      active: true,
+    });
     await setDoc(doc(db, "clinics", "cl1"), { name: "Clinic A" });
 
     // ---- rider-assignment fixtures (workflow checkpoint 1) ----
@@ -503,7 +509,11 @@ async function main() {
       reservedQuantity: 0,
       sellingPriceCentavos: 125000,
     }));
-    await assertSucceeds(setDoc(doc(admin, "clinics", "clAdmin"), { name: "C" }));
+    await assertSucceeds(setDoc(doc(admin, "clinics", "clAdmin"), {
+      name: "C",
+      areaId: "seed-area",
+      area: "Seed Area",
+    }));
     await assertSucceeds(setDoc(doc(admin, "alerts", "alAdmin"), { status: "active" }));
   });
 
@@ -1195,6 +1205,73 @@ async function main() {
     }));
   });
 
+  // ---- area master data ----
+  // Area names are immutable identities. Admins retire them with an active
+  // toggle so clinics/doctors can keep a valid historical reference.
+
+  const metroAreaId = "metro%20manila";
+  const validArea = {
+    key: metroAreaId,
+    name: "Metro Manila",
+    nameNormalized: "metro manila",
+    active: true,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  await check("Parea1 admin creates a valid active area", async () => {
+    await assertSucceeds(setDoc(doc(admin, "areas", metroAreaId), validArea));
+  });
+
+  await check("Parea2 approved roles read and query areas", async () => {
+    for (const db of [admin, dispatcher, salesRep, rider]) {
+      await assertSucceeds(getDoc(doc(db, "areas", metroAreaId)));
+      await assertSucceeds(
+        getDocs(query(collection(db, "areas"), where("active", "==", true)))
+      );
+    }
+  });
+
+  await check("Parea3 admin deactivates an area without renaming it", async () => {
+    await assertSucceeds(updateDoc(doc(admin, "areas", metroAreaId), {
+      active: false,
+      updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Narea1 non-admin roles cannot create or update areas", async () => {
+    for (const db of [dispatcher, salesRep, rider]) {
+      await assertFails(setDoc(doc(db, "areas", "laguna"), {
+        ...validArea,
+        key: "laguna",
+        name: "Laguna",
+        nameNormalized: "laguna",
+      }));
+      await assertFails(updateDoc(doc(db, "areas", metroAreaId), {
+        active: true,
+        updatedAt: serverTimestamp(),
+      }));
+    }
+  });
+
+  await check("Narea2 malformed areas and renames are rejected", async () => {
+    await assertFails(setDoc(doc(admin, "areas", "cavite"), {
+      ...validArea,
+      key: "not-cavite",
+      name: "Cavite",
+      nameNormalized: "cavite",
+    }));
+    await assertFails(updateDoc(doc(admin, "areas", metroAreaId), {
+      name: "Renamed Area",
+      updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Narea3 areas cannot be deleted or read anonymously", async () => {
+    await assertFails(deleteDoc(doc(admin, "areas", metroAreaId)));
+    await assertFails(getDoc(doc(anon, "areas", metroAreaId)));
+  });
+
   // ---- clinic location / geofence (Phase 01) ----
   // The clinics rule ALREADY restricted writes to admin, so Phase 01 changed no
   // rule. These cases lock that in so the new Admin location editor cannot be
@@ -1236,6 +1313,26 @@ async function main() {
   await check("Nclin3 unauthenticated cannot read or write clinics", async () => {
     await assertFails(getDoc(doc(anon, "clinics", "cl1")));
     await assertFails(updateDoc(doc(anon, "clinics", "cl1"), { latitude: 1 }));
+  });
+
+  await check("Nclin4 new clinics require one matching active area", async () => {
+    await assertFails(setDoc(doc(admin, "clinics", "clNoArea"), {
+      name: "No Area Clinic",
+    }));
+    await assertFails(setDoc(doc(admin, "clinics", "clWrongAreaName"), {
+      name: "Wrong Area Clinic",
+      areaId: "seed-area",
+      area: "A different name",
+    }));
+    await assertFails(setDoc(doc(admin, "clinics", "clInactiveArea"), {
+      name: "Inactive Area Clinic",
+      areaId: metroAreaId,
+      area: "Metro Manila",
+    }));
+    await assertFails(updateDoc(doc(admin, "clinics", "cl1"), {
+      areaId: "seed-area",
+      area: "A different name",
+    }));
   });
 
   // ================= Phase 02A — order clinic-location snapshot =================

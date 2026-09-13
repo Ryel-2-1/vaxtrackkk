@@ -24,6 +24,11 @@ import {
   readClinicLocation,
   validateClinicLocation,
 } from "../../services/clinicService";
+import {
+  addArea,
+  setAreaActive,
+  subscribeAreas,
+} from "../../services/areaService";
 import KpiCard from "../../components/ui/KpiCard";
 import ClinicLocationSection from "./ClinicLocationSection";
 import "./Clinics.css";
@@ -57,7 +62,8 @@ function normalizeClinic(raw) {
     firestoreId: raw.id || "",
     name: raw.name || "—",
     location: raw.location || "—",
-    area: raw.area || "Metro Manila",
+    areaId: raw.areaId || "",
+    area: raw.area || "Unassigned",
     contact: contactStr || "—",
     phone: raw.phone || "—",
     email: raw.email || "—",
@@ -80,7 +86,8 @@ const pageSize = 3;
 const EMPTY_CLINIC = {
   name: "",
   location: "",
-  area: "Metro Manila",
+  areaId: "",
+  area: "",
   contact: "",
   phone: "",
   email: "",
@@ -102,6 +109,10 @@ function Clinics() {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedClinic, setSelectedClinic] = useState(null);
   const [showNewClinicModal, setShowNewClinicModal] = useState(false);
+  const [showAreasModal, setShowAreasModal] = useState(false);
+  const [areas, setAreas] = useState([]);
+  const [areasLoading, setAreasLoading] = useState(true);
+  const [areaLoadError, setAreaLoadError] = useState("");
   const [toast, setToast] = useState("");
   const [newClinic, setNewClinic] = useState(EMPTY_CLINIC);
   const [newClinicErrors, setNewClinicErrors] = useState({});
@@ -112,6 +123,7 @@ function Clinics() {
   // The control that opened the registration dialog, so focus can be handed
   // back to it on dismissal.
   const newClinicTriggerRef = useRef(null);
+  const areasTriggerRef = useRef(null);
 
   const openManageLocation = (clinic, triggerEl) => {
     manageTriggerRef.current = triggerEl;
@@ -131,6 +143,19 @@ function Clinics() {
     newClinicTriggerRef.current = triggerEl;
     setShowNewClinicModal(true);
   };
+
+  const openAreas = (triggerEl) => {
+    areasTriggerRef.current = triggerEl;
+    setShowAreasModal(true);
+  };
+
+  const closeAreas = useCallback(() => {
+    setShowAreasModal(false);
+    if (areasTriggerRef.current) {
+      areasTriggerRef.current.focus();
+      areasTriggerRef.current = null;
+    }
+  }, []);
 
   // The single dismissal path for the registration dialog: used by Escape, the
   // close control, Cancel and a completed registration, so the reset and the
@@ -181,6 +206,21 @@ function Clinics() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = subscribeAreas(
+      (docs) => {
+        setAreas(docs);
+        setAreasLoading(false);
+        setAreaLoadError("");
+      },
+      (error) => {
+        setAreasLoading(false);
+        setAreaLoadError(error.message || "Failed to load areas.");
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
   const showToast = (message) => {
     setToast(message);
     setTimeout(() => setToast(""), 2200);
@@ -216,6 +256,18 @@ function Clinics() {
 
   const handleCreateClinic = async (e) => {
     e.preventDefault();
+
+    if (areasLoading) {
+      showToast("Areas are still loading. Please wait.");
+      return;
+    }
+    const selectedArea = areas.find(
+      (area) => area.id === newClinic.areaId && area.active === true
+    );
+    if (!selectedArea) {
+      showToast("Select an active area for this clinic.");
+      return;
+    }
 
     if (
       !newClinic.name.trim() ||
@@ -254,7 +306,8 @@ function Clinics() {
         clinicId,
         name: newClinic.name,
         location: newClinic.location,
-        area: newClinic.area,
+        areaId: selectedArea.id,
+        area: selectedArea.name,
         contact: newClinic.contact,
         phone: newClinic.phone,
         email: newClinic.email,
@@ -275,6 +328,28 @@ function Clinics() {
       showToast("Failed to register clinic. Please try again.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAddArea = async (name) => {
+    try {
+      await addArea(name);
+      showToast("Area added.");
+      return "";
+    } catch (error) {
+      console.error("Add area error:", error);
+      return error.message || "Failed to add area. Please try again.";
+    }
+  };
+
+  const handleAreaStatus = async (area) => {
+    try {
+      await setAreaActive(area.id, !area.active);
+      showToast(`${area.name} is now ${area.active ? "inactive" : "active"}.`);
+      return "";
+    } catch (error) {
+      console.error("Update area error:", error);
+      return error.message || "Failed to update the area. Please try again.";
     }
   };
 
@@ -321,6 +396,15 @@ function Clinics() {
               }
             >
               <CircleHelp size={15} />
+            </button>
+
+            <button
+              type="button"
+              className="clinics-v2-secondary-btn"
+              onClick={(e) => openAreas(e.currentTarget)}
+            >
+              <MapPin size={15} />
+              Manage Areas
             </button>
 
             <button
@@ -601,10 +685,24 @@ function Clinics() {
         <NewClinicModal
           newClinic={newClinic}
           setNewClinic={setNewClinic}
+          areas={areas}
+          areasLoading={areasLoading}
+          areaLoadError={areaLoadError}
           errors={newClinicErrors}
           onClose={closeNewClinic}
           onSubmit={handleCreateClinic}
           saving={saving}
+        />
+      )}
+
+      {showAreasModal && (
+        <AreasModal
+          areas={areas}
+          loading={areasLoading}
+          loadError={areaLoadError}
+          onAdd={handleAddArea}
+          onToggle={handleAreaStatus}
+          onClose={closeAreas}
         />
       )}
 
@@ -929,9 +1027,186 @@ function ClinicDetailsModal({ clinic, onClose, onEdit }) {
   );
 }
 
+function AreasModal({ areas, loading, loadError, onAdd, onToggle, onClose }) {
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [updatingId, setUpdatingId] = useState("");
+  const dialogRef = useRef(null);
+  const nameInputRef = useRef(null);
+  const headingId = "manage-areas-heading";
+  const busy = adding || Boolean(updatingId);
+
+  useEffect(() => {
+    nameInputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        if (!busy) onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const root = dialogRef.current;
+      if (!root) return;
+      const items = [
+        ...root.querySelectorAll(
+          'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])'
+        ),
+      ].filter((element) => !element.disabled && element.getClientRects().length > 0);
+      if (items.length === 0) return;
+
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!root.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [busy, onClose]);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (busy) return;
+
+    setAdding(true);
+    setError("");
+    const message = await onAdd(name);
+    if (message) {
+      setError(message);
+    } else {
+      setName("");
+      nameInputRef.current?.focus();
+    }
+    setAdding(false);
+  };
+
+  const handleToggle = async (area) => {
+    if (busy) return;
+
+    setUpdatingId(area.id);
+    setError("");
+    const message = await onToggle(area);
+    if (message) setError(message);
+    setUpdatingId("");
+  };
+
+  return (
+    <div className="clinics-modal-backdrop">
+      <section
+        ref={dialogRef}
+        className="clinics-modal clinics-areas-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={headingId}
+      >
+        <button
+          type="button"
+          className="clinics-modal-close"
+          onClick={onClose}
+          disabled={busy}
+          aria-label="Close manage areas"
+        >
+          <X size={18} />
+        </button>
+
+        <h2 id={headingId}>Manage Areas</h2>
+        <p>
+          Areas organize clinics now and will later drive doctor and delivery
+          destination choices.
+        </p>
+
+        <form className="clinics-area-create" onSubmit={handleSubmit} noValidate>
+          <label htmlFor="new-area-name">Area name</label>
+          <div>
+            <input
+              ref={nameInputRef}
+              id="new-area-name"
+              type="text"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="e.g. Metro Manila"
+              maxLength={80}
+              disabled={busy}
+            />
+            <button type="submit" disabled={busy}>
+              {adding ? "Adding..." : "Add Area"}
+            </button>
+          </div>
+        </form>
+
+        {(error || loadError) && (
+          <p className="clinics-area-error" role="alert">
+            {error || loadError}
+          </p>
+        )}
+
+        <div className="clinics-area-list" aria-live="polite">
+          {loading && <p>Loading areas...</p>}
+          {!loading && !loadError && areas.length === 0 && (
+            <div className="clinics-area-empty">
+              <MapPin size={22} />
+              <strong>No areas yet</strong>
+              <span>Add the first service area above.</span>
+            </div>
+          )}
+          {!loading &&
+            areas.map((area) => (
+              <div className="clinics-area-row" key={area.id}>
+                <div>
+                  <strong>{area.name}</strong>
+                  <span className={area.active ? "active" : "inactive"}>
+                    {area.active ? "Active" : "Inactive"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggle(area)}
+                  disabled={busy}
+                >
+                  {updatingId === area.id
+                    ? "Saving..."
+                    : area.active
+                      ? "Deactivate"
+                      : "Activate"}
+                </button>
+              </div>
+            ))}
+        </div>
+
+        <div className="clinics-modal-actions">
+          <button
+            type="button"
+            className="clinics-light-action"
+            onClick={onClose}
+            disabled={busy}
+          >
+            Close
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function NewClinicModal({
   newClinic,
   setNewClinic,
+  areas,
+  areasLoading,
+  areaLoadError,
   errors = {},
   onClose,
   onSubmit,
@@ -1126,17 +1401,39 @@ function NewClinicModal({
             <label>
               Area
               <select
-                value={newClinic.area}
-                onChange={(e) =>
-                  setNewClinic((prev) => ({ ...prev, area: e.target.value }))
-                }
-                disabled={saving}
+                value={newClinic.areaId}
+                onChange={(e) => {
+                  const selected = areas.find(
+                    (area) => area.id === e.target.value
+                  );
+                  setNewClinic((prev) => ({
+                    ...prev,
+                    areaId: selected?.id || "",
+                    area: selected?.name || "",
+                  }));
+                }}
+                disabled={saving || areasLoading}
+                required
               >
-                <option>Metro Manila</option>
-                <option>Laguna</option>
-                <option>Cavite</option>
-                <option>Batangas</option>
+                <option value="">
+                  {areasLoading ? "Loading areas..." : "Select an active area"}
+                </option>
+                {areas
+                  .filter((area) => area.active === true)
+                  .map((area) => (
+                    <option key={area.id} value={area.id}>
+                      {area.name}
+                    </option>
+                  ))}
               </select>
+              {!areasLoading && areaLoadError && (
+                <small className="clinics-field-error">{areaLoadError}</small>
+              )}
+              {!areasLoading && !areaLoadError && areas.every((area) => !area.active) && (
+                <small className="clinics-field-note">
+                  Add or activate an area from Manage Areas first.
+                </small>
+              )}
             </label>
 
             <label>
