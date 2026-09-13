@@ -12,6 +12,7 @@ import {
   MapPin,
   Plus,
   Search,
+  UserRound,
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
@@ -29,6 +30,11 @@ import {
   setAreaActive,
   subscribeAreas,
 } from "../../services/areaService";
+import {
+  addDoctor,
+  setDoctorActive,
+  subscribeDoctors,
+} from "../../services/doctorService";
 import KpiCard from "../../components/ui/KpiCard";
 import ClinicLocationSection from "./ClinicLocationSection";
 import "./Clinics.css";
@@ -110,9 +116,13 @@ function Clinics() {
   const [selectedClinic, setSelectedClinic] = useState(null);
   const [showNewClinicModal, setShowNewClinicModal] = useState(false);
   const [showAreasModal, setShowAreasModal] = useState(false);
+  const [showDoctorsModal, setShowDoctorsModal] = useState(false);
   const [areas, setAreas] = useState([]);
   const [areasLoading, setAreasLoading] = useState(true);
   const [areaLoadError, setAreaLoadError] = useState("");
+  const [doctors, setDoctors] = useState([]);
+  const [doctorsLoading, setDoctorsLoading] = useState(true);
+  const [doctorLoadError, setDoctorLoadError] = useState("");
   const [toast, setToast] = useState("");
   const [newClinic, setNewClinic] = useState(EMPTY_CLINIC);
   const [newClinicErrors, setNewClinicErrors] = useState({});
@@ -124,6 +134,7 @@ function Clinics() {
   // back to it on dismissal.
   const newClinicTriggerRef = useRef(null);
   const areasTriggerRef = useRef(null);
+  const doctorsTriggerRef = useRef(null);
 
   const openManageLocation = (clinic, triggerEl) => {
     manageTriggerRef.current = triggerEl;
@@ -154,6 +165,19 @@ function Clinics() {
     if (areasTriggerRef.current) {
       areasTriggerRef.current.focus();
       areasTriggerRef.current = null;
+    }
+  }, []);
+
+  const openDoctors = (triggerEl) => {
+    doctorsTriggerRef.current = triggerEl;
+    setShowDoctorsModal(true);
+  };
+
+  const closeDoctors = useCallback(() => {
+    setShowDoctorsModal(false);
+    if (doctorsTriggerRef.current) {
+      doctorsTriggerRef.current.focus();
+      doctorsTriggerRef.current = null;
     }
   }, []);
 
@@ -216,6 +240,21 @@ function Clinics() {
       (error) => {
         setAreasLoading(false);
         setAreaLoadError(error.message || "Failed to load areas.");
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeDoctors(
+      (docs) => {
+        setDoctors(docs);
+        setDoctorsLoading(false);
+        setDoctorLoadError("");
+      },
+      (error) => {
+        setDoctorsLoading(false);
+        setDoctorLoadError(error.message || "Failed to load doctors.");
       }
     );
     return () => unsubscribe();
@@ -353,6 +392,30 @@ function Clinics() {
     }
   };
 
+  const handleAddDoctor = async ({ name, areaId }) => {
+    try {
+      await addDoctor({ name, areaId });
+      showToast("Doctor added.");
+      return "";
+    } catch (error) {
+      console.error("Add doctor error:", error);
+      return error.message || "Failed to add doctor. Please try again.";
+    }
+  };
+
+  const handleDoctorStatus = async (doctor) => {
+    try {
+      await setDoctorActive(doctor.id, !doctor.active);
+      showToast(
+        `${doctor.name} is now ${doctor.active ? "inactive" : "active"}.`
+      );
+      return "";
+    } catch (error) {
+      console.error("Update doctor error:", error);
+      return error.message || "Failed to update the doctor. Please try again.";
+    }
+  };
+
   return (
     <div className="inventory-page clinics-shell">
       <AdminSidebar active="clinics" onLogout={handleLogout} />
@@ -405,6 +468,15 @@ function Clinics() {
             >
               <MapPin size={15} />
               Manage Areas
+            </button>
+
+            <button
+              type="button"
+              className="clinics-v2-secondary-btn"
+              onClick={(e) => openDoctors(e.currentTarget)}
+            >
+              <UserRound size={15} />
+              Manage Doctors
             </button>
 
             <button
@@ -703,6 +775,20 @@ function Clinics() {
           onAdd={handleAddArea}
           onToggle={handleAreaStatus}
           onClose={closeAreas}
+        />
+      )}
+
+      {showDoctorsModal && (
+        <DoctorsModal
+          doctors={doctors}
+          loading={doctorsLoading}
+          loadError={doctorLoadError}
+          areas={areas}
+          areasLoading={areasLoading}
+          areaLoadError={areaLoadError}
+          onAdd={handleAddDoctor}
+          onToggle={handleDoctorStatus}
+          onClose={closeDoctors}
         />
       )}
 
@@ -1179,6 +1265,233 @@ function AreasModal({ areas, loading, loadError, onAdd, onToggle, onClose }) {
                   {updatingId === area.id
                     ? "Saving..."
                     : area.active
+                      ? "Deactivate"
+                      : "Activate"}
+                </button>
+              </div>
+            ))}
+        </div>
+
+        <div className="clinics-modal-actions">
+          <button
+            type="button"
+            className="clinics-light-action"
+            onClick={onClose}
+            disabled={busy}
+          >
+            Close
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function DoctorsModal({
+  doctors,
+  loading,
+  loadError,
+  areas,
+  areasLoading,
+  areaLoadError,
+  onAdd,
+  onToggle,
+  onClose,
+}) {
+  const [name, setName] = useState("");
+  const [areaId, setAreaId] = useState("");
+  const [error, setError] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [updatingId, setUpdatingId] = useState("");
+  const dialogRef = useRef(null);
+  const nameInputRef = useRef(null);
+  const headingId = "manage-doctors-heading";
+  const busy = adding || Boolean(updatingId);
+  const activeAreas = useMemo(
+    () => areas.filter((area) => area.active === true),
+    [areas]
+  );
+
+  useEffect(() => {
+    nameInputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (areaId && !activeAreas.some((area) => area.id === areaId)) {
+      setAreaId("");
+    }
+  }, [activeAreas, areaId]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        if (!busy) onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const root = dialogRef.current;
+      if (!root) return;
+      const items = [
+        ...root.querySelectorAll(
+          'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])'
+        ),
+      ].filter((element) => !element.disabled && element.getClientRects().length > 0);
+      if (items.length === 0) return;
+
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!root.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [busy, onClose]);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (busy) return;
+
+    setAdding(true);
+    setError("");
+    const message = await onAdd({ name, areaId });
+    if (message) {
+      setError(message);
+    } else {
+      setName("");
+      setAreaId("");
+      nameInputRef.current?.focus();
+    }
+    setAdding(false);
+  };
+
+  const handleToggle = async (doctor) => {
+    if (busy) return;
+
+    setUpdatingId(doctor.id);
+    setError("");
+    const message = await onToggle(doctor);
+    if (message) setError(message);
+    setUpdatingId("");
+  };
+
+  return (
+    <div className="clinics-modal-backdrop">
+      <section
+        ref={dialogRef}
+        className="clinics-modal clinics-areas-modal clinics-doctors-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={headingId}
+      >
+        <button
+          type="button"
+          className="clinics-modal-close"
+          onClick={onClose}
+          disabled={busy}
+          aria-label="Close manage doctors"
+        >
+          <X size={18} />
+        </button>
+
+        <h2 id={headingId}>Manage Doctors</h2>
+        <p>
+          Register doctors under a primary area. Delivery addresses will be
+          managed separately in the next checkpoint.
+        </p>
+
+        <form className="clinics-doctor-create" onSubmit={handleSubmit} noValidate>
+          <div>
+            <label htmlFor="new-doctor-name">Doctor name</label>
+            <input
+              ref={nameInputRef}
+              id="new-doctor-name"
+              type="text"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="e.g. Dr. Maria Santos"
+              maxLength={120}
+              disabled={busy}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="new-doctor-area">Primary area</label>
+            <select
+              id="new-doctor-area"
+              value={areaId}
+              onChange={(event) => setAreaId(event.target.value)}
+              disabled={busy || areasLoading}
+              required
+            >
+              <option value="">
+                {areasLoading ? "Loading areas..." : "Select an active area"}
+              </option>
+              {activeAreas.map((area) => (
+                <option key={area.id} value={area.id}>
+                  {area.name}
+                </option>
+              ))}
+            </select>
+
+            {!areasLoading && !areaLoadError && activeAreas.length === 0 && (
+              <small className="clinics-field-note">
+                Add or activate an area from Manage Areas first.
+              </small>
+            )}
+          </div>
+
+          <button
+            type="submit"
+            disabled={busy || areasLoading || activeAreas.length === 0}
+          >
+            {adding ? "Adding..." : "Add Doctor"}
+          </button>
+        </form>
+
+        {(error || loadError || areaLoadError) && (
+          <p className="clinics-area-error" role="alert">
+            {error || loadError || areaLoadError}
+          </p>
+        )}
+
+        <div className="clinics-doctor-list" aria-live="polite">
+          {loading && <p>Loading doctors...</p>}
+          {!loading && !loadError && doctors.length === 0 && (
+            <div className="clinics-area-empty">
+              <UserRound size={22} />
+              <strong>No doctors yet</strong>
+              <span>Add the first doctor above.</span>
+            </div>
+          )}
+          {!loading &&
+            doctors.map((doctor) => (
+              <div className="clinics-doctor-row" key={doctor.id}>
+                <div className="clinics-doctor-summary">
+                  <strong>{doctor.name || "Unnamed doctor"}</strong>
+                  <small>{doctor.area || "Unassigned area"}</small>
+                  <span className={doctor.active ? "active" : "inactive"}>
+                    {doctor.active ? "Active" : "Inactive"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggle(doctor)}
+                  disabled={busy}
+                >
+                  {updatingId === doctor.id
+                    ? "Saving..."
+                    : doctor.active
                       ? "Deactivate"
                       : "Activate"}
                 </button>

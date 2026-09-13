@@ -1272,6 +1272,79 @@ async function main() {
     await assertFails(getDoc(doc(anon, "areas", metroAreaId)));
   });
 
+  // ---- doctor master data ----
+  // A doctor has a stable Firestore document id and one primary organizational
+  // area. Actual delivery addresses remain a separate later checkpoint.
+
+  const doctorId = "doctor-maria-santos";
+  const validDoctor = {
+    name: "Dr. Maria Santos",
+    nameNormalized: "dr. maria santos",
+    areaId: "seed-area",
+    area: "Seed Area",
+    active: true,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  await check("Pdoctor1 admin creates a doctor under an active area", async () => {
+    await assertSucceeds(setDoc(doc(admin, "doctors", doctorId), validDoctor));
+  });
+
+  await check("Pdoctor2 approved roles read and query doctors", async () => {
+    for (const db of [admin, dispatcher, salesRep, rider]) {
+      await assertSucceeds(getDoc(doc(db, "doctors", doctorId)));
+      await assertSucceeds(
+        getDocs(query(collection(db, "doctors"), where("active", "==", true)))
+      );
+    }
+  });
+
+  await check("Pdoctor3 admin deactivates a doctor without changing identity", async () => {
+    await assertSucceeds(updateDoc(doc(admin, "doctors", doctorId), {
+      active: false,
+      updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Ndoctor1 non-admin roles cannot create or update doctors", async () => {
+    for (const [index, db] of [dispatcher, salesRep, rider].entries()) {
+      await assertFails(
+        setDoc(doc(db, "doctors", `rogue-doctor-${index}`), validDoctor)
+      );
+      await assertFails(updateDoc(doc(db, "doctors", doctorId), {
+        active: true,
+        updatedAt: serverTimestamp(),
+      }));
+    }
+  });
+
+  await check("Ndoctor2 malformed or inactive area relationships are rejected", async () => {
+    await assertFails(setDoc(doc(admin, "doctors", "doctor-no-area"), {
+      ...validDoctor,
+      areaId: "missing-area",
+      area: "Missing Area",
+    }));
+    await assertFails(setDoc(doc(admin, "doctors", "doctor-wrong-area"), {
+      ...validDoctor,
+      area: "Wrong Area Name",
+    }));
+    await assertFails(setDoc(doc(admin, "doctors", "doctor-inactive-area"), {
+      ...validDoctor,
+      areaId: metroAreaId,
+      area: "Metro Manila",
+    }));
+    await assertFails(updateDoc(doc(admin, "doctors", doctorId), {
+      name: "Renamed Doctor",
+      updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Ndoctor3 doctors cannot be deleted or read anonymously", async () => {
+    await assertFails(deleteDoc(doc(admin, "doctors", doctorId)));
+    await assertFails(getDoc(doc(anon, "doctors", doctorId)));
+  });
+
   // ---- clinic location / geofence (Phase 01) ----
   // The clinics rule ALREADY restricted writes to admin, so Phase 01 changed no
   // rule. These cases lock that in so the new Admin location editor cannot be

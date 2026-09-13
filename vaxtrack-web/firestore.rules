@@ -85,6 +85,42 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/areas/$(d.areaId)).data.name == d.area;
     }
 
+    function validNewDoctor() {
+      let d = request.resource.data;
+      return d.keys().hasAll([
+          'name', 'nameNormalized', 'areaId', 'area', 'active',
+          'createdAt', 'updatedAt'
+        ])
+        && d.keys().hasOnly([
+          'name', 'nameNormalized', 'areaId', 'area', 'active',
+          'createdAt', 'updatedAt'
+        ])
+        && d.name is string
+        && d.name.size() >= 2
+        && d.name.size() <= 120
+        && d.nameNormalized is string
+        && d.nameNormalized.size() >= 2
+        && d.nameNormalized.size() <= 120
+        && d.areaId is string
+        && d.areaId.size() >= 2
+        && d.areaId.size() <= 960
+        && d.area is string
+        && d.area.size() >= 2
+        && d.area.size() <= 80
+        && d.active == true
+        && d.createdAt == request.time
+        && d.updatedAt == request.time
+        && exists(/databases/$(database)/documents/areas/$(d.areaId))
+        && get(/databases/$(database)/documents/areas/$(d.areaId)).data.active == true
+        && get(/databases/$(database)/documents/areas/$(d.areaId)).data.name == d.area;
+    }
+
+    function validDoctorStatusUpdate() {
+      return changedKeys().hasOnly(['active', 'updatedAt'])
+        && request.resource.data.active is bool
+        && request.resource.data.updatedAt == request.time;
+    }
+
     // Keys whose value changed in this write.
     function changedKeys() {
       return request.resource.data.diff(resource.data).affectedKeys();
@@ -923,6 +959,12 @@ service cloud.firestore {
       allow read: if isApprovedUser();
       allow create: if isAdmin() && validNewArea(areaId);
       allow update: if isAdmin() && validAreaStatusUpdate();
+      allow delete: if false;
+    }
+    match /doctors/{doctorId} {
+      allow read: if isApprovedUser();
+      allow create: if isAdmin() && validNewDoctor();
+      allow update: if isAdmin() && validDoctorStatusUpdate();
       allow delete: if false;
     }
     match /clinics/{id} {
