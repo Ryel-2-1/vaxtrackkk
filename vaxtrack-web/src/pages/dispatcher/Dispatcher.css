@@ -4094,7 +4094,7 @@
 }
 
 .dispatcher-page {
-  width: 100vw !important;
+  width: 100% !important;
   min-height: 100vh !important;
   margin: 0 !important;
   padding: 0 !important;
@@ -4113,7 +4113,6 @@
 .dispatcher-main {
   flex: 1 !important;
   min-width: 0 !important;
-  width: calc(100vw - 250px) !important;
 }
 
 .dispatcher-content {
@@ -4333,10 +4332,6 @@
   .dispatcher-sidebar {
     width: 230px !important;
     min-width: 230px !important;
-  }
-
-  .dispatcher-main {
-    width: calc(100vw - 230px) !important;
   }
 }
 .dispatcher-dash-page {
@@ -4893,7 +4888,7 @@
   }
 }
 .dispatcher-page {
-  width: 100vw !important;
+  width: 100% !important;
   min-height: 100vh !important;
   margin: 0 !important;
   padding: 0 !important;
@@ -4913,7 +4908,6 @@
 .dispatcher-main {
   flex: 1 !important;
   min-width: 0 !important;
-  width: calc(100vw - 250px) !important;
 }
 
 .dispatcher-topbar {
@@ -8953,5 +8947,179 @@
 @media (max-width: 900px) {
   .shp-kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* =========================================================
+   DISPATCHER RESPONSIVE SHELL
+   ---------------------------------------------------------
+   Contract: off-canvas drawer through 1024px, desktop rail from 1025px.
+   The same breakpoint is exported from navDrawer.js, so the markup and
+   this stylesheet cannot drift apart and leave a width with neither.
+
+   This block sits last on purpose. A `@media (max-width: 760px)` block
+   at ~5104 already said the right things and never applied: `@media`
+   adds no specificity, so later un-mediated `!important` declarations
+   simply won — `.dispatcher-sidebar { width: 260px !important }` (~6042)
+   beat the mobile `width: 100%`, and the topbar’s last word came from a
+   LATER `@media (max-width: 1180px)` demanding
+   `190px minmax(280px, 1fr) 46px`: 632px of fixed tracks inside a 375px
+   viewport, which put the search field 138px past its right edge.
+
+   The desktop rail (260px) and every layout above 1024px are untouched;
+   the shell’s own `100vw` sizing was corrected in place rather than
+   overridden from here. Selectors are qualified
+   (`.dispatcher-page > aside...`) so they also out-specify
+   dispatcher-polish.css whatever order a bundler emits, and the
+   `!important` flags exist only to out-specify the legacy `!important`
+   declarations named above. Nothing here is scoped outside
+   `.dispatcher-page`.
+========================================================= */
+
+/* ---- 1 · The drawer toggle ----
+   Fixed rather than placed in the topbar grid: `.dispatcher-topbar` is
+   a sticky z-index: 500 element, which makes it a stacking context, so
+   a toggle inside it could never rise above the open panel. Fixed and
+   above the panel, it doubles as the close control the way the Admin
+   one does. Sized past the global `button { min-height: 46px }` reset
+   in styles.css. */
+.dispatcher-nav-toggle {
+  display: none; /* only under the breakpoint */
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 1300;
+  align-items: center;
+  justify-content: center;
+  width: 44px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  padding: 0 !important;
+  border: 1px solid var(--gray-200, #e5e7eb) !important;
+  border-radius: var(--radius-control, 10px) !important;
+  background: #ffffff !important;
+  color: var(--gray-900, #0f172a) !important;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08) !important;
+  cursor: pointer;
+}
+
+.dispatcher-nav-toggle:hover {
+  background: var(--gray-50, #f9fafb) !important;
+}
+
+.dispatcher-nav-toggle:focus-visible {
+  outline: 2px solid var(--green-600, #16a34a) !important;
+  outline-offset: 2px;
+}
+
+.dispatcher-nav-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1150;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+/* ---- 2 · Narrow viewports: off-canvas navigation ---- */
+@media (max-width: 1024px) {
+  .dispatcher-nav-toggle {
+    display: inline-flex;
+  }
+
+  .dispatcher-page > aside.dispatcher-sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    min-height: 0 !important;
+    z-index: 1200;
+
+    /* never wider than the viewport it slides over */
+    min-width: 0 !important;
+    width: min(280px, 86vw) !important;
+    max-width: 86vw !important;
+    overflow-y: auto !important;
+
+    transform: translateX(-100%);
+    /* `visibility: hidden` is what keeps the closed panel out of the tab
+       order — translating it off-canvas alone leaves all six links and
+       Logout focusable, so a keyboard user tabs into a panel they cannot
+       see. It is stepped, never eased: on close it is DELAYED by the
+       length of the slide so the panel stays visible while it animates
+       out; on open it flips immediately, because a `visibility: hidden`
+       element cannot take focus and the component's own focus() call
+       would land on a still-hidden node and silently do nothing. */
+    visibility: hidden;
+    transition: transform 180ms ease, visibility 0s linear 180ms;
+  }
+
+  .dispatcher-page > aside.dispatcher-sidebar.dispatcher-nav-open {
+    transform: translateX(0);
+    visibility: visible;
+    transition: transform 180ms ease, visibility 0s;
+    box-shadow: 0 12px 32px rgba(16, 24, 40, 0.28) !important;
+  }
+
+  /* The toggle is fixed at 10px and 44px wide, so it lands on the
+     panel's own top-left corner once it slides under. Indent only the
+     wordmark: vertical space is the scarce axis here. */
+  .dispatcher-page > aside.dispatcher-sidebar > .dispatcher-brand {
+    padding-left: 40px !important;
+  }
+
+  /* Two rows: [toggle gutter] title … bell, then the search full-width.
+     Every track is minmax(0, …) so nothing can impose a minimum wider
+     than the viewport — that fixed 190px + 280px pair was the defect. */
+  .dispatcher-main .dispatcher-topbar {
+    height: auto !important;
+    grid-template-columns: minmax(0, 1fr) 46px !important;
+    grid-template-rows: auto auto !important;
+    gap: 10px 12px !important;
+    padding: 11px 16px 13px 62px !important;
+    align-items: center !important;
+    justify-content: stretch !important;
+  }
+
+  .dispatcher-main .dispatcher-topbar h1 {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .dispatcher-main .dispatcher-topbar .dispatcher-notification-wrap {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+  }
+
+  .dispatcher-main .dispatcher-topbar .dispatcher-search {
+    grid-column: 1 / -1 !important;
+    grid-row: 2 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+  }
+
+  /* 360px of panel does not fit a 320px phone. */
+  .dispatcher-main .dispatcher-notification-panel {
+    right: 0 !important;
+    width: min(360px, calc(100vw - 24px)) !important;
+    max-width: calc(100vw - 24px) !important;
+  }
+}
+
+/* Desktop keeps the rail; no stranded overlay can survive up here. */
+@media (min-width: 1025px) {
+  .dispatcher-nav-toggle,
+  .dispatcher-nav-backdrop {
+    display: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dispatcher-page > aside.dispatcher-sidebar {
+    transition: none !important;
   }
 }
