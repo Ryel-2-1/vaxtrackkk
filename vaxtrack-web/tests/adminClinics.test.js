@@ -186,3 +186,28 @@ test("the Phase 02 order location snapshot is untouched", () => {
   assert.match(orderLocation, /export function buildClinicLocationSnapshot\(/);
   assert.match(orderLocation, /clinicDocId/);
 });
+
+test("Quick Cart does not request or validate a destination", () => {
+  const requestOrder = src(
+    "pages",
+    "salesRep",
+    "SalesRepRequestOrder.jsx"
+  );
+
+  assert.doesNotMatch(requestOrder, /subscribeClinics/);
+  assert.doesNotMatch(requestOrder, /findRegisteredClinic/);
+  assert.doesNotMatch(requestOrder, /Clinic ID\s*\/\s*Destination/);
+  assert.doesNotMatch(requestOrder, /request-clinic-id/);
+  assert.doesNotMatch(requestOrder, /clinicDocId/);
+  assert.doesNotMatch(requestOrder, /clinicId:/);
+
+  assert.match(
+    requestOrder,
+    /localStorage\.setItem\("salesRepQuickCart"/
+  );
+  assert.match(
+    requestOrder,
+    /navigate\("\/sales-rep\/place-order"\)/
+  );
+  assert.match(requestOrder, />\s*Continue to Checkout\s*</);
+});

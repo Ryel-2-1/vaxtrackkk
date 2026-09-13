@@ -16,31 +16,10 @@ import { subscribeInventory } from "../../services/inventoryService";
 import { availableStock } from "../../services/inventoryCallables";
 import { formatCentavos, readPriceCentavos } from "../../services/money";
 import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
-import { subscribeClinics } from "../../services/clinicService";
+
 import SalesRepLayout from "./SalesRepLayout";
 
-// STRICT Clinic ID matcher. The field is specifically Clinic ID, so ONLY the
-// clinic's canonical `clinicId` field is compared — never the display name and
-// never the Firestore doc id. The typed value is trimmed and case-folded before
-// comparison. A clinic record whose `clinicId` is missing/empty cannot validate
-// (guarantees we don't fall back to a doc-id or free-text match). Existence in
-// the live Firestore `clinics` collection is required because the array we
-// search over comes from `subscribeClinics`.
-function findRegisteredClinic(clinics, value) {
-  const term = (value || "").trim().toLowerCase();
-  if (!term) return null;
-  return (
-    clinics.find((c) => {
-      const cid = c && c.clinicId;
-      if (cid == null) return false;
-      const canonical = String(cid).trim().toLowerCase();
-      if (!canonical) return false; // reject records without a real Clinic ID
-      return canonical === term;
-    }) || null
-  );
-}
 
-const CLINIC_INVALID_MSG = "Enter a valid Clinic ID registered in VaxTrack.";
 
 /**
  * One catalog card per inventory DOCUMENT — one line is one exact batch.
@@ -127,23 +106,7 @@ function SalesRepRequestOrder() {
   const [stockFilter, setStockFilter] = useState("all");
   const [quantities, setQuantities] = useState({});
   const [cart, setCart] = useState([]);
-  const [destination, setDestination] = useState("");
   const [notice, setNotice] = useState("");
-
-  const [clinics, setClinics] = useState([]);
-  const [clinicsLoading, setClinicsLoading] = useState(true);
-  const [clinicError, setClinicError] = useState("");
-
-  useEffect(() => {
-    const unsubscribe = subscribeClinics(
-      (docs) => {
-        setClinics(Array.isArray(docs) ? docs : []);
-        setClinicsLoading(false);
-      },
-      () => setClinicsLoading(false)
-    );
-    return unsubscribe;
-  }, []);
 
   /**
    * Merge anything the Inventory page handed over, once the catalog is known.
@@ -282,35 +245,23 @@ function SalesRepRequestOrder() {
   };
 
   const placeOrder = () => {
-    if (cart.length === 0) {
-      setNotice("Add at least one vaccine before placing an order.");
-      return;
-    }
+  if (cart.length === 0) {
+    setNotice("Add at least one vaccine before continuing.");
+    return;
+  }
 
-    // Clinic must be a REAL registered clinic — re-checked here, at submit,
-    // not only while typing. Arbitrary text (e.g. "rewe") and empty values are
-    // rejected; the canonical clinic record is what flows into the draft.
-    if (clinicsLoading) return; // validation still pending
-    const clinic = findRegisteredClinic(clinics, destination);
-    if (!clinic) {
-      setClinicError(CLINIC_INVALID_MSG);
-      return;
-    }
-    setClinicError("");
-
-    const orderDraft = {
-      destination: clinic.name, // canonical clinic name (PlaceOrder pre-selects by name)
-      clinicId: clinic.clinicId, // canonical Clinic ID (guaranteed present by matcher)
-      clinicDocId: clinic.id,
-      totalVials: cartTotal,
-      storageSlots,
-      items: cart,
-      createdAt: new Date().toISOString(),
-    };
-
-    localStorage.setItem("salesRepQuickCart", JSON.stringify(orderDraft));
-    navigate("/sales-rep/place-order");
+  // Destination selection belongs to checkout. Quick Cart only carries the
+  // selected Firestore inventory batches and their requested quantities.
+  const orderDraft = {
+    totalVials: cartTotal,
+    storageSlots,
+    items: cart,
+    createdAt: new Date().toISOString(),
   };
+
+  localStorage.setItem("salesRepQuickCart", JSON.stringify(orderDraft));
+  navigate("/sales-rep/place-order");
+};
 
   if (loading) {
     return (
@@ -516,35 +467,22 @@ function SalesRepRequestOrder() {
           )}
 
           <div className="cart-footer">
-            <p>Total Vials: <strong>{cartTotal.toLocaleString()}</strong></p>
-            <p>Storage Slots: <strong>{storageSlots}</strong></p>
+  <p>
+    Total Vials: <strong>{cartTotal.toLocaleString()}</strong>
+  </p>
 
-            <label htmlFor="request-clinic-id">Clinic ID / Destination</label>
-            <input
-              id="request-clinic-id"
-              value={destination}
-              onChange={(event) => {
-                setDestination(event.target.value);
-                if (clinicError) setClinicError("");
-              }}
-              placeholder="e.g. MNL-HUB-A102"
-              aria-invalid={clinicError ? "true" : undefined}
-              aria-describedby={clinicError ? "request-clinic-error" : undefined}
-            />
-            {clinicError && (
-              <small id="request-clinic-error" className="request-clinic-error" role="alert">
-                {clinicError}
-              </small>
-            )}
+  <p>
+    Storage Slots: <strong>{storageSlots}</strong>
+  </p>
 
-            <button
-              type="button"
-              onClick={placeOrder}
-              disabled={cart.length === 0 || clinicsLoading}
-            >
-              Place Order
-            </button>
-          </div>
+  <button
+    type="button"
+    onClick={placeOrder}
+    disabled={cart.length === 0}
+  >
+    Continue to Checkout
+  </button>
+</div>
         </aside>
       </section>
     </SalesRepLayout>
