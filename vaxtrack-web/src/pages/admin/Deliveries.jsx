@@ -12,7 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
-import { AdminSidebar } from "./Inventory";
+import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import StatusBadge from "../../components/ui/StatusBadge";
 import KpiCard from "../../components/ui/KpiCard";

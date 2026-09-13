@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/app_user.dart';
+import '../utils/rider_registration.dart';
 
 class RegistrationError implements Exception {
   final String code;
@@ -104,12 +105,15 @@ class AuthService {
             .collection('users')
             .doc(createdUser.uid)
             .set({
-              'role': 'rider',
-              'status': 'pending',
-              'fullName': fullName.trim(),
-              'email': email.trim(),
-              'phone': phone.trim(),
-              'vehiclePlate': vehiclePlate.trim(),
+              // Role, initial status and vehicle type are SET by the builder,
+              // never taken from the form — a rider cannot self-assign another
+              // role, start approved, or claim a different vehicle type.
+              ...buildRiderRegistrationFields(
+                fullName: fullName,
+                email: email,
+                phone: phone,
+                vehiclePlate: vehiclePlate,
+              ),
               'createdAt': FieldValue.serverTimestamp(),
               'updatedAt': FieldValue.serverTimestamp(),
             })

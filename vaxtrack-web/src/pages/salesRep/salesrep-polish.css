@@ -477,3 +477,138 @@ aside.salesrep-sidebar .salesrep-logout {
   max-height: none !important;
   overflow-y: visible !important;
 }
+
+/* ============================================================
+   Order-flow fixes (fix/sales-rep-order-flow-ui)
+   ============================================================ */
+
+/* Goal 1 · Order Tracking progress — delayed orders must read as delayed,
+   never "on track" green, and the indeterminate (no-stage) delayed case
+   shows a paused striped bar instead of a fabricated percentage. */
+.salesrep-page .track-progress.is-delayed span {
+  background: var(--warning-text) !important;
+}
+.salesrep-page .track-progress.is-indeterminate {
+  background: var(--warning-bg) !important;
+}
+.salesrep-page .track-progress.is-indeterminate span {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--warning-text),
+    var(--warning-text) 4px,
+    transparent 4px,
+    transparent 8px
+  ) !important;
+}
+
+/* Progress-bar size: the base rule (`SalesRep.css:289`) drew the track at
+   `width:64px; height:5px`, which made 15% (≈10px of fill) unreadable. Enlarge
+   to ~120×8 so the low percentages remain legible, and cap at the cell width so
+   narrow tables never overflow. Bar fill % is set inline from the SAME derived
+   `progress` value that the label uses (Goal 1 mapping unchanged). Cell layout
+   keeps bar + % vertically stacked and left-aligned, matching row height. */
+.salesrep-page .track-progress {
+  width: min(120px, 100%) !important;
+  height: 8px !important;
+  border-radius: 999px !important;
+}
+.salesrep-page .track-progress span {
+  height: 100% !important;
+  border-radius: 999px !important;
+}
+
+/* Goal 2 · inline Clinic ID error on the Request Order cart footer */
+.salesrep-page .request-clinic-error {
+  display: block;
+  margin: -4px 0 10px;
+  color: var(--danger-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Goal 3 · Checkout Order Items — Total Vials aligned to the right.
+   The footer holds a single summary <p>; flex-end pushes it to the
+   right (label + value stay grouped). The legacy responsive block still
+   stacks it cleanly on narrow widths (no horizontal overflow). */
+.salesrep-page .order-items-footer {
+  justify-content: flex-end !important;
+}
+
+/* Goal 6 · Single-surface search fields (same pattern as Admin/Dispatcher).
+   The wrapper owns the background/border/radius + one :focus-within ring;
+   the inner input draws no second box. Globals forced a 46px, 12px-rounded,
+   white inner box (min-height/border-radius/background !important) and §2
+   added a second focus outline — both defeated here. Covers every Sales
+   Rep search wrapper incl. the shared topbar `.salesrep-search`. */
+.salesrep-page .request-v2-search input,
+.salesrep-page .place-v2-search input,
+.salesrep-page .tracking-v2-search input,
+.salesrep-page .alerts-v2-search input,
+.salesrep-page .inventory-search-box input,
+.salesrep-page .salesrep-search input {
+  min-height: 0 !important;
+  height: auto !important;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  border-radius: 0 !important;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  color: var(--gray-900) !important;
+  font-family: var(--font-ui) !important;
+}
+.salesrep-page .request-v2-search:focus-within,
+.salesrep-page .place-v2-search:focus-within,
+.salesrep-page .tracking-v2-search:focus-within,
+.salesrep-page .alerts-v2-search:focus-within,
+.salesrep-page .inventory-search-box:focus-within,
+.salesrep-page .salesrep-search:focus-within {
+  border-color: var(--green-700) !important;
+  box-shadow: 0 0 0 3px var(--green-100) !important;
+}
+.salesrep-page .request-v2-search input:focus-visible,
+.salesrep-page .place-v2-search input:focus-visible,
+.salesrep-page .tracking-v2-search input:focus-visible,
+.salesrep-page .alerts-v2-search input:focus-visible,
+.salesrep-page .inventory-search-box input:focus-visible,
+.salesrep-page .salesrep-search input:focus-visible {
+  outline: none !important;
+}
+
+/* Order Confirmation reference block.
+   ROOT CAUSE of the earlier "still touching" pass: the inner <div> holding the
+   label + button was left in normal block flow with the <span> as an inline
+   element next to the inline-flex <button>. So `margin-top` on the button only
+   nudged it slightly on the same visual row — the label + ID stayed adjacent.
+   Real fix: turn the inner wrapper into a column flex, forcing the label onto
+   its own line above the ID/copy row. Outer row wraps at narrow widths so the
+   `.processing` status drops below rather than colliding with a long ID. */
+.salesrep-page .order-reference.confirmation-v2-reference {
+  flex-wrap: wrap !important;
+  gap: 12px 16px !important;
+  align-items: flex-start !important;
+}
+.salesrep-page .order-reference.confirmation-v2-reference > div {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  gap: 10px !important;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.salesrep-page .order-reference.confirmation-v2-reference > div > span {
+  display: block !important;   /* label on its own line, not inline before button */
+}
+.salesrep-page .order-reference.confirmation-v2-reference button {
+  margin-top: 0 !important;
+  gap: 14px !important;         /* clearer horizontal gap: ID text ↔ copy icon */
+  max-width: 100%;
+}
+.salesrep-page .order-reference.confirmation-v2-reference button strong {
+  min-width: 0;
+  word-break: break-all;        /* long VT-ORD-…s wrap instead of overflowing */
+}

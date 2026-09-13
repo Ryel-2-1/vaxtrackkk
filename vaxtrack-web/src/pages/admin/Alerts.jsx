@@ -17,7 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
-import { AdminSidebar } from "./Inventory";
+import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import {
   markAlertRead,
   resolveAlert,
@@ -497,7 +497,7 @@ function AlertReviewModal({ alert, onClose, onResolve, onContact, onRoute }) {
   return (
     <div className="alerts-modal-backdrop">
       <div className="alerts-modal">
-        <button type="button" className="alerts-modal-close" onClick={onClose}>
+        <button type="button" className="alerts-modal-close" onClick={onClose} aria-label="Close">
           <X size={18} />
         </button>
 
@@ -584,7 +584,7 @@ function AlertSettingsModal({ settings, setSettings, onClose, onSave }) {
   return (
     <div className="alerts-modal-backdrop">
       <div className="alerts-modal settings-modal">
-        <button type="button" className="alerts-modal-close" onClick={onClose}>
+        <button type="button" className="alerts-modal-close" onClick={onClose} aria-label="Close">
           <X size={18} />
         </button>
 

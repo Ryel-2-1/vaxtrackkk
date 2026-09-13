@@ -83,7 +83,7 @@ class Delivery {
       clinicAddress: data['clinicAddress'] ?? '',
       vaccineName: data['vaccineName'] ?? '',
       vaccineType: data['vaccineType'],
-      quantity: (data['quantity'] ?? 0).toInt(),
+      quantity: _toQuantity(data['quantity']) ?? 0,
       unit: data['unit'] ?? 'vials',
       priority: data['priority'] ?? 'Standard',
       status: normalizedStatus,
@@ -128,8 +128,46 @@ class Delivery {
     return null;
   }
 
+  /// Numeric coercion for `orders.quantity`.
+  ///
+  /// The previous `(data['quantity'] ?? 0).toInt()` assumed the field was
+  /// always a `num`. It is not: legacy / hand-seeded orders can carry it as a
+  /// STRING. The observed case was staging order **VT-STG-001**, which held a
+  /// string quantity of `"10"`; the Rider app failed with
+  /// `NoSuchMethodError: Class 'String' has no instance method 'toInt'.
+  /// Receiver: "10"`, which escaped the snapshot mapping and blanked the
+  /// rider's ENTIRE delivery list — including the four well-formed orders
+  /// alongside it. Correcting that one document's field type to a number
+  /// restored the list, confirming the diagnosis. (That document has since
+  /// been corrected; this guard is what stops the next one recurring.)
+  ///
+  /// A non-finite `num` (`double.infinity` / `double.nan`) was the second,
+  /// unhit branch of the same defect: `.toInt()` on those throws
+  /// `Unsupported operation: Infinity or NaN toInt`.
+  ///
+  /// Normalizes what is genuinely a quantity — an int, a finite num, or a
+  /// numeric string — and returns `null` for anything else so the caller falls
+  /// back to the pre-existing `0` default. It never guesses a quantity from a
+  /// value that does not contain one.
+  static int? _toQuantity(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.isFinite ? value.toInt() : null;
+    if (value is String) {
+      final text = value.trim();
+      if (text.isEmpty) return null;
+      final asInt = int.tryParse(text);
+      if (asInt != null) return asInt;
+      final asDouble = double.tryParse(text);
+      if (asDouble != null && asDouble.isFinite) return asDouble.toInt();
+    }
+    return null;
+  }
+
+  /// Same non-finite guard as [_toDouble] — `double.infinity.toInt()` throws
+  /// `Unsupported operation: Infinity or NaN toInt`, so a corrupt route field
+  /// could crash the mapping exactly like `quantity` did.
   static int? _toInt(dynamic value) {
-    if (value is num) return value.toInt();
+    if (value is num) return value.isFinite ? value.toInt() : null;
     return null;
   }
 

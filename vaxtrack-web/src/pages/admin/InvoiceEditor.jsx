@@ -15,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
-import { AdminSidebar } from "./Inventory";
+import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import { getOrderById } from "../../services/orderService";
 import { getUserProfile } from "../../services/userService";
 import {

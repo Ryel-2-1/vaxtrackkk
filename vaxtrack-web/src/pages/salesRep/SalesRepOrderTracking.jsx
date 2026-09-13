@@ -24,19 +24,24 @@ import StatusBadge from "../../components/ui/StatusBadge";
 
 function mapTrackingLabel(statusKey) {
   switch (statusKey) {
+    case "processing":
+    case "requested":
+    case "approved":
     case "pending":
     case "pending_dispatch":
       return "Pending Dispatch";
     case "assigned":
       return "Assigned";
     case "loading":
+    case "ready_for_dispatch":
       return "Loading";
     case "in_transit":
+    case "out_for_delivery":
       return "Out for Delivery";
     case "delayed":
       return "Delayed";
-    case "completed":
     case "delivered":
+    case "completed":
       return "Delivered";
     case "cancelled":
     case "canceled":
@@ -46,27 +51,59 @@ function mapTrackingLabel(statusKey) {
   }
 }
 
-function statusProgress(statusKey) {
+const clampPct = (n) => Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
+
+// Progress is derived from the normalized lifecycle status — the single source
+// of truth — never a timer, animation, or fabricated value. Orders carry no
+// trustworthy numeric progress field, so each stage maps to one explicit
+// percentage; bar width and label read from the same returned value.
+//
+// Every KNOWN status is listed explicitly; `default` is a safety net for truly
+// unknown values only, and does not silently cover any known status. The
+// shared `normalizeStatusKey` (deliveryService) only trims/lowercases and turns
+// dashes+spaces into underscores, so we alias the raw wording variants here
+// (e.g. `out_for_delivery` ≡ `in_transit`, `ready_for_dispatch` ≡ `loading`,
+// `processing`/`requested`/`approved` ≡ `pending`).
+// Returns { progress, indeterminate }.
+function deriveProgress(raw, statusKey) {
   switch (statusKey) {
+    case "processing":
+    case "requested":
+    case "approved":
     case "pending":
     case "pending_dispatch":
-      return 15;
+      return { progress: 15, indeterminate: false };
     case "assigned":
-      return 30;
+      return { progress: 30, indeterminate: false };
     case "loading":
-      return 45;
+    case "ready_for_dispatch":
+      return { progress: 50, indeterminate: false };
     case "in_transit":
-      return 75;
-    case "delayed":
-      return 60;
-    case "completed":
+    case "out_for_delivery":
+      return { progress: 75, indeterminate: false };
     case "delivered":
-      return 100;
+    case "completed":
+      return { progress: 100, indeterminate: false };
     case "cancelled":
     case "canceled":
-      return 0;
+      return { progress: 0, indeterminate: false };
+    case "delayed": {
+      // A delayed order keeps its LAST legitimate stage — recovered from the
+      // audit fields the dispatch/cargo/rider flow writes — rather than an
+      // invented percentage. If no stage signal exists it is indeterminate
+      // (paused), never a made-up number.
+      if (raw.startedAt || raw.dispatchedAt || raw.loadingFinalizedAt)
+        return { progress: 75, indeterminate: false };
+      if (raw.loadedAt || raw.isLoaded)
+        return { progress: 50, indeterminate: false };
+      if (raw.assignedRiderId || raw.assignedAt)
+        return { progress: 30, indeterminate: false };
+      return { progress: 0, indeterminate: true };
+    }
     default:
-      return 10;
+      // Truly unknown status only. Show the earliest stage without pretending
+      // any known lifecycle progress has occurred.
+      return { progress: 15, indeterminate: false };
   }
 }
 
@@ -81,13 +118,17 @@ function normalizeOrder(raw) {
   const rawStatus = getOrderStatusValue(raw);
   const statusKey = normalizeStatusKey(rawStatus);
   const label = mapTrackingLabel(statusKey);
-  const progress = statusProgress(statusKey);
+  const { progress: rawProgress, indeterminate: progressIndeterminate } =
+    deriveProgress(raw, statusKey);
+  const progress = clampPct(rawProgress);
 
   const items = Array.isArray(raw.items)
     ? raw.items.map((item) => ({
         name: item.name || "Unknown",
         batch: item.sku || item.batchId || "—",
-        qty: `${Number(item.quantity || 0).toLocaleString()} vials`,
+        qty: `${Number(item.quantity || 0).toLocaleString()} ${
+          Number(item.quantity || 0) === 1 ? "vial" : "vials"
+        }`,
       }))
     : [];
 
@@ -100,7 +141,8 @@ function normalizeOrder(raw) {
     status: label,
     statusKey,
     progress,
-    progressText: `${progress}%`,
+    progressIndeterminate,
+    progressText: progressIndeterminate ? "Delayed" : `${progress}%`,
     driver: raw.assignedRiderId || "Pending",
     driverName: raw.assignedRiderName || "Awaiting rider assignment",
     vaccineName: raw.vaccineName || "—",
@@ -411,7 +453,7 @@ function SalesRepOrderTracking() {
                     <PackageCheck size={15} />
                     <div>
                       <strong>{selectedOrder.vaccineName}</strong>
-                      <p>{selectedOrder.quantity.toLocaleString()} vials</p>
+                      <p>{selectedOrder.quantity.toLocaleString()} {selectedOrder.quantity === 1 ? "vial" : "vials"}</p>
                     </div>
                   </div>
                 )}
@@ -419,7 +461,7 @@ function SalesRepOrderTracking() {
                 <div className="tracking-total">
                   <p>
                     Total Quantity
-                    <strong>{selectedOrder.quantity.toLocaleString()} vials</strong>
+                    <strong>{selectedOrder.quantity.toLocaleString()} {selectedOrder.quantity === 1 ? "vial" : "vials"}</strong>
                   </p>
                 </div>
               </>
@@ -467,8 +509,21 @@ function TrackingRow({ selected, order, onSelect }) {
       </td>
 
       <td>
-        <div className="track-progress">
-          <span style={{ width: `${order.progress}%` }}></span>
+        <div
+          className={`track-progress${isDanger ? " is-delayed" : ""}${
+            order.progressIndeterminate ? " is-indeterminate" : ""
+          }`}
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={order.progressIndeterminate ? undefined : order.progress}
+          aria-label={`${order.status} — ${order.progressText}`}
+        >
+          <span
+            style={{
+              width: order.progressIndeterminate ? "100%" : `${order.progress}%`,
+            }}
+          ></span>
         </div>
         <small>{order.progressText}</small>
       </td>

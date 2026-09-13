@@ -6852,6 +6852,10 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  /* owns its own box: the global unclassed-button rule no longer inflates
+     text links to 46px, so the hit area is stated here (WCAG 2.5.8) — same
+     treatment as the Admin console's .adx-link. */
+  min-height: 24px;
   background: transparent !important;
   border: none !important;
   padding: 0 !important;

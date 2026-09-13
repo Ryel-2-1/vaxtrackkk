@@ -13,7 +13,31 @@ import {
   Trash2,
 } from "lucide-react";
 import { subscribeInventory } from "../../services/inventoryService";
+import { subscribeClinics } from "../../services/clinicService";
 import SalesRepLayout from "./SalesRepLayout";
+
+// STRICT Clinic ID matcher. The field is specifically Clinic ID, so ONLY the
+// clinic's canonical `clinicId` field is compared — never the display name and
+// never the Firestore doc id. The typed value is trimmed and case-folded before
+// comparison. A clinic record whose `clinicId` is missing/empty cannot validate
+// (guarantees we don't fall back to a doc-id or free-text match). Existence in
+// the live Firestore `clinics` collection is required because the array we
+// search over comes from `subscribeClinics`.
+function findRegisteredClinic(clinics, value) {
+  const term = (value || "").trim().toLowerCase();
+  if (!term) return null;
+  return (
+    clinics.find((c) => {
+      const cid = c && c.clinicId;
+      if (cid == null) return false;
+      const canonical = String(cid).trim().toLowerCase();
+      if (!canonical) return false; // reject records without a real Clinic ID
+      return canonical === term;
+    }) || null
+  );
+}
+
+const CLINIC_INVALID_MSG = "Enter a valid Clinic ID registered in VaxTrack.";
 
 function normalizeProduct(raw) {
   const qty = raw.quantity != null ? Number(raw.quantity) : 0;
@@ -47,6 +71,21 @@ function SalesRepRequestOrder() {
   const [cart, setCart] = useState([]);
   const [destination, setDestination] = useState("");
   const [notice, setNotice] = useState("");
+
+  const [clinics, setClinics] = useState([]);
+  const [clinicsLoading, setClinicsLoading] = useState(true);
+  const [clinicError, setClinicError] = useState("");
+
+  useEffect(() => {
+    const unsubscribe = subscribeClinics(
+      (docs) => {
+        setClinics(Array.isArray(docs) ? docs : []);
+        setClinicsLoading(false);
+      },
+      () => setClinicsLoading(false)
+    );
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     const unsubscribe = subscribeInventory(
@@ -175,13 +214,21 @@ function SalesRepRequestOrder() {
       return;
     }
 
-    if (!destination.trim()) {
-      setNotice("Please enter a clinic ID or destination before placing an order.");
+    // Clinic must be a REAL registered clinic — re-checked here, at submit,
+    // not only while typing. Arbitrary text (e.g. "rewe") and empty values are
+    // rejected; the canonical clinic record is what flows into the draft.
+    if (clinicsLoading) return; // validation still pending
+    const clinic = findRegisteredClinic(clinics, destination);
+    if (!clinic) {
+      setClinicError(CLINIC_INVALID_MSG);
       return;
     }
+    setClinicError("");
 
     const orderDraft = {
-      destination: destination.trim(),
+      destination: clinic.name, // canonical clinic name (PlaceOrder pre-selects by name)
+      clinicId: clinic.clinicId, // canonical Clinic ID (guaranteed present by matcher)
+      clinicDocId: clinic.id,
       totalVials: cartTotal,
       storageSlots,
       items: cart,
@@ -275,7 +322,7 @@ function SalesRepRequestOrder() {
                     <div>
                       <span>Available Stock</span>
                       <strong>{product.stock > 0 ? product.stock.toLocaleString() : "--"}</strong>
-                      <small>vials</small>
+                      <small>{product.stock === 1 ? "vial" : "vials"}</small>
                     </div>
 
                     <div>
@@ -357,7 +404,7 @@ function SalesRepRequestOrder() {
                   <div>
                     <strong>{item.name}</strong>
                     <p>{item.sku}</p>
-                    <span>{item.quantity.toLocaleString()} vials</span>
+                    <span>{item.quantity.toLocaleString()} {item.quantity === 1 ? "vial" : "vials"}</span>
                   </div>
 
                   <button type="button" onClick={() => removeFromCart(item.sku)}>
@@ -372,14 +419,29 @@ function SalesRepRequestOrder() {
             <p>Total Vials: <strong>{cartTotal.toLocaleString()}</strong></p>
             <p>Storage Slots: <strong>{storageSlots}</strong></p>
 
-            <label>Clinic ID / Destination</label>
+            <label htmlFor="request-clinic-id">Clinic ID / Destination</label>
             <input
+              id="request-clinic-id"
               value={destination}
-              onChange={(event) => setDestination(event.target.value)}
+              onChange={(event) => {
+                setDestination(event.target.value);
+                if (clinicError) setClinicError("");
+              }}
               placeholder="e.g. MNL-HUB-A102"
+              aria-invalid={clinicError ? "true" : undefined}
+              aria-describedby={clinicError ? "request-clinic-error" : undefined}
             />
+            {clinicError && (
+              <small id="request-clinic-error" className="request-clinic-error" role="alert">
+                {clinicError}
+              </small>
+            )}
 
-            <button type="button" onClick={placeOrder} disabled={cart.length === 0}>
+            <button
+              type="button"
+              onClick={placeOrder}
+              disabled={cart.length === 0 || clinicsLoading}
+            >
               Place Order
             </button>
           </div>

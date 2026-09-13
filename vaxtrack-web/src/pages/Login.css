@@ -6,6 +6,23 @@
    come from the global Meridian tokens (tokens.css) — no new hues.
    ============================================================ */
 
+/* Contain the scroll root on this route.
+   `index.css` still carries the Vite scaffold's `#root { width: 1126px }`, and
+   `styles.css` then sets `max-width: none !important` on html/body/#root — which
+   removes the very cap (`max-width: 100%`) that kept that fixed width in check.
+   Below 1126px the root therefore stays 1126px wide and only *looks* contained
+   because of the global `overflow-x: hidden`: children sized from it are simply
+   clipped. On the login that pushed the card and its Sign in button off-screen
+   at phone widths.
+   This is a pre-existing, app-wide bug. The fix here is deliberately scoped to
+   the login route (`:has(> .vlogin)`) so it cannot alter any dashboard layout;
+   the global rule needs its own change and its own verification pass.
+   `!important` is the minimum needed to beat `max-width: none !important`. */
+#root:has(> .vlogin) {
+  width: 100%;
+  max-width: 100% !important;
+}
+
 .vlogin {
   --vl-motion: 180ms;
   --vl-motion-fast: 140ms;
@@ -14,6 +31,7 @@
   display: flex;
   min-height: 100vh;
   width: 100%;
+  max-width: 100%;
   background: var(--gray-50);
   color: var(--gray-900);
   font-family: var(--font-ui);
@@ -121,57 +139,26 @@
   color: var(--gray-600);
 }
 
-/* ---------------- role selector ---------------- */
-.vlogin-roles {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-  padding: 4px;
-  border: 1px solid var(--gray-200);
-  border-radius: var(--radius-control);
-  background: var(--gray-100);
-}
-.vlogin-role {
+/* ---------------- role note ----------------
+   A static statement, not a control. Routing is decided solely by the role
+   stored on users/{uid}; the sign-in screen never offers a portal choice,
+   because a selection here could only ever contradict the account. */
+.vlogin-role-note {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 4px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 18px;
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--gray-600);
-  font-family: var(--font-ui);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background var(--vl-motion-fast) var(--vl-ease),
-    color var(--vl-motion-fast) var(--vl-ease),
-    border-color var(--vl-motion-fast) var(--vl-ease);
 }
-.vlogin-role svg {
-  color: var(--gray-500);
-  transition: color var(--vl-motion-fast) var(--vl-ease);
-}
-.vlogin-role:hover {
-  color: var(--gray-900);
-  background: #ffffff;
-}
-.vlogin-role[aria-pressed="true"] {
-  background: var(--green-700);
-  border-color: var(--green-700);
-  color: #ffffff;
-}
-.vlogin-role[aria-pressed="true"] svg {
-  color: #ffffff;
-}
-.vlogin-role:focus-visible {
-  outline: 2px solid var(--green-600);
-  outline-offset: 2px;
-}
-.vlogin-role-sub {
-  margin: 8px 2px 18px;
-  font-size: 12px;
+.vlogin-role-note svg {
+  flex-shrink: 0;
+  margin-top: 1px;
   color: var(--gray-500);
 }
 
@@ -398,62 +385,6 @@
   text-align: center;
 }
 
-/* ---------------- Rider mobile handoff ---------------- */
-.vlogin-rider {
-  border: 1px solid var(--gray-200);
-  border-radius: var(--radius-card);
-  background: #ffffff;
-  padding: 22px 20px;
-  box-shadow: var(--shadow-card);
-}
-.vlogin-rider-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 10px;
-  background: var(--info-bg);
-  color: var(--info-text);
-  margin-bottom: 12px;
-}
-.vlogin-rider h2 {
-  margin: 0 0 6px;
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--gray-900);
-}
-.vlogin-rider p {
-  margin: 0 0 10px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--gray-600);
-}
-.vlogin-rider ul {
-  margin: 0 0 12px;
-  padding-left: 18px;
-}
-.vlogin-rider li {
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--gray-600);
-}
-.vlogin-rider-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: var(--radius-control);
-  background: var(--gray-50);
-  border: 1px solid var(--gray-200);
-  font-size: 12px;
-  color: var(--gray-600);
-}
-.vlogin-rider-note svg {
-  flex-shrink: 0;
-  margin-top: 1px;
-  color: var(--gray-500);
-}
 
 /* ---------------- entrance motion ---------------- */
 @keyframes vlogin-rise {
@@ -488,12 +419,6 @@
   .vlogin-panel {
     padding: 28px 20px;
     align-items: flex-start;
-  }
-  .vlogin-roles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .vlogin-role {
-    min-height: 52px;
   }
 }
 

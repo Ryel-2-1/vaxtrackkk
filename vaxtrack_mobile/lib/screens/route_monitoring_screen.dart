@@ -8,8 +8,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/delivery.dart';
 import '../services/route_deviation_alert_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/map_fit.dart';
 import '../utils/route_compliance_monitor.dart';
 import '../utils/route_monitor.dart';
+import '../utils/safe_log.dart';
 
 /// FREE in-app route-monitoring screen (no paid Google Navigation SDK, no
 /// MAPS_API_KEY, no billing, no Navigation Terms).
@@ -199,17 +201,32 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
   }
 
   void _fit() {
-    final pts = <LatLng>[..._baseline, ?_riderPoint, ?_destinationPoint];
-    if (pts.length < 2 || !_mapReady) return;
+    if (!_mapReady) return;
+    // Extent-based, not count-based — see [resolveMapFit]. A rider standing on
+    // the destination previously yielded a zero-area bounds and an infinite
+    // zoom, which threw "Infinity or NaN toInt" and blanked the map.
+    final fit =
+        resolveMapFit(<LatLng>[..._baseline, ?_riderPoint, ?_destinationPoint]);
     try {
-      _mapController.fitCamera(
-        CameraFit.bounds(
-          bounds: LatLngBounds.fromPoints(pts),
-          padding: const EdgeInsets.all(40),
-        ),
-      );
-    } catch (_) {
-      // Ignore if not laid out yet.
+      switch (fit.kind) {
+        case MapFitKind.none:
+          // Nothing to frame — keep the initial fallback camera.
+          break;
+        case MapFitKind.center:
+          _mapController.move(fit.center!, fit.zoom!);
+        case MapFitKind.bounds:
+          _mapController.fitCamera(
+            CameraFit.bounds(
+              bounds: LatLngBounds.fromPoints(fit.boundsPoints),
+              padding: const EdgeInsets.all(40),
+              maxZoom: kMaxFitZoom,
+            ),
+          );
+      }
+    } catch (error, stack) {
+      // Best-effort, but reported — never silently swallowed.
+      logSuppressedError(
+          'RouteMonitoringScreen', 'camera fit skipped', error, stack);
     }
   }
 

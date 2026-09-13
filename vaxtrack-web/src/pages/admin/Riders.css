@@ -33,6 +33,14 @@
   font-weight: 400;
 }
 
+/* Onboarding note: states where rider accounts actually come from, since this
+   page cannot create them. Deliberately quieter than the page subtitle. */
+.riders-v2-header .riders-onboarding-note {
+  margin-top: 6px;
+  color: var(--gray-500);
+  font-size: 13px;
+}
+
 .riders-v2-header-actions {
   display: flex;
   align-items: center;
@@ -109,27 +117,6 @@
   border-radius: 999px;
   background: #dc2626;
   border: 2px solid #ffffff;
-}
-
-.riders-new-btn {
-  height: 42px;
-  border: 0;
-  border-radius: 12px;
-  background: var(--green-700);
-  color: #ffffff;
-  padding: 0 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  font-size: 14px;
-  font-weight: 700;
-  box-shadow: var(--shadow-card);
-  cursor: pointer;
-}
-
-.riders-new-btn:hover {
-  background: var(--green-800);
 }
 
 /* Summary cards */
@@ -829,69 +816,6 @@
   color: var(--danger-text);
 }
 
-/* Forms */
-
-.riders-form-modal {
-  width: 700px;
-}
-
-.riders-form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-  margin: 18px 0 20px;
-}
-
-.riders-form-grid label,
-.riders-form-label {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  color: var(--gray-600);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.riders-form-grid label.wide {
-  grid-column: 1 / -1;
-}
-
-.riders-form-grid input,
-.riders-form-grid select,
-.riders-form-label select {
-  width: 100%;
-  height: 46px;
-
-  border: 1px solid var(--gray-300);
-  border-radius: 12px;
-
-  padding: 0 14px;
-  margin: 0;
-
-  background: #ffffff;
-  box-shadow: none;
-
-  color: #0f172a;
-  font-size: 14px;
-  font-weight: 650;
-  line-height: 46px;
-
-  box-sizing: border-box;
-  outline: none;
-}
-
-.riders-form-grid input::placeholder {
-  color: #8da0ba;
-  font-weight: 600;
-}
-
-.riders-form-grid input:focus,
-.riders-form-grid select:focus,
-.riders-form-label select:focus {
-  border-color: var(--green-700);
-  box-shadow: 0 0 0 3px var(--green-100);
-}
-
 /* Toast */
 
 .riders-toast {
@@ -962,8 +886,7 @@
   }
 
   .riders-summary-grid,
-  .riders-modal-grid,
-  .riders-form-grid {
+  .riders-modal-grid {
     grid-template-columns: 1fr;
   }
 

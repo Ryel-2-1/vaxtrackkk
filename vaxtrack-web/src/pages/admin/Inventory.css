@@ -381,13 +381,17 @@
 
 .v2-inventory-toolbar {
   display: flex;
+  flex-wrap: wrap; /* search + filters wrap instead of clipping the expiry select */
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px 16px;
   margin-bottom: 16px;
 }
 
 .v2-inventory-search {
-  width: 360px;
+  flex: 1 1 260px; /* grows to fill, keeps a sensible minimum, wraps on mobile */
+  min-width: 220px;
+  max-width: 460px;
   height: 42px;
   border: 1px solid var(--gray-300);
   background: #ffffff;
@@ -482,13 +486,21 @@
 
 /* Table */
 
+.v2-inventory-table-card {
+  min-width: 0;
+}
+
+/* Horizontal scroll is contained to this wrapper — the page never scrolls. */
 .v2-table-scroll {
   width: 100%;
+  min-width: 0;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .v2-vaccine-table {
   width: 100%;
+  min-width: 640px; /* keep columns readable; scroll inside .v2-table-scroll */
   border-collapse: collapse;
 }
 
@@ -564,8 +576,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
-  padding: 7px 11px;
+  border-radius: var(--radius-pill, 999px);
+  padding: 4px 10px;
+  font-family: var(--font-ui);
   font-size: 12px;
   font-weight: 600;
 }

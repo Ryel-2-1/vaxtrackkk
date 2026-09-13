@@ -57,6 +57,12 @@ function getLatestOrder() {
       ...fallbackOrder,
       ...savedOrder,
       id: savedOrder.id || localStorage.getItem("latestSalesOrderId") || fallbackOrder.id,
+      // Canonical public order reference (VT-ORD-…) — the same field every
+      // other Sales Rep screen (Tracking, Alerts, Dashboard) displays. If the
+      // saved draft doesn't carry it (legacy path, before PlaceOrder started
+      // forwarding it) fall back to the Firestore doc id or the fallback so
+      // something is always shown — but the current PlaceOrder always writes it.
+      orderNumber: savedOrder.orderNumber || savedOrder.id || localStorage.getItem("latestSalesOrderId") || fallbackOrder.id,
       status: friendlyStatus(savedOrder.status),
       clinicName: savedOrder.clinicName || fallbackOrder.clinicName,
       clinicAddress: savedOrder.clinicAddress || savedOrder.clinicName || fallbackOrder.clinicAddress,
@@ -93,7 +99,6 @@ function SalesRepOrderConfirmation() {
         batch: item.batch || item.chain || item.temp || "Medical Supply",
         quantity,
         unit: item.unit || "vials",
-        note: item.chain || item.temp || item.category || "Standard Transit",
         lineTotal,
       };
     });
@@ -106,7 +111,7 @@ function SalesRepOrderConfirmation() {
 
   const handleCopyReference = async () => {
     try {
-      await navigator.clipboard.writeText(order.id);
+      await navigator.clipboard.writeText(order.orderNumber);
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } catch {
@@ -132,7 +137,7 @@ function SalesRepOrderConfirmation() {
           <div>
             <span>Order Reference</span>
             <button type="button" onClick={handleCopyReference}>
-              <strong>{order.id}</strong>
+              <strong>{order.orderNumber}</strong>
               <Copy size={14} />
             </button>
             {copied && <small>Copied</small>}
@@ -149,8 +154,9 @@ function SalesRepOrderConfirmation() {
             icon={<PackageCheck size={18} />}
             name={item.name}
             sku={`SKU: ${item.sku}`}
-            qty={`${item.quantity.toLocaleString()} ${item.unit}`}
-            note={item.note}
+            qty={`${item.quantity.toLocaleString()} ${
+              item.unit === "vials" && item.quantity === 1 ? "vial" : item.unit
+            }`}
           />
         ))}
 
@@ -241,7 +247,7 @@ function friendlyStatus(raw) {
   }
 }
 
-function ConfirmItem({ icon, name, sku, qty, note }) {
+function ConfirmItem({ icon, name, sku, qty }) {
   return (
     <div className="confirm-item">
       <span>{icon}</span>
@@ -251,7 +257,6 @@ function ConfirmItem({ icon, name, sku, qty, note }) {
       </div>
       <div>
         <strong>{qty}</strong>
-        <p>{note}</p>
       </div>
     </div>
   );

@@ -6871,13 +6871,9 @@
   border-color: #2563eb !important;
 }
 
-/* Monitoring layout: the shipment PICKER is the narrow rail, the shipment
-   being monitored (details + live map + route) gets the wide column. The
-   earlier order had it backwards — the 315px rail carried the map while the
-   1fr column held only the list, leaving most of the viewport empty. */
 .geo3-grid {
   display: grid !important;
-  grid-template-columns: 315px minmax(0, 1fr) !important;
+  grid-template-columns: minmax(0, 1fr) 315px !important;
   gap: 18px !important;
   align-items: start !important;
 }
@@ -8102,20 +8098,19 @@
 /* ---------- live map (Leaflet + OSM, rider position only) ----------
    Named geo3-live-map to avoid the legacy .geo3-map fake-map rules
    (min-height 520px + gradient bg) still present further down.
-   Height tracks the width the map now gets in the wide column: desktop
-   ~560px, laptop/tablet ~420px, mobile ~320px.
+   Responsive height: desktop ~480px, laptop/tablet ~390px, mobile ~320px.
    Full card width, never overflows horizontally. */
 .geo3-live-map {
   width: 100%;
   max-width: 100%;
-  height: 560px;
+  height: 480px;
   border: 1px solid var(--gray-200);
   border-radius: 10px;
   overflow: hidden;
   z-index: 0; /* keep Leaflet panes under the app's dropdowns/modals */
 }
 @media (max-width: 1024px) {
-  .geo3-live-map { height: 420px; }
+  .geo3-live-map { height: 390px; }
 }
 @media (max-width: 640px) {
   .geo3-live-map { height: 320px; }

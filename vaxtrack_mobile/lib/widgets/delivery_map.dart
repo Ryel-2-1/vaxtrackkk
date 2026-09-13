@@ -4,7 +4,9 @@ import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/location_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/map_fit.dart';
 import '../utils/route_utils.dart';
+import '../utils/safe_log.dart';
 
 /// In-app navigation map for a delivery, using FREE OpenStreetMap tiles via
 /// flutter_map (no API key, no billing). Draws the rider marker, the clinic
@@ -58,9 +60,12 @@ class _DeliveryMapState extends State<DeliveryMap> {
       final pos = await _location.getCurrentPosition();
       if (!mounted || pos == null) return;
       setState(() => _rider = LatLng(pos.latitude, pos.longitude));
-      if (animate && _ready) _mapController.move(_rider!, 16);
-    } catch (_) {
-      // Best-effort only — never disrupt the delivery flow.
+      if (animate && _ready) _mapController.move(_rider!, kSinglePointZoom);
+    } catch (error, stack) {
+      // Best-effort only — a location failure must never disrupt the delivery
+      // flow — but it is reported rather than silently discarded.
+      logSuppressedError(
+          'DeliveryMap', 'rider position refresh skipped', error, stack);
     }
   }
 
@@ -69,17 +74,31 @@ class _DeliveryMapState extends State<DeliveryMap> {
   LatLng get _initialCenter => _rider ?? widget.clinic ?? _fallbackCenter;
 
   void _fit() {
-    final pts = <LatLng>[..._routePoints, ?_rider, ?widget.clinic];
-    if (pts.length < 2 || !_ready) return;
+    if (!_ready) return;
+    // Decide by geographic EXTENT, not point count. A rider sitting exactly on
+    // the destination (i.e. on arrival) used to pass a `length < 2` guard and
+    // produce a zero-area bounds -> infinite zoom -> "Infinity or NaN toInt".
+    final fit = resolveMapFit(<LatLng>[..._routePoints, ?_rider, ?widget.clinic]);
     try {
-      _mapController.fitCamera(
-        CameraFit.bounds(
-          bounds: LatLngBounds.fromPoints(pts),
-          padding: const EdgeInsets.all(40),
-        ),
-      );
-    } catch (_) {
-      // Ignore if the map isn't laid out yet.
+      switch (fit.kind) {
+        case MapFitKind.none:
+          // Nothing to frame — keep the initial fallback camera.
+          break;
+        case MapFitKind.center:
+          _mapController.move(fit.center!, fit.zoom!);
+        case MapFitKind.bounds:
+          _mapController.fitCamera(
+            CameraFit.bounds(
+              bounds: LatLngBounds.fromPoints(fit.boundsPoints),
+              padding: const EdgeInsets.all(40),
+              maxZoom: kMaxFitZoom,
+            ),
+          );
+      }
+    } catch (error, stack) {
+      // Best-effort (the map may not be laid out yet) but never SILENT: the
+      // camera move is optional, losing the reason for its failure is not.
+      logSuppressedError('DeliveryMap', 'camera fit skipped', error, stack);
     }
   }
 

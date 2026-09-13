@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
@@ -9,18 +9,23 @@ import {
   CircleHelp,
   Edit,
   Grid3X3,
+  MapPin,
   Plus,
   Search,
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
-import { AdminSidebar } from "./Inventory";
+import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import {
   subscribeClinics,
   clinicNameExists,
   addClinic,
+  updateClinicLocation,
+  readClinicLocation,
+  validateClinicLocation,
 } from "../../services/clinicService";
 import KpiCard from "../../components/ui/KpiCard";
+import ClinicLocationSection from "./ClinicLocationSection";
 import "./Clinics.css";
 
 const STATUS_LABEL = {
@@ -63,6 +68,10 @@ function normalizeClinic(raw) {
     lastDelivery: raw.lastDelivery || "No delivery yet",
     initials,
     contactTone: raw.contactTone || "blue",
+    // Canonical coordinates (top-level `latitude`/`longitude` numbers), read
+    // backward-compatibly: pre-radius clinics report the 300 m default, and a
+    // clinic with no pin reports hasCoordinates: false rather than a fake one.
+    locationInfo: readClinicLocation(raw),
   };
 }
 
@@ -79,6 +88,7 @@ const EMPTY_CLINIC = {
   status: "active",
   latitude: "",
   longitude: "",
+  geofenceRadiusM: "",
 };
 
 function Clinics() {
@@ -94,6 +104,62 @@ function Clinics() {
   const [showNewClinicModal, setShowNewClinicModal] = useState(false);
   const [toast, setToast] = useState("");
   const [newClinic, setNewClinic] = useState(EMPTY_CLINIC);
+  const [newClinicErrors, setNewClinicErrors] = useState({});
+  // The clinic whose location is being managed, plus the element to restore
+  // focus to when the dialog closes.
+  const [managedClinic, setManagedClinic] = useState(null);
+  const manageTriggerRef = useRef(null);
+  // The control that opened the registration dialog, so focus can be handed
+  // back to it on dismissal.
+  const newClinicTriggerRef = useRef(null);
+
+  const openManageLocation = (clinic, triggerEl) => {
+    manageTriggerRef.current = triggerEl;
+    setManagedClinic(clinic);
+  };
+
+  const closeManageLocation = useCallback(() => {
+    setManagedClinic(null);
+    // Return focus to the row action that opened the dialog.
+    if (manageTriggerRef.current) {
+      manageTriggerRef.current.focus();
+      manageTriggerRef.current = null;
+    }
+  }, []);
+
+  const openNewClinic = (triggerEl) => {
+    newClinicTriggerRef.current = triggerEl;
+    setShowNewClinicModal(true);
+  };
+
+  // The single dismissal path for the registration dialog: used by Escape, the
+  // close control, Cancel and a completed registration, so the reset and the
+  // focus hand-back cannot drift apart between them.
+  //
+  // The draft is cleared HERE and nowhere else, which is what makes "reset only
+  // after a confirmed dismissal" true: while the dialog is open — including
+  // while the discard confirmation is showing — `newClinic` is left untouched,
+  // so backing out of the confirmation returns the admin to their typed values.
+  const closeNewClinic = useCallback(() => {
+    setShowNewClinicModal(false);
+    setNewClinicErrors({});
+    setNewClinic(EMPTY_CLINIC);
+    // Return focus to the button that opened the dialog. Without this, focus
+    // falls back to <body> and a keyboard user restarts from the top of the
+    // page — the dialog declares aria-modal, so it owed them that focus back.
+    if (newClinicTriggerRef.current) {
+      newClinicTriggerRef.current.focus();
+      newClinicTriggerRef.current = null;
+    }
+  }, []);
+
+  const handleSaveLocation = async (clinic, draft) => {
+    // subscribeClinics remains the source of truth — no local clinic list
+    // mutation here; the snapshot re-renders the row.
+    await updateClinicLocation(clinic.firestoreId, draft);
+    showToast(`Location saved for ${clinic.name}.`);
+    closeManageLocation();
+  };
 
   const handleLogout = async () => {
     await signOut(auth);
@@ -161,6 +227,21 @@ function Clinics() {
       return;
     }
 
+    // Location stays optional, but a PARTIAL or out-of-range entry is caught
+    // here so the admin is told, rather than the coordinates being dropped.
+    const enteredLocation =
+      String(newClinic.latitude).trim() !== "" ||
+      String(newClinic.longitude).trim() !== "";
+    if (enteredLocation) {
+      const check = validateClinicLocation(newClinic);
+      if (!check.ok) {
+        setNewClinicErrors(check.errors);
+        showToast("Check the clinic location before saving.");
+        return;
+      }
+    }
+    setNewClinicErrors({});
+
     setSaving(true);
     try {
       if (await clinicNameExists(newClinic.name)) {
@@ -181,10 +262,12 @@ function Clinics() {
         status: newClinic.status,
         latitude: newClinic.latitude,
         longitude: newClinic.longitude,
+        geofenceRadiusM: newClinic.geofenceRadiusM,
       });
 
-      setNewClinic(EMPTY_CLINIC);
-      setShowNewClinicModal(false);
+      // Same dismissal path as Escape/Cancel/close, so a successful
+      // registration also resets the draft and hands focus back to the opener.
+      closeNewClinic();
       setCurrentPage(1);
       showToast(`${newClinic.name.trim()} has been registered.`);
     } catch (error) {
@@ -243,7 +326,7 @@ function Clinics() {
             <button
               type="button"
               className="clinics-v2-primary-btn"
-              onClick={() => setShowNewClinicModal(true)}
+              onClick={(e) => openNewClinic(e.currentTarget)}
             >
               <Plus size={15} />
               Register New Clinic
@@ -360,6 +443,18 @@ function Clinics() {
                     <div className="clinic-location-cell">
                       <strong>{clinic.location}</strong>
                       <small>{clinic.area}</small>
+                      <span
+                        className={`clinic-geo-chip ${
+                          clinic.locationInfo.hasCoordinates
+                            ? "verified"
+                            : "missing"
+                        }`}
+                      >
+                        <MapPin size={11} aria-hidden="true" />
+                        {clinic.locationInfo.hasCoordinates
+                          ? "Location verified"
+                          : "Needs location"}
+                      </span>
                     </div>
                   </td>
 
@@ -406,13 +501,11 @@ function Clinics() {
                       </button>
                       <button
                         type="button"
-                        onClick={() =>
-                          showToast(
-                            `Delivery draft opened for ${clinic.name}.`
-                          )
+                        onClick={(e) =>
+                          openManageLocation(clinic, e.currentTarget)
                         }
                       >
-                        Create Delivery
+                        Manage location
                       </button>
                     </div>
                   </td>
@@ -500,10 +593,6 @@ function Clinics() {
         <ClinicDetailsModal
           clinic={selectedClinic}
           onClose={() => setSelectedClinic(null)}
-          onCreateDelivery={() => {
-            showToast(`Delivery draft opened for ${selectedClinic.name}.`);
-            setSelectedClinic(null);
-          }}
           onEdit={() => showToast(`Editing ${selectedClinic.name}.`)}
         />
       )}
@@ -512,16 +601,256 @@ function Clinics() {
         <NewClinicModal
           newClinic={newClinic}
           setNewClinic={setNewClinic}
-          onClose={() => setShowNewClinicModal(false)}
+          errors={newClinicErrors}
+          onClose={closeNewClinic}
           onSubmit={handleCreateClinic}
           saving={saving}
+        />
+      )}
+
+      {managedClinic && (
+        <ManageLocationModal
+          clinic={managedClinic}
+          onClose={closeManageLocation}
+          onSave={handleSaveLocation}
         />
       )}
     </div>
   );
 }
 
-function ClinicDetailsModal({ clinic, onClose, onCreateDelivery, onEdit }) {
+/**
+ * Edit the location of an EXISTING clinic.
+ *
+ * Reuses [ClinicLocationSection] rather than restating the picker, so the map,
+ * the numeric fallback and the radius rules stay in one place. Saves through
+ * `updateClinicLocation`, which writes only the location fields — clinic name,
+ * contact, status and notes are untouched, and no new clinic can be created.
+ */
+function ManageLocationModal({ clinic, onClose, onSave }) {
+  const initial = useMemo(
+    () => ({
+      latitude:
+        clinic.locationInfo.latitude === null
+          ? ""
+          : String(clinic.locationInfo.latitude),
+      longitude:
+        clinic.locationInfo.longitude === null
+          ? ""
+          : String(clinic.locationInfo.longitude),
+      // Seed from the RAW stored radius when there is one, so a corrupt value
+      // is visible and rejected rather than silently shown as the default.
+      geofenceRadiusM: String(
+        clinic.locationInfo.geofenceRadiusMStored ??
+          clinic.locationInfo.geofenceRadiusM
+      ),
+    }),
+    [clinic]
+  );
+
+  const [draft, setDraft] = useState(initial);
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  const dialogRef = useRef(null);
+  const headingId = `manage-location-${clinic.firestoreId}`;
+
+  const isDirty =
+    draft.latitude !== initial.latitude ||
+    draft.longitude !== initial.longitude ||
+    draft.geofenceRadiusM !== initial.geofenceRadiusM;
+
+  const requestClose = useCallback(() => {
+    if (saving) return; // never abandon an in-flight write
+    if (isDirty) {
+      setConfirmingDiscard(true);
+      return;
+    }
+    onClose();
+  }, [saving, isDirty, onClose]);
+
+  // Escape closes when safe (unsaved edits ask first), and Tab is cycled inside
+  // the dialog. The trap is not optional decoration: this element declares
+  // aria-modal="true", which tells assistive tech the rest of the page is
+  // inert. Letting Tab walk out into the clinics table behind would make that
+  // promise false.
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        requestClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+
+      const root = dialogRef.current;
+      if (!root) return;
+      const items = [
+        ...root.querySelectorAll(
+          'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])'
+        ),
+      ].filter((el) => !el.disabled && el.getClientRects().length > 0);
+      if (items.length === 0) return;
+
+      const first = items[0];
+      const last = items[items.length - 1];
+
+      if (!root.contains(document.activeElement)) {
+        e.preventDefault();
+        first.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [requestClose]);
+
+  // Move focus into the dialog on open.
+  useEffect(() => {
+    const first = dialogRef.current?.querySelector(
+      "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"
+    );
+    first?.focus();
+  }, []);
+
+  const patchDraft = (patch) => {
+    setDraft((prev) => ({ ...prev, ...patch }));
+    setSaveError("");
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const check = validateClinicLocation(draft);
+    if (!check.ok) {
+      setErrors(check.errors);
+      return;
+    }
+    setErrors({});
+    setSaving(true);
+    setSaveError("");
+    try {
+      await onSave(clinic, draft);
+    } catch (error) {
+      console.error("Update clinic location error:", error);
+      setSaveError(
+        error?.message || "The location could not be saved. Please try again."
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="clinics-modal-backdrop">
+      <form
+        ref={dialogRef}
+        // `clinics-location-modal` scopes the viewport-aware height + scrolling
+        // rules to THIS dialog. `.clinics-form-modal` is shared with the
+        // Register-Clinic modal, so styling that class instead would silently
+        // restyle an unrelated dialog.
+        className="clinics-modal clinics-form-modal clinics-location-modal"
+        onSubmit={handleSubmit}
+        // Native constraint validation is disabled so `validateClinicLocation`
+        // is the SINGLE authority. Without this, the radius input's min/max
+        // silently blocked submission before React ran, so an out-of-range
+        // radius produced a browser tooltip instead of the styled,
+        // aria-describedby-linked error — and only for radius, since the
+        // coordinate inputs have no native bounds. The min/max attributes stay
+        // as affordances (spinner steps, mobile keypad), not as gatekeepers.
+        noValidate
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={headingId}
+      >
+        <button
+          type="button"
+          className="clinics-modal-close"
+          onClick={requestClose}
+          disabled={saving}
+          aria-label="Close manage location"
+        >
+          <X size={16} />
+        </button>
+
+        <h3 id={headingId}>Manage location</h3>
+        <p className="clinics-modal-sub">
+          {clinic.name} · {clinic.location}
+        </p>
+
+        {/* Scrollable body. The dialog is capped to the viewport height, so
+            without this the map + fields push the footer off-screen and Save
+            becomes unreachable on short viewports — and the page cannot be
+            scrolled to it, because the backdrop is position:fixed. Keeping the
+            actions OUTSIDE this element pins them, so Save stays reachable even
+            while the pointer is over the map (Leaflet consumes wheel events to
+            zoom, which is preserved deliberately). */}
+        <div className="clinics-modal-body">
+          <ClinicLocationSection
+            value={draft}
+            onChange={patchDraft}
+            errors={errors}
+            disabled={saving}
+            idPrefix={`manage-${clinic.firestoreId}`}
+          />
+
+          {saveError && (
+            <p className="clinic-loc-save-error" role="alert">
+              {saveError}
+            </p>
+          )}
+
+          {confirmingDiscard && (
+            <div className="clinic-loc-discard" role="alert">
+              <p>Discard the unsaved location changes?</p>
+              <div className="clinic-loc-discard-actions">
+                <button
+                  type="button"
+                  className="clinics-light-action"
+                  onClick={() => setConfirmingDiscard(false)}
+                >
+                  Keep editing
+                </button>
+                <button
+                  type="button"
+                  className="clinics-danger-action"
+                  onClick={onClose}
+                >
+                  Discard changes
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="clinics-modal-actions">
+          <button
+            type="submit"
+            className="clinics-primary-action"
+            disabled={saving}
+          >
+            {saving ? "Saving..." : "Save location"}
+          </button>
+          <button
+            type="button"
+            className="clinics-light-action"
+            onClick={requestClose}
+            disabled={saving}
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ClinicDetailsModal({ clinic, onClose, onEdit }) {
   return (
     <div className="clinics-modal-backdrop">
       <div className="clinics-modal">
@@ -529,6 +858,7 @@ function ClinicDetailsModal({ clinic, onClose, onCreateDelivery, onEdit }) {
           type="button"
           className="clinics-modal-close"
           onClick={onClose}
+          aria-label="Close"
         >
           <X size={18} />
         </button>
@@ -573,14 +903,11 @@ function ClinicDetailsModal({ clinic, onClose, onCreateDelivery, onEdit }) {
           </div>
         </div>
 
+        {/* Deliveries are not started from Admin Clinics. They originate in the
+            normal order workflow: Sales Rep order → Dispatcher assignment →
+            Rider delivery. The former delivery-draft action here only showed a
+            toast and drafted nothing, so it was removed rather than replaced. */}
         <div className="clinics-modal-actions">
-          <button
-            type="button"
-            className="clinics-primary-action"
-            onClick={onCreateDelivery}
-          >
-            Create Delivery
-          </button>
           <button
             type="button"
             className="clinics-light-action"
@@ -602,172 +929,286 @@ function ClinicDetailsModal({ clinic, onClose, onCreateDelivery, onEdit }) {
   );
 }
 
-function NewClinicModal({ newClinic, setNewClinic, onClose, onSubmit, saving }) {
+function NewClinicModal({
+  newClinic,
+  setNewClinic,
+  errors = {},
+  onClose,
+  onSubmit,
+  saving,
+}) {
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  const dialogRef = useRef(null);
+  const headingId = "new-clinic-heading";
+
+  // Dirty = ANY user-editable registration or location field differs from the
+  // values the dialog opens with. Comparing key-by-key against EMPTY_CLINIC,
+  // rather than tracking a "touched" flag, gets two things right: opening the
+  // dialog and changing nothing stays pristine even though `area` and `status`
+  // are pre-filled, and no field can be forgotten — EMPTY_CLINIC is the same
+  // object the draft is seeded from, so a field added there is covered here.
+  const isDirty = Object.keys(EMPTY_CLINIC).some(
+    (key) => String(newClinic[key] ?? "") !== String(EMPTY_CLINIC[key] ?? "")
+  );
+
+  // The single dismissal gate. Escape, the close control and Cancel all route
+  // through it, so one keystroke or misclick can never throw away a partially
+  // typed registration — and there is only ever one close path to reason about.
+  const requestClose = useCallback(() => {
+    if (saving) return; // never abandon an in-flight write
+    if (isDirty) {
+      // Setting an already-true boolean is a no-op, so repeated Escapes cannot
+      // stack confirmations.
+      setConfirmingDiscard(true);
+      return;
+    }
+    onClose();
+  }, [saving, isDirty, onClose]);
+
+  // Escape closes when safe (unsaved edits ask first), and Tab is cycled inside
+  // the dialog. The trap is not optional decoration: this element declares
+  // aria-modal="true", which tells assistive tech the rest of the page is
+  // inert. Letting Tab walk out into the clinics table behind would make that
+  // promise false.
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        requestClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+
+      const root = dialogRef.current;
+      if (!root) return;
+      const items = [
+        ...root.querySelectorAll(
+          'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])'
+        ),
+      ].filter((el) => !el.disabled && el.getClientRects().length > 0);
+      if (items.length === 0) return;
+
+      const first = items[0];
+      const last = items[items.length - 1];
+
+      if (!root.contains(document.activeElement)) {
+        e.preventDefault();
+        first.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [requestClose]);
+
+  // Move focus into the dialog on open.
+  useEffect(() => {
+    const first = dialogRef.current?.querySelector(
+      "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"
+    );
+    first?.focus();
+  }, []);
+
   return (
     <div className="clinics-modal-backdrop">
-      <form className="clinics-modal clinics-form-modal" onSubmit={onSubmit}>
+      {/* noValidate: the clinic + location validators own all feedback, so a
+          native tooltip can never pre-empt the styled inline errors. */}
+      <form
+        ref={dialogRef}
+        // `clinics-register-modal` scopes the viewport-aware height + scrolling
+        // rules to THIS dialog. `.clinics-form-modal` is shared with the
+        // Manage-location dialog, so styling that class would couple the two.
+        className="clinics-modal clinics-form-modal clinics-register-modal"
+        onSubmit={onSubmit}
+        noValidate
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={headingId}
+      >
         <button
           type="button"
           className="clinics-modal-close"
-          onClick={onClose}
+          onClick={requestClose}
           disabled={saving}
+          aria-label="Close register new clinic"
         >
           <X size={18} />
         </button>
 
-        <h2>Register New Clinic</h2>
+        <h2 id={headingId}>Register New Clinic</h2>
         <p>Add a healthcare facility to the VaxTrack delivery network.</p>
 
-        <div className="clinics-form-grid">
-          <label>
-            Clinic Name
-            <input
-              type="text"
-              placeholder="Enter clinic or hospital name"
-              value={newClinic.name}
-              onChange={(e) =>
-                setNewClinic((prev) => ({ ...prev, name: e.target.value }))
-              }
-              disabled={saving}
-            />
-          </label>
+        {/* Scrollable body. Same structure as the Manage-location dialog, and
+            needed more here: this modal is taller (registration fields PLUS the
+            same location picker), so without a viewport cap its footer - and
+            therefore Register - fell outside a short viewport with no way to
+            reach it. The backdrop is position:fixed so the page cannot scroll to
+            it, and wheel input over the map is consumed by Leaflet for zooming.
+            The action row stays OUTSIDE this element so it remains pinned. */}
+        <div className="clinics-modal-body">
+          <div className="clinics-form-grid">
+            <label>
+              Clinic Name
+              <input
+                type="text"
+                placeholder="Enter clinic or hospital name"
+                value={newClinic.name}
+                onChange={(e) =>
+                  setNewClinic((prev) => ({ ...prev, name: e.target.value }))
+                }
+                disabled={saving}
+              />
+            </label>
 
-          <label>
-            Contact Person
-            <input
-              type="text"
-              placeholder="Dr. Maria Santos"
-              value={newClinic.contact}
-              onChange={(e) =>
-                setNewClinic((prev) => ({
-                  ...prev,
-                  contact: e.target.value,
-                }))
-              }
-              disabled={saving}
-            />
-          </label>
+            <label>
+              Contact Person
+              <input
+                type="text"
+                placeholder="Dr. Maria Santos"
+                value={newClinic.contact}
+                onChange={(e) =>
+                  setNewClinic((prev) => ({
+                    ...prev,
+                    contact: e.target.value,
+                  }))
+                }
+                disabled={saving}
+              />
+            </label>
 
-          <label>
-            Phone Number
-            <input
-              type="text"
-              placeholder="0917-000-0000"
-              value={newClinic.phone}
-              onChange={(e) =>
-                setNewClinic((prev) => ({ ...prev, phone: e.target.value }))
-              }
-              disabled={saving}
-            />
-          </label>
+            <label>
+              Phone Number
+              <input
+                type="text"
+                placeholder="0917-000-0000"
+                value={newClinic.phone}
+                onChange={(e) =>
+                  setNewClinic((prev) => ({ ...prev, phone: e.target.value }))
+                }
+                disabled={saving}
+              />
+            </label>
 
-          <label>
-            Email
-            <input
-              type="email"
-              placeholder="clinic@email.com"
-              value={newClinic.email}
-              onChange={(e) =>
-                setNewClinic((prev) => ({ ...prev, email: e.target.value }))
-              }
-              disabled={saving}
-            />
-          </label>
+            <label>
+              Email
+              <input
+                type="email"
+                placeholder="clinic@email.com"
+                value={newClinic.email}
+                onChange={(e) =>
+                  setNewClinic((prev) => ({ ...prev, email: e.target.value }))
+                }
+                disabled={saving}
+              />
+            </label>
 
-          <label>
-            Location
-            <input
-              type="text"
-              placeholder="Street, City"
-              value={newClinic.location}
-              onChange={(e) =>
-                setNewClinic((prev) => ({
-                  ...prev,
-                  location: e.target.value,
-                }))
-              }
-              disabled={saving}
-            />
-          </label>
+            <label>
+              Location
+              <input
+                type="text"
+                placeholder="Street, City"
+                value={newClinic.location}
+                onChange={(e) =>
+                  setNewClinic((prev) => ({
+                    ...prev,
+                    location: e.target.value,
+                  }))
+                }
+                disabled={saving}
+              />
+            </label>
 
-          <label>
-            Latitude <span className="clinics-optional">(optional)</span>
-            <input
-              type="number"
-              step="any"
-              placeholder="e.g. 14.5995"
-              value={newClinic.latitude}
-              onChange={(e) =>
-                setNewClinic((prev) => ({ ...prev, latitude: e.target.value }))
-              }
-              disabled={saving}
-            />
-          </label>
+            <label>
+              Area
+              <select
+                value={newClinic.area}
+                onChange={(e) =>
+                  setNewClinic((prev) => ({ ...prev, area: e.target.value }))
+                }
+                disabled={saving}
+              >
+                <option>Metro Manila</option>
+                <option>Laguna</option>
+                <option>Cavite</option>
+                <option>Batangas</option>
+              </select>
+            </label>
 
-          <label>
-            Longitude <span className="clinics-optional">(optional)</span>
-            <input
-              type="number"
-              step="any"
-              placeholder="e.g. 120.9842"
-              value={newClinic.longitude}
-              onChange={(e) =>
-                setNewClinic((prev) => ({ ...prev, longitude: e.target.value }))
-              }
-              disabled={saving}
-            />
-          </label>
+            <label>
+              Status
+              <select
+                value={newClinic.status}
+                onChange={(e) =>
+                  setNewClinic((prev) => ({
+                    ...prev,
+                    status: e.target.value,
+                  }))
+                }
+                disabled={saving}
+              >
+                <option value="active">Active</option>
+                <option value="pending">Pending Resupply</option>
+                <option value="overdue">Overdue</option>
+              </select>
+            </label>
 
-          <label>
-            Area
-            <select
-              value={newClinic.area}
-              onChange={(e) =>
-                setNewClinic((prev) => ({ ...prev, area: e.target.value }))
-              }
-              disabled={saving}
-            >
-              <option>Metro Manila</option>
-              <option>Laguna</option>
-              <option>Cavite</option>
-              <option>Batangas</option>
-            </select>
-          </label>
+            <label className="wide">
+              Delivery Notes
+              <input
+                type="text"
+                placeholder="Special delivery notes or cold-chain instructions"
+                value={newClinic.deliveryNotes}
+                onChange={(e) =>
+                  setNewClinic((prev) => ({
+                    ...prev,
+                    deliveryNotes: e.target.value,
+                  }))
+                }
+                disabled={saving}
+              />
+            </label>
+          </div>
 
-          <label>
-            Status
-            <select
-              value={newClinic.status}
-              onChange={(e) =>
-                setNewClinic((prev) => ({
-                  ...prev,
-                  status: e.target.value,
-                }))
-              }
-              disabled={saving}
-            >
-              <option value="active">Active</option>
-              <option value="pending">Pending Resupply</option>
-              <option value="overdue">Overdue</option>
-            </select>
-          </label>
-
-          <label className="wide">
-            Delivery Notes
-            <input
-              type="text"
-              placeholder="Special delivery notes or cold-chain instructions"
-              value={newClinic.deliveryNotes}
-              onChange={(e) =>
-                setNewClinic((prev) => ({
-                  ...prev,
-                  deliveryNotes: e.target.value,
-                }))
-              }
-              disabled={saving}
-            />
-          </label>
+          <ClinicLocationSection
+            value={newClinic}
+            onChange={(patch) => setNewClinic((prev) => ({ ...prev, ...patch }))}
+            errors={errors}
+            disabled={saving}
+            idPrefix="new-clinic"
+          />
         </div>
+
+        {/* Deliberately OUTSIDE the scrolling body, unlike the Manage-location
+            dialog: this form is ~1467px tall, so a confirmation rendered inside
+            the scroll area could sit far off-screen — the same class of
+            unreachable-control bug the viewport fix addressed. Pinned above the
+            actions, it is always visible. role="alert" announces it. */}
+        {confirmingDiscard && (
+          <div className="clinic-loc-discard" role="alert">
+            <p>Discard this clinic registration?</p>
+            <div className="clinic-loc-discard-actions">
+              <button
+                type="button"
+                className="clinics-light-action"
+                onClick={() => setConfirmingDiscard(false)}
+              >
+                Keep editing
+              </button>
+              <button
+                type="button"
+                className="clinics-danger-action"
+                onClick={onClose}
+              >
+                Discard changes
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="clinics-modal-actions">
           <button
@@ -781,7 +1222,7 @@ function NewClinicModal({ newClinic, setNewClinic, onClose, onSubmit, saving }) 
           <button
             type="button"
             className="clinics-light-action"
-            onClick={onClose}
+            onClick={requestClose}
             disabled={saving}
           >
             Cancel

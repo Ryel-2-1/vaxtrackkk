@@ -1,35 +1,27 @@
 import {
-  addDoc,
   collection,
   doc,
   onSnapshot,
   orderBy,
   query,
-  serverTimestamp,
   updateDoc,
   where,
 } from "firebase/firestore";
 import { db } from "../firebase";
 
-const ALERTS_COLLECTION = "alerts";
+// Route-deviation incidents are created by the RIDER app, not here. The Flutter
+// `route_deviation_alert_service.dart` owns that write: it uses a deterministic
+// document id per (order, rider) and a Firestore transaction so retries and app
+// restarts cannot produce duplicate incidents, and `firestore.rules` constrains
+// exactly which fields a rider may set on one.
+//
+// A `createRouteDeviationAlert()` helper used to live here with hardcoded
+// fallback identities ("TRK-9824", "rider_001", "Juan Dela Cruz", "Quezon
+// City") left over from the mock-data era. It had zero callers, and wiring it up
+// would have written fabricated rider identities into live alerts alongside the
+// real incidents. It was removed rather than re-pointed at real values.
 
-export async function createRouteDeviationAlert(alertData = {}) {
-  return addDoc(collection(db, ALERTS_COLLECTION), {
-    type: "route_deviation",
-    title: "Route Deviation Detected",
-    message:
-      alertData.message ||
-      "Rider moved outside the assigned delivery route/geofence.",
-    orderId: alertData.orderId || null,
-    deliveryId: alertData.deliveryId || "TRK-9824",
-    riderId: alertData.riderId || "rider_001",
-    riderName: alertData.riderName || "Juan Dela Cruz",
-    location: alertData.location || "Quezon City",
-    severity: "critical",
-    status: "active",
-    createdAt: serverTimestamp(),
-  });
-}
+const ALERTS_COLLECTION = "alerts";
 
 export function subscribeActiveAlerts(callback) {
   const q = query(
