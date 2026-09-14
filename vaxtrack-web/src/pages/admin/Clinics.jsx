@@ -24,6 +24,8 @@ import {
   updateClinicLocation,
   readClinicLocation,
   validateClinicLocation,
+  MIN_GEOFENCE_RADIUS_M,
+  MAX_GEOFENCE_RADIUS_M,
 } from "../../services/clinicService";
 import {
   addArea,
@@ -37,6 +39,7 @@ import {
 } from "../../services/doctorService";
 import KpiCard from "../../components/ui/KpiCard";
 import ClinicLocationSection from "./ClinicLocationSection";
+import DoctorAddressesPanel from "./DoctorAddressesPanel";
 import "./Clinics.css";
 
 const STATUS_LABEL = {
@@ -63,6 +66,11 @@ function normalizeClinic(raw) {
       .join("")
       .slice(0, 2)
       .toUpperCase() || "?";
+  const storedRadiusIsValid =
+    !Object.prototype.hasOwnProperty.call(raw, "geofenceRadiusM") ||
+    (Number.isInteger(raw.geofenceRadiusM) &&
+      raw.geofenceRadiusM >= MIN_GEOFENCE_RADIUS_M &&
+      raw.geofenceRadiusM <= MAX_GEOFENCE_RADIUS_M);
   return {
     id: raw.clinicId || raw.id || "—",
     firestoreId: raw.id || "",
@@ -84,6 +92,14 @@ function normalizeClinic(raw) {
     // backward-compatibly: pre-radius clinics report the 300 m default, and a
     // clinic with no pin reports hasCoordinates: false rather than a fake one.
     locationInfo: readClinicLocation(raw),
+    // Preserve whether the raw stored location passes the write contract. The
+    // normalized radius alone cannot distinguish a missing radius (valid,
+    // defaults to 300 m) from malformed legacy data (invalid).
+    destinationLocationValid:
+      Number.isFinite(raw.latitude) &&
+      Number.isFinite(raw.longitude) &&
+      validateClinicLocation(raw).ok &&
+      storedRadiusIsValid,
   };
 }
 
@@ -783,11 +799,15 @@ function Clinics() {
           doctors={doctors}
           loading={doctorsLoading}
           loadError={doctorLoadError}
+          clinics={clinics}
+          clinicsLoading={loading}
+          clinicLoadError={loadError}
           areas={areas}
           areasLoading={areasLoading}
           areaLoadError={areaLoadError}
           onAdd={handleAddDoctor}
           onToggle={handleDoctorStatus}
+          onToast={showToast}
           onClose={closeDoctors}
         />
       )}
@@ -1291,11 +1311,15 @@ function DoctorsModal({
   doctors,
   loading,
   loadError,
+  clinics,
+  clinicsLoading,
+  clinicLoadError,
   areas,
   areasLoading,
   areaLoadError,
   onAdd,
   onToggle,
+  onToast,
   onClose,
 }) {
   const [name, setName] = useState("");
@@ -1303,13 +1327,19 @@ function DoctorsModal({
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
   const [updatingId, setUpdatingId] = useState("");
+  const [managedDoctorId, setManagedDoctorId] = useState("");
+  const [addressBusy, setAddressBusy] = useState(false);
   const dialogRef = useRef(null);
   const nameInputRef = useRef(null);
+  const addressReturnIdRef = useRef("");
   const headingId = "manage-doctors-heading";
-  const busy = adding || Boolean(updatingId);
+  const busy = adding || Boolean(updatingId) || addressBusy;
   const activeAreas = useMemo(
     () => areas.filter((area) => area.active === true),
     [areas]
+  );
+  const managedDoctor = doctors.find(
+    (doctor) => doctor.id === managedDoctorId
   );
 
   useEffect(() => {
@@ -1385,6 +1415,21 @@ function DoctorsModal({
     setUpdatingId("");
   };
 
+  const openAddresses = (doctor) => {
+    addressReturnIdRef.current = doctor.id;
+    setManagedDoctorId(doctor.id);
+  };
+
+  const backToDoctors = () => {
+    const returnId = addressReturnIdRef.current;
+    setManagedDoctorId("");
+    setTimeout(() => {
+      const trigger = [...document.querySelectorAll("[data-doctor-address-id]")]
+        .find((element) => element.dataset.doctorAddressId === returnId);
+      trigger?.focus();
+    }, 0);
+  };
+
   return (
     <div className="clinics-modal-backdrop">
       <section
@@ -1404,13 +1449,31 @@ function DoctorsModal({
           <X size={18} />
         </button>
 
-        <h2 id={headingId}>Manage Doctors</h2>
-        <p>
-          Register doctors under a primary area. Delivery addresses will be
-          managed separately in the next checkpoint.
-        </p>
+        <h2 id={headingId}>
+          {managedDoctor ? "Manage Delivery Addresses" : "Manage Doctors"}
+        </h2>
 
-        <form className="clinics-doctor-create" onSubmit={handleSubmit} noValidate>
+        {managedDoctor ? (
+          <DoctorAddressesPanel
+            doctor={managedDoctor}
+            clinics={clinics}
+            clinicsLoading={clinicsLoading}
+            clinicLoadError={clinicLoadError}
+            areas={areas}
+            areasLoading={areasLoading}
+            areaLoadError={areaLoadError}
+            onBack={backToDoctors}
+            onToast={onToast}
+            onBusyChange={setAddressBusy}
+          />
+        ) : (
+          <>
+            <p>
+              Register doctors under a primary area, then link each doctor to
+              one or more registered clinic destinations.
+            </p>
+
+            <form className="clinics-doctor-create" onSubmit={handleSubmit} noValidate>
           <div>
             <label htmlFor="new-doctor-name">Doctor name</label>
             <input
@@ -1457,15 +1520,15 @@ function DoctorsModal({
           >
             {adding ? "Adding..." : "Add Doctor"}
           </button>
-        </form>
+            </form>
 
-        {(error || loadError || areaLoadError) && (
-          <p className="clinics-area-error" role="alert">
-            {error || loadError || areaLoadError}
-          </p>
-        )}
+            {(error || loadError || areaLoadError) && (
+              <p className="clinics-area-error" role="alert">
+                {error || loadError || areaLoadError}
+              </p>
+            )}
 
-        <div className="clinics-doctor-list" aria-live="polite">
+            <div className="clinics-doctor-list" aria-live="polite">
           {loading && <p>Loading doctors...</p>}
           {!loading && !loadError && doctors.length === 0 && (
             <div className="clinics-area-empty">
@@ -1484,31 +1547,43 @@ function DoctorsModal({
                     {doctor.active ? "Active" : "Inactive"}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleToggle(doctor)}
-                  disabled={busy}
-                >
-                  {updatingId === doctor.id
-                    ? "Saving..."
-                    : doctor.active
-                      ? "Deactivate"
-                      : "Activate"}
-                </button>
+                <div className="clinics-doctor-row-actions">
+                  <button
+                    type="button"
+                    data-doctor-address-id={doctor.id}
+                    onClick={() => openAddresses(doctor)}
+                    disabled={busy}
+                  >
+                    Manage addresses
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleToggle(doctor)}
+                    disabled={busy}
+                  >
+                    {updatingId === doctor.id
+                      ? "Saving..."
+                      : doctor.active
+                        ? "Deactivate"
+                        : "Activate"}
+                  </button>
+                </div>
               </div>
             ))}
-        </div>
+            </div>
 
-        <div className="clinics-modal-actions">
-          <button
-            type="button"
-            className="clinics-light-action"
-            onClick={onClose}
-            disabled={busy}
-          >
-            Close
-          </button>
-        </div>
+            <div className="clinics-modal-actions">
+              <button
+                type="button"
+                className="clinics-light-action"
+                onClick={onClose}
+                disabled={busy}
+              >
+                Close
+              </button>
+            </div>
+          </>
+        )}
       </section>
     </div>
   );

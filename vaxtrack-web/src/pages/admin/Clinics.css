@@ -1667,7 +1667,7 @@
 /* Doctor master-data dialog */
 
 .clinics-doctors-modal {
-  width: 700px;
+  width: 820px;
 }
 
 .clinics-doctor-create {
@@ -1727,7 +1727,7 @@
 }
 
 .clinics-doctor-create > button:disabled,
-.clinics-doctor-row > button:disabled {
+.clinics-doctor-row-actions button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
@@ -1793,7 +1793,13 @@
   color: var(--gray-600);
 }
 
-.clinics-doctor-row > button {
+.clinics-doctor-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.clinics-doctor-row-actions button {
   height: 34px;
   border: 1px solid var(--gray-300);
   border-radius: 999px;
@@ -1803,6 +1809,230 @@
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+}
+
+/* Doctor-to-clinic delivery-destination management */
+
+.clinics-address-panel {
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -8px;
+  padding: 0 8px 4px;
+}
+
+.clinics-address-back {
+  min-height: 34px;
+  border: 0;
+  background: transparent;
+  color: var(--green-700);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.clinics-address-back:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.clinics-address-doctor {
+  margin: 8px 0 14px;
+  border-bottom: 1px solid var(--gray-200);
+  padding-bottom: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.clinics-address-doctor > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.clinics-address-doctor > div strong {
+  color: var(--gray-900);
+  overflow-wrap: anywhere;
+}
+
+.clinics-address-doctor > div span {
+  color: var(--gray-600);
+  font-size: 12px;
+}
+
+.clinics-address-doctor > span,
+.clinics-address-summary span {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.clinics-address-doctor > span.active,
+.clinics-address-summary span.active {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.clinics-address-doctor > span.inactive,
+.clinics-address-summary span.inactive {
+  background: var(--gray-100);
+  color: var(--gray-600);
+}
+
+.clinics-modal .clinics-address-notice {
+  margin: 0 0 14px;
+  border: 1px solid var(--warning-border, #f2dbae);
+  border-radius: 10px;
+  background: var(--warning-bg, #fef6e7);
+  color: var(--warning-text, #b45309);
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.clinics-address-form {
+  border-bottom: 1px solid var(--gray-200);
+  padding-bottom: 18px;
+}
+
+.clinics-address-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.clinics-address-fields label {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: var(--gray-600);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.clinics-address-fields select {
+  width: 100%;
+  height: 44px;
+  border: 1px solid var(--gray-300);
+  border-radius: 12px;
+  margin: 0;
+  background: #ffffff;
+  color: var(--gray-900);
+  padding: 0 14px;
+  font: inherit;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.clinics-address-fields select:focus {
+  border-color: var(--green-700);
+  box-shadow: 0 0 0 3px var(--green-100);
+}
+
+.clinics-address-fields select:disabled {
+  background: var(--gray-100);
+  cursor: not-allowed;
+}
+
+.clinics-address-form-actions {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.clinics-address-form-actions .clinics-v2-primary-btn {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.clinics-address-list {
+  margin-top: 18px;
+}
+
+.clinics-address-row {
+  border: 1px solid var(--gray-200);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.clinics-address-row + .clinics-address-row {
+  margin-top: 8px;
+}
+
+.clinics-address-summary {
+  min-width: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.clinics-address-summary > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.clinics-address-summary strong,
+.clinics-address-summary p {
+  overflow-wrap: anywhere;
+}
+
+.clinics-address-summary p {
+  margin: 0;
+  color: var(--gray-700);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.clinics-address-summary small {
+  color: var(--gray-600);
+  font-size: 11px;
+}
+
+.clinics-address-row-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.clinics-address-row-actions button {
+  min-height: 34px;
+  border: 1px solid var(--gray-300);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--gray-900);
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.clinics-address-row-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* Toast */
@@ -1934,8 +2164,19 @@
     flex-direction: column;
   }
 
-  .clinics-doctor-row > button {
+  .clinics-doctor-row-actions,
+  .clinics-doctor-row-actions button,
+  .clinics-address-form-actions,
+  .clinics-address-form-actions button,
+  .clinics-address-row-actions,
+  .clinics-address-row-actions button {
     width: 100%;
+  }
+
+  .clinics-address-doctor,
+  .clinics-address-row {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 

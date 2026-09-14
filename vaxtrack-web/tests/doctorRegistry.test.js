@@ -61,7 +61,8 @@ test("Admin Clinics registers doctors under active area document ids", () => {
   assert.match(page, /areas\.filter\(\(area\) => area\.active === true\)/);
   assert.match(page, /onAdd\(\{ name, areaId \}\)/);
   assert.match(page, /<option key=\{area\.id\} value=\{area\.id\}>/);
-  assert.match(page, /Delivery addresses will be[\s\S]*?next checkpoint/);
+  assert.match(page, /link each doctor to[\s\S]*?registered clinic destinations/);
+  assert.match(page, /DoctorAddressesPanel/);
 });
 
 test("doctors are deactivated rather than deleted", () => {
@@ -75,9 +76,7 @@ test("doctors are deactivated rather than deleted", () => {
   );
 });
 
-test("this checkpoint does not change Med Rep checkout or create doctor addresses", () => {
+test("the doctor registry itself still does not change Med Rep checkout", () => {
   const checkout = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
-  const service = read("src/services/doctorService.js");
   assert.doesNotMatch(checkout, /doctorId|doctorName|doctorAddress/);
-  assert.doesNotMatch(service, /doctorLocations|deliveryLocations/);
 });

@@ -225,6 +225,9 @@ async function main() {
     await setDoc(doc(db, "clinics", "clVerified"), {
       name: "Verified Clinic",
       clinicId: "CLN-9123",
+      location: "123 Rizal Street, Seed City",
+      areaId: "seed-area",
+      area: "Seed Area",
       latitude: 14.5995,
       longitude: 120.9842,
       geofenceRadiusM: 150, // deliberately NOT the 300 default
@@ -234,6 +237,9 @@ async function main() {
     await setDoc(doc(db, "clinics", "clDefaultRadius"), {
       name: "Default Radius Clinic",
       clinicId: "CLN-0300",
+      location: "456 Mabini Street, Seed City",
+      areaId: "seed-area",
+      area: "Seed Area",
       latitude: 10.5,
       longitude: 122.5,
       locationVerified: true,
@@ -243,6 +249,9 @@ async function main() {
     await setDoc(doc(db, "clinics", "clUnverified"), {
       name: "Legacy Pinned Clinic",
       clinicId: "CLN-6961",
+      location: "789 Legacy Street, Seed City",
+      areaId: "seed-area",
+      area: "Seed Area",
       latitude: 14.5995,
       longitude: 120.9842,
     });
@@ -252,6 +261,9 @@ async function main() {
     await setDoc(doc(db, "clinics", "clStamped"), {
       name: "Stamped Clinic",
       clinicId: "CLN-7777",
+      location: "321 Timestamp Street, Seed City",
+      areaId: "seed-area",
+      area: "Seed Area",
       latitude: 12.0,
       longitude: 121.0,
       geofenceRadiusM: 200,
@@ -272,9 +284,34 @@ async function main() {
     await setDoc(doc(db, "clinics", "clBadRadius"), {
       name: "Bad Radius Clinic",
       clinicId: "CLN-5000",
+      location: "500 Invalid Radius Road, Seed City",
+      areaId: "seed-area",
+      area: "Seed Area",
       latitude: 14.6,
       longitude: 120.99,
       geofenceRadiusM: 5000,
+      locationVerified: true,
+    });
+    await setDoc(doc(db, "clinics", "clDecimalRadius"), {
+      name: "Decimal Radius Clinic",
+      clinicId: "CLN-0275",
+      location: "275 Decimal Radius Road, Seed City",
+      areaId: "seed-area",
+      area: "Seed Area",
+      latitude: 14.61,
+      longitude: 120.98,
+      geofenceRadiusM: 275.4,
+      locationVerified: true,
+    });
+    await setDoc(doc(db, "clinics", "clNullRadius"), {
+      name: "Null Radius Clinic",
+      clinicId: "CLN-NULL",
+      location: "100 Null Radius Road, Seed City",
+      areaId: "seed-area",
+      area: "Seed Area",
+      latitude: 14.62,
+      longitude: 120.97,
+      geofenceRadiusM: null,
       locationVerified: true,
     });
     // An order created BEFORE Phase 02A: no snapshot fields at all. Must stay
@@ -1345,6 +1382,209 @@ async function main() {
     await assertFails(getDoc(doc(anon, "doctors", doctorId)));
   });
 
+  // ---- doctor clinic destinations ----
+  // Each nested document id is a registered clinic document id. Clinic master
+  // data remains authoritative for address, area, coordinates and radius.
+
+  await assertSucceeds(updateDoc(doc(admin, "doctors", doctorId), {
+    active: true,
+    updatedAt: serverTimestamp(),
+  }));
+
+  const addressId = "clVerified";
+  const addressRef = (db, id = addressId) =>
+    doc(db, "doctors", doctorId, "deliveryAddresses", id);
+  const validDoctorAddress = {
+    active: true,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  await check("Paddress1 admin links a doctor to a verified registered clinic", async () => {
+    await assertSucceeds(setDoc(addressRef(admin), validDoctorAddress));
+  });
+
+  await check("Paddress2 approved roles read a doctor's delivery addresses", async () => {
+    for (const db of [admin, dispatcher, salesRep, rider]) {
+      await assertSucceeds(getDoc(addressRef(db)));
+      await assertSucceeds(
+        getDocs(collection(db, "doctors", doctorId, "deliveryAddresses"))
+      );
+    }
+  });
+
+  await check("Paddress3 one doctor can link several different clinics", async () => {
+    await assertSucceeds(
+      setDoc(addressRef(admin, "clDefaultRadius"), validDoctorAddress)
+    );
+  });
+
+  await check("Paddress4 admin deactivates and reactivates an address", async () => {
+    await assertSucceeds(updateDoc(addressRef(admin), {
+      active: false,
+      updatedAt: serverTimestamp(),
+    }));
+    await assertSucceeds(updateDoc(addressRef(admin), {
+      active: true,
+      updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Naddress1 non-admin roles cannot create or update addresses", async () => {
+    for (const [index, db] of [dispatcher, salesRep, rider].entries()) {
+      await assertFails(
+        setDoc(addressRef(db, `rogue-address-${index}`), validDoctorAddress)
+      );
+      await assertFails(updateDoc(addressRef(db), {
+        active: false,
+        updatedAt: serverTimestamp(),
+      }));
+    }
+  });
+
+  await check("Naddress2 missing, unverified or malformed clinics cannot be linked", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      const clinicBase = {
+        areaId: "seed-area",
+        area: "Seed Area",
+        latitude: 14.63,
+        longitude: 120.96,
+        geofenceRadiusM: 300,
+        locationVerified: true,
+      };
+      await setDoc(doc(db, "clinics", "clBlankDetails"), {
+        ...clinicBase,
+        name: "   ",
+        location: "     ",
+      });
+      await setDoc(doc(db, "clinics", "clInactiveArea"), {
+        ...clinicBase,
+        name: "Inactive Area Clinic",
+        location: "200 Inactive Area Road",
+        areaId: metroAreaId,
+        area: "Metro Manila",
+      });
+      await setDoc(doc(db, "clinics", "clMismatchedArea"), {
+        ...clinicBase,
+        name: "Mismatched Area Clinic",
+        location: "300 Mismatched Area Road",
+        area: "Wrong Area Name",
+      });
+    });
+
+    await assertFails(
+      setDoc(addressRef(admin, "missing-clinic"), validDoctorAddress)
+    );
+    await assertFails(
+      setDoc(addressRef(admin, "clUnverified"), validDoctorAddress)
+    );
+    await assertFails(
+      setDoc(addressRef(admin, "clBadRadius"), validDoctorAddress)
+    );
+    await assertFails(
+      setDoc(addressRef(admin, "clDecimalRadius"), validDoctorAddress)
+    );
+    await assertFails(
+      setDoc(addressRef(admin, "clNullRadius"), validDoctorAddress)
+    );
+    await assertFails(
+      setDoc(addressRef(admin, "clBlankDetails"), validDoctorAddress)
+    );
+    await assertFails(
+      setDoc(addressRef(admin, "clInactiveArea"), validDoctorAddress)
+    );
+    await assertFails(
+      setDoc(addressRef(admin, "clMismatchedArea"), validDoctorAddress)
+    );
+    await assertFails(setDoc(addressRef(admin, "clStamped"), {
+      ...validDoctorAddress,
+      clinicDocId: "forged-clinic-id",
+    }));
+    await assertFails(updateDoc(addressRef(admin), {
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(addressRef(admin), {
+      updatedAt: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(addressRef(admin), {
+      unexpected: true,
+      updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Naddress3 malformed legacy destinations cannot be reactivated", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      const malformed = {
+        createdAt: new Date("2026-08-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-08-01T00:00:00.000Z"),
+      };
+      await setDoc(addressRef(db, "missing-clinic-inactive"), {
+        ...malformed,
+        active: false,
+      });
+      await setDoc(addressRef(db, "missing-clinic-active"), {
+        ...malformed,
+        active: true,
+      });
+    });
+
+    await assertFails(updateDoc(addressRef(admin, "missing-clinic-inactive"), {
+      active: true,
+      updatedAt: serverTimestamp(),
+    }));
+    // A broken legacy relationship can always be made safer by deactivation.
+    await assertSucceeds(updateDoc(addressRef(admin, "missing-clinic-active"), {
+      active: false,
+      updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Naddress4 retired doctors block new or reactivated addresses", async () => {
+    await assertSucceeds(updateDoc(doc(admin, "doctors", doctorId), {
+      active: false,
+      updatedAt: serverTimestamp(),
+    }));
+    await assertFails(
+      setDoc(addressRef(admin, "clStamped"), validDoctorAddress)
+    );
+    // Retirement never traps an active destination: it can still be disabled.
+    await assertSucceeds(updateDoc(addressRef(admin), {
+      active: false,
+      updatedAt: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(addressRef(admin), {
+      active: true,
+      updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("Paddress5 admin can remove only retired standalone address records", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(addressRef(db, "legacy-standalone"), {
+        label: "Old Clinic Entrance",
+        addressLine: "123 Retired Address Road",
+        areaId: "seed-area",
+        area: "Seed Area",
+        latitude: 14.5,
+        longitude: 120.9,
+        geofenceRadiusM: 300,
+        active: false,
+        createdAt: new Date("2026-08-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-08-01T00:00:00.000Z"),
+      });
+    });
+
+    // Registered clinic relationships remain immutable and non-deletable.
+    await assertFails(deleteDoc(addressRef(admin)));
+    await assertFails(deleteDoc(addressRef(dispatcher, "legacy-standalone")));
+    await assertSucceeds(deleteDoc(addressRef(admin, "legacy-standalone")));
+    await assertFails(getDoc(addressRef(anon)));
+  });
+
   // ---- clinic location / geofence (Phase 01) ----
   // The clinics rule ALREADY restricted writes to admin, so Phase 01 changed no
   // rule. These cases lock that in so the new Admin location editor cannot be
@@ -1397,7 +1637,9 @@ async function main() {
       areaId: "seed-area",
       area: "A different name",
     }));
-    await assertFails(setDoc(doc(admin, "clinics", "clInactiveArea"), {
+    // Use a fresh id: the destination tests seed clInactiveArea directly.
+    // Reusing it here would exercise the update rule instead of create.
+    await assertFails(setDoc(doc(admin, "clinics", "clNewInactiveArea"), {
       name: "Inactive Area Clinic",
       areaId: metroAreaId,
       area: "Metro Manila",
