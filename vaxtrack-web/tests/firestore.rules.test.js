@@ -1399,6 +1399,20 @@ async function main() {
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
+  const homeAddressRef = (db) =>
+    doc(db, "doctors", doctorId, "deliveryAddresses", "home");
+  const validHomeAddress = {
+    kind: "home",
+    addressLine: "10 Mabini Street, Seed City",
+    areaId: "seed-area",
+    area: "Seed Area",
+    latitude: 14.5995,
+    longitude: 120.9842,
+    geofenceRadiusM: 300,
+    active: true,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
 
   await check("Paddress1 admin links a doctor to a verified registered clinic", async () => {
     await assertSucceeds(setDoc(addressRef(admin), validDoctorAddress));
@@ -1430,6 +1444,65 @@ async function main() {
     }));
   });
 
+  await check("NaddressHome1 malformed or duplicate Home records are rejected", async () => {
+    await assertFails(setDoc(homeAddressRef(admin), {
+      ...validHomeAddress,
+      addressLine: "x",
+    }));
+    await assertFails(setDoc(homeAddressRef(admin), {
+      ...validHomeAddress,
+      area: "Wrong Area",
+    }));
+    await assertFails(setDoc(homeAddressRef(admin), {
+      ...validHomeAddress,
+      latitude: 91,
+    }));
+    await assertFails(
+      setDoc(addressRef(admin, "second-home"), validHomeAddress)
+    );
+  });
+
+  await check("PaddressHome1 admin creates the one reserved Home destination", async () => {
+    await assertSucceeds(setDoc(homeAddressRef(admin), validHomeAddress));
+  });
+
+  await check("PaddressHome2 admin edits, deactivates and reactivates Home", async () => {
+    await assertSucceeds(updateDoc(homeAddressRef(admin), {
+      addressLine: "11 Mabini Street, Seed City",
+      latitude: 14.6,
+      updatedAt: serverTimestamp(),
+    }));
+    await assertSucceeds(updateDoc(homeAddressRef(admin), {
+      active: false,
+      updatedAt: serverTimestamp(),
+    }));
+    await assertSucceeds(updateDoc(homeAddressRef(admin), {
+      active: true,
+      updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("PaddressHome3 approved roles can read the Home destination", async () => {
+    for (const db of [admin, dispatcher, salesRep, rider]) {
+      await assertSucceeds(getDoc(homeAddressRef(db)));
+    }
+  });
+
+  await check("NaddressHome2 Home cannot be forged, timestamp-touched or deleted", async () => {
+    await assertFails(updateDoc(homeAddressRef(admin), {
+      kind: "clinic",
+      updatedAt: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(homeAddressRef(admin), {
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(homeAddressRef(admin), {
+      updatedAt: serverTimestamp(),
+    }));
+    await assertFails(deleteDoc(homeAddressRef(admin)));
+  });
+
   await check("Naddress1 non-admin roles cannot create or update addresses", async () => {
     for (const [index, db] of [dispatcher, salesRep, rider].entries()) {
       await assertFails(
@@ -1437,6 +1510,10 @@ async function main() {
       );
       await assertFails(updateDoc(addressRef(db), {
         active: false,
+        updatedAt: serverTimestamp(),
+      }));
+      await assertFails(updateDoc(homeAddressRef(db), {
+        addressLine: `Rogue Home ${index}`,
         updatedAt: serverTimestamp(),
       }));
     }
@@ -1556,6 +1633,14 @@ async function main() {
       updatedAt: serverTimestamp(),
     }));
     await assertFails(updateDoc(addressRef(admin), {
+      active: true,
+      updatedAt: serverTimestamp(),
+    }));
+    await assertSucceeds(updateDoc(homeAddressRef(admin), {
+      active: false,
+      updatedAt: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(homeAddressRef(admin), {
       active: true,
       updatedAt: serverTimestamp(),
     }));

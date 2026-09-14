@@ -1,34 +1,76 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { validateDoctorAddress } from "../src/services/doctorAddressModel.js";
+import {
+  HOME_ADDRESS_ID,
+  validateDoctorClinicDestination,
+  validateDoctorHomeAddress,
+} from "../src/services/doctorAddressModel.js";
 
 const read = (path) =>
   readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("a doctor destination accepts one stable clinic document id", () => {
-  assert.deepEqual(validateDoctorAddress({ clinicDocId: "  clinic-123  " }), {
-    ok: true,
-    errors: {},
-    value: { clinicDocId: "clinic-123" },
-  });
-});
-
-test("a missing or path-like clinic document id is rejected", () => {
-  assert.deepEqual(validateDoctorAddress({ clinicDocId: "" }), {
-    ok: false,
-    errors: {
-      clinicDocId: "Select a registered clinic with a verified location.",
-    },
-    value: null,
-  });
-  assert.equal(
-    validateDoctorAddress({ clinicDocId: "clinics/other" }).ok,
-    false
+test("a doctor clinic destination accepts one stable clinic document id", () => {
+  assert.deepEqual(
+    validateDoctorClinicDestination({ clinicDocId: "  clinic-123  " }),
+    {
+      ok: true,
+      errors: {},
+      value: { clinicDocId: "clinic-123" },
+    }
   );
 });
 
-test("the clinic document id is also the unique nested destination id", () => {
+test("missing, path-like, and reserved Home clinic ids are rejected", () => {
+  for (const clinicDocId of ["", "clinics/other", HOME_ADDRESS_ID]) {
+    assert.equal(
+      validateDoctorClinicDestination({ clinicDocId }).ok,
+      false,
+      clinicDocId
+    );
+  }
+});
+
+test("one Home address is normalized with a routable location", () => {
+  assert.deepEqual(
+    validateDoctorHomeAddress({
+      addressLine: "  10   Mabini Street, Manila  ",
+      areaId: " seed-area ",
+      latitude: "14.5995",
+      longitude: "120.9842",
+      geofenceRadiusM: "",
+    }),
+    {
+      ok: true,
+      errors: {},
+      value: {
+        addressLine: "10 Mabini Street, Manila",
+        areaId: "seed-area",
+        latitude: 14.5995,
+        longitude: 120.9842,
+        geofenceRadiusM: 300,
+      },
+    }
+  );
+});
+
+test("Home requires an address, active-area id, coordinates and valid radius", () => {
+  const check = validateDoctorHomeAddress({
+    addressLine: "x",
+    areaId: "",
+    latitude: "",
+    longitude: "181",
+    geofenceRadiusM: "49",
+  });
+  assert.equal(check.ok, false);
+  assert.ok(check.errors.addressLine);
+  assert.ok(check.errors.areaId);
+  assert.ok(check.errors.latitude);
+  assert.ok(check.errors.longitude);
+  assert.ok(check.errors.geofenceRadiusM);
+});
+
+test("clinic id and reserved Home id are authoritative document paths", () => {
   const service = read("src/services/doctorAddressService.js");
   assert.match(
     service,
@@ -36,28 +78,26 @@ test("the clinic document id is also the unique nested destination id", () => {
   );
   assert.match(
     service,
-    /\.\.\.data,[\s\S]*?clinicDocId: address\.id,[\s\S]*?id: address\.id/
+    /doc\(\s*db,\s*DOCTORS,\s*stableDoctorId,\s*ADDRESSES,\s*HOME_ADDRESS_ID\s*\)/
   );
+  assert.match(service, /clinicDocId:[\s\S]*?address\.id/);
+  assert.match(service, /id: address\.id/);
   assert.doesNotMatch(service, /doc\(collection\(db, DOCTORS/);
 });
 
-test("destination writes re-read doctor, clinic, location and area master data", () => {
+test("clinic and Home writes re-read their active master relationships", () => {
   const service = read("src/services/doctorAddressService.js");
-  assert.match(service, /readActiveRelationships/);
+  assert.match(service, /readActiveClinicRelationships/);
+  assert.match(service, /readActiveHomeRelationships/);
   assert.match(service, /transaction\.get\(doctorRef\)/);
   assert.match(service, /transaction\.get\(clinicRef\)/);
   assert.match(service, /transaction\.get\(areaRef\)/);
   assert.match(service, /clinic\.locationVerified !== true/);
   assert.match(service, /validateClinicLocation\(clinic\)/);
-  assert.match(service, /Number\.isFinite\(clinic\.latitude\)/);
-  assert.match(service, /Number\.isFinite\(clinic\.longitude\)/);
-  assert.match(service, /Number\.isInteger\(clinic\.geofenceRadiusM\)/);
-  assert.match(service, /!validText\(clinic\.area, 2\)/);
-  assert.match(service, /clinic\.areaId !== areaId/);
   assert.match(service, /areaSnapshot\.data\(\)\.active !== true/);
 });
 
-test("destination documents never duplicate clinic address or coordinate fields", () => {
+test("clinic relationship records do not duplicate clinic location fields", () => {
   const service = read("src/services/doctorAddressService.js");
   const createPayload = service.match(
     /transaction\.set\(addressRef, \{([\s\S]*?)\}\);/
@@ -71,33 +111,37 @@ test("destination documents never duplicate clinic address or coordinate fields"
   );
 });
 
-test("the Firestore subscription is the only source of destination-list state", () => {
-  const panel = read("src/pages/admin/DoctorAddressesPanel.jsx");
-  const calls = panel.match(/setAddresses\(/g) ?? [];
-  assert.equal(calls.length, 1);
-  assert.match(panel, /subscribeDoctorAddresses\([\s\S]*?setAddresses\(docs\)/);
+test("Home is one editable record that preserves status and creation time", () => {
+  const service = read("src/services/doctorAddressService.js");
+  assert.match(service, /export async function saveDoctorHomeAddress/);
+  assert.match(service, /kind: HOME_ADDRESS_ID/);
+  assert.match(service, /if \(existingSnapshot\.exists\(\)\)[\s\S]*?transaction\.update\(homeRef, values\)/);
+  assert.match(service, /active: true,[\s\S]*?createdAt: serverTimestamp\(\)/);
+  assert.match(service, /setDoctorHomeAddressActive/);
+  assert.match(service, /Home destination can be deactivated but not deleted/);
 });
 
-test("Admin selects an existing verified clinic instead of retyping a location", () => {
+test("Firestore subscriptions remain the destination and doctor-list sources of truth", () => {
+  const panel = read("src/pages/admin/DoctorAddressesPanel.jsx");
   const page = read("src/pages/admin/Clinics.jsx");
-  const panel = read("src/pages/admin/DoctorAddressesPanel.jsx");
-  assert.match(page, />\s*Manage addresses\s*</);
-  assert.match(panel, /Registered clinic destination/);
-  assert.match(panel, /clinic\.firestoreId/);
-  assert.match(page, /destinationLocationValid:[\s\S]*?validateClinicLocation\(raw\)\.ok/);
-  assert.match(page, /Number\.isFinite\(raw\.latitude\)/);
-  assert.match(page, /Number\.isFinite\(raw\.longitude\)/);
-  assert.match(page, /Number\.isInteger\(raw\.geofenceRadiusM\)/);
-  assert.match(panel, /clinic\.destinationLocationValid === true/);
-  assert.match(panel, /location\.locationVerified === true/);
-  assert.match(panel, /activeAreaById\.get\(clinic\.areaId\)/);
-  assert.match(panel, /area\?\.name\?\.trim\(\) === clinic\.area\.trim\(\)/);
-  assert.match(panel, /Add Clinic Destination/);
-  assert.doesNotMatch(panel, /ClinicLocationSection/);
-  assert.doesNotMatch(panel, /Full delivery address|Address label/);
+  assert.equal((panel.match(/setAddresses\(/g) ?? []).length, 1);
+  assert.match(panel, /subscribeDoctorAddresses\([\s\S]*?setAddresses\(docs\)/);
+  assert.equal((page.match(/setDoctors\(/g) ?? []).length, 1);
 });
 
-test("already-linked clinics are excluded and several distinct clinics remain possible", () => {
+test("Admin Doctor splits one Home editor from registered clinic links", () => {
+  const panel = read("src/pages/admin/DoctorAddressesPanel.jsx");
+  assert.match(panel, /Home \/ doorstep/);
+  assert.match(panel, /Add Home Address/);
+  assert.match(panel, /saveDoctorHomeAddress/);
+  assert.match(panel, /ClinicLocationSection/);
+  assert.match(panel, /Linked clinics/);
+  assert.match(panel, /Registered clinic destination/);
+  assert.match(panel, /Add Clinic Destination/);
+  assert.match(panel, /clinic\.destinationLocationValid === true/);
+});
+
+test("already-linked clinics are excluded and several clinics remain possible", () => {
   const panel = read("src/pages/admin/DoctorAddressesPanel.jsx");
   const service = read("src/services/doctorAddressService.js");
   assert.match(panel, /linkedClinicIds\.has\(clinic\.firestoreId\)/);
@@ -106,31 +150,31 @@ test("already-linked clinics are excluded and several distinct clinics remain po
   assert.match(service, /already linked to this doctor/);
 });
 
-test("destinations are immutable links that can only be retired or reactivated", () => {
-  const panel = read("src/pages/admin/DoctorAddressesPanel.jsx");
-  const service = read("src/services/doctorAddressService.js");
-  assert.match(panel, /setDoctorAddressActive/);
-  assert.match(panel, /doctor\.active !== true/);
-  assert.match(panel, /Existing destinations can still be deactivated/);
-  assert.doesNotMatch(service, /updateDoctorAddress/);
-  assert.doesNotMatch(panel, />\s*Edit\s*</);
-});
-
-test("only retired standalone-address records expose one-way cleanup", () => {
+test("clinic links can only be retired/reactivated and legacy cleanup is one-way", () => {
   const panel = read("src/pages/admin/DoctorAddressesPanel.jsx");
   const service = read("src/services/doctorAddressService.js");
   const rules = read("firestore.rules");
-  assert.match(service, /legacyIndependentAddress:/);
-  assert.match(service, /removeLegacyDoctorAddress/);
+  assert.match(panel, /setDoctorAddressActive/);
+  assert.doesNotMatch(service, /updateDoctorClinicDestination/);
+  assert.match(service, /const legacyIndependentAddress/);
   assert.match(panel, /Remove legacy/);
-  assert.match(rules, /isLegacyIndependentDoctorAddress/);
-  assert.match(
-    rules,
-    /allow delete: if isAdmin\(\) && isLegacyIndependentDoctorAddress\(\)/
+  assert.match(rules, /addressId != 'home'[\s\S]*?isLegacyIndependentDoctorAddress/);
+});
+
+test("Clinic Details lists only active clinic links and never Home data", () => {
+  const page = read("src/pages/admin/Clinics.jsx");
+  assert.match(page, /useLinkedDoctorsForClinic/);
+  assert.match(page, /destination\.destinationType === "clinic"/);
+  assert.match(page, /destination\.clinicDocId === clinicDocId/);
+  assert.match(page, /destination\.active === true/);
+  assert.match(page, />Linked doctors</);
+  assert.doesNotMatch(
+    page.match(/function ClinicDetailsModal\([\s\S]*?function AreasModal/)?.[0] || "",
+    /addressLine|Home \/ Doorstep/
   );
 });
 
-test("this checkpoint still leaves Med Rep order wiring unchanged", () => {
+test("this Admin checkpoint still leaves Sales Rep order wiring unchanged", () => {
   const checkout = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
   assert.doesNotMatch(checkout, /doctorId|doctorName|doctorAddressId/);
 });

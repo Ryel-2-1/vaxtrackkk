@@ -43,6 +43,9 @@ function ClinicLocationSection({
   errors = {},
   disabled = false,
   idPrefix = "clinic-loc",
+  helpText = "Click the map to place this clinic's pin, or drag it to adjust. This location is reused for dispatch routing and delivery arrival monitoring, so place it on the building entrance riders should reach.",
+  mapAriaLabel = "Clinic location picker. Click the map to place the pin, or use the latitude and longitude fields below.",
+  emptyMessage = "No pin placed yet. This clinic can still be saved — it will show as Needs location until a pin is added.",
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -51,9 +54,13 @@ function ClinicLocationSection({
   // Keep the latest onChange without re-running the map effect on every render.
   // Assigned in an effect, never during render.
   const onChangeRef = useRef(onChange);
+  const disabledRef = useRef(disabled);
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
+  useEffect(() => {
+    disabledRef.current = disabled;
+  }, [disabled]);
 
   const lat = toFiniteNumber(value.latitude);
   const lng = toFiniteNumber(value.longitude);
@@ -103,7 +110,7 @@ function ClinicLocationSection({
     }).addTo(map);
 
     map.on("click", (event) => {
-      if (disabled) return;
+      if (disabledRef.current) return;
       const { lat: clickLat, lng: clickLng } = event.latlng;
       onChangeRef.current({
         latitude: clickLat.toFixed(6),
@@ -116,9 +123,6 @@ function ClinicLocationSection({
     // The section is often mounted inside a dialog that sizes after paint.
     const timer = setTimeout(() => map.invalidateSize(), 60);
     return () => clearTimeout(timer);
-    // `disabled` is read through the closure guard above; re-creating the map
-    // when it toggles would drop the user's pin mid-save.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Tear down on unmount so reopening the dialog never hits
@@ -213,16 +217,14 @@ function ClinicLocationSection({
       </div>
 
       <p className="clinic-loc-help">
-        Click the map to place this clinic&apos;s pin, or drag it to adjust.
-        This location is reused for dispatch routing and delivery arrival
-        monitoring, so place it on the building entrance riders should reach.
+        {helpText}
       </p>
 
       <div
         ref={containerRef}
         className="clinic-loc-map"
         role="application"
-        aria-label="Clinic location picker. Click the map to place the pin, or use the latitude and longitude fields below."
+        aria-label={mapAriaLabel}
       />
 
       <div className="clinic-loc-fields">
@@ -312,8 +314,7 @@ function ClinicLocationSection({
       {!hasPin && (
         <p className="clinic-loc-empty">
           <MapPin size={14} aria-hidden="true" />
-          No pin placed yet. This clinic can still be saved — it will show as
-          Needs location until a pin is added.
+          {emptyMessage}
         </p>
       )}
     </section>

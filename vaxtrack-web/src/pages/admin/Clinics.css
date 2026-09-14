@@ -1398,6 +1398,109 @@
   flex-wrap: wrap;
 }
 
+.clinics-details-modal {
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+}
+
+.clinics-linked-doctors {
+  margin: 0 0 20px;
+  border: 1px solid var(--gray-200);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.clinics-linked-doctors-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.clinics-linked-doctors-head h3 {
+  margin: 0;
+  color: var(--gray-900);
+  font-size: 15px;
+}
+
+.clinics-linked-doctors-head > span {
+  min-width: 24px;
+  min-height: 24px;
+  border-radius: 999px;
+  background: var(--success-bg);
+  color: var(--success-text);
+  display: inline-grid;
+  place-items: center;
+  padding: 0 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.clinics-modal .clinics-linked-doctors > p {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+
+.clinics-linked-doctors ul {
+  max-height: 190px;
+  overflow-y: auto;
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.clinics-linked-doctors li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 0;
+}
+
+.clinics-linked-doctors li + li {
+  border-top: 1px solid var(--gray-200);
+}
+
+.clinics-linked-doctors li > svg {
+  color: var(--green-700);
+}
+
+.clinics-linked-doctors li > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.clinics-linked-doctors li strong {
+  overflow-wrap: anywhere;
+  color: var(--gray-900);
+  font-size: 13px;
+}
+
+.clinics-linked-doctors li small {
+  color: var(--gray-600);
+  font-size: 11px;
+}
+
+.clinics-linked-doctors li > span {
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.clinics-linked-doctors li > span.active {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.clinics-linked-doctors li > span.inactive {
+  background: var(--gray-100);
+  color: var(--gray-600);
+}
+
 .clinics-optional {
   font-weight: 400;
   font-size: 11px;
@@ -1811,7 +1914,7 @@
   cursor: pointer;
 }
 
-/* Doctor-to-clinic delivery-destination management */
+/* Doctor Home + clinic delivery-destination management */
 
 .clinics-address-panel {
   min-height: 0;
@@ -1898,14 +2001,57 @@
   line-height: 1.45;
 }
 
+.clinics-address-section {
+  padding: 4px 0 20px;
+}
+
+.clinics-address-section + .clinics-address-section {
+  border-top: 1px solid var(--gray-200);
+  padding-top: 20px;
+}
+
+.clinics-address-section-head {
+  margin-bottom: 13px;
+}
+
+.clinics-address-section-head > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--green-700);
+}
+
+.clinics-address-section-head h3 {
+  margin: 0;
+  color: var(--gray-900);
+  font-size: 17px;
+}
+
+.clinics-modal .clinics-address-section-head p {
+  margin: 5px 0 0;
+  color: var(--gray-600);
+  font-size: 12px;
+}
+
 .clinics-address-form {
   border-bottom: 1px solid var(--gray-200);
   padding-bottom: 18px;
 }
 
+.clinics-home-form {
+  border: 1px solid var(--gray-200);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.clinics-clinic-link-form {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
 .clinics-address-fields {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.8fr);
   gap: 12px;
 }
 
@@ -1919,9 +2065,14 @@
   font-weight: 600;
 }
 
-.clinics-address-fields select {
+.clinics-address-fields label.wide {
+  grid-column: 1 / -1;
+}
+
+.clinics-address-fields input,
+.clinics-address-fields select,
+.clinics-address-fields textarea {
   width: 100%;
-  height: 44px;
   border: 1px solid var(--gray-300);
   border-radius: 12px;
   margin: 0;
@@ -1933,12 +2084,28 @@
   outline: none;
 }
 
-.clinics-address-fields select:focus {
+.clinics-address-fields input,
+.clinics-address-fields select {
+  height: 44px;
+}
+
+.clinics-address-fields textarea {
+  min-height: 74px;
+  resize: vertical;
+  padding-top: 11px;
+  padding-bottom: 11px;
+}
+
+.clinics-address-fields input:focus,
+.clinics-address-fields select:focus,
+.clinics-address-fields textarea:focus {
   border-color: var(--green-700);
   box-shadow: 0 0 0 3px var(--green-100);
 }
 
-.clinics-address-fields select:disabled {
+.clinics-address-fields input:disabled,
+.clinics-address-fields select:disabled,
+.clinics-address-fields textarea:disabled {
   background: var(--gray-100);
   cursor: not-allowed;
 }
@@ -1960,6 +2127,36 @@
 
 .clinics-address-list {
   margin-top: 18px;
+}
+
+.clinics-address-empty-row {
+  border: 1px dashed var(--gray-300);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.clinics-address-empty-row > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.clinics-address-empty-row strong {
+  color: var(--gray-900);
+}
+
+.clinics-address-empty-row span {
+  color: var(--gray-600);
+  font-size: 12px;
+}
+
+.clinics-address-empty-row > button {
+  flex: 0 0 auto;
 }
 
 .clinics-address-row {
@@ -2174,9 +2371,18 @@
   }
 
   .clinics-address-doctor,
-  .clinics-address-row {
+  .clinics-address-row,
+  .clinics-address-empty-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .clinics-address-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .clinics-address-fields label.wide {
+    grid-column: auto;
   }
 }
 

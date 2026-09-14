@@ -37,6 +37,7 @@ import {
   setDoctorActive,
   subscribeDoctors,
 } from "../../services/doctorService";
+import { subscribeDoctorAddresses } from "../../services/doctorAddressService";
 import KpiCard from "../../components/ui/KpiCard";
 import ClinicLocationSection from "./ClinicLocationSection";
 import DoctorAddressesPanel from "./DoctorAddressesPanel";
@@ -120,6 +121,100 @@ const EMPTY_CLINIC = {
   geofenceRadiusM: "",
 };
 
+function useLinkedDoctorsForClinic(
+  clinicDocId,
+  doctors,
+  doctorsLoading,
+  doctorLoadError
+) {
+  const [result, setResult] = useState({
+    doctors: [],
+    loading: false,
+    error: "",
+  });
+
+  useEffect(() => {
+    let mounted = true;
+    if (!clinicDocId) {
+      setResult({ doctors: [], loading: false, error: "" });
+      return () => {
+        mounted = false;
+      };
+    }
+    if (doctorsLoading) {
+      setResult({ doctors: [], loading: true, error: "" });
+      return () => {
+        mounted = false;
+      };
+    }
+    if (doctorLoadError) {
+      setResult({ doctors: [], loading: false, error: doctorLoadError });
+      return () => {
+        mounted = false;
+      };
+    }
+    if (doctors.length === 0) {
+      setResult({ doctors: [], loading: false, error: "" });
+      return () => {
+        mounted = false;
+      };
+    }
+
+    const linkedByDoctorId = new Map();
+    const settledDoctorIds = new Set();
+    const failedDoctorIds = new Set();
+
+    const publish = () => {
+      if (!mounted) return;
+      const linkedDoctors = doctors
+        .filter((doctor) => linkedByDoctorId.get(doctor.id) === true)
+        .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+      setResult({
+        doctors: linkedDoctors,
+        loading: settledDoctorIds.size < doctors.length,
+        error:
+          failedDoctorIds.size > 0
+            ? "Some doctor links could not be loaded. Refresh and try again."
+            : "",
+      });
+    };
+
+    setResult({ doctors: [], loading: true, error: "" });
+    const unsubscribes = doctors.map((doctor) =>
+      subscribeDoctorAddresses(
+        doctor.id,
+        (destinations) => {
+          settledDoctorIds.add(doctor.id);
+          failedDoctorIds.delete(doctor.id);
+          linkedByDoctorId.set(
+            doctor.id,
+            destinations.some(
+              (destination) =>
+                destination.destinationType === "clinic" &&
+                destination.clinicDocId === clinicDocId &&
+                destination.active === true
+            )
+          );
+          publish();
+        },
+        () => {
+          settledDoctorIds.add(doctor.id);
+          failedDoctorIds.add(doctor.id);
+          linkedByDoctorId.set(doctor.id, false);
+          publish();
+        }
+      )
+    );
+
+    return () => {
+      mounted = false;
+      unsubscribes.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [clinicDocId, doctorLoadError, doctors, doctorsLoading]);
+
+  return result;
+}
+
 function Clinics() {
   const navigate = useNavigate();
   const [clinics, setClinics] = useState([]);
@@ -151,6 +246,12 @@ function Clinics() {
   const newClinicTriggerRef = useRef(null);
   const areasTriggerRef = useRef(null);
   const doctorsTriggerRef = useRef(null);
+  const linkedDoctors = useLinkedDoctorsForClinic(
+    selectedClinic?.firestoreId || "",
+    doctors,
+    doctorsLoading,
+    doctorLoadError
+  );
 
   const openManageLocation = (clinic, triggerEl) => {
     manageTriggerRef.current = triggerEl;
@@ -763,7 +864,12 @@ function Clinics() {
 
       {selectedClinic && (
         <ClinicDetailsModal
-          clinic={selectedClinic}
+          clinic={{
+            ...selectedClinic,
+            linkedDoctors: linkedDoctors.doctors,
+            linkedDoctorsLoading: linkedDoctors.loading,
+            linkedDoctorsError: linkedDoctors.error,
+          }}
           onClose={() => setSelectedClinic(null)}
           onEdit={() => showToast(`Editing ${selectedClinic.name}.`)}
         />
@@ -1055,9 +1161,13 @@ function ManageLocationModal({ clinic, onClose, onSave }) {
 }
 
 function ClinicDetailsModal({ clinic, onClose, onEdit }) {
+  const linkedDoctors = clinic.linkedDoctors || [];
+  const linkedDoctorsLoading = clinic.linkedDoctorsLoading === true;
+  const linkedDoctorsError = clinic.linkedDoctorsError || "";
+
   return (
     <div className="clinics-modal-backdrop">
-      <div className="clinics-modal">
+      <div className="clinics-modal clinics-details-modal">
         <button
           type="button"
           className="clinics-modal-close"
@@ -1106,6 +1216,46 @@ function ClinicDetailsModal({ clinic, onClose, onEdit }) {
             <strong>{clinic.deliveryNotes}</strong>
           </div>
         </div>
+
+        <section
+          className="clinics-linked-doctors"
+          aria-labelledby="clinic-linked-doctors-heading"
+        >
+          <div className="clinics-linked-doctors-head">
+            <h3 id="clinic-linked-doctors-heading">Linked doctors</h3>
+            {!linkedDoctorsLoading && !linkedDoctorsError && (
+              <span>{linkedDoctors.length}</span>
+            )}
+          </div>
+
+          {linkedDoctorsLoading && <p>Loading linked doctors...</p>}
+          {!linkedDoctorsLoading && linkedDoctorsError && (
+            <p className="clinics-area-error" role="alert">
+              {linkedDoctorsError}
+            </p>
+          )}
+          {!linkedDoctorsLoading &&
+            !linkedDoctorsError &&
+            linkedDoctors.length === 0 && (
+              <p>No doctors have an active link to this clinic.</p>
+            )}
+          {!linkedDoctorsLoading && linkedDoctors.length > 0 && (
+            <ul>
+              {linkedDoctors.map((doctor) => (
+                <li key={doctor.id}>
+                  <UserRound size={17} aria-hidden="true" />
+                  <div>
+                    <strong>{doctor.name || "Unnamed doctor"}</strong>
+                    <small>Primary area: {doctor.area || "Unassigned"}</small>
+                  </div>
+                  <span className={doctor.active ? "active" : "inactive"}>
+                    {doctor.active ? "Active" : "Inactive"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
         {/* Deliveries are not started from Admin Clinics. They originate in the
             normal order workflow: Sales Rep order → Dispatcher assignment →
@@ -1469,8 +1619,8 @@ function DoctorsModal({
         ) : (
           <>
             <p>
-              Register doctors under a primary area, then link each doctor to
-              one or more registered clinic destinations.
+              Register doctors under a primary area, then add one private Home
+              destination and link one or more registered clinics.
             </p>
 
             <form className="clinics-doctor-create" onSubmit={handleSubmit} noValidate>

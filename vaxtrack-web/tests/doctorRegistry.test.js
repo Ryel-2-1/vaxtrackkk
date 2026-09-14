@@ -61,7 +61,7 @@ test("Admin Clinics registers doctors under active area document ids", () => {
   assert.match(page, /areas\.filter\(\(area\) => area\.active === true\)/);
   assert.match(page, /onAdd\(\{ name, areaId \}\)/);
   assert.match(page, /<option key=\{area\.id\} value=\{area\.id\}>/);
-  assert.match(page, /link each doctor to[\s\S]*?registered clinic destinations/);
+  assert.match(page, /one private Home[\s\S]*?registered clinics/);
   assert.match(page, /DoctorAddressesPanel/);
 });
 

@@ -134,6 +134,88 @@ service cloud.firestore {
         && d.updatedAt is timestamp;
     }
 
+    function validDoctorHomeData() {
+      let d = request.resource.data;
+      return d.keys().hasAll([
+          'kind', 'addressLine', 'areaId', 'area', 'latitude', 'longitude',
+          'geofenceRadiusM', 'active', 'createdAt', 'updatedAt'
+        ])
+        && d.keys().hasOnly([
+          'kind', 'addressLine', 'areaId', 'area', 'latitude', 'longitude',
+          'geofenceRadiusM', 'active', 'createdAt', 'updatedAt'
+        ])
+        && d.kind == 'home'
+        && d.addressLine is string
+        && d.addressLine.trim().size() >= 5
+        && d.addressLine.size() <= 200
+        && d.areaId is string
+        && d.areaId.size() >= 2
+        && d.areaId.size() <= 960
+        && d.areaId == d.areaId.trim()
+        && d.area is string
+        && d.area.trim().size() >= 2
+        && d.area.size() <= 80
+        && (d.latitude is int || d.latitude is float)
+        && d.latitude >= -90
+        && d.latitude <= 90
+        && (d.longitude is int || d.longitude is float)
+        && d.longitude >= -180
+        && d.longitude <= 180
+        && d.geofenceRadiusM is int
+        && d.geofenceRadiusM >= 50
+        && d.geofenceRadiusM <= 1000
+        && d.active is bool
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function activeDoctorHomeRelationships(doctorId) {
+      let d = request.resource.data;
+      return exists(/databases/$(database)/documents/doctors/$(doctorId))
+        && get(/databases/$(database)/documents/doctors/$(doctorId)).data.active == true
+        && exists(/databases/$(database)/documents/areas/$(d.areaId))
+        && get(/databases/$(database)/documents/areas/$(d.areaId)).data.active == true
+        && get(/databases/$(database)/documents/areas/$(d.areaId)).data.name.trim() == d.area.trim();
+    }
+
+    function validNewDoctorHome(doctorId, addressId) {
+      return addressId == 'home'
+        && validDoctorHomeData()
+        && request.resource.data.active == true
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && activeDoctorHomeRelationships(doctorId);
+    }
+
+    function validDoctorHomeDetailsUpdate(doctorId, addressId) {
+      return addressId == 'home'
+        && resource.data.kind == 'home'
+        && changedKeys().hasOnly([
+          'addressLine', 'areaId', 'area', 'latitude', 'longitude',
+          'geofenceRadiusM', 'updatedAt'
+        ])
+        && changedKeys().hasAny([
+          'addressLine', 'areaId', 'area', 'latitude', 'longitude',
+          'geofenceRadiusM'
+        ])
+        && validDoctorHomeData()
+        && request.resource.data.updatedAt == request.time
+        && activeDoctorHomeRelationships(doctorId);
+    }
+
+    function validDoctorHomeStatusUpdate(doctorId, addressId) {
+      return addressId == 'home'
+        && resource.data.kind == 'home'
+        && changedKeys().hasOnly(['active', 'updatedAt'])
+        && changedKeys().hasAny(['active'])
+        && validDoctorHomeData()
+        && request.resource.data.updatedAt == request.time
+        && (
+          request.resource.data.active == false
+          || activeDoctorHomeRelationships(doctorId)
+        );
+    }
+
     function validClinicDestinationData(c) {
       return c.name is string
         && c.name.trim().size() >= 2
@@ -1057,15 +1139,30 @@ service cloud.firestore {
     }
     match /doctors/{doctorId}/deliveryAddresses/{addressId} {
       allow read: if isApprovedUser();
-      // The nested document id is the linked clinic document id. A doctor can
-      // therefore have many clinic destinations but never duplicate one.
+      // `home` is the doctor's one private doorstep destination. Every other
+      // nested document id is a linked clinic id, so clinic links stay unique.
       allow create: if isAdmin()
-        && validNewDoctorDestination(doctorId, addressId);
+        && (
+          validNewDoctorHome(doctorId, addressId)
+          || (
+            addressId != 'home'
+            && validNewDoctorDestination(doctorId, addressId)
+          )
+        );
       allow update: if isAdmin()
-        && validDoctorDestinationStatusUpdate(doctorId, addressId);
+        && (
+          validDoctorHomeDetailsUpdate(doctorId, addressId)
+          || validDoctorHomeStatusUpdate(doctorId, addressId)
+          || (
+            addressId != 'home'
+            && validDoctorDestinationStatusUpdate(doctorId, addressId)
+          )
+        );
       // One-way cleanup for standalone address documents created by the
       // superseded checkpoint. Valid clinic relationships are never deletable.
-      allow delete: if isAdmin() && isLegacyIndependentDoctorAddress();
+      allow delete: if isAdmin()
+        && addressId != 'home'
+        && isLegacyIndependentDoctorAddress();
     }
     match /clinics/{id} {
       allow read: if isApprovedUser();

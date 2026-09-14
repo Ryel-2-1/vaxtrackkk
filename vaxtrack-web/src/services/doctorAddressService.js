@@ -12,7 +12,11 @@ import {
   MIN_GEOFENCE_RADIUS_M,
   validateClinicLocation,
 } from "./clinicLocation";
-import { validateDoctorAddress } from "./doctorAddressModel";
+import {
+  HOME_ADDRESS_ID,
+  validateDoctorClinicDestination,
+  validateDoctorHomeAddress,
+} from "./doctorAddressModel";
 
 const DOCTORS = "doctors";
 const ADDRESSES = "deliveryAddresses";
@@ -35,25 +39,43 @@ export function subscribeDoctorAddresses(doctorId, callback, onError) {
     collection(db, DOCTORS, stableDoctorId, ADDRESSES),
     (snapshot) => {
       const addresses = snapshot.docs
-        // A destination's document id IS the linked clinic document id. Path
-        // identity is assigned last so stored fields can never redirect it.
+        // `home` is the one private doorstep destination. Every other current
+        // document id is a linked clinic id. Path identity is assigned last so
+        // stored fields can never redirect a later order.
         .map((address) => {
           const data = address.data();
+          const homeAddress =
+            address.id === HOME_ADDRESS_ID && data.kind === HOME_ADDRESS_ID;
+          const legacyIndependentAddress =
+            !homeAddress &&
+            typeof data.label === "string" &&
+            typeof data.addressLine === "string";
           return {
             ...data,
-            legacyIndependentAddress:
-              typeof data.label === "string" &&
-              typeof data.addressLine === "string",
+            destinationType: homeAddress
+              ? "home"
+              : legacyIndependentAddress
+                ? "legacy"
+                : "clinic",
+            homeAddress,
+            legacyIndependentAddress,
             doctorId: stableDoctorId,
-            clinicDocId: address.id,
+            clinicDocId:
+              homeAddress || legacyIndependentAddress ? null : address.id,
             id: address.id,
           };
         })
         .sort((a, b) => {
+          if (a.homeAddress !== b.homeAddress) return a.homeAddress ? -1 : 1;
+          if (a.legacyIndependentAddress !== b.legacyIndependentAddress) {
+            return a.legacyIndependentAddress ? 1 : -1;
+          }
           if (Boolean(a.active) !== Boolean(b.active)) {
             return a.active ? -1 : 1;
           }
-          return String(a.clinicDocId).localeCompare(String(b.clinicDocId));
+          return String(a.clinicDocId || a.id).localeCompare(
+            String(b.clinicDocId || b.id)
+          );
         });
       callback(addresses);
     },
@@ -68,7 +90,7 @@ function validText(value, minimum) {
   return typeof value === "string" && value.trim().length >= minimum;
 }
 
-async function readActiveRelationships(transaction, doctorId, clinicDocId) {
+async function readActiveClinicRelationships(transaction, doctorId, clinicDocId) {
   const doctorRef = doc(db, DOCTORS, doctorId);
   const clinicRef = doc(db, CLINICS, clinicDocId);
   const [doctorSnapshot, clinicSnapshot] = await Promise.all([
@@ -125,12 +147,32 @@ async function readActiveRelationships(transaction, doctorId, clinicDocId) {
   }
 }
 
+async function readActiveHomeRelationships(transaction, doctorId, areaId) {
+  const doctorRef = doc(db, DOCTORS, doctorId);
+  const areaRef = doc(db, AREAS, areaId);
+  const [doctorSnapshot, areaSnapshot] = await Promise.all([
+    transaction.get(doctorRef),
+    transaction.get(areaRef),
+  ]);
+
+  if (!doctorSnapshot.exists() || doctorSnapshot.data().active !== true) {
+    throw new Error("Home addresses can only be saved for an active doctor.");
+  }
+  if (!areaSnapshot.exists() || areaSnapshot.data().active !== true) {
+    throw new Error("Select an active area for this home address.");
+  }
+
+  const areaName = String(areaSnapshot.data().name || "").trim();
+  if (!areaName) throw new Error("That area's name is unavailable.");
+  return areaName;
+}
+
 export async function addDoctorAddress(doctorId, input) {
   const stableDoctorId = stableDocumentId(
     doctorId,
     "That doctor could not be identified."
   );
-  const check = validateDoctorAddress(input);
+  const check = validateDoctorClinicDestination(input);
   if (!check.ok) {
     const error = new Error("Select a clinic destination before saving.");
     error.validationErrors = check.errors;
@@ -156,7 +198,7 @@ export async function addDoctorAddress(doctorId, input) {
       );
     }
 
-    await readActiveRelationships(
+    await readActiveClinicRelationships(
       transaction,
       stableDoctorId,
       check.value.clinicDocId
@@ -181,6 +223,9 @@ export async function setDoctorAddressActive(doctorId, clinicDocId, active) {
     clinicDocId,
     "That clinic destination could not be identified."
   );
+  if (stableClinicDocId === HOME_ADDRESS_ID) {
+    throw new Error("Use the Home address controls for that destination.");
+  }
   if (typeof active !== "boolean") {
     throw new Error("Clinic destination status must be active or inactive.");
   }
@@ -202,7 +247,7 @@ export async function setDoctorAddressActive(doctorId, clinicDocId, active) {
     // Deactivation remains possible if the doctor, clinic, location or area is
     // later retired. Reactivation must re-check every live master record.
     if (active) {
-      await readActiveRelationships(
+      await readActiveClinicRelationships(
         transaction,
         stableDoctorId,
         stableClinicDocId
@@ -210,6 +255,112 @@ export async function setDoctorAddressActive(doctorId, clinicDocId, active) {
     }
 
     transaction.update(addressRef, {
+      active,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+/** Create or update the doctor's one reserved Home / doorstep destination. */
+export async function saveDoctorHomeAddress(doctorId, input) {
+  const stableDoctorId = stableDocumentId(
+    doctorId,
+    "That doctor could not be identified."
+  );
+  const check = validateDoctorHomeAddress(input);
+  if (!check.ok) {
+    const error = new Error("Check the home address before saving.");
+    error.validationErrors = check.errors;
+    throw error;
+  }
+
+  const homeRef = doc(
+    db,
+    DOCTORS,
+    stableDoctorId,
+    ADDRESSES,
+    HOME_ADDRESS_ID
+  );
+
+  await runTransaction(db, async (transaction) => {
+    const existingSnapshot = await transaction.get(homeRef);
+    if (
+      existingSnapshot.exists() &&
+      existingSnapshot.data().kind !== HOME_ADDRESS_ID
+    ) {
+      throw new Error("The reserved Home destination contains legacy data.");
+    }
+
+    const areaName = await readActiveHomeRelationships(
+      transaction,
+      stableDoctorId,
+      check.value.areaId
+    );
+    const values = {
+      kind: HOME_ADDRESS_ID,
+      ...check.value,
+      area: areaName,
+      updatedAt: serverTimestamp(),
+    };
+
+    if (existingSnapshot.exists()) {
+      // Editing never changes the current Active/Inactive choice or createdAt.
+      transaction.update(homeRef, values);
+    } else {
+      transaction.set(homeRef, {
+        ...values,
+        active: true,
+        createdAt: serverTimestamp(),
+      });
+    }
+  });
+
+  return homeRef;
+}
+
+export async function setDoctorHomeAddressActive(doctorId, active) {
+  const stableDoctorId = stableDocumentId(
+    doctorId,
+    "That doctor could not be identified."
+  );
+  if (typeof active !== "boolean") {
+    throw new Error("Home address status must be active or inactive.");
+  }
+
+  const homeRef = doc(
+    db,
+    DOCTORS,
+    stableDoctorId,
+    ADDRESSES,
+    HOME_ADDRESS_ID
+  );
+
+  await runTransaction(db, async (transaction) => {
+    const homeSnapshot = await transaction.get(homeRef);
+    if (
+      !homeSnapshot.exists() ||
+      homeSnapshot.data().kind !== HOME_ADDRESS_ID
+    ) {
+      throw new Error("That Home destination no longer exists.");
+    }
+
+    // Deactivation remains possible after master data is retired. A Home
+    // destination must pass current validation before it can be reactivated.
+    if (active) {
+      const storedCheck = validateDoctorHomeAddress(homeSnapshot.data());
+      if (!storedCheck.ok) {
+        throw new Error(
+          "Edit this Home address and add a valid map location before activating it."
+        );
+      }
+      await readActiveHomeRelationships(
+        transaction,
+        stableDoctorId,
+        storedCheck.value.areaId
+      );
+    }
+
+    transaction.update(homeRef, {
       active,
       updatedAt: serverTimestamp(),
     });
@@ -225,6 +376,9 @@ export async function removeLegacyDoctorAddress(doctorId, addressId) {
     addressId,
     "That legacy delivery address could not be identified."
   );
+  if (stableAddressId === HOME_ADDRESS_ID) {
+    throw new Error("The Home destination can be deactivated but not deleted.");
+  }
 
   // Firestore rules permit this delete only for the retired standalone-address
   // schema. Valid doctor-to-clinic relationship documents remain immutable.
