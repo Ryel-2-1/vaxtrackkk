@@ -15,21 +15,25 @@
 
 const {
   ALLOCATION_VERSION,
+  DESTINATION_VERSION,
   PRICING_VERSION,
   PRICE_CURRENCY,
   PRICE_IS_VAT_INCLUSIVE,
   centavosToPesos,
   sumLineTotalsCentavos,
   PolicyError,
+  buildOrderDestinationSnapshot,
   canonicalRequestFingerprint,
   evaluateBatch,
   isLegacyOrder,
   settleBatch,
   validateCreatePayload,
+  validateDocumentId,
   validateReason,
   validateRequestId,
   CANCELLABLE_FROM,
   DELIVERABLE_FROM,
+  HOME_ADDRESS_ID,
 } = require("./policy");
 
 const ORDERS = "orders";
@@ -37,6 +41,10 @@ const INVENTORY = "inventory";
 const RESERVATIONS = "inventoryReservations";
 const REQUEST_KEYS = "orderRequestKeys";
 const USERS = "users";
+const DOCTORS = "doctors";
+const DOCTOR_ADDRESSES = "deliveryAddresses";
+const CLINICS = "clinics";
+const AREAS = "areas";
 
 /** Role/status gate. Both are read from the server-side user document. */
 function requireRole(userData, role) {
@@ -62,8 +70,8 @@ async function loadUser(db, uid) {
 /**
  * Create an order and reserve its stock, atomically.
  *
- * Reads (idempotency key, clinic, every batch) all happen before any write, as
- * Firestore requires. On success the order, the reservation and every
+ * Reads (idempotency key, Doctor, destination, Area, and every batch) all
+ * happen before any write, as Firestore requires. On success the order, the reservation and every
  * `reservedQuantity` increment commit together or not at all — there is no
  * window in which an order exists without its reservation.
  */
@@ -72,13 +80,14 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
   requireRole(userData, "salesrep");
 
   const requestId = validateRequestId(payload?.requestId);
-  const { items } = validateCreatePayload(payload);
-  const clinicDocId = payload?.clinicDocId;
-  if (typeof clinicDocId !== "string" || clinicDocId.trim() === "" || clinicDocId.includes("/")) {
-    throw new PolicyError("invalid-payload", "Select a clinic for this order.");
-  }
+  const { doctorId, doctorAddressId, items } = validateCreatePayload(payload);
 
-  const fingerprint = canonicalRequestFingerprint({ uid, clinicDocId, items });
+  const fingerprint = canonicalRequestFingerprint({
+    uid,
+    doctorId,
+    doctorAddressId,
+    items,
+  });
 
   // Allocated outside the transaction so the id — and therefore the order
   // number derived from it — stays stable across a retry.
@@ -86,7 +95,10 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
   const orderNumber = `VT-ORD-${now.getTime()}-${orderRef.id.slice(0, 4).toUpperCase()}`;
 
   const keyRef = db.collection(REQUEST_KEYS).doc(`${uid}__${requestId}`);
-  const clinicRef = db.collection("clinics").doc(clinicDocId);
+  const doctorRef = db.collection(DOCTORS).doc(doctorId);
+  const doctorAddressRef = doctorRef
+    .collection(DOCTOR_ADDRESSES)
+    .doc(doctorAddressId);
 
   return db.runTransaction(async (tx) => {
     // ---- reads ----
@@ -113,13 +125,61 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
         orderNumber: prior.orderNumber,
         replayed: true,
         pricing: pricingFromOrder(priorSnap.exists ? priorSnap.data() : null),
+        destination: destinationFromOrder(
+          priorSnap.exists ? priorSnap.data() : null
+        ),
       };
     }
 
-    const clinicSnap = await tx.get(clinicRef);
-    if (!clinicSnap.exists) {
-      throw new PolicyError("clinic-not-found", "That clinic no longer exists.");
+    const doctorSnap = await tx.get(doctorRef);
+    const doctorAddressSnap = await tx.get(doctorAddressRef);
+    if (!doctorSnap.exists) {
+      throw new PolicyError("doctor-not-found", "That doctor no longer exists.");
     }
+    if (!doctorAddressSnap.exists) {
+      throw new PolicyError(
+        "destination-not-found",
+        "That delivery address is no longer linked to this doctor."
+      );
+    }
+
+    const doctor = doctorSnap.data();
+    const relationship = doctorAddressSnap.data();
+    let clinic = null;
+    let destinationAreaId;
+
+    if (doctorAddressId === HOME_ADDRESS_ID) {
+      destinationAreaId = validateDocumentId(
+        relationship.areaId,
+        "That Home address is not assigned to a valid Area."
+      );
+    } else {
+      const clinicRef = db.collection(CLINICS).doc(doctorAddressId);
+      const clinicSnap = await tx.get(clinicRef);
+      if (!clinicSnap.exists) {
+        throw new PolicyError(
+          "clinic-not-found",
+          "The selected clinic no longer exists."
+        );
+      }
+      clinic = clinicSnap.data();
+      destinationAreaId = validateDocumentId(
+        clinic.areaId,
+        "That clinic is not assigned to a valid Area."
+      );
+    }
+
+    const areaSnap = await tx.get(
+      db.collection(AREAS).doc(destinationAreaId)
+    );
+    const destination = buildOrderDestinationSnapshot({
+      doctorId,
+      doctorAddressId,
+      doctor,
+      relationship,
+      clinic,
+      area: areaSnap.exists ? areaSnap.data() : null,
+    });
 
     const invRefs = items.map((i) => db.collection(INVENTORY).doc(i.inventoryId));
     const invSnaps = [];
@@ -143,7 +203,6 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
       });
     });
 
-    const clinic = clinicSnap.data();
     const subtotalCentavos = sumLineTotalsCentavos(evaluated);
     const orderItems = evaluated.map((e) => ({
       inventoryId: e.inventoryId,
@@ -169,9 +228,9 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
     tx.set(orderRef, {
       orderNumber,
       status: "pending_dispatch",
-      clinicDocId,
-      clinicName: clinic.name ?? "",
-      clinicAddress: clinic.location ?? clinic.address ?? "",
+      ...destination.orderFields,
+      destinationSnapshotAt: FieldValue.serverTimestamp(),
+      clinicLocationSnapshotAt: FieldValue.serverTimestamp(),
       quantity: orderItems.reduce((sum, i) => sum + i.quantity, 0),
       unit: "vials",
       vaccineName:
@@ -241,6 +300,7 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
       orderId: orderRef.id,
       orderNumber,
       replayed: false,
+      destination: destination.response,
       pricing: {
         items: orderItems.map((i) => ({
           inventoryId: i.inventoryId,
@@ -282,6 +342,33 @@ function pricingFromOrder(order) {
     priceCurrency: order.priceCurrency ?? PRICE_CURRENCY,
     priceIsVatInclusive: order.priceIsVatInclusive ?? PRICE_IS_VAT_INCLUSIVE,
     pricingVersion: PRICING_VERSION,
+  };
+}
+
+/**
+ * The destination block of an already-committed order, for an idempotent
+ * replay. Returning null for a legacy or unreadable order is deliberate: the
+ * client must never invent a destination from its previous selection after the
+ * server has reported that an order already exists.
+ */
+function destinationFromOrder(order) {
+  if (!order || order.destinationVersion !== DESTINATION_VERSION) return null;
+
+  return {
+    doctorId: order.doctorId ?? null,
+    doctorName: order.doctorName ?? null,
+    doctorAddressId: order.doctorAddressId ?? null,
+    type: order.destinationType ?? null,
+    name: order.destinationName ?? null,
+    displayName: order.clinicName ?? null,
+    address: order.deliveryAddress ?? order.clinicAddress ?? null,
+    areaId: order.destinationAreaId ?? null,
+    area: order.destinationArea ?? null,
+    latitude: order.destinationLat,
+    longitude: order.destinationLng,
+    geofenceRadiusM: order.destinationGeofenceRadiusM,
+    clinicDocId: order.clinicDocId ?? null,
+    ...(order.clinicId ? { clinicId: order.clinicId } : {}),
   };
 }
 

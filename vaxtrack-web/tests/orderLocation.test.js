@@ -427,7 +427,7 @@ test("order creation still writes every pre-existing field", () => {
   assert.match(src, /status: "pending_dispatch"/, "initial status unchanged");
 });
 
-test("the clinic reference is no longer silently dropped", () => {
+test("the legacy helper still preserves verified clinic snapshots", () => {
   const src = createOrderSource();
   assert.match(
     src,
@@ -439,10 +439,12 @@ test("the clinic reference is no longer silently dropped", () => {
     /doc\.clinicLocationSnapshotAt = serverTimestamp\(\)/,
     "the snapshot must be server-stamped"
   );
-  assert.match(
+  assert.match(placeOrder, /doctorId: selectedDoctor\.id/);
+  assert.match(placeOrder, /doctorAddressId: selectedDestination\.id/);
+  assert.doesNotMatch(
     placeOrder,
     /clinicDocId: verifiedClinic\.id/,
-    "the caller must pass the Firestore document id"
+    "checkout must identify the selected Doctor relationship, not a global clinic row"
   );
 });
 

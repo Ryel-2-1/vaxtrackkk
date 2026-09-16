@@ -29,6 +29,11 @@ const CANCELLABLE_FROM = Object.freeze([
 const MAX_ORDER_LINES = 20;
 const MAX_LINE_QUANTITY = 1000000;
 const MAX_REASON_LENGTH = 500; // identical to orderWorkflow.js / firestore.rules
+const DESTINATION_VERSION = 1;
+const HOME_ADDRESS_ID = "home";
+const DEFAULT_GEOFENCE_RADIUS_M = 300;
+const MIN_GEOFENCE_RADIUS_M = 50;
+const MAX_GEOFENCE_RADIUS_M = 1000;
 
 /** Pricing schema version stamped on every server-priced order. */
 const PRICING_VERSION = 1;
@@ -212,6 +217,23 @@ const ALLOWED_LINE_KEYS = Object.freeze([
   "expectedUnitPriceCentavos",
 ]);
 
+const ALLOWED_CREATE_KEYS = Object.freeze([
+  "requestId",
+  "doctorId",
+  "doctorAddressId",
+  "items",
+  "priority",
+  "deliveryInstructions",
+]);
+
+function validateDocumentId(value, message) {
+  const id = typeof value === "string" ? value.trim() : "";
+  if (!id || id.includes("/") || id.length > 960) {
+    throw new PolicyError("invalid-destination", message);
+  }
+  return id;
+}
+
 /**
  * The create payload, validated by shape before anything is read.
  *
@@ -225,6 +247,23 @@ function validateCreatePayload(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new PolicyError("invalid-payload", "The order request was malformed.");
   }
+  for (const key of Object.keys(payload)) {
+    if (!ALLOWED_CREATE_KEYS.includes(key)) {
+      throw new PolicyError(
+        "unknown-field",
+        `Order requests cannot carry "${key}".`
+      );
+    }
+  }
+
+  const doctorId = validateDocumentId(
+    payload.doctorId,
+    "Select an active doctor for this order."
+  );
+  const doctorAddressId = validateDocumentId(
+    payload.doctorAddressId,
+    "Select one of that doctor's active delivery addresses."
+  );
   const lines = payload.items;
   if (!Array.isArray(lines) || lines.length === 0) {
     throw new PolicyError("invalid-payload", "An order needs at least one item.");
@@ -293,7 +332,225 @@ function validateCreatePayload(payload) {
     };
   });
 
-  return { items };
+  return { doctorId, doctorAddressId, items };
+}
+
+function cleanSnapshotText(value) {
+  return typeof value === "string"
+    ? value.normalize("NFKC").trim().replace(/\s+/g, " ")
+    : "";
+}
+
+function validatedCoordinates(source) {
+  if (
+    !Number.isFinite(source?.latitude) ||
+    source.latitude < -90 ||
+    source.latitude > 90 ||
+    !Number.isFinite(source?.longitude) ||
+    source.longitude < -180 ||
+    source.longitude > 180
+  ) {
+    throw new PolicyError(
+      "destination-location-invalid",
+      "That delivery address does not have a valid verified map location."
+    );
+  }
+
+  const hasRadius = Object.prototype.hasOwnProperty.call(
+    source,
+    "geofenceRadiusM"
+  );
+  const radius = hasRadius
+    ? source.geofenceRadiusM
+    : DEFAULT_GEOFENCE_RADIUS_M;
+  if (
+    !Number.isInteger(radius) ||
+    radius < MIN_GEOFENCE_RADIUS_M ||
+    radius > MAX_GEOFENCE_RADIUS_M
+  ) {
+    throw new PolicyError(
+      "destination-location-invalid",
+      "That delivery address has an invalid delivery radius."
+    );
+  }
+
+  return {
+    latitude: source.latitude,
+    longitude: source.longitude,
+    geofenceRadiusM: radius,
+  };
+}
+
+/**
+ * Build the immutable Doctor/destination snapshot from server-read documents.
+ * The caller supplies identities only; every readable and map value below is
+ * derived from Firestore records loaded inside the reservation transaction.
+ */
+function buildOrderDestinationSnapshot({
+  doctorId,
+  doctorAddressId,
+  doctor,
+  relationship,
+  clinic,
+  area,
+}) {
+  const stableDoctorId = validateDocumentId(
+    doctorId,
+    "Select an active doctor for this order."
+  );
+  const stableAddressId = validateDocumentId(
+    doctorAddressId,
+    "Select one of that doctor's active delivery addresses."
+  );
+
+  if (!doctor) {
+    throw new PolicyError("doctor-not-found", "That doctor no longer exists.");
+  }
+  if (doctor.active !== true) {
+    throw new PolicyError("doctor-inactive", "That doctor is no longer active.");
+  }
+  const doctorName = cleanSnapshotText(doctor.name);
+  if (doctorName.length < 2) {
+    throw new PolicyError(
+      "doctor-invalid",
+      "That doctor's name is unavailable. Ask Admin to review the record."
+    );
+  }
+  if (!relationship) {
+    throw new PolicyError(
+      "destination-not-found",
+      "That delivery address is no longer linked to this doctor."
+    );
+  }
+  if (relationship.active !== true) {
+    throw new PolicyError(
+      "destination-inactive",
+      "That delivery address is no longer active."
+    );
+  }
+
+  const type = stableAddressId === HOME_ADDRESS_ID ? "home" : "clinic";
+  let name;
+  let address;
+  let areaId;
+  let areaName;
+  let location;
+  let clinicDocId = null;
+  let clinicId = null;
+
+  if (type === "home") {
+    if (relationship.kind !== HOME_ADDRESS_ID) {
+      throw new PolicyError(
+        "destination-invalid",
+        "The selected Home address record is invalid. Ask Admin to review it."
+      );
+    }
+    address = cleanSnapshotText(relationship.addressLine);
+    if (address.length < 5 || address.length > 200) {
+      throw new PolicyError(
+        "destination-invalid",
+        "That Home address is incomplete. Ask Admin to review it."
+      );
+    }
+    areaId = validateDocumentId(
+      relationship.areaId,
+      "That Home address is not assigned to a valid Area."
+    );
+    areaName = cleanSnapshotText(relationship.area);
+    location = validatedCoordinates(relationship);
+    name = "Home / Doorstep";
+  } else {
+    if (!clinic) {
+      throw new PolicyError(
+        "clinic-not-found",
+        "The selected clinic no longer exists."
+      );
+    }
+    if (clinic.locationVerified !== true) {
+      throw new PolicyError(
+        "destination-location-invalid",
+        "The selected clinic does not have a verified map location."
+      );
+    }
+    name = cleanSnapshotText(clinic.name);
+    address = cleanSnapshotText(clinic.location);
+    areaId = validateDocumentId(
+      clinic.areaId,
+      "That clinic is not assigned to a valid Area."
+    );
+    areaName = cleanSnapshotText(clinic.area);
+    location = validatedCoordinates(clinic);
+    clinicDocId = stableAddressId;
+    clinicId = cleanSnapshotText(clinic.clinicId) || null;
+
+    if (name.length < 2 || address.length < 5) {
+      throw new PolicyError(
+        "destination-invalid",
+        "That clinic's delivery details are incomplete. Ask Admin to review it."
+      );
+    }
+  }
+
+  const authoritativeAreaName = cleanSnapshotText(area?.name);
+  if (
+    !area ||
+    area.active !== true ||
+    !areaName ||
+    authoritativeAreaName !== areaName
+  ) {
+    throw new PolicyError(
+      "destination-area-inactive",
+      "That delivery address is not connected to an active Area."
+    );
+  }
+
+  const displayName = `${doctorName} — ${name}`;
+  const orderFields = {
+    destinationVersion: DESTINATION_VERSION,
+    doctorId: stableDoctorId,
+    doctorName,
+    doctorAddressId: stableAddressId,
+    destinationType: type,
+    destinationName: name,
+    deliveryAddress: address,
+    destinationAreaId: areaId,
+    destinationArea: areaName,
+    destinationLat: location.latitude,
+    destinationLng: location.longitude,
+    destinationGeofenceRadiusM: location.geofenceRadiusM,
+    destinationLocationVerified: true,
+    // Compatibility aliases used by existing Admin, Dispatcher, Rider,
+    // tracking, routing, and invoice readers until they adopt the canonical
+    // destination fields above.
+    clinicDocId,
+    clinicName: displayName,
+    clinicAddress: address,
+    clinicLat: location.latitude,
+    clinicLng: location.longitude,
+    clinicGeofenceRadiusM: location.geofenceRadiusM,
+    clinicLocationVerified: true,
+    ...(clinicId ? { clinicId } : {}),
+  };
+
+  return {
+    orderFields,
+    response: {
+      doctorId: stableDoctorId,
+      doctorName,
+      doctorAddressId: stableAddressId,
+      type,
+      name,
+      displayName,
+      address,
+      areaId,
+      area: areaName,
+      latitude: location.latitude,
+      longitude: location.longitude,
+      geofenceRadiusM: location.geofenceRadiusM,
+      clinicDocId,
+      ...(clinicId ? { clinicId } : {}),
+    },
+  };
 }
 
 /**
@@ -521,12 +778,13 @@ function settleBatch({ inventoryId, data, quantity, mode }) {
  * Built from the SERVER-normalized allocation, not the raw payload, so cosmetic
  * differences (key order, an extra display field) cannot look like a different
  * order — and a genuinely different order (other batch, other quantity, other
- * clinic) cannot reuse a request id.
+ * Doctor, or other destination) cannot reuse a request id.
  */
-function canonicalRequestFingerprint({ uid, clinicDocId, items }) {
+function canonicalRequestFingerprint({ uid, doctorId, doctorAddressId, items }) {
   const canonical = JSON.stringify({
     uid,
-    clinicDocId: clinicDocId ?? null,
+    doctorId: doctorId ?? null,
+    doctorAddressId: doctorAddressId ?? null,
     items: [...items]
       .map((i) => ({
         inventoryId: i.inventoryId,
@@ -606,6 +864,8 @@ module.exports = {
   MAX_ORDER_LINES,
   MAX_LINE_QUANTITY,
   MAX_REASON_LENGTH,
+  DESTINATION_VERSION,
+  HOME_ADDRESS_ID,
   PolicyError,
   manilaDateString,
   isoDateOnly,
@@ -615,6 +875,8 @@ module.exports = {
   readReservedQuantity,
   validateLineQuantity,
   validateCreatePayload,
+  validateDocumentId,
+  buildOrderDestinationSnapshot,
   evaluateBatch,
   settleBatch,
   canonicalRequestFingerprint,

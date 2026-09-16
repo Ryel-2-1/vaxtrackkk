@@ -88,7 +88,8 @@ function rethrow(error) {
  */
 export async function createOrderWithReservation({
   requestId,
-  clinicDocId,
+  doctorId,
+  doctorAddressId,
   items,
   priority,
   deliveryInstructions,
@@ -96,7 +97,8 @@ export async function createOrderWithReservation({
   try {
     const result = await callables().create({
       requestId,
-      clinicDocId,
+      doctorId,
+      doctorAddressId,
       priority,
       deliveryInstructions,
       items: items.map((item) => ({

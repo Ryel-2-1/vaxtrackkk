@@ -8,6 +8,10 @@ const NOW = new Date("2026-09-06T02:00:00.000Z"); // 10:00 in Manila
 
 /** ₱1,250.00 per vial, VAT-exclusive — the price every fixture agrees on. */
 const PRICE = 125000;
+const DESTINATION_IDS = {
+  doctorId: "doctor-1",
+  doctorAddressId: "home",
+};
 
 const batch = (over = {}) => ({
   quantity: 100,
@@ -103,36 +107,163 @@ test("requested quantities", async (t) => {
 });
 
 test("create payload shape", async (t) => {
-  const ok = { items: [{ inventoryId: "inv1", quantity: 2, expectedUnitPriceCentavos: PRICE }] };
+  const ok = {
+    ...DESTINATION_IDS,
+    items: [{ inventoryId: "inv1", quantity: 2, expectedUnitPriceCentavos: PRICE }],
+  };
 
   await t.test("accepts a well-formed payload", () => {
-    assert.deepEqual(P.validateCreatePayload(ok).items, [{ inventoryId: "inv1", quantity: 2, expectedUnitPriceCentavos: PRICE }]);
+    assert.deepEqual(P.validateCreatePayload(ok), {
+      ...DESTINATION_IDS,
+      items: [{ inventoryId: "inv1", quantity: 2, expectedUnitPriceCentavos: PRICE }],
+    });
   });
 
   await t.test("rejects duplicate batches rather than combining them", () => {
     // Combining would silently change what the rep asked for; splitting across
     // batches is explicitly out of scope.
-    const dup = { items: [{ inventoryId: "inv1", quantity: 2, expectedUnitPriceCentavos: PRICE }, { inventoryId: "inv1", quantity: 3, expectedUnitPriceCentavos: PRICE }] };
+    const dup = { ...DESTINATION_IDS, items: [{ inventoryId: "inv1", quantity: 2, expectedUnitPriceCentavos: PRICE }, { inventoryId: "inv1", quantity: 3, expectedUnitPriceCentavos: PRICE }] };
     assert.equal(codeOf(() => P.validateCreatePayload(dup)), "duplicate-inventory-line");
   });
 
   await t.test("rejects unknown fields instead of ignoring them", () => {
-    const sneaky = { items: [{ inventoryId: "inv1", quantity: 2, expectedUnitPriceCentavos: PRICE, name: "Free Vaccine" }] };
+    const sneaky = { ...DESTINATION_IDS, items: [{ inventoryId: "inv1", quantity: 2, expectedUnitPriceCentavos: PRICE, name: "Free Vaccine" }] };
     assert.equal(codeOf(() => P.validateCreatePayload(sneaky)), "unknown-field");
+    assert.equal(
+      codeOf(() => P.validateCreatePayload({ ...ok, clinicDocId: "caller-controlled" })),
+      "unknown-field"
+    );
   });
 
   await t.test("rejects empty, non-array and oversized item lists", () => {
-    assert.equal(codeOf(() => P.validateCreatePayload({ items: [] })), "invalid-payload");
-    assert.equal(codeOf(() => P.validateCreatePayload({ items: "x" })), "invalid-payload");
+    assert.equal(codeOf(() => P.validateCreatePayload({ ...DESTINATION_IDS, items: [] })), "invalid-payload");
+    assert.equal(codeOf(() => P.validateCreatePayload({ ...DESTINATION_IDS, items: "x" })), "invalid-payload");
     assert.equal(codeOf(() => P.validateCreatePayload(null)), "invalid-payload");
-    const many = { items: Array.from({ length: P.MAX_ORDER_LINES + 1 }, (_, i) => ({ inventoryId: `i${i}`, quantity: 1, expectedUnitPriceCentavos: PRICE })) };
+    const many = { ...DESTINATION_IDS, items: Array.from({ length: P.MAX_ORDER_LINES + 1 }, (_, i) => ({ inventoryId: `i${i}`, quantity: 1, expectedUnitPriceCentavos: PRICE })) };
     assert.equal(codeOf(() => P.validateCreatePayload(many)), "too-many-lines");
+  });
+
+  await t.test("requires stable Doctor and nested destination document ids", () => {
+    for (const doctorId of ["", "doctors/other", null]) {
+      assert.equal(
+        codeOf(() => P.validateCreatePayload({ ...ok, doctorId })),
+        "invalid-destination"
+      );
+    }
+    for (const doctorAddressId of ["", "deliveryAddresses/home", null]) {
+      assert.equal(
+        codeOf(() => P.validateCreatePayload({ ...ok, doctorAddressId })),
+        "invalid-destination"
+      );
+    }
   });
 
   await t.test("rejects an inventoryId that is a path or blank", () => {
     for (const id of ["", "   ", "a/b", 5, null]) {
-      assert.equal(codeOf(() => P.validateCreatePayload({ items: [{ inventoryId: id, quantity: 1, expectedUnitPriceCentavos: PRICE }] })), "invalid-payload");
+      assert.equal(codeOf(() => P.validateCreatePayload({ ...DESTINATION_IDS, items: [{ inventoryId: id, quantity: 1, expectedUnitPriceCentavos: PRICE }] })), "invalid-payload");
     }
+  });
+});
+
+test("Doctor-first destination snapshot", async (t) => {
+  const doctor = { active: true, name: "  Dr. Ana   Reyes  " };
+  const area = { active: true, name: "Quezon City" };
+  const home = {
+    active: true,
+    kind: "home",
+    addressLine: "12 Rizal Street, Barangay Central",
+    areaId: "area-qc",
+    area: "Quezon City",
+    latitude: 14.6507,
+    longitude: 121.1029,
+    geofenceRadiusM: 250,
+  };
+
+  await t.test("builds Home from authoritative records and compatibility aliases", () => {
+    const result = P.buildOrderDestinationSnapshot({
+      doctorId: "doctor-1",
+      doctorAddressId: "home",
+      doctor,
+      relationship: home,
+      clinic: null,
+      area,
+    });
+
+    assert.deepEqual(result.response, {
+      doctorId: "doctor-1",
+      doctorName: "Dr. Ana Reyes",
+      doctorAddressId: "home",
+      type: "home",
+      name: "Home / Doorstep",
+      displayName: "Dr. Ana Reyes — Home / Doorstep",
+      address: home.addressLine,
+      areaId: "area-qc",
+      area: "Quezon City",
+      latitude: home.latitude,
+      longitude: home.longitude,
+      geofenceRadiusM: 250,
+      clinicDocId: null,
+    });
+    assert.equal(result.orderFields.deliveryAddress, home.addressLine);
+    assert.equal(result.orderFields.clinicAddress, home.addressLine);
+    assert.equal(result.orderFields.clinicName, result.response.displayName);
+    assert.equal(result.orderFields.destinationVersion, P.DESTINATION_VERSION);
+  });
+
+  await t.test("builds a linked Clinic from the clinic master record", () => {
+    const clinic = {
+      active: true,
+      clinicId: "CL-014",
+      name: "Northside Clinic",
+      location: "45 Mabini Avenue, Quezon City",
+      areaId: "area-qc",
+      area: "Quezon City",
+      locationVerified: true,
+      latitude: 14.676,
+      longitude: 121.0437,
+    };
+    const result = P.buildOrderDestinationSnapshot({
+      doctorId: "doctor-1",
+      doctorAddressId: "clinic-doc-14",
+      doctor,
+      relationship: { active: true },
+      clinic,
+      area,
+    });
+
+    assert.equal(result.orderFields.doctorAddressId, "clinic-doc-14");
+    assert.equal(result.orderFields.clinicDocId, "clinic-doc-14");
+    assert.equal(result.orderFields.clinicId, "CL-014");
+    assert.equal(result.orderFields.deliveryAddress, clinic.location);
+    assert.equal(result.response.type, "clinic");
+    assert.equal(result.response.geofenceRadiusM, 300);
+  });
+
+  await t.test("fails closed when any live relationship is no longer usable", () => {
+    const args = {
+      doctorId: "doctor-1",
+      doctorAddressId: "home",
+      doctor,
+      relationship: home,
+      clinic: null,
+      area,
+    };
+    assert.equal(
+      codeOf(() => P.buildOrderDestinationSnapshot({ ...args, doctor: { ...doctor, active: false } })),
+      "doctor-inactive"
+    );
+    assert.equal(
+      codeOf(() => P.buildOrderDestinationSnapshot({ ...args, relationship: { ...home, active: false } })),
+      "destination-inactive"
+    );
+    assert.equal(
+      codeOf(() => P.buildOrderDestinationSnapshot({ ...args, area: { ...area, active: false } })),
+      "destination-area-inactive"
+    );
+    assert.equal(
+      codeOf(() => P.buildOrderDestinationSnapshot({ ...args, relationship: { ...home, latitude: "14.6" } })),
+      "destination-location-invalid"
+    );
   });
 });
 
@@ -258,7 +389,7 @@ test("a caller cannot set its own price", async (t) => {
     // And the payload validator refuses the whole order, so a cart built before
     // pricing cannot slip through by simply omitting the field.
     assert.equal(
-      codeOf(() => P.validateCreatePayload({ items: [{ inventoryId: "inv1", quantity: 1 }] })),
+      codeOf(() => P.validateCreatePayload({ ...DESTINATION_IDS, items: [{ inventoryId: "inv1", quantity: 1 }] })),
       "price-not-confirmed"
     );
   });
@@ -277,6 +408,7 @@ test("a caller cannot set its own price", async (t) => {
     assert.equal(
       codeOf(() =>
         P.validateCreatePayload({
+          ...DESTINATION_IDS,
           items: [
             { inventoryId: "inv1", quantity: 1, expectedUnitPriceCentavos: PRICE, unitPrice: 0.01 },
           ],
@@ -424,7 +556,8 @@ test("the idempotency fingerprint covers the agreed price", () => {
   // orders, and must not be able to share one request id.
   const base = {
     uid: "sr1",
-    clinicDocId: "c1",
+    doctorId: "doctor-1",
+    doctorAddressId: "home",
     items: [{ inventoryId: "a", quantity: 1, expectedUnitPriceCentavos: 125000 }],
   };
   const repriced = {
@@ -461,7 +594,7 @@ test("settlement arithmetic", async (t) => {
 });
 
 test("idempotency fingerprint", async (t) => {
-  const base = { uid: "sr1", clinicDocId: "c1", items: [{ inventoryId: "a", quantity: 1 }, { inventoryId: "b", quantity: 2 }] };
+  const base = { uid: "sr1", doctorId: "doctor-1", doctorAddressId: "home", items: [{ inventoryId: "a", quantity: 1 }, { inventoryId: "b", quantity: 2 }] };
 
   await t.test("is stable regardless of line order", () => {
     const reordered = { ...base, items: [...base.items].reverse() };
@@ -471,7 +604,8 @@ test("idempotency fingerprint", async (t) => {
   await t.test("changes when the order genuinely changes", () => {
     const f = P.canonicalRequestFingerprint(base);
     assert.notEqual(f, P.canonicalRequestFingerprint({ ...base, uid: "sr2" }));
-    assert.notEqual(f, P.canonicalRequestFingerprint({ ...base, clinicDocId: "c2" }));
+    assert.notEqual(f, P.canonicalRequestFingerprint({ ...base, doctorId: "doctor-2" }));
+    assert.notEqual(f, P.canonicalRequestFingerprint({ ...base, doctorAddressId: "clinic-2" }));
     assert.notEqual(f, P.canonicalRequestFingerprint({ ...base, items: [{ inventoryId: "a", quantity: 9 }, { inventoryId: "b", quantity: 2 }] }));
     assert.notEqual(f, P.canonicalRequestFingerprint({ ...base, items: [{ inventoryId: "z", quantity: 1 }, { inventoryId: "b", quantity: 2 }] }));
   });

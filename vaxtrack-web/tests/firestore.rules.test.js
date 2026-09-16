@@ -374,6 +374,34 @@ async function main() {
     await setDoc(doc(db, "orders", "lockTransit"), {
       createdByUid: salesRepUid, status: "in_transit", assignedRiderId: riderUid,
     });
+    await setDoc(doc(db, "orders", "lockDestination"), {
+      createdByUid: salesRepUid,
+      status: "assigned",
+      assignedRiderId: riderUid,
+      destinationVersion: 1,
+      doctorId: "doctorDestination",
+      doctorName: "Dr. Ana Reyes",
+      doctorAddressId: "clVerified",
+      destinationType: "clinic",
+      destinationName: "Verified Clinic",
+      deliveryAddress: "123 Rizal Street, Seed City",
+      destinationAreaId: "seed-area",
+      destinationArea: "Seed Area",
+      destinationLat: 14.5995,
+      destinationLng: 120.9842,
+      destinationGeofenceRadiusM: 150,
+      destinationLocationVerified: true,
+      destinationSnapshotAt: CLINIC_STAMP,
+      clinicDocId: "clVerified",
+      clinicId: "CLN-9123",
+      clinicName: "Dr. Ana Reyes — Verified Clinic",
+      clinicAddress: "123 Rizal Street, Seed City",
+      clinicLat: 14.5995,
+      clinicLng: 120.9842,
+      clinicGeofenceRadiusM: 150,
+      clinicLocationVerified: true,
+      clinicLocationSnapshotAt: CLINIC_STAMP,
+    });
 
     // ---- delivery-evidence fixtures (workflow checkpoint 4) ----
     // One order per case: a proof write is one-shot, so a successful case
@@ -2972,6 +3000,30 @@ async function main() {
       await assertFails(getDoc(doc(ctx, "orderRequestKeys", "k1")));
       await assertFails(setDoc(doc(ctx, "orderRequestKeys", "k1"), { orderId: "x" }));
     }
+  });
+
+  await check("Ndestination1 no client may rewrite a placed order destination", async () => {
+    for (const ctx of [admin, dispatcher, rider, salesRep, anon]) {
+      await assertFails(updateDoc(doc(ctx, "orders", "lockDestination"), {
+        doctorId: "other-doctor",
+        clinicName: "Forged destination",
+        updatedAt: serverTimestamp(),
+      }));
+    }
+  });
+
+  await check("Ndestination2 an admin cannot fabricate a callable destination snapshot", async () => {
+    await assertFails(setDoc(doc(admin, "orders", "destinationDirectCreate"), {
+      status: "pending_dispatch",
+      createdByUid: adminUid,
+      destinationVersion: 1,
+      doctorId: "doctorDestination",
+      doctorName: "Dr. Ana Reyes",
+      doctorAddressId: "clVerified",
+      destinationType: "clinic",
+      deliveryAddress: "123 Rizal Street, Seed City",
+      destinationSnapshotAt: serverTimestamp(),
+    }));
   });
 
   // ---------------- server-authoritative pricing ----------------

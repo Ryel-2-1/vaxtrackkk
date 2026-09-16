@@ -157,14 +157,16 @@ test("the row actions container is still used, so its CSS stays", () => {
 // Delivery creation elsewhere is untouched
 // ---------------------------------------------------------------------------
 
-test("Sales Rep order creation still names the verified clinic document", () => {
+test("Sales Rep order creation names the selected Doctor relationship documents", () => {
   // The creation CALL moved to the trusted callable in workflow checkpoint 5 —
   // creating an order reserves stock, and a client write cannot do that
   // atomically. What this case protects is unchanged: the clinic is identified
   // by its verified Firestore DOCUMENT id, never by name or by the business id.
   const placeOrder = src("pages", "salesRep", "SalesRepPlaceOrder.jsx");
   assert.match(placeOrder, /createOrderWithReservation\(/);
-  assert.match(placeOrder, /clinicDocId: verifiedClinic\.id/);
+  assert.match(placeOrder, /doctorId: selectedDoctor\.id/);
+  assert.match(placeOrder, /doctorAddressId: selectedDestination\.id/);
+  assert.doesNotMatch(placeOrder, /clinicDocId: verifiedClinic\.id/);
   assert.equal(placeOrder.includes("createSalesRepOrder"), false);
 });
 

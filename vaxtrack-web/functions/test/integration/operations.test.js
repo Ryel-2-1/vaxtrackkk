@@ -33,7 +33,9 @@ const DISP_DISABLED = "disp_disabled";
 const RIDER = "rider_approved";
 const RIDER_OTHER = "rider_other";
 const RIDER_PENDING = "rider_pending";
+const DOCTOR = "doctor1";
 const CLINIC = "clinic1";
+const AREA = "area1";
 
 const NOW = new Date("2026-09-06T02:00:00.000Z");
 let seq = 0;
@@ -44,7 +46,7 @@ const PRICE = 125000;
 const PRICES = { good: PRICE, second: 45000 };
 
 async function wipe() {
-  for (const c of ["users", "clinics", "inventory", "orders", "inventoryReservations", "orderRequestKeys"]) {
+  for (const c of ["users", "doctors", "clinics", "areas", "inventory", "orders", "inventoryReservations", "orderRequestKeys"]) {
     const snap = await db.collection(c).get();
     await Promise.all(snap.docs.map((d) => d.ref.delete()));
   }
@@ -62,7 +64,32 @@ async function seed(inventory = {}) {
   });
   await db.collection("users").doc(RIDER_OTHER).set({ role: "rider", status: "approved" });
   await db.collection("users").doc(RIDER_PENDING).set({ role: "rider", status: "pending" });
-  await db.collection("clinics").doc(CLINIC).set({ name: "Staging Health Clinic", location: "Manila" });
+  await db.collection("areas").doc(AREA).set({ name: "Manila", active: true });
+  await db.collection("clinics").doc(CLINIC).set({
+    clinicId: "CLN-STG-001",
+    name: "Staging Health Clinic",
+    location: "10 Mabini Street, Manila",
+    areaId: AREA,
+    area: "Manila",
+    status: "active",
+    locationVerified: true,
+    latitude: 14.5995,
+    longitude: 120.9842,
+    geofenceRadiusM: 300,
+  });
+  const doctorRef = db.collection("doctors").doc(DOCTOR);
+  await doctorRef.set({ name: "Dr. Ana Reyes", areaId: AREA, area: "Manila", active: true });
+  await doctorRef.collection("deliveryAddresses").doc("home").set({
+    kind: "home",
+    addressLine: "25 Rizal Avenue, Manila",
+    areaId: AREA,
+    area: "Manila",
+    latitude: 14.6042,
+    longitude: 120.9822,
+    geofenceRadiusM: 250,
+    active: true,
+  });
+  await doctorRef.collection("deliveryAddresses").doc(CLINIC).set({ active: true });
 
   const batches = {
     good: { quantity: 100, reservedQuantity: 0, sellingPriceCentavos: PRICES.good, status: "OK", expiryDate: "2027-12-31", batchId: "MOD-STG-001", vaccineName: "Moderna COVID-19 Vaccine", vaccineType: "COVID-19", manufacturer: "Moderna" },
@@ -91,14 +118,16 @@ async function seed(inventory = {}) {
  * a case does not care — that keeps the pre-pricing cases below about what they
  * were always about (stock, expiry, identity, idempotency) instead of turning
  * every one of them into a pricing test. Cases that DO care pass an explicit
- * `expectedUnitPriceCentavos` and it is used verbatim.
+ * `expectedUnitPriceCentavos` and it is used verbatim. Unless a case overrides
+ * it, every order selects the seeded Doctor's linked Clinic destination.
  */
 const create = (uid, items, over = {}) =>
   ops.createOrderWithReservation({
     db, FieldValue, uid, now: NOW,
     payload: {
       requestId: rid(),
-      clinicDocId: CLINIC,
+      doctorId: DOCTOR,
+      doctorAddressId: CLINIC,
       items: items.map((i) =>
         "expectedUnitPriceCentavos" in i
           ? i
@@ -144,6 +173,16 @@ test("reservation: valid orders reserve without touching on-hand stock", async (
     assert.equal(o.status, "pending_dispatch");
     assert.equal(o.createdByUid, SR);
     assert.ok(o.reservedAt, "server timestamp written");
+    assert.equal(o.destinationVersion, 1);
+    assert.equal(o.doctorId, DOCTOR);
+    assert.equal(o.doctorName, "Dr. Ana Reyes");
+    assert.equal(o.doctorAddressId, CLINIC);
+    assert.equal(o.destinationType, "clinic");
+    assert.equal(o.deliveryAddress, "10 Mabini Street, Manila");
+    assert.equal(o.clinicDocId, CLINIC);
+    assert.equal(o.clinicName, "Dr. Ana Reyes — Staging Health Clinic");
+    assert.equal(r.destination.doctorId, DOCTOR);
+    assert.equal(r.destination.doctorAddressId, CLINIC);
 
     const res = await reservation(r.orderId);
     assert.equal(res.status, "reserved");
@@ -160,6 +199,75 @@ test("reservation: valid orders reserve without touching on-hand stock", async (
     assert.equal((await inv("second")).reservedQuantity, 8); // seeded 5 + 3
     assert.equal((await reservation(r.orderId)).items.length, 2);
   });
+});
+
+test("reservation: Doctor-first Home and Clinic destinations are authoritative", async (t) => {
+  await t.test("Home is snapshotted from the nested Doctor address", async () => {
+    await seed();
+    const r = await create(
+      SR,
+      [{ inventoryId: "good", quantity: 2 }],
+      { doctorAddressId: "home" }
+    );
+    const o = await order(r.orderId);
+
+    assert.equal(o.destinationType, "home");
+    assert.equal(o.doctorAddressId, "home");
+    assert.equal(o.deliveryAddress, "25 Rizal Avenue, Manila");
+    assert.equal(o.clinicAddress, "25 Rizal Avenue, Manila");
+    assert.equal(o.clinicDocId, null);
+    assert.equal(o.clinicName, "Dr. Ana Reyes — Home / Doorstep");
+    assert.equal(o.destinationGeofenceRadiusM, 250);
+    assert.equal(r.destination.type, "home");
+    assert.equal(r.destination.clinicDocId, null);
+  });
+
+  const refusals = [
+    [
+      "missing Doctor",
+      () => db.collection("doctors").doc(DOCTOR).delete(),
+      "doctor-not-found",
+    ],
+    [
+      "inactive Doctor",
+      () => db.collection("doctors").doc(DOCTOR).update({ active: false }),
+      "doctor-inactive",
+    ],
+    [
+      "inactive Doctor-to-Clinic relationship",
+      () => db.collection("doctors").doc(DOCTOR).collection("deliveryAddresses").doc(CLINIC).update({ active: false }),
+      "destination-inactive",
+    ],
+    [
+      "missing Clinic master record",
+      () => db.collection("clinics").doc(CLINIC).delete(),
+      "clinic-not-found",
+    ],
+    [
+      "unverified Clinic location",
+      () => db.collection("clinics").doc(CLINIC).update({ locationVerified: false }),
+      "destination-location-invalid",
+    ],
+    [
+      "inactive Area",
+      () => db.collection("areas").doc(AREA).update({ active: false }),
+      "destination-area-inactive",
+    ],
+  ];
+
+  for (const [name, mutate, expectedCode] of refusals) {
+    await t.test(`${name} creates no order and reserves no stock`, async () => {
+      await seed();
+      await mutate();
+      assert.equal(
+        await codeOf(create(SR, [{ inventoryId: "good", quantity: 1 }])),
+        expectedCode
+      );
+      assert.equal((await db.collection("orders").get()).size, 0);
+      assert.equal((await db.collection("inventoryReservations").get()).size, 0);
+      assert.equal((await inv("good")).reservedQuantity, 0);
+    });
+  }
 });
 
 test("reservation: refusals leave nothing behind", async (t) => {
@@ -225,7 +333,7 @@ test("reservation: caller data can never override server identity", async (t) =>
   await t.test("audit uid comes from the session, not the payload", async () => {
     const r = await ops.createOrderWithReservation({
       db, FieldValue, uid: SR, now: NOW,
-      payload: { requestId: rid(), clinicDocId: CLINIC, items: [{ inventoryId: "good", quantity: 1, expectedUnitPriceCentavos: PRICE }] },
+      payload: { requestId: rid(), doctorId: DOCTOR, doctorAddressId: CLINIC, items: [{ inventoryId: "good", quantity: 1, expectedUnitPriceCentavos: PRICE }] },
     });
     assert.equal((await order(r.orderId)).createdByUid, SR);
   });
@@ -417,7 +525,7 @@ test("idempotency", async (t) => {
 
   await t.test("five simultaneous identical submits create exactly ONE order", async () => {
     const requestId = rid();
-    const payload = { requestId, clinicDocId: CLINIC, items: [{ inventoryId: "good", quantity: 4, expectedUnitPriceCentavos: PRICE }] };
+    const payload = { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, items: [{ inventoryId: "good", quantity: 4, expectedUnitPriceCentavos: PRICE }] };
     const results = await Promise.allSettled(
       Array.from({ length: 5 }, () =>
         ops.createOrderWithReservation({ db, FieldValue, uid: SR, payload, now: NOW })
@@ -435,7 +543,7 @@ test("idempotency", async (t) => {
 
   await t.test("a later retry replays the original result without reserving again", async () => {
     const requestId = rid();
-    const payload = { requestId, clinicDocId: CLINIC, items: [{ inventoryId: "good", quantity: 7, expectedUnitPriceCentavos: PRICE }] };
+    const payload = { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, items: [{ inventoryId: "good", quantity: 7, expectedUnitPriceCentavos: PRICE }] };
     const first = await ops.createOrderWithReservation({ db, FieldValue, uid: SR, payload, now: NOW });
     const reservedAfterFirst = (await inv("good")).reservedQuantity;
 
@@ -443,6 +551,7 @@ test("idempotency", async (t) => {
     assert.equal(replay.orderId, first.orderId);
     assert.equal(replay.orderNumber, first.orderNumber);
     assert.equal(replay.replayed, true);
+    assert.deepEqual(replay.destination, first.destination);
     assert.equal((await inv("good")).reservedQuantity, reservedAfterFirst);
   });
 
@@ -450,12 +559,12 @@ test("idempotency", async (t) => {
     const requestId = rid();
     await ops.createOrderWithReservation({
       db, FieldValue, uid: SR, now: NOW,
-      payload: { requestId, clinicDocId: CLINIC, items: [{ inventoryId: "good", quantity: 1, expectedUnitPriceCentavos: PRICE }] },
+      payload: { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, items: [{ inventoryId: "good", quantity: 1, expectedUnitPriceCentavos: PRICE }] },
     });
     const code = await codeOf(
       ops.createOrderWithReservation({
         db, FieldValue, uid: SR, now: NOW,
-        payload: { requestId, clinicDocId: CLINIC, items: [{ inventoryId: "good", quantity: 2, expectedUnitPriceCentavos: PRICE }] },
+        payload: { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, items: [{ inventoryId: "good", quantity: 2, expectedUnitPriceCentavos: PRICE }] },
       })
     );
     assert.equal(code, "idempotency-conflict");
@@ -464,8 +573,8 @@ test("idempotency", async (t) => {
   await t.test("the key is scoped to the caller", async () => {
     const requestId = rid();
     const items = [{ inventoryId: "good", quantity: 1, expectedUnitPriceCentavos: PRICE }];
-    const a = await ops.createOrderWithReservation({ db, FieldValue, uid: SR, now: NOW, payload: { requestId, clinicDocId: CLINIC, items } });
-    const b = await ops.createOrderWithReservation({ db, FieldValue, uid: SR2, now: NOW, payload: { requestId, clinicDocId: CLINIC, items } });
+    const a = await ops.createOrderWithReservation({ db, FieldValue, uid: SR, now: NOW, payload: { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, items } });
+    const b = await ops.createOrderWithReservation({ db, FieldValue, uid: SR2, now: NOW, payload: { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, items } });
     assert.notEqual(a.orderId, b.orderId, "one rep's key cannot replay another's order");
   });
 

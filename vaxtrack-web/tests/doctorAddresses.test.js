@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
+  buildDoctorDestinationOptions,
   HOME_ADDRESS_ID,
   validateDoctorClinicDestination,
   validateDoctorHomeAddress,
@@ -68,6 +69,71 @@ test("Home requires an address, active-area id, coordinates and valid radius", (
   assert.ok(check.errors.latitude);
   assert.ok(check.errors.longitude);
   assert.ok(check.errors.geofenceRadiusM);
+});
+
+test("checkout options contain only active verified Home and linked Clinics", () => {
+  const options = buildDoctorDestinationOptions(
+    [
+      {
+        id: "home",
+        homeAddress: true,
+        kind: "home",
+        active: true,
+        addressLine: "10 Mabini Street, Manila",
+        areaId: "area-manila",
+        area: "Manila",
+        latitude: 14.5995,
+        longitude: 120.9842,
+      },
+      {
+        id: "clinic-good",
+        destinationType: "clinic",
+        clinicDocId: "clinic-good",
+        active: true,
+      },
+      {
+        id: "clinic-retired",
+        destinationType: "clinic",
+        clinicDocId: "clinic-retired",
+        active: false,
+      },
+      {
+        id: "legacy",
+        legacyIndependentAddress: true,
+        active: true,
+      },
+    ],
+    [
+      {
+        id: "clinic-good",
+        name: "Northside Clinic",
+        location: "45 Mabini Avenue, Manila",
+        areaId: "area-manila",
+        area: "Manila",
+        locationVerified: true,
+        latitude: 14.61,
+        longitude: 120.99,
+        geofenceRadiusM: 200,
+      },
+      {
+        id: "clinic-retired",
+        name: "Retired Clinic",
+        location: "99 Old Road, Manila",
+        areaId: "area-manila",
+        area: "Manila",
+        locationVerified: true,
+        latitude: 14.62,
+        longitude: 120.98,
+      },
+    ]
+  );
+
+  assert.deepEqual(options.map(({ id, type }) => ({ id, type })), [
+    { id: "home", type: "home" },
+    { id: "clinic-good", type: "clinic" },
+  ]);
+  assert.equal(options[1].address, "45 Mabini Avenue, Manila");
+  assert.equal(options[1].geofenceRadiusM, 200);
 });
 
 test("clinic id and reserved Home id are authoritative document paths", () => {
@@ -174,7 +240,13 @@ test("Clinic Details lists only active clinic links and never Home data", () => 
   );
 });
 
-test("this Admin checkpoint still leaves Sales Rep order wiring unchanged", () => {
+test("Sales Rep checkout is Doctor-first and sends only stable destination ids", () => {
   const checkout = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
-  assert.doesNotMatch(checkout, /doctorId|doctorName|doctorAddressId/);
+  const callable = read("src/services/inventoryCallables.js");
+  assert.match(checkout, /subscribeDoctors/);
+  assert.match(checkout, /subscribeDoctorAddresses/);
+  assert.match(checkout, /buildDoctorDestinationOptions/);
+  assert.match(checkout, /doctorId: selectedDoctor\.id/);
+  assert.match(checkout, /doctorAddressId: selectedDestination\.id/);
+  assert.doesNotMatch(callable, /clinicName|clinicAddress|latitude|longitude/);
 });

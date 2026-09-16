@@ -16,6 +16,9 @@ import {
   newRequestId,
 } from "../../services/inventoryCallables";
 import { subscribeClinics } from "../../services/clinicService";
+import { subscribeDoctors } from "../../services/doctorService";
+import { subscribeDoctorAddresses } from "../../services/doctorAddressService";
+import { buildDoctorDestinationOptions } from "../../services/doctorAddressModel";
 import {
   centavosToPesos,
   formatCentavos,
@@ -163,9 +166,15 @@ function SalesRepPlaceOrder() {
   const requestIdRef = useRef(newRequestId());
   const [searchTerm, setSearchTerm] = useState("");
 
+  const [doctors, setDoctors] = useState([]);
+  const [doctorsLoading, setDoctorsLoading] = useState(true);
+  const [selectedDoctorId, setSelectedDoctorId] = useState("");
+  const [doctorAddresses, setDoctorAddresses] = useState([]);
+  const [addressesLoading, setAddressesLoading] = useState(false);
+  const [selectedDestinationId, setSelectedDestinationId] = useState("");
   const [clinics, setClinics] = useState([]);
   const [clinicsLoading, setClinicsLoading] = useState(true);
-  const [selectedClinic, setSelectedClinic] = useState("");
+  const [destinationLoadError, setDestinationLoadError] = useState("");
   const [instructions, setInstructions] = useState("");
   const [urgent, setUrgent] = useState(false);
   const [message, setMessage] = useState("");
@@ -175,27 +184,70 @@ function SalesRepPlaceOrder() {
       (docs) => {
         setClinics(docs);
         setClinicsLoading(false);
-
-        if (!selectedClinic && docs.length > 0) {
-          try {
-            const savedDraft = JSON.parse(localStorage.getItem("salesRepQuickCart") || "null");
-            const dest = savedDraft?.destination || "";
-            const match = docs.find((c) => c.name === dest);
-            setSelectedClinic(match ? match.name : docs[0].name);
-          } catch {
-            setSelectedClinic(docs[0].name);
-          }
-        }
       },
       () => {
         setClinicsLoading(false);
+        setDestinationLoadError("Clinic destinations could not be loaded.");
       }
     );
 
     return unsubscribe;
   }, []);
 
-  const selectedClinicInfo = clinics.find((c) => c.name === selectedClinic) || clinics[0] || null;
+  useEffect(() => {
+    const unsubscribe = subscribeDoctors(
+      (docs) => {
+        setDoctors(docs);
+        setDoctorsLoading(false);
+      },
+      () => {
+        setDoctorsLoading(false);
+        setDestinationLoadError("Doctors could not be loaded.");
+      }
+    );
+
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    setDoctorAddresses([]);
+    setSelectedDestinationId("");
+
+    if (!selectedDoctorId) {
+      setAddressesLoading(false);
+      return undefined;
+    }
+
+    setAddressesLoading(true);
+    const unsubscribe = subscribeDoctorAddresses(
+      selectedDoctorId,
+      (docs) => {
+        setDoctorAddresses(docs);
+        setAddressesLoading(false);
+      },
+      () => {
+        setAddressesLoading(false);
+        setDestinationLoadError("That doctor's delivery addresses could not be loaded.");
+      }
+    );
+
+    return unsubscribe;
+  }, [selectedDoctorId]);
+
+  const activeDoctors = useMemo(
+    () => doctors.filter((doctor) => doctor.active === true),
+    [doctors]
+  );
+  const selectedDoctor =
+    activeDoctors.find((doctor) => doctor.id === selectedDoctorId) || null;
+  const destinationOptions = useMemo(
+    () => buildDoctorDestinationOptions(doctorAddresses, clinics),
+    [doctorAddresses, clinics]
+  );
+  const selectedDestination =
+    destinationOptions.find(
+      (destination) => destination.id === selectedDestinationId
+    ) || null;
 
   const filteredItems = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -258,25 +310,22 @@ function SalesRepPlaceOrder() {
       return;
     }
 
-    // Re-validate the clinic at submit time (not only while selecting): it must
-    // still be a REAL registered clinic in the live Firestore `clinics` array
-    // AND carry a non-empty canonical `clinicId`. Records without a `clinicId`
-    // are rejected — we never fall back to the Firestore doc id.
-    if (clinicsLoading) {
+    // Re-check both stable document ids against the latest subscriptions. This
+    // is only the fast user-facing guard: the callable repeats the decision
+    // from Firestore inside the same transaction that reserves inventory.
+    if (doctorsLoading || clinicsLoading || addressesLoading) {
       submittingRef.current = false;
-      setMessage("Verifying clinic — please wait.");
+      setMessage("Verifying the doctor and delivery address — please wait.");
       return;
     }
-    const liveClinic =
-      selectedClinicInfo && clinics.find((c) => c.id === selectedClinicInfo.id);
-    const canonicalClinicId =
-      liveClinic && liveClinic.clinicId != null
-        ? String(liveClinic.clinicId).trim()
-        : "";
-    const verifiedClinic = liveClinic && canonicalClinicId ? liveClinic : null;
-    if (!verifiedClinic) {
+    if (!selectedDoctor) {
       submittingRef.current = false;
-      setMessage("Enter a valid Clinic ID registered in VaxTrack.");
+      setMessage("Select an active doctor for this order.");
+      return;
+    }
+    if (!selectedDestination) {
+      submittingRef.current = false;
+      setMessage("Select one active Home or Clinic delivery address for this doctor.");
       return;
     }
 
@@ -309,13 +358,14 @@ function SalesRepPlaceOrder() {
 
     try {
       // The order is created SERVER-SIDE so it commits together with the stock
-      // reservation. `clinicDocId` is the Firestore document id; the clinic's
-      // name, address and location snapshot are all re-derived from that
-      // document on the server, so nothing typed here can describe a different
-      // destination. Only the batch id and an integer quantity travel per line.
+      // reservation. The two ids name the exact nested Firestore relationship:
+      // `doctors/{doctorId}/deliveryAddresses/{doctorAddressId}`. The caller
+      // sends no address, coordinates, name, or Area; the server re-derives all
+      // of them from the current master records inside the transaction.
       const result = await createOrderWithReservation({
         requestId: requestIdRef.current,
-        clinicDocId: verifiedClinic.id,
+        doctorId: selectedDoctor.id,
+        doctorAddressId: selectedDestination.id,
         priority: urgent ? "Urgent" : "Standard",
         deliveryInstructions: instructions.trim(),
         items: items.map((item) => ({
@@ -325,6 +375,18 @@ function SalesRepPlaceOrder() {
         })),
       });
 
+      const confirmedDestination = result?.destination;
+      if (
+        !confirmedDestination ||
+        typeof confirmedDestination.doctorName !== "string" ||
+        typeof confirmedDestination.displayName !== "string" ||
+        typeof confirmedDestination.address !== "string"
+      ) {
+        throw new Error(
+          "The order was saved, but its destination confirmation was incomplete. Finalize again to reload the saved order."
+        );
+      }
+
       // Only now — after the callable confirms the commit — is the cart cleared
       // and the confirmation shown. Nothing above this line may claim success.
       localStorage.setItem("latestSalesOrderId", result.orderId);
@@ -333,8 +395,14 @@ function SalesRepPlaceOrder() {
         JSON.stringify({
           id: result.orderId,
           orderNumber: result.orderNumber,
-          clinicName: verifiedClinic.name,
-          clinicAddress: verifiedClinic.location || verifiedClinic.address || "",
+          doctorId: confirmedDestination.doctorId,
+          doctorName: confirmedDestination.doctorName,
+          doctorAddressId: confirmedDestination.doctorAddressId,
+          destinationType: confirmedDestination.type,
+          destinationName: confirmedDestination.name,
+          deliveryAddress: confirmedDestination.address,
+          clinicName: confirmedDestination.displayName,
+          clinicAddress: confirmedDestination.address,
           // Prices come from `result.pricing` — what the SERVER wrote onto the
           // order — never from `expectedUnitPriceCentavos`, which is only ever
           // the client's claim about what it was shown. The two agree by
@@ -480,31 +548,73 @@ function SalesRepPlaceOrder() {
               Destination Details
             </h2>
 
-            <label>Select Clinic/Hospital</label>
-            {clinicsLoading ? (
+            <label htmlFor="checkout-doctor">Select Doctor</label>
+            {doctorsLoading ? (
               <p style={{ fontSize: 13, color: "#64748b" }}>
                 <Loader2 size={14} className="spin" style={{ verticalAlign: "middle", marginRight: 6 }} />
-                Loading clinics...
+                Loading doctors...
               </p>
-            ) : clinics.length === 0 ? (
-              <p style={{ fontSize: 13, color: "#94a3b8" }}>No clinics found. Add clinics in Admin.</p>
+            ) : activeDoctors.length === 0 ? (
+              <p style={{ fontSize: 13, color: "#94a3b8" }}>
+                No active doctors are available. Ask Admin to register one.
+              </p>
             ) : (
               <select
-                value={selectedClinic}
-                onChange={(event) => setSelectedClinic(event.target.value)}
+                id="checkout-doctor"
+                value={selectedDoctorId}
+                onChange={(event) => setSelectedDoctorId(event.target.value)}
               >
-                {clinics.map((clinic) => (
-                  <option key={clinic.id} value={clinic.name}>
-                    {clinic.name}
+                <option value="">Choose a doctor</option>
+                {activeDoctors.map((doctor) => (
+                  <option key={doctor.id} value={doctor.id}>
+                    {doctor.name} — {doctor.area || "Area unavailable"}
                   </option>
                 ))}
               </select>
             )}
 
-            {selectedClinicInfo && (
+            <label htmlFor="checkout-destination">Select Delivery Address</label>
+            {selectedDoctorId && (addressesLoading || clinicsLoading) ? (
+              <p style={{ fontSize: 13, color: "#64748b" }}>
+                <Loader2 size={14} className="spin" style={{ verticalAlign: "middle", marginRight: 6 }} />
+                Loading this doctor's addresses...
+              </p>
+            ) : !selectedDoctorId ? (
+              <p style={{ fontSize: 13, color: "#94a3b8" }}>
+                Choose a doctor first.
+              </p>
+            ) : destinationOptions.length === 0 ? (
+              <p style={{ fontSize: 13, color: "#94a3b8" }}>
+                This doctor has no active verified delivery address. Ask Admin to add or reactivate one.
+              </p>
+            ) : (
+              <select
+                id="checkout-destination"
+                value={selectedDestinationId}
+                onChange={(event) => setSelectedDestinationId(event.target.value)}
+              >
+                <option value="">Choose Home or a linked Clinic</option>
+                {destinationOptions.map((destination) => (
+                  <option key={destination.id} value={destination.id}>
+                    {destination.type === "home" ? "Home / Doorstep" : `Clinic — ${destination.name}`}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {destinationLoadError && (
+              <p style={{ fontSize: 13, color: "#b91c1c" }}>
+                {destinationLoadError}
+              </p>
+            )}
+
+            {selectedDoctor && selectedDestination && (
               <div className="address-box">
-                <strong>Shipping Address</strong>
-                <p>{selectedClinicInfo.location || selectedClinicInfo.address || "No address on file"}</p>
+                <strong>
+                  {selectedDoctor.name} — {selectedDestination.name}
+                </strong>
+                <p>{selectedDestination.address}</p>
+                <small>{selectedDestination.area}</small>
               </div>
             )}
           </div>
@@ -567,7 +677,15 @@ function SalesRepPlaceOrder() {
             <button
               type="button"
               onClick={handleFinalizeOrder}
-              disabled={saving || items.length === 0 || clinicsLoading || !selectedClinicInfo}
+              disabled={
+                saving ||
+                items.length === 0 ||
+                doctorsLoading ||
+                clinicsLoading ||
+                addressesLoading ||
+                !selectedDoctor ||
+                !selectedDestination
+              }
             >
               {saving ? "Saving Order..." : "Finalize Order →"}
             </button>

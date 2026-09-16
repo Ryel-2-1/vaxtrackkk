@@ -502,7 +502,33 @@ service cloud.firestore {
         'reservedAt', 'reservedByUid', 'consumedAt', 'consumedByUid',
         'releasedAt', 'releasedByUid',
         'pricingVersion', 'priceCurrency', 'priceIsVatInclusive',
-        'subtotalCentavos', 'subtotal', 'pricedAt'
+        'subtotalCentavos', 'subtotal', 'pricedAt',
+        // The callable derives this snapshot from active Doctor, relationship,
+        // destination, and Area documents inside the reservation transaction.
+        // A client may select ids, but it may never author the resulting facts.
+        'destinationVersion', 'doctorId', 'doctorName', 'doctorAddressId',
+        'destinationType', 'destinationName', 'deliveryAddress',
+        'destinationAreaId', 'destinationArea', 'destinationLat',
+        'destinationLng', 'destinationGeofenceRadiusM',
+        'destinationLocationVerified', 'destinationSnapshotAt'
+      ];
+    }
+
+    // Canonical destination fields and the compatibility aliases read by the
+    // current Admin, Dispatcher, and Rider screens are one immutable snapshot.
+    // A later correction workflow must use a trusted callable and preserve an
+    // audit trail; no ordinary client update may silently rewrite either copy.
+    function immutableDestinationFields() {
+      return [
+        'destinationVersion', 'doctorId', 'doctorName', 'doctorAddressId',
+        'destinationType', 'destinationName', 'deliveryAddress',
+        'destinationAreaId', 'destinationArea', 'destinationLat',
+        'destinationLng', 'destinationGeofenceRadiusM',
+        'destinationLocationVerified', 'destinationSnapshotAt',
+        'clinicDocId', 'clinicId', 'clinicName', 'clinicAddress',
+        'clinicLat', 'clinicLng', 'clinicGeofenceRadiusM',
+        'clinicLocationVerified', 'clinicLocationSnapshotAt',
+        'clinicLocationUpdatedAt'
       ];
     }
 
@@ -517,7 +543,8 @@ service cloud.firestore {
     // The guard every client order write now carries.
     function clientOrderWriteIsAllowed() {
       return !writesServerOnlyStatus()
-        && !changedKeys().hasAny(serverOnlyOrderFields());
+        && !changedKeys().hasAny(serverOnlyOrderFields())
+        && !changedKeys().hasAny(immutableDestinationFields());
     }
 
     // A new stock batch, as Admin Add Stock writes it. Quantities are Firestore
@@ -844,7 +871,8 @@ service cloud.firestore {
     // WHERE that clinic is or how large its geofence is.
     //
     // Deliberately NOT in dispatcherOrderFields()/riderOrderFields(): a snapshot
-    // is written once at creation. Repairing legacy orders is an admin action.
+    // is written once by the callable. Corrections need their own later trusted
+    // workflow so the original Sales Rep choice and reason remain auditable.
     function clinicSnapshotFields() {
       return [
         'clinicDocId', 'clinicGeofenceRadiusM', 'clinicId', 'clinicLat',
@@ -1074,7 +1102,8 @@ service cloud.firestore {
           // The snapshot is immutable after creation. Dispatcher and Rider are
           // already confined by their hasOnly() allowlists, which exclude these
           // fields; Sales Rep has no allowlist, so it is stated explicitly here.
-          // Admin retains full update — the Phase 02B repair needs it.
+          // Admin is covered by immutableDestinationFields() at the outer
+          // boundary; Sales Rep is stated here as a second fail-closed guard.
           && !changedKeys().hasAny(clinicSnapshotFields())
         )
         );
