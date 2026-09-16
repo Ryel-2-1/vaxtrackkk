@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Package, Plus, Search, X } from "lucide-react";
+import { Download, Package, Plus, Search, X } from "lucide-react";
 import AdminLayout from "../../components/admin/AdminLayout";
 import { subscribeInventory } from "../../services/inventoryService";
+import {
+  downloadInventoryWorkbook,
+  EmptyInventoryExportError,
+} from "../../services/inventoryExport";
 import {
   deriveExpiryCondition,
   manilaToday,
@@ -94,6 +98,12 @@ function normalizeInventoryItem(raw, todayIso) {
     onHand: onHandOk ? raw.quantity.toLocaleString() : "—",
     reserved: reservedOk ? reserved.toLocaleString() : "—",
     available: available === null ? "—" : available.toLocaleString(),
+    // Numeric counterparts of the display strings above, so the Excel export can
+    // write real numeric cells instead of parsing formatted text. Null carries
+    // the same "unusable figure" meaning the "—" display does.
+    onHandValue: onHandOk ? raw.quantity : null,
+    reservedValue: reservedOk ? reserved : null,
+    availableValue: available,
     priceCentavos,
     price: formatCentavos(priceCentavos),
     flags,
@@ -122,6 +132,7 @@ function Inventory() {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedVaccine, setSelectedVaccine] = useState(null);
   const [toast, setToast] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   /**
    * Price-management dialog state.
@@ -229,6 +240,32 @@ function Inventory() {
     });
   }, [inventory, searchTerm, statusFilter, expiryFilter]);
 
+  /**
+   * Download the currently filtered inventory as a real .xlsx workbook.
+   *
+   * Exports every matching in-memory row in the order shown — not just the
+   * paginated page — so the file reflects the admin's active search and filters.
+   * The heavy spreadsheet library is imported lazily inside the service, so it
+   * stays out of the initial bundle until this button is pressed.
+   */
+  const handleExport = async () => {
+    // Guard against a second click while a workbook is already being built, and
+    // against generating a misleading empty file.
+    if (exporting || filteredVaccines.length === 0) return;
+
+    setExporting(true);
+    try {
+      const { fileName } = await downloadInventoryWorkbook(filteredVaccines);
+      showToast(`Downloaded ${filteredVaccines.length} batches to ${fileName}.`);
+    } catch (error) {
+      if (error instanceof EmptyInventoryExportError) return;
+      console.error("Inventory export error:", error);
+      showToast("Could not export inventory. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const stockByType = useMemo(() => {
     if (inventory.length === 0) return [];
     const totals = {};
@@ -297,11 +334,18 @@ function Inventory() {
       description="Real-time vaccine stock, batch status, and cold-chain visibility."
       actions={
         <>
-          {/* "Export" was removed alongside the bulk actions. It produced no
-              file — it raised "Inventory report exported." and nothing else, so
-              an admin could believe a report had been generated and downloaded.
-              A real CSV export is a small piece of work, but it is work, and
-              inventing it here would exceed this change. */}
+          {/* Exports the currently filtered inventory to a real .xlsx workbook.
+              Disabled while loading, while a workbook is generating, or when no
+              rows match — so it never produces a misleading empty file. */}
+          <button
+            type="button"
+            className="v2-light-action"
+            onClick={handleExport}
+            disabled={loading || exporting || filteredVaccines.length === 0}
+          >
+            <Download size={16} aria-hidden="true" />
+            {exporting ? "Exporting…" : "Export to Excel"}
+          </button>
           <button
             type="button"
             className="v2-light-action"

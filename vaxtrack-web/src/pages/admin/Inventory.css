@@ -87,6 +87,15 @@
   background: var(--gray-50);
 }
 
+.v2-light-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.v2-light-action:disabled:hover {
+  background: #ffffff;
+}
+
 .v2-danger-action {
   border: 0;
   background: var(--danger-bg);

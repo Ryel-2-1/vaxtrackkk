@@ -161,24 +161,80 @@ test("no delete, status-change or stock-adjustment writer was invented", () => {
 
 test("no admin page reports success without an awaited write", () => {
   // A toast that is not preceded by an `await` in its own handler is a claim
-  // with nothing behind it. Both pages are checked as a pair so neither drifts.
+  // with nothing behind it.
   //
-  // Both instances that were outstanding here have since been corrected:
-  // Admin Settings' false save and its inert org/regional/feature controls, and
-  // the Inventory drawer's "Batch history" / "Flag for review". Those are
-  // asserted in tests/adminSettings.test.js, whose own copy of this rule now
-  // covers all three admin pages — so this loop deliberately stays on the two
-  // surfaces it was written for rather than duplicating that coverage.
-  for (const p of ["src/pages/admin/Alerts.jsx", "src/pages/admin/Inventory.jsx"]) {
+  // Admin Settings' false save and its inert org/regional/feature controls are
+  // asserted in tests/adminSettings.test.js, whose own copy of this rule covers
+  // all three admin pages. Admin Inventory's export was once a fake toast and
+  // was guarded here by banning success words like "exported"; it is now a
+  // real, AWAITED download, so its behaviour is verified directly in the
+  // Inventory-specific test below rather than by forbidding a word. This keyword
+  // sweep therefore stays on Alerts — the one surface here with no legitimate
+  // success-word feedback of its own.
+  for (const p of ["src/pages/admin/Alerts.jsx"]) {
     const src = read(p);
     const toasts = [...src.matchAll(/showToast\((["'`])(.*?)\1/g)].map((m) => m[2]);
 
     for (const message of toasts) {
       assert.equal(
-        /\b(saved|generated|exported|updated)\b/i.test(message) && !/Price updated/.test(message),
+        /\b(saved|generated|exported|updated)\b/i.test(message),
         false,
         `${p}: "${message}" claims completed work — it needs a real writer or must go`
       );
     }
   }
+});
+
+test("Inventory export shows feedback only after a real, awaited download", () => {
+  // Replaces the old success-word ban on Inventory. The export is genuine now:
+  // it runs through the export service, awaits it, and only then reports — and
+  // it cannot be double-fired. Those are the properties worth protecting, not
+  // the wording of the toast (requirement: do not depend on exact wording).
+  const src = read("src/pages/admin/Inventory.jsx");
+
+  // 1. The page drives the export through the real service, not a fake toast.
+  assert.match(
+    src,
+    /from ["']\.\.\/\.\.\/services\/inventoryExport["']/,
+    "Inventory must import the real export service"
+  );
+  assert.match(src, /downloadInventoryWorkbook/, "it must call the export service");
+
+  // The export handler body, isolated so the checks below are about it alone.
+  const handler = /const handleExport = async \(\) => \{([\s\S]*?)\n {2}\};/.exec(src);
+  assert.ok(handler, "the export handler must exist");
+  const body = handler[1];
+
+  // 5. It cannot fire a second export while one is running: an in-flight guard
+  //    inside the handler, backed by a disabled button (asserted below).
+  assert.match(body, /if \(exporting\b[\s\S]*?\breturn;/, "a re-entrancy guard must exist");
+  assert.match(body, /setExporting\(true\)/, "the in-flight flag must be raised");
+  assert.match(body, /setExporting\(false\)/, "and cleared when done");
+
+  // 2. Success feedback lives INSIDE the try and AFTER awaiting the download,
+  //    so it can only report work that actually completed. The message text is
+  //    intentionally not asserted.
+  const tryBlock = /try \{([\s\S]*?)\} catch/.exec(body);
+  assert.ok(tryBlock, "the handler must await inside a try");
+  const awaitAt = tryBlock[1].indexOf("await downloadInventoryWorkbook");
+  const successAt = tryBlock[1].indexOf("showToast(");
+  assert.ok(awaitAt !== -1, "the download must be awaited");
+  assert.ok(
+    successAt !== -1 && successAt > awaitAt,
+    "success feedback must follow the awaited download"
+  );
+
+  // 3. Failure feedback travels the handler's own error path.
+  const catchBlock = /catch \(\w+\) \{([\s\S]*?)\n {4}\} finally/.exec(body);
+  assert.ok(catchBlock, "the handler must handle failure in a catch");
+  assert.match(catchBlock[1], /showToast\(/, "failure must surface through feedback");
+
+  // 4 (+5). The button invokes the real handler and is disabled while exporting.
+  assert.match(src, /onClick=\{handleExport\}/, "the button must call the real handler");
+  assert.match(src, /Export to Excel/, "the export control must be present");
+  assert.match(
+    src,
+    /disabled=\{[^}]*\bexporting\b[^}]*\}/,
+    "the button must be disabled while an export is in flight"
+  );
 });
