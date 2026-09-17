@@ -323,7 +323,7 @@ function DispatcherGeofence() {
     try {
       const route = await fetchRoute(riderLL, clinicLL);
       const etaText = formatEta(new Date(), route.durationSeconds);
-      await saveOrderRoute(orderId, { ...route, etaText });
+      await saveOrderRoute(orderId, { ...route, etaText }, selected.destinationRevision ?? 0);
       // The subscribeDeliveries snapshot refreshes `selected` with the new
       // route fields, redrawing the polyline + metrics automatically.
     } catch (err) {

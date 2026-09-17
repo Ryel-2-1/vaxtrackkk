@@ -588,9 +588,12 @@ export async function cancelOrderByDispatcher(orderId, reason) {
 // OpenRouteService). Only these route fields (+ updatedAt) are written, so the
 // dispatcher rule allowlist (`dispatcherOrderFields`) permits it. `route` comes
 // from routeService.fetchRoute plus a computed `etaText`.
-export async function saveOrderRoute(orderId, route) {
+export async function saveOrderRoute(orderId, route, destinationRevision = 0) {
   if (!orderId) throw new Error("Order ID is required.");
   if (!route?.polyline) throw new Error("Route polyline is required.");
+  if (!Number.isSafeInteger(destinationRevision) || destinationRevision < 0) {
+    throw new Error("Refresh the destination before generating a route.");
+  }
 
   const orderRef = doc(db, ORDERS_COLLECTION, orderId);
   return updateDoc(orderRef, {
@@ -600,6 +603,9 @@ export async function saveOrderRoute(orderId, route) {
     routeEtaText: route.etaText || "",
     routeGeneratedAt: serverTimestamp(),
     routeProvider: "openrouteservice",
+    // Rules compare this to the order's current revision. A route fetched for
+    // old coordinates cannot be written after a destination correction.
+    routeDestinationRevision: destinationRevision,
     updatedAt: serverTimestamp(),
   });
 }

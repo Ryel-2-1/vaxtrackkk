@@ -32,3 +32,7 @@ dist-ssr
 !.env.*.example
 node_modules
 dist
+
+# Generated per-module technical specifications (documentation, not code).
+# Kept on disk for reference but never tracked in the repository.
+docs/per-module-specifications/

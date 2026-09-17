@@ -22,6 +22,10 @@ const CALLABLE_NAMES = [
   "createOrderWithReservation",
   "cancelOrderWithInventoryRelease",
   "markOrderDeliveredWithInventoryConsumption",
+  // A dispatcher-only destination correction changes an order's address and audit, not stock.
+  "correctOrderDestination",
+  "requestOrderDestinationChange",
+  "reviewOrderDestinationChange",
   // Invoice pricing. Each names one business action on one order's invoice.
   "saveInvoiceDraftForPricedOrder",
   "issueInvoiceForPricedOrder",
@@ -49,7 +53,7 @@ test("the callables are the only inventory-affecting entry points", () => {
     );
   }
   const exported = [...index.matchAll(/^exports\.(\w+)\s*=/gm)].map((m) => m[1]);
-  assert.deepEqual(exported.sort(), [...CALLABLE_NAMES].sort(), "exactly these five callables");
+  assert.deepEqual(exported.sort(), [...CALLABLE_NAMES].sort(), "exactly these eight callables");
 });
 
 test("no page reaches around the boundary", () => {

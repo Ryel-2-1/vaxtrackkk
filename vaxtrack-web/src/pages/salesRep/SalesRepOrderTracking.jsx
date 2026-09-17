@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
@@ -19,6 +19,10 @@ import {
   getOrderStatusValue,
 } from "../../services/deliveryService";
 import { auth } from "../../firebase";
+import {
+  reviewOrderDestinationChange,
+  subscribeDestinationCorrections,
+} from "../../services/destinationCorrectionService";
 import SalesRepLayout from "./SalesRepLayout";
 import StatusBadge from "../../components/ui/StatusBadge";
 
@@ -147,6 +151,7 @@ function normalizeOrder(raw) {
     orderNumber: raw.orderNumber || raw.id,
     destination: raw.clinicName || "Unknown Clinic",
     city: raw.clinicAddress || "—",
+    changeRequest: raw.destinationChangeRequest ?? null,
     date: formatDate(raw.createdAt),
     status: label,
     statusKey,
@@ -182,6 +187,11 @@ function SalesRepOrderTracking() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [message, setMessage] = useState("");
+  const [reviewError, setReviewError] = useState("");
+  const [reviewing, setReviewing] = useState(false);
+  const reviewingRef = useRef(false);
+  const [corrections, setCorrections] = useState([]);
+  const [correctionsError, setCorrectionsError] = useState("");
 
   useEffect(() => {
     const user = auth.currentUser;
@@ -215,6 +225,34 @@ function SalesRepOrderTracking() {
 
   const selectedOrder = orders.find((o) => o.id === selectedOrderId) || null;
 
+  useEffect(() => {
+    if (!selectedOrderId || !auth.currentUser) return undefined;
+    return subscribeDestinationCorrections(
+      selectedOrderId,
+      (entries) => { setCorrections(entries); setCorrectionsError(""); },
+      () => setCorrectionsError("Could not load destination change history.")
+    );
+  }, [selectedOrderId]);
+
+  const handleDestinationDecision = async (decision) => {
+    const requestId = selectedOrder?.changeRequest?.id;
+    if (!requestId || reviewingRef.current) return;
+    reviewingRef.current = true;
+    setReviewing(true);
+    setReviewError("");
+    try {
+      await reviewOrderDestinationChange(selectedOrder.id, requestId, decision);
+      setMessage(decision === "approve"
+        ? "Destination approved. The order now uses the new address."
+        : "Destination request rejected. The original address remains in place.");
+    } catch (failure) {
+      setReviewError(failure.message || "Could not review the destination request.");
+    } finally {
+      reviewingRef.current = false;
+      setReviewing(false);
+    }
+  };
+
   const filteredOrders = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
 
@@ -240,6 +278,13 @@ function SalesRepOrderTracking() {
     setStatusFilter("all");
     setSearchTerm("");
     setMessage("");
+  };
+
+  const selectOrder = (id) => {
+    setCorrections([]);
+    setCorrectionsError("");
+    setReviewError("");
+    setSelectedOrderId(id);
   };
 
   const handleShare = async () => {
@@ -380,7 +425,7 @@ function SalesRepOrderTracking() {
                         key={order.id}
                         order={order}
                         selected={selectedOrder?.id === order.id}
-                        onSelect={() => setSelectedOrderId(order.id)}
+                        onSelect={() => selectOrder(order.id)}
                       />
                     ))
                   ) : (
@@ -407,7 +452,7 @@ function SalesRepOrderTracking() {
                     <span>Selected Order</span>
                     <h2>{selectedOrder.orderNumber}</h2>
                   </div>
-                  <button type="button" onClick={() => setSelectedOrderId("")}>
+                  <button type="button" onClick={() => selectOrder("")}>
                     ×
                   </button>
                 </div>
@@ -433,6 +478,33 @@ function SalesRepOrderTracking() {
                   <span>Rider: {selectedOrder.driverName}</span>
                 </div>
 
+                {selectedOrder.changeRequest && (
+                  <section className="tracking-destination-request" aria-label="Destination change request">
+                    <h3>Destination change requested</h3>
+                    <p>The Dispatcher requested a change for this order. Review it before the address changes.</p>
+                    <dl>
+                      <dt>Current destination</dt>
+                      <dd>{selectedOrder.destination} — {selectedOrder.city}</dd>
+                      <dt>Proposed destination</dt>
+                      <dd>{selectedOrder.changeRequest.proposed?.displayName || "Unknown"} — {selectedOrder.changeRequest.proposed?.address || "Unknown"}</dd>
+                      <dt>Reason</dt>
+                      <dd>{selectedOrder.changeRequest.reason}</dd>
+                    </dl>
+                    {reviewError && <p className="tracking-destination-error" role="alert">{reviewError}</p>}
+                    {!(["pending_dispatch", "assigned", "loading", "delivery_failed"].includes(selectedOrder.statusKey)) &&
+                      <p>This delivery has moved past the approval window. Reject this request and contact Dispatcher.</p>}
+                    <div className="tracking-destination-actions">
+                      <button type="button" className="approve" disabled={reviewing ||
+                        !["pending_dispatch", "assigned", "loading", "delivery_failed"].includes(selectedOrder.statusKey)}
+                        onClick={() => handleDestinationDecision("approve")}>
+                        {reviewing ? "Reviewing..." : "Approve new destination"}
+                      </button>
+                      <button type="button" className="reject" disabled={reviewing}
+                        onClick={() => handleDestinationDecision("reject")}>Reject request</button>
+                    </div>
+                  </section>
+                )}
+
                 <div className="tracking-v2-info-box">
                   <MapPin size={15} />
                   <div>
@@ -440,6 +512,18 @@ function SalesRepOrderTracking() {
                     <p>{selectedOrder.city}</p>
                   </div>
                 </div>
+
+                {correctionsError && <p role="alert">{correctionsError}</p>}
+                {corrections.length > 0 && (
+                  <section className="tracking-destination-history" aria-label="Destination change history">
+                    <h3>Destination change history</h3>
+                    <ul>{corrections.map((entry) => <li key={entry.id}>
+                      <strong>{entry.previous?.clinicName || "Previous address"}</strong>
+                      {" → "}<strong>{entry.current?.clinicName || "New address"}</strong>
+                      <small>{entry.reason} · {formatDate(entry.correctedAt)}</small>
+                    </li>)}</ul>
+                  </section>
+                )}
 
                 {selectedOrder.instructions && (
                   <div className="tracking-v2-info-box">
@@ -514,6 +598,7 @@ function TrackingRow({ selected, order, onSelect }) {
       <td>
         <strong>{order.destination}</strong>
         <small>{order.vaccineName}</small>
+        {order.changeRequest && <small>Destination change awaiting your approval</small>}
       </td>
 
       <td>{order.date}</td>

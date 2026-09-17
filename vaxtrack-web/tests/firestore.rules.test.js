@@ -94,6 +94,16 @@ async function main() {
     await setDoc(doc(db, "orders", "ordSR1"), { createdByUid: salesRepUid, status: "pending_dispatch", assignedRiderId: null });
     await setDoc(doc(db, "orders", "ordSR2"), { createdByUid: otherSalesRepUid, status: "pending_dispatch", assignedRiderId: null });
     await setDoc(doc(db, "orders", "ordRider1"), { createdByUid: salesRepUid, status: "in_transit", assignedRiderId: riderUid });
+    await setDoc(doc(db, "orders", "ordCorrected"), {
+      createdByUid: salesRepUid, status: "assigned", assignedRiderId: riderUid,
+      destinationRevision: 1, doctorId: "doctor1", doctorAddressId: "home",
+    });
+    await setDoc(doc(db, "orders", "ordCorrected", "destinationCorrections", "revision-1"), {
+      revision: 1, correctedByUid: dispatcherUid, reason: "Doctor requested home delivery",
+    });
+    await setDoc(doc(db, "orders", "ordCorrected", "destinationChangeRequests", "request-2"), {
+      status: "pending", proposed: { doctorAddressId: "clinic2" }, reason: "New delivery location",
+    });
     await setDoc(doc(db, "orders", "ordRider2"), { createdByUid: salesRepUid, status: "in_transit", assignedRiderId: otherRiderUid });
     // A THIRD assigned order with NO alert yet — used to reproduce the real
     // service's transaction upsert, which reads the deterministic alert doc
@@ -741,8 +751,54 @@ async function main() {
       routeEtaText: "3:45 PM",
       routeGeneratedAt: "t",
       routeProvider: "openrouteservice",
+      routeDestinationRevision: 0,
       updatedAt: "t",
     }));
+  });
+
+  await check("P13a order owner and dispatcher can read server-written correction history", async () => {
+    await assertSucceeds(getDoc(doc(salesRep, "orders", "ordCorrected", "destinationCorrections", "revision-1")));
+    await assertSucceeds(getDoc(doc(dispatcher, "orders", "ordCorrected", "destinationCorrections", "revision-1")));
+  });
+
+  await check("P13b Med Rep owner and Dispatcher may read a server-created request", async () => {
+    const path = ["orders", "ordCorrected", "destinationChangeRequests", "request-2"];
+    await assertSucceeds(getDoc(doc(salesRep, ...path)));
+    await assertSucceeds(getDoc(doc(dispatcher, ...path)));
+    await assertFails(getDoc(doc(testEnv.authenticatedContext(otherSalesRepUid).firestore(), ...path)));
+  });
+
+  await check("N13c clients cannot submit, approve, or forge requests directly", async () => {
+    const path = ["orders", "ordCorrected", "destinationChangeRequests", "request-forged"];
+    await assertFails(setDoc(doc(dispatcher, ...path), { status: "pending" }));
+    await assertFails(updateDoc(doc(salesRep, "orders", "ordCorrected"), {
+      destinationChangeRequest: { id: "request-forged" },
+    }));
+    await assertFails(updateDoc(doc(admin, "orders", "ordCorrected"), {
+      destinationChangeRequest: { id: "request-forged" },
+    }));
+    await assertFails(updateDoc(doc(salesRep, "orders", "ordCorrected", "destinationChangeRequests", "request-2"), {
+      status: "approved",
+    }));
+  });
+
+  await check("N13a stale route revision is refused after destination correction", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordCorrected"), {
+      routePolyline: "old-route", routeGeneratedAt: "t", routeDestinationRevision: 0,
+      updatedAt: "t",
+    }));
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordCorrected"), {
+      routePolyline: "new-route", routeGeneratedAt: "t", routeDestinationRevision: 1,
+      updatedAt: "t",
+    }));
+  });
+
+  await check("N13b no client can forge or erase destination correction audit", async () => {
+    await assertFails(setDoc(doc(dispatcher, "orders", "ordCorrected", "destinationCorrections", "revision-2"), {
+      revision: 2, reason: "forged",
+    }));
+    await assertFails(updateDoc(doc(admin, "orders", "ordCorrected"), { destinationRevision: 2 }));
+    await assertFails(updateDoc(doc(salesRep, "orders", "ordCorrected"), { doctorAddressId: "clinic2" }));
   });
 
   // ---- Phase 4B: rider route-deviation incident happy path ----

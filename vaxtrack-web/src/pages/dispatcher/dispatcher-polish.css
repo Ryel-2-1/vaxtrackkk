@@ -446,6 +446,38 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   font-size: 14px !important;
   resize: vertical;
 }
+.dispatcher-page .shp-dialog select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 14px;
+}
+.dispatcher-page .shp-destination-history {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--gray-200);
+}
+.dispatcher-page .shp-destination-history h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+.dispatcher-page .shp-destination-history ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.dispatcher-page .shp-destination-history li {
+  padding: 8px 0;
+  font-size: 12px;
+}
+.dispatcher-page .shp-destination-history small {
+  display: block;
+  color: var(--gray-600);
+}
 .dispatcher-page .shp-dialog textarea:focus-visible {
   outline: 2px solid var(--green-600);
   outline-offset: 1px;

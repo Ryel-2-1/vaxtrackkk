@@ -3,8 +3,8 @@
 /**
  * VaxTrack trusted server boundary.
  *
- * Five explicit callables — create+reserve, cancel+release, deliver+consume,
- * and the two invoice-pricing operations. Every one names a single business
+ * Eight explicit callables — create+reserve, cancel+release, deliver+consume,
+ * destination request/review, retired legacy correction, and two invoice operations. Each names one business
  * action. Deliberately NOT a generic "update status", "adjust inventory" or
  * "write invoice" entry point: a generic mutation function would put the
  * lifecycle and the pricing straight back in the caller's hands, which is
@@ -49,6 +49,7 @@ const admin = require("firebase-admin");
 
 const { PolicyError } = require("./src/policy");
 const operations = require("./src/operations");
+const destinationOperations = require("./src/destinationOperations");
 const invoiceOperations = require("./src/invoiceOperations");
 
 admin.initializeApp();
@@ -80,6 +81,18 @@ function toHttpsError(error, context) {
       "not-approved": "permission-denied",
       "not-assigned-rider": "permission-denied",
       "order-not-found": "not-found",
+      "destination-not-found": "not-found",
+      "destination-legacy": "failed-precondition",
+      "destination-unchanged": "failed-precondition",
+      "destination-changed": "aborted",
+      "destination-request-stale": "aborted",
+      "destination-request-changed": "aborted",
+      "destination-request-not-found": "not-found",
+      "destination-request-pending": "failed-precondition",
+      "order-owner-missing": "failed-precondition",
+      "not-order-owner": "permission-denied",
+      "workflow-updated": "failed-precondition",
+      "invoice-destination-changed": "aborted",
       "clinic-not-found": "not-found",
       "inventory-not-found": "not-found",
       "reservation-not-found": "failed-precondition",
@@ -144,6 +157,25 @@ exports.createOrderWithReservation = callable(
   "createOrderWithReservation",
   ({ db, FieldValue, uid, data, now }) =>
     operations.createOrderWithReservation({ db, FieldValue, uid, payload: data, now })
+);
+
+exports.correctOrderDestination = callable(
+  "correctOrderDestination",
+  // Keep the deployed legacy endpoint fail-closed: older web bundles must
+  // never bypass the Med Rep approval by calling its former immediate write.
+  () => { throw new PolicyError("workflow-updated", "Reload the app. Destination changes now require Med Rep approval."); }
+);
+
+exports.requestOrderDestinationChange = callable(
+  "requestOrderDestinationChange",
+  ({ db, FieldValue, uid, data }) =>
+    destinationOperations.requestOrderDestinationChange({ db, FieldValue, uid, payload: data })
+);
+
+exports.reviewOrderDestinationChange = callable(
+  "reviewOrderDestinationChange",
+  ({ db, FieldValue, uid, data }) =>
+    destinationOperations.reviewOrderDestinationChange({ db, FieldValue, uid, payload: data })
 );
 
 exports.cancelOrderWithInventoryRelease = callable(

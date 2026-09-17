@@ -6084,6 +6084,67 @@
   background: var(--gray-50) !important;
 }
 
+.tracking-v2-page .tracking-destination-request,
+.tracking-v2-page .tracking-destination-history {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--gray-200);
+  border-radius: 10px;
+  background: #ffffff;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.tracking-v2-page .tracking-destination-request h3,
+.tracking-v2-page .tracking-destination-history h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.tracking-v2-page .tracking-destination-request p {
+  margin: 0 0 10px;
+}
+.tracking-v2-page .tracking-destination-request dl { margin: 0; }
+.tracking-v2-page .tracking-destination-request dt { font-weight: 700; }
+.tracking-v2-page .tracking-destination-request dd { margin: 0 0 10px; }
+.tracking-v2-page .tracking-destination-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tracking-v2-page .tracking-destination-actions button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.tracking-v2-page .tracking-destination-actions .approve {
+  border: 1px solid var(--green-700);
+  background: var(--green-700);
+  color: #ffffff;
+}
+.tracking-v2-page .tracking-destination-actions .reject {
+  border: 1px solid var(--danger-border);
+  background: #ffffff;
+  color: var(--danger-text);
+}
+.tracking-v2-page .tracking-destination-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.tracking-v2-page .tracking-destination-error {
+  color: var(--danger-text);
+}
+.tracking-v2-page .tracking-destination-history ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.tracking-v2-page .tracking-destination-history li { padding: 6px 0; }
+.tracking-v2-page .tracking-destination-history small {
+  display: block;
+  color: var(--gray-600);
+}
+
 .tracking-v2-info-box svg {
   color: var(--green-700) !important;
   flex-shrink: 0 !important;

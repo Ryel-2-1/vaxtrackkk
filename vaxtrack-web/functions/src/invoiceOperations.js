@@ -55,6 +55,7 @@ function buildInvoiceDocument({ orderId, order, base, adjustments, totals, prese
     orderNumber: order.orderNumber || orderId,
     customerId: order.clinicId || null,
     clinicId: order.clinicId || null,
+    destinationRevision: order.destinationRevision ?? 0,
     salesRepUid: order.createdByUid || null,
     salesRepEmail: order.createdByEmail || null,
 
@@ -224,6 +225,13 @@ async function issueInvoiceForPricedOrder({ db, FieldValue, uid, payload }) {
       throw new PolicyError(
         "invalid-invoice-status",
         "Only a draft invoice can be issued."
+      );
+    }
+
+    if ((invoice.destinationRevision ?? 0) !== (orderSnap.data().destinationRevision ?? 0)) {
+      throw new PolicyError(
+        "invoice-destination-changed",
+        "The order's destination changed. Reopen and save the invoice draft before issuing it."
       );
     }
 

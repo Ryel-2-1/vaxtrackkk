@@ -7,6 +7,8 @@ import {
 } from "../../services/orderService";
 import { cancelOrderWithInventoryRelease } from "../../services/inventoryCallables";
 import { subscribeRiders } from "../../services/riderService";
+import { requestOrderDestinationChange } from "../../services/destinationCorrectionService";
+import DestinationCorrectionDialog from "./DestinationCorrectionDialog";
 import { ACTOR_DISPATCHER, canTransition } from "../../services/orderWorkflow";
 import DispatcherLayout from "./DispatcherLayout";
 import StatusBadge from "../../components/ui/StatusBadge";
@@ -41,6 +43,12 @@ function canCancel(statusKey) {
 // than restated as a status literal.
 function canReassign(statusKey) {
   return canTransition(ACTOR_DISPATCHER, statusKey, "assigned").ok;
+}
+
+function canCorrectDestination(order) {
+  return order.destinationVersion === 1 && !!order.doctorId && !!order.createdByUid &&
+    !order.destinationChangeRequest &&
+    ["pending_dispatch", "assigned", "loading", "delivery_failed"].includes(order.statusKey);
 }
 
 function formatTime(ts) {
@@ -85,6 +93,7 @@ function DispatcherShipments() {
   }, []);
 
   const grouped = useMemo(() => {
+    const pending = orders.filter((o) => o.statusKey === "pending_dispatch");
     const assigned = orders.filter((o) => o.statusKey === "assigned");
     const loadingO = orders.filter((o) => o.statusKey === "loading");
     const transit = orders.filter((o) => o.statusKey === "in_transit");
@@ -94,19 +103,21 @@ function DispatcherShipments() {
     const failed = orders.filter((o) => o.statusKey === "delivery_failed");
     const delivered = orders.filter((o) => o.statusKey === "delivered" || o.statusKey === "completed");
     const cancelled = orders.filter((o) => o.statusKey === "cancelled" || o.statusKey === "canceled");
-    return { assigned, loading: loadingO, transit, delayed, failed, delivered, cancelled };
+    return { pending, assigned, loading: loadingO, transit, delayed, failed, delivered, cancelled };
   }, [orders]);
 
   const activeOrders = useMemo(() => {
     if (filterStatus === "active") {
       return [
         ...grouped.failed,
+        ...grouped.pending,
         ...grouped.assigned,
         ...grouped.loading,
         ...grouped.transit,
         ...grouped.delayed,
       ];
     }
+    if (filterStatus === "pending_dispatch") return grouped.pending;
     if (filterStatus === "assigned") return grouped.assigned;
     if (filterStatus === "loading") return grouped.loading;
     if (filterStatus === "in_transit") return grouped.transit;
@@ -151,6 +162,34 @@ function DispatcherShipments() {
       reassignTriggerRef.current = null;
     }
   }, []);
+
+  const [correctionTarget, setCorrectionTarget] = useState(null);
+  const correctionTriggerRef = useRef(null);
+
+  const openCorrectionDialog = (order, triggerEl) => {
+    correctionTriggerRef.current = triggerEl;
+    setCorrectionTarget(order);
+  };
+
+  const closeCorrectionDialog = useCallback(() => {
+    setCorrectionTarget(null);
+    correctionTriggerRef.current?.focus();
+    correctionTriggerRef.current = null;
+  }, []);
+
+  const handleConfirmCorrection = async (order, doctorAddressId, reason) => {
+    setUpdating(order.id);
+    setToast("");
+    try {
+      await requestOrderDestinationChange(
+        order.id, doctorAddressId, reason, order.destinationRevision ?? 0
+      );
+      closeCorrectionDialog();
+      showToast(`Destination change requested for ${order.orderNumber || order.id}. Awaiting Med Rep approval.`, "success");
+    } finally {
+      setUpdating("");
+    }
+  };
 
   const handleConfirmReassign = async (order, riderUid) => {
     setUpdating(order.id);
@@ -212,6 +251,7 @@ function DispatcherShipments() {
   };
 
   const totalActive =
+    grouped.pending.length +
     grouped.assigned.length +
     grouped.loading.length +
     grouped.transit.length +
@@ -221,6 +261,7 @@ function DispatcherShipments() {
 
   const FILTERS = [
     { id: "active", label: "Active", count: totalActive },
+    { id: "pending_dispatch", label: "Awaiting dispatch", count: grouped.pending.length },
     { id: "assigned", label: "Assigned", count: grouped.assigned.length },
     { id: "loading", label: "Loading", count: grouped.loading.length },
     { id: "in_transit", label: "In transit", count: grouped.transit.length },
@@ -332,6 +373,7 @@ function DispatcherShipments() {
                       updating={updating === order.id}
                       onRequestCancel={openCancelDialog}
                       onRequestReassign={openReassignDialog}
+                      onRequestCorrection={openCorrectionDialog}
                     />
                   ))}
                 </tbody>
@@ -354,6 +396,14 @@ function DispatcherShipments() {
           order={reassignTarget}
           onDismiss={closeReassignDialog}
           onConfirm={handleConfirmReassign}
+        />
+      )}
+
+      {correctionTarget && (
+        <DestinationCorrectionDialog
+          order={correctionTarget}
+          onDismiss={closeCorrectionDialog}
+          onConfirm={handleConfirmCorrection}
         />
       )}
     </DispatcherLayout>
@@ -703,10 +753,12 @@ function CancelOrderDialog({ order, onDismiss, onConfirm }) {
   );
 }
 
-function ShipmentRow({ order, updating, onRequestCancel, onRequestReassign }) {
+function ShipmentRow({ order, updating, onRequestCancel, onRequestReassign, onRequestCorrection }) {
   const sKey = order.statusKey;
   const cancellable = canCancel(sKey);
   const reassignable = canReassign(sKey);
+  const correctable = canCorrectDestination(order);
+  const awaitingApproval = !!order.destinationChangeRequest;
   const isDelayed = sKey === "delayed" || sKey === "delivery_failed";
 
   const riderName = order.assignedRiderName || "Unassigned";
@@ -728,6 +780,7 @@ function ShipmentRow({ order, updating, onRequestCancel, onRequestReassign }) {
         <div className="shp-cell">
           <strong>{clinic}</strong>
           {address && <small>{address}</small>}
+          {awaitingApproval && <small>Change requested — awaiting Med Rep approval</small>}
         </div>
       </td>
       <td>
@@ -747,8 +800,15 @@ function ShipmentRow({ order, updating, onRequestCancel, onRequestReassign }) {
       </td>
       <td className="shp-td-meta">{updated}</td>
       <td>
-        {cancellable || reassignable ? (
+        {cancellable || reassignable || correctable || awaitingApproval ? (
           <div className="shp-actions">
+            {awaitingApproval && <span className="shp-muted">Awaiting Med Rep approval</span>}
+            {correctable && (
+              <button type="button" className="shp-act-btn" disabled={updating}
+                onClick={(e) => onRequestCorrection(order, e.currentTarget)}>
+                Request change
+              </button>
+            )}
             {reassignable && (
               <button
                 type="button"

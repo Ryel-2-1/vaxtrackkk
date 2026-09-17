@@ -322,6 +322,7 @@ service cloud.firestore {
         // route & ETA" action. Dispatcher-only; set at generation, not by riders.
         'routeDistanceMeters', 'routeDurationSeconds', 'routeEtaText',
         'routeGeneratedAt', 'routePolyline', 'routeProvider',
+        'routeDestinationRevision',
         'startedAt',
         'status', 'statusUpdatedAt', 'statusUpdatedByEmail', 'statusUpdatedByUid',
         'updatedAt',
@@ -510,7 +511,9 @@ service cloud.firestore {
         'destinationType', 'destinationName', 'deliveryAddress',
         'destinationAreaId', 'destinationArea', 'destinationLat',
         'destinationLng', 'destinationGeofenceRadiusM',
-        'destinationLocationVerified', 'destinationSnapshotAt'
+        'destinationLocationVerified', 'destinationSnapshotAt',
+        'destinationRevision', 'destinationCorrectedAt', 'destinationCorrectedByUid',
+        'destinationChangeRequest'
       ];
     }
 
@@ -719,7 +722,8 @@ service cloud.firestore {
     function routeFields() {
       return [
         'routeDistanceMeters', 'routeDurationSeconds', 'routeEtaText',
-        'routeGeneratedAt', 'routePolyline', 'routeProvider', 'updatedAt'
+        'routeGeneratedAt', 'routePolyline', 'routeProvider',
+        'routeDestinationRevision', 'updatedAt'
       ];
     }
     // `routeGeneratedAt` must actually change, so this cannot be used as a
@@ -729,7 +733,9 @@ service cloud.firestore {
     function isRouteGenerationWrite() {
       return !statusChanged()
         && changedKeys().hasOnly(routeFields())
-        && changedKeys().hasAny(['routeGeneratedAt']);
+        && changedKeys().hasAny(['routeGeneratedAt'])
+        && request.resource.data.routeDestinationRevision
+          == resource.data.get('destinationRevision', 0);
     }
 
     // loading → in_transit. The finalize-dispatch step.
@@ -1019,6 +1025,22 @@ service cloud.firestore {
 
     // ---------------- orders ----------------
     match /orders/{orderId} {
+      // Request and decision records are written by the named callables only.
+      // The Med Rep who owns the order can read the reason and decision trail.
+      match /destinationChangeRequests/{requestId} {
+        allow read: if isAdmin() || isDispatcher()
+          || (isSalesRep()
+            && get(/databases/$(database)/documents/orders/$(orderId)).data.createdByUid == request.auth.uid);
+        allow write: if false;
+      }
+      // Server-only audit records for each destination correction. The
+      // order's owner may view the history; clients cannot forge or erase it.
+      match /destinationCorrections/{correctionId} {
+        allow read: if isAdmin() || isDispatcher()
+          || (isSalesRep()
+            && get(/databases/$(database)/documents/orders/$(orderId)).data.createdByUid == request.auth.uid);
+        allow write: if false;
+      }
       // Admin + Dispatcher see all orders. Sales Rep sees only orders they
       // created; Rider sees only orders assigned to them.
       allow get: if isAdmin() || isDispatcher()
