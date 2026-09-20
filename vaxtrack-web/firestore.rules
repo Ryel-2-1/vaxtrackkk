@@ -607,6 +607,33 @@ service cloud.firestore {
     // rather than stored as something subtly different from what was meant.
     function maxSafeInteger() { return 9007199254740991; }
 
+    // An admin STOCK CORRECTION — the controlled path for fixing a human error
+    // in Add Stock or a batch's on-hand figure. It may change `quantity` and its
+    // OWN audit fields only. It may never touch `reservedQuantity` (reservations
+    // move solely inside a callable's transaction) and may never set `quantity`
+    // below what is already reserved for open orders, so availability stays >= 0.
+    // WHO and WHEN are pinned to the caller and the server clock, the prior value
+    // is recorded honestly, and a non-empty reason is required — a correction is
+    // evidence, not a silent overwrite.
+    function isValidStockCorrection() {
+      let d = request.resource.data;
+      let prev = resource.data;
+      return d.quantity is int
+        && d.quantity >= 0
+        && d.quantity >= prev.get('reservedQuantity', 0)
+        && d.previousQuantity == prev.quantity
+        && d.quantityCorrectedAt == request.time
+        && d.quantityCorrectedByUid == request.auth.uid
+        && d.quantityCorrectionReason is string
+        && d.quantityCorrectionReason.size() > 0
+        && d.quantityCorrectionReason.size() <= 500
+        && changedKeys().hasOnly([
+          'quantity', 'previousQuantity', 'quantityCorrectedAt',
+          'quantityCorrectedByUid', 'quantityCorrectedByEmail',
+          'quantityCorrectionReason', 'updatedAt'
+        ]);
+    }
+
     // ---------------- rider assignment (workflow checkpoint 1) ----------------
     //
     // Who an order belongs to. Deliberately absent from riderOrderFields(), so
@@ -982,24 +1009,31 @@ service cloud.firestore {
       allow list: if isAdmin()
         || (isDispatcher() && resource.data.role == 'rider');
 
-      // Admin may create user docs (broad write). Rider self-registration
-      // (Flutter): own doc only, rider + pending, motorcycle only.
+      // Admin may create user docs (broad write). Public self-application:
+      // a visitor creates their OWN doc to apply for a staff position — sales
+      // rep, dispatcher, or rider — which always lands pending.
       //
-      // Riders create their own accounts, so this is the identity boundary:
-      // the uid check stops one rider creating another's document, role and
-      // status stop self-elevation and self-approval, and the vehicle type is
-      // pinned because the company operates motorcycles only. Together these
-      // mean a modified client cannot register anything other than a pending
-      // motorcycle rider owned by the caller.
+      // This is the identity boundary for self-registration. The uid check
+      // stops one caller creating another's document; the pending status stops
+      // self-approval (only an admin flips status to approved); and the role is
+      // confined to the three applicable positions, so ADMIN CAN NEVER BE
+      // SELF-APPLIED — an admin exists only when an existing admin sets the
+      // role. A rider is additionally pinned to the one supported vehicle type,
+      // so the Flutter self-registration contract is unchanged. Together these
+      // mean a modified client can create nothing but a pending, non-admin
+      // account owned by the caller (and a rider only on a motorcycle).
       allow create: if isAdmin()
         || (
           signedIn()
           && request.auth.uid == uid
-          && request.resource.data.role == 'rider'
           && request.resource.data.status == 'pending'
-          // Must stay identical to kRiderVehicleType in
+          && request.resource.data.role in ['salesrep', 'dispatcher', 'rider']
+          // Rider vehicle type must stay identical to kRiderVehicleType in
           // vaxtrack_mobile/lib/utils/rider_registration.dart.
-          && request.resource.data.vehicleType == 'Motorcycle'
+          && (
+            request.resource.data.role != 'rider'
+            || request.resource.data.vehicleType == 'Motorcycle'
+          )
         );
 
       // Admin manages any user (approve / disable / reject / role change), but
@@ -1154,18 +1188,24 @@ service cloud.firestore {
     // Stock levels are settlement state, not ordinary catalog data.
     //
     // Admin Add Stock still creates batches from the client, now with the field
-    // validation the rules never had. But NO client may change `quantity` or
-    // `reservedQuantity` afterwards — those move only as part of a reservation,
-    // release or consumption, and only inside a callable's transaction. An admin
-    // correction goes through a future controlled server function or the
-    // console, not a generic client write.
+    // validation the rules never had. `reservedQuantity` still moves ONLY inside
+    // a callable's reservation/release/consumption transaction — no client may
+    // change it. `quantity` likewise moves through the callables during the order
+    // lifecycle, with ONE additional controlled path: an admin STOCK CORRECTION
+    // (isValidStockCorrection), which fixes a human error in the on-hand figure
+    // without ever dropping below what is reserved or touching reservedQuantity.
+    // Any other client attempt to change quantity is still refused.
     match /inventory/{id} {
       allow read: if isApprovedUser();
       allow create: if isAdmin() && isValidNewStockBatch();
-      allow update: if isAdmin()
-        && !changedKeys().hasAny(['quantity', 'reservedQuantity'])
-        && stockPriceValidIfPresent()
-        && stockPriceAuditValid();
+      allow update: if isAdmin() && (
+        (
+          !changedKeys().hasAny(['quantity', 'reservedQuantity'])
+          && stockPriceValidIfPresent()
+          && stockPriceAuditValid()
+        )
+        || isValidStockCorrection()
+      );
       allow delete: if isAdmin();
     }
     match /vaccines/{id} {

@@ -12,7 +12,8 @@ import {
   manilaToday,
   WARNING_WITHIN_DAYS,
 } from "../../services/expiry";
-import { updateStockPrice } from "../../services/vaccineService";
+import { correctStockQuantity, updateStockPrice } from "../../services/vaccineService";
+import { validateStockCorrection } from "../../services/stockCorrection";
 import {
   centavosToInputValue,
   formatCentavos,
@@ -146,6 +147,14 @@ function Inventory() {
   const [priceError, setPriceError] = useState("");
   const [savingPrice, setSavingPrice] = useState(false);
 
+  // Stock correction: its own state, separate from the detail drawer, so the
+  // corrected figure and reason cannot bleed between batches.
+  const [correcting, setCorrecting] = useState(null);
+  const [correctInput, setCorrectInput] = useState("");
+  const [correctReason, setCorrectReason] = useState("");
+  const [correctError, setCorrectError] = useState("");
+  const [savingCorrection, setSavingCorrection] = useState(false);
+
   useEffect(() => {
     const unsubscribe = subscribeInventory((raw) => {
       // Today in Manila, resolved once per snapshot, where the data arrives.
@@ -218,6 +227,69 @@ function Inventory() {
       setPriceError("Could not save the price. Please try again.");
     } finally {
       setSavingPrice(false);
+    }
+  };
+
+  const openCorrectDialog = (item) => {
+    setCorrecting(item);
+    setCorrectInput(item.onHandValue != null ? String(item.onHandValue) : "");
+    setCorrectReason("");
+    setCorrectError("");
+    // Close the detail drawer so only the correction dialog is in front.
+    setSelectedVaccine(null);
+  };
+
+  const closeCorrectDialog = () => {
+    setCorrecting(null);
+    setCorrectInput("");
+    setCorrectReason("");
+    setCorrectError("");
+  };
+
+  /**
+   * Correct a batch's on-hand quantity.
+   *
+   * The same validation the service and the rules apply runs here first, so an
+   * impossible figure (below the reserved amount, not a whole number, no reason)
+   * is refused before any write. The write itself re-reads the batch and is
+   * bounded again server-side, so a stale on-screen figure cannot slip through.
+   */
+  const handleSaveCorrection = async () => {
+    if (savingCorrection || !correcting) return;
+
+    const raw = correctInput.trim();
+    if (raw === "") {
+      setCorrectError("Enter the corrected quantity.");
+      return;
+    }
+
+    const pre = validateStockCorrection({
+      newQuantity: Number(raw),
+      currentQuantity: correcting.onHandValue,
+      reservedQuantity: correcting.reservedValue,
+      reason: correctReason,
+    });
+    if (!pre.ok) {
+      setCorrectError(pre.message);
+      return;
+    }
+
+    setSavingCorrection(true);
+    setCorrectError("");
+    try {
+      await correctStockQuantity({
+        inventoryId: correcting.id,
+        newQuantity: pre.value.newQuantity,
+        reason: pre.value.reason,
+      });
+      const batch = correcting.batch;
+      closeCorrectDialog();
+      showToast(`Stock corrected for batch ${batch}.`);
+    } catch (error) {
+      console.error("Correct stock error:", error);
+      setCorrectError(error.message || "Could not correct the stock. Please try again.");
+    } finally {
+      setSavingCorrection(false);
     }
   };
 
@@ -721,6 +793,14 @@ function Inventory() {
                 Add Stock
               </button>
 
+              <button
+                type="button"
+                className="inv-price-cancel"
+                onClick={() => openCorrectDialog(selectedVaccine)}
+              >
+                Correct stock
+              </button>
+
               {/* "View Batch History" and "Flag for Review" were removed.
                   Neither had anything behind it: there is no history source to
                   open — a batch document holds only its current state, with no
@@ -800,6 +880,91 @@ function Inventory() {
                 disabled={savingPrice}
               >
                 {savingPrice ? "Saving…" : "Save price"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {correcting && (
+        <div className="v2-inventory-modal-backdrop" onClick={closeCorrectDialog}>
+          <div
+            className="v2-inventory-modal inv-price-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="inv-correct-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="v2-inventory-modal-close"
+              onClick={closeCorrectDialog}
+              aria-label="Close"
+            >
+              <X size={18} />
+            </button>
+
+            <h2 id="inv-correct-title">Correct stock quantity</h2>
+
+            <p className="inv-price-batch">
+              <strong>{correcting.name}</strong>
+              <span>Batch {correcting.batch}</span>
+            </p>
+
+            <p className="inv-correct-current">
+              On hand <strong>{correcting.onHand}</strong> · Reserved{" "}
+              <strong>{correcting.reserved}</strong> · Available{" "}
+              <strong>{correcting.available}</strong>
+            </p>
+
+            <label htmlFor="inv-correct-input">Corrected on-hand quantity (vials)</label>
+            <input
+              id="inv-correct-input"
+              type="number"
+              min="0"
+              step="1"
+              inputMode="numeric"
+              placeholder="e.g. 120"
+              value={correctInput}
+              onChange={(e) => setCorrectInput(e.target.value)}
+              aria-describedby="inv-correct-help"
+            />
+            <small id="inv-correct-help">
+              Fixes a human error in the on-hand figure. It cannot be set below
+              the reserved amount, and it does not change reservations or any
+              order already placed.
+            </small>
+
+            <label htmlFor="inv-correct-reason">Reason (recorded for the audit trail)</label>
+            <textarea
+              id="inv-correct-reason"
+              rows={2}
+              placeholder="e.g. Miscounted at intake — recount confirms 120"
+              value={correctReason}
+              onChange={(e) => setCorrectReason(e.target.value)}
+            />
+
+            {/* assertive: it reports the outcome of an action just taken. */}
+            <div aria-live="assertive">
+              {correctError && <p className="inv-price-error">{correctError}</p>}
+            </div>
+
+            <div className="inv-price-actions">
+              <button
+                type="button"
+                className="inv-price-cancel"
+                onClick={closeCorrectDialog}
+                disabled={savingCorrection}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inv-price-save"
+                onClick={handleSaveCorrection}
+                disabled={savingCorrection}
+              >
+                {savingCorrection ? "Saving…" : "Save correction"}
               </button>
             </div>
           </div>

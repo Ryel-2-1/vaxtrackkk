@@ -16,6 +16,7 @@ import "./styles.css";
 // shell + login instead of every Admin/Sales-Rep/Dispatcher page (and Leaflet)
 // at once. Each page becomes its own chunk, fetched on navigation.
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const Register = lazy(() => import("./pages/Register"));
 const PendingApproval = lazy(() => import("./pages/PendingApproval"));
 const StyleGuide = lazy(() => import("./pages/StyleGuide"));
 const GoogleMapsFeasibility = lazy(() => import("./pages/dev/GoogleMapsFeasibility"));
@@ -62,6 +63,7 @@ function App() {
 
           <Route path="/login" element={<Login />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/register" element={<Register />} />
           <Route path="/pending" element={<PendingApproval />} />
           <Route path="/pending-approval" element={<Navigate to="/pending" replace />} />
 

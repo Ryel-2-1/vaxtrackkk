@@ -12,6 +12,9 @@
     "preview": "vite preview",
     "test:rules": "firebase emulators:exec --only firestore \"node tests/firestore.rules.test.js\"",
     "test:invoices": "node --test tests/invoiceModel.test.js",
+    "test:password-reset": "node --test tests/passwordReset.test.js",
+    "test:registration": "node --test tests/registration.test.js",
+    "test:stock-correction": "node --test tests/stockCorrection.test.js",
     "test:storage-rules": "firebase emulators:exec --only firestore,storage --project demo-vaxtrack-storage \"node tests/storage.rules.test.js\""
   },
   "dependencies": {

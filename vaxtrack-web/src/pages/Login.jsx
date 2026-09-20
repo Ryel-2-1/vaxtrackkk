@@ -295,6 +295,13 @@ function Login() {
             </div>
           </form>
 
+          <p className="vlogin-signup">
+            Don&rsquo;t have an account?{" "}
+            <Link to="/register" className="vlogin-forgot">
+              Apply for access
+            </Link>
+          </p>
+
           <small className="vlogin-copyright">
             © 2026 VaxTrack Philippines Medical Logistics — Authorized access
             only.

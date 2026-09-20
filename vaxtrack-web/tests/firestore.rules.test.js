@@ -48,6 +48,9 @@ const otherRiderUid = "rider2";
 const pendingRiderUid = "pending1";
 const disabledUid = "disabled1";
 const freshRiderUid = "freshRider1"; // used for the registration test
+const freshSalesRepUid = "freshSalesRep1"; // web self-application test
+const freshDispatcherUid = "freshDispatcher1"; // web self-application test
+const freshAdminApplicantUid = "freshAdminApplicant1"; // must NOT be allowed
 
 // A fixed clinic location-save time, so an order's copied
 // clinicLocationUpdatedAt can be compared against a known value.
@@ -111,6 +114,15 @@ async function main() {
     await setDoc(doc(db, "orders", "ordRider3"), { createdByUid: salesRepUid, status: "in_transit", assignedRiderId: riderUid });
 
     await setDoc(doc(db, "inventory", "inv1"), { vaccineName: "X", quantity: 10 });
+    // Stock-correction fixtures: 10 of 100 reserved for open orders.
+    await setDoc(doc(db, "inventory", "invCorrect"), {
+      vaccineName: "Corr", batchId: "COR-1", expiryDate: "2027-12-31",
+      quantity: 100, reservedQuantity: 10, sellingPriceCentavos: 125000,
+    });
+    await setDoc(doc(db, "inventory", "invCorrectFloor"), {
+      vaccineName: "Corr2", batchId: "COR-2", expiryDate: "2027-12-31",
+      quantity: 100, reservedQuantity: 10, sellingPriceCentavos: 125000,
+    });
     await setDoc(doc(db, "areas", "seed-area"), {
       key: "seed-area",
       name: "Seed Area",
@@ -557,6 +569,9 @@ async function main() {
   const pendingRider = testEnv.authenticatedContext(pendingRiderUid).firestore();
   const disabled = testEnv.authenticatedContext(disabledUid).firestore();
   const freshRider = testEnv.authenticatedContext(freshRiderUid).firestore();
+  const freshSalesRep = testEnv.authenticatedContext(freshSalesRepUid).firestore();
+  const freshDispatcher = testEnv.authenticatedContext(freshDispatcherUid).firestore();
+  const freshAdminApplicant = testEnv.authenticatedContext(freshAdminApplicantUid).firestore();
   const anon = testEnv.unauthenticatedContext().firestore();
 
   console.log("\n--- POSITIVE cases ---");
@@ -692,6 +707,45 @@ async function main() {
     }));
   });
 
+  await check("P12b a visitor self-applies as a pending sales rep (no vehicle)", async () => {
+    await assertSucceeds(setDoc(doc(freshSalesRep, "users", freshSalesRepUid), {
+      role: "salesrep",
+      status: "pending",
+      fullName: "New Rep",
+      email: "rep@x.com",
+      phone: "0917",
+    }));
+  });
+
+  await check("P12c a visitor self-applies as a pending dispatcher (no vehicle)", async () => {
+    await assertSucceeds(setDoc(doc(freshDispatcher, "users", freshDispatcherUid), {
+      role: "dispatcher",
+      status: "pending",
+      fullName: "New Dispatcher",
+      email: "disp@x.com",
+    }));
+  });
+
+  await check("Nreg-admin a visitor can NEVER self-apply as admin", async () => {
+    await assertFails(setDoc(doc(freshAdminApplicant, "users", freshAdminApplicantUid), {
+      role: "admin",
+      status: "pending",
+      fullName: "Would-be Admin",
+      email: "wannabe@x.com",
+    }));
+  });
+
+  await check("Nreg-approved a visitor cannot self-apply already approved (any web role)", async () => {
+    for (const role of ["salesrep", "dispatcher"]) {
+      await assertFails(setDoc(doc(freshSalesRep, "users", freshSalesRepUid), {
+        role,
+        status: "approved",
+        fullName: "Self Approver",
+        email: "self@x.com",
+      }));
+    }
+  });
+
   // ---- Rider self-registration identity boundary ----
   // Riders create their own accounts, so a modified client must not be able to
   // register anything other than a pending motorcycle rider owned by itself.
@@ -720,10 +774,18 @@ async function main() {
     }
   });
 
-  await check("Nreg3 a rider cannot self-register as another role", async () => {
-    for (const role of ["admin", "dispatcher", "salesrep"]) {
+  await check("Nreg3 a self-application must use an applicable role (never admin/unknown)", async () => {
+    // Correct owner (uid == doc id) and pending status, so ONLY the role gate
+    // can reject: salesrep/dispatcher/rider are the sole applicable positions,
+    // and admin can never be self-applied.
+    for (const role of ["admin", "superadmin", "wizard", ""]) {
       await assertFails(
-        setDoc(doc(freshRider, "users", "regBadRole"), selfRegistration({ role }))
+        setDoc(doc(freshAdminApplicant, "users", freshAdminApplicantUid), {
+          role,
+          status: "pending",
+          fullName: "Bad Role",
+          email: "badrole@x.com",
+        })
       );
     }
   });
@@ -3023,6 +3085,47 @@ async function main() {
     await assertSucceeds(updateDoc(doc(admin, "inventory", "invAdmin"), { manufacturer: "Corrected" }));
   });
 
+  await check("Ncorr admin stock correction: only a safe, audited shape is allowed", async () => {
+    // A full, valid correction. reservedQuantity is deliberately absent — it is
+    // never part of a correction.
+    const good = (extra) => ({
+      quantity: 120,
+      previousQuantity: 100,
+      quantityCorrectionReason: "Recount confirms 120",
+      quantityCorrectedAt: serverTimestamp(),
+      quantityCorrectedByUid: adminUid,
+      quantityCorrectedByEmail: "a@x.com",
+      updatedAt: serverTimestamp(),
+      ...extra,
+    });
+
+    // --- negatives (none commit, so invCorrect stays at 100) ---
+    // below the reserved floor (reserved = 10)
+    await assertFails(updateDoc(doc(admin, "inventory", "invCorrect"), good({ quantity: 5 })));
+    // missing reason
+    const noReason = good();
+    delete noReason.quantityCorrectionReason;
+    await assertFails(updateDoc(doc(admin, "inventory", "invCorrect"), noReason));
+    // dishonest previousQuantity
+    await assertFails(updateDoc(doc(admin, "inventory", "invCorrect"), good({ previousQuantity: 999 })));
+    // client-chosen time instead of the server clock
+    await assertFails(updateDoc(doc(admin, "inventory", "invCorrect"), good({ quantityCorrectedAt: new Date("2020-01-01") })));
+    // actor is not the caller
+    await assertFails(updateDoc(doc(admin, "inventory", "invCorrect"), good({ quantityCorrectedByUid: dispatcherUid })));
+    // a correction may never move reservedQuantity
+    await assertFails(updateDoc(doc(admin, "inventory", "invCorrect"), good({ reservedQuantity: 0 })));
+    // nor smuggle an off-limit field alongside the correction
+    await assertFails(updateDoc(doc(admin, "inventory", "invCorrect"), good({ sellingPriceCentavos: 1 })));
+    // a non-admin cannot correct at all
+    await assertFails(updateDoc(doc(dispatcher, "inventory", "invCorrect"), good()));
+
+    // --- positives ---
+    // down to exactly the reserved floor, on its own fixture
+    await assertSucceeds(updateDoc(doc(admin, "inventory", "invCorrectFloor"), good({ quantity: 10 })));
+    // a valid upward correction with full audit (runs last on invCorrect)
+    await assertSucceeds(updateDoc(doc(admin, "inventory", "invCorrect"), good()));
+  });
+
   await check("Nlock7 a new stock batch must be a valid integer batch", async () => {
     const valid = {
       vaccineName: "V", batchId: "B-1", expiryDate: "2027-12-31",
@@ -3218,24 +3321,32 @@ async function main() {
 
   // ---------------- role + authentication (checkpoint 10) ----------------
 
-  await check("Nrole1 no client may create itself as anything but a pending rider", async () => {
-    // The self-registration boundary. A rider creates its own document; every
-    // other shape — including a plausible pending admin — is refused.
+  await check("Nrole1 self-registration is confined to a pending, non-admin account", async () => {
+    // The self-registration boundary. A visitor may create their OWN pending
+    // account as one of the three applicable positions; admin and unknown roles
+    // are refused, as is any self-approval or someone else's document.
     const fresh = testEnv.authenticatedContext("brandNewUid").firestore();
-    for (const role of ["admin", "dispatcher", "salesrep", "wizard"]) {
+    // Admin can never be self-applied; an unknown role is refused too — even in
+    // an otherwise-plausible pending shape.
+    for (const role of ["admin", "wizard"]) {
       await assertFails(setDoc(doc(fresh, "users", "brandNewUid"), {
         role, status: "pending", vehicleType: "Motorcycle", email: "x@y.com",
       }));
     }
-    // ...nor an APPROVED rider (self-approval at creation time).
+    // ...nor an APPROVED account (self-approval at creation time).
     await assertFails(setDoc(doc(fresh, "users", "brandNewUid"), {
-      role: "rider", status: "approved", vehicleType: "Motorcycle",
+      role: "salesrep", status: "approved", email: "x@y.com",
+    }));
+    // ...nor a rider without the pinned vehicle type.
+    await assertFails(setDoc(doc(fresh, "users", "brandNewUid"), {
+      role: "rider", status: "pending", email: "x@y.com",
     }));
     // ...nor a document belonging to someone else.
     await assertFails(setDoc(doc(fresh, "users", adminUid), {
-      role: "rider", status: "pending", vehicleType: "Motorcycle",
+      role: "salesrep", status: "pending", email: "x@y.com",
     }));
-    // The one permitted shape still works.
+    // A permitted shape works (pending rider with motorcycle). The pending
+    // salesrep / dispatcher shapes are covered by P12b / P12c above.
     await assertSucceeds(setDoc(doc(fresh, "users", "brandNewUid"), {
       role: "rider", status: "pending", vehicleType: "Motorcycle", email: "x@y.com",
     }));

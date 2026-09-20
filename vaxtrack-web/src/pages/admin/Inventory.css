@@ -518,7 +518,7 @@
 
 .v2-vaccine-table {
   width: 100%;
-  min-width: 640px; /* keep columns readable; scroll inside .v2-table-scroll */
+  min-width: 1150px; /* keep all 10 columns readable; scroll inside .v2-table-scroll */
   border-collapse: collapse;
 }
 
@@ -539,6 +539,12 @@
   border-bottom: 1px solid var(--gray-200);
   color: var(--gray-900);
   font-size: 15px;
+}
+
+.v2-vaccine-table th:first-child,
+.v2-vaccine-table td:first-child {
+  width: 240px;
+  min-width: 240px;
 }
 
 .v2-vaccine-table tbody tr {
@@ -566,12 +572,18 @@
 
 .v2-vaccine-cell span {
   width: 36px;
+  flex: 0 0 36px;
   height: 36px;
   border-radius: 10px;
   display: grid;
   place-items: center;
   background: var(--green-50);
   color: var(--green-700);
+}
+
+.v2-vaccine-cell > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .v2-vaccine-cell strong {
@@ -633,32 +645,6 @@
   background: var(--gray-100, #f3f4f6);
   color: var(--gray-600, #4b5563);
   border: 1px dashed var(--gray-300, #d1d5db);
-}
-
-/* Clean inventory checkboxes */
-
-.v2-vaccine-table input[type="checkbox"] {
-  appearance: none !important;
-  -webkit-appearance: none !important;
-  width: 20px !important;
-  height: 20px !important;
-  min-width: 20px !important;
-  min-height: 20px !important;
-  margin: 0 !important;
-  border: 2px solid #9fb2ce !important;
-  border-radius: 6px !important;
-  background-color: #ffffff !important;
-  background-repeat: no-repeat !important;
-  background-position: center !important;
-  background-size: 13px 13px !important;
-  cursor: pointer !important;
-  box-sizing: border-box !important;
-}
-
-.v2-vaccine-table input[type="checkbox"]:checked {
-  background-color: var(--green-700) !important;
-  border-color: var(--green-700) !important;
-  background-image: url("data:image/svg+xml,%3Csvg width='14' height='14' viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7.2L5.7 9.8L11 4.2' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
 }
 
 /* Footer */
@@ -1094,66 +1080,6 @@
   .v2-inventory-search {
     width: 100% !important;
   }
-}
-/* =========================================================
-   Final Inventory Checkbox Fix
-   Clean square checkbox, centered in table column
-========================================================= */
-
-.v2-vaccine-table th:first-child,
-.v2-vaccine-table td:first-child {
-  width: 48px !important;
-  min-width: 48px !important;
-  max-width: 48px !important;
-  text-align: center !important;
-  vertical-align: middle !important;
-  padding-left: 14px !important;
-  padding-right: 14px !important;
-}
-
-.v2-vaccine-table th:first-child input[type="checkbox"],
-.v2-vaccine-table td:first-child input[type="checkbox"] {
-  appearance: none !important;
-  -webkit-appearance: none !important;
-
-  width: 20px !important;
-  height: 20px !important;
-  min-width: 20px !important;
-  min-height: 20px !important;
-  max-width: 20px !important;
-  max-height: 20px !important;
-
-  margin: 0 auto !important;
-  padding: 0 !important;
-
-  display: block !important;
-
-  border: 2px solid #9fb2ce !important;
-  border-radius: 6px !important;
-  background-color: #ffffff !important;
-  background-image: none !important;
-  background-repeat: no-repeat !important;
-  background-position: center !important;
-  background-size: 13px 13px !important;
-
-  box-shadow: none !important;
-  outline: none !important;
-  cursor: pointer !important;
-  box-sizing: border-box !important;
-}
-
-.v2-vaccine-table th:first-child input[type="checkbox"]:checked,
-.v2-vaccine-table td:first-child input[type="checkbox"]:checked {
-  border-color: var(--green-700) !important;
-  background-color: var(--green-700) !important;
-  background-image: url("data:image/svg+xml,%3Csvg width='14' height='14' viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7.2L5.7 9.8L11 4.2' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
-}
-
-/* Remove any old duplicate checkmark effects */
-.v2-vaccine-table input[type="checkbox"]::before,
-.v2-vaccine-table input[type="checkbox"]::after {
-  content: none !important;
-  display: none !important;
 }
 /* Stock-integrity flags (workflow checkpoint 5). Data problems are shown, not
    smoothed over: a batch whose quantity is stored as text reads as unusable
