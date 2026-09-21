@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   Box,
+  CalendarDays,
   ClipboardCheck,
   Loader2,
   MapPin,
@@ -164,6 +165,7 @@ function normalizeOrder(raw) {
     quantity: Number(raw.quantity || 0),
     priority: raw.priority || "Standard",
     instructions: raw.deliveryInstructions || "",
+    requestedDeliveryDate: raw.requestedDeliveryDate || null,
     items,
   };
 }
@@ -512,6 +514,16 @@ function SalesRepOrderTracking() {
                     <p>{selectedOrder.city}</p>
                   </div>
                 </div>
+
+                {selectedOrder.requestedDeliveryDate && (
+                  <div className="tracking-v2-info-box">
+                    <CalendarDays size={15} />
+                    <div>
+                      <strong>Requested delivery date</strong>
+                      <p>{selectedOrder.requestedDeliveryDate}</p>
+                    </div>
+                  </div>
+                )}
 
                 {correctionsError && <p role="alert">{correctionsError}</p>}
                 {corrections.length > 0 && (

@@ -15,6 +15,7 @@
     "test:password-reset": "node --test tests/passwordReset.test.js",
     "test:registration": "node --test tests/registration.test.js",
     "test:stock-correction": "node --test tests/stockCorrection.test.js",
+    "test:requested-date": "node --test tests/requestedDate.test.js",
     "test:storage-rules": "firebase emulators:exec --only firestore,storage --project demo-vaxtrack-storage \"node tests/storage.rules.test.js\""
   },
   "dependencies": {

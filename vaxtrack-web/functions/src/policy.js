@@ -848,6 +848,35 @@ function hasServerPricing(orderData) {
   return orderData?.pricingVersion === PRICING_VERSION;
 }
 
+/**
+ * An OPTIONAL requested delivery date supplied by the Med Rep at checkout.
+ *
+ * Absent/blank is valid and returns null — the field is optional, and the
+ * dispatcher schedules normally when none is given. When present it must be a
+ * real YYYY-MM-DD (isoDateOnly rejects "2026-02-31" and any other shape) and
+ * must not be in the past, measured in Manila time so a rep placing an order
+ * late in the day is never told "today" is already past. It is date-only on
+ * purpose: a booking date carries no time or timezone, and comparing it against
+ * the same manilaDateString the catalog uses keeps one definition of "today".
+ */
+function normalizeRequestedDeliveryDate(value, now) {
+  if (value === undefined || value === null || value === "") return null;
+  const iso = isoDateOnly(value);
+  if (iso === null) {
+    throw new PolicyError(
+      "invalid-requested-date",
+      "The requested delivery date is not a valid date."
+    );
+  }
+  if (iso < manilaDateString(now)) {
+    throw new PolicyError(
+      "invalid-requested-date",
+      "The requested delivery date cannot be in the past."
+    );
+  }
+  return iso;
+}
+
 module.exports = {
   ALLOCATION_VERSION,
   PRICING_VERSION,
@@ -870,6 +899,7 @@ module.exports = {
   manilaDateString,
   isoDateOnly,
   isExpired,
+  normalizeRequestedDeliveryDate,
   isUsableStatus,
   readStockInteger,
   readReservedQuantity,

@@ -31,6 +31,7 @@ const {
   validateDocumentId,
   validateReason,
   validateRequestId,
+  normalizeRequestedDeliveryDate,
   CANCELLABLE_FROM,
   DELIVERABLE_FROM,
   HOME_ADDRESS_ID,
@@ -81,6 +82,12 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
 
   const requestId = validateRequestId(payload?.requestId);
   const { doctorId, doctorAddressId, items } = validateCreatePayload(payload);
+  // Optional booking date. Validated here (before any read/write) so an invalid
+  // or past date fails fast without touching stock; null means none was given.
+  const requestedDeliveryDate = normalizeRequestedDeliveryDate(
+    payload?.requestedDeliveryDate,
+    now
+  );
 
   const fingerprint = canonicalRequestFingerprint({
     uid,
@@ -243,6 +250,9 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
         typeof payload?.deliveryInstructions === "string"
           ? payload.deliveryInstructions.trim().slice(0, 1000)
           : "",
+      // Stored only when the rep supplied one — a coord-less/blank date leaves
+      // no field, exactly like clinic coordinates and deliveryInstructions.
+      ...(requestedDeliveryDate ? { requestedDeliveryDate } : {}),
       items: orderItems,
       // ---- immutable price snapshot ----
       //

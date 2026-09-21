@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   Bell,
+  CalendarDays,
   FileText,
   Loader2,
   MapPin,
@@ -19,6 +20,7 @@ import { subscribeClinics } from "../../services/clinicService";
 import { subscribeDoctors } from "../../services/doctorService";
 import { subscribeDoctorAddresses } from "../../services/doctorAddressService";
 import { buildDoctorDestinationOptions } from "../../services/doctorAddressModel";
+import { manilaToday, validateRequestedDate } from "../../services/requestedDate";
 import {
   centavosToPesos,
   formatCentavos,
@@ -176,6 +178,7 @@ function SalesRepPlaceOrder() {
   const [clinicsLoading, setClinicsLoading] = useState(true);
   const [destinationLoadError, setDestinationLoadError] = useState("");
   const [instructions, setInstructions] = useState("");
+  const [requestedDate, setRequestedDate] = useState("");
   const [urgent, setUrgent] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -353,6 +356,16 @@ function SalesRepPlaceOrder() {
       return;
     }
 
+    // Optional booking date. Blank is fine; a present date must be valid and not
+    // in the past. The server re-validates, but checking here tells the rep at
+    // once rather than after a round trip.
+    const requestedCheck = validateRequestedDate(requestedDate);
+    if (!requestedCheck.ok) {
+      submittingRef.current = false;
+      setMessage(requestedCheck.message);
+      return;
+    }
+
     setSaving(true);
     setMessage("");
 
@@ -368,6 +381,8 @@ function SalesRepPlaceOrder() {
         doctorAddressId: selectedDestination.id,
         priority: urgent ? "Urgent" : "Standard",
         deliveryInstructions: instructions.trim(),
+        // null when none was chosen — the server stores nothing in that case.
+        requestedDeliveryDate: requestedCheck.value,
         items: items.map((item) => ({
           inventoryId: item.inventoryId,
           quantity: Number(item.quantity),
@@ -411,6 +426,7 @@ function SalesRepPlaceOrder() {
           // still cannot drift from the document if that ever stops holding.
           ...confirmationPricing(result.pricing, items),
           quantity: totalQuantity,
+          requestedDeliveryDate: requestedCheck.value,
           status: "pending_dispatch",
         })
       );
@@ -629,6 +645,19 @@ function SalesRepPlaceOrder() {
               value={instructions}
               onChange={(event) => setInstructions(event.target.value)}
               placeholder="Add special handling notes, gate codes, or delivery window preferences..."
+            />
+
+            <label className="place-v2-date-label" htmlFor="place-requested-date">
+              <CalendarDays size={14} />
+              Requested delivery date (optional)
+            </label>
+            <input
+              id="place-requested-date"
+              className="place-v2-date-input"
+              type="date"
+              min={manilaToday()}
+              value={requestedDate}
+              onChange={(event) => setRequestedDate(event.target.value)}
             />
 
             <label className="urgent-row place-v2-urgent-row">

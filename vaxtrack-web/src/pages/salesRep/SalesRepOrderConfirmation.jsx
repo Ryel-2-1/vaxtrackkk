@@ -70,6 +70,7 @@ function getLatestOrder() {
       deliveryInstructions:
         savedOrder.deliveryInstructions?.trim() || "No delivery instructions provided.",
       priority: savedOrder.priority || "Standard",
+      requestedDeliveryDate: savedOrder.requestedDeliveryDate || null,
       items: Array.isArray(savedOrder.items) && savedOrder.items.length
         ? savedOrder.items
         : fallbackOrder.items,
@@ -173,6 +174,14 @@ function SalesRepOrderConfirmation() {
             <strong>{order.clinicName}</strong>
             <p>{order.clinicAddress}</p>
           </div>
+
+          {order.requestedDeliveryDate && (
+            <div>
+              <CalendarClock size={17} />
+              <span>Requested Delivery Date</span>
+              <strong>{order.requestedDeliveryDate}</strong>
+            </div>
+          )}
         </div>
 
         <div className="confirmation-notes-card">

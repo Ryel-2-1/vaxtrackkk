@@ -107,6 +107,7 @@ function toHttpsError(error, context) {
       "inventory-invariant-broken": "failed-precondition",
       "batch-unpriced": "failed-precondition",
       "price-not-confirmed": "failed-precondition",
+      "invalid-requested-date": "invalid-argument",
       // ---- invoice pricing ----
       "invoice-not-found": "not-found",
       "order-not-priced": "failed-precondition",

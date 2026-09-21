@@ -636,3 +636,26 @@ test("reason validation matches the shared lifecycle bounds", () => {
   assert.equal(codeOf(() => P.validateReason("x".repeat(501))), "reason-too-long");
   assert.equal(P.validateReason("  Clinic closed  "), "Clinic closed");
 });
+
+test("normalizeRequestedDeliveryDate: optional, real, and never in the past", () => {
+  // Absent / blank is allowed and normalises to null.
+  for (const v of [undefined, null, ""]) {
+    assert.equal(P.normalizeRequestedDeliveryDate(v, NOW), null);
+  }
+  // Today (Manila) and future are accepted and returned as-is.
+  assert.equal(P.normalizeRequestedDeliveryDate("2026-09-06", NOW), "2026-09-06");
+  assert.equal(P.normalizeRequestedDeliveryDate("2026-12-01", NOW), "2026-12-01");
+  // A past date is refused.
+  assert.equal(
+    codeOf(() => P.normalizeRequestedDeliveryDate("2026-09-05", NOW)),
+    "invalid-requested-date"
+  );
+  // Impossible or malformed dates are refused.
+  for (const bad of ["2026-02-31", "2026/09/06", "not-a-date", 20260906]) {
+    assert.equal(
+      codeOf(() => P.normalizeRequestedDeliveryDate(bad, NOW)),
+      "invalid-requested-date",
+      String(bad)
+    );
+  }
+});
