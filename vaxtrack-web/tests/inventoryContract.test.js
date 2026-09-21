@@ -214,41 +214,82 @@ test("the order's stored price comes from the batch, not the payload", () => {
 });
 
 test("no page writes a price onto an order or a batch counter", () => {
+  // Fields a page must never author. Deliberate exclusions:
+  //   `sellingPriceCentavos` — Admin Inventory IS the price-management page,
+  //     and hands that value to updateStockPrice for the rules to validate;
+  //   `subtotalCentavos` — PlaceOrder relays the SERVER's figure into the
+  //     confirmation payload, which is display state, not a write;
+  //   `reservedQuantity` — handled separately below, because Admin Inventory is
+  //     now allowed to READ it as a stock-correction validation input.
+  // No page can reach Firestore directly anyway; that is asserted per page.
+  const alwaysForbidden = ["pricingVersion", "pricedAt", "allocationStatus"];
+  // Anchored to a real property-key position (start of line, `{` or `,`), so a
+  // ternary like `? raw.reservedQuantity : 0` is not mistaken for a write.
+  const keyOf = (field) => new RegExp(`(^|[{,])\\s*${field}\\s*:`, "m");
+
   for (const page of [
     "src/pages/salesRep/SalesRepPlaceOrder.jsx",
     "src/pages/salesRep/SalesRepRequestOrder.jsx",
     "src/pages/admin/Inventory.jsx",
   ]) {
     const src = read(page);
-    // Matches the field used as an OBJECT KEY, which is what a write looks
-    // like. Reading one, or deriving a local figure to show on screen, is fine
-    // — PlaceOrder deliberately computes a `subtotalCentavos` estimate.
-    // Fields a page must never author. Two deliberate exclusions:
-    //   `sellingPriceCentavos` — Admin Inventory IS the price-management page,
-    //     and hands that value to updateStockPrice for the rules to validate;
-    //   `subtotalCentavos` — PlaceOrder relays the SERVER's figure into the
-    //     confirmation payload, which is display state, not a write.
-    // Neither page can reach Firestore directly anyway; that is asserted below.
-    for (const field of [
-      "pricingVersion", "pricedAt", "reservedQuantity", "allocationStatus",
-    ]) {
-      // Anchored to a real property-key position (start of line, `{` or `,`),
-      // so a ternary like `? raw.reservedQuantity : 0` is not mistaken for one.
+    for (const field of alwaysForbidden) {
       assert.equal(
-        new RegExp(`(^|[{,])\\s*${field}\\s*:`, "m").test(src),
+        keyOf(field).test(src),
         false,
         `${page} must not write ${field} — that belongs to the callable or the service`
       );
     }
     // And no page talks to Firestore directly about stock. Admin Inventory
-    // re-prices through vaccineService, so the validation and the audit fields
-    // live in one place rather than being re-implemented per page.
+    // re-prices / corrects through vaccineService, so the validation and the
+    // audit fields live in one place rather than being re-implemented per page.
     assert.equal(
       /from ["']firebase\/firestore["']/.test(src),
       false,
       `${page} must reach Firestore through a service, not the SDK directly`
     );
   }
+
+  // `reservedQuantity` is a settlement counter no page may AUTHOR — it moves
+  // only inside the callable's reservation/consumption transaction. Admin
+  // Inventory is allowed to READ it as the validation input to a stock
+  // correction (a correction may never drop on-hand below what is reserved),
+  // but must never WRITE it. Verified precisely, not by a blunt key match that
+  // the read-only validation argument would otherwise trip.
+  const RESERVED = "reservedQuantity";
+  const reservedKey = keyOf(RESERVED);
+
+  // The Sales Rep pages have no legitimate reason to name it as a key at all.
+  for (const page of [
+    "src/pages/salesRep/SalesRepPlaceOrder.jsx",
+    "src/pages/salesRep/SalesRepRequestOrder.jsx",
+  ]) {
+    assert.equal(reservedKey.test(read(page)), false, `${page} must not write ${RESERVED}`);
+  }
+
+  // Admin Inventory: the ONLY permitted key-position use is the read passed to
+  // validateStockCorrection. Blank that call out, and no reservedQuantity key
+  // may remain anywhere else in the file.
+  const inventory = read("src/pages/admin/Inventory.jsx");
+  const withoutValidationInput = inventory.replace(
+    /validateStockCorrection\(\{[\s\S]*?\}\)/g,
+    "validateStockCorrection({})"
+  );
+  assert.equal(
+    reservedKey.test(withoutValidationInput),
+    false,
+    "Inventory.jsx may read reservedQuantity only as a validation input, never write it"
+  );
+
+  // And the actual correction WRITE must not send reservedQuantity — the
+  // service writes quantity + audit only, leaving the reserved counter alone.
+  const correctionWrite = /correctStockQuantity\(\{[\s\S]*?\}\)/.exec(inventory);
+  assert.ok(correctionWrite, "Inventory.jsx must save corrections through correctStockQuantity");
+  assert.equal(
+    new RegExp(RESERVED).test(correctionWrite[0]),
+    false,
+    "the correctStockQuantity write must not include reservedQuantity"
+  );
 });
 
 test("the VAT convention is recorded on the order, not inferred", () => {

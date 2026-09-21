@@ -11,6 +11,10 @@ import {
   resolveAccess,
   resolveLoginDestination,
 } from "../src/services/authorization.js";
+import {
+  APPLICABLE_ROLES,
+  buildApplicationProfile,
+} from "../src/services/registration.js";
 
 /**
  * The actor x status x area matrix, exhaustively.
@@ -189,20 +193,37 @@ test("no React Rider route or page exists", () => {
   assert.match(app, /path="\/riders"/, "the Admin riders page is unaffected");
 });
 
-test("the dead self-registration page is gone", () => {
-  // It was unrouted and unimported, but it wrote a USER-CHOSEN role to
-  // users/{uid}. Unreachable is not the same as absent: a file like that gets
-  // re-routed by someone who assumes it was safe.
-  let exists = true;
-  try {
-    read("src/pages/Register.jsx");
-  } catch {
-    exists = false;
-  }
-  assert.equal(exists, false, "src/pages/Register.jsx must not exist");
-
+test("self-registration is a public route whose applicants gain no access until approved", () => {
+  // Intentional inverse of the former "must not exist": /register is now a
+  // public application page. The authorization guarantee this file owns is that
+  // an applicant gains NOTHING until an admin approves — self-registration can
+  // never be self-approval. (The service internals and the page's Firebase
+  // wiring are covered by registration.test.js; not duplicated here.)
   const app = read("src/App.jsx");
-  assert.equal(/path="\/register"/.test(app), false, "no /register route");
+  assert.match(app, /path="\/register"/, "/register must be a public route");
+
+  // No path offers the admin role: the applicable positions are exactly the
+  // three staff roles, and admin is not among them.
+  const applicable = APPLICABLE_ROLES.map((r) => r.value);
+  assert.deepEqual(applicable, [ROLES.SALES_REP, ROLES.DISPATCHER, ROLES.RIDER]);
+  assert.equal(applicable.includes(ROLES.ADMIN), false, "admin can never be applied for");
+
+  // A brand-new application is pending, and pending is denied every protected
+  // area by the same fail-closed resolveAccess the route guards use — so an
+  // applicant cannot reach any dashboard, least of all Admin, before approval.
+  for (const role of applicable) {
+    const application = buildApplicationProfile({
+      name: "New Applicant",
+      email: "applicant@example.com",
+      role,
+    });
+    assert.equal(application.status, STATUSES.PENDING, `${role} application starts pending`);
+    assert.equal(application.role, role, `${role} application keeps its applied-for role`);
+    for (const area of AREAS) {
+      const decision = resolveAccess({ profile: application, requiredRole: area.requiredRole });
+      assert.equal(decision.allowed, false, `pending ${role} must be denied ${area.name}`);
+    }
+  }
 });
 
 // ------------------------------------------------------------ 9, 10, 11

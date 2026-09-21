@@ -36,12 +36,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const servicePath = join(here, "..", "src", "services", "vaccineService.js");
 
-// The REAL service source is executed. Only its two import specifiers are
-// rewritten to point at local stand-ins, because bare Node cannot resolve
-// either one: `firebase/firestore` would reach the network-facing SDK, and
-// `"../firebase"` is extensionless (Vite resolves that, Node does not) and
-// would initialise a real Firebase app from Vite-only `import.meta.env` vars.
-// Everything between the imports and the assertions is the shipped code.
+// The REAL service source is executed. Only its three import specifiers are
+// rewritten to point at local stand-ins, because bare Node cannot resolve them:
+// `firebase/firestore` would reach the network-facing SDK; `"../firebase"` would
+// initialise a real Firebase app from Vite-only `import.meta.env` vars; and
+// `"./stockCorrection"` is an extensionless sibling (Vite resolves that, Node
+// does not) whose real, dependency-free source is copied in below. Everything
+// between the imports and the assertions is the shipped code.
 const state = { addDoc: [], updateDoc: [], doc: [], collection: [], getDocs: 0, currentUser: { uid: "admin1" }, snapshot: { docs: [], empty: true } };
 globalThis.__vaxtrackCalls = state;
 
@@ -53,6 +54,7 @@ writeFileSync(
 export const addDoc = (ref, data) => { s.addDoc.push({ ref, data }); return Promise.resolve({ id: "generated-doc-id" }); };
 export const collection = (_db, name) => { s.collection.push(name); return { __collection: name }; };
 export const getDocs = () => { s.getDocs += 1; return Promise.resolve(s.snapshot); };
+export const getDoc = () => Promise.resolve({ exists: () => false, data: () => ({}) });
 export const query = (ref) => ref;
 export const where = (...a) => ({ where: a });
 export const orderBy = (...a) => ({ orderBy: a });
@@ -71,16 +73,28 @@ export const auth = { get currentUser() { return globalThis.__vaxtrackCalls.curr
 `
 );
 
+// The pure `./stockCorrection` sibling (no imports of its own) is copied
+// verbatim so the correction-validation logic stays the shipped logic.
+const stockCorrectionFile = join(tmp, "stockCorrection.mjs");
+writeFileSync(
+  stockCorrectionFile,
+  readFileSync(join(here, "..", "src", "services", "stockCorrection.js"), "utf8")
+);
+
 const original = readFileSync(servicePath, "utf8");
 const rewritten = original
   .replace('"firebase/firestore"', JSON.stringify(pathToFileURL(join(tmp, "firestore.mjs")).href))
-  .replace('"../firebase"', JSON.stringify(pathToFileURL(join(tmp, "firebase.mjs")).href));
+  .replace('"../firebase"', JSON.stringify(pathToFileURL(join(tmp, "firebase.mjs")).href))
+  .replace('"./stockCorrection"', JSON.stringify(pathToFileURL(stockCorrectionFile).href));
 
 // If the service's imports are ever renamed, fail loudly rather than silently
 // testing an unrewritten (or unexecutable) module.
 assert.ok(
-  rewritten !== original && !rewritten.includes('"firebase/firestore"') && !rewritten.includes('"../firebase"'),
-  "both service imports must have been redirected to the stand-ins"
+  rewritten !== original
+    && !rewritten.includes('"firebase/firestore"')
+    && !rewritten.includes('"../firebase"')
+    && !rewritten.includes('"./stockCorrection"'),
+  "all three service imports (firestore, firebase, stockCorrection) must have been redirected to the stand-ins"
 );
 
 const serviceFile = join(tmp, "vaccineService.mjs");
