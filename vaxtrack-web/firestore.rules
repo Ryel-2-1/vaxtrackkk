@@ -323,6 +323,12 @@ service cloud.firestore {
         'routeDistanceMeters', 'routeDurationSeconds', 'routeEtaText',
         'routeGeneratedAt', 'routePolyline', 'routeProvider',
         'routeDestinationRevision',
+        // Multi-stop trip optimization (OpenRouteService /optimization) — the
+        // rider's whole-trip route + this order's place in it. Dispatcher-only;
+        // set when the trip is optimized, never by riders.
+        'tripId', 'tripStopCount', 'tripPolyline', 'tripDistanceMeters',
+        'tripDurationSeconds', 'tripGeneratedAt',
+        'stopSequence', 'stopEtaSeconds', 'stopEtaText',
         'startedAt',
         'status', 'statusUpdatedAt', 'statusUpdatedByEmail', 'statusUpdatedByUid',
         'updatedAt',
@@ -765,6 +771,24 @@ service cloud.firestore {
           == resource.data.get('destinationRevision', 0);
     }
 
+    // Saving an optimized multi-stop trip touches no status either. Enumerated
+    // for the same reason as routeFields(): a blanket "any non-status write"
+    // would let a dispatcher stamp allocation/lifecycle fields. `tripGeneratedAt`
+    // must actually change, so this cannot be abused as a bare `updatedAt` touch.
+    function tripFields() {
+      return [
+        'tripId', 'tripStopCount', 'tripPolyline', 'tripDistanceMeters',
+        'tripDurationSeconds', 'tripGeneratedAt',
+        'stopSequence', 'stopEtaSeconds', 'stopEtaText',
+        'routeProvider', 'updatedAt'
+      ];
+    }
+    function isTripOptimizationWrite() {
+      return !statusChanged()
+        && changedKeys().hasOnly(tripFields())
+        && changedKeys().hasAny(['tripGeneratedAt']);
+    }
+
     // loading → in_transit. The finalize-dispatch step.
     function isValidDispatch() {
       return priorStatus() == 'loading'
@@ -819,6 +843,7 @@ service cloud.firestore {
         || isValidLoadingPromotion()
         || isLoadingMetadataUpdate()
         || isRouteGenerationWrite()
+        || isTripOptimizationWrite()
         || isValidDispatch()
         || isValidFailedOrderRecovery();
     }
