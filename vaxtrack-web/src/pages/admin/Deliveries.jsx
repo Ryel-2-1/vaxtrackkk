@@ -20,6 +20,7 @@ import {
 import { ORDER_STATUSES, STATUS_LABELS } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
 import KpiCard from "../../components/ui/KpiCard";
+import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 import "./Deliveries.css";
 
 function normalizeDelivery(raw) {
@@ -71,6 +72,17 @@ function normalizeDelivery(raw) {
     // invoice — unrelated to the `invoices` collection / Admin Invoices module.
     proofOfDeliveryUrl: raw.proofOfDeliveryUrl || "",
     invoiceUrl: raw.invoiceUrl || "",
+    // Live-location + saved-route fields for the read-only delivery map. The
+    // map component tolerates missing values and shows an honest fallback.
+    lastLocation: raw.lastLocation || null,
+    lastLocationUpdate: raw.lastLocationUpdate || null,
+    clinicLat: raw.clinicLat,
+    clinicLng: raw.clinicLng,
+    routePolyline: raw.routePolyline || "",
+    routeDistanceMeters: raw.routeDistanceMeters,
+    routeDurationSeconds: raw.routeDurationSeconds,
+    routeEtaText: raw.routeEtaText || "",
+    routeGeneratedAt: raw.routeGeneratedAt || null,
   };
 }
 
@@ -584,6 +596,11 @@ function DeliveryModal({ delivery, onClose }) {
               <p className="mdl-drawer-note">{delivery.instructions}</p>
             </section>
           )}
+
+          <section className="mdl-drawer-section">
+            <h3>Live location</h3>
+            <LiveDeliveryMap order={delivery} />
+          </section>
 
           <section className="mdl-drawer-section">
             <h3>Proof of delivery</h3>

@@ -25,6 +25,7 @@ import {
 } from "../../services/destinationCorrectionService";
 import SalesRepLayout from "./SalesRepLayout";
 import StatusBadge from "../../components/ui/StatusBadge";
+import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 
 function mapTrackingLabel(statusKey) {
   switch (statusKey) {
@@ -165,6 +166,16 @@ function normalizeOrder(raw) {
     priority: raw.priority || "Standard",
     instructions: raw.deliveryInstructions || "",
     requestedDeliveryDate: raw.requestedDeliveryDate || null,
+    // Live-location + saved-route fields for the read-only tracking map.
+    lastLocation: raw.lastLocation || null,
+    lastLocationUpdate: raw.lastLocationUpdate || null,
+    clinicLat: raw.clinicLat,
+    clinicLng: raw.clinicLng,
+    routePolyline: raw.routePolyline || "",
+    routeDistanceMeters: raw.routeDistanceMeters,
+    routeDurationSeconds: raw.routeDurationSeconds,
+    routeEtaText: raw.routeEtaText || "",
+    routeGeneratedAt: raw.routeGeneratedAt || null,
     items,
   };
 }
@@ -515,6 +526,9 @@ function SalesRepOrderTracking() {
                     </div>
                   </div>
                 )}
+
+                <h3>Live location</h3>
+                <LiveDeliveryMap order={selectedOrder} />
 
                 {correctionsError && <p role="alert">{correctionsError}</p>}
                 {corrections.length > 0 && (

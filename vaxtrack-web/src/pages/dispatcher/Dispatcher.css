@@ -9311,3 +9311,51 @@
     text-align: left;
   }
 }
+
+/* ============================================================
+   Pending-queue requested-date column (schedule-aware queue)
+   ============================================================ */
+
+/* Neutral by default: future dates and unscheduled orders read as quiet text,
+   so only the time-critical states (overdue, due today) draw the eye. */
+.dispatcher-dash-date {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--gray-600);
+  white-space: nowrap;
+}
+
+.dispatcher-dash-date.none {
+  color: var(--gray-500);
+  font-style: italic;
+}
+
+/* Overdue and due-today are the states a dispatcher must act on first, so they
+   become small semantic pills that stand out from the plain dates. */
+.dispatcher-dash-date.overdue,
+.dispatcher-dash-date.today {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill, 999px);
+  font-weight: 600;
+}
+
+.dispatcher-dash-date.overdue {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  border: 1px solid var(--danger-border);
+}
+
+.dispatcher-dash-date.today {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  border: 1px solid var(--warning-border);
+}
+
+.dispatcher-dash-table-bottom-meta {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: 10px;
+  vertical-align: middle;
+}

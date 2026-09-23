@@ -1,0 +1,145 @@
+/* Self-contained styles for the shared read-only LiveDeliveryMap (Admin +
+   Sales Rep). No dependency on any role stylesheet, so the map sizes correctly
+   wherever it is embedded. */
+
+.ldm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ldm-map {
+  width: 100%;
+  height: 320px;
+  border-radius: var(--radius-card, 12px);
+  overflow: hidden;
+  border: 1px solid var(--gray-200);
+  background: var(--gray-100);
+}
+
+@media (max-width: 1024px) {
+  .ldm-map {
+    height: 280px;
+  }
+}
+
+@media (max-width: 640px) {
+  .ldm-map {
+    height: 240px;
+  }
+}
+
+/* Markers — DOM dots, matching the Dispatcher map's look (green rider, amber
+   destination). These are map-canvas overlays, not UI chrome. */
+.ldm-rider-dot {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--green-600);
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2px var(--green-700), 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.ldm-clinic-dot {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #b45309;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2px #92400e, 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.ldm-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ldm-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.ldm-coords {
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.ldm-muted {
+  font-size: 12px;
+  color: var(--gray-500);
+}
+
+.ldm-stale {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger-text);
+}
+
+.ldm-geofence {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: var(--radius-control, 8px);
+  border: 1px solid transparent;
+}
+
+.ldm-geofence.in {
+  background: var(--success-bg);
+  color: var(--success-text);
+  border-color: var(--success-border);
+}
+
+.ldm-geofence.out {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  border-color: var(--warning-border);
+}
+
+.ldm-route {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 12px;
+  color: var(--gray-600);
+}
+
+.ldm-route strong {
+  color: var(--gray-900);
+}
+
+.ldm-caption {
+  margin: 0;
+  font-size: 12px;
+  color: var(--gray-500);
+}
+
+/* No-location fallback — never a fake position. */
+.ldm-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  padding: 28px 16px;
+  border: 1px dashed var(--gray-300);
+  border-radius: var(--radius-card, 12px);
+  background: var(--gray-50);
+  color: var(--gray-500);
+}
+
+.ldm-fallback strong {
+  font-size: 14px;
+  color: var(--gray-900);
+}
+
+.ldm-fallback p {
+  margin: 0;
+  font-size: 13px;
+  max-width: 320px;
+}

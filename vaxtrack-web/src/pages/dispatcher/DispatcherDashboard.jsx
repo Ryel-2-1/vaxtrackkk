@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { subscribePendingDispatchOrders } from "../../services/orderService";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeRiders } from "../../services/riderService";
 import { subscribeActiveAlerts } from "../../services/alertService";
+import { isoDateOnly, manilaToday } from "../../services/deliveryCalendar";
 import {
   AlertTriangle,
   Clock3,
@@ -14,10 +15,49 @@ import {
   ShieldCheck,
   Truck,
   UserPlus,
-  UsersRound,
 } from "lucide-react";
 import DispatcherLayout from "./DispatcherLayout";
 import KpiCard from "../../components/ui/KpiCard";
+
+// How a pending order relates to its requested delivery date, measured against
+// today (Manila). `none` = the order carries no valid date; those are worked
+// last since they have no schedule to honour.
+function requestedDateMeta(order, today) {
+  const iso = isoDateOnly(order?.requestedDeliveryDate);
+  if (!iso) return { kind: "none", iso: null };
+  if (iso < today) return { kind: "overdue", iso };
+  if (iso === today) return { kind: "today", iso };
+  return { kind: "scheduled", iso };
+}
+
+function shortDate(iso) {
+  const d = new Date(`${iso}T00:00:00.000Z`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+const createdMs = (o) => o.createdAt?.toMillis?.() ?? 0;
+const isUrgentOrder = (o) => (o?.priority || "").toLowerCase() === "urgent";
+
+// Dispatch order: honour the schedule first. Dated orders come before undated;
+// among dated ones the soonest date leads (so overdue floats to the very top);
+// within a single date urgent wins; oldest-waiting breaks any remaining tie.
+// Date-only ISO strings sort correctly lexicographically, so "today" isn't
+// needed here — an earlier date is always earlier in the queue.
+function comparePending(a, b) {
+  const isoA = isoDateOnly(a?.requestedDeliveryDate);
+  const isoB = isoDateOnly(b?.requestedDeliveryDate);
+  if ((isoA !== null) !== (isoB !== null)) return isoA !== null ? -1 : 1;
+  if (isoA !== null && isoB !== null && isoA !== isoB) return isoA < isoB ? -1 : 1;
+  const urgentDelta = (isUrgentOrder(a) ? 0 : 1) - (isUrgentOrder(b) ? 0 : 1);
+  if (urgentDelta !== 0) return urgentDelta;
+  return createdMs(a) - createdMs(b);
+}
 
 function DispatcherDashboard() {
   const navigate = useNavigate();
@@ -105,6 +145,20 @@ function DispatcherDashboard() {
   const delayedDeliveries = allOrders.filter((o) => o.statusKey === "delayed").length;
   const urgentOrders = pendingOrders.filter(
     (o) => (o.priority || "").toLowerCase() === "urgent"
+  ).length;
+
+  // Schedule-aware queue: sort by requested delivery date (soonest first, so
+  // overdue rises to the top), urgent within a date, undated last.
+  const today = manilaToday();
+  const sortedPending = useMemo(
+    () => [...pendingOrders].sort(comparePending),
+    [pendingOrders]
+  );
+  const overdueCount = pendingOrders.filter(
+    (o) => requestedDateMeta(o, today).kind === "overdue"
+  ).length;
+  const dueTodayCount = pendingOrders.filter(
+    (o) => requestedDateMeta(o, today).kind === "today"
   ).length;
 
   if (loading) {
@@ -314,16 +368,18 @@ function DispatcherDashboard() {
                   <th>Destination</th>
                   <th>Vaccine Type</th>
                   <th>Quantity</th>
+                  <th>Requested date</th>
                   <th>Priority</th>
                   <th>Action</th>
                 </tr>
               </thead>
 
               <tbody>
-                {pendingOrders.length > 0 ? (
-                  pendingOrders.map((order) => {
+                {sortedPending.length > 0 ? (
+                  sortedPending.map((order) => {
                     const priority = order.priority || "Standard";
                     const isUrgent = priority.toLowerCase() === "urgent";
+                    const dateMeta = requestedDateMeta(order, today);
 
                     return (
                       <tr key={order.id}>
@@ -347,6 +403,20 @@ function DispatcherDashboard() {
 
                         <td>
                           {order.quantity || 0} {order.unit || "vials"}
+                        </td>
+
+                        <td>
+                          {dateMeta.kind === "none" ? (
+                            <span className="dispatcher-dash-date none">
+                              Unscheduled
+                            </span>
+                          ) : (
+                            <span className={`dispatcher-dash-date ${dateMeta.kind}`}>
+                              {dateMeta.kind === "overdue" && "Overdue · "}
+                              {dateMeta.kind === "today" && "Today · "}
+                              {shortDate(dateMeta.iso)}
+                            </span>
+                          )}
                         </td>
 
                         <td>
@@ -374,7 +444,7 @@ function DispatcherDashboard() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan="6">
+                    <td colSpan="7">
                       <div className="dispatcher-empty-queue">
                         <PackageCheck size={28} />
                         <p>No pending orders. All orders have been assigned.</p>
@@ -388,6 +458,20 @@ function DispatcherDashboard() {
 
           <div className="dispatcher-dash-table-bottom">
             Showing {pendingOrders.length} pending dispatch order{pendingOrders.length !== 1 ? "s" : ""}
+            {(overdueCount > 0 || dueTodayCount > 0) && (
+              <span className="dispatcher-dash-table-bottom-meta">
+                {overdueCount > 0 && (
+                  <span className="dispatcher-dash-date overdue">
+                    {overdueCount} overdue
+                  </span>
+                )}
+                {dueTodayCount > 0 && (
+                  <span className="dispatcher-dash-date today">
+                    {dueTodayCount} due today
+                  </span>
+                )}
+              </span>
+            )}
           </div>
         </section>
       </div>

@@ -8,6 +8,30 @@
         "value": "12px",
         "createdAt": "2026-09-23T07:18:01.931Z",
         "reason": "12px is on the documented DESIGN.md ramp (table headers, badges, chips); project uses literal font-sizes with no font-size tokens"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#047857",
+        "createdAt": "2026-09-23T08:52:23.387Z",
+        "reason": "Leaflet route-polyline stroke color for the live map canvas (not a UI surface); matches the verified Dispatcher Geofence map exactly"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "rgba(0, 0, 0, 0.35)",
+        "createdAt": "2026-09-23T08:53:10.284Z",
+        "reason": "map marker drop-shadow for the live-map DOM markers; matches the verified Dispatcher map markers"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#92400e",
+        "createdAt": "2026-09-23T08:53:10.379Z",
+        "reason": "clinic marker ring color for the live map; matches the verified Dispatcher map marker"
+      },
+      {
+        "rule": "design-system-font-size",
+        "value": "14px",
+        "createdAt": "2026-09-23T08:53:10.477Z",
+        "reason": "on the documented DESIGN.md type ramp (13-14px labels); project uses literal font-sizes, no font-size tokens"
       }
     ]
   }
