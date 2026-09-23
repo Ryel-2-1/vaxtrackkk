@@ -176,6 +176,15 @@ function normalizeOrder(raw) {
     routeDurationSeconds: raw.routeDurationSeconds,
     routeEtaText: raw.routeEtaText || "",
     routeGeneratedAt: raw.routeGeneratedAt || null,
+    // Multi-stop trip fields — the map shows the whole-trip route + this order's
+    // stop. A Sales Rep sees only their own order, so no sibling stops here.
+    tripId: raw.tripId || "",
+    tripPolyline: raw.tripPolyline || "",
+    tripStopCount: raw.tripStopCount,
+    tripDistanceMeters: raw.tripDistanceMeters,
+    tripDurationSeconds: raw.tripDurationSeconds,
+    stopSequence: raw.stopSequence,
+    stopEtaText: raw.stopEtaText || "",
     items,
   };
 }
