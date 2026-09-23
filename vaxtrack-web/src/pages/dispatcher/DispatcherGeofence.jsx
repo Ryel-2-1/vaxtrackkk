@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import DispatcherLayout from "./DispatcherLayout";
 import { subscribeDeliveries } from "../../services/deliveryService";
-import { saveOrderRoute } from "../../services/orderService";
+import { saveOrderRoute, saveRiderTripRoute } from "../../services/orderService";
 import {
   decodePolyline,
   fetchRoute,
@@ -24,6 +24,7 @@ import {
   formatDuration,
   formatEta,
   isRouteServiceConfigured,
+  optimizeTrip,
 } from "../../services/routeService";
 import StatusBadge from "../../components/ui/StatusBadge";
 
@@ -49,6 +50,16 @@ const clinicIcon = L.divIcon({
   iconSize: [18, 18],
   iconAnchor: [9, 9],
 });
+
+// Numbered destination marker for a multi-stop trip — shows the visiting order.
+function numberedStopIcon(n) {
+  return L.divIcon({
+    className: "geo3-live-clinic-marker",
+    html: `<span class="geo3-live-stop-dot">${n}</span>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+  });
+}
 
 // Manual geofence radius around the clinic (metres). No routing/ETA — just a
 // simple "is the rider within this circle" visualization.
@@ -123,15 +134,17 @@ function distanceMeters([lat1, lng1], [lat2, lng2]) {
 // when the order carries manual clinic coordinates it also shows a destination
 // marker + a geofence circle. No routing, ETA, or automatic alerts.
 // Renders only when a rider lastLocation exists.
-function RiderLocationMap({ lat, lng, clinicLat, clinicLng, routePolyline }) {
+function RiderLocationMap({ lat, lng, clinicLat, clinicLng, routePolyline, stops = [] }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
   const clinicMarkerRef = useRef(null);
   const circleRef = useRef(null);
   const routeLineRef = useRef(null);
+  const stopMarkersRef = useRef([]);
 
   const hasClinic = Number.isFinite(clinicLat) && Number.isFinite(clinicLng);
+  const hasStops = stops.length > 0;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -177,6 +190,18 @@ function RiderLocationMap({ lat, lng, clinicLat, clinicLng, routePolyline }) {
       if (circleRef.current) { circleRef.current.remove(); circleRef.current = null; }
     }
 
+    // Numbered multi-stop markers (trip mode). Rebuilt when the set changes; the
+    // list is small and only changes when a trip is (re)generated. When `stops`
+    // is empty this loop does nothing, so the single-clinic path above is the
+    // sole behaviour — unchanged from before multi-stop.
+    stopMarkersRef.current.forEach((m) => m.remove());
+    stopMarkersRef.current = [];
+    for (const s of stops) {
+      stopMarkersRef.current.push(
+        L.marker([s.lat, s.lng], { icon: numberedStopIcon(s.label) }).addTo(map)
+      );
+    }
+
     // Route polyline — decode the stored encoded string here (runs only when
     // the string changes, so no per-render array churn re-fits the map).
     const routePoints = routePolyline ? decodePolyline(routePolyline) : [];
@@ -198,8 +223,14 @@ function RiderLocationMap({ lat, lng, clinicLat, clinicLng, routePolyline }) {
 
     const fit = () => {
       if (hasRoute) {
-        // Fit the whole road route (spans rider -> clinic along real roads).
+        // Fit the whole road route (spans rider -> stops along real roads).
         map.fitBounds(L.latLngBounds(routePoints).pad(0.2), { animate: false });
+      } else if (hasStops) {
+        // No route yet but multiple stops — frame the rider and every stop.
+        map.fitBounds(
+          L.latLngBounds([[lat, lng], ...stops.map((s) => [s.lat, s.lng])]).pad(0.3),
+          { animate: false }
+        );
       } else if (hasClinic) {
         map.fitBounds(
           L.latLngBounds([[lat, lng], [clinicLat, clinicLng]]).pad(0.35),
@@ -220,7 +251,7 @@ function RiderLocationMap({ lat, lng, clinicLat, clinicLng, routePolyline }) {
       fit();
     }, 50);
     return () => clearTimeout(timer);
-  }, [lat, lng, clinicLat, clinicLng, hasClinic, routePolyline]);
+  }, [lat, lng, clinicLat, clinicLng, hasClinic, routePolyline, hasStops, stops]);
 
   // Re-measure on viewport resize so the responsive height breakpoints
   // (480 / 390 / 320px) don't leave the map with stale dimensions (gray
@@ -251,6 +282,7 @@ function RiderLocationMap({ lat, lng, clinicLat, clinicLng, routePolyline }) {
         clinicMarkerRef.current = null;
         circleRef.current = null;
         routeLineRef.current = null;
+        stopMarkersRef.current = [];
       }
     };
   }, []);
@@ -269,6 +301,9 @@ function DispatcherGeofence() {
   // in-flight request never bleeds onto a different selected order).
   const [busyOrderId, setBusyOrderId] = useState(null);
   const [routeError, setRouteError] = useState(null); // { orderId, message } | null
+  // Multi-stop trip optimization, scoped to the rider it belongs to.
+  const [tripBusyRider, setTripBusyRider] = useState(null);
+  const [tripError, setTripError] = useState(null); // { riderId, message } | null
 
   useEffect(() => {
     const unsub = subscribeDeliveries(
@@ -311,6 +346,80 @@ function DispatcherGeofence() {
     routeError && selected && routeError.orderId === selected.id
       ? routeError.message
       : "";
+
+  // All active orders for the selected order's rider that have clinic coords —
+  // the candidate stops for a multi-stop trip.
+  const riderStops = useMemo(() => {
+    const riderId = selected?.assignedRiderId;
+    if (!riderId) return [];
+    return activeOrders
+      .filter((o) => o.assignedRiderId === riderId && getClinicLatLng(o))
+      .map((o) => ({ order: o, latLng: getClinicLatLng(o) }));
+  }, [activeOrders, selected]);
+
+  // Once a trip is generated, its stops in visiting order (each order carries
+  // stopSequence + stopEtaText). Used for the numbered map markers and the list.
+  const tripStops = useMemo(() => {
+    const tripId = selected?.tripId;
+    if (!tripId) return [];
+    return activeOrders
+      .filter((o) => o.tripId === tripId && Number.isFinite(o.stopSequence) && getClinicLatLng(o))
+      .map((o) => ({ order: o, latLng: getClinicLatLng(o) }))
+      .sort((a, b) => a.order.stopSequence - b.order.stopSequence);
+  }, [activeOrders, selected]);
+
+  // Stable numbered-marker list for the map (visiting order).
+  const tripStopMarkers = useMemo(
+    () =>
+      tripStops.map((s) => ({
+        lat: s.latLng[0],
+        lng: s.latLng[1],
+        label: s.order.stopSequence,
+      })),
+    [tripStops]
+  );
+
+  const hasTrip = !!selected?.tripId && !!selected?.tripPolyline;
+  const tripBusy = !!selected && tripBusyRider === selected?.assignedRiderId;
+  const activeTripError =
+    tripError && selected && tripError.riderId === selected?.assignedRiderId
+      ? tripError.message
+      : "";
+  const canOptimize =
+    !!getLatLng(selected?.lastLocation) && riderStops.length >= 2;
+
+  async function handleOptimizeTrip() {
+    if (!selected) return;
+    const riderLL = getLatLng(selected.lastLocation);
+    const riderId = selected.assignedRiderId;
+    if (!riderLL || !riderId || riderStops.length < 2) return;
+    setTripBusyRider(riderId);
+    setTripError(null);
+    try {
+      const stops = riderStops.map((s) => ({ orderId: s.order.id, latLng: s.latLng }));
+      const trip = await optimizeTrip(riderLL, stops);
+      const now = new Date();
+      await saveRiderTripRoute({
+        ...trip,
+        stops: trip.stops.map((s) => ({
+          ...s,
+          etaText: formatEta(now, s.etaSeconds),
+        })),
+      });
+      // subscribeDeliveries refreshes the group's orders with the trip fields,
+      // so the numbered markers + trip line + stop list redraw automatically.
+    } catch (err) {
+      setTripError({
+        riderId,
+        message:
+          err?.message === "MISSING_KEY"
+            ? "Route optimization unavailable: API key not configured."
+            : err?.message || "Could not optimize the route.",
+      });
+    } finally {
+      setTripBusyRider((cur) => (cur === riderId ? null : cur));
+    }
+  }
 
   async function handleGenerateRoute() {
     if (!selected) return;
@@ -395,9 +504,10 @@ function DispatcherGeofence() {
               <RiderLocationMap
                 lat={riderLL[0]}
                 lng={riderLL[1]}
-                clinicLat={clinicLL ? clinicLL[0] : undefined}
-                clinicLng={clinicLL ? clinicLL[1] : undefined}
-                routePolyline={selected.routePolyline}
+                clinicLat={hasTrip ? undefined : clinicLL ? clinicLL[0] : undefined}
+                clinicLng={hasTrip ? undefined : clinicLL ? clinicLL[1] : undefined}
+                routePolyline={hasTrip ? selected.tripPolyline : selected.routePolyline}
+                stops={hasTrip ? tripStopMarkers : []}
               />
               {clinicLL ? (
                 <p className="geo3-live-map-note">
@@ -512,6 +622,94 @@ function DispatcherGeofence() {
                   </div>
                 );
               })()}
+
+              {riderStops.length >= 2 && (
+                <div className="geo3-live-trip">
+                  <div className="geo3-live-route-head">
+                    <RouteIcon size={15} />
+                    <span>Multi-stop trip ({riderStops.length} stops)</span>
+                  </div>
+
+                  {hasTrip && (
+                    <>
+                      <div className="geo3-live-route-metrics">
+                        <div>
+                          <small>Total distance</small>
+                          <strong className="tnum">
+                            {formatDistance(selected.tripDistanceMeters)}
+                          </strong>
+                        </div>
+                        <div>
+                          <small>Total duration</small>
+                          <strong className="tnum">
+                            {formatDuration(selected.tripDurationSeconds)}
+                          </strong>
+                        </div>
+                        <div>
+                          <small>Stops</small>
+                          <strong className="tnum">{selected.tripStopCount}</strong>
+                        </div>
+                      </div>
+
+                      <ol className="geo3-trip-stops">
+                        {tripStops.map((s) => (
+                          <li
+                            key={s.order.id}
+                            className={s.order.id === selected.id ? "current" : ""}
+                          >
+                            <span className="geo3-trip-seq">{s.order.stopSequence}</span>
+                            <div className="geo3-trip-stop-main">
+                              <strong>
+                                {s.order.clinicName ||
+                                  s.order.orderNumber ||
+                                  s.order.id}
+                              </strong>
+                              <small>ETA {s.order.stopEtaText || "—"}</small>
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                    </>
+                  )}
+
+                  {!ROUTE_CONFIGURED ? (
+                    <p className="geo3-live-route-missing">
+                      Route optimization unavailable: API key not configured.
+                    </p>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="geo3-live-route-btn"
+                        onClick={handleOptimizeTrip}
+                        disabled={!canOptimize || tripBusy}
+                      >
+                        {tripBusy ? (
+                          <Loader2 size={14} className="spin" />
+                        ) : hasTrip ? (
+                          <RefreshCw size={14} />
+                        ) : (
+                          <RouteIcon size={14} />
+                        )}
+                        {tripBusy
+                          ? "Optimizing…"
+                          : hasTrip
+                          ? "Re-optimize route"
+                          : `Optimize route (${riderStops.length} stops)`}
+                      </button>
+                      {!canOptimize && (
+                        <p className="geo3-live-route-sub">
+                          Needs the rider&apos;s live location and at least two
+                          stops with clinic coordinates.
+                        </p>
+                      )}
+                      {activeTripError && (
+                        <p className="geo3-live-route-error">{activeTripError}</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           );
         })()}
