@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-font-size",
+        "value": "12px",
+        "createdAt": "2026-09-23T07:18:01.931Z",
+        "reason": "12px is on the documented DESIGN.md ramp (table headers, badges, chips); project uses literal font-sizes with no font-size tokens"
+      }
+    ]
+  }
+}

@@ -1,0 +1,173 @@
+/* Reusable month calendar — shared by the Sales Rep planner and the Dispatcher
+   day-view. Meridian tokens only; no role-specific selectors so it stays neutral
+   inside either shell. */
+
+.mcal {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.mcal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mcal-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+  min-width: 0;
+}
+
+.mcal-heading strong {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.mcal-caption {
+  font-size: 12px;
+  color: var(--gray-500);
+}
+
+.mcal-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  flex: 0 0 auto;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-control, 8px);
+  background: #fff;
+  color: var(--gray-600);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.mcal-nav:hover {
+  background: var(--green-50);
+  border-color: var(--green-600);
+  color: var(--green-800);
+}
+
+.mcal-nav:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+}
+
+.mcal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.mcal-weekdays span {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--gray-500);
+  padding: 2px 0;
+}
+
+.mcal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.mcal-day {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  aspect-ratio: 1 / 1;
+  min-height: 0;
+  padding: 2px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control, 8px);
+  background: var(--gray-50);
+  color: var(--gray-900);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.mcal-day:hover:not(:disabled) {
+  background: var(--green-50);
+  border-color: var(--green-600);
+}
+
+.mcal-day:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 1px;
+}
+
+.mcal-day:disabled {
+  cursor: not-allowed;
+  color: var(--gray-300);
+  background: transparent;
+}
+
+.mcal-day-out .mcal-day-num {
+  color: var(--gray-300);
+}
+
+.mcal-day-out {
+  background: transparent;
+}
+
+.mcal-day-num {
+  line-height: 1;
+}
+
+/* Today: a quiet ring, not a fill, so a selected today still reads as selected. */
+.mcal-day-today {
+  border-color: var(--green-600);
+}
+
+.mcal-day-has .mcal-day-num {
+  font-weight: 600;
+}
+
+.mcal-day-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--green-700);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* Selected wins over today and markers. */
+.mcal-day-selected,
+.mcal-day-selected:hover {
+  background: var(--green-800);
+  border-color: var(--green-900);
+  color: #fff;
+}
+
+.mcal-day-selected .mcal-day-num {
+  color: #fff;
+}
+
+.mcal-day-selected .mcal-day-count {
+  background: #fff;
+  color: var(--green-900);
+}

@@ -46,6 +46,7 @@ const SalesRepAlerts = lazy(() => import("./pages/salesRep/SalesRepAlerts"));
 const SalesRepSettings = lazy(() => import("./pages/salesRep/SalesRepSettings"));
 
 const DispatcherDashboard = lazy(() => import("./pages/dispatcher/DispatcherDashboard"));
+const DispatcherSchedule = lazy(() => import("./pages/dispatcher/DispatcherSchedule"));
 const DispatcherAssignRider = lazy(() => import("./pages/dispatcher/DispatcherAssignRider"));
 const DispatcherShipments = lazy(() => import("./pages/dispatcher/DispatcherShipments"));
 const DispatcherCargoLoading = lazy(() => import("./pages/dispatcher/DispatcherCargoLoading"));
@@ -109,6 +110,7 @@ function App() {
 
           <Route element={<DispatcherRoute />}>
             <Route path="/dispatcher" element={<DispatcherDashboard />} />
+            <Route path="/dispatcher/schedule" element={<DispatcherSchedule />} />
             <Route path="/dispatcher/assign-rider" element={<DispatcherAssignRider />} />
             <Route path="/dispatcher/shipments" element={<DispatcherShipments />} />
             <Route path="/dispatcher/cargo-loading" element={<DispatcherCargoLoading />} />

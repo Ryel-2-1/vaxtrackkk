@@ -551,15 +551,51 @@ class _GoogleNavigationScreenState extends State<GoogleNavigationScreen> {
   // Shown while the native Terms dialog is expected to be on screen. NOT a
   // spinner (the dialog is user-driven and may stay up while the rider reads) —
   // just a stable, quiet message behind the dialog. The map is never rendered.
+  //
+  // It also carries an escape hatch: if the native dialog never presents (the
+  // usual symptom of a missing/unauthorized Maps key, where showTerms() hangs),
+  // the rider is not trapped — they can still fall back to external Google Maps
+  // or return to the delivery. These controls don't dismiss the native dialog;
+  // they sit behind it and only matter when it fails to appear.
   Widget _awaitingTermsPanel() {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.all(24),
-        child: Text(
-          'Please review and accept Google’s navigation terms to continue.',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 14, color: AppColors.textDark),
-        ),
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.fact_check_outlined,
+              size: 40, color: AppColors.textLight),
+          const SizedBox(height: 12),
+          const Text(
+            'Please review and accept Google’s navigation terms to continue.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, color: AppColors.textDark),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'If no terms dialog appears, in-app navigation isn’t available on '
+            'this build yet — use Google Maps instead.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: AppColors.textLight),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _openExternalMaps,
+              icon: const Icon(Icons.map_outlined),
+              label: const Text('Open in Google Maps'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: TextButton(
+              onPressed: () => Navigator.of(context).maybePop(),
+              child: const Text('Back to delivery'),
+            ),
+          ),
+        ],
       ),
     );
   }

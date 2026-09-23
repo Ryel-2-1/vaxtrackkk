@@ -85,6 +85,24 @@ test("Place Order validates the date and sends it in the callable payload", () =
   assert.ok(checkAt !== -1 && savingAt > checkAt, "the date is validated before the submit proceeds");
 });
 
+test("the createOrderWithReservation wrapper forwards the requested date to the callable", () => {
+  // Regression guard: the page sent requestedDeliveryDate to this wrapper, but
+  // the wrapper destructured only the other fields and dropped it, so it never
+  // reached the Cloud Function and every order was stored undated.
+  const src = read("src/services/inventoryCallables.js");
+  const fn = /export async function createOrderWithReservation\(\{[\s\S]*?\n\s+return result\.data;/.exec(src);
+  assert.ok(fn, "the wrapper must exist");
+  const body = fn[0];
+  assert.match(body, /requestedDeliveryDate,/, "the wrapper must accept the field");
+  const createAt = body.indexOf("callables().create({");
+  const itemsAt = body.indexOf("items:", createAt);
+  const fieldAt = body.indexOf("requestedDeliveryDate", createAt);
+  assert.ok(
+    createAt !== -1 && fieldAt !== -1 && fieldAt < itemsAt,
+    "the wrapper must forward requestedDeliveryDate in the create() payload"
+  );
+});
+
 test("the requested date is surfaced in tracking and confirmation", () => {
   const tracking = read("src/pages/salesRep/SalesRepOrderTracking.jsx");
   assert.match(tracking, /requestedDeliveryDate: raw\.requestedDeliveryDate/, "tracking normalizes it");

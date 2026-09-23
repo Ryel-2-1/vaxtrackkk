@@ -93,6 +93,11 @@ export async function createOrderWithReservation({
   items,
   priority,
   deliveryInstructions,
+  // Optional booking date ('YYYY-MM-DD' or null). It MUST be forwarded to the
+  // callable — the server re-validates and stores it (operations.js). Omitting
+  // it here silently dropped every requested date, so orders always arrived
+  // undated and the dispatcher schedule showed them as "Unscheduled".
+  requestedDeliveryDate,
 }) {
   try {
     const result = await callables().create({
@@ -101,6 +106,7 @@ export async function createOrderWithReservation({
       doctorAddressId,
       priority,
       deliveryInstructions,
+      requestedDeliveryDate,
       items: items.map((item) => ({
         inventoryId: item.inventoryId,
         quantity: item.quantity,

@@ -119,6 +119,18 @@ test("create payload shape", async (t) => {
     });
   });
 
+  await t.test("accepts the optional requestedDeliveryDate instead of rejecting it", () => {
+    // Regression: operations.js reads + re-validates this field, but the strict
+    // allowlist used to reject the whole order for carrying it, so no order
+    // could ever record a requested delivery date.
+    assert.doesNotThrow(() =>
+      P.validateCreatePayload({ ...ok, requestedDeliveryDate: "2026-09-24" })
+    );
+    assert.doesNotThrow(() =>
+      P.validateCreatePayload({ ...ok, requestedDeliveryDate: null })
+    );
+  });
+
   await t.test("rejects duplicate batches rather than combining them", () => {
     // Combining would silently change what the rep asked for; splitting across
     // batches is explicitly out of scope.

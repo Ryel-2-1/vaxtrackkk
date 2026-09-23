@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
   Bell,
+  CalendarClock,
   CheckCircle2,
   ClipboardCheck,
   LayoutDashboard,
@@ -327,6 +328,15 @@ function DispatcherLayout({
           >
             <LayoutDashboard size={16} />
             <span>Dashboard</span>
+          </NavLink>
+
+          <NavLink
+            to="/dispatcher/schedule"
+            className={active === "schedule" ? "active" : ""}
+            onClick={selectDestination}
+          >
+            <CalendarClock size={16} />
+            <span>Schedule</span>
           </NavLink>
 
           <NavLink

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowRight,
+  CalendarDays,
   ClipboardList,
   Loader2,
   Package,
@@ -15,10 +16,36 @@ import {
   normalizeStatusKey,
   getOrderStatusValue,
 } from "../../services/deliveryService";
+import {
+  addMonths,
+  countsByDate,
+  manilaToday,
+  monthOf,
+  ordersOnDate,
+} from "../../services/deliveryCalendar";
 import { auth } from "../../firebase";
 import SalesRepLayout from "./SalesRepLayout";
 import KpiCard from "../../components/ui/KpiCard";
+import MonthCalendar from "../../components/ui/MonthCalendar";
 import StatusBadge from "../../components/ui/StatusBadge";
+
+// The key the planner leaves for the checkout page to pick up, so a day chosen
+// here pre-fills the order's requested delivery date. Read once and cleared by
+// SalesRepPlaceOrder — a one-shot handoff, not persistent state.
+const PLANNED_DATE_KEY = "salesRepPlannedDate";
+
+// Pretty label for the selected day, e.g. "Wed, Sep 23, 2026".
+function longDate(iso) {
+  const d = new Date(`${iso}T00:00:00.000Z`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
 
 function formatDate(ts) {
   if (!ts) return "—";
@@ -91,6 +118,12 @@ function SalesRepDashboard() {
   const [invLoading, setInvLoading] = useState(true);
   const [invError, setInvError] = useState("");
 
+  // Planner calendar. `today` is the Manila date the order form validates
+  // against, so the highlighted cell and the "no past dates" rule agree with it.
+  const today = manilaToday();
+  const [view, setView] = useState(() => monthOf(today) || { year: 2026, month: 0 });
+  const [selectedDate, setSelectedDate] = useState("");
+
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) {
@@ -115,6 +148,7 @@ function SalesRepDashboard() {
             unit: o.unit || "vials",
             statusKey,
             date: formatDate(o.createdAt),
+            requestedDeliveryDate: o.requestedDeliveryDate || null,
           };
         });
         setOrders(normalized);
@@ -167,6 +201,31 @@ function SalesRepDashboard() {
   }, [orders]);
 
   const recentOrders = useMemo(() => orders.slice(0, 6), [orders]);
+
+  // Day markers come from this rep's own orders; the checkout date it validates
+  // is the real authority, so this is just a planning overview.
+  const planCounts = useMemo(() => countsByDate(orders), [orders]);
+  const selectedDayOrders = useMemo(
+    () => (selectedDate ? ordersOnDate(orders, selectedDate) : []),
+    [orders, selectedDate]
+  );
+
+  const goPrevMonth = () => setView((v) => addMonths(v.year, v.month, -1));
+  const goNextMonth = () => setView((v) => addMonths(v.year, v.month, 1));
+
+  // A date can be viewed at any time, but only today-or-later can be scheduled —
+  // the same floor the checkout field and the Cloud Function enforce.
+  const canSchedule = Boolean(selectedDate) && selectedDate >= today;
+
+  const scheduleForSelected = () => {
+    if (!canSchedule) return;
+    try {
+      localStorage.setItem(PLANNED_DATE_KEY, selectedDate);
+    } catch {
+      // A blocked localStorage just means no pre-fill; the date field still works.
+    }
+    navigate("/sales-rep/request-order");
+  };
 
   const stockToWatch = useMemo(
     () => inventory.filter((r) => r.watch).slice(0, 5),
@@ -250,6 +309,90 @@ function SalesRepDashboard() {
             context="Active shipments"
             tone="info"
           />
+        </section>
+
+        <section className="srd-planner-section">
+          <div className="srd-card srd-planner">
+            <div className="srd-card-head">
+              <div>
+                <h2>Delivery planner</h2>
+                <p>Pick the date your client wants delivery, then build the order.</p>
+              </div>
+              <span className="srd-planner-legend">
+                <CalendarDays size={14} />
+                Numbers show orders you've scheduled
+              </span>
+            </div>
+
+            <div className="srd-planner-body">
+              <MonthCalendar
+                year={view.year}
+                month={view.month}
+                today={today}
+                counts={planCounts}
+                selectedDate={selectedDate}
+                onSelectDate={setSelectedDate}
+                onPrevMonth={goPrevMonth}
+                onNextMonth={goNextMonth}
+                ariaLabel="Delivery planner calendar"
+              />
+
+              <div className="srd-planner-detail">
+                {!selectedDate ? (
+                  <div className="srd-planner-empty">
+                    <CalendarDays size={20} />
+                    <strong>Select a date</strong>
+                    <p>
+                      Choose a day to schedule a delivery or review what's already
+                      booked.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="srd-planner-detail-head">
+                      <strong>{longDate(selectedDate)}</strong>
+                      <span className="srd-planner-count tnum">
+                        {selectedDayOrders.length} scheduled
+                      </span>
+                    </div>
+
+                    {selectedDayOrders.length === 0 ? (
+                      <p className="srd-planner-none">
+                        No orders scheduled for this day yet.
+                      </p>
+                    ) : (
+                      <div className="srd-planner-list">
+                        {selectedDayOrders.map((o) => (
+                          <div key={o.id} className="srd-planner-row">
+                            <div className="srd-planner-row-main">
+                              <strong>{o.orderNumber}</strong>
+                              <small>{o.clinicName}</small>
+                            </div>
+                            <StatusBadge statusKey={o.statusKey} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      className="srd-btn srd-btn-primary srd-planner-cta"
+                      onClick={scheduleForSelected}
+                      disabled={!canSchedule}
+                    >
+                      <Plus size={15} />
+                      Schedule order for this date
+                    </button>
+                    {!canSchedule && (
+                      <p className="srd-planner-hint">
+                        Pick today or a future date to schedule a new order.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
         </section>
 
         <section className="srd-grid">

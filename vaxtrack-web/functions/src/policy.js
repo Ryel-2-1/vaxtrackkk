@@ -224,6 +224,10 @@ const ALLOWED_CREATE_KEYS = Object.freeze([
   "items",
   "priority",
   "deliveryInstructions",
+  // Optional booking date ('YYYY-MM-DD' or null). operations.js reads and
+  // re-validates it (normalizeRequestedDeliveryDate); without it on the
+  // allowlist the strict shape check below rejects the whole order.
+  "requestedDeliveryDate",
 ]);
 
 function validateDocumentId(value, message) {

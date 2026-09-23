@@ -148,6 +148,22 @@ function getInitialItems() {
   return [];
 }
 
+// One-shot handoff from the dashboard planner: a day chosen there is read here
+// to pre-fill the requested date, then removed so it never re-applies to a later
+// order. Validated against the same rule the field enforces, so a stale or past
+// value is simply ignored rather than pre-filling something the form rejects.
+function getPlannedRequestedDate() {
+  try {
+    const planned = localStorage.getItem("salesRepPlannedDate");
+    if (!planned) return "";
+    localStorage.removeItem("salesRepPlannedDate");
+    const check = validateRequestedDate(planned);
+    return check.ok && check.value ? check.value : "";
+  } catch {
+    return "";
+  }
+}
+
 function SalesRepPlaceOrder() {
   const navigate = useNavigate();
 
@@ -178,7 +194,7 @@ function SalesRepPlaceOrder() {
   const [clinicsLoading, setClinicsLoading] = useState(true);
   const [destinationLoadError, setDestinationLoadError] = useState("");
   const [instructions, setInstructions] = useState("");
-  const [requestedDate, setRequestedDate] = useState("");
+  const [requestedDate, setRequestedDate] = useState(getPlannedRequestedDate);
   const [urgent, setUrgent] = useState(false);
   const [message, setMessage] = useState("");
 
