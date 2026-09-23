@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   CalendarDays,
@@ -10,7 +9,6 @@ import {
   Hourglass,
   Loader2,
   PackageCheck,
-  PackagePlus,
   RotateCcw,
   Search,
 } from "lucide-react";
@@ -51,15 +49,12 @@ function normalizeStock(raw, todayIso) {
     expiryRaw: raw.expiryDate || "",
     daysRemaining,
     quantity: raw.quantity != null ? Number(raw.quantity) : 0,
-    temp: raw.storageTempDisplay || (raw.storageTemp != null ? `${raw.storageTemp}°C` : "—"),
     status: label,
     statusLower: level,
   };
 }
 
 function SalesRepInventory() {
-  const navigate = useNavigate();
-
   const [inventory, setInventory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -68,7 +63,6 @@ function SalesRepInventory() {
   const [selectedType, setSelectedType] = useState("All");
   const [selectedStatus, setSelectedStatus] = useState("All");
   const [expiryWindow, setExpiryWindow] = useState("all");
-  const [selectedRows, setSelectedRows] = useState([]);
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -164,7 +158,6 @@ function SalesRepInventory() {
     setSelectedType("All");
     setSelectedStatus("All");
     setExpiryWindow("all");
-    setSelectedRows([]);
     setPage(1);
   };
 
@@ -186,33 +179,6 @@ function SalesRepInventory() {
   const handleSearch = (event) => {
     setSearchTerm(event.target.value);
     setPage(1);
-  };
-
-  const toggleRow = (batchId) => {
-    setSelectedRows((current) =>
-      current.includes(batchId)
-        ? current.filter((id) => id !== batchId)
-        : [...current, batchId]
-    );
-  };
-
-  const toggleVisibleRows = () => {
-    const visibleIds = visibleStocks.map((stock) => stock.id);
-    const allVisibleSelected = visibleIds.every((id) => selectedRows.includes(id));
-
-    if (allVisibleSelected) {
-      setSelectedRows((current) => current.filter((id) => !visibleIds.includes(id)));
-      return;
-    }
-
-    setSelectedRows((current) => [...new Set([...current, ...visibleIds])]);
-  };
-
-  const requestSelected = () => {
-    const selectedStockItems = inventory.filter((stock) => selectedRows.includes(stock.id));
-
-    localStorage.setItem("salesRepSelectedInventory", JSON.stringify(selectedStockItems));
-    navigate("/sales-rep/request-order");
   };
 
   const formatNumber = (value) => Number(value || 0).toLocaleString();
@@ -256,18 +222,8 @@ function SalesRepInventory() {
       <section className="salesrep-page-title inventory-v2-title">
         <div>
           <h2>Stock overview</h2>
-          <p>Real-time stock availability, expiry tracking, and cold-chain status.</p>
+          <p>Real-time stock availability and expiry tracking.</p>
         </div>
-
-        <button
-          type="button"
-          className="inventory-request-btn"
-          onClick={requestSelected}
-          disabled={selectedRows.length === 0}
-        >
-          <PackagePlus size={16} />
-          Request Selected ({selectedRows.length})
-        </button>
       </section>
 
       <section className="inventory-v2-summary">
@@ -365,7 +321,6 @@ function SalesRepInventory() {
         <div className="inventory-selected-bar">
           <div>
             <strong>{filteredStocks.length}</strong> matching batches
-            {selectedRows.length > 0 && <span> · {selectedRows.length} selected</span>}
           </div>
 
           {filteredStocks.some(
@@ -382,21 +337,10 @@ function SalesRepInventory() {
         <table className="salesrep-inventory-table inventory-v2-table">
           <thead>
             <tr>
-              <th>
-                <input
-                  type="checkbox"
-                  checked={
-                    visibleStocks.length > 0 &&
-                    visibleStocks.every((stock) => selectedRows.includes(stock.id))
-                  }
-                  onChange={toggleVisibleRows}
-                />
-              </th>
               <th>Vaccine name</th>
               <th>Batch ID</th>
               <th>Expiry date</th>
               <th>Remaining qty</th>
-              <th>Temp</th>
               <th>Status</th>
             </tr>
           </thead>
@@ -404,14 +348,7 @@ function SalesRepInventory() {
           <tbody>
             {visibleStocks.length > 0 ? (
               visibleStocks.map((stock) => (
-                <tr key={stock.id} className={selectedRows.includes(stock.id) ? "selected" : ""}>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={selectedRows.includes(stock.id)}
-                      onChange={() => toggleRow(stock.id)}
-                    />
-                  </td>
+                <tr key={stock.id}>
                   <td>
                     <div className="stock-name">
                       <span><PackageCheck size={16} /></span>
@@ -429,13 +366,12 @@ function SalesRepInventory() {
                     )}
                   </td>
                   <td>{formatNumber(stock.quantity)}</td>
-                  <td><span className="temp-chip">{stock.temp}</span></td>
                   <td><span className={`status-chip ${stock.statusLower}`}>• {stock.status}</span></td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan="7">
+                <td colSpan="5">
                   <div className="inventory-empty-state">
                     <PackageCheck size={28} />
                     <strong>No batches found</strong>

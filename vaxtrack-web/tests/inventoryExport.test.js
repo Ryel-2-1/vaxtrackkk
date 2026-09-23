@@ -46,7 +46,6 @@ test("column headers and order are fixed and in sync with the columns", () => {
     "Reserved",
     "Available",
     "Unit price (₱)",
-    "Storage temp",
     "Status",
   ]);
 
@@ -73,10 +72,14 @@ test("a complete row maps every business field, and nothing else", () => {
   assert.equal(row.reserved, 200);
   assert.equal(row.available, 1000);
   assert.equal(row.unitPricePesos, 1250.5);
-  assert.equal(row.temp, "2–8°C");
   assert.equal(row.status, "In date");
 
-  // No id / level / flags leak into the export row.
+  // Temperature is no longer part of the export: a `temp` on the input item
+  // (completeItem still carries one, standing in for a legacy value) is ignored
+  // and never written to the row.
+  assert.ok(!("temp" in row), "temperature must not be exported");
+
+  // No id / level / flags / temp leak into the export row.
   assert.deepEqual(Object.keys(row).sort(), [
     "available",
     "batch",
@@ -85,7 +88,6 @@ test("a complete row maps every business field, and nothing else", () => {
     "onHand",
     "reserved",
     "status",
-    "temp",
     "type",
     "unitPricePesos",
   ]);
@@ -94,7 +96,7 @@ test("a complete row maps every business field, and nothing else", () => {
 test("missing optional fields degrade to empty text / null numbers, not zeros", () => {
   const row = toInventoryExportRow({
     name: "Solo vaccine",
-    // type, batch, temp, status, expiryRaw absent
+    // type, batch, status, expiryRaw absent
     onHandValue: null,
     reservedValue: null,
     availableValue: null,
@@ -103,7 +105,6 @@ test("missing optional fields degrade to empty text / null numbers, not zeros", 
   assert.equal(row.name, "Solo vaccine");
   assert.equal(row.type, "");
   assert.equal(row.batch, "");
-  assert.equal(row.temp, "");
   assert.equal(row.status, "");
   assert.equal(row.expiry, null);
   assert.equal(row.onHand, null);
@@ -116,7 +117,7 @@ test("missing optional fields degrade to empty text / null numbers, not zeros", 
   const dashed = toInventoryExportRow({ name: "—", type: "—", temp: "—" });
   assert.equal(dashed.name, "");
   assert.equal(dashed.type, "");
-  assert.equal(dashed.temp, "");
+  assert.ok(!("temp" in dashed), "a temp on the input is dropped, not exported");
 });
 
 test("quantities are written as numeric cells, empties as blank cells", () => {

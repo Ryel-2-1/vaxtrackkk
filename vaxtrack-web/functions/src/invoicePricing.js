@@ -41,7 +41,6 @@ const PRESENTATION_FIELDS = Object.freeze([
   "customerTin", "customerCode", "shipTo",
   "salesRepName", "salesRepCode",
   "invoiceDate", "saleType", "purchaseOrderNumber", "referenceNumber",
-  "vaccinesTemp",
   "companyName", "companyAddress", "companyContact", "companyTin",
   "paymentTerms", "deliveryTerms", "notes", "remarks",
   "processedBy", "packedBy", "deliveredBy", "preparedBy", "checkedBy",

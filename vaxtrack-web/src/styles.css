@@ -1605,7 +1605,6 @@ th {
   font-size: 12px;
 }
 
-.temp-pill,
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -1616,14 +1615,11 @@ th {
   font-weight: 900;
 }
 
-.temp-pill.deep-freeze,
-.temp-pill.normal,
 .status-pill.stable {
   background: #dcfce7;
   color: #047857;
 }
 
-.temp-pill.alert,
 .status-pill.critical {
   background: #fee2e2;
   color: #dc2626;
@@ -5550,7 +5546,6 @@ tbody tr:hover {
 .delivery-status,
 .priority-badge,
 .inventory-status,
-.temp-pill,
 .badge,
 .approval-status {
   min-height: 30px;

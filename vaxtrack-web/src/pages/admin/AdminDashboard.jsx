@@ -36,7 +36,6 @@ function formatRelativeTime(timestamp) {
 }
 
 const ALERT_TYPE_MAP = {
-  temperature_breach: "critical",
   stock_expiry: "warning",
   route_deviation: "critical",
   delivery_delay: "warning",

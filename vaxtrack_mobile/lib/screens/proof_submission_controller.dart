@@ -17,28 +17,17 @@ enum ProofPhase {
   submitted,
 }
 
-/// Whether the temporary manual-URL fallback may be offered.
-///
-/// Debug builds only. It writes a link with no Storage object behind it, which
-/// is why the canonical-path checks in the service and the rules have to treat
-/// the path as optional; letting it reach a release build would make that
-/// weakening permanent and shippable. Pure so it can be asserted directly.
-bool manualProofUrlEnabled({required bool isDebugBuild}) => isDebugBuild;
-
 /// Owns one proof submission: the duplicate guard, the phase the rider sees,
 /// and the upload result that must survive a failed save.
 class ProofSubmissionController extends ChangeNotifier {
   ProofSubmissionController({
     required ProofUploader uploader,
     required ProofMetadataWriter writer,
-    bool allowManualUrl = false,
   })  : _uploader = uploader,
-        _writer = writer,
-        _allowManualUrl = allowManualUrl;
+        _writer = writer;
 
   final ProofUploader _uploader;
   final ProofMetadataWriter _writer;
-  final bool _allowManualUrl;
 
   /// The duplicate guard.
   ///
@@ -111,14 +100,12 @@ class ProofSubmissionController extends ChangeNotifier {
   bool canSubmit({
     required String recipientName,
     required bool hasPhoto,
-    String? manualUrl,
   }) {
     if (isCommitting) return false;
     // Proof already recorded: the only thing left to submit is the invoice
     // that failed to attach. No name, no photo.
     if (_proofSaved) return hasOutstandingInvoice;
     if (!validateRecipientName(recipientName).valid) return false;
-    if (manualUrl != null) return manualUrl.trim().isNotEmpty;
     return hasPhoto || hasPendingUpload;
   }
 
@@ -172,7 +159,6 @@ class ProofSubmissionController extends ChangeNotifier {
     required String recipientName,
     File? proofPhoto,
     File? invoicePhoto,
-    String? manualUrl,
   }) async {
     if (_inFlight) return;
     _inFlight = true;
@@ -182,7 +168,6 @@ class ProofSubmissionController extends ChangeNotifier {
         recipientName: recipientName,
         proofPhoto: proofPhoto,
         invoicePhoto: invoicePhoto,
-        manualUrl: manualUrl,
       );
     } finally {
       _inFlight = false;
@@ -194,7 +179,6 @@ class ProofSubmissionController extends ChangeNotifier {
     required String recipientName,
     File? proofPhoto,
     File? invoicePhoto,
-    String? manualUrl,
   }) async {
     _errorMessage = null;
     _noticeMessage = null;
@@ -209,7 +193,6 @@ class ProofSubmissionController extends ChangeNotifier {
           orderId: orderId,
           recipientName: recipientName,
           proofPhoto: proofPhoto,
-          manualUrl: manualUrl,
         );
       }
 
@@ -229,48 +212,26 @@ class ProofSubmissionController extends ChangeNotifier {
     required String orderId,
     required String recipientName,
     File? proofPhoto,
-    String? manualUrl,
   }) async {
     final name = validateRecipientName(recipientName);
     if (!name.valid) {
       throw ProofException(name.code!, name.message!);
     }
 
-    String proofUrl;
-    String? storagePath;
-
-    if (manualUrl != null) {
-      // The temporary fallback still goes through the same authorization and
-      // the same recipient validation; only the Storage object is absent.
-      if (!_allowManualUrl) {
+    // Proof is a camera photo uploaded to Storage — the only path. A completed
+    // upload recovered from an earlier attempt is reused rather than re-uploaded.
+    if (_pendingProof == null) {
+      if (proofPhoto == null) {
         throw const ProofException(
-          'manual-url-disabled',
-          'Manual proof links are not available in this build.',
+          'photo-required',
+          'Take a proof photo before submitting.',
         );
       }
-      final trimmed = manualUrl.trim();
-      if (!trimmed.startsWith('https://')) {
-        throw const ProofException(
-          'manual-url-invalid',
-          'The proof image link must start with https://',
-        );
-      }
-      proofUrl = trimmed;
-      storagePath = null;
-    } else {
-      if (_pendingProof == null) {
-        if (proofPhoto == null) {
-          throw const ProofException(
-            'photo-required',
-            'Take a proof photo before submitting.',
-          );
-        }
-        _setPhase(ProofPhase.uploadingPhoto);
-        _pendingProof = await _uploader.uploadProof(orderId, proofPhoto);
-      }
-      proofUrl = _pendingProof!.downloadUrl;
-      storagePath = _pendingProof!.storagePath;
+      _setPhase(ProofPhase.uploadingPhoto);
+      _pendingProof = await _uploader.uploadProof(orderId, proofPhoto);
     }
+    final proofUrl = _pendingProof!.downloadUrl;
+    final storagePath = _pendingProof!.storagePath;
 
     _setPhase(ProofPhase.savingDetails);
     await _writer.saveProofOfDelivery(

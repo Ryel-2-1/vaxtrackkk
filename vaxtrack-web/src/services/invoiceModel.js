@@ -182,7 +182,6 @@ export function buildInitialForm(order, invoice, salesRepName) {
     salesRepCode: "",
     purchaseOrderNumber: "",
     referenceNumber: "",
-    vaccinesTemp: "",
     items: itemsFromOrder(order),
     discount: 0,
     vatClassification: "vatable",
@@ -234,7 +233,6 @@ export function buildInitialForm(order, invoice, salesRepName) {
     salesRepCode: invoice.salesRepCode ?? "",
     purchaseOrderNumber: invoice.purchaseOrderNumber ?? "",
     referenceNumber: invoice.referenceNumber ?? "",
-    vaccinesTemp: invoice.vaccinesTemp ?? "",
     items:
       Array.isArray(invoice.items) && invoice.items.length > 0
         ? invoice.items.map((it) => ({ key: nextKey(), ...it }))
@@ -303,7 +301,6 @@ export const PRESENTATION_FIELDS = Object.freeze([
   "customerTin", "customerCode", "shipTo",
   "salesRepName", "salesRepCode",
   "invoiceDate", "saleType", "purchaseOrderNumber", "referenceNumber",
-  "vaccinesTemp",
   "companyName", "companyAddress", "companyContact", "companyTin",
   "paymentTerms", "deliveryTerms", "notes", "remarks",
   "processedBy", "packedBy", "deliveredBy", "preparedBy", "checkedBy",
@@ -409,7 +406,6 @@ export function serializeInvoiceDoc({ orderId, order, form }) {
     saleType: form.saleType,
     purchaseOrderNumber: form.purchaseOrderNumber,
     referenceNumber: form.referenceNumber,
-    vaccinesTemp: form.vaccinesTemp,
     companyName: form.companyName,
     companyAddress: form.companyAddress,
     companyContact: form.companyContact,

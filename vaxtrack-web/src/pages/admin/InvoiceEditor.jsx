@@ -533,20 +533,6 @@ function InvoiceEditor() {
               </div>
             </div>
 
-            <div className="sit-head-store">
-              <p className="sit-store-1">Store at 2 to 8 degree celsius</p>
-              <p className="sit-store-1">Do not freeze vaccines</p>
-              <div className="sit-temp">
-                <span>Vaccines Temp.</span>
-                <TextInput
-                  value={form.vaccinesTemp}
-                  onChange={(v) => setField("vaccinesTemp", v)}
-                  readOnly={readOnly}
-                  aria-label="Vaccines temperature"
-                />
-              </div>
-            </div>
-
             <div className="sit-head-title">
               <h2>
                 SALES <b>INVOICE</b>

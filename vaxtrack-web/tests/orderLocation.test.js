@@ -404,7 +404,6 @@ test("order creation still writes every pre-existing field", () => {
     "vaccineType",
     "quantity",
     "unit",
-    "storageTemp",
     "priority",
     "status",
     "assignedRiderId",
@@ -425,6 +424,12 @@ test("order creation still writes every pre-existing field", () => {
     );
   }
   assert.match(src, /status: "pending_dispatch"/, "initial status unchanged");
+  // Temperature was removed: the order payload must not add a storage temperature.
+  assert.equal(
+    /storageTemp/.test(src),
+    false,
+    "createSalesRepOrder must not write storageTemp"
+  );
 });
 
 test("the legacy helper still preserves verified clinic snapshots", () => {

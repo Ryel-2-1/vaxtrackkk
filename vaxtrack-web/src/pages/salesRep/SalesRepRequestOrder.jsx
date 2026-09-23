@@ -84,9 +84,6 @@ function normalizeProduct(raw, todayIso) {
     expired,
     blockedReason,
     orderable: blockedReason === null,
-    temp: raw.storageTemp != null
-      ? String(raw.storageTemp).includes("°") ? String(raw.storageTemp) : `${raw.storageTemp}°C`
-      : "—",
     status: blockedReason ?? "In Stock",
   };
 }
@@ -108,41 +105,6 @@ function SalesRepRequestOrder() {
   const [cart, setCart] = useState([]);
   const [notice, setNotice] = useState("");
 
-  /**
-   * Merge anything the Inventory page handed over, once the catalog is known.
-   *
-   * Only orderable batches are added: an expired or unmigrated batch selected
-   * on the previous screen must not slip into the cart and fail at checkout.
-   */
-  const applyPreselection = (products) => {
-    let saved;
-    try {
-      saved = JSON.parse(localStorage.getItem("salesRepSelectedInventory") || "null");
-    } catch {
-      return; // unreadable draft; nothing to merge
-    }
-    if (!Array.isArray(saved) || saved.length === 0) return;
-    localStorage.removeItem("salesRepSelectedInventory");
-
-    const preselected = [];
-    for (const item of saved) {
-      const match = products.find((p) => p.inventoryId === item.id);
-      if (match && match.orderable && !preselected.some((c) => c.inventoryId === match.inventoryId)) {
-        preselected.push({ ...match, quantity: 1 });
-      }
-    }
-    if (preselected.length === 0) return;
-
-    setCart((prev) => {
-      const merged = [...prev];
-      for (const item of preselected) {
-        if (!merged.find((c) => c.inventoryId === item.inventoryId)) merged.push(item);
-      }
-      return merged;
-    });
-    setNotice(`${preselected.length} item(s) added from inventory selection.`);
-  };
-
   useEffect(() => {
     const unsubscribe = subscribeInventory(
       (raw) => {
@@ -157,14 +119,6 @@ function SalesRepRequestOrder() {
           }
           return next;
         });
-
-        // Items pre-selected on the Inventory page, merged here rather than in
-        // a second effect that watched `catalog`. That effect called setState
-        // synchronously in its body, which cascades renders; this callback is
-        // an external-system (Firestore snapshot) callback, where updating
-        // state is exactly what it is for. Matching is by inventory DOCUMENT
-        // id, never by batch label.
-        applyPreselection(products);
 
         setLoading(false);
         setError("");
@@ -372,10 +326,6 @@ function SalesRepRequestOrder() {
                       </small>
                     </div>
 
-                    <div>
-                      <span>Storage Temp</span>
-                      <strong>{product.temp}</strong>
-                    </div>
                   </div>
 
                   <div className="product-actions request-v2-actions">

@@ -12,7 +12,6 @@ import {
   Route,
   Search,
   Settings,
-  Thermometer,
   Truck,
   X,
 } from "lucide-react";
@@ -30,11 +29,6 @@ const TYPE_MAP = {
     display: "Route Deviation",
     iconKey: "route",
     recommendation: "Contact the rider and inspect the delivery route immediately.",
-  },
-  temperature_warning: {
-    display: "Temperature Warning",
-    iconKey: "temperature",
-    recommendation: "Validate the reported temperature and check storage compliance.",
   },
   low_stock: {
     display: "Low Stock",
@@ -170,9 +164,6 @@ function Alerts() {
     route: alerts.filter(
       (alert) => alert.status !== "resolved" && alert.type === "Route Deviation"
     ).length,
-    cold: alerts.filter(
-      (alert) => alert.status !== "resolved" && alert.type === "Temperature Warning"
-    ).length,
     inventory: alerts.filter(
       (alert) => alert.status !== "resolved" && alert.type === "Low Stock"
     ).length,
@@ -191,8 +182,7 @@ function Alerts() {
             <p>VaxTrack / Alert Center</p>
             <h1>Alerts</h1>
             <small>
-              Review route deviations, cold-chain warnings, stock issues, and delivery
-              notifications.
+              Review route deviations, stock issues, and delivery notifications.
             </small>
           </div>
 
@@ -372,17 +362,6 @@ function Alerts() {
                   type="red"
                   onClick={() => {
                     setSearchTerm("Route Deviation");
-                    setSeverityFilter("all");
-                  }}
-                />
-
-                <CategoryItem
-                  icon={<Thermometer size={18} />}
-                  title="Cold-chain Warning"
-                  count={`${categoryCounts.cold} active`}
-                  type="orange"
-                  onClick={() => {
-                    setSearchTerm("Temperature");
                     setSeverityFilter("all");
                   }}
                 />
@@ -641,7 +620,6 @@ function AlertChannelsModal({ onClose }) {
 
 function getAlertIcon(iconKey) {
   if (iconKey === "route") return <Route size={17} />;
-  if (iconKey === "temperature") return <Thermometer size={17} />;
   if (iconKey === "package") return <Package size={17} />;
   if (iconKey === "truck") return <Truck size={17} />;
   if (iconKey === "check") return <CheckCircle2 size={17} />;

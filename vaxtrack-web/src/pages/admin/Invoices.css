@@ -546,27 +546,6 @@
   font-size: 7.5px !important;
   white-space: nowrap;
 }
-.sit-head-store {
-  color: var(--sit-green);
-  font-weight: 700;
-  padding-top: 2px;
-}
-.sit-store-1 {
-  margin: 0;
-  font-size: 8.5px;
-}
-.sit-temp {
-  display: flex;
-  gap: 3px;
-  align-items: baseline;
-  margin-top: 3px;
-}
-.sit-temp > span {
-  white-space: nowrap;
-}
-.sit-temp .inv-input {
-  border-bottom: 1px solid var(--sit-line);
-}
 .sit-head-title {
   text-align: right;
 }

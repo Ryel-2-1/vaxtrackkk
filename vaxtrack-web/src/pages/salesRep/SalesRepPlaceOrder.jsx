@@ -129,7 +129,7 @@ function getInitialItems() {
         inventoryId: item.inventoryId || null,
         name: item.name || "Unknown Vaccine",
         sku: item.sku || "—",
-        chain: item.temp || item.category || "Cold Chain",
+        chain: item.category || "Cold Chain",
         quantity: Number(item.quantity) || 1,
         // The price the catalog showed when this line entered the cart, read
         // back through the same validator the catalog used — so a hand-edited

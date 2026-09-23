@@ -94,9 +94,7 @@ function SalesRepLayout({ active, title, children, topbarTitle, showSearch = tru
       targetRoute = "/sales-rep/inventory";
     } else if (
       lowerKeyword.includes("alert") ||
-      lowerKeyword.includes("warning") ||
-      lowerKeyword.includes("cold") ||
-      lowerKeyword.includes("temperature")
+      lowerKeyword.includes("warning")
     ) {
       targetRoute = "/sales-rep/alerts";
     }

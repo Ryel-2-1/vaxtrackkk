@@ -8,7 +8,6 @@ import {
   Loader2,
   MapPin,
   PackageCheck,
-  Phone,
   Search,
   Share2,
   Truck,
@@ -302,15 +301,6 @@ function SalesRepOrderTracking() {
     }
   };
 
-  const handleContactDriver = () => {
-    if (!selectedOrder || selectedOrder.driver === "Pending") {
-      setMessage("Driver is not yet assigned for this order.");
-      return;
-    }
-
-    setMessage(`Contact request sent to driver ${selectedOrder.driverName}.`);
-  };
-
   if (loading) {
     return (
       <SalesRepLayout active="tracking" title="Order Tracking" showSearch={false}>
@@ -464,12 +454,13 @@ function SalesRepOrderTracking() {
                 </p>
 
                 <div className="tracking-v2-side-actions">
-                  <button type="button" className="contact-driver" onClick={handleContactDriver}>
-                    <Phone size={15} />
-                    Contact Driver
-                  </button>
-
-                  <button type="button" className="share-btn" onClick={handleShare}>
+                  <button
+                    type="button"
+                    className="share-btn"
+                    onClick={handleShare}
+                    aria-label="Copy tracking details to clipboard"
+                    title="Copy tracking details"
+                  >
                     <Share2 size={16} />
                   </button>
                 </div>

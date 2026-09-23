@@ -75,7 +75,6 @@ export async function createSalesRepOrder(orderData = {}) {
     vaccineType: orderData.vaccineType || "",
     quantity: Number(orderData.quantity),
     unit: orderData.unit || "vials",
-    storageTemp: orderData.storageTemp || "",
     priority: orderData.priority || "Standard",
 
     status: "pending_dispatch",
@@ -125,7 +124,7 @@ export async function createSalesRepOrder(orderData = {}) {
     doc.items = orderData.items.map((item) => ({
       name: item.name || "",
       sku: item.sku || "",
-      chain: item.chain || item.temp || item.category || "",
+      chain: item.chain || item.category || "",
       quantity: Number(item.quantity) || 0,
       unitPrice: Number(item.unitPrice) || 0,
     }));

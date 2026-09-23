@@ -30,7 +30,6 @@
  *     reservedValue: number|null,  // reserved quantity, null when invalid
  *     availableValue: number|null, // on hand − reserved, null when either is invalid
  *     priceCentavos: number|null,  // authoritative unit price in centavos, null when unpriced
- *     temp: string,            // storage temperature display, "—" when missing
  *     status: string,          // derived expiry-condition label
  *   }
  */
@@ -68,7 +67,6 @@ export const INVENTORY_EXPORT_COLUMN_DEFS = [
     width: 14,
     format: '"₱"#,##0.00',
   },
-  { key: "temp", header: "Storage temp", kind: "text", width: 12 },
   { key: "status", header: "Status", kind: "text", width: 16 },
 ];
 
@@ -175,7 +173,6 @@ export function toInventoryExportRow(item) {
     reserved: finiteNumberOrNull(item?.reservedValue),
     available: finiteNumberOrNull(item?.availableValue),
     unitPricePesos: priceCentavos === null ? null : priceCentavos / 100,
-    temp: cleanText(item?.temp),
     status: cleanText(item?.status),
   };
 }

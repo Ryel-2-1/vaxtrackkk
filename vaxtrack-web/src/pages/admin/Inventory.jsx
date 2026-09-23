@@ -110,7 +110,6 @@ function normalizeInventoryItem(raw, todayIso) {
     flags,
     qty: raw.quantity != null ? Number(raw.quantity).toLocaleString() : "—",
     qtyRaw: raw.quantity != null ? Number(raw.quantity) : 0,
-    temp: raw.storageTempDisplay || (raw.storageTemp != null ? `${raw.storageTemp}°C` : "—"),
     // `status` is the derived condition's label, `level` its key. Both used to
     // come from the stored field; every consumer of them — the chip, the drawer,
     // the filter and the KPI cards — now follows the expiry date instead.
@@ -403,7 +402,7 @@ function Inventory() {
     <AdminLayout
       active="inventory"
       title="Inventory"
-      description="Real-time vaccine stock, batch status, and cold-chain visibility."
+      description="Real-time vaccine stock and batch status."
       actions={
         <>
           {/* Exports the currently filtered inventory to a real .xlsx workbook.
@@ -593,7 +592,6 @@ function Inventory() {
                 <th>Reserved</th>
                 <th>Available</th>
                   <th>Unit price</th>
-                  <th>Temp</th>
                   <th>Status</th>
                   <th></th>
                 </tr>
@@ -637,10 +635,6 @@ function Inventory() {
                         the two lead to different actions. */}
                     <td className={item.priceCentavos === null ? "inv-unpriced" : "tnum"}>
                       {item.price}
-                    </td>
-
-                    <td>
-                      <span className="v2-temp-pill">{item.temp}</span>
                     </td>
 
                     <td>
@@ -742,7 +736,7 @@ function Inventory() {
             </div>
 
             <h2>{selectedVaccine.name}</h2>
-            <p>{selectedVaccine.type} vaccine batch details and cold-chain status.</p>
+            <p>{selectedVaccine.type} vaccine batch details.</p>
 
             <div className="v2-modal-detail-grid">
               <div>
@@ -766,11 +760,6 @@ function Inventory() {
               <div>
                 <span>Expiry Date</span>
                 <strong>{selectedVaccine.expiry}</strong>
-              </div>
-
-              <div>
-                <span>Storage Temp</span>
-                <strong>{selectedVaccine.temp}</strong>
               </div>
 
               <div>

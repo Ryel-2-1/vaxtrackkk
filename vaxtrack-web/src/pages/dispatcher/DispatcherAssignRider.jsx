@@ -9,7 +9,6 @@ import {
   MapPin,
   Package,
   Phone,
-  Snowflake,
   X,
 } from "lucide-react";
 import { assignRiderToOrder } from "../../services/orderService";
@@ -325,12 +324,6 @@ function DispatcherAssignRider() {
                     <Package size={13} />
                     {selectedOrder.quantity || 0} {selectedOrder.unit || "vials"}
                   </span>
-                  {selectedOrder.storageTemp && (
-                    <span>
-                      <Snowflake size={13} />
-                      {selectedOrder.storageTemp}
-                    </span>
-                  )}
                 </div>
 
                 <div className="ar-order-row">

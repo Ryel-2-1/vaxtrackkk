@@ -278,7 +278,6 @@ test("missing optional template fields remain blank (no fake identifiers)", () =
     "customerTin",
     "customerCode",
     "shipTo",
-    "vaccinesTemp",
     "salesRepCode",
     "soloParentId",
     "companyTin",
@@ -286,6 +285,11 @@ test("missing optional template fields remain blank (no fake identifiers)", () =
   ]) {
     assert.equal(doc[k], "", `${k} should be blank`);
   }
+});
+
+test("the serialized invoice payload carries no vaccinesTemp (temperature removed)", () => {
+  const doc = serializeInvoiceDoc({ orderId: order.id, order, form: formFor() });
+  assert.ok(!("vaccinesTemp" in doc), "invoice payload must not include vaccinesTemp");
 });
 
 test("Date Order: formatOrderDate renders createdAt; safe for null/invalid", () => {
@@ -310,13 +314,15 @@ test("legacy invoice (taxRate, no Phase 5C fields) normalizes safely", () => {
   const legacy = {
     invoiceStatus: "draft",
     taxRate: 12, // old numeric tax model, no vatClassification
+    vaccinesTemp: "2-8°C", // a since-removed temperature field on a legacy invoice
     items: [{ itemDescription: "X", quantity: 1, unitPrice: 100 }],
     // NONE of the Phase 5C fields present
   };
   const form = buildInitialForm(order, legacy, "");
   assert.equal(form.vatClassification, "vatable"); // taxRate>=12 -> vatable
-  // new template fields default to blank / zero, no crash
-  assert.equal(form.vaccinesTemp, "");
+  // Temperature was removed: a legacy invoice's vaccinesTemp is ignored, never
+  // carried into the editor form. Other template fields still default to blank.
+  assert.ok(!("vaccinesTemp" in form), "legacy vaccinesTemp must be ignored");
   assert.equal(form.customerCode, "");
   assert.equal(form.atpNumber, "");
   assert.equal(form.withholdingTax, 0);

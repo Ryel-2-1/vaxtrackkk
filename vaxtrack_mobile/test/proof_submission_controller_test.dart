@@ -104,11 +104,10 @@ void main() {
   late _FakeUploader uploader;
   late _FakeWriter writer;
 
-  ProofSubmissionController build({bool allowManualUrl = false}) =>
+  ProofSubmissionController build() =>
       ProofSubmissionController(
         uploader: uploader,
         writer: writer,
-        allowManualUrl: allowManualUrl,
       );
 
   setUp(() {
@@ -389,53 +388,24 @@ void main() {
     });
   });
 
-  group('manual-URL fallback', () {
-    test('is refused in a build where it is not enabled', () async {
-      // Release builds construct the controller with allowManualUrl: false, so
-      // even a reachable code path cannot write a manual link.
+  group('proof requires a camera photo (no manual-URL fallback)', () {
+    test('a submission with no photo and no pending upload is refused', () async {
+      // The manual proof-image-URL fallback was removed: proof is a camera
+      // photo uploaded to Storage, full stop. Without one, nothing is saved.
+      final c = build();
+      await c.submit(orderId: orderId, recipientName: 'Maria Santos');
+      expect(uploader.proofUploads, 0);
+      expect(writer.proofSaves, isEmpty);
+      expect(c.errorMessage, isNotNull);
+    });
+
+    test('every saved proof carries a canonical Storage path', () async {
+      // With the URL path gone, a saved proof always references an uploaded
+      // object — storagePath is never null.
       final c = build();
       await c.submit(
-        orderId: orderId,
-        recipientName: 'Maria Santos',
-        manualUrl: 'https://example.com/proof.png',
-      );
-      expect(writer.proofSaves, isEmpty);
-      expect(c.errorMessage, isNotNull);
-    });
-
-    test('is gated on debug builds only', () {
-      expect(manualProofUrlEnabled(isDebugBuild: false), isFalse);
-      expect(manualProofUrlEnabled(isDebugBuild: true), isTrue);
-    });
-
-    test('still enforces the recipient name when enabled', () async {
-      final c = build(allowManualUrl: true);
-      await c.submit(
-        orderId: orderId,
-        recipientName: '   ',
-        manualUrl: 'https://example.com/proof.png',
-      );
-      expect(writer.proofSaves, isEmpty);
-      expect(c.errorMessage, isNotNull);
-    });
-
-    test('requires https and records no storage path when enabled', () async {
-      final c = build(allowManualUrl: true);
-      await c.submit(
-        orderId: orderId,
-        recipientName: 'Maria Santos',
-        manualUrl: 'http://example.com/proof.png',
-      );
-      expect(writer.proofSaves, isEmpty);
-
-      await c.submit(
-        orderId: orderId,
-        recipientName: 'Maria Santos',
-        manualUrl: 'https://example.com/proof.png',
-      );
-      expect(writer.proofSaves.length, 1);
-      expect(uploader.proofUploads, 0);
-      expect(writer.proofSaves.single.storagePath, isNull);
+          orderId: orderId, recipientName: 'Maria Santos', proofPhoto: photo);
+      expect(writer.proofSaves.single.storagePath, proofObjectPath(orderId));
     });
   });
 

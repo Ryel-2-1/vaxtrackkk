@@ -53,22 +53,32 @@ test("the stock service neither accepts nor writes a temperature", () => {
   assert.doesNotMatch(fn, /storageTemp:\s*(null|""|0)/);
 });
 
-test("legacy inventory documents with a temperature stay readable", () => {
-  // Nothing migrates or rewrites them; every reader falls back to a dash when
-  // the field is absent, so old batches keep showing their recorded value and
-  // new ones simply show none.
-  assert.match(
-    adminInventory,
-    /raw\.storageTempDisplay \|\| \(raw\.storageTemp != null/,
-    "Admin Inventory must still read legacy temperatures"
-  );
-  assert.match(
-    salesRepInventory,
-    /raw\.storageTempDisplay \|\| \(raw\.storageTemp != null/
-  );
-  assert.match(salesRepRequest, /raw\.storageTemp != null/);
-  for (const reader of [adminInventory, salesRepInventory, salesRepRequest]) {
-    assert.match(reader, /"—"/, "absence must degrade to a dash");
+test("temperature is no longer read or shown in inventory (legacy fields ignored)", () => {
+  // Temperature was removed from VaxTrack. Nothing migrates existing documents;
+  // the readers simply no longer reference the field, so a legacy batch that
+  // still carries storageTemp/storageTempDisplay loads exactly like any other —
+  // the field is neither read nor displayed, and never crashes a page.
+  for (const [name, src] of [
+    ["Admin Inventory", adminInventory],
+    ["Sales Rep Inventory", salesRepInventory],
+    ["Sales Rep Request Order", salesRepRequest],
+  ]) {
+    assert.ok(!src.includes("storageTemp"), `${name} must not read storageTemp`);
+    assert.ok(
+      !src.includes("storageTempDisplay"),
+      `${name} must not read storageTempDisplay`
+    );
+    // Precise JSX boundaries — not a loose keyword that would also match a
+    // comment like "…or storage temperature.".
+    assert.ok(
+      !src.includes(">Storage Temp<"),
+      `${name} must not show a "Storage Temp" field`
+    );
+    assert.equal(
+      /<th>\s*Temp\s*<\/th>/.test(src),
+      false,
+      `${name} must not show a Temp column`
+    );
   }
 });
 

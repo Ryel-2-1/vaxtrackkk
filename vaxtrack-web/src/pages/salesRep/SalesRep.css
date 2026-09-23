@@ -243,7 +243,7 @@
 .inventory-filter-row { display: flex; gap: 10px; padding: 16px 18px; background: #eef4ff; border-bottom: 1px solid #d6e1f2; }
 .inventory-filter-row button { height: 36px; border: 1px solid #c7d5ea; background: #fff; border-radius: 7px; padding: 0 14px; font-weight: 800; color: #334155; display: inline-flex; align-items: center; gap: 7px; }
 .stock-name { display: flex; align-items: center; gap: 12px; } .stock-name span { width: 34px; height: 34px; border-radius: 7px; background: #eaf2ff; color: #2563eb; display: grid; place-items: center; } .stock-name small, .salesrep-inventory-table small { display: block; color: #64748b; font-size: 11px; }
-.batch-chip, .temp-chip { background: var(--gray-100); padding: 12px 16px; border-radius: 6px; color: var(--gray-600); font-weight: 700; }
+.batch-chip { background: var(--gray-100); padding: 12px 16px; border-radius: 6px; color: var(--gray-600); font-weight: 700; }
 .status-chip { border-radius: 999px; padding: 8px 12px; font-size: 11px; font-weight: 700; text-transform: none; }
 .status-chip.critical { background: var(--danger-bg); color: var(--danger-text); } .status-chip.warning { background: var(--warning-bg); color: var(--warning-text); } .status-chip.stable { background: var(--success-bg); color: var(--success-text); }
 /* Expired and undated batches: the server refuses both, so neither may read as
@@ -293,7 +293,7 @@
 .track-progress { width: 64px; height: 5px; background: var(--gray-200); border-radius: 999px; } .track-progress span { display: block; height: 100%; background: var(--green-700); border-radius: 999px; }
 .draft-footer { margin-top: 30px; border: 1px solid #c7d5ea; border-radius: 12px; background: #fff; display: flex; align-items: center; gap: 22px; padding: 18px 24px; } .draft-footer svg { color: #0057d8; } .draft-footer p { margin: 4px 0 0; color: #475569; } .draft-footer button { margin-left: auto; width: 140px; height: 48px; border: 0; border-radius: 9px; background: #0057d8; color: #fff; font-weight: 900; }
 .tracking-side { border-left: 1px solid #d6e1f2; padding: 24px 16px; } .tracking-side-title { display: flex; justify-content: space-between; align-items: center; } .tracking-side-title h2 { margin: 0; } .tracking-side-title button { border: 0; background: transparent; font-size: 22px; } .tracking-side > p { color: #475569; margin: 4px 0 14px; }
-.contact-driver { width: calc(100% - 40px); height: 38px; border: 0; border-radius: 7px; background: #0057d8; color: #fff; font-weight: 900; } .share-btn { width: 34px; height: 38px; margin-left: 6px; border: 1px solid #c7d5ea; border-radius: 7px; background: #fff; }
+.share-btn { width: 34px; height: 38px; margin-left: 6px; border: 1px solid #c7d5ea; border-radius: 7px; background: #fff; }
 .tracking-side h3 { color: #475569; text-transform: uppercase; font-size: 12px; margin-top: 24px; }
 .mini-map { height: 145px; border-radius: 9px; background: linear-gradient(135deg, #334155, #8ab4c4); position: relative; overflow: hidden; } .mini-map span { position: absolute; left: 12px; bottom: 12px; background: #fff; color: #0057d8; border-radius: 999px; padding: 6px 10px; font-size: 10px; font-weight: 900; }
 .order-content { display: flex; align-items: center; gap: 12px; border: 1px solid #c7d5ea; border-radius: 9px; padding: 12px; margin-bottom: 10px; } .order-content svg { color: #2563eb; } .order-content p { margin: 3px 0 0; font-size: 11px; color: #64748b; } .order-content b { margin-left: auto; }
@@ -745,10 +745,6 @@
     background: #ffffff;
   }
 
-  .contact-driver {
-    width: calc(100% - 44px);
-  }
-
   .mini-map {
     height: 180px;
   }
@@ -944,7 +940,7 @@
 
 .salesrep-inventory-table {
   table-layout: fixed !important;
-  min-width: 760px !important;
+  min-width: 720px !important;
 }
 
 .salesrep-inventory-table th,
@@ -954,39 +950,32 @@
   vertical-align: middle !important;
 }
 
+/* Five columns after the checkbox and Temp columns were removed:
+   Vaccine name | Batch ID | Expiry date | Remaining qty | Status.
+   Vaccine name gets the widest share; the rest are sized so nothing collides. */
 .salesrep-inventory-table th:nth-child(1),
 .salesrep-inventory-table td:nth-child(1) {
-  width: 42px !important;
+  width: 32% !important;
 }
 
 .salesrep-inventory-table th:nth-child(2),
 .salesrep-inventory-table td:nth-child(2) {
-  width: 210px !important;
+  width: 17% !important;
 }
 
 .salesrep-inventory-table th:nth-child(3),
 .salesrep-inventory-table td:nth-child(3) {
-  width: 130px !important;
+  width: 18% !important;
 }
 
 .salesrep-inventory-table th:nth-child(4),
 .salesrep-inventory-table td:nth-child(4) {
-  width: 130px !important;
+  width: 15% !important;
 }
 
 .salesrep-inventory-table th:nth-child(5),
 .salesrep-inventory-table td:nth-child(5) {
-  width: 110px !important;
-}
-
-.salesrep-inventory-table th:nth-child(6),
-.salesrep-inventory-table td:nth-child(6) {
-  width: 95px !important;
-}
-
-.salesrep-inventory-table th:nth-child(7),
-.salesrep-inventory-table td:nth-child(7) {
-  width: 110px !important;
+  width: 18% !important;
 }
 
 .stock-name strong {
@@ -994,8 +983,7 @@
   line-height: 1.25 !important;
 }
 
-.batch-chip,
-.temp-chip {
+.batch-chip {
   padding: 8px 10px !important;
   font-size: 12px !important;
   white-space: nowrap !important;
@@ -1955,7 +1943,7 @@
 }
 
 .salesrep-inventory-table {
-  min-width: 940px !important;
+  min-width: 720px !important;
 }
 
 .request-order-layout {
@@ -2997,6 +2985,18 @@
   color: var(--gray-600) !important;
 }
 
+
+.inventory-v2-summary {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 280px !important;
+  gap: 22px !important;
+  align-items: stretch !important;
+  margin-bottom: 24px !important;
+}
+
+/* Shared button style — the Sales Rep Inventory "Request Selected" action was
+   removed, but Place Order's empty-cart "Browse Catalog" button still uses this
+   class, so the base style stays. */
 .inventory-request-btn {
   min-width: 190px !important;
   height: 44px !important;
@@ -3015,20 +3015,6 @@
 
 .inventory-request-btn:hover:not(:disabled) {
   background: var(--green-800) !important;
-}
-
-.inventory-request-btn:disabled {
-  background: #94a3b8 !important;
-  cursor: not-allowed !important;
-  box-shadow: none !important;
-}
-
-.inventory-v2-summary {
-  display: grid !important;
-  grid-template-columns: minmax(0, 1fr) 280px !important;
-  gap: 22px !important;
-  align-items: stretch !important;
-  margin-bottom: 24px !important;
 }
 
 .inventory-stock-chart-card {
@@ -3257,11 +3243,6 @@
   color: #0f172a !important;
 }
 
-.inventory-selected-bar span {
-  color: var(--green-700) !important;
-  font-weight: 700 !important;
-}
-
 .inventory-selected-bar p {
   margin: 0 !important;
   display: inline-flex !important;
@@ -3272,7 +3253,7 @@
 }
 
 .inventory-v2-table {
-  min-width: 900px !important;
+  min-width: 720px !important;
 }
 
 .inventory-v2-table th,
@@ -3290,19 +3271,6 @@
 
 .inventory-v2-table tbody tr:hover {
   background: var(--green-50) !important;
-}
-
-.inventory-v2-table tr.selected {
-  background: var(--green-50) !important;
-}
-
-.inventory-v2-table input[type="checkbox"] {
-  width: 18px !important;
-  height: 18px !important;
-  border: 1.5px solid var(--gray-300) !important;
-  border-radius: 6px !important;
-  cursor: pointer !important;
-  accent-color: var(--green-700) !important;
 }
 
 .inventory-empty-state {
@@ -5823,9 +5791,16 @@
 
 /* Layout */
 .tracking-v2-layout {
-  grid-template-columns: minmax(0, 1fr) 320px !important;
-  gap: 22px !important;
+  grid-template-columns: minmax(0, 1fr) 380px !important;
+  gap: 24px !important;
   align-items: start !important;
+}
+
+/* The left (table) section must be allowed to shrink below its content's
+   intrinsic width, or the fixed-width details panel pushes the table wider than
+   the available content area and the Progress column is scrolled off. */
+.tracking-left {
+  min-width: 0 !important;
 }
 
 .tracking-v2-toolbar {
@@ -5907,11 +5882,66 @@
   background: #ffffff !important;
   border: var(--border-card) !important;
   border-radius: 14px !important;
-  overflow: hidden !important;
+  /* Scroll the wide order table INSIDE its card at any width, so a long table
+     never pushes the page into horizontal overflow. */
+  overflow-x: auto !important;
 }
 
 .tracking-v2-table {
-  min-width: 840px !important;
+  /* Fixed layout so the five columns share the card width predictably, instead
+     of an 840px min-width that overflowed the card and scrolled the Progress
+     column out of view. The modest min-width keeps the table readable; only
+     below it (phone/tablet) does the wrap scroll. */
+  table-layout: fixed !important;
+  width: 100% !important;
+  min-width: 560px !important;
+}
+
+.tracking-v2-table th,
+.tracking-v2-table td {
+  padding: 14px 12px !important;
+  vertical-align: middle !important;
+}
+
+/* Explicit widths: Order ID | Destination | Date | Status | Progress.
+   Order ID and Destination wrap; Progress keeps room for its heading, the full
+   bar and the "100%" / "Delayed" label. */
+.tracking-v2-table th:nth-child(1),
+.tracking-v2-table td:nth-child(1) { width: 24% !important; }
+.tracking-v2-table th:nth-child(2),
+.tracking-v2-table td:nth-child(2) { width: 26% !important; }
+.tracking-v2-table th:nth-child(3),
+.tracking-v2-table td:nth-child(3) { width: 15% !important; }
+.tracking-v2-table th:nth-child(4),
+.tracking-v2-table td:nth-child(4) { width: 16% !important; }
+.tracking-v2-table th:nth-child(5),
+.tracking-v2-table td:nth-child(5) { width: 19% !important; }
+
+/* Long order ids / destinations wrap cleanly inside their fixed column.
+   The base rule makes the first cell `display: flex`, but a flex <td> escapes
+   the fixed table-column width and shrinks its text to min-content — one
+   character per line, the clipped-looking wrap we are fixing. Keeping it a
+   normal table cell lets the id wrap to the 24% column width instead. The icon
+   stays inline (flex `gap` no longer applies, so it gets a right margin).
+   overflow-wrap: break-word breaks a long unbroken run only when it cannot fit,
+   never forcing the column to a single glyph. */
+.tracking-v2-table td:first-child {
+  display: table-cell !important;
+  vertical-align: middle !important;
+  min-width: 0 !important;
+}
+.tracking-v2-table td:first-child > svg {
+  margin-right: 8px !important;
+  vertical-align: middle !important;
+}
+.tracking-v2-table td strong {
+  overflow-wrap: break-word !important;
+}
+
+/* The progress bar shrinks to fit a narrow Progress cell, never overflowing. */
+.tracking-v2-table .track-progress {
+  width: 100% !important;
+  max-width: 72px !important;
 }
 
 .tracking-v2-table th {
@@ -5995,6 +6025,12 @@
   align-items: flex-start !important;
 }
 
+/* The order-id column must be allowed to shrink so the id below it can wrap
+   instead of forcing the panel wider. */
+.tracking-v2-side .tracking-side-title > div {
+  min-width: 0 !important;
+}
+
 .tracking-v2-side .tracking-side-title span {
   display: block !important;
   color: #64748b !important;
@@ -6007,8 +6043,12 @@
 .tracking-v2-side .tracking-side-title h2 {
   margin: 0 !important;
   color: #0f172a !important;
-  font-size: 22px !important;
-  line-height: 1.1 !important;
+  font-size: 20px !important;
+  line-height: 1.2 !important;
+  /* Long order ids wrap onto a second line cleanly, never overflow and never
+     break one character at a time. */
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
 }
 
 .tracking-v2-side .tracking-side-title button {
@@ -6023,25 +6063,10 @@
 }
 
 .tracking-v2-side-actions {
-  display: grid !important;
-  grid-template-columns: 1fr 40px !important;
+  display: flex !important;
+  justify-content: flex-end !important;
   gap: 8px !important;
   margin: 12px 0 20px !important;
-}
-
-.tracking-v2-side-actions .contact-driver {
-  width: 100% !important;
-  height: 44px !important;
-  border: 0 !important;
-  border-radius: 10px !important;
-  background: var(--green-700) !important;
-  color: #ffffff !important;
-  font-weight: 700 !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 8px !important;
-  cursor: pointer !important;
 }
 
 .tracking-v2-side-actions .share-btn {
@@ -6220,6 +6245,10 @@
     border: 1px solid #d6e1f2 !important;
     border-radius: 14px !important;
     background: #ffffff !important;
+    /* Once stacked, the panel spans the full width below the table. */
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
   }
 }
 
@@ -6249,24 +6278,14 @@
    Add this at the VERY BOTTOM of SalesRep.css
 ========================================================= */
 
-/* Make the tracking layout less cramped */
-.tracking-v2-layout {
-  grid-template-columns: minmax(0, 1fr) 380px !important;
-  gap: 24px !important;
-}
+/* The desktop layout width and the details-panel internal scroll now live in
+   the base .tracking-v2-layout / .tracking-v2-side rules earlier in this file,
+   so the responsive stacking media queries below win. The unconditional 380px
+   overrides that used to sit here defeated that stacking (causing horizontal
+   overflow at narrow widths) and dropped the panel's internal scroll, so they
+   were removed rather than layered over. */
 
-.tracking-v2-side {
-  width: 380px !important;
-  min-width: 380px !important;
-  max-width: 380px !important;
-  background: #ffffff !important;
-  border: 1px solid #d6e1f2 !important;
-  border-radius: 14px !important;
-  padding: 22px 18px 26px !important;
-  box-sizing: border-box !important;
-}
-
-/* Fix the empty square beside selected order */
+/* The selected-order close (×) button */
 .tracking-v2-side .tracking-side-title button {
   width: 34px !important;
   height: 34px !important;
@@ -6282,10 +6301,10 @@
   place-items: center !important;
 }
 
-/* Fix the empty square beside Contact Driver */
+/* Contact Driver was removed — the lone Share button aligns to the right. */
 .tracking-v2-side-actions {
-  display: grid !important;
-  grid-template-columns: 1fr 44px !important;
+  display: flex !important;
+  justify-content: flex-end !important;
   gap: 10px !important;
   align-items: center !important;
 }
@@ -6386,29 +6405,10 @@
   color: var(--green-700) !important;
 }
 
-/* Responsive fallback */
-@media (max-width: 1200px) {
-  .tracking-v2-layout {
-    grid-template-columns: 1fr !important;
-  }
-
-  .tracking-v2-side {
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
-  }
-}
-
-@media (max-width: 768px) {
-  .tracking-v2-status-filter {
-    width: 100% !important;
-    margin-left: 0 !important;
-  }
-
-  .tracking-v2-status-filter select {
-    width: 100% !important;
-  }
-}
+/* The former duplicate "Responsive fallback" @media (max-width: 1200px) /
+   (max-width: 768px) tracking blocks were removed: their rules are now folded
+   into the single authoritative ≤1200 / ≤768 blocks above, so there is one
+   desktop rule with coordinated responsive overrides, not layered patches. */
 /* =========================================================
    SALES REP ORDER CONFIRMATION + DELIVERY NOTES FIX
    Add this at the VERY BOTTOM of SalesRep.css

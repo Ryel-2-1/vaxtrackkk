@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -23,7 +22,6 @@ class _ProofScreenState extends State<ProofScreen> {
   final _deliveryService = DeliveryService();
   final _imageService = ImageUploadService();
   final _recipientController = TextEditingController();
-  final _manualUrlController = TextEditingController();
 
   late final ProofSubmissionController _submission;
 
@@ -36,10 +34,6 @@ class _ProofScreenState extends State<ProofScreen> {
   /// does not start out marked red.
   String? _recipientError;
 
-  /// The temporary manual-link fallback. Debug builds only — see
-  /// [manualProofUrlEnabled].
-  bool _useManualUrl = false;
-
   @override
   void initState() {
     super.initState();
@@ -47,7 +41,6 @@ class _ProofScreenState extends State<ProofScreen> {
     _submission = ProofSubmissionController(
       uploader: _imageService,
       writer: ProofService(),
-      allowManualUrl: manualProofUrlEnabled(isDebugBuild: kDebugMode),
     );
     _submission.addListener(_onSubmissionChanged);
   }
@@ -57,16 +50,12 @@ class _ProofScreenState extends State<ProofScreen> {
     _submission.removeListener(_onSubmissionChanged);
     _submission.dispose();
     _recipientController.dispose();
-    _manualUrlController.dispose();
     super.dispose();
   }
 
   void _onSubmissionChanged() {
     if (mounted) setState(() {});
   }
-
-  bool get _manualUrlAvailable =>
-      manualProofUrlEnabled(isDebugBuild: kDebugMode);
 
   Future<void> _pickProofPhoto() async {
     final picked = await _imageService.pickFromCamera();
@@ -119,7 +108,6 @@ class _ProofScreenState extends State<ProofScreen> {
       recipientName: _recipientController.text,
       proofPhoto: _proofPhoto,
       invoicePhoto: _invoicePhoto,
-      manualUrl: _useManualUrl ? _manualUrlController.text : null,
     );
 
     if (!mounted) return;
@@ -131,7 +119,6 @@ class _ProofScreenState extends State<ProofScreen> {
       setState(() {
         _proofPhoto = null;
         _invoicePhoto = null;
-        _manualUrlController.clear();
       });
     }
   }
@@ -201,10 +188,6 @@ class _ProofScreenState extends State<ProofScreen> {
                   _proofPhotoCard(),
                   const SizedBox(height: 12),
                   _invoiceCard(),
-                  if (_manualUrlAvailable) ...[
-                    const SizedBox(height: 12),
-                    _manualUrlCard(),
-                  ],
                   const SizedBox(height: 16),
                   _statusMessages(),
                   _submitButton(selected),
@@ -467,57 +450,6 @@ class _ProofScreenState extends State<ProofScreen> {
     );
   }
 
-  /// Temporary staging/development fallback. Never built in a release binary —
-  /// [manualProofUrlEnabled] gates the whole card, and the controller refuses a
-  /// manual link independently even if this widget were somehow reached.
-  Widget _manualUrlCard() {
-    return _Card(
-      title: 'Developer: use a proof image link',
-      subtitle: 'Debug builds only — not part of the normal delivery flow',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Skips the camera and Storage upload. Kept only until the '
-                  'camera route is proven on a real phone.',
-                  style: TextStyle(fontSize: 11, color: AppColors.textMuted),
-                ),
-              ),
-              Switch(
-                value: _useManualUrl,
-                onChanged: _submission.isCommitting
-                    ? null
-                    : (v) => setState(() => _useManualUrl = v),
-              ),
-            ],
-          ),
-          if (_useManualUrl) ...[
-            const SizedBox(height: 8),
-            TextField(
-              controller: _manualUrlController,
-              enabled: !_submission.isCommitting,
-              keyboardType: TextInputType.url,
-              decoration: const InputDecoration(
-                labelText: 'Proof image URL',
-                hintText: 'https://...',
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              ),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'The recipient name and the delivery checks below still apply.',
-              style: TextStyle(fontSize: 11, color: AppColors.textLight),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
   Widget _statusMessages() {
     final progress = _submission.progressText;
     final error = _submission.errorMessage;
@@ -567,7 +499,6 @@ class _ProofScreenState extends State<ProofScreen> {
     final ready = _submission.canSubmit(
       recipientName: _recipientController.text,
       hasPhoto: _proofPhoto != null,
-      manualUrl: _useManualUrl ? _manualUrlController.text : null,
     );
     final idle = !_submission.isCommitting;
 

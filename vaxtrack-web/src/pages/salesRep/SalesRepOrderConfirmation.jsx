@@ -97,7 +97,7 @@ function SalesRepOrderConfirmation() {
         id: item.sku || item.id || `ITEM-${index + 1}`,
         name: item.name || item.vaccineName || "Selected Vaccine",
         sku: item.sku || item.id || "N/A",
-        batch: item.batch || item.chain || item.temp || "Medical Supply",
+        batch: item.batch || item.chain || "Medical Supply",
         quantity,
         unit: item.unit || "vials",
         lineTotal,

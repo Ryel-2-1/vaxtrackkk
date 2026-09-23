@@ -3242,11 +3242,6 @@
   border-color: #2563eb;
 }
 
-.progress-card.temp {
-  background: #dbeafe;
-  color: #1f2937;
-}
-
 .progress-head {
   display: flex;
   justify-content: space-between;
