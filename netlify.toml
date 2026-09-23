@@ -1,0 +1,27 @@
+[build]
+  base = "vaxtrack-web"
+  command = "npm run build:staging"
+  publish = "dist"
+
+# SPA fallback. status = 200 makes this a rewrite, not a redirect, so deep
+# links and refreshes (e.g. /admin/inventory) serve index.html and let React
+# Router resolve the route client-side. Static assets in dist/ are matched
+# first, so this never shadows the JS/CSS bundles.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Ported from the `previewCsp` + `commonHeaders` in vaxtrack-web/vite.config.js.
+# Those only ever applied to the Vite dev/preview servers; a static host serves
+# the build with no headers unless they are declared here.
+[[headers]]
+  for = "/*"
+
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' https://www.gstatic.com https://apis.google.com https://accounts.google.com https://maps.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://lh3.googleusercontent.com https://www.gstatic.com https://tile.openstreetmap.org https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com https://*.gstatic.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://accounts.google.com https://apis.google.com https://www.gstatic.com https://api.openrouteservice.org https://maps.googleapis.com https://asia-southeast1-vaxtrack-staging.cloudfunctions.net https://asia-southeast1-vaxtrack-bef1b.cloudfunctions.net; frame-src 'self' https://accounts.google.com; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; manifest-src 'self'; media-src 'self'; worker-src 'self' blob:"
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(self)"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
