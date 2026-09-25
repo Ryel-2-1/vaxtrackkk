@@ -172,13 +172,44 @@ test("no rider, vehicle, location, ETA, proof or temperature is invented", () =>
   // The ETA was the status restated under an arrival heading.
   assert.equal(/\beta:/.test(CODE), false, "no ETA field");
   assert.equal(/etaType/.test(CODE), false);
-  // No location or route source is reached for.
-  for (const f of ["lastLocation", "routePolyline", "routeEtaText", "clinicLat", "geofence"]) {
-    assert.equal(CODE.includes(f), false, `${f} has no authoritative Admin source`);
-  }
   // Proof is a pass-through of what the rider uploaded, never a placeholder.
   assert.match(PAGE, /proofOfDeliveryUrl: raw\.proofOfDeliveryUrl \|\| "",/);
   assert.match(PAGE, /invoiceUrl: raw\.invoiceUrl \|\| "",/);
+});
+
+test("live-location, route and trip fields are passed through, never fabricated", () => {
+  // The committed read-only delivery map legitimately reads the authoritative
+  // location/route/trip fields the order already carries. That is allowed — the
+  // page displays what the rider app and dispatcher wrote and nothing else. Each
+  // must be a plain pass-through of the order's own field, so an order without
+  // that data yields an empty/absent value and the map falls back to its honest
+  // "No live location yet" state (that fallback lives in LiveDeliveryMap.jsx).
+  const passThrough = {
+    lastLocation: /lastLocation: raw\.lastLocation \|\| null,/,
+    lastLocationUpdate: /lastLocationUpdate: raw\.lastLocationUpdate \|\| null,/,
+    clinicLat: /clinicLat: raw\.clinicLat,/,
+    clinicLng: /clinicLng: raw\.clinicLng,/,
+    routePolyline: /routePolyline: raw\.routePolyline \|\| "",/,
+    routeEtaText: /routeEtaText: raw\.routeEtaText \|\| "",/,
+    tripPolyline: /tripPolyline: raw\.tripPolyline \|\| "",/,
+    stopSequence: /stopSequence: raw\.stopSequence,/,
+  };
+  for (const [field, re] of Object.entries(passThrough)) {
+    assert.match(PAGE, re, `${field} must be a pass-through of the order's own field`);
+  }
+
+  // Still forbidden: inventing any of it. None of these fields may fall back to
+  // a literal coordinate, polyline, ETA or geofence value — the only permitted
+  // fallback is null / "" / absent, so nothing fake is ever shown as live data.
+  assert.equal(/lastLocation: raw\.lastLocation \|\| [^n]/.test(PAGE), false, "no invented rider location");
+  assert.equal(/clinicLat: raw\.clinicLat \|\| /.test(PAGE), false, "no invented clinic latitude");
+  assert.equal(/clinicLng: raw\.clinicLng \|\| /.test(PAGE), false, "no invented clinic longitude");
+  assert.equal(/routePolyline: raw\.routePolyline \|\| "[^"]/.test(PAGE), false, "no hardcoded route");
+  assert.equal(/routeEtaText: raw\.routeEtaText \|\| "[^"]/.test(PAGE), false, "no hardcoded ETA");
+  assert.equal(/tripPolyline: raw\.tripPolyline \|\| "[^"]/.test(PAGE), false, "no hardcoded trip route");
+  assert.equal(/stopEtaText: raw\.stopEtaText \|\| "[^"]/.test(PAGE), false, "no hardcoded stop ETA");
+  // Admin claims no geofence state — that is Dispatcher-only, gated on live GPS.
+  assert.equal(CODE.includes("geofence"), false, "Admin invents no geofence state");
 });
 
 test("no timestamp is shown under the wrong meaning", () => {

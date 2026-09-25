@@ -6,13 +6,11 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/delivery.dart';
 import '../services/delivery_service.dart';
 import '../services/location_service.dart';
-import '../services/route_deviation_alert_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/nav_availability.dart';
 import '../utils/order_workflow.dart';
 import '../utils/route_utils.dart';
 import '../widgets/delivery_map.dart';
-import 'google_navigation_screen.dart';
 import 'route_monitoring_screen.dart';
 import 'package:intl/intl.dart';
 
@@ -29,7 +27,6 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
   final _deliveryService = DeliveryService();
   final _locationService = LocationService();
   bool _updatingStatus = false;
-  bool _launchingNav = false;
   String? _delayReason;
   String? _failureReason;
   // Fires the "saved, will sync" feedback if a write is still pending after a
@@ -366,47 +363,6 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     }
   }
 
-  // Open the in-app Google Navigation screen for this delivery's clinic.
-  // Guarded so a double-tap can't push two screens / start two sessions. Only
-  // reachable when the delivery is active AND has valid clinic coordinates
-  // (button gating below); delivered/cancelled orders are excluded.
-  Future<void> _startGoogleNavigation() async {
-    if (_launchingNav || !d.hasClinicCoords || !d.isActive) return;
-    setState(() => _launchingNav = true);
-    try {
-      // Build the confirmed route-deviation context (order doc id + authed
-      // rider uid + display fields). If the uid or doc id is missing we pass
-      // null, keeping the nav screen local-only rather than inventing an id.
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      final RouteDeviationContext? alertContext =
-          (uid != null && uid.isNotEmpty && d.id.isNotEmpty)
-          ? RouteDeviationContext(
-              orderId: d.id,
-              riderUid: uid,
-              orderNumber: d.orderNumber,
-              clinicName: d.clinicName,
-              riderName: d.assignedRiderName,
-            )
-          : null;
-      await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => GoogleNavigationScreen(
-            clinicLat: d.clinicLat!,
-            clinicLng: d.clinicLng!,
-            clinicName: d.clinicName,
-            clinicAddress: d.clinicAddress,
-            alertContext: alertContext,
-          ),
-        ),
-      );
-      // Back on the delivery screen — keep in_transit reporting alive.
-      await _ensureTrackingForInTransit();
-    } finally {
-      if (mounted) setState(() => _launchingNav = false);
-    }
-  }
-
   // Open the FREE in-app route-monitoring screen (OpenStreetMap + Geolocator).
   // Requires the delivery to be active with clinic coordinates; the screen
   // itself enforces the full start eligibility (auth, assignment, saved route)
@@ -526,17 +482,15 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
             // delivered/cancelled show nothing here (the route summary above
             // stays as read-only history).
             if (nav.inTransit) ...[
-              // PRIMARY action: one clear "Start navigation" (in-app Google
-              // Navigation SDK). Needs a destination pin; if the SDK is not
-              // configured/available the nav screen itself falls back to
-              // Google Maps with a clear message.
+              // Start navigation opens THIS stop in the Google Maps app for
+              // turn-by-turn. (The whole optimized trip is launched from the
+              // dashboard route banner.) No in-app Navigation SDK, so there is
+              // no Maps-key / terms gate — one consistent nav path that works.
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: (nav.canStartEmbeddedNav && !_launchingNav)
-                      ? _startGoogleNavigation
-                      : null,
-                  icon: const Icon(Icons.assistant_navigation),
+                  onPressed: nav.canOpenExternalMaps ? _openNavigation : null,
+                  icon: const Icon(Icons.navigation),
                   label: const Text('Start navigation'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
@@ -544,35 +498,20 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
                   ),
                 ),
               ),
-              if (!d.hasClinicCoords)
-                const Padding(
-                  padding: EdgeInsets.only(top: 6),
-                  child: Text(
-                    'In-app navigation needs a destination pin from dispatch. '
-                    'Use Open in Google Maps below.',
-                    style: TextStyle(fontSize: 11, color: AppColors.textLight),
-                  ),
-                ),
-              const SizedBox(height: 8),
-              // FALLBACK: hand off to the external Google Maps app. Secondary
-              // (outlined) so the primary in-app action stays dominant.
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: nav.canOpenExternalMaps ? _openNavigation : null,
-                  icon: const Icon(Icons.map_outlined),
-                  label: const Text('Open in Google Maps'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.primary,
-                    side: const BorderSide(color: AppColors.primary),
-                  ),
-                ),
-              ),
               if (nav.usesAddressSearch)
                 const Padding(
                   padding: EdgeInsets.only(top: 6),
                   child: Text(
-                    'Using address search — exact destination pin not set by dispatch.',
+                    'No destination pin from dispatch — Google Maps will search '
+                    'by the clinic address.',
+                    style: TextStyle(fontSize: 11, color: AppColors.textLight),
+                  ),
+                ),
+              if (!nav.canOpenExternalMaps)
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text(
+                    'No destination available to navigate to yet.',
                     style: TextStyle(fontSize: 11, color: AppColors.textLight),
                   ),
                 ),

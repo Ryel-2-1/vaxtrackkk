@@ -149,6 +149,9 @@ class NavigationInitController {
     _inFlight = true;
     _lastError = null;
     _reason = '';
+    // Whether the rider was shown the Terms dialog and accepted it on THIS
+    // attempt. It decides how a later termsNotAccepted from init is read.
+    bool acceptedThisAttempt = false;
     _set(NavInitPhase.preparing);
     try {
       _log('checking location permission');
@@ -181,6 +184,7 @@ class NavigationInitController {
           _set(NavInitPhase.declined);
           return;
         }
+        acceptedThisAttempt = true;
         _set(NavInitPhase.preparing);
       }
 
@@ -204,7 +208,16 @@ class NavigationInitController {
       _lastError = e;
       _log('initialization failed: $e');
       onError?.call(e);
-      if (_isTermsError(e)) {
+      if (_isTermsError(e) && acceptedThisAttempt) {
+        // The rider DID accept the dialog on this attempt, yet init still
+        // reports termsNotAccepted. The SDK cannot validate/persist acceptance —
+        // in practice the Maps API key is missing or not authorized for this
+        // build. Re-prompting would loop forever (accept → fail → re-prompt), so
+        // treat it as a configuration failure and let the rider fall back to the
+        // Google Maps app from the failed panel.
+        _reason = 'failed';
+        _set(NavInitPhase.failed);
+      } else if (_isTermsError(e)) {
         // The SDK rejected init for terms even though the dialog was skipped
         // (areTermsAccepted() said true). Clear the stale native flag and force
         // the next attempt to re-show the dialog, so "Review navigation terms"

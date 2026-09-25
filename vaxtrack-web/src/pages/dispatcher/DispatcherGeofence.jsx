@@ -61,6 +61,11 @@ function numberedStopIcon(n) {
   });
 }
 
+// Stable empty stops list, so the non-trip case passes the SAME array reference
+// every render — a fresh `[]` literal would change the map effect's deps on
+// every render and re-initialise the Leaflet map constantly.
+const NO_STOPS = Object.freeze([]);
+
 // Manual geofence radius around the clinic (metres). No routing/ETA — just a
 // simple "is the rider within this circle" visualization.
 const GEOFENCE_RADIUS_M = 300;
@@ -507,7 +512,7 @@ function DispatcherGeofence() {
                 clinicLat={hasTrip ? undefined : clinicLL ? clinicLL[0] : undefined}
                 clinicLng={hasTrip ? undefined : clinicLL ? clinicLL[1] : undefined}
                 routePolyline={hasTrip ? selected.tripPolyline : selected.routePolyline}
-                stops={hasTrip ? tripStopMarkers : []}
+                stops={hasTrip ? tripStopMarkers : NO_STOPS}
               />
               {clinicLL ? (
                 <p className="geo3-live-map-note">

@@ -58,6 +58,17 @@ class Delivery {
   final String? routeEtaText;
   final DateTime? routeGeneratedAt;
 
+  // Multi-stop trip fields, written by the web Dispatcher's "Optimize route"
+  // (OpenRouteService optimization). All optional — an order that is not part of
+  // an optimized trip omits them. The Rider app only READS these.
+  final String? tripId;
+  final int? stopSequence; // this order's place in the visiting order (1-based)
+  final int? tripStopCount; // total stops in the trip
+  final String? stopEtaText; // arrival-clock snapshot for this stop
+  final String? tripPolyline; // whole-trip encoded polyline
+  final int? tripDistanceMeters;
+  final int? tripDurationSeconds;
+
   Delivery({
     required this.id,
     required this.orderNumber,
@@ -94,6 +105,13 @@ class Delivery {
     this.routeDurationSeconds,
     this.routeEtaText,
     this.routeGeneratedAt,
+    this.tripId,
+    this.stopSequence,
+    this.tripStopCount,
+    this.stopEtaText,
+    this.tripPolyline,
+    this.tripDistanceMeters,
+    this.tripDurationSeconds,
   });
 
   factory Delivery.fromFirestore(String docId, Map<String, dynamic> data) {
@@ -138,8 +156,23 @@ class Delivery {
       routeDurationSeconds: _toInt(data['routeDurationSeconds']),
       routeEtaText: data['routeEtaText'] as String?,
       routeGeneratedAt: _toDateTime(data['routeGeneratedAt']),
+      tripId: (data['tripId'] as String?)?.isEmpty ?? true
+          ? null
+          : data['tripId'] as String?,
+      stopSequence: _toInt(data['stopSequence']),
+      tripStopCount: _toInt(data['tripStopCount']),
+      stopEtaText: data['stopEtaText'] as String?,
+      tripPolyline: (data['tripPolyline'] as String?)?.isEmpty ?? true
+          ? null
+          : data['tripPolyline'] as String?,
+      tripDistanceMeters: _toInt(data['tripDistanceMeters']),
+      tripDurationSeconds: _toInt(data['tripDurationSeconds']),
     );
   }
+
+  /// This order is part of an optimized multi-stop trip (has a place in the
+  /// visiting order the dispatcher generated).
+  bool get isOnTrip => tripId != null && (stopSequence ?? 0) > 0;
 
   /// True when the order carries finite clinic coordinates.
   bool get hasClinicCoords => clinicLat != null && clinicLng != null;

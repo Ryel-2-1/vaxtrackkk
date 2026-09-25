@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/delivery.dart';
 import '../services/delivery_service.dart';
 import '../services/location_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/route_utils.dart';
 import '../utils/sync_status.dart';
+import '../utils/trip_route.dart';
 import '../widgets/sync_indicator.dart';
 import 'delivery_detail_screen.dart';
 
@@ -35,6 +38,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  // Open the whole optimized trip in Google Maps: current location → each stop
+  // in visiting order. Real turn-by-turn without the gated Navigation SDK.
+  Future<void> _navigateFullRoute(List<Delivery> stops) async {
+    final uri = googleMapsMultiStopUrl(stops);
+    if (uri == null) return;
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok && mounted) {
+        _showSnack('Could not open Google Maps — no maps app is available.');
+      }
+    } catch (_) {
+      if (mounted) _showSnack('Could not open Google Maps on this device.');
+    }
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_riderId == null) {
@@ -58,6 +81,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
           final active = deliveries.where((d) => d.isActive).toList();
           final completed = deliveries.where((d) => d.isDelivered).toList();
           final urgent = active.where((d) => d.isUrgent).toList();
+          // Optimized multi-stop trip (dispatcher-generated). When present, the
+          // active list is shown in visiting order and a route banner appears.
+          final tripStops = orderedTripStops(active);
+          final orderedActive = [...active]..sort((a, b) {
+              final sa = a.isOnTrip ? (a.stopSequence ?? 9999) : 9999;
+              final sb = b.isOnTrip ? (b.stopSequence ?? 9999) : 9999;
+              return sa.compareTo(sb);
+            });
           final syncStatus = result == null
               ? SyncStatus.synced
               : syncStatusFrom(
@@ -80,13 +111,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(height: 12),
                   _buildUrgentBanner(urgent.first),
                 ],
+                if (tripStops.length >= 2) ...[
+                  const SizedBox(height: 12),
+                  _buildTripBanner(tripStops),
+                ],
                 const SizedBox(height: 20),
                 _sectionTitle("Today's Deliveries", '${active.length} remaining'),
                 const SizedBox(height: 8),
                 if (active.isEmpty)
                   _emptyState('No assigned deliveries yet.')
                 else
-                  ...active.map((d) => _deliveryCard(d)),
+                  ...orderedActive.map((d) => _deliveryCard(d)),
                 if (completed.isNotEmpty) ...[
                   const SizedBox(height: 20),
                   _sectionTitle('Completed', '${completed.length} delivered'),
@@ -156,6 +191,57 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Text(
               'Urgent: ${d.orderNumber} — ${d.clinicName}',
               style: const TextStyle(color: Color(0xFF991B1B), fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTripBanner(List<Delivery> stops) {
+    final first = stops.first;
+    final distance = formatDistance(first.tripDistanceMeters);
+    final duration = formatDuration(first.tripDurationSeconds);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.primaryLight,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.alt_route, color: AppColors.primary, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Your route · ${stops.length} stops',
+                  style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textDark),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Optimized order · $distance · $duration',
+            style: const TextStyle(fontSize: 12, color: AppColors.textLight),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => _navigateFullRoute(stops),
+              icon: const Icon(Icons.navigation, size: 18),
+              label: const Text('Navigate route in Google Maps'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+              ),
             ),
           ),
         ],
@@ -237,6 +323,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               const SizedBox(height: 4),
               Text(d.clinicName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+              if (d.isOnTrip) ...[
+                const SizedBox(height: 6),
+                _tripStopChip(d),
+              ],
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -275,6 +365,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _tripStopChip(Delivery d) {
+    final total = d.tripStopCount;
+    final label = (total != null && total > 0)
+        ? 'Stop ${d.stopSequence} of $total'
+        : 'Stop ${d.stopSequence}';
+    final eta =
+        (d.stopEtaText ?? '').isNotEmpty ? ' · ETA ${d.stopEtaText}' : '';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: AppColors.infoBg,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.alt_route, size: 13, color: AppColors.info),
+          const SizedBox(width: 4),
+          Text(
+            '$label$eta',
+            style: const TextStyle(
+                fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.info),
+          ),
+        ],
       ),
     );
   }

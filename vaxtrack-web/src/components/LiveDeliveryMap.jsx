@@ -26,6 +26,9 @@ import "./LiveDeliveryMap.css";
 
 const GEOFENCE_RADIUS_M = 300;
 const STALE_LOCATION_MS = 2 * 60 * 1000;
+// Stable empty stops list — a fresh `[]` each render would re-run the map effect
+// (its deps include `stops`) on every render.
+const NO_STOPS = Object.freeze([]);
 
 // DOM markers (no image assets — Leaflet's default icon PNGs break under
 // bundlers). "ldm-" classes are private to this component.
@@ -287,7 +290,7 @@ function MapCanvas({ lat, lng, clinicLat, clinicLng, routePolyline, stopLabel, s
  *   in the trip, numbered by visiting order — for callers that can read the
  *   whole group (Admin). Omitted for Sales Rep, who only sees their own stop.
  */
-function LiveDeliveryMap({ order, tripStops = [] }) {
+function LiveDeliveryMap({ order, tripStops = NO_STOPS }) {
   const riderLL = getLatLng(order?.lastLocation);
   const clinicLL = getClinicLatLng(order);
 
@@ -340,7 +343,7 @@ function LiveDeliveryMap({ order, tripStops = [] }) {
         clinicLng={clinicLL ? clinicLL[1] : undefined}
         routePolyline={hasTrip ? order.tripPolyline : order?.routePolyline}
         stopLabel={hasTrip ? order.stopSequence : undefined}
-        stops={hasTrip ? tripStops : []}
+        stops={hasTrip ? tripStops : NO_STOPS}
       />
 
       <div className="ldm-info">

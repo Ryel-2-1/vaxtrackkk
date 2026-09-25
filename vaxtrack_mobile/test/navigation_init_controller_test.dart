@@ -209,6 +209,31 @@ void main() {
       await h.controller.retry(); // forced dialog despite areTermsAccepted==true
       expect(h.dialogCalls, 1, reason: 'forced dialog on retry');
     });
+
+    test('dialog ACCEPTED but init still rejects termsNotAccepted -> failed, '
+        'not an endless re-prompt (missing/unauthorized Maps key)', () async {
+      final h = _Harness(
+        termsAccepted: false, // the dialog is shown
+        termsDialogResult: true, // and the rider accepts it
+        throwOnInit: true,
+        initError: 'SessionInitializationException(termsNotAccepted)',
+        isTermsError: _isTerms,
+      );
+
+      await h.controller.start();
+      expect(h.dialogCalls, 1, reason: 'the rider was shown and accepted the dialog');
+      expect(h.controller.phase, NavInitPhase.failed,
+          reason: 'accept + termsNotAccepted is a config failure, not a decline');
+      expect(h.controller.reason, 'failed');
+      // The controller must NOT force a re-prompt after an accepted dialog —
+      // that is the loop this fixes.
+      expect(h.resetCalls, 0, reason: 'no terms reset when the rider did accept');
+
+      // An explicit retry fails the same clean way; it never drops to a
+      // "Review terms" (declined) state that would re-invite the loop.
+      await h.controller.retry();
+      expect(h.controller.phase, NavInitPhase.failed);
+    });
   });
 
   test('permission denied -> failed, no dialog, no init', () async {
