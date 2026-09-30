@@ -23,7 +23,6 @@ import {
   reviewOrderDestinationChange,
   subscribeDestinationCorrections,
 } from "../../services/destinationCorrectionService";
-import SalesRepLayout from "./SalesRepLayout";
 import StatusBadge from "../../components/ui/StatusBadge";
 import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 
@@ -323,28 +322,28 @@ function SalesRepOrderTracking() {
 
   if (loading) {
     return (
-      <SalesRepLayout active="tracking" title="Order Tracking" showSearch={false}>
+      <>
         <div className="inventory-loading-state">
           <Loader2 size={32} className="spin" />
           <p>Loading your orders...</p>
         </div>
-      </SalesRepLayout>
+      </>
     );
   }
 
   if (error) {
     return (
-      <SalesRepLayout active="tracking" title="Order Tracking" showSearch={false}>
+      <>
         <div className="inventory-loading-state">
           <AlertTriangle size={32} />
           <p>{error}</p>
         </div>
-      </SalesRepLayout>
+      </>
     );
   }
 
   return (
-    <SalesRepLayout active="tracking" title="Order Tracking" showSearch={false}>
+    <>
       <section className="tracking-v2-page">
         <div className="tracking-v2-header">
           <div>
@@ -599,7 +598,7 @@ function SalesRepOrderTracking() {
           </aside>
         </section>
       </section>
-    </SalesRepLayout>
+    </>
   );
 }
 

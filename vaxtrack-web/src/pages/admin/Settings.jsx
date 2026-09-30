@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { signOut } from "firebase/auth";
 import {
   Bell,
   Building2,
@@ -15,7 +13,6 @@ import {
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
-import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import KpiCard from "../../components/ui/KpiCard";
 import "./Settings.css";
 import { subscribeUsers, updateUserStatus, updateUserRole } from "../../services/userService";
@@ -63,16 +60,10 @@ function normalizeUser(raw) {
 const pageSize = 4;
 
 function Settings() {
-  const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState("general");
   const [searchTerm, setSearchTerm] = useState("");
   const [toast, setToast] = useState("");
-
-  const handleLogout = async () => {
-    await signOut(auth);
-    navigate("/login");
-  };
 
   const showToast = (message) => {
     setToast(message);
@@ -80,10 +71,7 @@ function Settings() {
   };
 
   return (
-    <div className="inventory-page">
-      <AdminSidebar active="settings" onLogout={handleLogout} />
-
-      <main className="settings-v3-main">
+    <main className="settings-v3-main">
         {toast && <div className="settings-toast">{toast}</div>}
 
         <header className="settings-v3-header">
@@ -162,7 +150,6 @@ function Settings() {
           <UserManagement searchTerm={searchTerm} showToast={showToast} />
         )}
       </main>
-    </div>
   );
 }
 

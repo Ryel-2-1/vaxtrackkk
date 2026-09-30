@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { signOut } from "firebase/auth";
 import {
   AlertTriangle,
   ChevronDown,
@@ -10,8 +8,6 @@ import {
   Truck,
   X,
 } from "lucide-react";
-import { auth } from "../../firebase";
-import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import {
   subscribeDeliveries,
   UNKNOWN_STATUS_KEY,
@@ -109,7 +105,6 @@ function formatDateTime(ts) {
 }
 
 function Deliveries() {
-  const navigate = useNavigate();
 
   const [deliveryList, setDeliveryList] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -133,11 +128,6 @@ function Deliveries() {
     );
     return () => unsubscribe();
   }, []);
-
-  const handleLogout = async () => {
-    await signOut(auth);
-    navigate("/login");
-  };
 
   /* The toast and its `showToast` helper went with the five actions that used
      them. Each raised a message and did nothing else, so the page now has no
@@ -197,10 +187,8 @@ function Deliveries() {
   }, [deliveryList, selectedDelivery]);
 
   return (
-    <div className="inventory-page">
-      <AdminSidebar active="deliveries" onLogout={handleLogout} />
-
-      <main className="deliveries-v4-page">
+    <>
+    <main className="deliveries-v4-page">
 
         <header className="mdl-header">
           <div>
@@ -538,7 +526,7 @@ function Deliveries() {
           onClose={() => setSelectedDelivery(null)}
         />
       )}
-    </div>
+    </>
   );
 }
 

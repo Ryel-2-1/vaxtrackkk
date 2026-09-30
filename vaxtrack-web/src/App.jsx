@@ -21,6 +21,7 @@ const PendingApproval = lazy(() => import("./pages/PendingApproval"));
 const StyleGuide = lazy(() => import("./pages/StyleGuide"));
 const GoogleMapsFeasibility = lazy(() => import("./pages/dev/GoogleMapsFeasibility"));
 
+const AdminShell = lazy(() => import("./components/admin/AdminShell"));
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
 const Inventory = lazy(() => import("./pages/admin/Inventory"));
 const AddStock = lazy(() => import("./pages/admin/AddStock"));
@@ -36,6 +37,7 @@ const InvoiceEditor = lazy(() => import("./pages/admin/InvoiceEditor"));
 const RegisterClinic = lazy(() => import("./pages/admin/RegisterClinic"));
 const ClinicSuccess = lazy(() => import("./pages/admin/ClinicSuccess"));
 
+const SalesRepShell = lazy(() => import("./pages/salesRep/SalesRepShell"));
 const SalesRepDashboard = lazy(() => import("./pages/salesRep/SalesRepDashboard"));
 const SalesRepInventory = lazy(() => import("./pages/salesRep/SalesRepInventory"));
 const SalesRepRequestOrder = lazy(() => import("./pages/salesRep/SalesRepRequestOrder"));
@@ -45,6 +47,7 @@ const SalesRepOrderTracking = lazy(() => import("./pages/salesRep/SalesRepOrderT
 const SalesRepAlerts = lazy(() => import("./pages/salesRep/SalesRepAlerts"));
 const SalesRepSettings = lazy(() => import("./pages/salesRep/SalesRepSettings"));
 
+const DispatcherLayout = lazy(() => import("./pages/dispatcher/DispatcherLayout"));
 const DispatcherDashboard = lazy(() => import("./pages/dispatcher/DispatcherDashboard"));
 const DispatcherSchedule = lazy(() => import("./pages/dispatcher/DispatcherSchedule"));
 const DispatcherAssignRider = lazy(() => import("./pages/dispatcher/DispatcherAssignRider"));
@@ -69,20 +72,25 @@ function App() {
           <Route path="/pending-approval" element={<Navigate to="/pending" replace />} />
 
           <Route element={<AdminRoute />}>
-            <Route path="/admin" element={<AdminDashboard />} />
-            <Route path="/admin/inventory" element={<Inventory />} />
-            <Route path="/admin/add-stock" element={<AddStock />} />
-            <Route path="/admin/add-vaccine" element={<AddVaccine />} />
-            <Route path="/admin/deliveries" element={<Deliveries />} />
-            <Route path="/admin/riders" element={<Riders />} />
-            <Route path="/admin/alerts" element={<Alerts />} />
-            <Route path="/admin/analytics" element={<Analytics />} />
-            <Route path="/admin/settings" element={<Settings />} />
-            <Route path="/admin/clinics" element={<Clinics />} />
-            <Route path="/admin/invoices" element={<Invoices />} />
-            <Route path="/admin/invoices/:orderId" element={<InvoiceEditor />} />
-            <Route path="/admin/register-clinic" element={<RegisterClinic />} />
-            <Route path="/admin/clinic-success" element={<ClinicSuccess />} />
+            {/* Persistent shell: `.inventory-page` wrapper + AdminSidebar mount
+                once and stay put; pages swap through the shell's <Outlet/>, so
+                the sidebar never resets on navigation. */}
+            <Route element={<AdminShell />}>
+              <Route path="/admin" element={<AdminDashboard />} />
+              <Route path="/admin/inventory" element={<Inventory />} />
+              <Route path="/admin/add-stock" element={<AddStock />} />
+              <Route path="/admin/add-vaccine" element={<AddVaccine />} />
+              <Route path="/admin/deliveries" element={<Deliveries />} />
+              <Route path="/admin/riders" element={<Riders />} />
+              <Route path="/admin/alerts" element={<Alerts />} />
+              <Route path="/admin/analytics" element={<Analytics />} />
+              <Route path="/admin/settings" element={<Settings />} />
+              <Route path="/admin/clinics" element={<Clinics />} />
+              <Route path="/admin/invoices" element={<Invoices />} />
+              <Route path="/admin/invoices/:orderId" element={<InvoiceEditor />} />
+              <Route path="/admin/register-clinic" element={<RegisterClinic />} />
+              <Route path="/admin/clinic-success" element={<ClinicSuccess />} />
+            </Route>
           </Route>
 
           <Route path="/inventory" element={<Navigate to="/admin/inventory" replace />} />
@@ -98,24 +106,33 @@ function App() {
           <Route path="/clinic-success" element={<Navigate to="/admin/clinic-success" replace />} />
 
           <Route element={<SalesRepRoute />}>
-            <Route path="/sales-rep" element={<SalesRepDashboard />} />
-            <Route path="/sales-rep/inventory" element={<SalesRepInventory />} />
-            <Route path="/sales-rep/request-order" element={<SalesRepRequestOrder />} />
-            <Route path="/sales-rep/place-order" element={<SalesRepPlaceOrder />} />
-            <Route path="/sales-rep/order-confirmation" element={<SalesRepOrderConfirmation />} />
-            <Route path="/sales-rep/order-tracking" element={<SalesRepOrderTracking />} />
-            <Route path="/sales-rep/alerts" element={<SalesRepAlerts />} />
-            <Route path="/sales-rep/settings" element={<SalesRepSettings />} />
+            {/* Persistent shell: the sidebar + topbar mount once and stay put;
+                pages swap through the shell's <Outlet/> so the sidebar never
+                resets on navigation. */}
+            <Route element={<SalesRepShell />}>
+              <Route path="/sales-rep" element={<SalesRepDashboard />} />
+              <Route path="/sales-rep/inventory" element={<SalesRepInventory />} />
+              <Route path="/sales-rep/request-order" element={<SalesRepRequestOrder />} />
+              <Route path="/sales-rep/place-order" element={<SalesRepPlaceOrder />} />
+              <Route path="/sales-rep/order-confirmation" element={<SalesRepOrderConfirmation />} />
+              <Route path="/sales-rep/order-tracking" element={<SalesRepOrderTracking />} />
+              <Route path="/sales-rep/alerts" element={<SalesRepAlerts />} />
+              <Route path="/sales-rep/settings" element={<SalesRepSettings />} />
+            </Route>
           </Route>
 
           <Route element={<DispatcherRoute />}>
-            <Route path="/dispatcher" element={<DispatcherDashboard />} />
-            <Route path="/dispatcher/schedule" element={<DispatcherSchedule />} />
-            <Route path="/dispatcher/assign-rider" element={<DispatcherAssignRider />} />
-            <Route path="/dispatcher/shipments" element={<DispatcherShipments />} />
-            <Route path="/dispatcher/cargo-loading" element={<DispatcherCargoLoading />} />
-            <Route path="/dispatcher/geofence" element={<DispatcherGeofence />} />
-            <Route path="/dispatcher/settings" element={<DispatcherSettings />} />
+            {/* Persistent shell (sidebar + topbar mount once; pages swap via
+                the shell's <Outlet/>), so the rail never resets on navigation. */}
+            <Route element={<DispatcherLayout />}>
+              <Route path="/dispatcher" element={<DispatcherDashboard />} />
+              <Route path="/dispatcher/schedule" element={<DispatcherSchedule />} />
+              <Route path="/dispatcher/assign-rider" element={<DispatcherAssignRider />} />
+              <Route path="/dispatcher/shipments" element={<DispatcherShipments />} />
+              <Route path="/dispatcher/cargo-loading" element={<DispatcherCargoLoading />} />
+              <Route path="/dispatcher/geofence" element={<DispatcherGeofence />} />
+              <Route path="/dispatcher/settings" element={<DispatcherSettings />} />
+            </Route>
           </Route>
 
           {/* Meridian design-system preview — isolated, no Firestore. */}

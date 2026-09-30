@@ -245,11 +245,11 @@ test("every retained action is real, and the page writes nothing", () => {
   }
   assert.equal(/onResolve|onRoute|onContact/.test(CODE), false);
 
-  // What remains: filters and selection (local view state), a real tel: link
-  // built from the order's own field, and the logout navigation.
+  // What remains: filters and selection (local view state) and a real tel: link
+  // built from the order's own field. Logout now lives in the persistent
+  // AdminShell (the sidebar it renders), not on the page.
   assert.match(PAGE, /href=\{`tel:\$\{delivery\.riderPhone\}`\}/);
   assert.match(PAGE, /\{delivery\.riderPhone \?/, "the link only appears with a number");
-  assert.match(PAGE, /navigate\("\/login"\)/);
 
   // Admin remains read-only: no write of any kind, and no local mutation of a
   // status after an action — the subscription stays authoritative.

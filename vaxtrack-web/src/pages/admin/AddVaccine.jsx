@@ -8,7 +8,6 @@ import {
   Syringe,
   X,
 } from "lucide-react";
-import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import {
   getVaccineTypes,
   addVaccineType,
@@ -196,10 +195,7 @@ function AddVaccine() {
   };
 
   return (
-    <div className="inventory-page">
-      <AdminSidebar active="inventory" onLogout={() => navigate("/")} />
-
-      <main className="inventory-main">
+    <main className="inventory-main">
         <header className="form-page-header">
           <div>
             <p>
@@ -362,7 +358,6 @@ function AddVaccine() {
           )}
         </form>
       </main>
-    </div>
   );
 }
 

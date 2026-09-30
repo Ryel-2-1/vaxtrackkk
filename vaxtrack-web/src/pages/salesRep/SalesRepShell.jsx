@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState, Suspense } from "react";
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
   AlertTriangle,
@@ -17,8 +17,38 @@ import {
 import { auth } from "../../firebase";
 import "./SalesRep.css";
 
-function SalesRepLayout({ active, title, children, topbarTitle, showSearch = true }) {
+/**
+ * Persistent Sales Rep shell.
+ *
+ * Rendered ONCE as the parent layout route for every /sales-rep/* page, so the
+ * sidebar and topbar stay mounted across navigation — pages swap through the
+ * <Outlet/> only. This is what stops the sidebar "resetting" on every click: it
+ * no longer unmounts, so its scroll position holds and the active-link animation
+ * plays only on the link that actually becomes active. The per-page chrome
+ * (title, topbar title, whether the global search shows) comes from the route
+ * table below, so pages render just their content.
+ */
+const ROUTE_META = {
+  "/sales-rep": { key: "dashboard", title: "Dashboard", showSearch: true },
+  "/sales-rep/inventory": { key: "inventory", title: "Inventory", showSearch: false },
+  "/sales-rep/request-order": { key: "request", title: "Request Order", showSearch: false },
+  "/sales-rep/place-order": { key: "request", title: "Checkout", showSearch: false },
+  "/sales-rep/order-confirmation": { key: "request", title: "Order Confirmation", showSearch: false },
+  "/sales-rep/order-tracking": { key: "tracking", title: "Order Tracking", showSearch: false },
+  "/sales-rep/alerts": { key: "alerts", title: "Alerts", showSearch: false },
+  "/sales-rep/settings": { key: "settings", title: "Settings", showSearch: false },
+};
+
+function metaFor(pathname) {
+  return ROUTE_META[pathname] || { key: "dashboard", title: "Dashboard", showSearch: true };
+}
+
+function SalesRepShell() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const meta = metaFor(location.pathname);
+  const active = meta.key;
+
   const notificationRef = useRef(null);
   const [topSearch, setTopSearch] = useState("");
   const [notificationOpen, setNotificationOpen] = useState(false);
@@ -32,8 +62,7 @@ function SalesRepLayout({ active, title, children, topbarTitle, showSearch = tru
 
   // No hardcoded/sample notifications. Sales Reps have no `alerts` read access
   // under the Firestore rules and no Sales-Rep-specific notification feed
-  // exists, so this stays an honest empty list — no fabricated entries and no
-  // subscription added.
+  // exists, so this stays an honest empty list — no fabricated entries.
   const notifications = [];
 
   const unreadCount = notifications.filter(
@@ -50,10 +79,16 @@ function SalesRepLayout({ active, title, children, topbarTitle, showSearch = tru
         setNotificationOpen(false);
       }
     };
-
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Close any open dropdown on navigation so it never lingers over a new page.
+  // Syncing transient UI to a route change is a legitimate effect.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setNotificationOpen(false);
+  }, [location.pathname]);
 
   const handleLogout = async () => {
     try {
@@ -66,7 +101,6 @@ function SalesRepLayout({ active, title, children, topbarTitle, showSearch = tru
 
   const handleTopSearch = (event) => {
     event.preventDefault();
-
     const keyword = topSearch.trim();
     if (!keyword) return;
 
@@ -92,19 +126,14 @@ function SalesRepLayout({ active, title, children, topbarTitle, showSearch = tru
       lowerKeyword.includes("expiry")
     ) {
       targetRoute = "/sales-rep/inventory";
-    } else if (
-      lowerKeyword.includes("alert") ||
-      lowerKeyword.includes("warning")
-    ) {
+    } else if (lowerKeyword.includes("alert") || lowerKeyword.includes("warning")) {
       targetRoute = "/sales-rep/alerts";
     }
 
     navigate(`${targetRoute}?search=${encodeURIComponent(keyword)}`);
   };
 
-  const clearTopSearch = () => {
-    setTopSearch("");
-  };
+  const clearTopSearch = () => setTopSearch("");
 
   const markAllRead = () => {
     setReadNotifications(notifications.map((notification) => notification.id));
@@ -177,10 +206,10 @@ function SalesRepLayout({ active, title, children, topbarTitle, showSearch = tru
 
       <main className="salesrep-main">
         <header className="salesrep-topbar">
-          <h1>{topbarTitle || title}</h1>
+          <h1>{meta.topbarTitle || meta.title}</h1>
 
           <div className="salesrep-topbar-right">
-            {showSearch && (
+            {meta.showSearch && (
               <form className="salesrep-search salesrep-global-search" onSubmit={handleTopSearch}>
                 <Search size={15} />
                 <input
@@ -240,7 +269,6 @@ function SalesRepLayout({ active, title, children, topbarTitle, showSearch = tru
                     )}
                     {notifications.map((notification) => {
                       const isUnread = !readNotifications.includes(notification.id);
-
                       return (
                         <button
                           type="button"
@@ -267,10 +295,24 @@ function SalesRepLayout({ active, title, children, topbarTitle, showSearch = tru
           </div>
         </header>
 
-        {children}
+        {/* Keyed by route so only the content region replays the entrance
+            animation; the sidebar above stays mounted. The Suspense fallback is
+            scoped here too, so a lazy chunk load never blanks the sidebar. */}
+        <Suspense
+          fallback={
+            <div className="route-view-fallback" role="status" aria-live="polite">
+              <span className="rv-spinner" aria-hidden="true" />
+              <span>Loading…</span>
+            </div>
+          }
+        >
+          <div className="salesrep-route-view route-view" key={location.pathname}>
+            <Outlet />
+          </div>
+        </Suspense>
       </main>
     </div>
   );
 }
 
-export default SalesRepLayout;
+export default SalesRepShell;

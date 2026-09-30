@@ -14,7 +14,6 @@ import {
   Route as RouteIcon,
   User,
 } from "lucide-react";
-import DispatcherLayout from "./DispatcherLayout";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { saveOrderRoute, saveRiderTripRoute } from "../../services/orderService";
 import {
@@ -455,28 +454,28 @@ function DispatcherGeofence() {
 
   if (loading) {
     return (
-      <DispatcherLayout active="geofence" title="Live Monitoring">
+      <>
         <div className="dispatcher-loading-state">
           <Loader2 size={32} className="spin" />
           <p>Loading live monitoring...</p>
         </div>
-      </DispatcherLayout>
+      </>
     );
   }
 
   if (error) {
     return (
-      <DispatcherLayout active="geofence" title="Live Monitoring">
+      <>
         <div className="dispatcher-loading-state">
           <AlertTriangle size={32} />
           <p>{error}</p>
         </div>
-      </DispatcherLayout>
+      </>
     );
   }
 
   return (
-    <DispatcherLayout active="geofence" title="Live Monitoring">
+    <>
       <section className="geo3-page">
         <div className="geo3-top-row">
           <div>
@@ -863,7 +862,7 @@ function DispatcherGeofence() {
           </div>
         )}
       </section>
-    </DispatcherLayout>
+    </>
   );
 }
 

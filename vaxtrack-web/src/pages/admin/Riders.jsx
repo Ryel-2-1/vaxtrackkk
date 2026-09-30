@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { signOut } from "firebase/auth";
 import {
   Bell,
   CircleHelp,
@@ -9,8 +7,6 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { auth } from "../../firebase";
-import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import { subscribeRiders, updateRiderStatus } from "../../services/riderService";
 import KpiCard from "../../components/ui/KpiCard";
 import "./Riders.css";
@@ -72,7 +68,6 @@ function normalizeRider(raw) {
 }
 
 function Riders() {
-  const navigate = useNavigate();
 
   const [riders, setRiders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -96,11 +91,6 @@ function Riders() {
     );
     return () => unsubscribe();
   }, []);
-
-  const handleLogout = async () => {
-    await signOut(auth);
-    navigate("/login");
-  };
 
   const showToast = (message) => {
     setToast(message);
@@ -132,10 +122,8 @@ function Riders() {
   const offDutyCount = riders.filter((r) => r.status === "offduty").length;
 
   return (
-    <div className="inventory-page">
-      <AdminSidebar active="riders" onLogout={handleLogout} />
-
-      <main className="riders-v2-page">
+    <>
+    <main className="riders-v2-page">
         {toast && <div className="riders-toast">{toast}</div>}
 
         <header className="riders-v2-header">
@@ -366,7 +354,7 @@ function Riders() {
         />
       )}
 
-    </div>
+    </>
   );
 }
 

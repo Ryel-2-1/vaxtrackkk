@@ -26,7 +26,6 @@ import {
   formatCentavos,
   readPriceCentavos,
 } from "../../services/money";
-import SalesRepLayout from "./SalesRepLayout";
 
 /**
  * A server error code turned into something a rep can act on.
@@ -464,7 +463,7 @@ function SalesRepPlaceOrder() {
 
   if (items.length === 0 && !message) {
     return (
-      <SalesRepLayout active="request" title="Checkout" showSearch={false}>
+      <>
         <div className="inventory-loading-state">
           <AlertTriangle size={32} />
           <strong>No items in cart</strong>
@@ -479,17 +478,12 @@ function SalesRepPlaceOrder() {
             Browse Catalog
           </button>
         </div>
-      </SalesRepLayout>
+      </>
     );
   }
 
   return (
-    <SalesRepLayout
-      active="request"
-      title="Checkout"
-      topbarTitle="Checkout"
-      showSearch={false}
-    >
+    <>
       <div className="place-order-session place-v2-session">
         <span>Current Session</span>
         <strong>{items.length} {items.length === 1 ? "item" : "items"} in order</strong>
@@ -741,7 +735,7 @@ function SalesRepPlaceOrder() {
           </div>
         </aside>
       </section>
-    </SalesRepLayout>
+    </>
   );
 }
 

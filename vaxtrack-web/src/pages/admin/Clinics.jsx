@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { signOut } from "firebase/auth";
 import {
   Bell,
   Building2,
@@ -15,8 +13,6 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { auth } from "../../firebase";
-import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import {
   subscribeClinics,
   clinicNameExists,
@@ -216,7 +212,6 @@ function useLinkedDoctorsForClinic(
 }
 
 function Clinics() {
-  const navigate = useNavigate();
   const [clinics, setClinics] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -325,11 +320,6 @@ function Clinics() {
     await updateClinicLocation(clinic.firestoreId, draft);
     showToast(`Location saved for ${clinic.name}.`);
     closeManageLocation();
-  };
-
-  const handleLogout = async () => {
-    await signOut(auth);
-    navigate("/login");
   };
 
   useEffect(() => {
@@ -534,10 +524,8 @@ function Clinics() {
   };
 
   return (
-    <div className="inventory-page clinics-shell">
-      <AdminSidebar active="clinics" onLogout={handleLogout} />
-
-      <main className="clinics-v2-main">
+    <>
+    <main className="clinics-v2-main">
         {toast && <div className="clinics-toast">{toast}</div>}
 
         <header className="clinics-v2-topbar">
@@ -925,7 +913,7 @@ function Clinics() {
           onSave={handleSaveLocation}
         />
       )}
-    </div>
+    </>
   );
 }
 

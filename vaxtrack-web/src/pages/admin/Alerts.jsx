@@ -1,7 +1,5 @@
 import "./Alerts.css";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { signOut } from "firebase/auth";
 import {
   AlertTriangle,
   Bell,
@@ -15,8 +13,6 @@ import {
   Truck,
   X,
 } from "lucide-react";
-import { auth } from "../../firebase";
-import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import {
   markAlertRead,
   resolveAlert,
@@ -81,7 +77,6 @@ function normalizeAlert(raw) {
 }
 
 function Alerts() {
-  const navigate = useNavigate();
 
   const [alerts, setAlerts] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -97,10 +92,6 @@ function Alerts() {
     return () => unsubscribe();
   }, []);
 
-  const handleLogout = async () => {
-    await signOut(auth);
-    navigate("/login");
-  };
 
   const showToast = (message) => {
     setToast(message);
@@ -171,10 +162,8 @@ function Alerts() {
   };
 
   return (
-    <div className="inventory-page">
-      <AdminSidebar active="alerts" onLogout={handleLogout} />
-
-      <main className="alerts-v2-main">
+    <>
+    <main className="alerts-v2-main">
         {toast && <div className="alerts-toast">{toast}</div>}
 
         <header className="alerts-v2-topbar">
@@ -436,7 +425,7 @@ function Alerts() {
       {showSettings && (
         <AlertChannelsModal onClose={() => setShowSettings(false)} />
       )}
-    </div>
+    </>
   );
 }
 

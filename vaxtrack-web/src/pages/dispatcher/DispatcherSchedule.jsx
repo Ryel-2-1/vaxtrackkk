@@ -9,7 +9,6 @@ import {
   monthOf,
   ordersOnDate,
 } from "../../services/deliveryCalendar";
-import DispatcherLayout from "./DispatcherLayout";
 import MonthCalendar from "../../components/ui/MonthCalendar";
 import StatusBadge from "../../components/ui/StatusBadge";
 
@@ -104,7 +103,7 @@ function DispatcherSchedule() {
   const goNextMonth = () => setView((v) => addMonths(v.year, v.month, 1));
 
   return (
-    <DispatcherLayout active="schedule" title="Delivery Schedule">
+    <>
       <div className="dsch">
         <header className="dsch-head">
           <div>
@@ -200,7 +199,7 @@ function DispatcherSchedule() {
           </div>
         )}
       </div>
-    </DispatcherLayout>
+    </>
   );
 }
 

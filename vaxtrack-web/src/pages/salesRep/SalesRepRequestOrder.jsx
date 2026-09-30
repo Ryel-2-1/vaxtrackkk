@@ -13,11 +13,13 @@ import {
   Trash2,
 } from "lucide-react";
 import { subscribeInventory } from "../../services/inventoryService";
-import { availableStock } from "../../services/inventoryCallables";
 import { formatCentavos, readPriceCentavos } from "../../services/money";
 import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
+import {
+  evaluateBatchEligibility,
+  reconcileCartLine,
+} from "../../services/orderEligibility";
 
-import SalesRepLayout from "./SalesRepLayout";
 
 
 
@@ -34,37 +36,21 @@ import SalesRepLayout from "./SalesRepLayout";
  * stock that exists but is unusable is visible rather than silently missing.
  */
 function normalizeProduct(raw, todayIso) {
-  const available = availableStock(raw);
+  // ONE eligibility decision, shared with the trusted callable. It mirrors
+  // functions/src/policy.js `evaluateBatch` exactly — id, quantity/reserved,
+  // STATUS (the check this catalog used to be missing, which let a "Critical"
+  // batch into the cart and then failed the whole order at submission), expiry,
+  // price and available stock — so a batch the server will refuse is never shown
+  // as orderable here. `availableQuantity` is derived (quantity - reserved),
+  // never stored.
+  const eligibility = evaluateBatchEligibility(raw, todayIso);
+  const available = eligibility.availableQuantity;
   const onHand = typeof raw.quantity === "number" ? raw.quantity : null;
-  // The shared derivation, so this catalog, Admin Inventory and the server all
-  // mean the same thing by "expired". The hand-rolled test it replaces set
-  // `expired` only when the date PARSED and was past, so a batch with a missing
-  // or malformed date fell through as orderable here and was then refused by
-  // the callable with `batch-expired` — exactly the cart the comment above
-  // promises a rep can never build.
+  // Kept for display only: the card shows the live expiry condition and price.
   const expiryCondition = deriveExpiryCondition(raw, todayIso);
   const expiryIso = expiryCondition.expiryDate ?? "";
   const expired = expiryCondition.level === "expired";
-  const undated = expiryCondition.level === "unknown";
   const unitPriceCentavos = readPriceCentavos(raw.sellingPriceCentavos);
-
-  // `available === null` means the batch's own figures are unusable — the three
-  // hand-seeded staging batches store `quantity` as text. Saying "0 in stock"
-  // would be wrong; it needs a migration, and the label says so.
-  //
-  // An unpriced batch gets its own reason for the same purpose. It is not out
-  // of stock and it is not expired — it is waiting on an admin, which is a
-  // different problem with a different owner. Blocking it here means a rep can
-  // never build a cart the server will refuse, and can never be quoted ₱0.00.
-  let blockedReason = null;
-  if (available === null) blockedReason = "Needs inventory migration";
-  else if (expired) blockedReason = "Expired — unavailable";
-  // Its own reason rather than "Expired": nobody knows when this batch expires,
-  // which is a different problem with a different owner — and the server
-  // refuses it just as firmly.
-  else if (undated) blockedReason = "No usable expiry date — unavailable";
-  else if (unitPriceCentavos === null) blockedReason = "Not priced — unavailable";
-  else if (available <= 0) blockedReason = "Out of stock";
 
   return {
     inventoryId: raw.id,
@@ -82,9 +68,12 @@ function normalizeProduct(raw, todayIso) {
     available,
     expiryDate: expiryIso || null,
     expired,
-    blockedReason,
-    orderable: blockedReason === null,
-    status: blockedReason ?? "In Stock",
+    // The specific, server-aligned reason a batch cannot be ordered, plus its
+    // stable code — surfaced on the disabled control, not conveyed by colour.
+    blockedReason: eligibility.eligible ? null : eligibility.reason,
+    blockedReasonCode: eligibility.reasonCode,
+    orderable: eligibility.eligible,
+    status: eligibility.eligible ? "In Stock" : eligibility.reason,
   };
 }
 
@@ -104,6 +93,12 @@ function SalesRepRequestOrder() {
   const [quantities, setQuantities] = useState({});
   const [cart, setCart] = useState([]);
   const [notice, setNotice] = useState("");
+  // The raw inventory documents and the reference date the catalog was derived
+  // against, kept so a cart line can be re-checked with reconcileCartLine when
+  // live inventory changes under it. The clock is read once here, in the data
+  // callback — never in a render.
+  const [rawInventory, setRawInventory] = useState([]);
+  const [catalogTodayIso, setCatalogTodayIso] = useState(() => manilaToday(Date.now()));
 
   useEffect(() => {
     const unsubscribe = subscribeInventory(
@@ -111,6 +106,8 @@ function SalesRepRequestOrder() {
         const todayIso = manilaToday(Date.now());
         const products = raw.map((item) => normalizeProduct(item, todayIso));
         setCatalog(products);
+        setRawInventory(raw);
+        setCatalogTodayIso(todayIso);
 
         setQuantities((prev) => {
           const next = { ...prev };
@@ -153,6 +150,35 @@ function SalesRepRequestOrder() {
 
   const cartTotal = cart.reduce((total, item) => total + item.quantity, 0);
   const storageSlots = cart.length;
+
+  // Every current inventory document by its Firestore id, for re-checking cart
+  // lines against live stock.
+  const rawById = useMemo(() => {
+    const map = new Map();
+    for (const item of rawInventory) map.set(item.id, item);
+    return map;
+  }, [rawInventory]);
+
+  // Re-check each cart line against the CURRENT batch. A line whose batch has
+  // vanished, become ineligible (e.g. it just turned Critical or expired), or no
+  // longer has enough stock is marked — never silently removed — so the rep is
+  // told exactly which batch to fix before the order can continue. The server
+  // still repeats this decision inside the reservation transaction.
+  const cartLines = useMemo(
+    () =>
+      cart.map((item) => {
+        const check = reconcileCartLine(
+          { inventoryId: item.inventoryId, quantity: item.quantity },
+          rawById.get(item.inventoryId),
+          catalogTodayIso
+        );
+        return { ...item, ok: check.ok, issue: check.ok ? null : check.reason };
+      }),
+    [cart, rawById, catalogTodayIso]
+  );
+
+  const blockedCartLines = cartLines.filter((line) => !line.ok);
+  const hasBlockedCartLine = blockedCartLines.length > 0;
 
   // Keyed by the inventory DOCUMENT id, not the batch label: two batches could
   // share a batchId (nothing enforces uniqueness), and keying by it would let
@@ -204,6 +230,15 @@ function SalesRepRequestOrder() {
     return;
   }
 
+  // A cart line that went invalid while the rep was deciding blocks the whole
+  // checkout, and the notice names the batch so it is obvious which to fix. This
+  // is the fast client guard; the callable repeats the check for stale clients.
+  if (hasBlockedCartLine) {
+    const first = blockedCartLines[0];
+    setNotice(`${first.name} — ${first.issue}. Remove or update it to continue.`);
+    return;
+  }
+
   // Destination selection belongs to checkout. Quick Cart only carries the
   // selected Firestore inventory batches and their requested quantities.
   const orderDraft = {
@@ -219,28 +254,28 @@ function SalesRepRequestOrder() {
 
   if (loading) {
     return (
-      <SalesRepLayout active="request" title="Request Order" showSearch={false}>
+      <>
         <div className="inventory-loading-state">
           <Loader2 size={32} className="spin" />
           <p>Loading vaccine catalog...</p>
         </div>
-      </SalesRepLayout>
+      </>
     );
   }
 
   if (error) {
     return (
-      <SalesRepLayout active="request" title="Request Order" showSearch={false}>
+      <>
         <div className="inventory-loading-state">
           <AlertTriangle size={32} />
           <p>{error}</p>
         </div>
-      </SalesRepLayout>
+      </>
     );
   }
 
   return (
-    <SalesRepLayout active="request" title="Request Order" showSearch={false}>
+    <>
       <section className="request-order-layout request-v2-layout">
         <div className="request-catalog">
           <div className="request-header-row request-v2-header">
@@ -400,12 +435,22 @@ function SalesRepRequestOrder() {
             </div>
           ) : (
             <div className="request-v2-cart-items">
-              {cart.map((item) => (
-                <div className="request-v2-cart-item" key={item.inventoryId}>
+              {cartLines.map((item) => (
+                <div
+                  className={`request-v2-cart-item${item.ok ? "" : " request-v2-cart-item-blocked"}`}
+                  key={item.inventoryId}
+                >
                   <div>
                     <strong>{item.name}</strong>
                     <p>{item.sku}</p>
                     <span>{item.quantity.toLocaleString()} {item.quantity === 1 ? "vial" : "vials"}</span>
+                    {/* A specific reason in words, not conveyed by colour alone,
+                        so the rep knows exactly which batch to fix. */}
+                    {!item.ok && (
+                      <span className="request-v2-cart-issue" role="alert">
+                        <AlertTriangle size={12} /> {item.issue}
+                      </span>
+                    )}
                   </div>
 
                   <button type="button" onClick={() => removeFromCart(item.inventoryId)}>
@@ -425,17 +470,23 @@ function SalesRepRequestOrder() {
     Storage Slots: <strong>{storageSlots}</strong>
   </p>
 
+  {hasBlockedCartLine && (
+    <p className="request-v2-cart-blocked-note" role="alert">
+      Remove or update the highlighted {blockedCartLines.length === 1 ? "batch" : "batches"} to continue.
+    </p>
+  )}
+
   <button
     type="button"
     onClick={placeOrder}
-    disabled={cart.length === 0}
+    disabled={cart.length === 0 || hasBlockedCartLine}
   >
     Continue to Checkout
   </button>
 </div>
         </aside>
       </section>
-    </SalesRepLayout>
+    </>
   );
 }
 

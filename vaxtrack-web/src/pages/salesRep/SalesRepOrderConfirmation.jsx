@@ -11,7 +11,6 @@ import {
   Truck,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import SalesRepLayout from "./SalesRepLayout";
 
 const fallbackOrder = {
   id: "VT-ORD-2023-9821",
@@ -126,7 +125,7 @@ function SalesRepOrderConfirmation() {
   };
 
   return (
-    <SalesRepLayout active="request" title="Order Confirmation" showSearch={false}>
+    <>
       <section className="confirmation-card confirmation-v2-card">
         <div className="confirmation-hero">
           <CheckCircle2 size={34} />
@@ -238,7 +237,7 @@ function SalesRepOrderConfirmation() {
           This confirmation is a record of order submission. Official CVP compliance and billing documentation will be sent to the registered clinic administrator within 2 hours.
         </small>
       </section>
-    </SalesRepLayout>
+    </>
   );
 }
 

@@ -16,7 +16,6 @@ import { subscribeRiders } from "../../services/riderService";
 // `auth` is no longer imported here: the dispatcher's audit identity is taken
 // from the session inside assignRiderToOrder, so this page cannot supply — or
 // mis-supply — who performed the assignment.
-import DispatcherLayout from "./DispatcherLayout";
 import StatusBadge from "../../components/ui/StatusBadge";
 
 function initialsOf(name) {
@@ -156,7 +155,7 @@ function DispatcherAssignRider() {
   const canAssign = !saving && !!selectedRiderId && !!selectedOrder;
 
   return (
-    <DispatcherLayout active="assign-rider" title="Assign Rider">
+    <>
       <div className="ar-page">
         <header className="ar-header">
           <button
@@ -391,7 +390,7 @@ function DispatcherAssignRider() {
           </aside>
         </section>
       </div>
-    </DispatcherLayout>
+    </>
   );
 }
 

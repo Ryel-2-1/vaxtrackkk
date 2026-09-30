@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
   Bell,
@@ -46,12 +46,29 @@ function alertToneClass(severity) {
   return "normal";
 }
 
-function DispatcherLayout({
-  active = "dashboard",
-  title = "VaxTrack Logistics",
-  children,
-}) {
+// Per-route chrome for the persistent Dispatcher shell. Keys drive the sidebar
+// highlight; titles drive the topbar. Pages render only their content into the
+// shell's <Outlet/>, so the sidebar never unmounts on navigation.
+const ROUTE_META = {
+  "/dispatcher": { key: "dashboard", title: "Dashboard" },
+  "/dispatcher/schedule": { key: "schedule", title: "Delivery Schedule" },
+  "/dispatcher/assign-rider": { key: "assign-rider", title: "Assign Rider" },
+  "/dispatcher/shipments": { key: "shipments", title: "Shipments" },
+  "/dispatcher/cargo-loading": { key: "cargo-loading", title: "Cargo Loading" },
+  "/dispatcher/geofence": { key: "geofence", title: "Live Monitoring" },
+  "/dispatcher/settings": { key: "settings", title: "Settings" },
+};
+
+function metaForDispatcher(pathname) {
+  return ROUTE_META[pathname] || { key: "dashboard", title: "VaxTrack Logistics" };
+}
+
+function DispatcherLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const meta = metaForDispatcher(location.pathname);
+  const active = meta.key;
+  const title = meta.title;
 
   const [searchText, setSearchText] = useState("");
   const [showNotifications, setShowNotifications] = useState(false);
@@ -96,6 +113,7 @@ function DispatcherLayout({
         setNotifications(Array.isArray(alerts) ? alerts : []);
       });
     } catch {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setNotifications([]);
     }
     return () => unsubscribe();
@@ -477,7 +495,21 @@ function DispatcherLayout({
           <strong className="dispatcher-hub">VaxTrack Logistics</strong>
         </header>
 
-        <div className="dispatcher-content">{children}</div>
+        {/* Keyed by route so only this content region replays the entrance
+            animation; the sidebar/topbar above stay mounted. The Suspense
+            fallback is scoped here, so a lazy chunk load never blanks the rail. */}
+        <Suspense
+          fallback={
+            <div className="route-view-fallback" role="status" aria-live="polite">
+              <span className="rv-spinner" aria-hidden="true" />
+              <span>Loading…</span>
+            </div>
+          }
+        >
+          <div className="dispatcher-content route-view" key={location.pathname}>
+            <Outlet />
+          </div>
+        </Suspense>
       </main>
     </div>
   );
