@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   createServiceLoader,
   createStore,
@@ -7,6 +8,10 @@ import {
   installStore,
   SERVER_TIMESTAMP,
 } from "./serviceHarness.js";
+import {
+  AWAITING_DISPATCHER_STATUSES,
+  ORDER_STATUSES,
+} from "../src/services/orderWorkflow.js";
 
 // Failed-delivery recovery, executed against the in-memory Firestore stand-in.
 //
@@ -265,4 +270,90 @@ test("a failed order can still be cancelled, preserving the failure record", asy
   assert.equal(o.cancelReason, "Clinic will not reopen");
   assert.equal(o.deliveryFailureReason, "Clinic permanently closed", "failure detail survives");
   assert.equal(o.deliveryFailedByUid, RIDER);
+});
+
+// ---------------------------------------------------------------------------
+// Retry/Reassign VISIBILITY on the Dispatcher Shipments page.
+//
+// Regression for the leak where a "Retry / Reassign" button appeared on every
+// `pending_dispatch` order (the whole unassigned queue). The button runs the
+// failed-recovery callable `reassignFailedOrder`, which accepts `delivery_failed`
+// and nothing else, so on a pending order it failed server-side with "That order
+// is no longer awaiting recovery."
+//
+// The visibility gate `canReassign` lives inside a React page that imports
+// Firebase and lucide, so it cannot be imported into this Node runner (there is
+// no jsdom/RTL and no JSX transform here). The coverage is therefore split into
+// (a) a BEHAVIORAL proof against the real, importable policy set that drives the
+// gate, and (b) narrow SOURCE-CONTRACT assertions pinning that the button is
+// wired to exactly that gate and callable — so the two together prove per-status
+// visibility without a DOM.
+const SHIPMENTS = readFileSync(
+  new URL("../src/pages/dispatcher/DispatcherShipments.jsx", import.meta.url),
+  "utf8"
+);
+
+test("only a failed delivery qualifies for recovery; every other status does not", () => {
+  // The authoritative set is exactly one status.
+  assert.deepEqual([...AWAITING_DISPATCHER_STATUSES], ["delivery_failed"]);
+
+  // Behavioral: the gate is membership in that set (pinned to the source below),
+  // so applying it to each lifecycle status is the visibility decision.
+  const qualifies = (statusKey) => AWAITING_DISPATCHER_STATUSES.includes(statusKey);
+  for (const hidden of [
+    "pending_dispatch",
+    "assigned",
+    "loading",
+    "in_transit",
+    "delayed",
+    "delivered",
+    "cancelled",
+  ]) {
+    assert.equal(qualifies(hidden), false, `${hidden} must NOT show Retry / Reassign`);
+    assert.ok(ORDER_STATUSES.includes(hidden), `${hidden} is a real lifecycle status`);
+  }
+  assert.equal(qualifies("delivery_failed"), true, "delivery_failed must show Retry / Reassign");
+});
+
+test("the Retry/Reassign button is gated by the recovery set, not the assign transition", () => {
+  // canReassign is EXACTLY membership in AWAITING_DISPATCHER_STATUSES …
+  assert.match(
+    SHIPMENTS,
+    /function canReassign\(statusKey\)\s*\{\s*return AWAITING_DISPATCHER_STATUSES\.includes\(statusKey\);\s*\}/,
+    "canReassign must gate on the failed-recovery set"
+  );
+  // … not the old leaky test that was also true for pending_dispatch.
+  assert.equal(
+    /canTransition\([^)]*,\s*statusKey,\s*"assigned"\)/.test(SHIPMENTS),
+    false,
+    "reassign must not be gated on the pending→assigned transition"
+  );
+  // The row computes `reassignable` from that gate and renders the button only then.
+  assert.match(SHIPMENTS, /const reassignable = canReassign\(sKey\);/);
+  assert.match(SHIPMENTS, /\{reassignable && \(/);
+  assert.match(SHIPMENTS, /Retry \/ Reassign/);
+});
+
+test("the recovery control invokes reassignFailedOrder; normal assignment stays separate", () => {
+  assert.match(SHIPMENTS, /onConfirm=\{handleConfirmReassign\}/);
+  assert.match(SHIPMENTS, /const result = await reassignFailedOrder\(order\.id, riderUid\)/);
+  // Pending-dispatch assignment is the Assign Rider page's job — never performed
+  // here — so the normal assignment service is not even reachable from Shipments.
+  assert.equal(
+    /assignRiderToOrder/.test(SHIPMENTS),
+    false,
+    "Shipments must not perform normal pending assignment"
+  );
+});
+
+test("Request change and Cancel order actions are not accidentally removed", () => {
+  // Each remaining action keeps its own independent gate.
+  assert.match(SHIPMENTS, /const cancellable = canCancel\(sKey\);/);
+  assert.match(SHIPMENTS, /const correctable = canCorrectDestination\(order\);/);
+  assert.match(SHIPMENTS, /\{correctable && \(/);
+  assert.match(SHIPMENTS, /Request change/);
+  assert.match(SHIPMENTS, /\{cancellable && \(/);
+  assert.match(SHIPMENTS, /Cancel order/);
+  // Cancel still routes through the trusted inventory-release callable.
+  assert.match(SHIPMENTS, /cancelOrderWithInventoryRelease/);
 });
