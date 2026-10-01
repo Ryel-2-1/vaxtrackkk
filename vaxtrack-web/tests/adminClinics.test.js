@@ -203,9 +203,11 @@ test("Quick Cart does not request or validate a destination", () => {
   assert.doesNotMatch(requestOrder, /clinicDocId/);
   assert.doesNotMatch(requestOrder, /clinicId:/);
 
+  // The cart is saved per signed-in Med Rep (the old global
+  // `salesRepQuickCart` key let one account load another's cart).
   assert.match(
     requestOrder,
-    /localStorage\.setItem\("salesRepQuickCart"/
+    /saveCartDraft\(localStorage, uid, orderDraft\)/
   );
   assert.match(
     requestOrder,

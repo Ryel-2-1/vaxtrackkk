@@ -16,6 +16,12 @@ import { subscribeInventory } from "../../services/inventoryService";
 import { formatCentavos, readPriceCentavos } from "../../services/money";
 import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
 import {
+  STORAGE_UNAVAILABLE_MESSAGE,
+  UNAUTHENTICATED_MESSAGE,
+  saveCartDraft,
+} from "../../services/orderDraftRequest";
+import { auth } from "../../firebase";
+import {
   evaluateBatchEligibility,
   reconcileCartLine,
 } from "../../services/orderEligibility";
@@ -248,7 +254,18 @@ function SalesRepRequestOrder() {
     createdAt: new Date().toISOString(),
   };
 
-  localStorage.setItem("salesRepQuickCart", JSON.stringify(orderDraft));
+  // The cart is saved under the signed-in Med Rep only, so another account on
+  // this browser can never load or submit it. Checkout reads it back from the
+  // same user-scoped record (services/orderDraftRequest.js).
+  const uid = auth.currentUser?.uid;
+  if (!uid) {
+    setNotice(UNAUTHENTICATED_MESSAGE);
+    return;
+  }
+  if (!saveCartDraft(localStorage, uid, orderDraft)) {
+    setNotice(STORAGE_UNAVAILABLE_MESSAGE);
+    return;
+  }
   navigate("/sales-rep/place-order");
 };
 

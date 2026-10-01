@@ -83,7 +83,8 @@ test("legitimate Sales Rep selections and the normal cart flow are preserved", (
     assert.ok(inventory.includes(kept), `${kept} filter must remain`);
   }
   // Request Order still adds to the quick cart and places a normal order.
-  assert.ok(requestOrder.includes("salesRepQuickCart"), "the quick-cart flow must remain");
+  // The quick-cart flow remains, now saved under the signed-in user only.
+  assert.ok(requestOrder.includes("saveCartDraft("), "the quick-cart flow must remain");
   assert.ok(requestOrder.includes("addToCart") || requestOrder.includes("setCart"), "add-to-order remains");
 });
 

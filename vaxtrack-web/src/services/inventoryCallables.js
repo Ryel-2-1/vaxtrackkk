@@ -29,17 +29,13 @@ function callables() {
  * The old order number was `VT-ORD-${Date.now()}`, which is neither unique nor
  * stable: two submissions in the same millisecond collide, and a retry produces
  * a different value, so the server could not tell a retry from a new order.
- * This id is generated once, survives a recoverable failure, and is what makes
- * five simultaneous submissions land as one order.
+ *
+ * Generated in services/orderDraftRequest.js (Firebase-free), which also keeps
+ * it for the life of the order draft — across refreshes, not just this page —
+ * and is the only place its storage rules live. Re-exported here so existing
+ * imports keep working.
  */
-export function newRequestId() {
-  const bytes = new Uint8Array(24);
-  crypto.getRandomValues(bytes);
-  return btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
+export { newRequestId } from "./orderDraftRequest";
 
 /**
  * A failure from a callable, carrying the server's stable domain code.
