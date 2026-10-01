@@ -68,7 +68,9 @@ void main() {
       final uri = googleMapsMultiStopUrl(stops)!;
       expect(uri.host, 'www.google.com');
       expect(uri.path, '/maps/dir/');
-      expect(uri.queryParameters['travelmode'], 'driving');
+      // Riders ride motorcycles: Google's two-wheeler mode, opened to navigate.
+      expect(uri.queryParameters['travelmode'], 'two-wheeler');
+      expect(uri.queryParameters['dir_action'], 'navigate');
       expect(uri.queryParameters['destination'], '14.6,121.03');
       // Earlier stops are waypoints, in order; the final stop is NOT a waypoint.
       expect(uri.queryParameters['waypoints'], '14.55,121.01|14.58,121.02');

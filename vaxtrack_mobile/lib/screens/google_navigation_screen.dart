@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../services/route_deviation_alert_service.dart';
 import '../utils/deviation_detector.dart';
+import '../utils/google_maps_url.dart';
 import '../utils/navigation_init_controller.dart';
 import '../utils/route_compliance_monitor.dart';
 
@@ -198,13 +199,11 @@ class _GoogleNavigationScreenState extends State<GoogleNavigationScreen> {
     return _init.retry();
   }
 
-  // External Google Maps fallback used from the init-failure panel. Same URL
-  // format as the delivery screen's handoff; failures are surfaced, not silent.
+  // External Google Maps fallback used from the init-failure panel. Same
+  // motorcycle-mode URL as the delivery screen's handoff (one shared builder);
+  // failures are surfaced, not silent.
   Future<void> _openExternalMaps() async {
-    final Uri uri = Uri.parse(
-      'https://www.google.com/maps/dir/?api=1'
-      '&destination=${widget.clinicLat},${widget.clinicLng}&travelmode=driving',
-    );
+    final Uri uri = googleMapsDestinationUrl(widget.clinicLat, widget.clinicLng);
     try {
       final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!ok && mounted) {

@@ -8,6 +8,7 @@ import '../services/delivery_service.dart';
 import '../services/location_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/completion_gate.dart';
+import '../utils/google_maps_url.dart';
 import '../utils/nav_availability.dart';
 import '../utils/order_workflow.dart';
 import '../utils/route_utils.dart';
@@ -473,15 +474,13 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
   }
 
   // Hands off to the installed Google Maps app for real turn-by-turn
-  // navigation (free, no API key). Prefers the exact clinic coordinates when
-  // the dispatcher set them; otherwise falls back to an address search.
+  // navigation (free, no API key), in motorcycle mode. Prefers the exact clinic
+  // coordinates when the dispatcher set them; otherwise falls back to an
+  // address search (a search carries no travel mode — the rider picks it).
   Future<void> _openNavigation() async {
     final Uri uri;
     if (d.hasClinicCoords) {
-      uri = Uri.parse(
-        'https://www.google.com/maps/dir/?api=1'
-        '&destination=${d.clinicLat},${d.clinicLng}&travelmode=driving',
-      );
+      uri = googleMapsDestinationUrl(d.clinicLat!, d.clinicLng!);
     } else if (d.clinicAddress.isNotEmpty) {
       uri = Uri.parse(
         'https://www.google.com/maps/search/?api=1'
@@ -658,6 +657,14 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
                   ),
                 ),
               ),
+              if (nav.canOpenExternalMaps)
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text(
+                    motorcycleModeNote,
+                    style: TextStyle(fontSize: 11, color: AppColors.textLight),
+                  ),
+                ),
               if (nav.usesAddressSearch)
                 const Padding(
                   padding: EdgeInsets.only(top: 6),

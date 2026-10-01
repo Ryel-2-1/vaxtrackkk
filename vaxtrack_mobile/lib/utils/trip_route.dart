@@ -1,4 +1,5 @@
 import '../models/delivery.dart';
+import 'google_maps_url.dart';
 
 /// Multi-stop trip helpers for the Rider app.
 ///
@@ -23,23 +24,18 @@ List<Delivery> orderedTripStops(List<Delivery> deliveries) {
 /// A Google Maps directions URL that routes through every stop in [stops] in the
 /// given order: the device's current location is the origin (omitted, so Maps
 /// uses it), the last stop is the destination, and the rest are waypoints in
-/// order. Returns null when there are no stops.
+/// order. Motorcycle (two-wheeler) mode, opened into navigation — see
+/// [googleMapsDirectionsUrl]. Returns null when there are no stops.
 ///
 /// This gives real turn-by-turn through the whole optimized trip without the
 /// gated Navigation SDK. Google Maps' universal URL caps the waypoint count;
 /// typical rider loads are within it.
 Uri? googleMapsMultiStopUrl(List<Delivery> stops) {
   if (stops.isEmpty) return null;
+  // Callers pass [orderedTripStops] output, which guarantees coordinates.
   String coord(Delivery d) => '${d.clinicLat},${d.clinicLng}';
-  final destination = coord(stops.last);
-  final params = <String, String>{
-    'api': '1',
-    'travelmode': 'driving',
-    'destination': destination,
-  };
-  if (stops.length > 1) {
-    params['waypoints'] =
-        stops.sublist(0, stops.length - 1).map(coord).join('|');
-  }
-  return Uri.https('www.google.com', '/maps/dir/', params);
+  return googleMapsDirectionsUrl(
+    destination: coord(stops.last),
+    waypoints: stops.sublist(0, stops.length - 1).map(coord).toList(),
+  );
 }

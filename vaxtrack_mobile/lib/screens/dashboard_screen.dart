@@ -5,6 +5,7 @@ import '../models/delivery.dart';
 import '../services/delivery_service.dart';
 import '../services/location_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/google_maps_url.dart';
 import '../utils/route_utils.dart';
 import '../utils/sync_status.dart';
 import '../utils/trip_route.dart';
@@ -243,6 +244,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 foregroundColor: Colors.white,
               ),
             ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            motorcycleModeNote,
+            style: TextStyle(fontSize: 11, color: AppColors.textLight),
           ),
         ],
       ),
