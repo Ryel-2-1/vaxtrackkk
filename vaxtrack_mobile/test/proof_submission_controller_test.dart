@@ -36,9 +36,13 @@ class _FakeUploader implements ProofUploader {
     );
   }
 
+  /// Thrown by [uploadInvoice] when set — e.g. a missing or unreadable file.
+  Object? invoiceUploadError;
+
   @override
   Future<EvidenceUpload> uploadInvoice(String orderId, File file) async {
     invoiceUploads += 1;
+    if (invoiceUploadError != null) throw invoiceUploadError!;
     return EvidenceUpload(
       downloadUrl: 'https://storage/$orderId/invoice.jpg',
       storagePath: invoiceObjectPath(orderId),
@@ -505,5 +509,107 @@ void main() {
     expect(writer.proofSaves.length, 1);
     expect(writer.invoiceSaves.length, 1);
     expect(c.phase, ProofPhase.submitted);
+  });
+
+  // The invoice is required before a delivery can be completed, so a delivery
+  // proven without one must still be able to attach just the invoice. This is
+  // the path that keeps the new completion gate from deadlocking such orders.
+  group('invoice-only submission', () {
+    final invoice = File('invoice-source.jpg');
+
+    test('attaches the invoice with one upload and one save', () async {
+      final c = build();
+      await c.submitInvoiceOnly(orderId: orderId, invoicePhoto: invoice);
+      expect(uploader.invoiceUploads, 1);
+      expect(writer.invoiceSaves, [orderId]);
+      expect(c.phase, ProofPhase.submitted);
+      // Proof was already recorded elsewhere; this path never touches it.
+      expect(uploader.proofUploads, 0);
+      expect(writer.proofSaves, isEmpty);
+    });
+
+    test('five taps in one turn produce one upload and one save', () {
+      final c = build();
+      final futures = [
+        for (var i = 0; i < 5; i++)
+          c.submitInvoiceOnly(orderId: orderId, invoicePhoto: invoice),
+      ];
+      return Future.wait(futures).then((_) {
+        expect(uploader.invoiceUploads, 1);
+        expect(writer.invoiceSaves.length, 1);
+      });
+    });
+
+    test('with no photo and nothing pending, it fails without uploading', () async {
+      final c = build();
+      await c.submitInvoiceOnly(orderId: orderId, invoicePhoto: null);
+      expect(uploader.invoiceUploads, 0);
+      expect(writer.invoiceSaves, isEmpty);
+      expect(c.phase, ProofPhase.idle);
+      expect(c.errorMessage, isNotNull);
+    });
+
+    test('a save failure is surfaced and does not claim success', () async {
+      writer.failInvoiceSaves = true;
+      final c = build();
+      await c.submitInvoiceOnly(orderId: orderId, invoicePhoto: invoice);
+      expect(c.phase, ProofPhase.idle);
+      expect(c.errorMessage, isNotNull);
+      expect(writer.invoiceSaves, isEmpty);
+    });
+
+    test('retry after a save failure reuses the upload — no duplicate object',
+        () async {
+      writer.failInvoiceSaves = true;
+      final c = build();
+      await c.submitInvoiceOnly(orderId: orderId, invoicePhoto: invoice);
+      expect(uploader.invoiceUploads, 1); // uploaded once, save failed
+
+      writer.failInvoiceSaves = false;
+      await c.submitInvoiceOnly(orderId: orderId, invoicePhoto: invoice);
+      // The canonical object is reused, not re-uploaded, and now saved.
+      expect(uploader.invoiceUploads, 1);
+      expect(writer.invoiceSaves, [orderId]);
+      expect(c.phase, ProofPhase.submitted);
+    });
+
+    test('an invoice failure is reported as an invoice failure, not a proof one',
+        () async {
+      uploader.invoiceUploadError = Exception('something unexpected');
+      final c = build();
+      await c.submitInvoiceOnly(orderId: orderId, invoicePhoto: invoice);
+      expect(c.errorMessage, 'Could not save the invoice photo. Please try again.');
+      expect(c.errorMessage, isNot(contains('proof')));
+      expect(c.phase, ProofPhase.idle);
+    });
+
+    test('a missing/unreadable file fails without a path or raw detail',
+        () async {
+      // What `file.length()` throws when the picked file has gone away.
+      uploader.invoiceUploadError = const FileSystemException(
+        'Cannot retrieve length of file',
+        '/data/user/0/app/cache/secret-invoice.jpg',
+      );
+      final c = build();
+      await c.submitInvoiceOnly(orderId: orderId, invoicePhoto: invoice);
+      expect(c.errorMessage, 'Could not save the invoice photo. Please try again.');
+      expect(c.errorMessage, isNot(contains('/data')));
+      expect(writer.invoiceSaves, isEmpty, reason: 'nothing recorded');
+    });
+
+    test('a permission failure gets invoice-specific wording', () async {
+      uploader.invoiceUploadError = Exception('[firebase_storage/permission-denied]');
+      final c = build();
+      await c.submitInvoiceOnly(orderId: orderId, invoicePhoto: invoice);
+      expect(c.errorMessage, contains('invoice photo'));
+      expect(c.errorMessage, isNot(contains('firebase_storage')));
+    });
+
+    test('canSubmitInvoiceOnly requires a chosen photo (or a pending upload)',
+        () {
+      final c = build();
+      expect(c.canSubmitInvoiceOnly(hasInvoicePhoto: false), isFalse);
+      expect(c.canSubmitInvoiceOnly(hasInvoicePhoto: true), isTrue);
+    });
   });
 }

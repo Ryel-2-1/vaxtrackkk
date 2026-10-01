@@ -174,6 +174,79 @@ class ProofSubmissionController extends ChangeNotifier {
     }
   }
 
+  /// Whether an invoice-only submission may run right now.
+  ///
+  /// Used for an active delivery whose proof is already recorded but whose
+  /// invoice was never attached — the invoice is required before completion, so
+  /// the screen must be able to add just it. True when a new invoice photo is
+  /// chosen, or an earlier invoice upload is waiting to be saved.
+  bool canSubmitInvoiceOnly({required bool hasInvoicePhoto}) {
+    if (isCommitting) return false;
+    return hasInvoicePhoto || hasOutstandingInvoice;
+  }
+
+  /// Attach (or retry) ONLY the invoice photo for [orderId], for a delivery
+  /// whose proof is already recorded.
+  ///
+  /// Unlike the best-effort invoice step inside a full submission, this SURFACES
+  /// failures (the invoice is required to complete, not an optional extra) and
+  /// reuses an already-uploaded object on retry rather than creating a duplicate.
+  /// The duplicate guard makes repeated taps a single upload and save.
+  Future<void> submitInvoiceOnly({
+    required String orderId,
+    File? invoicePhoto,
+  }) async {
+    if (_inFlight) return;
+    _inFlight = true;
+    try {
+      _errorMessage = null;
+      _noticeMessage = null;
+      _setPhase(ProofPhase.preparing);
+
+      if (_pendingInvoice == null) {
+        if (invoicePhoto == null) {
+          throw const ProofException(
+            'invoice-required',
+            'Choose an invoice photo before submitting.',
+          );
+        }
+        _setPhase(ProofPhase.uploadingPhoto);
+        _pendingInvoice = await _uploader.uploadInvoice(orderId, invoicePhoto);
+      }
+
+      _setPhase(ProofPhase.savingDetails);
+      await _writer.saveInvoicePhoto(
+        orderId: orderId,
+        invoiceUrl: _pendingInvoice!.downloadUrl,
+        storagePath: _pendingInvoice!.storagePath,
+      );
+      _pendingInvoice = null;
+      _setPhase(ProofPhase.submitted);
+    } on ProofException catch (e) {
+      _fail(e.message);
+    } catch (e) {
+      _fail(_friendlyInvoiceFailure(e));
+    } finally {
+      _inFlight = false;
+    }
+  }
+
+  /// The invoice-only path's own wording, so an invoice failure is never
+  /// reported as a proof failure. Raw error text (paths, Firebase internals) is
+  /// only inspected for its category, never shown.
+  String _friendlyInvoiceFailure(Object error) {
+    final text = error.toString();
+    if (text.contains('permission-denied')) {
+      return 'You are not allowed to add an invoice photo to this delivery. '
+          'It may have been reassigned — pull to refresh and check.';
+    }
+    if (text.contains('unavailable') || text.contains('network')) {
+      return 'No connection. Your invoice photo is kept — try again once you '
+          'are back online.';
+    }
+    return 'Could not save the invoice photo. Please try again.';
+  }
+
   Future<void> _run({
     required String orderId,
     required String recipientName,

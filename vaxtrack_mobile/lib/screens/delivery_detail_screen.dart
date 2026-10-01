@@ -7,10 +7,14 @@ import '../models/delivery.dart';
 import '../services/delivery_service.dart';
 import '../services/location_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/completion_gate.dart';
 import '../utils/nav_availability.dart';
 import '../utils/order_workflow.dart';
 import '../utils/route_utils.dart';
+import '../widgets/complete_delivery_confirm_sheet.dart';
 import '../widgets/delivery_map.dart';
+import 'delivery_completion_coordinator.dart';
+import 'proof_screen.dart';
 import 'route_monitoring_screen.dart';
 import 'package:intl/intl.dart';
 
@@ -33,11 +37,26 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
   // few seconds. UI-only — it never clears the pending guard (see _updateStatus).
   Timer? _statusFeedbackTimer;
 
-  Delivery get d => widget.delivery;
+  // The order this screen shows. Starts from the dashboard's copy and is
+  // reloaded from the server when the rider returns from adding evidence, so
+  // the screen never decides completion against a stale snapshot.
+  late final DeliveryCompletionCoordinator _completion =
+      DeliveryCompletionCoordinator(
+    initial: widget.delivery,
+    loader: _deliveryService,
+    completer: _deliveryService,
+  );
+
+  Delivery get d => _completion.delivery;
+
+  // Any write, completion or reload in progress — the action buttons wait.
+  bool get _busy =>
+      _updatingStatus || _completion.completing || _completion.refreshing;
 
   @override
   void initState() {
     super.initState();
+    _completion.addListener(_onCompletionChanged);
     // Foreground-only live tracking runs while an in_transit delivery is open.
     if (d.isInTransit) {
       _startTracking();
@@ -50,7 +69,13 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     // the documented foreground-only MVP; background tracking is out of scope.
     _statusFeedbackTimer?.cancel();
     _locationService.stopTracking();
+    _completion.removeListener(_onCompletionChanged);
+    _completion.dispose();
     super.dispose();
+  }
+
+  void _onCompletionChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _startTracking() async {
@@ -197,6 +222,141 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
       _statusFeedbackTimer?.cancel();
       if (mounted) setState(() => _updatingStatus = false);
     }
+  }
+
+  // Rider tapped "Complete Delivery". Completion settles inventory and cannot be
+  // casually reversed, so it never runs on this tap: it is validated first, then
+  // gated behind an explicit confirmation. Nothing is uploaded or written here.
+  Future<void> _onCompletePressed() async {
+    if (_busy) return;
+    // Fail-closed: order id, signed-in rider and the order's assigned rider are
+    // all checked before any status or evidence check. Early feedback only —
+    // the rules and the completion callable remain the authority.
+    final readiness = _completion.readiness(
+      currentRiderId: FirebaseAuth.instance.currentUser?.uid,
+    );
+
+    if (!readiness.ready) {
+      _showCompletionBlocked(readiness);
+      return; // no upload, no status change
+    }
+
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      // The sheet owns its own dismissal while committing (PopScope inside).
+      isDismissible: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (_) => CompleteDeliveryConfirmSheet(
+        orderNumber: d.orderNumber,
+        destinationTitle: d.clinicName,
+        destinationSubtitle: d.clinicAddress,
+        proofImageUrl: d.proofOfDeliveryUrl!,
+        invoiceImageUrl: d.invoiceUrl!,
+        onConfirm: _completeDelivery,
+      ),
+    );
+
+    // The sheet pops `true` only after the trusted completion has succeeded.
+    if (confirmed == true && mounted) {
+      await _locationService.stopTracking();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Delivery completed.'),
+          backgroundColor: AppColors.primary,
+        ),
+      );
+      Navigator.pop(context);
+    }
+  }
+
+  // The trusted completion, run from inside the confirmation sheet. It settles
+  // inventory server-side via a callable, so it throws on failure (the sheet
+  // shows the message and keeps the delivery active) and returns only on
+  // authoritative success — the UI never shows "delivered" before this resolves.
+  // The duplicate guard makes concurrent confirmations impossible.
+  Future<void> _completeDelivery() async {
+    // Auxiliary, best-effort location stamp — never blocks or fails completion.
+    if (!_completion.completing) unawaited(_stampLocation(d.id));
+    // One request at a time; throws on failure so the sheet stays open. The
+    // server re-validates the transition and settles inventory idempotently.
+    await _completion.complete();
+  }
+
+  // A completion the rider is not ready for: tell them exactly what is wrong.
+  // A missing photo offers Proof of Delivery; unconfirmed data offers a reload.
+  // No upload, no status change.
+  void _showCompletionBlocked(CompletionReadiness readiness) {
+    SnackBarAction? action;
+    if (readiness.isMissingEvidence) {
+      action = SnackBarAction(
+        label: 'Add proof',
+        textColor: Colors.white,
+        onPressed: _openProofAndRefresh,
+      );
+    } else if (readiness.block == CompletionBlock.unconfirmed) {
+      action = SnackBarAction(
+        label: 'Retry',
+        textColor: Colors.white,
+        onPressed: _retryRefresh,
+      );
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content:
+            Text(readiness.message ?? 'This delivery cannot be completed yet.'),
+        backgroundColor: AppColors.warning,
+        action: action,
+      ),
+    );
+  }
+
+  // Open Proof of Delivery; when the rider comes back, reload the order from the
+  // server so the new proof/invoice (and any status or assignment change) are
+  // what completion is decided against.
+  Future<void> _openProofAndRefresh() async {
+    final ok = await _completion.addEvidenceThenRefresh(() async {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const ProofScreen()),
+      );
+    });
+    if (!ok && mounted) _showRefreshFailed();
+  }
+
+  Future<void> _retryRefresh() async {
+    final ok = await _completion.refresh();
+    if (!mounted) return;
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Delivery details updated.'),
+          backgroundColor: AppColors.primary,
+        ),
+      );
+    } else {
+      _showRefreshFailed();
+    }
+  }
+
+  // The previous details stay on screen, but completion stays blocked until a
+  // reload succeeds — newly uploaded evidence is never assumed to exist.
+  void _showRefreshFailed() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text(DeliveryCompletionCoordinator.refreshFailedMessage),
+        backgroundColor: AppColors.urgent,
+        action: SnackBarAction(
+          label: 'Retry',
+          textColor: Colors.white,
+          onPressed: _retryRefresh,
+        ),
+      ),
+    );
   }
 
   void _showDelayDialog() {
@@ -885,7 +1045,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
             'Complete Delivery',
             Icons.check_circle,
             AppColors.primary,
-            () => _updateStatus('delivered'),
+            _onCompletePressed,
           ),
         if (d.canReportDelay) ...[
           const SizedBox(height: 8),
@@ -920,7 +1080,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
       child: SizedBox(
         width: double.infinity,
         child: ElevatedButton.icon(
-          onPressed: _updatingStatus ? null : onTap,
+          onPressed: _busy ? null : onTap,
           icon: Icon(icon),
           label: Text(label),
           style: ElevatedButton.styleFrom(backgroundColor: color),

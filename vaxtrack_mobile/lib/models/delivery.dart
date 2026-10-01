@@ -286,6 +286,10 @@ class Delivery {
   /// This order carries a proof image to display.
   bool get hasProof => (proofOfDeliveryUrl ?? '').isNotEmpty;
 
+  /// This order carries an invoice/receipt image. Required, alongside the proof
+  /// photo, before the rider may complete the delivery.
+  bool get hasInvoice => (invoiceUrl ?? '').isNotEmpty;
+
   /// The proof has been recorded through the canonical path and is final. The
   /// rider may no longer replace it; changing it is an admin repair.
   bool get isProofFinalized => proofSubmittedAt != null;
