@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import { auth } from "../../firebase";
 import { getUserProfile, updateUserProfile } from "../../services/userService";
-import SalesRepLayout from "./SalesRepLayout";
 
 function statusLabel(status) {
   if (status === "approved") return "Active";
@@ -116,30 +115,30 @@ function SalesRepSettings() {
 
   if (loading) {
     return (
-      <SalesRepLayout active="settings" title="Settings" showSearch={false}>
+      <>
         <div className="inventory-loading-state">
           <Loader2 size={32} className="spin" />
           <p>Loading profile...</p>
         </div>
-      </SalesRepLayout>
+      </>
     );
   }
 
   if (error) {
     return (
-      <SalesRepLayout active="settings" title="Settings" showSearch={false}>
+      <>
         <div className="inventory-loading-state">
           <AlertTriangle size={32} />
           <p>{error}</p>
         </div>
-      </SalesRepLayout>
+      </>
     );
   }
 
   const authUser = auth.currentUser;
 
   return (
-    <SalesRepLayout active="settings" title="Settings" showSearch={false}>
+    <>
       <section className="settings-page-header">
         <h2>Profile</h2>
         <p>View and update your profile information.</p>
@@ -244,7 +243,7 @@ function SalesRepSettings() {
           </p>
         </div>
       </div>
-    </SalesRepLayout>
+    </>
   );
 }
 

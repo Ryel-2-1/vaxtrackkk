@@ -48,8 +48,12 @@ test("AdminLayout renders no second toggle, overlay or open state", () => {
   }
   assert.ok(!layoutCss.includes("adl-menu-btn"), "its styles must go too");
   assert.ok(!layoutCss.includes("adl-overlay"));
-  // What it still owns:
-  assert.match(layoutJsx, /<AdminSidebar active=\{active\} onLogout=\{handleLogout\} \/>/);
+  // The sidebar now lives in AdminShell (the persistent parent layout route),
+  // not in AdminLayout — AdminLayout only owns the topbar + content region, so
+  // it renders no sidebar at all.
+  assert.ok(!layoutJsx.includes("<AdminSidebar"), "AdminLayout no longer renders the sidebar");
+  const shellJsx = src("components", "admin", "AdminShell.jsx");
+  assert.match(shellJsx, /<AdminSidebar onLogout=\{handleLogout\} \/>/);
   assert.match(layoutJsx, /<h1>\{title\}<\/h1>/, "the topbar still owns the page h1");
 });
 
@@ -254,25 +258,25 @@ test("all nine destinations and Logout survive, with their active styling", () =
   assert.match(sidebarJsx, /className="sidebar-logout" onClick=\{onLogout\}/);
 });
 
-test("no Admin page had to change to get the drawer", () => {
-  // The whole point of moving it into the sidebar: pages keep rendering
-  // <AdminSidebar> inside `.inventory-page` exactly as before.
+test("the persistent AdminShell owns the one sidebar; no page renders its own", () => {
+  // The sidebar was moved OUT of every page into AdminShell (the parent layout
+  // route), so it mounts once and never resets on navigation. The shell owns the
+  // `.inventory-page` wrapper + the single <AdminSidebar>, and pages render only
+  // their content into its <Outlet/>.
+  const shellJsx = src("components", "admin", "AdminShell.jsx");
+  assert.match(shellJsx, /<AdminSidebar onLogout=\{handleLogout\} \/>/);
+  assert.match(shellJsx, /<Outlet \/>/, "pages render into the shell's Outlet");
+  // The wrapper class the shell CSS keys on is chosen per route in the shell.
+  assert.match(shellJsx, /inventory-page/);
+
   const dir = join(here, "..", "src", "pages", "admin");
   const pages = readdirSync(dir).filter((f) => f.endsWith(".jsx"));
-  const raw = pages.filter((f) => {
+  for (const f of pages) {
     const body = readFileSync(join(dir, f), "utf8");
-    return body.includes("<AdminSidebar") && !body.includes("AdminLayout");
-  });
-  assert.ok(raw.length >= 10, `expected the legacy pages to be untouched, saw ${raw.length}`);
-  for (const f of raw) {
-    const body = readFileSync(join(dir, f), "utf8");
-    // Three of them append their own shell class (`inventory-page clinics-shell`),
-    // so this checks for the class token the selectors key on, not an exact
-    // attribute string — the selectors are class-based and match either form.
-    assert.match(
-      body,
-      /className="inventory-page(?:[ "])/,
-      `${f} must keep the wrapper the layout selectors depend on`
+    assert.ok(!body.includes("<AdminSidebar"), `${f} must not render its own sidebar`);
+    assert.ok(
+      !/className="inventory-page/.test(body),
+      `${f} must not render its own .inventory-page shell wrapper`
     );
   }
 });

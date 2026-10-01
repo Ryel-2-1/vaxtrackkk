@@ -439,21 +439,54 @@ test("both viewport signals are watched", () => {
 });
 
 test("no navigation destination, active state or action was dropped", () => {
-  for (const to of [
+  // The authoritative dispatcher destination set. `/dispatcher/schedule` was
+  // added with the committed Schedule feature, so the set is now seven — the
+  // count below is DERIVED from this list, never a bare magic number, so adding
+  // or removing a real destination updates every assertion in one place.
+  const DESTINATIONS = [
     "/dispatcher",
+    "/dispatcher/schedule",
     "/dispatcher/assign-rider",
     "/dispatcher/shipments",
     "/dispatcher/cargo-loading",
     "/dispatcher/geofence",
     "/dispatcher/settings",
-  ]) {
-    assert.ok(layoutJsx.includes(`to="${to}"`), to);
+  ];
+
+  // Every expected destination is present...
+  for (const to of DESTINATIONS) {
+    assert.ok(layoutJsx.includes(`to="${to}"`), `missing destination ${to}`);
   }
+
+  // ...and no unexpected `/dispatcher…` NavLink target has crept in. The set is
+  // exact, and each route appears exactly once (uniqueness).
+  const rendered = (layoutJsx.match(/to="(\/dispatcher[^"]*)"/g) || []).map((m) =>
+    m.slice(4, -1)
+  );
+  assert.deepEqual(
+    [...rendered].sort(),
+    [...DESTINATIONS].sort(),
+    "the rendered destination set must match exactly"
+  );
+  assert.equal(
+    new Set(rendered).size,
+    DESTINATIONS.length,
+    "every destination route is unique"
+  );
+
+  // Selecting any destination closes the drawer: one handler per destination.
   assert.equal(
     (layoutJsx.match(/onClick=\{selectDestination\}/g) || []).length,
-    6,
+    DESTINATIONS.length,
     "every destination closes the drawer"
   );
+  // Each destination still drives its own active state.
+  assert.equal(
+    (layoutJsx.match(/active === "[^"]+" \? "active" : ""/g) || []).length,
+    DESTINATIONS.length,
+    "every destination keeps its active-route state"
+  );
+  // The backdrop dismisses the drawer.
   assert.equal(
     (layoutJsx.match(/onClick=\{closeNav\}/g) || []).length,
     1,

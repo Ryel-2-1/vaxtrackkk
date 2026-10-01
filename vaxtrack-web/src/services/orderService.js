@@ -9,6 +9,7 @@ import {
   updateDoc,
   where,
   query,
+  writeBatch,
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { buildClinicLocationSnapshot } from "./orderLocation";
@@ -607,4 +608,56 @@ export async function saveOrderRoute(orderId, route, destinationRevision = 0) {
     routeDestinationRevision: destinationRevision,
     updatedAt: serverTimestamp(),
   });
+}
+
+/**
+ * Save an optimized multi-stop trip across a rider's orders, atomically.
+ *
+ * Every order in the group gets the SAME trip identity + whole-trip route
+ * (`tripId`, `tripPolyline`, total distance/duration, `tripStopCount`) plus its
+ * OWN place in the tour (`stopSequence`, `stopEtaSeconds`, `stopEtaText`). One
+ * `writeBatch` so the group can never be left half-sequenced.
+ *
+ * The trip fields are set at optimization time by the dispatcher and never by
+ * riders — the Firestore rules allow them only in `dispatcherOrderFields()`.
+ *
+ * @param {{
+ *   tripId?: string,
+ *   polyline: string,
+ *   distanceMeters: number,
+ *   durationSeconds: number,
+ *   stops: {orderId: string, sequence: number, etaSeconds: number, etaText?: string}[],
+ * }} trip
+ * @returns {Promise<{tripId: string, stopCount: number}>}
+ */
+export async function saveRiderTripRoute(trip) {
+  if (!trip?.polyline) throw new Error("Trip polyline is required.");
+  const stops = Array.isArray(trip.stops) ? trip.stops : [];
+  if (stops.length < 2) {
+    throw new Error("A trip needs at least two stops.");
+  }
+  const tripId = trip.tripId || crypto.randomUUID();
+  const stopCount = stops.length;
+  const distanceMeters = Number(trip.distanceMeters) || 0;
+  const durationSeconds = Number(trip.durationSeconds) || 0;
+
+  const batch = writeBatch(db);
+  for (const stop of stops) {
+    if (!stop?.orderId) throw new Error("Every stop needs an order id.");
+    batch.update(doc(db, ORDERS_COLLECTION, stop.orderId), {
+      tripId,
+      tripStopCount: stopCount,
+      tripPolyline: trip.polyline,
+      tripDistanceMeters: distanceMeters,
+      tripDurationSeconds: durationSeconds,
+      stopSequence: Number(stop.sequence) || 0,
+      stopEtaSeconds: Number(stop.etaSeconds) || 0,
+      stopEtaText: stop.etaText || "",
+      tripGeneratedAt: serverTimestamp(),
+      routeProvider: "openrouteservice",
+      updatedAt: serverTimestamp(),
+    });
+  }
+  await batch.commit();
+  return { tripId, stopCount };
 }

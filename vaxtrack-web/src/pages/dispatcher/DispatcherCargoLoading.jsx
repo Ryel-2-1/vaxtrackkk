@@ -17,7 +17,6 @@ import {
 } from "../../services/cargoLoadingService";
 import { getUserProfile } from "../../services/userService";
 import { auth } from "../../firebase";
-import DispatcherLayout from "./DispatcherLayout";
 import StatusBadge from "../../components/ui/StatusBadge";
 import KpiCard from "../../components/ui/KpiCard";
 import "./CargoLoading.css";
@@ -192,18 +191,18 @@ function DispatcherCargoLoading() {
 
   if (loading) {
     return (
-      <DispatcherLayout active="cargo-loading" title="Cargo Loading">
+      <>
         <div className="cl-state">
           <Loader2 size={30} className="cl-spin" />
           <p>Loading cargo data...</p>
         </div>
-      </DispatcherLayout>
+      </>
     );
   }
 
   if (error) {
     return (
-      <DispatcherLayout active="cargo-loading" title="Cargo Loading">
+      <>
         <div className="cl-state">
           <span className="cl-state-icon">
             <AlertTriangle size={20} />
@@ -221,12 +220,12 @@ function DispatcherCargoLoading() {
             <RotateCcw size={14} /> Retry
           </button>
         </div>
-      </DispatcherLayout>
+      </>
     );
   }
 
   return (
-    <DispatcherLayout active="cargo-loading" title="Cargo Loading">
+    <>
       <div className="dispatcher-v2-page">
         <div className="cl-header">
           <h2 className="disp-section-title">Loading queue</h2>
@@ -327,7 +326,7 @@ function DispatcherCargoLoading() {
       {printGroup && (
         <PrintSheet group={printGroup} dispatcher={dispatcher} printedAt={formatNow()} />
       )}
-    </DispatcherLayout>
+    </>
   );
 }
 

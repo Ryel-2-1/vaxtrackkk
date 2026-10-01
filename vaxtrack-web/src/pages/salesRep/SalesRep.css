@@ -3814,6 +3814,30 @@
   cursor: pointer !important;
 }
 
+/* A cart line whose batch is no longer orderable — highlighted AND labelled in
+   words (see .request-v2-cart-issue), never signalled by colour alone. */
+.request-v2-cart-item-blocked {
+  border-color: #fca5a5 !important;
+  background: #fef2f2 !important;
+}
+
+.request-v2-cart-item .request-v2-cart-issue {
+  display: flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  margin-top: 4px !important;
+  color: #dc2626 !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+}
+
+.request-v2-cart-blocked-note {
+  color: #dc2626 !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  margin: 4px 0 8px !important;
+}
+
 .request-v2-cart .cart-footer {
   padding: 18px 22px !important;
 }

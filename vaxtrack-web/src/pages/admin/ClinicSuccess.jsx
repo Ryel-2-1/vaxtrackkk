@@ -1,5 +1,4 @@
 import { useNavigate } from "react-router-dom";
-import { signOut } from "firebase/auth";
 import {
   Bell,
   Building2,
@@ -13,23 +12,14 @@ import {
   Network,
   Search,
 } from "lucide-react";
-import { auth } from "../../firebase";
-import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import "./Clinics.css";
 
 function ClinicSuccess() {
   const navigate = useNavigate();
 
-  const handleLogout = async () => {
-    await signOut(auth);
-    navigate("/");
-  };
 
   return (
-    <div className="inventory-page clinics-shell clinic-success-shell">
-      <AdminSidebar active="clinics" onLogout={handleLogout} />
-
-      <main className="clinics-main clinic-success-main">
+    <main className="clinics-main clinic-success-main">
         <SuccessTopBar />
 
         <section className="clinic-success-card">
@@ -112,7 +102,6 @@ function ClinicSuccess() {
           System timestamp: 2026-11-24 14:02:11 PHT • Manila Operations Hub
         </p>
       </main>
-    </div>
   );
 }
 

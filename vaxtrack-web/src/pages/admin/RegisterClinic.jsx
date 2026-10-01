@@ -1,5 +1,4 @@
 import { useNavigate } from "react-router-dom";
-import { signOut } from "firebase/auth";
 import {
   Bell,
   Building2,
@@ -8,17 +7,11 @@ import {
   Snowflake,
   Search,
 } from "lucide-react";
-import { auth } from "../../firebase";
-import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import "./Clinics.css";
 
 function RegisterClinic() {
   const navigate = useNavigate();
 
-  const handleLogout = async () => {
-    await signOut(auth);
-    navigate("/");
-  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -26,10 +19,7 @@ function RegisterClinic() {
   };
 
   return (
-    <div className="inventory-page clinics-shell register-clinic-shell">
-      <AdminSidebar active="clinics" onLogout={handleLogout} />
-
-      <main className="clinics-main register-clinic-main">
+    <main className="clinics-main register-clinic-main">
         <RegisterTopBar />
 
         <section className="register-clinic-header">
@@ -150,7 +140,6 @@ function RegisterClinic() {
           </div>
         </form>
       </main>
-    </div>
   );
 }
 

@@ -377,14 +377,14 @@ test("every protected route sits inside a guard", () => {
 
 test("logout ends the Firebase session rather than only navigating", () => {
   // A logout that just navigates leaves the session alive, so back/forward or a
-  // direct URL walks straight back in.
-  const layout = read("src/components/admin/AdminLayout.jsx");
-  assert.match(layout, /signOut\(auth\)/);
-  assert.match(layout, /navigate\("\/login"\)|navigate\("\/"\)/);
-  // And every page-level logout does the same.
-  for (const page of ["src/pages/admin/Settings.jsx", "src/pages/admin/Riders.jsx"]) {
-    assert.match(read(page), /signOut\(auth\)/, page);
-  }
+  // direct URL walks straight back in. Logout now lives in the persistent
+  // AdminShell (the parent layout route that owns the one shared sidebar), so
+  // there is a single implementation instead of one per page.
+  const shell = read("src/components/admin/AdminShell.jsx");
+  assert.match(shell, /signOut\(auth\)/);
+  assert.match(shell, /navigate\("\/login"\)|navigate\("\/"\)/);
+  // The shell renders the sidebar whose Logout button calls that handler.
+  assert.match(shell, /<AdminSidebar onLogout=\{handleLogout\}/);
 });
 
 // ----------------------------------------------------------------- 15, 16, 17

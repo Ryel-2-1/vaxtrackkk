@@ -23,7 +23,6 @@ import {
   reviewOrderDestinationChange,
   subscribeDestinationCorrections,
 } from "../../services/destinationCorrectionService";
-import SalesRepLayout from "./SalesRepLayout";
 import StatusBadge from "../../components/ui/StatusBadge";
 import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 
@@ -176,6 +175,15 @@ function normalizeOrder(raw) {
     routeDurationSeconds: raw.routeDurationSeconds,
     routeEtaText: raw.routeEtaText || "",
     routeGeneratedAt: raw.routeGeneratedAt || null,
+    // Multi-stop trip fields — the map shows the whole-trip route + this order's
+    // stop. A Sales Rep sees only their own order, so no sibling stops here.
+    tripId: raw.tripId || "",
+    tripPolyline: raw.tripPolyline || "",
+    tripStopCount: raw.tripStopCount,
+    tripDistanceMeters: raw.tripDistanceMeters,
+    tripDurationSeconds: raw.tripDurationSeconds,
+    stopSequence: raw.stopSequence,
+    stopEtaText: raw.stopEtaText || "",
     items,
   };
 }
@@ -314,28 +322,28 @@ function SalesRepOrderTracking() {
 
   if (loading) {
     return (
-      <SalesRepLayout active="tracking" title="Order Tracking" showSearch={false}>
+      <>
         <div className="inventory-loading-state">
           <Loader2 size={32} className="spin" />
           <p>Loading your orders...</p>
         </div>
-      </SalesRepLayout>
+      </>
     );
   }
 
   if (error) {
     return (
-      <SalesRepLayout active="tracking" title="Order Tracking" showSearch={false}>
+      <>
         <div className="inventory-loading-state">
           <AlertTriangle size={32} />
           <p>{error}</p>
         </div>
-      </SalesRepLayout>
+      </>
     );
   }
 
   return (
-    <SalesRepLayout active="tracking" title="Order Tracking" showSearch={false}>
+    <>
       <section className="tracking-v2-page">
         <div className="tracking-v2-header">
           <div>
@@ -590,7 +598,7 @@ function SalesRepOrderTracking() {
           </aside>
         </section>
       </section>
-    </SalesRepLayout>
+    </>
   );
 }
 

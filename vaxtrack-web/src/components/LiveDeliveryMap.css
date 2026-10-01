@@ -51,6 +51,23 @@
   box-shadow: 0 0 0 2px #92400e, 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
+/* Numbered destination marker for a multi-stop trip's visiting order. */
+.ldm-stop-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #b45309;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2px #92400e, 0 1px 4px rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .ldm-info {
   display: flex;
   flex-direction: column;

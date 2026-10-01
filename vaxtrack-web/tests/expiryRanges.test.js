@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { deriveExpiryCondition, manilaToday } from "../src/services/expiry.js";
+import { evaluateBatchEligibility } from "../src/services/orderEligibility.js";
 
 /**
  * The three expiry bands are EXCLUSIVE, and every surface that names or counts
@@ -133,44 +134,35 @@ test("the request-order catalog has no expiry logic of its own", () => {
 });
 
 test("missing, malformed and expired batches are unavailable in the catalog", () => {
-  // The page's own blocking rule, applied to the cases that used to slip past
-  // it. Ordering-irrelevant fields are held constant so expiry is the variable.
-  const blockedReason = (raw) => {
-    const available = 10;
-    const condition = deriveExpiryCondition(raw, TODAY);
-    const expired = condition.level === "expired";
-    const undated = condition.level === "unknown";
-    const unitPriceCentavos = 50000;
-    if (available === null) return "Needs inventory migration";
-    if (expired) return "Expired — unavailable";
-    if (undated) return "No usable expiry date — unavailable";
-    if (unitPriceCentavos === null) return "Not priced — unavailable";
-    if (available <= 0) return "Out of stock";
-    return null;
-  };
+  // The catalog now decides orderability through the shared eligibility helper
+  // (services/orderEligibility.js), which mirrors the server. These are the
+  // expiry cases that used to slip past the old expiry-only gate; every one is
+  // now ineligible with a specific reason. Ordering-irrelevant fields are held
+  // valid so expiry is the variable.
+  const base = { id: "inv1", quantity: 10, reservedQuantity: 0, status: "Stable", sellingPriceCentavos: 50000 };
+  const check = (expiryDate) => evaluateBatchEligibility({ ...base, expiryDate }, TODAY);
 
   // Expired.
-  assert.equal(blockedReason({ expiryDate: "2020-01-01" }), "Expired — unavailable");
-  assert.equal(blockedReason({ expiryDate: "2026-09-07" }), "Expired — unavailable");
+  assert.equal(check("2020-01-01").reasonCode, "expired");
+  assert.equal(check("2026-09-07").reasonCode, "expired");
 
   // Missing and malformed — every one of these was orderable before, because
   // the old test required the date to parse before it could be called expired.
   for (const expiryDate of [undefined, null, "", "   ", "not-a-date", "2026-2-3", "2026-02-31", 12345]) {
     assert.equal(
-      blockedReason({ expiryDate }),
-      "No usable expiry date — unavailable",
+      check(expiryDate).reasonCode,
+      "missing-expiry",
       `${JSON.stringify(expiryDate)} must be blocked in the catalog`
     );
   }
 
   // Same-day expiry stays orderable, matching the server.
-  assert.equal(blockedReason({ expiryDate: TODAY }), null, "expires today — still orderable");
-  assert.equal(blockedReason({ expiryDate: "2030-12-31" }), null);
+  assert.equal(check(TODAY).eligible, true, "expires today — still orderable");
+  assert.equal(check("2030-12-31").eligible, true);
 
-  // And the page carries exactly those branches, in that order.
-  assert.match(SRO, /else if \(expired\) blockedReason = "Expired — unavailable";/);
-  assert.match(SRO, /else if \(undated\) blockedReason = "No usable expiry date — unavailable";/);
-  assert.match(SRO, /orderable: blockedReason === null,/);
+  // And the page derives orderability from that shared helper, not its own rules.
+  assert.match(SRO, /const eligibility = evaluateBatchEligibility\(raw, todayIso\);/);
+  assert.match(SRO, /orderable: eligibility\.eligible,/);
 });
 
 test("no client-side gate can pass a batch the server would refuse", async () => {
@@ -221,7 +213,9 @@ test("the cart, price, quantity and reservation paths were not touched", () => {
   // is still built the same way.
   assert.match(SRO, /unitPriceCentavos,/);
   assert.match(SRO, /priceLabel: formatCentavos\(unitPriceCentavos\)/);
-  assert.match(SRO, /const available = availableStock\(raw\);/);
+  // Availability now comes from the shared helper's derived figure (still
+  // quantity - reservedQuantity), not a second local computation.
+  assert.match(SRO, /const available = eligibility\.availableQuantity;/);
   assert.match(SRO, /reserved: typeof raw\.reservedQuantity === "number" \? raw\.reservedQuantity : 0,/);
   assert.match(SRO, /inventoryId: raw\.id,/);
   // And it still writes nothing.

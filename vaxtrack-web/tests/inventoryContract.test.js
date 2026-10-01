@@ -318,26 +318,24 @@ test("pricing fields are server-only in the rules", () => {
   assert.match(rules, /d\.sellingPriceCentavos > 0/);
 });
 
-test("the confirmation handoff still carries a peso price per line", () => {
-  // Regression guard. The cart line carries `expectedUnitPriceCentavos` rather
-  // than `unitPrice`, and SalesRepOrderConfirmation bills from
-  // `item.unitPrice` — so the handoff must supply one, or every line on the
-  // confirmation screen silently reads ₱0.00.
+test("the confirmation shows the server's stored money, never a client figure", () => {
+  // The confirmation is now built from the stored order the callable named
+  // (services/orderConfirmation.js), re-read after the commit — so its money is
+  // the server-written centavos, and a replayed order can never be shown with
+  // values edited after the original attempt.
   //
-  // WHERE that peso price comes from is the stricter contract, and lives in
-  // tests/invoiceContract.test.js: it must be derived from the price the
-  // CALLABLE returned, never from the client's own expectation.
+  // The old handoff merged a hardcoded sample order underneath, so every real
+  // confirmation also showed a ₱150 "handling fee" and a ₱16,850 "estimated
+  // total" nothing had charged. Those must not return.
   const place = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
   const confirmation = read("src/pages/salesRep/SalesRepOrderConfirmation.jsx");
+  const builder = read("src/services/orderConfirmation.js");
 
-  assert.match(
-    confirmation,
-    /Number\(item\.unitPrice\s*\|\|\s*0\)/,
-    "the confirmation screen still bills from a peso unitPrice"
-  );
-  assert.match(
-    place,
-    /unitPrice: centavosToPesos\(line\.unitPriceCentavos\)/,
-    "the handoff must derive that peso price from the server's returned centavos"
-  );
+  assert.match(place, /loadAuthoritativeConfirmation\(\{[\s\S]*?loadOrder: getOrderById,/);
+  assert.match(builder, /subtotalCentavos: typeof order\.subtotalCentavos === "number"/);
+  assert.equal(/expectedUnitPriceCentavos/.test(builder), false, "never the client's expectation");
+  assert.match(confirmation, /formatCentavos\(order\.subtotalCentavos\)/);
+  for (const invented of ["handlingFee", "estimatedTotal", "fallbackOrder"]) {
+    assert.equal(confirmation.includes(invented), false, `${invented} must not return`);
+  }
 });

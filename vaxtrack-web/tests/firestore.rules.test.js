@@ -818,6 +818,22 @@ async function main() {
     }));
   });
 
+  await check("P13c dispatcher writes multi-stop trip fields (ORS optimization)", async () => {
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordRider1"), {
+      tripId: "trip-abc",
+      tripStopCount: 3,
+      tripPolyline: "abcde_trip_polyline",
+      tripDistanceMeters: 8400,
+      tripDurationSeconds: 2760,
+      tripGeneratedAt: "t",
+      stopSequence: 2,
+      stopEtaSeconds: 900,
+      stopEtaText: "3:15 PM",
+      routeProvider: "openrouteservice",
+      updatedAt: "t",
+    }));
+  });
+
   await check("P13a order owner and dispatcher can read server-written correction history", async () => {
     await assertSucceeds(getDoc(doc(salesRep, "orders", "ordCorrected", "destinationCorrections", "revision-1")));
     await assertSucceeds(getDoc(doc(dispatcher, "orders", "ordCorrected", "destinationCorrections", "revision-1")));
@@ -1069,6 +1085,17 @@ async function main() {
   await check("N11 rider cannot write route fields on own order (dispatcher-only)", async () => {
     await assertFails(updateDoc(doc(rider, "orders", "ordRider1"), {
       routePolyline: "x",
+      routeProvider: "openrouteservice",
+      updatedAt: "t",
+    }));
+  });
+
+  await check("N11a rider cannot write multi-stop trip fields (dispatcher-only)", async () => {
+    await assertFails(updateDoc(doc(rider, "orders", "ordRider1"), {
+      tripId: "trip-x",
+      tripPolyline: "x",
+      tripGeneratedAt: "t",
+      stopSequence: 1,
       routeProvider: "openrouteservice",
       updatedAt: "t",
     }));

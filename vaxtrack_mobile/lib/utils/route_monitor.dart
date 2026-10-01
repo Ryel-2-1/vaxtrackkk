@@ -26,11 +26,19 @@ class GpsSample {
   const GpsSample(this.latitude, this.longitude, {this.accuracyMeters});
 }
 
-/// The genuine stored compliance route (the dispatcher-saved OpenRouteService
-/// polyline) decoded to points. Empty / fewer than two points means there is
-/// nothing to measure against.
-List<LatLng> compliancePolyline(Delivery delivery) =>
-    decodePolyline(delivery.routePolyline);
+/// The genuine stored compliance route (dispatcher-saved), decoded to points.
+/// Empty / fewer than two points means there is nothing to measure against.
+///
+/// When the order is part of an optimized multi-stop trip, the WHOLE-trip route
+/// (`tripPolyline`) is the plan the rider is meant to follow, so it is preferred
+/// over the single-order `routePolyline`. That makes deviation detection measure
+/// against the optimized route, not just the leg to this one clinic. Orders that
+/// are not on a trip fall back to their own route unchanged.
+List<LatLng> compliancePolyline(Delivery delivery) => decodePolyline(
+      delivery.isOnTrip && delivery.tripPolyline != null
+          ? delivery.tripPolyline
+          : delivery.routePolyline,
+    );
 
 /// Result of the start-eligibility check for the free in-app monitor. Every
 /// unmet requirement contributes a human-readable [blockers] entry so the UI can

@@ -24,7 +24,6 @@ import {
   ordersOnDate,
 } from "../../services/deliveryCalendar";
 import { auth } from "../../firebase";
-import SalesRepLayout from "./SalesRepLayout";
 import KpiCard from "../../components/ui/KpiCard";
 import MonthCalendar from "../../components/ui/MonthCalendar";
 import StatusBadge from "../../components/ui/StatusBadge";
@@ -257,17 +256,17 @@ function SalesRepDashboard() {
 
   if (isLoading) {
     return (
-      <SalesRepLayout active="dashboard" title="Dashboard">
+      <>
         <div className="srd-loading">
           <Loader2 size={30} className="spin" />
           <p>Loading dashboard...</p>
         </div>
-      </SalesRepLayout>
+      </>
     );
   }
 
   return (
-    <SalesRepLayout active="dashboard" title="Dashboard">
+    <>
       <div className="srd">
         <header className="srd-head">
           <div>
@@ -556,7 +555,7 @@ function SalesRepDashboard() {
           </aside>
         </section>
       </div>
-    </SalesRepLayout>
+    </>
   );
 }
 

@@ -11,7 +11,10 @@
 //    (like the Firebase web key). ORS free tier is rate-limited, so exposure is
 //    low-risk; a server-side proxy to fully hide it is a later hardening step.
 
-const ORS_KEY = import.meta.env.VITE_OPENROUTESERVICE_API_KEY;
+// `?.` so the module can be imported under Node's test runner (where
+// import.meta.env is undefined); in the Vite browser build import.meta.env is a
+// real object, so this reads the key exactly as before.
+const ORS_KEY = import.meta.env?.VITE_OPENROUTESERVICE_API_KEY;
 
 // Base directions endpoint (JSON) returns routes[0].geometry as an ENCODED
 // polyline string (precision 5) + summary.distance/duration — the compact form.
@@ -141,4 +144,139 @@ export function formatEta(baseDate, durationSeconds) {
   }
   const eta = new Date(baseDate.getTime() + durationSeconds * 1000);
   return eta.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+// ---------------------------------------------------------------------------
+// Multi-stop trip optimization (ORS /optimization, powered by Vroom).
+//
+// A rider carrying several orders visits several clinics; this computes the
+// BEST visiting order (shortest total drive, an open tour — riders don't return
+// to a depot) and then the drivable road route through that order. Same host
+// and key as directions, so no extra CSP entry. Dispatcher-triggered only,
+// never automatic. No OR-Tools.
+// ---------------------------------------------------------------------------
+
+const ORS_OPTIMIZATION_URL = "https://api.openrouteservice.org/optimization";
+
+// Shared POST + error handling for the ORS endpoints used by the multi-stop
+// path. fetchRoute above keeps its own inline copy deliberately (verified code,
+// left untouched); new callers use this.
+async function postOrs(url, body) {
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: ORS_KEY,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error("Could not reach the routing service. Check your connection.");
+  }
+  if (!res.ok) {
+    let msg = `Routing service error (${res.status}).`;
+    try {
+      const e = await res.json();
+      const detail = e?.error?.message || e?.error;
+      if (detail) msg = String(detail);
+    } catch {
+      /* non-JSON error body — keep the status message */
+    }
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+/**
+ * The job ids in optimal visiting order, from a Vroom /optimization response.
+ * Pure — no network. Only `job` steps carry a stop; `start`/`end` are skipped.
+ * Returns [] when the response has no usable route.
+ */
+export function parseOptimizedJobOrder(optResponse) {
+  const steps = optResponse?.routes?.[0]?.steps;
+  if (!Array.isArray(steps)) return [];
+  return steps
+    .filter((s) => s && s.type === "job" && Number.isFinite(s.id))
+    .map((s) => s.id);
+}
+
+/**
+ * Cumulative arrival time (seconds from the start) at each destination waypoint,
+ * from a directions response's per-leg `segments`. Pure. segments[i] is the leg
+ * INTO waypoint i+1, so the running sum after i legs is the arrival at that
+ * waypoint. Returns one entry per destination (the origin is excluded).
+ */
+export function cumulativeLegSeconds(segments) {
+  if (!Array.isArray(segments)) return [];
+  const out = [];
+  let acc = 0;
+  for (const seg of segments) {
+    acc += Number(seg?.duration) || 0;
+    out.push(Math.round(acc));
+  }
+  return out;
+}
+
+/**
+ * Optimize a multi-stop trip.
+ *
+ * @param {[number,number]} startLatLng  rider origin [lat, lng]
+ * @param {{orderId: string, latLng: [number,number]}[]} stops  >= 2 stops
+ * @returns {Promise<{
+ *   stops: {orderId: string, sequence: number, etaSeconds: number}[],
+ *   polyline: string, distanceMeters: number, durationSeconds: number
+ * }>}  stops in optimized order (sequence starts at 1) with cumulative ETA.
+ */
+export async function optimizeTrip(startLatLng, stops) {
+  if (!isRouteServiceConfigured()) throw new Error("MISSING_KEY");
+  if (!Array.isArray(stops) || stops.length < 2) {
+    throw new Error("Multi-stop optimization needs at least two stops.");
+  }
+
+  // Vroom job ids must be positive integers; map them back to order ids.
+  const jobIdToOrderId = new Map();
+  const jobs = stops.map((stop, i) => {
+    const jobId = i + 1;
+    jobIdToOrderId.set(jobId, stop.orderId);
+    const [lat, lng] = stop.latLng;
+    return { id: jobId, location: [lng, lat] };
+  });
+  const [sLat, sLng] = startLatLng;
+  // No `end` on the vehicle → an open route that finishes at the last stop.
+  const vehicles = [{ id: 1, profile: "driving-car", start: [sLng, sLat] }];
+
+  const optRes = await postOrs(ORS_OPTIMIZATION_URL, { jobs, vehicles });
+  const orderJobIds = parseOptimizedJobOrder(optRes);
+  if (orderJobIds.length !== stops.length) {
+    throw new Error("Could not optimize a route through all stops.");
+  }
+  const orderedStops = orderJobIds.map((jid) =>
+    stops.find((s) => s.orderId === jobIdToOrderId.get(jid))
+  );
+
+  // Road route through origin + the optimized stops (kept in that order).
+  const coordinates = [
+    [sLng, sLat],
+    ...orderedStops.map((s) => [s.latLng[1], s.latLng[0]]),
+  ];
+  const dirRes = await postOrs(ORS_URL, { coordinates });
+  const route = dirRes?.routes?.[0];
+  if (!route?.geometry || !route?.summary) {
+    throw new Error("No drivable route found through the stops.");
+  }
+  const legEtas = cumulativeLegSeconds(route.segments);
+
+  return {
+    stops: orderedStops.map((s, idx) => ({
+      orderId: s.orderId,
+      sequence: idx + 1,
+      etaSeconds: legEtas[idx] ?? 0,
+    })),
+    polyline: route.geometry,
+    distanceMeters: Math.round(route.summary.distance),
+    durationSeconds: Math.round(route.summary.duration),
+  };
 }

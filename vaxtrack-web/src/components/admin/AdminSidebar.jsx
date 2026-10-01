@@ -32,9 +32,36 @@ import "./AdminSidebar.css";
 /// matching the legacy `.inventory-page` stacking rule (styles.css:1836). The
 /// drawer previously ended at 900px while the desktop rail began at 1001px,
 /// leaving 901–1000px with neither.
-export function AdminSidebar({ active, onLogout }) {
+// Which nav key each admin route highlights. Lets the sidebar derive its own
+// active state from the URL, so the persistent shell can render it once without
+// every page passing `active`. An explicit `active` prop still overrides.
+const ROUTE_ACTIVE = {
+  "/admin": "dashboard",
+  "/admin/inventory": "inventory",
+  "/admin/add-stock": "inventory",
+  "/admin/add-vaccine": "inventory",
+  "/admin/deliveries": "deliveries",
+  "/admin/riders": "riders",
+  "/admin/clinics": "clinics",
+  "/admin/register-clinic": "clinics",
+  "/admin/clinic-success": "clinics",
+  "/admin/invoices": "invoices",
+  "/admin/analytics": "analytics",
+  "/admin/alerts": "alerts",
+  "/admin/settings": "settings",
+};
+
+function activeKeyFor(pathname) {
+  if (ROUTE_ACTIVE[pathname]) return ROUTE_ACTIVE[pathname];
+  // Nested routes such as /admin/invoices/:orderId keep the parent highlighted.
+  if (pathname.startsWith("/admin/invoices")) return "invoices";
+  return "dashboard";
+}
+
+export function AdminSidebar({ active: activeProp, onLogout }) {
   const [open, setOpen] = useState(false);
   const location = useLocation();
+  const active = activeProp ?? activeKeyFor(location.pathname);
   const toggleRef = useRef(null);
   const asideRef = useRef(null);
 

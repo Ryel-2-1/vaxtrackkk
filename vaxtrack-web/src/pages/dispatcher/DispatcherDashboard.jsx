@@ -16,7 +16,6 @@ import {
   Truck,
   UserPlus,
 } from "lucide-react";
-import DispatcherLayout from "./DispatcherLayout";
 import KpiCard from "../../components/ui/KpiCard";
 
 // How a pending order relates to its requested delivery date, measured against
@@ -163,17 +162,17 @@ function DispatcherDashboard() {
 
   if (loading) {
     return (
-      <DispatcherLayout active="dashboard" title="Dashboard">
+      <>
         <div className="dispatcher-loading-state">
           <Loader2 size={32} className="spin" />
           <p>Loading dispatch data...</p>
         </div>
-      </DispatcherLayout>
+      </>
     );
   }
 
   return (
-    <DispatcherLayout active="dashboard" title="Dashboard">
+    <>
       <div className="dispatcher-dash-page">
         <section className="dispatcher-dash-hero">
           <div>
@@ -475,7 +474,7 @@ function DispatcherDashboard() {
           </div>
         </section>
       </div>
-    </DispatcherLayout>
+    </>
   );
 }
 

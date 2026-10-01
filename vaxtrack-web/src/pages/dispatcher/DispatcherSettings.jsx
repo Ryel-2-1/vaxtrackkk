@@ -9,7 +9,6 @@ import {
   Truck,
   UserRound,
 } from "lucide-react";
-import DispatcherLayout from "./DispatcherLayout";
 
 function DispatcherSettings() {
   const [profile, setProfile] = useState({
@@ -56,7 +55,7 @@ function DispatcherSettings() {
   };
 
   return (
-    <DispatcherLayout active="settings" title="Settings">
+    <>
       <section className="dispatcher-page-title">
         <h2 className="disp-section-title">Profile &amp; preferences</h2>
         <p>Manage dispatch profile, monitoring preferences, and alert rules.</p>
@@ -157,7 +156,7 @@ function DispatcherSettings() {
           />
         </aside>
       </section>
-    </DispatcherLayout>
+    </>
   );
 }
 

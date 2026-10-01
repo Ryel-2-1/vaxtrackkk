@@ -9359,3 +9359,93 @@
   margin-left: 10px;
   vertical-align: middle;
 }
+
+/* ============================================================
+   Multi-stop trip optimization (Geofence live map)
+   ============================================================ */
+
+/* Numbered destination marker for a trip's visiting order. Amber to match the
+   single clinic dot; the number shows the stop sequence. */
+.geo3-live-stop-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #b45309;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2px #92400e, 0 1px 4px rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.geo3-live-trip {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--gray-200);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.geo3-trip-stops {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.geo3-trip-stops li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-control, 8px);
+  background: var(--gray-50);
+}
+
+.geo3-trip-stops li.current {
+  border-color: var(--green-600);
+  background: var(--green-50);
+}
+
+.geo3-trip-seq {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--green-800);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.geo3-trip-stop-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.geo3-trip-stop-main strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-900);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.geo3-trip-stop-main small {
+  font-size: 12px;
+  color: var(--gray-500);
+}

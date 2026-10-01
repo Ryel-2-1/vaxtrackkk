@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  AlertTriangle,
   CalendarClock,
   CheckCircle2,
   ClipboardList,
@@ -11,73 +12,48 @@ import {
   Truck,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import SalesRepLayout from "./SalesRepLayout";
+import { formatCentavos } from "../../services/money";
 
-const fallbackOrder = {
-  id: "VT-ORD-2023-9821",
-  status: "Processing",
-  clinicName: "Makati Medical Center, Tower 2",
-  clinicAddress: "Makati Medical Center, Tower 2",
-  estimatedDelivery: "Oct 24, 2026 • 09:00 AM",
-  deliveryInstructions: "No delivery instructions provided.",
-  priority: "Standard",
-  subtotal: 16700,
-  handlingFee: 150,
-  urgentFee: 0,
-  estimatedTotal: 16850,
-  items: [
-    {
-      name: "Vaxin-B Plus",
-      sku: "VAX-001-B",
-      batch: "Lot #882",
-      quantity: 500,
-      unit: "Units",
-      chain: "Cold-Chain Prep",
-      unitPrice: 25,
-    },
-    {
-      name: "Sterile Disposal Kit Z-1",
-      sku: "ACC-SYR-Q",
-      batch: "Standard",
-      quantity: 1000,
-      unit: "Units",
-      chain: "Standard Transit",
-      unitPrice: 4.2,
-    },
-  ],
-};
-
+/**
+ * The confirmation shows ONLY what checkout stored after re-reading the order
+ * the server named (services/orderConfirmation.js).
+ *
+ * It used to fill anything missing from a hardcoded sample order — a clinic,
+ * two products, a ₱150 "handling fee" and a ₱16,850 "estimated total" — so a
+ * real confirmation always carried a fee and a total nothing had charged, and a
+ * missing record showed an entirely fictional order as placed. Those are gone:
+ * a record that is missing, unreadable or unverified renders the "details
+ * unavailable" state and points the rep to Order Tracking. VAT is added at
+ * invoicing, so the only money shown is the server's VAT-exclusive subtotal.
+ */
 function getLatestOrder() {
   try {
-    const savedOrder = JSON.parse(localStorage.getItem("latestSalesOrderDetails") || "null");
-
-    if (!savedOrder) return fallbackOrder;
-
+    const saved = JSON.parse(localStorage.getItem("latestSalesOrderDetails") || "null");
+    if (!saved || saved.verified !== true) {
+      return {
+        verified: false,
+        replayed: saved?.replayed === true,
+        orderNumber:
+          saved?.orderNumber || saved?.id || localStorage.getItem("latestSalesOrderId") || null,
+      };
+    }
     return {
-      ...fallbackOrder,
-      ...savedOrder,
-      id: savedOrder.id || localStorage.getItem("latestSalesOrderId") || fallbackOrder.id,
-      // Canonical public order reference (VT-ORD-…) — the same field every
-      // other Sales Rep screen (Tracking, Alerts, Dashboard) displays. If the
-      // saved draft doesn't carry it (legacy path, before PlaceOrder started
-      // forwarding it) fall back to the Firestore doc id or the fallback so
-      // something is always shown — but the current PlaceOrder always writes it.
-      orderNumber: savedOrder.orderNumber || savedOrder.id || localStorage.getItem("latestSalesOrderId") || fallbackOrder.id,
-      status: friendlyStatus(savedOrder.status),
-      clinicName: savedOrder.clinicName || fallbackOrder.clinicName,
-      clinicAddress: savedOrder.clinicAddress || savedOrder.clinicName || fallbackOrder.clinicAddress,
-      estimatedDelivery: savedOrder.estimatedDelivery || "Pending dispatch schedule",
-      deliveryInstructions:
-        savedOrder.deliveryInstructions?.trim() || "No delivery instructions provided.",
-      priority: savedOrder.priority || "Standard",
-      requestedDeliveryDate: savedOrder.requestedDeliveryDate || null,
-      items: Array.isArray(savedOrder.items) && savedOrder.items.length
-        ? savedOrder.items
-        : fallbackOrder.items,
+      verified: true,
+      replayed: saved.replayed === true,
+      orderNumber: saved.orderNumber || saved.id,
+      status: friendlyStatus(saved.status),
+      doctorName: saved.doctorName || null,
+      clinicName: saved.clinicName || saved.destinationName || "—",
+      clinicAddress: saved.clinicAddress || "",
+      requestedDeliveryDate: saved.requestedDeliveryDate || null,
+      deliveryInstructions: saved.deliveryInstructions?.trim() || "No delivery instructions provided.",
+      priority: saved.priority || "Standard",
+      items: Array.isArray(saved.items) ? saved.items : [],
+      subtotalCentavos: typeof saved.subtotalCentavos === "number" ? saved.subtotalCentavos : null,
     };
   } catch (error) {
     console.warn("Unable to load latest sales order:", error);
-    return fallbackOrder;
+    return { verified: false, replayed: false, orderNumber: null };
   }
 }
 
@@ -86,29 +62,6 @@ function SalesRepOrderConfirmation() {
   const [copied, setCopied] = useState(false);
 
   const order = useMemo(() => getLatestOrder(), []);
-
-  const orderItems = useMemo(() => {
-    return order.items.map((item, index) => {
-      const quantity = Number(item.quantity || 0);
-      const unitPrice = Number(item.unitPrice || 0);
-      const lineTotal = quantity * unitPrice;
-
-      return {
-        id: item.sku || item.id || `ITEM-${index + 1}`,
-        name: item.name || item.vaccineName || "Selected Vaccine",
-        sku: item.sku || item.id || "N/A",
-        batch: item.batch || item.chain || "Medical Supply",
-        quantity,
-        unit: item.unit || "vials",
-        lineTotal,
-      };
-    });
-  }, [order.items]);
-
-  const subtotal = Number(order.subtotal ?? orderItems.reduce((total, item) => total + item.lineTotal, 0));
-  const handlingFee = Number(order.handlingFee || 0);
-  const urgentFee = Number(order.urgentFee || 0);
-  const estimatedTotal = Number(order.estimatedTotal ?? subtotal + handlingFee + urgentFee);
 
   const handleCopyReference = async () => {
     try {
@@ -125,38 +78,78 @@ function SalesRepOrderConfirmation() {
     window.print();
   };
 
+  const actions = (
+    <div className="confirmation-actions confirmation-v2-actions">
+      <button onClick={() => navigate("/sales-rep/order-tracking")}>
+        <Truck size={16} />
+        Track Order Status
+      </button>
+
+      <button className="outline" onClick={() => navigate("/sales-rep/request-order")}>
+        <ClipboardList size={16} />
+        Return to Catalog
+      </button>
+    </div>
+  );
+
+  const reference = order.orderNumber && (
+    <div className="order-reference confirmation-v2-reference">
+      <div>
+        <span>Order Reference</span>
+        <button type="button" onClick={handleCopyReference}>
+          <strong>{order.orderNumber}</strong>
+          <Copy size={14} />
+        </button>
+        {copied && <small>Copied</small>}
+      </div>
+      {order.verified && <span className="processing">• {order.status}</span>}
+    </div>
+  );
+
+  // Unverified: the server confirmed an order, but its stored details could not
+  // be read back. Nothing from the checkout form is presented as confirmed.
+  if (!order.verified) {
+    return (
+      <section className="confirmation-card confirmation-v2-card">
+        <div className="confirmation-hero">
+          <AlertTriangle size={34} />
+          <h2>Order submitted</h2>
+          <p>
+            The order was received, but its details could not be loaded. Open Order
+            Tracking to see exactly what was stored before placing anything else.
+          </p>
+        </div>
+        {reference}
+        {actions}
+      </section>
+    );
+  }
+
   return (
-    <SalesRepLayout active="request" title="Order Confirmation" showSearch={false}>
+    <>
       <section className="confirmation-card confirmation-v2-card">
         <div className="confirmation-hero">
           <CheckCircle2 size={34} />
-          <h2>Order placed</h2>
-          <p>Your medical supply request has been successfully queued for fulfillment.</p>
+          <h2>{order.replayed ? "Order recovered" : "Order placed"}</h2>
+          <p>
+            {order.replayed
+              ? "This order had already been placed by an earlier attempt. It was recovered — no second order was created."
+              : "Your medical supply request has been successfully queued for fulfillment."}
+          </p>
         </div>
 
-        <div className="order-reference confirmation-v2-reference">
-          <div>
-            <span>Order Reference</span>
-            <button type="button" onClick={handleCopyReference}>
-              <strong>{order.orderNumber}</strong>
-              <Copy size={14} />
-            </button>
-            {copied && <small>Copied</small>}
-          </div>
-
-          <span className="processing">• {order.status}</span>
-        </div>
+        {reference}
 
         <h3>Order Summary</h3>
 
-        {orderItems.map((item) => (
+        {order.items.map((item, index) => (
           <ConfirmItem
-            key={item.id}
+            key={item.inventoryId || `ITEM-${index + 1}`}
             icon={<PackageCheck size={18} />}
-            name={item.name}
-            sku={`SKU: ${item.sku}`}
-            qty={`${item.quantity.toLocaleString()} ${
-              item.unit === "vials" && item.quantity === 1 ? "vial" : item.unit
+            name={item.name || "Selected vaccine"}
+            sku={`Batch: ${item.sku || "—"}`}
+            qty={`${Number(item.quantity || 0).toLocaleString()} ${
+              Number(item.quantity) === 1 ? "vial" : "vials"
             }`}
           />
         ))}
@@ -165,14 +158,15 @@ function SalesRepOrderConfirmation() {
           <div>
             <CalendarClock size={17} />
             <span>Estimated Delivery</span>
-            <strong>{order.estimatedDelivery}</strong>
+            <strong>Pending dispatch schedule</strong>
           </div>
 
           <div>
             <MapPin size={17} />
             <span>Shipping Destination</span>
             <strong>{order.clinicName}</strong>
-            <p>{order.clinicAddress}</p>
+            {order.doctorName && <p>For {order.doctorName}</p>}
+            {order.clinicAddress && <p>{order.clinicAddress}</p>}
           </div>
 
           {order.requestedDeliveryDate && (
@@ -197,37 +191,13 @@ function SalesRepOrderConfirmation() {
             <span>Priority</span>
             <strong>{order.priority}</strong>
           </div>
-          <div>
-            <span>Subtotal</span>
-            <strong>{formatCurrency(subtotal)}</strong>
-          </div>
-          <div>
-            <span>Handling Fee</span>
-            <strong>{formatCurrency(handlingFee)}</strong>
-          </div>
-          {urgentFee > 0 && (
-            <div>
-              <span>Urgent Fee</span>
-              <strong>{formatCurrency(urgentFee)}</strong>
-            </div>
-          )}
           <div className="grand-total">
-            <span>Estimated Total</span>
-            <strong>{formatCurrency(estimatedTotal)}</strong>
+            <span>Subtotal (excl. VAT)</span>
+            <strong>{formatCentavos(order.subtotalCentavos)}</strong>
           </div>
         </div>
 
-        <div className="confirmation-actions confirmation-v2-actions">
-          <button onClick={() => navigate("/sales-rep/order-tracking")}>
-            <Truck size={16} />
-            Track Order Status
-          </button>
-
-          <button className="outline" onClick={() => navigate("/sales-rep/request-order")}>
-            <ClipboardList size={16} />
-            Return to Catalog
-          </button>
-        </div>
+        {actions}
 
         <button type="button" className="pdf-link confirmation-print-btn" onClick={handlePrint}>
           <Printer size={15} />
@@ -235,10 +205,11 @@ function SalesRepOrderConfirmation() {
         </button>
 
         <small>
-          This confirmation is a record of order submission. Official CVP compliance and billing documentation will be sent to the registered clinic administrator within 2 hours.
+          This confirmation is a record of order submission. VAT is added when the
+          invoice is issued.
         </small>
       </section>
-    </SalesRepLayout>
+    </>
   );
 }
 
@@ -269,13 +240,6 @@ function ConfirmItem({ icon, name, sku, qty }) {
       </div>
     </div>
   );
-}
-
-function formatCurrency(value) {
-  return `₱${Number(value || 0).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
 }
 
 export default SalesRepOrderConfirmation;

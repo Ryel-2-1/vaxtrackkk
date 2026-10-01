@@ -9,8 +9,11 @@ import { cancelOrderWithInventoryRelease } from "../../services/inventoryCallabl
 import { subscribeRiders } from "../../services/riderService";
 import { requestOrderDestinationChange } from "../../services/destinationCorrectionService";
 import DestinationCorrectionDialog from "./DestinationCorrectionDialog";
-import { ACTOR_DISPATCHER, canTransition } from "../../services/orderWorkflow";
-import DispatcherLayout from "./DispatcherLayout";
+import {
+  ACTOR_DISPATCHER,
+  AWAITING_DISPATCHER_STATUSES,
+  canTransition,
+} from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
 import KpiCard from "../../components/ui/KpiCard";
 
@@ -38,11 +41,15 @@ function canCancel(statusKey) {
   return canTransition(ACTOR_DISPATCHER, statusKey, "cancelled").ok;
 }
 
-// Recovery. Only a failed delivery can go back to `assigned`, so this is true
-// for `delivery_failed` and nothing else — again derived from the policy rather
-// than restated as a status literal.
+// Recovery is the failed-delivery path ONLY. `reassignFailedOrder` is a dedicated
+// recovery callable that accepts `delivery_failed` and rejects everything else
+// ("That order is no longer awaiting recovery."), so the button must be gated to
+// the same set. `canTransition(dispatcher, …, "assigned")` was the wrong test —
+// it is also true for `pending_dispatch` (normal assignment), which put a
+// "Retry / Reassign" button on every unassigned order and then failed at the
+// server. A pending order is assigned through the Assign Rider flow, not here.
 function canReassign(statusKey) {
-  return canTransition(ACTOR_DISPATCHER, statusKey, "assigned").ok;
+  return AWAITING_DISPATCHER_STATUSES.includes(statusKey);
 }
 
 function canCorrectDestination(order) {
@@ -273,18 +280,18 @@ function DispatcherShipments() {
 
   if (loading) {
     return (
-      <DispatcherLayout active="shipments" title="Shipments">
+      <>
         <div className="shp-state">
           <Loader2 size={30} className="spin" />
           <p>Loading shipments...</p>
         </div>
-      </DispatcherLayout>
+      </>
     );
   }
 
   if (error) {
     return (
-      <DispatcherLayout active="shipments" title="Shipments">
+      <>
         <div className="shp-state">
           <span className="shp-state-icon">
             <AlertTriangle size={18} />
@@ -292,12 +299,12 @@ function DispatcherShipments() {
           <strong>Could not load shipments</strong>
           <p>{error}</p>
         </div>
-      </DispatcherLayout>
+      </>
     );
   }
 
   return (
-    <DispatcherLayout active="shipments" title="Shipments">
+    <>
       <div className="shp-page">
         <header className="shp-header">
           <h2 className="disp-section-title">Shipment queue</h2>
@@ -406,7 +413,7 @@ function DispatcherShipments() {
           onConfirm={handleConfirmCorrection}
         />
       )}
-    </DispatcherLayout>
+    </>
   );
 }
 

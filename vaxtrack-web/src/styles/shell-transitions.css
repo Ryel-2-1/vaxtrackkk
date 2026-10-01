@@ -1,0 +1,66 @@
+/**
+ * Smooth cross-page transitions for the persistent role shells.
+ *
+ * The sidebar now lives in a persistent parent layout route and never unmounts
+ * on navigation, so only the content region (`.route-view`, keyed by pathname)
+ * replays a gentle fade/rise each time a page loads. The in-content Suspense
+ * fallback (`.route-view-fallback`) keeps the sidebar visible while a lazy chunk
+ * downloads, instead of blanking the whole viewport. Reduced-motion is honored.
+ */
+
+.route-view {
+  animation: routeViewIn 0.26s ease both;
+}
+
+/* Admin content has no keyed wrapper (its <main> must stay a direct flex child
+   of `.inventory-page`), but a fresh <main> mounts on every navigation, so the
+   same entrance animation replays without one. */
+.inventory-page > main {
+  animation: routeViewIn 0.26s ease both;
+}
+
+@keyframes routeViewIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.route-view-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 60vh;
+  color: var(--gray-500);
+  font-size: 14px;
+}
+
+.route-view-fallback .rv-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2.5px solid var(--gray-200);
+  border-top-color: var(--green-600);
+  border-radius: 50%;
+  animation: routeViewSpin 0.8s linear infinite;
+}
+
+@keyframes routeViewSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-view,
+  .inventory-page > main {
+    animation: none;
+  }
+  .route-view-fallback .rv-spinner {
+    animation-duration: 1.6s;
+  }
+}

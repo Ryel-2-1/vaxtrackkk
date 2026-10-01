@@ -171,16 +171,17 @@ class _ProofScreenState extends State<ProofScreen> {
                   )
                 else if (!selected.canSubmitProof) ...[
                   _readOnlyProofCard(selected),
-                  // The proof landed but its optional invoice photo did not.
-                  // The order is finalized for proof, so the form above is
-                  // gone — but the notice tells the rider to retry, and that
-                  // has to be actionable.
-                  if (_submission.hasOutstandingInvoice) ...[
+                  // Proof is finalized, but the invoice may still be needed: the
+                  // invoice is required before the delivery can be completed, so
+                  // an active order that is missing it must still be able to
+                  // attach one (this also covers a same-session invoice retry).
+                  if (_submission.hasOutstandingInvoice ||
+                      (selected.isActive && !selected.hasInvoice)) ...[
                     const SizedBox(height: 12),
                     _invoiceCard(),
                     const SizedBox(height: 16),
                     _statusMessages(),
-                    _submitButton(selected),
+                    _invoiceOnlySubmitButton(selected),
                   ],
                 ] else ...[
                   _recipientCard(),
@@ -401,7 +402,8 @@ class _ProofScreenState extends State<ProofScreen> {
 
   Widget _invoiceCard() {
     return _Card(
-      title: 'Invoice / Receipt (Optional)',
+      title: 'Invoice / Receipt',
+      subtitle: 'Required to complete the delivery',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -523,6 +525,38 @@ class _ProofScreenState extends State<ProofScreen> {
                     color: Colors.white, strokeWidth: 2),
               )
             : Text(label),
+      ),
+    );
+  }
+
+  /// Attach just the invoice photo to an order whose proof is already recorded,
+  /// so a delivery that was proven without an invoice can still be completed.
+  Future<void> _submitInvoiceOnly(Delivery order) async {
+    await _submission.submitInvoiceOnly(
+      orderId: order.id,
+      invoicePhoto: _invoicePhoto,
+    );
+    if (!mounted) return;
+    if (_submission.phase == ProofPhase.submitted) {
+      setState(() => _invoicePhoto = null);
+    }
+  }
+
+  Widget _invoiceOnlySubmitButton(Delivery order) {
+    final ready =
+        _submission.canSubmitInvoiceOnly(hasInvoicePhoto: _invoicePhoto != null);
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        onPressed: ready ? () => _submitInvoiceOnly(order) : null,
+        child: _submission.isCommitting
+            ? const SizedBox(
+                height: 20,
+                width: 20,
+                child: CircularProgressIndicator(
+                    color: Colors.white, strokeWidth: 2),
+              )
+            : const Text('Submit Invoice Photo'),
       ),
     );
   }

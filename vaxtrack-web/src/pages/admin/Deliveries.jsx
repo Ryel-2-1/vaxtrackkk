@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { signOut } from "firebase/auth";
 import {
   AlertTriangle,
   ChevronDown,
@@ -10,8 +8,6 @@ import {
   Truck,
   X,
 } from "lucide-react";
-import { auth } from "../../firebase";
-import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import {
   subscribeDeliveries,
   UNKNOWN_STATUS_KEY,
@@ -83,6 +79,16 @@ function normalizeDelivery(raw) {
     routeDurationSeconds: raw.routeDurationSeconds,
     routeEtaText: raw.routeEtaText || "",
     routeGeneratedAt: raw.routeGeneratedAt || null,
+    // Multi-stop trip fields for the read-only delivery map (whole-trip route +
+    // this order's place in the tour). tripId + clinicLat/Lng + stopSequence
+    // also let the page plot every stop's marker for the admin overview.
+    tripId: raw.tripId || "",
+    tripPolyline: raw.tripPolyline || "",
+    tripStopCount: raw.tripStopCount,
+    tripDistanceMeters: raw.tripDistanceMeters,
+    tripDurationSeconds: raw.tripDurationSeconds,
+    stopSequence: raw.stopSequence,
+    stopEtaText: raw.stopEtaText || "",
   };
 }
 
@@ -99,7 +105,6 @@ function formatDateTime(ts) {
 }
 
 function Deliveries() {
-  const navigate = useNavigate();
 
   const [deliveryList, setDeliveryList] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -123,11 +128,6 @@ function Deliveries() {
     );
     return () => unsubscribe();
   }, []);
-
-  const handleLogout = async () => {
-    await signOut(auth);
-    navigate("/login");
-  };
 
   /* The toast and its `showToast` helper went with the five actions that used
      them. Each raised a message and did nothing else, so the page now has no
@@ -168,11 +168,27 @@ function Deliveries() {
     [deliveryList]
   );
 
-  return (
-    <div className="inventory-page">
-      <AdminSidebar active="deliveries" onLogout={handleLogout} />
+  // Every stop in the selected order's trip, numbered by visiting order. Admin
+  // can read all orders, so it plots the whole tour; the map falls back to the
+  // single numbered stop when this is empty.
+  const selectedTripStops = useMemo(() => {
+    const tripId = selectedDelivery?.tripId;
+    if (!tripId) return [];
+    return deliveryList
+      .filter(
+        (d) =>
+          d.tripId === tripId &&
+          Number.isFinite(d.clinicLat) &&
+          Number.isFinite(d.clinicLng) &&
+          Number.isFinite(d.stopSequence)
+      )
+      .sort((a, b) => a.stopSequence - b.stopSequence)
+      .map((d) => ({ lat: d.clinicLat, lng: d.clinicLng, label: d.stopSequence }));
+  }, [deliveryList, selectedDelivery]);
 
-      <main className="deliveries-v4-page">
+  return (
+    <>
+    <main className="deliveries-v4-page">
 
         <header className="mdl-header">
           <div>
@@ -506,14 +522,15 @@ function Deliveries() {
       {selectedDelivery && (
         <DeliveryModal
           delivery={selectedDelivery}
+          tripStops={selectedTripStops}
           onClose={() => setSelectedDelivery(null)}
         />
       )}
-    </div>
+    </>
   );
 }
 
-function DeliveryModal({ delivery, onClose }) {
+function DeliveryModal({ delivery, tripStops = [], onClose }) {
   const created = formatDateTime(delivery.createdAt);
   const assigned = formatDateTime(delivery.assignedAt);
   const statusUpdated = formatDateTime(delivery.statusUpdatedAt);
@@ -599,7 +616,7 @@ function DeliveryModal({ delivery, onClose }) {
 
           <section className="mdl-drawer-section">
             <h3>Live location</h3>
-            <LiveDeliveryMap order={delivery} />
+            <LiveDeliveryMap order={delivery} tripStops={tripStops} />
           </section>
 
           <section className="mdl-drawer-section">

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { signOut } from "firebase/auth";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -12,7 +11,6 @@ import {
   Search,
 } from "lucide-react";
 import { auth } from "../../firebase";
-import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import {
   subscribeInvoiceQueue,
   updateInvoicePriority,
@@ -98,10 +96,6 @@ function Invoices() {
     return unsub;
   }, []);
 
-  const handleLogout = async () => {
-    await signOut(auth);
-    navigate("/login");
-  };
 
   const showToast = (msg, type = "success") => {
     setToast(msg);
@@ -213,10 +207,7 @@ function Invoices() {
   };
 
   return (
-    <div className="inventory-page">
-      <AdminSidebar active="invoices" onLogout={handleLogout} />
-
-      <main className="inv-page">
+    <main className="inv-page">
         {toast && (
           <div className={`inv-toast ${toastType === "error" ? "error" : ""}`}>
             {toastType === "error" ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
@@ -449,7 +440,6 @@ function Invoices() {
           )}
         </section>
       </main>
-    </div>
   );
 }
 

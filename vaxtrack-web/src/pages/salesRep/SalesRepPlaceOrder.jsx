@@ -12,21 +12,24 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { createOrderWithReservation } from "../../services/inventoryCallables";
 import {
-  createOrderWithReservation,
-  newRequestId,
-} from "../../services/inventoryCallables";
+  UNAUTHENTICATED_MESSAGE,
+  discardOrderAttempt,
+  loadCartDraft,
+  loadPendingAttempt,
+  submitOrderDraft,
+  updateCartDraftLines,
+} from "../../services/orderDraftRequest";
+import { loadAuthoritativeConfirmation } from "../../services/orderConfirmation";
+import { getOrderById } from "../../services/orderService";
+import { auth } from "../../firebase";
 import { subscribeClinics } from "../../services/clinicService";
 import { subscribeDoctors } from "../../services/doctorService";
 import { subscribeDoctorAddresses } from "../../services/doctorAddressService";
 import { buildDoctorDestinationOptions } from "../../services/doctorAddressModel";
 import { manilaToday, validateRequestedDate } from "../../services/requestedDate";
-import {
-  centavosToPesos,
-  formatCentavos,
-  readPriceCentavos,
-} from "../../services/money";
-import SalesRepLayout from "./SalesRepLayout";
+import { formatCentavos, readPriceCentavos } from "../../services/money";
 
 /**
  * A server error code turned into something a rep can act on.
@@ -63,7 +66,11 @@ function messageForCallableError(error) {
     case "inventory-migration-required":
       return "One of these batches still records its stock as text and needs an admin migration before it can be ordered.";
     case "idempotency-conflict":
-      return "This checkout was already submitted with different contents. Review your cart and start a new order.";
+      // The server recognised this draft's request ID but with different
+      // contents: an earlier attempt of this checkout WAS placed. The ID is
+      // deliberately not rotated automatically — that would let the rep place
+      // a second order without knowing the first exists.
+      return "An earlier attempt of this checkout was already placed with different details. Check Order Tracking first. If you still need this order, discard the previous attempt and finalize again.";
     case "duplicate-inventory-line":
       return "The same batch appears on two lines. Combine them into one.";
     default:
@@ -71,54 +78,19 @@ function messageForCallableError(error) {
   }
 }
 
+// The confirmation is no longer assembled here from checkout state. It is
+// built from the stored order the callable named (services/orderConfirmation.js),
+// so a replayed order can never be shown with values the rep edited afterwards.
+
 /**
- * The confirmation screen's line data, built from the callable's own reply.
- *
- * `pricing` is what the server recorded on the order. The cart lines are used
- * only for the display fields the server does not return (batch label, chain).
- * If the server sends no pricing block — an old deployment, or an order it
- * could not read back on a replay — the lines carry NO price at all rather than
- * falling back to the client's expectation: an unproven number shown as a bill
- * is worse than a dash.
+ * The signed-in Med Rep's own saved cart. Another account's cart on this
+ * browser is never loaded; an old unscoped cart is migrated once, to the first
+ * Med Rep who opens checkout without a cart of their own (see loadCartDraft).
  */
-function confirmationPricing(pricing, cartItems) {
-  const byId = new Map(cartItems.map((item) => [item.inventoryId, item]));
-  const serverItems = Array.isArray(pricing?.items) ? pricing.items : null;
-
-  if (!serverItems) {
-    return {
-      items: cartItems.map((item) => ({ ...item, unitPrice: null, unitPriceCentavos: null })),
-      subtotalCentavos: null,
-      subtotal: null,
-      pricingSource: "unavailable",
-    };
-  }
-
-  return {
-    items: serverItems.map((line) => {
-      const cartLine = byId.get(line.inventoryId);
-      return {
-        inventoryId: line.inventoryId,
-        name: line.name ?? cartLine?.name ?? "Selected Vaccine",
-        sku: line.batchId ?? cartLine?.sku ?? "—",
-        chain: cartLine?.chain ?? "Cold Chain",
-        quantity: line.quantity,
-        unitPriceCentavos: line.unitPriceCentavos,
-        lineTotalCentavos: line.lineTotalCentavos,
-        unitPrice: centavosToPesos(line.unitPriceCentavos),
-      };
-    }),
-    subtotalCentavos: pricing.subtotalCentavos,
-    subtotal: centavosToPesos(pricing.subtotalCentavos),
-    priceCurrency: pricing.priceCurrency,
-    priceIsVatInclusive: pricing.priceIsVatInclusive,
-    pricingSource: "server",
-  };
-}
-
-function getInitialItems() {
+function getInitialItems(uid) {
+  if (!uid) return [];
   try {
-    const savedDraft = JSON.parse(localStorage.getItem("salesRepQuickCart") || "null");
+    const savedDraft = loadCartDraft(localStorage, uid).draft;
 
     if (savedDraft?.items?.length) {
       return savedDraft.items.map((item) => ({
@@ -167,36 +139,63 @@ function getPlannedRequestedDate() {
 function SalesRepPlaceOrder() {
   const navigate = useNavigate();
 
+  // The draft (cart, request id, submission snapshot) belongs to the signed-in
+  // Med Rep. The route guard renders this page only once auth has resolved.
+  const uid = auth.currentUser?.uid ?? null;
+
+  /**
+   * An earlier checkout attempt that may already have been placed (e.g. the
+   * response was lost before a refresh). Its request id is durable and reused
+   * by an unchanged retry, so the form is restored from its snapshot: retrying
+   * as-is replays the original order instead of creating a second one.
+   */
+  const [pendingAttempt] = useState(() =>
+    uid ? loadPendingAttempt(localStorage, uid) : null
+  );
+  const restored = pendingAttempt?.submission ?? null;
+  // Applied once, and only to the doctor it belongs to (see the address effect).
+  const pendingDestinationRef = useRef(
+    restored ? { doctorId: restored.doctorId, destinationId: restored.doctorAddressId } : null
+  );
+
   const [saving, setSaving] = useState(false);
-  const [items, setItems] = useState(getInitialItems);
+  const [items, setItems] = useState(() => getInitialItems(uid));
 
   /** Synchronous re-entry guard — see handleFinalizeOrder. */
   const submittingRef = useRef(false);
 
-  /**
-   * One stable id per checkout ATTEMPT.
-   *
-   * Generated once when the page mounts and kept across a recoverable failure,
-   * so a retry reaches the server as the SAME attempt and replays the original
-   * order instead of creating a second one. Retired only after a confirmed
-   * success (a new attempt is a genuinely new order).
-   */
-  const requestIdRef = useRef(newRequestId());
+  /** The checkout no longer matches a pending attempt (or the server reported
+   *  an idempotency conflict). Cleared only by the confirmed discard below. */
+  const [attemptConflict, setAttemptConflict] = useState(false);
+  /** The discard warning is open. Cancelling leaves the attempt untouched. */
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+
+  // Keep the user's saved cart in step with checkout's quantity edits and
+  // removals, so a refresh restores exactly what was last on screen.
+  useEffect(() => {
+    if (uid) updateCartDraftLines(localStorage, uid, items);
+  }, [uid, items]);
 
   const [doctors, setDoctors] = useState([]);
   const [doctorsLoading, setDoctorsLoading] = useState(true);
-  const [selectedDoctorId, setSelectedDoctorId] = useState("");
+  const [selectedDoctorId, setSelectedDoctorId] = useState(restored?.doctorId ?? "");
   const [doctorAddresses, setDoctorAddresses] = useState([]);
   const [addressesLoading, setAddressesLoading] = useState(false);
   const [selectedDestinationId, setSelectedDestinationId] = useState("");
   const [clinics, setClinics] = useState([]);
   const [clinicsLoading, setClinicsLoading] = useState(true);
   const [destinationLoadError, setDestinationLoadError] = useState("");
-  const [instructions, setInstructions] = useState("");
-  const [requestedDate, setRequestedDate] = useState(getPlannedRequestedDate);
-  const [urgent, setUrgent] = useState(false);
-  const [message, setMessage] = useState("");
+  const [instructions, setInstructions] = useState(restored?.deliveryInstructions ?? "");
+  const [requestedDate, setRequestedDate] = useState(() =>
+    restored ? restored.requestedDeliveryDate ?? "" : getPlannedRequestedDate()
+  );
+  const [urgent, setUrgent] = useState(restored?.priority === "Urgent");
+  const [message, setMessage] = useState(
+    pendingAttempt
+      ? "An earlier attempt of this order may already have been placed. Its details were restored — finalize again unchanged to safely recover it, or check Order Tracking."
+      : ""
+  );
 
   useEffect(() => {
     const unsubscribe = subscribeClinics(
@@ -243,6 +242,14 @@ function SalesRepPlaceOrder() {
       (docs) => {
         setDoctorAddresses(docs);
         setAddressesLoading(false);
+        // Restore a pending attempt's destination once its doctor's addresses
+        // are known. If it is no longer offered, the rep must choose again —
+        // and a different choice is then caught as a changed draft.
+        const pending = pendingDestinationRef.current;
+        if (pending && pending.doctorId === selectedDoctorId) {
+          setSelectedDestinationId(pending.destinationId);
+        }
+        pendingDestinationRef.current = null;
       },
       () => {
         setAddressesLoading(false);
@@ -311,6 +318,33 @@ function SalesRepPlaceOrder() {
 
   const handleRemoveItem = (sku) => {
     setItems((current) => current.filter((item) => item.sku !== sku));
+  };
+
+  // Discarding a pending attempt is the ONLY way its request id is ever
+  // rotated, and it is two-step: this opens a warning; nothing is cleared yet.
+  const handleRequestDiscard = () => {
+    setDiscardConfirmOpen(true);
+  };
+
+  // Cancel: the saved attempt, its request id and snapshot stay exactly as they were.
+  const handleCancelDiscard = () => {
+    setDiscardConfirmOpen(false);
+  };
+
+  // Confirmed: forget the previous attempt's request id and snapshot. The cart
+  // is kept, so the next Finalize is a genuinely NEW order under a new id.
+  const handleConfirmDiscard = () => {
+    if (!uid) {
+      setDiscardConfirmOpen(false);
+      setMessage(UNAUTHENTICATED_MESSAGE);
+      return;
+    }
+    discardOrderAttempt(localStorage, uid);
+    setDiscardConfirmOpen(false);
+    setAttemptConflict(false);
+    setMessage(
+      "The previous attempt was discarded. Finalizing now starts a new order attempt."
+    );
   };
 
   const handleFinalizeOrder = async () => {
@@ -382,79 +416,94 @@ function SalesRepPlaceOrder() {
       return;
     }
 
+    // The draft is scoped to the signed-in Med Rep, so there must be one.
+    // Refused here, before any id is generated or anything is sent.
+    if (!uid) {
+      submittingRef.current = false;
+      setMessage(UNAUTHENTICATED_MESSAGE);
+      return;
+    }
+
+    // Everything the rep is submitting — including priority, instructions and
+    // the requested date, which the server fingerprint ignores. It is saved
+    // with the request id before the call, and a retry must match it.
+    const submission = {
+      doctorId: selectedDoctor.id,
+      doctorAddressId: selectedDestination.id,
+      priority: urgent ? "Urgent" : "Standard",
+      deliveryInstructions: instructions.trim(),
+      requestedDeliveryDate: requestedCheck.value,
+      items: items.map((item) => ({
+        inventoryId: item.inventoryId,
+        quantity: Number(item.quantity),
+        expectedUnitPriceCentavos: item.expectedUnitPriceCentavos,
+      })),
+    };
+
     setSaving(true);
     setMessage("");
+    setAttemptConflict(false);
+    setDiscardConfirmOpen(false);
 
     try {
-      // The order is created SERVER-SIDE so it commits together with the stock
-      // reservation. The two ids name the exact nested Firestore relationship:
-      // `doctors/{doctorId}/deliveryAddresses/{doctorAddressId}`. The caller
-      // sends no address, coordinates, name, or Area; the server re-derives all
-      // of them from the current master records inside the transaction.
-      const result = await createOrderWithReservation({
-        requestId: requestIdRef.current,
-        doctorId: selectedDoctor.id,
-        doctorAddressId: selectedDestination.id,
-        priority: urgent ? "Urgent" : "Standard",
-        deliveryInstructions: instructions.trim(),
-        // null when none was chosen — the server stores nothing in that case.
-        requestedDeliveryDate: requestedCheck.value,
-        items: items.map((item) => ({
-          inventoryId: item.inventoryId,
-          quantity: Number(item.quantity),
-          expectedUnitPriceCentavos: item.expectedUnitPriceCentavos,
-        })),
+      // The request id and this snapshot are written to durable storage and
+      // read back BEFORE the callable runs; if that cannot be verified, nothing
+      // is sent. A retry is sent under the same id only if it matches the saved
+      // snapshot. The draft (cart, id, snapshot) is cleared only after `submit`
+      // resolves with an order id from the server.
+      const result = await submitOrderDraft({
+        storage: localStorage,
+        uid,
+        submission,
+        submit: async (requestId) => {
+          // The order is created SERVER-SIDE so it commits together with the
+          // stock reservation. The two ids name the exact nested Firestore
+          // relationship: `doctors/{doctorId}/deliveryAddresses/{doctorAddressId}`.
+          // The caller sends no address, coordinates, name, or Area; the server
+          // re-derives all of them from the current master records inside the
+          // transaction.
+          const created = await createOrderWithReservation({
+            requestId,
+            doctorId: submission.doctorId,
+            doctorAddressId: submission.doctorAddressId,
+            priority: submission.priority,
+            deliveryInstructions: submission.deliveryInstructions,
+            // null when none was chosen — the server stores nothing in that case.
+            requestedDeliveryDate: requestedCheck.value,
+            items: submission.items,
+          });
+          if (typeof created?.orderId !== "string" || created.orderId === "") {
+            // Thrown INSIDE submit so the draft survives: finalizing again
+            // replays the saved order under the same id.
+            throw new Error(
+              "The order may have been saved, but the server's reply was incomplete. Finalize again to recover it."
+            );
+          }
+          return created;
+        },
       });
 
-      const confirmedDestination = result?.destination;
-      if (
-        !confirmedDestination ||
-        typeof confirmedDestination.doctorName !== "string" ||
-        typeof confirmedDestination.displayName !== "string" ||
-        typeof confirmedDestination.address !== "string"
-      ) {
-        throw new Error(
-          "The order was saved, but its destination confirmation was incomplete. Finalize again to reload the saved order."
-        );
-      }
-
-      // Only now — after the callable confirms the commit — is the cart cleared
-      // and the confirmation shown. Nothing above this line may claim success.
+      // The server committed (or replayed) the order. The confirmation is built
+      // ONLY from the stored order it names — never from this form, which may
+      // have been edited since the original attempt. If that read fails, only
+      // the server's order id/number is kept and the page points to Tracking.
+      const confirmation = await loadAuthoritativeConfirmation({
+        orderId: result.orderId,
+        orderNumber: result.orderNumber,
+        replayed: result.replayed === true,
+        loadOrder: getOrderById,
+      });
       localStorage.setItem("latestSalesOrderId", result.orderId);
-      localStorage.setItem(
-        "latestSalesOrderDetails",
-        JSON.stringify({
-          id: result.orderId,
-          orderNumber: result.orderNumber,
-          doctorId: confirmedDestination.doctorId,
-          doctorName: confirmedDestination.doctorName,
-          doctorAddressId: confirmedDestination.doctorAddressId,
-          destinationType: confirmedDestination.type,
-          destinationName: confirmedDestination.name,
-          deliveryAddress: confirmedDestination.address,
-          clinicName: confirmedDestination.displayName,
-          clinicAddress: confirmedDestination.address,
-          // Prices come from `result.pricing` — what the SERVER wrote onto the
-          // order — never from `expectedUnitPriceCentavos`, which is only ever
-          // the client's claim about what it was shown. The two agree by
-          // construction here, since a difference would have been refused with
-          // `price-changed`; showing the server's copy means the confirmation
-          // still cannot drift from the document if that ever stops holding.
-          ...confirmationPricing(result.pricing, items),
-          quantity: totalQuantity,
-          requestedDeliveryDate: requestedCheck.value,
-          status: "pending_dispatch",
-        })
-      );
-      localStorage.removeItem("salesRepQuickCart");
-      // A new attempt after this point is a NEW order, so the id is retired.
-      requestIdRef.current = newRequestId();
-
+      localStorage.setItem("latestSalesOrderDetails", JSON.stringify(confirmation.details));
       navigate("/sales-rep/order-confirmation");
     } catch (error) {
-      // The cart and the request id both survive: a retry of a recoverable
-      // failure must reach the server as the SAME attempt, or a submission
-      // that actually committed would be duplicated.
+      // The cart, request id and snapshot all survive: a retry of a recoverable
+      // failure must reach the server as the SAME attempt, or a submission that
+      // actually committed would be duplicated. The id is never rotated here —
+      // not on a changed draft, and not on an idempotency conflict.
+      if (error?.code === "draft-changed" || error?.code === "idempotency-conflict") {
+        setAttemptConflict(true);
+      }
       setMessage(messageForCallableError(error));
     } finally {
       setSaving(false);
@@ -464,7 +513,7 @@ function SalesRepPlaceOrder() {
 
   if (items.length === 0 && !message) {
     return (
-      <SalesRepLayout active="request" title="Checkout" showSearch={false}>
+      <>
         <div className="inventory-loading-state">
           <AlertTriangle size={32} />
           <strong>No items in cart</strong>
@@ -479,17 +528,12 @@ function SalesRepPlaceOrder() {
             Browse Catalog
           </button>
         </div>
-      </SalesRepLayout>
+      </>
     );
   }
 
   return (
-    <SalesRepLayout
-      active="request"
-      title="Checkout"
-      topbarTitle="Checkout"
-      showSearch={false}
-    >
+    <>
       <div className="place-order-session place-v2-session">
         <span>Current Session</span>
         <strong>{items.length} {items.length === 1 ? "item" : "items"} in order</strong>
@@ -519,6 +563,34 @@ function SalesRepPlaceOrder() {
           </div>
 
           {message && <div className="place-v2-message">{message}</div>}
+
+          {attemptConflict && !discardConfirmOpen && (
+            <button
+              type="button"
+              className="place-v2-add-more"
+              onClick={handleRequestDiscard}
+              disabled={saving}
+            >
+              Discard previous attempt
+            </button>
+          )}
+
+          {discardConfirmOpen && (
+            <div className="place-v2-message" role="alertdialog" aria-labelledby="discard-attempt-title">
+              <strong id="discard-attempt-title">Discard the previous order attempt?</strong>
+              <p>
+                The previous request may already have created an order. Check Order
+                Tracking first. Continuing starts a new order attempt and could
+                duplicate an existing order.
+              </p>
+              <button type="button" className="place-v2-add-more" onClick={handleCancelDiscard}>
+                Keep previous attempt
+              </button>
+              <button type="button" className="place-v2-add-more" onClick={handleConfirmDiscard}>
+                Discard and start a new attempt
+              </button>
+            </div>
+          )}
 
           <div className="order-items-card place-v2-items-card">
             <div className="order-items-header">
@@ -741,7 +813,7 @@ function SalesRepPlaceOrder() {
           </div>
         </aside>
       </section>
-    </SalesRepLayout>
+    </>
   );
 }
 

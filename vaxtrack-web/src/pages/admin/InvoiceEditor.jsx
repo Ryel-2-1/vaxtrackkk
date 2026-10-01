@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { signOut } from "firebase/auth";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -15,7 +14,6 @@ import {
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
-import { AdminSidebar } from "../../components/admin/AdminSidebar";
 import { getOrderById } from "../../services/orderService";
 import { getUserProfile } from "../../services/userService";
 import {
@@ -322,10 +320,6 @@ function InvoiceEditor() {
     navigate("/admin/invoices");
   };
 
-  const handleLogout = async () => {
-    await signOut(auth);
-    navigate("/login");
-  };
 
   // Auto-open the print dialog when navigated here via the queue "Print" action
   // (only for already-issued invoices).
@@ -339,23 +333,18 @@ function InvoiceEditor() {
 
   if (loading) {
     return (
-      <div className="inventory-page">
-        <AdminSidebar active="invoices" onLogout={handleLogout} />
-        <main className="inv-page">
+      <main className="inv-page">
           <div className="inv-state">
             <Loader2 size={28} className="inv-spin" />
             <p>Loading invoice...</p>
           </div>
         </main>
-      </div>
     );
   }
 
   if (error) {
     return (
-      <div className="inventory-page">
-        <AdminSidebar active="invoices" onLogout={handleLogout} />
-        <main className="inv-page">
+      <main className="inv-page">
           <div className="inv-state">
             <AlertTriangle size={28} />
             <p>{error}</p>
@@ -373,7 +362,6 @@ function InvoiceEditor() {
             </div>
           </div>
         </main>
-      </div>
     );
   }
 
@@ -384,10 +372,8 @@ function InvoiceEditor() {
   const fillerCount = Math.max(0, 5 - form.items.length);
 
   return (
-    <div className="inventory-page">
-      <AdminSidebar active="invoices" onLogout={handleLogout} />
-
-      <main className="inv-page inv-editor-page">
+    <>
+    <main className="inv-page inv-editor-page">
         {/* Action bar (hidden when printing) */}
         <div className="inv-editor-bar inv-no-print">
           <button type="button" className="inv-btn inv-btn-ghost" onClick={handleBack}>
@@ -997,7 +983,7 @@ function InvoiceEditor() {
           onConfirm={handleIssue}
         />
       )}
-    </div>
+    </>
   );
 }
 

@@ -67,7 +67,19 @@ class RiderDeliveriesSnapshot {
   );
 }
 
-class DeliveryService {
+/// Reads one order authoritatively. Delivery Detail uses it to reload after the
+/// rider returns from Proof of Delivery; tests supply a fake.
+abstract class DeliveryLoader {
+  Future<Delivery> fetchDelivery(String orderId);
+}
+
+/// Runs the trusted completion. [DeliveryService] implements it with the
+/// server-side, inventory-settling callable; tests supply a fake.
+abstract class DeliveryCompleter {
+  Future<void> markDelivered(String orderId, String currentStatus);
+}
+
+class DeliveryService implements DeliveryLoader, DeliveryCompleter {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   /// Same region as the deployed functions and as staging Firestore. A
@@ -84,6 +96,27 @@ class DeliveryService {
       'statusUpdatedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     };
+  }
+
+  /// One authoritative read of a single order, from the SERVER (not the cache).
+  ///
+  /// Delivery Detail calls this when the rider returns from Proof of Delivery,
+  /// so newly recorded proof/invoice URLs — and any status or assignment change
+  /// made meanwhile — come from the server rather than a stale snapshot.
+  /// Throws when the order cannot be read (offline, reassigned so the rules deny
+  /// it, deleted, or unparseable); callers must then treat the evidence on
+  /// screen as UNCONFIRMED rather than assume an upload landed.
+  @override
+  Future<Delivery> fetchDelivery(String orderId) async {
+    final snap = await _db
+        .collection('orders')
+        .doc(orderId)
+        .get(const GetOptions(source: Source.server));
+    final data = snap.data();
+    if (!snap.exists || data == null) {
+      throw StateError('order-not-found');
+    }
+    return Delivery.fromFirestore(snap.id, data);
   }
 
   Stream<List<Delivery>> riderDeliveries(String riderId) {
@@ -200,6 +233,7 @@ class DeliveryService {
   ///
   /// Proof of delivery is deliberately still not required — that contract is
   /// unchanged and remains deferred until the physical-phone checkpoint.
+  @override
   Future<void> markDelivered(String orderId, String currentStatus) async {
     assertTransition(kActorRider, currentStatus, 'delivered');
     try {

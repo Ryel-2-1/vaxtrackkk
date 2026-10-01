@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { subscribeInventory } from "../../services/inventoryService";
 import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
-import SalesRepLayout from "./SalesRepLayout";
 
 // The derived expiry levels, in the order a rep cares about them. These are
 // labels from the shared helper, not values of the stored `status` field.
@@ -185,40 +184,40 @@ function SalesRepInventory() {
 
   if (loading) {
     return (
-      <SalesRepLayout active="inventory" title="Inventory" showSearch={false}>
+      <>
         <div className="inventory-loading-state">
           <Loader2 size={32} className="spin" />
           <p>Loading inventory data...</p>
         </div>
-      </SalesRepLayout>
+      </>
     );
   }
 
   if (error) {
     return (
-      <SalesRepLayout active="inventory" title="Inventory" showSearch={false}>
+      <>
         <div className="inventory-loading-state">
           <AlertTriangle size={32} />
           <p>{error}</p>
         </div>
-      </SalesRepLayout>
+      </>
     );
   }
 
   if (inventory.length === 0) {
     return (
-      <SalesRepLayout active="inventory" title="Inventory" showSearch={false}>
+      <>
         <div className="inventory-loading-state">
           <PackageCheck size={32} />
           <strong>No inventory data</strong>
           <p>No vaccine batches found in the system. Contact your administrator.</p>
         </div>
-      </SalesRepLayout>
+      </>
     );
   }
 
   return (
-    <SalesRepLayout active="inventory" title="Inventory" showSearch={false}>
+    <>
       <section className="salesrep-page-title inventory-v2-title">
         <div>
           <h2>Stock overview</h2>
@@ -419,7 +418,7 @@ function SalesRepInventory() {
           </div>
         </div>
       </section>
-    </SalesRepLayout>
+    </>
   );
 }
 

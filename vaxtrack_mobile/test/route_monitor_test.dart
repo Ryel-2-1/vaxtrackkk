@@ -47,6 +47,9 @@ Delivery _delivery({
   double? clinicLat = 14.6001,
   double? clinicLng = 120.9850,
   String? routePolyline = kSamplePolyline,
+  String? tripId,
+  int? stopSequence,
+  String? tripPolyline,
 }) {
   return Delivery(
     id: id,
@@ -64,6 +67,9 @@ Delivery _delivery({
     clinicLat: clinicLat,
     clinicLng: clinicLng,
     routePolyline: routePolyline,
+    tripId: tripId,
+    stopSequence: stopSequence,
+    tripPolyline: tripPolyline,
   );
 }
 
@@ -97,6 +103,35 @@ RouteMonitorController _controller({
 Stream<GpsSample> _emptyFactory() => const Stream<GpsSample>.empty();
 
 void main() {
+  group('compliancePolyline route source', () {
+    test('uses the trip polyline when the order is on a trip', () {
+      // routePolyline is blank; only the trip route is decodable, so a non-empty
+      // result proves the trip route was chosen over the single-order route.
+      final d = _delivery(
+        routePolyline: '',
+        tripId: 'trip1',
+        stopSequence: 2,
+        tripPolyline: kSamplePolyline,
+      );
+      expect(compliancePolyline(d).length, greaterThanOrEqualTo(2));
+    });
+
+    test('falls back to the single-order route when not on a trip', () {
+      final d = _delivery(routePolyline: kSamplePolyline);
+      expect(compliancePolyline(d).length, greaterThanOrEqualTo(2));
+    });
+
+    test('falls back to the single-order route when on a trip but no trip route', () {
+      final d = _delivery(
+        routePolyline: kSamplePolyline,
+        tripId: 'trip1',
+        stopSequence: 1,
+        tripPolyline: null,
+      );
+      expect(compliancePolyline(d).length, greaterThanOrEqualTo(2));
+    });
+  });
+
   group('start eligibility', () {
     test('an eligible active, assigned, coord+route delivery can start', () {
       final e = RouteMonitorEligibility.evaluate(

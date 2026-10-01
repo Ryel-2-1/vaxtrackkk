@@ -173,22 +173,23 @@ test("adjustmentsFromForm converts pesos to exact centavos", () => {
   );
 });
 
-test("the confirmation shows the callable's prices, not the client's expectation", () => {
+test("the confirmation shows the server's stored prices, not the client's expectation", () => {
   const place = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
+  const builder = read("src/services/orderConfirmation.js");
 
-  // The stored confirmation payload is built from `result.pricing` — the
-  // server's own copy — and the helper falls back to NO price rather than to
-  // the client's expected value.
-  assert.match(place, /\.\.\.confirmationPricing\(result\.pricing, items\)/);
-  const helper = /function confirmationPricing\(pricing, cartItems\) \{([\s\S]*?)\n\}/.exec(place);
-  assert.ok(helper, "the helper must exist");
+  // The stored confirmation payload is built from the order document the
+  // callable named, re-read after the commit — the server's own copy, which
+  // also holds on a replay. A line without a server price shows NO price
+  // rather than the client's expected value.
+  assert.match(place, /loadAuthoritativeConfirmation\(\{[\s\S]*?loadOrder: getOrderById,/);
+  assert.equal(/confirmationPricing/.test(place), false, "no checkout-state confirmation remains");
   assert.equal(
-    /unitPrice:\s*centavosToPesos\(item\.expectedUnitPriceCentavos\)/.test(helper[1]),
+    /expectedUnitPriceCentavos/.test(builder),
     false,
     "the confirmation must never bill from the client's expected price"
   );
-  assert.match(helper[1], /unitPrice: centavosToPesos\(line\.unitPriceCentavos\)/);
-  assert.match(helper[1], /unitPrice: null/, "no server pricing means no price shown");
+  assert.match(builder, /unitPriceCentavos: typeof item\?\.unitPriceCentavos === "number" \? item\.unitPriceCentavos : null/);
+  assert.match(builder, /lineTotalCentavos: typeof item\?\.lineTotalCentavos === "number" \? item\.lineTotalCentavos : null/);
 
   // And the server actually returns it, on both the fresh and replayed paths.
   const ops = read("functions/src/operations.js");
