@@ -853,18 +853,31 @@ function hasServerPricing(orderData) {
 }
 
 /**
- * An OPTIONAL requested delivery date supplied by the Med Rep at checkout.
+ * The REQUIRED requested delivery date supplied by the Med Rep at checkout.
  *
- * Absent/blank is valid and returns null — the field is optional, and the
- * dispatcher schedules normally when none is given. When present it must be a
- * real YYYY-MM-DD (isoDateOnly rejects "2026-02-31" and any other shape) and
- * must not be in the past, measured in Manila time so a rep placing an order
- * late in the day is never told "today" is already past. It is date-only on
- * purpose: a booking date carries no time or timezone, and comparing it against
- * the same manilaDateString the catalog uses keeps one definition of "today".
+ * Every new order must carry one: dispatch eligibility fails closed on an
+ * order without a valid date (firestore.rules scheduleAllowsDispatch,
+ * src/services/dispatchEligibility.js), so an undated order could never be
+ * delivered. Absent, null and blank are refused with `requested-date-required`;
+ * anything else that is not a real YYYY-MM-DD (isoDateOnly rejects "2026-02-31",
+ * non-strings and any other shape) or that lies in the past is refused with
+ * `invalid-requested-date`. "Past" is measured in Manila time so a rep placing
+ * an order late in the day is never told "today" is already past. It is
+ * date-only on purpose: a booking date carries no time or timezone, and
+ * comparing it against the same manilaDateString the catalog uses keeps one
+ * definition of "today".
  */
 function normalizeRequestedDeliveryDate(value, now) {
-  if (value === undefined || value === null || value === "") return null;
+  if (
+    value === undefined ||
+    value === null ||
+    (typeof value === "string" && value.trim() === "")
+  ) {
+    throw new PolicyError(
+      "requested-date-required",
+      "Choose a delivery date for this order."
+    );
+  }
   const iso = isoDateOnly(value);
   if (iso === null) {
     throw new PolicyError(

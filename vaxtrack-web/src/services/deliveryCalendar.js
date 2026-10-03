@@ -86,10 +86,12 @@ export function buildMonthGrid(year, month, { today = manilaToday() } = {}) {
 /**
  * Split orders into those with a valid requested date and those without.
  *
- * The date is optional, and every order that predates the feature has none, so
- * "unscheduled" is a first-class bucket — never dropped, never silently folded
- * into today. Orders with a malformed date land in `unscheduled` too: better
- * shown out of band than hidden on a day that does not exist.
+ * Every new order must carry a date, but orders that predate that requirement
+ * have none, so the `unscheduled` bucket stays first-class — never dropped,
+ * never silently folded into today. Orders with a malformed date land there
+ * too: better shown out of band than hidden on a day that does not exist. The
+ * dispatcher shows this bucket as "Needs scheduling": none of these orders can
+ * be dispatched (see dispatchEligibility.js).
  *
  * @param {Array<object>} orders
  * @param {{ dateField?: string }} [opts]

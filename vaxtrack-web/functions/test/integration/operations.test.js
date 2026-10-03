@@ -38,6 +38,9 @@ const CLINIC = "clinic1";
 const AREA = "area1";
 
 const NOW = new Date("2026-09-06T02:00:00.000Z");
+// Every new order must carry a requested delivery date (Manila calendar day,
+// not in the past relative to NOW). Cases that are not about the date use this.
+const DELIVERY_DATE = "2026-09-10";
 let seq = 0;
 const rid = () => `req${String(++seq).padStart(4, "0")}${"x".repeat(20)}`;
 
@@ -128,6 +131,7 @@ const create = (uid, items, over = {}) =>
       requestId: rid(),
       doctorId: DOCTOR,
       doctorAddressId: CLINIC,
+      requestedDeliveryDate: DELIVERY_DATE,
       items: items.map((i) =>
         "expectedUnitPriceCentavos" in i
           ? i
@@ -333,9 +337,52 @@ test("reservation: caller data can never override server identity", async (t) =>
   await t.test("audit uid comes from the session, not the payload", async () => {
     const r = await ops.createOrderWithReservation({
       db, FieldValue, uid: SR, now: NOW,
-      payload: { requestId: rid(), doctorId: DOCTOR, doctorAddressId: CLINIC, items: [{ inventoryId: "good", quantity: 1, expectedUnitPriceCentavos: PRICE }] },
+      payload: { requestId: rid(), doctorId: DOCTOR, doctorAddressId: CLINIC, requestedDeliveryDate: DELIVERY_DATE, items: [{ inventoryId: "good", quantity: 1, expectedUnitPriceCentavos: PRICE }] },
     });
     assert.equal((await order(r.orderId)).createdByUid, SR);
+  });
+});
+
+test("requested delivery date: a new order cannot be created without a valid one", async (t) => {
+  await seed();
+  const reservedBefore = (await inv("good")).reservedQuantity;
+  const attempt = (requestedDeliveryDate, { omit = false } = {}) => {
+    const payload = {
+      requestId: rid(),
+      doctorId: DOCTOR,
+      doctorAddressId: CLINIC,
+      items: [{ inventoryId: "good", quantity: 1, expectedUnitPriceCentavos: PRICE }],
+    };
+    if (!omit) payload.requestedDeliveryDate = requestedDeliveryDate;
+    return codeOf(ops.createOrderWithReservation({ db, FieldValue, uid: SR, now: NOW, payload }));
+  };
+
+  await t.test("missing, null and blank are refused as required", async () => {
+    assert.equal(await attempt(undefined, { omit: true }), "requested-date-required");
+    assert.equal(await attempt(null), "requested-date-required");
+    assert.equal(await attempt(""), "requested-date-required");
+    assert.equal(await attempt("   "), "requested-date-required");
+  });
+
+  await t.test("malformed, impossible, non-string and past dates are refused", async () => {
+    for (const bad of ["2026/09/10", "2026-9-10", "2026-02-31", "2026-13-01", 20260910, { seconds: 1 }, "2026-09-05"]) {
+      assert.equal(await attempt(bad), "invalid-requested-date", JSON.stringify(bad));
+    }
+  });
+
+  await t.test("a refused attempt leaves nothing behind", async () => {
+    assert.equal((await db.collection("orders").get()).size, 0, "no order");
+    assert.equal((await db.collection("inventoryReservations").get()).size, 0, "no reservation");
+    assert.equal((await db.collection("orderRequestKeys").get()).size, 0, "no idempotency record");
+    assert.equal((await inv("good")).reservedQuantity, reservedBefore, "no stock moved");
+  });
+
+  await t.test("a valid date is stored on the order exactly", async () => {
+    const r = await create(SR, [{ inventoryId: "good", quantity: 1 }]);
+    assert.equal((await order(r.orderId)).requestedDeliveryDate, DELIVERY_DATE);
+    // Today (Manila) is a valid choice too.
+    const today = await create(SR, [{ inventoryId: "good", quantity: 1 }], { requestedDeliveryDate: "2026-09-06" });
+    assert.equal((await order(today.orderId)).requestedDeliveryDate, "2026-09-06");
   });
 });
 
@@ -525,7 +572,7 @@ test("idempotency", async (t) => {
 
   await t.test("five simultaneous identical submits create exactly ONE order", async () => {
     const requestId = rid();
-    const payload = { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, items: [{ inventoryId: "good", quantity: 4, expectedUnitPriceCentavos: PRICE }] };
+    const payload = { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, requestedDeliveryDate: DELIVERY_DATE, items: [{ inventoryId: "good", quantity: 4, expectedUnitPriceCentavos: PRICE }] };
     const results = await Promise.allSettled(
       Array.from({ length: 5 }, () =>
         ops.createOrderWithReservation({ db, FieldValue, uid: SR, payload, now: NOW })
@@ -543,7 +590,7 @@ test("idempotency", async (t) => {
 
   await t.test("a later retry replays the original result without reserving again", async () => {
     const requestId = rid();
-    const payload = { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, items: [{ inventoryId: "good", quantity: 7, expectedUnitPriceCentavos: PRICE }] };
+    const payload = { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, requestedDeliveryDate: DELIVERY_DATE, items: [{ inventoryId: "good", quantity: 7, expectedUnitPriceCentavos: PRICE }] };
     const first = await ops.createOrderWithReservation({ db, FieldValue, uid: SR, payload, now: NOW });
     const reservedAfterFirst = (await inv("good")).reservedQuantity;
 
@@ -553,18 +600,39 @@ test("idempotency", async (t) => {
     assert.equal(replay.replayed, true);
     assert.deepEqual(replay.destination, first.destination);
     assert.equal((await inv("good")).reservedQuantity, reservedAfterFirst);
+    // The replayed order is the stored one, with the date the rep chose.
+    assert.equal((await order(first.orderId)).requestedDeliveryDate, DELIVERY_DATE);
+  });
+
+  await t.test("a replay keeps the ORIGINAL delivery date, never a retried one", async () => {
+    // The server fingerprint covers the doctor, destination and lines. The date
+    // is not in it, so a same-key retry carrying a different date replays the
+    // original order unchanged — the stored date is never overwritten. (The
+    // checkout refuses such a retry before it is sent: its saved attempt
+    // snapshot includes the date — tests/orderDraftRequest.test.js.)
+    const requestId = rid();
+    const base = { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, items: [{ inventoryId: "good", quantity: 2, expectedUnitPriceCentavos: PRICE }] };
+    const first = await ops.createOrderWithReservation({
+      db, FieldValue, uid: SR, now: NOW, payload: { ...base, requestedDeliveryDate: "2026-09-12" },
+    });
+    const retry = await ops.createOrderWithReservation({
+      db, FieldValue, uid: SR, now: NOW, payload: { ...base, requestedDeliveryDate: "2026-09-20" },
+    });
+    assert.equal(retry.orderId, first.orderId);
+    assert.equal(retry.replayed, true);
+    assert.equal((await order(first.orderId)).requestedDeliveryDate, "2026-09-12");
   });
 
   await t.test("the same key with different contents is refused", async () => {
     const requestId = rid();
     await ops.createOrderWithReservation({
       db, FieldValue, uid: SR, now: NOW,
-      payload: { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, items: [{ inventoryId: "good", quantity: 1, expectedUnitPriceCentavos: PRICE }] },
+      payload: { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, requestedDeliveryDate: DELIVERY_DATE, items: [{ inventoryId: "good", quantity: 1, expectedUnitPriceCentavos: PRICE }] },
     });
     const code = await codeOf(
       ops.createOrderWithReservation({
         db, FieldValue, uid: SR, now: NOW,
-        payload: { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, items: [{ inventoryId: "good", quantity: 2, expectedUnitPriceCentavos: PRICE }] },
+        payload: { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, requestedDeliveryDate: DELIVERY_DATE, items: [{ inventoryId: "good", quantity: 2, expectedUnitPriceCentavos: PRICE }] },
       })
     );
     assert.equal(code, "idempotency-conflict");
@@ -573,8 +641,8 @@ test("idempotency", async (t) => {
   await t.test("the key is scoped to the caller", async () => {
     const requestId = rid();
     const items = [{ inventoryId: "good", quantity: 1, expectedUnitPriceCentavos: PRICE }];
-    const a = await ops.createOrderWithReservation({ db, FieldValue, uid: SR, now: NOW, payload: { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, items } });
-    const b = await ops.createOrderWithReservation({ db, FieldValue, uid: SR2, now: NOW, payload: { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, items } });
+    const a = await ops.createOrderWithReservation({ db, FieldValue, uid: SR, now: NOW, payload: { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, requestedDeliveryDate: DELIVERY_DATE, items } });
+    const b = await ops.createOrderWithReservation({ db, FieldValue, uid: SR2, now: NOW, payload: { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, requestedDeliveryDate: DELIVERY_DATE, items } });
     assert.notEqual(a.orderId, b.orderId, "one rep's key cannot replay another's order");
   });
 

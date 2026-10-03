@@ -119,10 +119,13 @@ test("create payload shape", async (t) => {
     });
   });
 
-  await t.test("accepts the optional requestedDeliveryDate instead of rejecting it", () => {
+  await t.test("lets requestedDeliveryDate through the shape allowlist", () => {
     // Regression: operations.js reads + re-validates this field, but the strict
     // allowlist used to reject the whole order for carrying it, so no order
-    // could ever record a requested delivery date.
+    // could ever record a requested delivery date. The allowlist only governs
+    // which KEYS may appear; whether the value is present and valid is
+    // normalizeRequestedDeliveryDate's job (required since scheduled-dispatch
+    // hardening).
     assert.doesNotThrow(() =>
       P.validateCreatePayload({ ...ok, requestedDeliveryDate: "2026-09-24" })
     );
@@ -649,10 +652,15 @@ test("reason validation matches the shared lifecycle bounds", () => {
   assert.equal(P.validateReason("  Clinic closed  "), "Clinic closed");
 });
 
-test("normalizeRequestedDeliveryDate: optional, real, and never in the past", () => {
-  // Absent / blank is allowed and normalises to null.
-  for (const v of [undefined, null, ""]) {
-    assert.equal(P.normalizeRequestedDeliveryDate(v, NOW), null);
+test("normalizeRequestedDeliveryDate: required, real, and never in the past", () => {
+  // Absent, null and blank are refused: every new order must be dispatchable
+  // on a known day, and an undated order fails closed at dispatch.
+  for (const v of [undefined, null, "", "   "]) {
+    assert.equal(
+      codeOf(() => P.normalizeRequestedDeliveryDate(v, NOW)),
+      "requested-date-required",
+      JSON.stringify(v)
+    );
   }
   // Today (Manila) and future are accepted and returned as-is.
   assert.equal(P.normalizeRequestedDeliveryDate("2026-09-06", NOW), "2026-09-06");
@@ -662,8 +670,12 @@ test("normalizeRequestedDeliveryDate: optional, real, and never in the past", ()
     codeOf(() => P.normalizeRequestedDeliveryDate("2026-09-05", NOW)),
     "invalid-requested-date"
   );
-  // Impossible or malformed dates are refused.
-  for (const bad of ["2026-02-31", "2026/09/06", "not-a-date", 20260906]) {
+  // Impossible, malformed and non-string dates are refused.
+  for (const bad of [
+    "2026-02-31", "2026-13-01", "2026/09/06", "2026-9-6", "not-a-date",
+    20260906, true, {}, ["2026-09-06"], new Date("2026-09-06T00:00:00Z"),
+    { seconds: 1788652800, nanoseconds: 0 },
+  ]) {
     assert.equal(
       codeOf(() => P.normalizeRequestedDeliveryDate(bad, NOW)),
       "invalid-requested-date",

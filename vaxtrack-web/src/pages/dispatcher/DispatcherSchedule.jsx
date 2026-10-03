@@ -9,10 +9,16 @@ import {
   monthOf,
   ordersOnDate,
 } from "../../services/deliveryCalendar";
+import {
+  dispatchEligibility,
+  isEarlyDispatchAnomaly,
+  SCHEDULED_DATE_NOT_REACHED,
+} from "../../services/dispatchEligibility";
+import useManilaDayNow from "../../components/useManilaDayNow";
 import MonthCalendar from "../../components/ui/MonthCalendar";
 import StatusBadge from "../../components/ui/StatusBadge";
 
-// Terminal orders need no scheduling action; the "unscheduled" bucket is a
+// Terminal orders need no scheduling action; the "Needs scheduling" bucket is a
 // worklist, so historical delivered/cancelled orders without a date are left out
 // of it. They still appear on their day if they ever carried one.
 const ACTIVE_STATUSES = new Set([
@@ -36,12 +42,37 @@ function longDate(iso) {
   });
 }
 
-function OrderRow({ order }) {
+// The schedule's own reading of an order, from the same rule the dispatch
+// queue, the services and firestore.rules apply. Null when there is nothing
+// to add to the status badge.
+// Statuses still waiting to (re-)enter dispatch, where a blocked date matters.
+const PRE_DISPATCH = new Set(["pending_dispatch", "assigned", "loading", "delivery_failed"]);
+
+function scheduleNote(order, now) {
+  const schedule = dispatchEligibility(order, now);
+  if (isEarlyDispatchAnomaly(order, order.statusKey, now)) {
+    return { tone: "anomaly", text: "Early dispatch — dispatched before its scheduled date" };
+  }
+  if (!PRE_DISPATCH.has(order.statusKey) || schedule.eligible) return null;
+  if (schedule.code === SCHEDULED_DATE_NOT_REACHED) {
+    return { tone: "hold", text: "Upcoming — not dispatchable until 00:00 that day" };
+  }
+  // Missing or invalid: the exact operator message from the shared rule.
+  return { tone: "anomaly", text: schedule.message };
+}
+
+function OrderRow({ order, now }) {
+  const note = scheduleNote(order, now);
   return (
     <div className="dsch-row">
       <div className="dsch-row-main">
         <strong>{order.orderNumber || order.id}</strong>
         <small>{order.clinicName || "Unknown clinic"}</small>
+        {note && (
+          <span className={note.tone === "anomaly" ? "dispatch-anomaly" : "dispatch-hold-note"}>
+            {note.text}
+          </span>
+        )}
       </div>
       <div className="dsch-row-meta">
         <span className="dsch-row-vaccine">
@@ -64,7 +95,8 @@ function DispatcherSchedule() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const today = manilaToday();
+  const now = useManilaDayNow();
+  const today = manilaToday(now);
   const [view, setView] = useState(() => monthOf(today) || { year: 2026, month: 0 });
   const [selectedDate, setSelectedDate] = useState(today);
 
@@ -164,7 +196,7 @@ function DispatcherSchedule() {
                 ) : (
                   <div className="dsch-list">
                     {selectedDayOrders.map((o) => (
-                      <OrderRow key={o.id} order={o} />
+                      <OrderRow key={o.id} order={o} now={now} />
                     ))}
                   </div>
                 )}
@@ -173,10 +205,11 @@ function DispatcherSchedule() {
               <div className="dsch-card">
                 <div className="dsch-card-head">
                   <div>
-                    <h3>Unscheduled</h3>
+                    <h3>Needs scheduling</h3>
                     <p>
                       {unscheduled.length} active order
-                      {unscheduled.length === 1 ? "" : "s"} with no requested date
+                      {unscheduled.length === 1 ? "" : "s"} without a usable delivery
+                      date. None can be dispatched until an admin stores a valid date.
                     </p>
                   </div>
                 </div>
@@ -190,7 +223,7 @@ function DispatcherSchedule() {
                 ) : (
                   <div className="dsch-list dsch-list-scroll">
                     {unscheduled.map((o) => (
-                      <OrderRow key={o.id} order={o} />
+                      <OrderRow key={o.id} order={o} now={now} />
                     ))}
                   </div>
                 )}

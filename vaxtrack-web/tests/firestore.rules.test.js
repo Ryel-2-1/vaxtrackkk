@@ -31,9 +31,13 @@ import {
   where,
   serverTimestamp,
   runTransaction,
+  Timestamp,
+  deleteField,
 } from "firebase/firestore";
 
 const PROJECT_ID = "vaxtrack-rules-test";
+// A valid, already-reached Manila delivery date for fixture orders.
+const FIXTURE_DELIVERY_DATE = "2026-01-01";
 
 // Isolated emulator port (default 8181 to avoid a busy 8080; overridable via
 // FIRESTORE_EMULATOR_PORT). Must match firebase.json's emulators.firestore.port.
@@ -85,6 +89,13 @@ async function main() {
   // ---- seed with rules disabled ----
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     const db = ctx.firestore();
+    // Every order now carries a requested delivery date — the callable refuses
+    // one without — and an undated order fails closed at dispatch. Fixtures get
+    // a past date so each lifecycle case stays about its own subject; the cases
+    // about the date seed their own (see "scheduled dispatch" below). A fixture
+    // that sets requestedDeliveryDate itself overrides this.
+    const seedOrder = (id, data) =>
+      setDoc(doc(db, "orders", id), { requestedDeliveryDate: FIXTURE_DELIVERY_DATE, ...data });
     await setDoc(doc(db, "users", adminUid), { role: "admin", status: "approved", email: "a@x.com" });
     await setDoc(doc(db, "users", dispatcherUid), { role: "dispatcher", status: "approved", email: "d@x.com" });
     await setDoc(doc(db, "users", salesRepUid), { role: "salesrep", status: "approved", email: "s@x.com" });
@@ -94,10 +105,10 @@ async function main() {
     await setDoc(doc(db, "users", pendingRiderUid), { role: "rider", status: "pending", email: "p@x.com" });
     await setDoc(doc(db, "users", disabledUid), { role: "dispatcher", status: "disabled", email: "x@x.com" });
 
-    await setDoc(doc(db, "orders", "ordSR1"), { createdByUid: salesRepUid, status: "pending_dispatch", assignedRiderId: null });
-    await setDoc(doc(db, "orders", "ordSR2"), { createdByUid: otherSalesRepUid, status: "pending_dispatch", assignedRiderId: null });
-    await setDoc(doc(db, "orders", "ordRider1"), { createdByUid: salesRepUid, status: "in_transit", assignedRiderId: riderUid });
-    await setDoc(doc(db, "orders", "ordCorrected"), {
+    await seedOrder("ordSR1", { createdByUid: salesRepUid, status: "pending_dispatch", assignedRiderId: null });
+    await seedOrder("ordSR2", { createdByUid: otherSalesRepUid, status: "pending_dispatch", assignedRiderId: null });
+    await seedOrder("ordRider1", { createdByUid: salesRepUid, status: "in_transit", assignedRiderId: riderUid });
+    await seedOrder("ordCorrected", {
       createdByUid: salesRepUid, status: "assigned", assignedRiderId: riderUid,
       destinationRevision: 1, doctorId: "doctor1", doctorAddressId: "home",
     });
@@ -107,11 +118,11 @@ async function main() {
     await setDoc(doc(db, "orders", "ordCorrected", "destinationChangeRequests", "request-2"), {
       status: "pending", proposed: { doctorAddressId: "clinic2" }, reason: "New delivery location",
     });
-    await setDoc(doc(db, "orders", "ordRider2"), { createdByUid: salesRepUid, status: "in_transit", assignedRiderId: otherRiderUid });
+    await seedOrder("ordRider2", { createdByUid: salesRepUid, status: "in_transit", assignedRiderId: otherRiderUid });
     // A THIRD assigned order with NO alert yet — used to reproduce the real
     // service's transaction upsert, which reads the deterministic alert doc
     // before it exists.
-    await setDoc(doc(db, "orders", "ordRider3"), { createdByUid: salesRepUid, status: "in_transit", assignedRiderId: riderUid });
+    await seedOrder("ordRider3", { createdByUid: salesRepUid, status: "in_transit", assignedRiderId: riderUid });
 
     await setDoc(doc(db, "inventory", "inv1"), { vaccineName: "X", quantity: 10 });
     // Stock-correction fixtures: 10 of 100 reserved for open orders.
@@ -137,18 +148,18 @@ async function main() {
 
     // One order per positive case, since a successful assignment consumes it.
     for (const id of ["ordAssignOk", "ordAssignOk2", "ordAssignSame", "ordAssignLater"]) {
-      await setDoc(doc(db, "orders", id), {
+      await seedOrder(id, {
         createdByUid: salesRepUid, status: "pending_dispatch", assignedRiderId: null,
       });
     }
     // Rejection fixtures.
-    await setDoc(doc(db, "orders", "ordAssignBadStatus"), {
+    await seedOrder("ordAssignBadStatus", {
       createdByUid: salesRepUid, status: "loading", assignedRiderId: null,
     });
-    await setDoc(doc(db, "orders", "ordAssignTaken"), {
+    await seedOrder("ordAssignTaken", {
       createdByUid: salesRepUid, status: "pending_dispatch", assignedRiderId: otherRiderUid,
     });
-    await setDoc(doc(db, "orders", "ordAssignReject"), {
+    await seedOrder("ordAssignReject", {
       createdByUid: salesRepUid, status: "pending_dispatch", assignedRiderId: null,
     });
 
@@ -176,7 +187,7 @@ async function main() {
       lcCancelled: "cancelled",
     };
     for (const [id, status] of Object.entries(lifecycle)) {
-      await setDoc(doc(db, "orders", id), {
+      await seedOrder(id, {
         createdByUid: salesRepUid,
         status,
         assignedRiderId: status === "pending_dispatch" ? null : riderUid,
@@ -185,7 +196,7 @@ async function main() {
       });
     }
     // Assigned to somebody else — used for the wrong-rider cases.
-    await setDoc(doc(db, "orders", "lcOtherRider"), {
+    await seedOrder("lcOtherRider", {
       createdByUid: salesRepUid,
       status: "in_transit",
       assignedRiderId: otherRiderUid,
@@ -209,7 +220,7 @@ async function main() {
       fdFailed7: "delivery_failed",
     };
     for (const [id, status] of Object.entries(failFixtures)) {
-      await setDoc(doc(db, "orders", id), {
+      await seedOrder(id, {
         createdByUid: salesRepUid,
         status,
         assignedRiderId: riderUid,
@@ -224,7 +235,7 @@ async function main() {
       });
     }
     // A failed order belonging to another rider.
-    await setDoc(doc(db, "orders", "fdOtherRider"), {
+    await seedOrder("fdOtherRider", {
       createdByUid: salesRepUid,
       status: "in_transit",
       assignedRiderId: otherRiderUid,
@@ -234,11 +245,11 @@ async function main() {
     // Real staging shapes that must stay readable and must NOT be repaired
     // here: an assignment pointing at a user document that no longer exists,
     // and an order carrying only a rider name.
-    await setDoc(doc(db, "orders", "ordOrphanAssignment"), {
+    await seedOrder("ordOrphanAssignment", {
       createdByUid: salesRepUid, status: "in_transit", assignedRiderId: "ghostRiderUid",
       assignedRiderName: "Ghost Rider",
     });
-    await setDoc(doc(db, "orders", "ordNameOnly"), {
+    await seedOrder("ordNameOnly", {
       createdByUid: salesRepUid, status: "delayed", assignedRiderName: "Name Only Rider",
     });
 
@@ -338,14 +349,14 @@ async function main() {
     });
     // An order created BEFORE Phase 02A: no snapshot fields at all. Must stay
     // readable and keep moving through its normal lifecycle.
-    await setDoc(doc(db, "orders", "ordLegacyNoSnapshot"), {
+    await seedOrder("ordLegacyNoSnapshot", {
       createdByUid: salesRepUid,
       status: "assigned",
       assignedRiderId: riderUid,
       clinicName: "Legacy Clinic",
     });
     // An order that already carries a valid snapshot — used for mutation tests.
-    await setDoc(doc(db, "orders", "ordWithSnapshot"), {
+    await seedOrder("ordWithSnapshot", {
       createdByUid: salesRepUid,
       status: "assigned",
       assignedRiderId: riderUid,
@@ -390,13 +401,13 @@ async function main() {
     // ---- direct-write lockdown fixtures (workflow checkpoint 5) ----
     // Dedicated orders, so the lockdown cases cannot be affected by whatever
     // earlier tests did to the shared lifecycle fixtures.
-    await setDoc(doc(db, "orders", "lockAssigned"), {
+    await seedOrder("lockAssigned", {
       createdByUid: salesRepUid, status: "assigned", assignedRiderId: riderUid,
     });
-    await setDoc(doc(db, "orders", "lockTransit"), {
+    await seedOrder("lockTransit", {
       createdByUid: salesRepUid, status: "in_transit", assignedRiderId: riderUid,
     });
-    await setDoc(doc(db, "orders", "lockDestination"), {
+    await seedOrder("lockDestination", {
       createdByUid: salesRepUid,
       status: "assigned",
       assignedRiderId: riderUid,
@@ -433,27 +444,27 @@ async function main() {
       "evTransit6", "evTransit7", "evTransit8", "evUnicode", "evInvoice1",
       "evInvoice2", "evCombined", "evAmend",
     ]) {
-      await setDoc(doc(db, "orders", id), {
+      await seedOrder(id, {
         createdByUid: salesRepUid, status: "in_transit", assignedRiderId: riderUid,
       });
     }
-    await setDoc(doc(db, "orders", "evDelayed"), {
+    await seedOrder("evDelayed", {
       createdByUid: salesRepUid, status: "delayed", assignedRiderId: riderUid,
     });
-    await setDoc(doc(db, "orders", "evAssigned"), {
+    await seedOrder("evAssigned", {
       createdByUid: salesRepUid, status: "assigned", assignedRiderId: riderUid,
     });
-    await setDoc(doc(db, "orders", "evLoading"), {
+    await seedOrder("evLoading", {
       createdByUid: salesRepUid, status: "loading", assignedRiderId: riderUid,
     });
-    await setDoc(doc(db, "orders", "evDelivered"), {
+    await seedOrder("evDelivered", {
       createdByUid: salesRepUid, status: "delivered", assignedRiderId: riderUid,
     });
-    await setDoc(doc(db, "orders", "evCancelled"), {
+    await seedOrder("evCancelled", {
       createdByUid: salesRepUid, status: "cancelled", assignedRiderId: riderUid,
     });
     // Already proven: the one-shot marker is present.
-    await setDoc(doc(db, "orders", "evFinalized"), {
+    await seedOrder("evFinalized", {
       createdByUid: salesRepUid, status: "in_transit", assignedRiderId: riderUid,
       proofOfDeliveryUrl: "https://storage/first.jpg",
       proofOfDeliveryPath: "proof_of_delivery/evFinalized/proof.jpg",
@@ -462,11 +473,11 @@ async function main() {
       proofSubmittedByUid: riderUid,
     });
     // Assigned to the OTHER rider, so only the assignment can refuse rider1.
-    await setDoc(doc(db, "orders", "evOtherRider"), {
+    await seedOrder("evOtherRider", {
       createdByUid: salesRepUid, status: "in_transit", assignedRiderId: otherRiderUid,
     });
     // Assigned to a PENDING rider, so only their standing can refuse them.
-    await setDoc(doc(db, "orders", "evPendingRider"), {
+    await seedOrder("evPendingRider", {
       createdByUid: salesRepUid, status: "in_transit", assignedRiderId: pendingRiderUid,
     });
 
@@ -510,7 +521,7 @@ async function main() {
     // ---- server-priced order + its invoice (pricing checkpoint) ----
     // The invoice doc id IS the order id, which is how the rules reach the
     // order to decide whether the client may write here at all.
-    await setDoc(doc(db, "orders", "ordPriced"), {
+    await seedOrder("ordPriced", {
       createdByUid: salesRepUid,
       status: "delivered",
       allocationVersion: 1,
@@ -543,7 +554,7 @@ async function main() {
     });
     // A second priced order with NO invoice yet, so the CREATE path can be
     // tested (a setDoc over an existing document is an update, not a create).
-    await setDoc(doc(db, "orders", "ordPriced2"), {
+    await seedOrder("ordPriced2", {
       createdByUid: salesRepUid,
       status: "delivered",
       pricingVersion: 1,
@@ -555,7 +566,7 @@ async function main() {
     });
     // An order with NO pricingVersion — the manual invoice path must still work
     // for it, unchanged.
-    await setDoc(doc(db, "orders", "ordLegacyPrice"), {
+    await seedOrder("ordLegacyPrice", {
       createdByUid: salesRepUid,
       status: "delivered",
       items: [{ name: "Hepatitis B", sku: "HEP-3", quantity: 5, unitPrice: 0 }],
@@ -583,7 +594,7 @@ async function main() {
 
   await check("P2 admin reads + writes an order", async () => {
     await assertSucceeds(getDoc(doc(admin, "orders", "ordSR1")));
-    await assertSucceeds(setDoc(doc(admin, "orders", "tmpOrderByAdmin"), { createdByUid: salesRepUid, status: "pending_dispatch" }));
+    await assertSucceeds(setDoc(doc(admin, "orders", "tmpOrderByAdmin"), { createdByUid: salesRepUid, status: "pending_dispatch", requestedDeliveryDate: FIXTURE_DELIVERY_DATE }));
   });
 
   await check("P3 admin writes inventory/clinics/alerts", async () => {
@@ -1928,6 +1939,7 @@ async function main() {
     clinicName: "Some Clinic",
     vaccineName: "V",
     quantity: 1,
+    requestedDeliveryDate: FIXTURE_DELIVERY_DATE,
     ...extra,
   });
 
@@ -3209,6 +3221,8 @@ async function main() {
       destinationType: "clinic",
       deliveryAddress: "123 Rizal Street, Seed City",
       destinationSnapshotAt: serverTimestamp(),
+      // Dated, so this is refused for the forged snapshot alone.
+      requestedDeliveryDate: FIXTURE_DELIVERY_DATE,
     }));
   });
 
@@ -3250,6 +3264,8 @@ async function main() {
       pricingVersion: 1,
       subtotalCentavos: 500000,
       createdAt: serverTimestamp(),
+      // Dated, so this is refused for the price fields alone.
+      requestedDeliveryDate: FIXTURE_DELIVERY_DATE,
     }));
   });
 
@@ -3510,6 +3526,284 @@ async function main() {
       status: "delayed", delayReason: "Traffic", delayedAt: serverTimestamp(), ...audit(riderUid),
     }));
     await assertSucceeds(updateDoc(doc(rider, "orders", "lockTransit"), {
+      status: "in_transit", startedAt: serverTimestamp(), ...audit(riderUid),
+    }));
+  });
+
+  // ---------------- scheduled dispatch (requestedDeliveryDate) ----------------
+  //
+  // The emulator's request.time is the real clock, so these use dates relative
+  // to Manila today. The exact 00:00 Manila boundary is pinned to the
+  // millisecond in tests/dispatchEligibility.test.js against the same formula.
+  console.log("\n--- scheduled dispatch ---");
+  const manilaIso = (offsetDays) =>
+    new Date(Date.now() + 8 * 3600000 + offsetDays * 86400000).toISOString().slice(0, 10);
+  const schedToday = manilaIso(0);
+  const schedYesterday = manilaIso(-1);
+  const schedTomorrow = manilaIso(1);
+  const schedFar = manilaIso(30);
+
+  // Seed one pending order per case so each write starts from a known state.
+  const seedSched = (id, fields) =>
+    testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "orders", id), {
+        createdByUid: salesRepUid,
+        status: "pending_dispatch",
+        assignedRiderId: null,
+        ...fields,
+      })
+    );
+  const assignPayload = () => ({
+    status: "assigned",
+    assignedRiderId: riderUid,
+    assignedAt: serverTimestamp(),
+    assignedByUid: dispatcherUid,
+    updatedAt: serverTimestamp(),
+  });
+
+  await check("SD1 same-day and past valid dates are assignable", async () => {
+    await seedSched("sdToday", { requestedDeliveryDate: schedToday });
+    await seedSched("sdPast", { requestedDeliveryDate: schedYesterday });
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "sdToday"), assignPayload()));
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "sdPast"), assignPayload()));
+  });
+
+  await check("SD1b a legacy order with NO date fails closed at every dispatch step", async () => {
+    // Created before the date was required. Not assignable, not loadable, not
+    // finalizable, not recoverable, and a delayed one cannot resume transit.
+    await seedSched("sdNone", {});
+    await assertFails(updateDoc(doc(dispatcher, "orders", "sdNone"), assignPayload()));
+    await assertFails(runTransaction(dispatcher, async (tx) => {
+      const ref = doc(dispatcher, "orders", "sdNone");
+      await tx.get(ref);
+      tx.update(ref, assignPayload());
+    }));
+
+    await seedSched("sdNoneAssigned", { status: "assigned", assignedRiderId: riderUid });
+    await assertFails(updateDoc(doc(dispatcher, "orders", "sdNoneAssigned"), {
+      status: "loading", isLoaded: true, loadedAt: serverTimestamp(), ...audit(dispatcherUid),
+    }));
+
+    await seedSched("sdNoneLoading", { status: "loading", assignedRiderId: riderUid, isLoaded: true });
+    await assertFails(updateDoc(doc(dispatcher, "orders", "sdNoneLoading"), {
+      status: "in_transit", dispatchedAt: serverTimestamp(), startedAt: serverTimestamp(), ...audit(dispatcherUid),
+    }));
+
+    await seedSched("sdNoneFailed", { status: "delivery_failed", assignedRiderId: otherRiderUid });
+    await assertFails(updateDoc(doc(dispatcher, "orders", "sdNoneFailed"), {
+      status: "assigned",
+      assignedRiderId: riderUid,
+      assignedAt: serverTimestamp(),
+      assignedByUid: dispatcherUid,
+      reassignedAt: serverTimestamp(),
+      reassignedByUid: dispatcherUid,
+      previousAssignedRiderId: otherRiderUid,
+      ...audit(dispatcherUid),
+    }));
+
+    await seedSched("sdNoneDelayed", { status: "delayed", assignedRiderId: riderUid });
+    await assertFails(updateDoc(doc(rider, "orders", "sdNoneDelayed"), {
+      status: "in_transit", startedAt: serverTimestamp(), ...audit(riderUid),
+    }));
+    // An admin full update cannot push it through either.
+    await assertFails(updateDoc(doc(admin, "orders", "sdNone"), {
+      status: "in_transit", updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("SD1c a legacy undated order keeps its non-dispatch writes", async () => {
+    // Already in transit before the date was required: the rider's location
+    // reporting and a delay report still work, and a dispatcher may still
+    // generate a route — none of them moves the order INTO dispatch.
+    await seedSched("sdNoneTransit", { status: "in_transit", assignedRiderId: riderUid });
+    await assertSucceeds(updateDoc(doc(rider, "orders", "sdNoneTransit"), {
+      lastLocation: { lat: 14.6, lng: 121.0 },
+      lastLocationUpdate: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }));
+    await assertSucceeds(updateDoc(doc(rider, "orders", "sdNoneTransit"), {
+      status: "delayed", delayReason: "Traffic", delayedAt: serverTimestamp(), ...audit(riderUid),
+    }));
+  });
+
+  await check("SD1d an admin correction to a valid date makes a legacy order dispatchable", async () => {
+    await seedSched("sdNoneRepair", {});
+    await assertFails(updateDoc(doc(dispatcher, "orders", "sdNoneRepair"), assignPayload()));
+    // Only an admin may store the date, and only a real one.
+    await assertFails(updateDoc(doc(dispatcher, "orders", "sdNoneRepair"), { requestedDeliveryDate: schedToday, updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(salesRep, "orders", "sdNoneRepair"), { requestedDeliveryDate: schedToday }));
+    await assertFails(updateDoc(doc(admin, "orders", "sdNoneRepair"), { requestedDeliveryDate: "" }));
+    await assertSucceeds(updateDoc(doc(admin, "orders", "sdNoneRepair"), { requestedDeliveryDate: schedToday }));
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "sdNoneRepair"), assignPayload()));
+  });
+
+  await check("SD2 a future order cannot be assigned, even by a direct SDK write", async () => {
+    // This is the stale-UI / modified-client path: the page is bypassed and
+    // the write goes straight to Firestore.
+    await seedSched("sdTomorrow", { requestedDeliveryDate: schedTomorrow });
+    await seedSched("sdFar", { requestedDeliveryDate: schedFar });
+    await assertFails(updateDoc(doc(dispatcher, "orders", "sdTomorrow"), assignPayload()));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "sdFar"), assignPayload()));
+    // Through a transaction, exactly as assignRiderToOrder writes.
+    await assertFails(runTransaction(dispatcher, async (tx) => {
+      const ref = doc(dispatcher, "orders", "sdTomorrow");
+      await tx.get(ref);
+      tx.update(ref, assignPayload());
+    }));
+  });
+
+  await check("SD3 missing-but-present, null, blank, malformed, impossible and legacy dates fail closed", async () => {
+    const bad = {
+      sdNull: null,
+      sdBlank: "",
+      sdSlash: "2026/10/04",
+      sdShort: "2026-1-4",
+      sdPadded: " 2026-10-04",
+      sdImpossible: "2026-02-31",
+      sdMonth13: "2026-13-01",
+      sdNumber: 20261004,
+      sdTimestamp: Timestamp.fromDate(new Date("2026-01-01T00:00:00Z")),
+      sdMap: { y: 2026, m: 10, d: 4 },
+    };
+    for (const [id, value] of Object.entries(bad)) {
+      await seedSched(id, { requestedDeliveryDate: value });
+      await assertFails(updateDoc(doc(dispatcher, "orders", id), assignPayload()));
+    }
+  });
+
+  await check("SD4 a future order already assigned cannot be loaded or dispatched", async () => {
+    // Pre-existing data: assigned before this guard existed.
+    await seedSched("sdAssignedFuture", {
+      requestedDeliveryDate: schedTomorrow,
+      status: "assigned",
+      assignedRiderId: riderUid,
+    });
+    await assertFails(updateDoc(doc(dispatcher, "orders", "sdAssignedFuture"), {
+      status: "loading", isLoaded: true, loadedAt: serverTimestamp(), ...audit(dispatcherUid),
+    }));
+    await seedSched("sdLoadingFuture", {
+      requestedDeliveryDate: schedTomorrow,
+      status: "loading",
+      assignedRiderId: riderUid,
+      isLoaded: true,
+    });
+    await assertFails(updateDoc(doc(dispatcher, "orders", "sdLoadingFuture"), {
+      status: "in_transit",
+      dispatchedAt: serverTimestamp(),
+      startedAt: serverTimestamp(),
+      ...audit(dispatcherUid),
+    }));
+    // ...while the same steps on a same-day order still go through.
+    await seedSched("sdLoadingToday", {
+      requestedDeliveryDate: schedToday,
+      status: "loading",
+      assignedRiderId: riderUid,
+      isLoaded: true,
+    });
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "sdLoadingToday"), {
+      status: "in_transit",
+      dispatchedAt: serverTimestamp(),
+      startedAt: serverTimestamp(),
+      ...audit(dispatcherUid),
+    }));
+  });
+
+  await check("SD5 failed-delivery recovery is held to the schedule", async () => {
+    const recovery = () => ({
+      status: "assigned",
+      assignedRiderId: riderUid,
+      assignedAt: serverTimestamp(),
+      assignedByUid: dispatcherUid,
+      reassignedAt: serverTimestamp(),
+      reassignedByUid: dispatcherUid,
+      previousAssignedRiderId: otherRiderUid,
+      ...audit(dispatcherUid),
+    });
+    await seedSched("sdFailedFuture", {
+      requestedDeliveryDate: schedTomorrow,
+      status: "delivery_failed",
+      assignedRiderId: otherRiderUid,
+    });
+    await assertFails(updateDoc(doc(dispatcher, "orders", "sdFailedFuture"), recovery()));
+    await seedSched("sdFailedToday", {
+      requestedDeliveryDate: schedToday,
+      status: "delivery_failed",
+      assignedRiderId: otherRiderUid,
+    });
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "sdFailedToday"), recovery()));
+  });
+
+  await check("SD6 admin full update cannot dispatch early, but can repair the date", async () => {
+    await seedSched("sdAdmin", { requestedDeliveryDate: schedTomorrow });
+    await assertFails(updateDoc(doc(admin, "orders", "sdAdmin"), {
+      status: "in_transit", updatedAt: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(doc(admin, "orders", "sdAdmin"), {
+      status: "assigned", assignedRiderId: riderUid, updatedAt: serverTimestamp(),
+    }));
+    // An admin may not write an unusable date...
+    await assertFails(updateDoc(doc(admin, "orders", "sdAdmin"), { requestedDeliveryDate: "Oct 4" }));
+    await assertFails(updateDoc(doc(admin, "orders", "sdAdmin"), { requestedDeliveryDate: null }));
+    await assertFails(updateDoc(doc(admin, "orders", "sdAdmin"), { requestedDeliveryDate: "2026-02-31" }));
+    // ...nor erase one: an undated order would only fail closed later.
+    await assertFails(updateDoc(doc(admin, "orders", "sdAdmin"), { requestedDeliveryDate: deleteField() }));
+    // ...but can correct one, which is the repair path for a malformed date.
+    await seedSched("sdAdminRepair", { requestedDeliveryDate: "2026/10/04" });
+    await assertSucceeds(updateDoc(doc(admin, "orders", "sdAdminRepair"), {
+      requestedDeliveryDate: schedToday,
+    }));
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "sdAdminRepair"), assignPayload()));
+  });
+
+  await check("SD7 admin cannot create an undated order, or one dispatched ahead of schedule", async () => {
+    // Every new order needs a real date — the same requirement the callable
+    // enforces, so a repair-created order cannot be born undispatchable.
+    await assertFails(setDoc(doc(admin, "orders", "sdAdminCreateNone"), {
+      createdByUid: salesRepUid, status: "pending_dispatch",
+    }));
+    await assertFails(setDoc(doc(admin, "orders", "sdAdminCreateNull"), {
+      createdByUid: salesRepUid, status: "pending_dispatch", requestedDeliveryDate: null,
+    }));
+    await assertFails(setDoc(doc(admin, "orders", "sdAdminCreateFuture"), {
+      createdByUid: salesRepUid, status: "in_transit", requestedDeliveryDate: schedTomorrow,
+    }));
+    await assertFails(setDoc(doc(admin, "orders", "sdAdminCreateBad"), {
+      createdByUid: salesRepUid, status: "pending_dispatch", requestedDeliveryDate: "tomorrow",
+    }));
+    await assertSucceeds(setDoc(doc(admin, "orders", "sdAdminCreatePending"), {
+      createdByUid: salesRepUid, status: "pending_dispatch", requestedDeliveryDate: schedTomorrow,
+    }));
+  });
+
+  await check("SD8 nobody who runs a delivery can move the date", async () => {
+    await seedSched("sdOwn", { requestedDeliveryDate: schedTomorrow });
+    // The Med Rep cannot pull their own order's date forward...
+    await assertFails(updateDoc(doc(salesRep, "orders", "sdOwn"), { requestedDeliveryDate: schedToday }));
+    await assertFails(updateDoc(doc(salesRep, "orders", "sdOwn"), { requestedDeliveryDate: null }));
+    // ...nor can the dispatcher, even folded into an assignment.
+    await assertFails(updateDoc(doc(dispatcher, "orders", "sdOwn"), {
+      ...assignPayload(), requestedDeliveryDate: schedToday,
+    }));
+  });
+
+  await check("SD9 non-dispatch writes on an early-dispatched order are not blocked", async () => {
+    // An anomaly already in transit before its date: the rider's location
+    // reporting and a delay report keep working; only a move INTO dispatch
+    // (here: resuming from delayed) is held until the date.
+    await seedSched("sdAnomaly", {
+      requestedDeliveryDate: schedTomorrow,
+      status: "in_transit",
+      assignedRiderId: riderUid,
+    });
+    await assertSucceeds(updateDoc(doc(rider, "orders", "sdAnomaly"), {
+      lastLocation: { lat: 14.6, lng: 121.0 },
+      lastLocationUpdate: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }));
+    await assertSucceeds(updateDoc(doc(rider, "orders", "sdAnomaly"), {
+      status: "delayed", delayReason: "Held for schedule", delayedAt: serverTimestamp(), ...audit(riderUid),
+    }));
+    await assertFails(updateDoc(doc(rider, "orders", "sdAnomaly"), {
       status: "in_transit", startedAt: serverTimestamp(), ...audit(riderUid),
     }));
   });

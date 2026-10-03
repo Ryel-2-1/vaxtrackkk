@@ -1,11 +1,12 @@
 /**
  * Requested-delivery-date logic — pure and dependency-free.
  *
- * The Med Rep may OPTIONALLY add a booking date to an order. This is a UX
- * pre-check and the source of the date input's `min`; the Cloud Function
+ * The Med Rep MUST give every order a delivery date: an undated order can never
+ * be dispatched (src/services/dispatchEligibility.js, firestore.rules). This is
+ * a UX pre-check and the source of the date input's `min`; the Cloud Function
  * re-validates the same rule (functions/src/policy.js → normalizeRequestedDeliveryDate)
  * and is the real authority. Kept in step with it deliberately: date-only,
- * measured in Manila time, absent is allowed, and never in the past.
+ * measured in Manila time, required, and never in the past.
  */
 
 // The Philippines has no daylight saving, so a fixed UTC+8 offset is exact and
@@ -30,13 +31,13 @@ export function isoDateOnly(value) {
 }
 
 /**
- * Validate the optional requested date.
- *   absent/blank -> ok with value null (the field is optional)
+ * Validate the required requested date.
+ *   absent/blank -> refused ("Choose a delivery date for this order.")
  *   present      -> must be a real date, today (Manila) or later
  */
 export function validateRequestedDate(value, { today = manilaToday() } = {}) {
   if (value === undefined || value === null || (typeof value === "string" && value.trim() === "")) {
-    return { ok: true, value: null };
+    return { ok: false, message: "Choose a delivery date for this order." };
   }
   const iso = isoDateOnly(value);
   if (iso === null) {

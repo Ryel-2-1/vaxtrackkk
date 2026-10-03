@@ -6,7 +6,14 @@ import { subscribeRiders } from "../../services/riderService";
 import { subscribeActiveAlerts } from "../../services/alertService";
 import { isoDateOnly, manilaToday } from "../../services/deliveryCalendar";
 import {
+  dispatchEligibility,
+  partitionPendingDispatch,
+  SCHEDULED_DATE_MISSING,
+} from "../../services/dispatchEligibility";
+import useManilaDayNow from "../../components/useManilaDayNow";
+import {
   AlertTriangle,
+  CalendarClock,
   Clock3,
   Info,
   Loader2,
@@ -19,8 +26,9 @@ import {
 import KpiCard from "../../components/ui/KpiCard";
 
 // How a pending order relates to its requested delivery date, measured against
-// today (Manila). `none` = the order carries no valid date; those are worked
-// last since they have no schedule to honour.
+// today (Manila). `none` = the order carries no valid date — such an order is
+// never actionable (it sits in Needs scheduling), so the live queue only ever
+// sees `overdue` and `today`.
 function requestedDateMeta(order, today) {
   const iso = isoDateOnly(order?.requestedDeliveryDate);
   if (!iso) return { kind: "none", iso: null };
@@ -67,6 +75,10 @@ function DispatcherDashboard() {
   const [activeAlerts, setActiveAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [assignNotice, setAssignNotice] = useState("");
+  // Advances at each 00:00 Manila, so a scheduled order moves from Upcoming to
+  // the actionable queue on its day without a reload.
+  const now = useManilaDayNow();
 
   useEffect(() => {
     let loaded = { pending: false, all: false, riders: false, alerts: false };
@@ -124,6 +136,15 @@ function DispatcherDashboard() {
   }, []);
 
   const handleAssignRider = (order) => {
+    // Defensive: the button is only rendered for actionable orders, but a
+    // screen left open across the boundary must still not hand one off early.
+    // The assignment transaction and the rules re-check regardless.
+    const schedule = dispatchEligibility(order, new Date());
+    if (!schedule.eligible) {
+      setAssignNotice(schedule.message);
+      return;
+    }
+    setAssignNotice("");
     localStorage.setItem("selectedDispatchOrderId", order.id);
     localStorage.setItem("selectedDispatchOrder", JSON.stringify(order));
     navigate("/dispatcher/assign-rider");
@@ -142,21 +163,35 @@ function DispatcherDashboard() {
     (o) => o.statusKey === "in_transit" || o.statusKey === "assigned" || o.statusKey === "loading"
   ).length;
   const delayedDeliveries = allOrders.filter((o) => o.statusKey === "delayed").length;
-  const urgentOrders = pendingOrders.filter(
+
+  // Only orders with a valid date whose day has begun (Manila) are dispatch
+  // work. A future-dated order is Upcoming — visible, read-only, not counted.
+  // An order with no date, or an unusable one, is in Needs scheduling —
+  // equally read-only and uncounted until an admin stores a valid date.
+  const { actionable, upcoming, missing, invalid } = useMemo(
+    () => partitionPendingDispatch(pendingOrders, now),
+    [pendingOrders, now]
+  );
+  const needsScheduling = useMemo(() => [...missing, ...invalid], [missing, invalid]);
+  const urgentOrders = actionable.filter(
     (o) => (o.priority || "").toLowerCase() === "urgent"
   ).length;
 
   // Schedule-aware queue: sort by requested delivery date (soonest first, so
   // overdue rises to the top), urgent within a date, undated last.
-  const today = manilaToday();
+  const today = manilaToday(now);
   const sortedPending = useMemo(
-    () => [...pendingOrders].sort(comparePending),
-    [pendingOrders]
+    () => [...actionable].sort(comparePending),
+    [actionable]
   );
-  const overdueCount = pendingOrders.filter(
+  const sortedUpcoming = useMemo(
+    () => [...upcoming].sort(comparePending),
+    [upcoming]
+  );
+  const overdueCount = actionable.filter(
     (o) => requestedDateMeta(o, today).kind === "overdue"
   ).length;
-  const dueTodayCount = pendingOrders.filter(
+  const dueTodayCount = actionable.filter(
     (o) => requestedDateMeta(o, today).kind === "today"
   ).length;
 
@@ -205,6 +240,16 @@ function DispatcherDashboard() {
           </section>
         )}
 
+        {assignNotice && (
+          <section className="dispatcher-dash-alert" role="status">
+            <CalendarClock size={18} />
+            <div>
+              <strong>Not yet dispatchable</strong>
+              <p>{assignNotice}</p>
+            </div>
+          </section>
+        )}
+
         {error && (
           <section className="dispatcher-dash-alert">
             <AlertTriangle size={18} />
@@ -218,8 +263,16 @@ function DispatcherDashboard() {
         <section className="dispatcher-dash-kpi-grid">
           <KpiCard
             label="Pending orders"
-            value={pendingOrders.length}
-            context="Ready for dispatch"
+            value={actionable.length}
+            context={
+              [
+                "Ready for dispatch",
+                upcoming.length > 0 ? `${upcoming.length} upcoming` : null,
+                needsScheduling.length > 0 ? `${needsScheduling.length} need scheduling` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            }
             tone="neutral"
           />
 
@@ -276,7 +329,7 @@ function DispatcherDashboard() {
               <MonitorInfo
                 icon={<Navigation size={15} />}
                 label="Pending Orders"
-                value={`${pendingOrders.length} awaiting`}
+                value={`${actionable.length} awaiting`}
               />
 
               <MonitorInfo
@@ -312,7 +365,7 @@ function DispatcherDashboard() {
               <OperationItem
                 title="Rider Availability"
                 value={`${availableRiders} available`}
-                text={availableRiders >= pendingOrders.length ? "Enough riders for current queue." : "More riders needed for pending orders."}
+                text={availableRiders >= actionable.length ? "Enough riders for current queue." : "More riders needed for pending orders."}
               />
 
               <OperationItem
@@ -406,8 +459,11 @@ function DispatcherDashboard() {
 
                         <td>
                           {dateMeta.kind === "none" ? (
+                            // Unreachable for an actionable order (every one
+                            // has a valid date); kept so a bad row never
+                            // renders as a blank cell.
                             <span className="dispatcher-dash-date none">
-                              Unscheduled
+                              No date
                             </span>
                           ) : (
                             <span className={`dispatcher-dash-date ${dateMeta.kind}`}>
@@ -446,7 +502,11 @@ function DispatcherDashboard() {
                     <td colSpan="7">
                       <div className="dispatcher-empty-queue">
                         <PackageCheck size={28} />
-                        <p>No pending orders. All orders have been assigned.</p>
+                        <p>
+                          {upcoming.length > 0 || needsScheduling.length > 0
+                            ? "Nothing to dispatch right now. Orders waiting on a date are listed below."
+                            : "No pending orders. All orders have been assigned."}
+                        </p>
                       </div>
                     </td>
                   </tr>
@@ -456,7 +516,7 @@ function DispatcherDashboard() {
           </div>
 
           <div className="dispatcher-dash-table-bottom">
-            Showing {pendingOrders.length} pending dispatch order{pendingOrders.length !== 1 ? "s" : ""}
+            Showing {actionable.length} pending dispatch order{actionable.length !== 1 ? "s" : ""}
             {(overdueCount > 0 || dueTodayCount > 0) && (
               <span className="dispatcher-dash-table-bottom-meta">
                 {overdueCount > 0 && (
@@ -473,8 +533,111 @@ function DispatcherDashboard() {
             )}
           </div>
         </section>
+
+        <ReadOnlyQueue
+          id="upcoming-dispatch-title"
+          kicker="Upcoming · read-only"
+          title="Scheduled for a later date"
+          note="Each order joins the queue above at 00:00 (Manila) on its date."
+          orders={sortedUpcoming}
+          now={now}
+        />
+
+        <ReadOnlyQueue
+          id="needs-scheduling-title"
+          kicker="Needs scheduling · read-only"
+          title="Orders without a usable delivery date"
+          note="An admin must store a valid delivery date before these can be dispatched."
+          orders={needsScheduling}
+          now={now}
+        />
       </div>
     </>
+  );
+}
+
+// A pending order that is NOT dispatch work yet: shown so nothing is hidden,
+// but with no dispatch control — the last column states why instead.
+function ReadOnlyQueue({ id, kicker, title, note, orders, now }) {
+  if (orders.length === 0) return null;
+  return (
+    <section
+      className="dispatcher-dash-table-card dispatcher-dash-upcoming"
+      aria-labelledby={id}
+    >
+      <div className="dispatcher-dash-table-head">
+        <div>
+          <span className="card-kicker">{kicker}</span>
+          <h2 id={id}>{title}</h2>
+        </div>
+        <div className="dispatcher-dash-upcoming-note">
+          <CalendarClock size={15} />
+          {note}
+        </div>
+      </div>
+
+      <div className="dispatcher-dash-table-wrap">
+        <table className="dispatcher-dash-table">
+          <thead>
+            <tr>
+              <th>Order ID</th>
+              <th>Destination</th>
+              <th>Vaccine Type</th>
+              <th>Quantity</th>
+              <th>Requested date</th>
+              <th>Priority</th>
+              <th>Dispatch</th>
+            </tr>
+          </thead>
+          <tbody>
+            {orders.map((order) => {
+              const priority = order.priority || "Standard";
+              const schedule = dispatchEligibility(order, now);
+              return (
+                <tr key={order.id}>
+                  <td>
+                    <strong className="order-id">
+                      {order.orderNumber || order.id}
+                    </strong>
+                  </td>
+                  <td>
+                    <strong>{order.clinicName || "No destination"}</strong>
+                    <p>{order.clinicAddress || ""}</p>
+                  </td>
+                  <td>{order.vaccineName || "—"}</td>
+                  <td>
+                    {order.quantity || 0} {order.unit || "vials"}
+                  </td>
+                  <td>
+                    {schedule.iso ? (
+                      <span className="dispatcher-dash-date scheduled">
+                        {shortDate(schedule.iso)}
+                      </span>
+                    ) : schedule.code === SCHEDULED_DATE_MISSING ? (
+                      <span className="dispatcher-dash-date overdue">No date</span>
+                    ) : (
+                      <span className="dispatcher-dash-date overdue">Invalid date</span>
+                    )}
+                  </td>
+                  <td>
+                    <span
+                      className={`dispatcher-dash-priority ${
+                        priority.toLowerCase() === "urgent" ? "urgent" : "standard"
+                      }`}
+                    >
+                      {priority}
+                    </span>
+                  </td>
+                  <td>
+                    <p className="dispatcher-dash-not-yet">{schedule.message}</p>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

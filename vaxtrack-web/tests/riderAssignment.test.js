@@ -33,6 +33,8 @@ const pendingOrder = (overrides = {}) => ({
   assignedRiderId: null,
   assignedRiderName: null,
   createdByUid: "salesRepUid",
+  // A valid, already-reached delivery date; undated orders fail closed.
+  requestedDeliveryDate: "2026-01-01",
   ...overrides,
 });
 
@@ -77,6 +79,36 @@ test("an approved rider is assigned to a pending order", async () => {
   assert.equal(result.riderUid, RIDER_UID);
   assert.equal(result.orderId, ORDER_ID);
   assert.equal(result.assignedRiderName, "QA Rider Two");
+});
+
+test("an order with no requested delivery date cannot be assigned to a rider", async () => {
+  // A legacy order from before the date became required: the field is ABSENT,
+  // not present-and-empty. It fails closed rather than being treated as
+  // dispatchable now.
+  const legacy = pendingOrder();
+  delete legacy.requestedDeliveryDate;
+  const store = installStore(seed({ order: legacy }), DISPATCHER);
+  const before = structuredClone(orderIn(store));
+
+  await expectRejection(assignRiderToOrder(ORDER_ID, RIDER_UID), "scheduled-date-missing");
+  // Not partially mutated: the stored order is exactly what it was.
+  assert.deepEqual(orderIn(store), before);
+  assert.equal(orderIn(store).status, "pending_dispatch");
+  assert.equal(orderIn(store).assignedRiderId, null);
+});
+
+test("an invalid or not-yet-due delivery date also blocks assignment", async () => {
+  for (const [date, code] of [
+    [null, "scheduled-date-invalid"],
+    ["", "scheduled-date-invalid"],
+    ["2026-02-31", "scheduled-date-invalid"],
+    ["2999-01-01", "scheduled-date-not-reached"],
+  ]) {
+    const store = installStore(seed({ order: pendingOrder({ requestedDeliveryDate: date }) }), DISPATCHER);
+    const before = structuredClone(orderIn(store));
+    await expectRejection(assignRiderToOrder(ORDER_ID, RIDER_UID), code);
+    assert.deepEqual(orderIn(store), before, `${JSON.stringify(date)} must leave the order untouched`);
+  }
 });
 
 test("assignment timestamps and audit identity are server-stamped and authentic", async () => {

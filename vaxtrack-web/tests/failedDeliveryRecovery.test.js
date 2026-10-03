@@ -41,6 +41,9 @@ const failedOrder = (over = {}) => ({
   clinicDocId: "clinicAbc",
   clinicLat: 14.5995,
   clinicLocationVerified: true,
+  // Recovery re-enters dispatch, so it needs a valid, reached delivery date
+  // (an undated order fails closed — see tests/dispatchEligibility.test.js).
+  requestedDeliveryDate: "2026-01-01",
   ...over,
 });
 
@@ -67,6 +70,23 @@ async function expectRejection(promise, code) {
 // ---------------------------------------------------------------------------
 // The two legal recoveries
 // ---------------------------------------------------------------------------
+
+test("recovery refuses an order with no delivery date, a bad one, or a future one", async () => {
+  for (const [over, code] of [
+    [{ requestedDeliveryDate: undefined }, "scheduled-date-missing"],
+    [{ requestedDeliveryDate: null }, "scheduled-date-invalid"],
+    [{ requestedDeliveryDate: "2026-02-31" }, "scheduled-date-invalid"],
+    [{ requestedDeliveryDate: "2999-01-01" }, "scheduled-date-not-reached"],
+  ]) {
+    const order = failedOrder(over);
+    // A legacy order has no field at all, not one holding undefined.
+    if (over.requestedDeliveryDate === undefined) delete order.requestedDeliveryDate;
+    const store = installStore(seed({ o1: order }), DISPATCHER);
+    await expectRejection(orders.reassignFailedOrder("o1", OTHER_RIDER), code);
+    assert.equal(data(store, "o1").status, "delivery_failed", "nothing was written");
+    assert.equal(data(store, "o1").assignedRiderId, RIDER, "the rider was not changed");
+  }
+});
 
 test("a failed order is retried with the same rider", async () => {
   const store = installStore(seed({ o1: failedOrder() }), DISPATCHER);
@@ -328,8 +348,10 @@ test("the Retry/Reassign button is gated by the recovery set, not the assign tra
     false,
     "reassign must not be gated on the pending→assigned transition"
   );
-  // The row computes `reassignable` from that gate and renders the button only then.
-  assert.match(SHIPMENTS, /const reassignable = canReassign\(sKey\);/);
+  // The row computes `reassignable` from that gate — and, since recovery
+  // re-enters dispatch, from the order's scheduled date as well — and renders
+  // the button only then.
+  assert.match(SHIPMENTS, /const reassignable = canReassign\(sKey\) && schedule\.eligible;/);
   assert.match(SHIPMENTS, /\{reassignable && \(/);
   assert.match(SHIPMENTS, /Retry \/ Reassign/);
 });

@@ -9,6 +9,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { getOrderStatusValue, normalizeStatusKey } from "./deliveryService";
+import { dispatchEligibility } from "./dispatchEligibility";
 import {
   ACTOR_DISPATCHER,
   assertTransition,
@@ -20,6 +21,16 @@ import {
 
 const ORDERS = "orders";
 const USERS = "users";
+
+/**
+ * Refuse a scheduled order before 00:00 Asia/Manila on its requested date, or
+ * one whose stored date is unusable. firestore.rules enforces the same instant.
+ * @throws {WorkflowError} code `scheduled-date-not-reached` / `scheduled-date-invalid`
+ */
+function assertScheduleReached(order) {
+  const schedule = dispatchEligibility(order);
+  if (!schedule.eligible) throw new WorkflowError(schedule.code, schedule.message);
+}
 
 // Orders that still need to be loaded / are part of the current dispatch prep.
 // Delivered and cancelled orders are intentionally excluded.
@@ -248,6 +259,8 @@ export async function updateOrderLoadedState(orderId, isLoaded) {
       // is checked against the shared policy rather than an inline literal.
       if (status === "assigned") {
         assertTransition(ACTOR_DISPATCHER, status, "loading");
+        // Loading is dispatch preparation; not before the scheduled day.
+        assertScheduleReached(order);
         update.status = "loading";
         update.statusUpdatedAt = serverTimestamp();
         update.statusUpdatedByUid = currentUser.uid;
@@ -343,6 +356,10 @@ export async function finalizeRiderDispatch(riderId, orderIds) {
           "Every order must be confirmed as loaded before dispatch."
         );
       }
+
+      // No order leaves before 00:00 Manila on its scheduled date. One early
+      // order refuses the whole group — a partial dispatch is never written.
+      assertScheduleReached(order);
     });
 
     refs.forEach((ref) => {

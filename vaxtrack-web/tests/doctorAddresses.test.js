@@ -250,3 +250,49 @@ test("Sales Rep checkout is Doctor-first and sends only stable destination ids",
   assert.match(checkout, /doctorAddressId: selectedDestination\.id/);
   assert.doesNotMatch(callable, /clinicName|clinicAddress|latitude|longitude/);
 });
+
+test("changing the checkout doctor clears its addresses and destination without an effect reset", () => {
+  // The address subscription effect used to clear state synchronously on
+  // every doctor change (react-hooks/set-state-in-effect). The reset now
+  // happens in the change handler and the displayed addresses are DERIVED
+  // from a snapshot tagged with its doctor — the same behaviour, no cascade.
+  const checkout = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
+
+  // 1. The effect only subscribes: no setState runs before the subscription.
+  const effect = /useEffect\(\(\) => \{\s*\n\s*if \(!selectedDoctorId\) return undefined;([\s\S]*?)subscribeDoctorAddresses\(/.exec(checkout);
+  assert.ok(effect, "the address subscription effect must exist");
+  assert.doesNotMatch(effect[1], /\bset[A-Z]\w*\(/, "no synchronous setState in the effect body");
+
+  // 2. Both callbacks tag the snapshot with the doctor it was requested for.
+  const tagged = checkout.match(/setAddressBook\(\{ doctorId: selectedDoctorId, docs(: \[\])? \}\)/g) ?? [];
+  assert.equal(tagged.length, 2, "success and error callbacks both record their doctor");
+
+  // 3. What the page shows is derived, so another doctor's addresses can
+  //    never appear for this one, and it reads as loading until they arrive.
+  assert.match(checkout, /const addressesReady = !!selectedDoctorId && addressBook\.doctorId === selectedDoctorId;/);
+  assert.match(checkout, /const doctorAddresses = addressesReady \? addressBook\.docs : EMPTY_ADDRESSES;/);
+  assert.match(checkout, /const addressesLoading = !!selectedDoctorId && !addressesReady;/);
+
+  // 4. The doctor changes in ONE place, which also clears the old destination.
+  const handler = /const handleDoctorChange = \(doctorId\) => \{([\s\S]*?)\n {2}\};/.exec(checkout);
+  assert.ok(handler, "the doctor change handler must exist");
+  assert.match(handler[1], /setSelectedDoctorId\(doctorId\);/);
+  assert.match(handler[1], /setAddressBook\(\{ doctorId: null, docs: \[\] \}\);/);
+  assert.match(handler[1], /setSelectedDestinationId\(""\);/);
+  assert.match(checkout, /onChange=\{\(event\) => handleDoctorChange\(event\.target\.value\)\}/);
+  assert.equal(
+    (checkout.match(/setSelectedDoctorId\(/g) ?? []).length,
+    1,
+    "no other code path changes the doctor without clearing the destination"
+  );
+
+  // 5. A restored checkout still gets its saved destination back, only for
+  //    the doctor it was saved with, once that doctor's addresses load.
+  assert.match(
+    checkout,
+    /setAddressBook\(\{ doctorId: selectedDoctorId, docs \}\);[\s\S]{0,400}if \(pending && pending\.doctorId === selectedDoctorId\) \{\s*\n\s*setSelectedDestinationId\(pending\.destinationId\);/
+  );
+
+  // 6. Fixed, not silenced.
+  assert.doesNotMatch(checkout, /eslint-disable/);
+});

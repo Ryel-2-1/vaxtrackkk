@@ -8,8 +8,8 @@ import {
 } from "../src/services/requestedDate.js";
 
 /**
- * The optional requested delivery date a Med Rep may add at checkout. The
- * Cloud Function re-validates the identical rule server-side
+ * The REQUIRED requested delivery date a Med Rep sets at checkout. The Cloud
+ * Function re-validates the identical rule server-side
  * (functions/src/policy.js → normalizeRequestedDeliveryDate) and is the real
  * authority; this suite pins the client pre-check and the page wiring.
  */
@@ -17,14 +17,21 @@ import {
 const TODAY = "2026-06-15";
 const opts = { today: TODAY };
 
-// ------------------------------------------------------------ optional / blank
+// ---------------------------------------------------------------- required
 
-test("an absent or blank date is valid and yields null (the field is optional)", () => {
+test("an absent or blank date is refused (every order needs one)", () => {
   for (const v of [undefined, null, "", "   "]) {
     const out = validateRequestedDate(v, opts);
-    assert.equal(out.ok, true);
-    assert.equal(out.value, null);
+    assert.equal(out.ok, false, JSON.stringify(v));
+    assert.equal(out.message, "Choose a delivery date for this order.");
   }
+});
+
+test("the date picker is required on the page", () => {
+  const src = readFileSync(new URL("../src/pages/salesRep/SalesRepPlaceOrder.jsx", import.meta.url), "utf8");
+  assert.match(src, /type="date"\s*\n\s*required\s*\n\s*aria-required="true"/);
+  assert.equal(src.includes("Requested delivery date (optional)"), false);
+  assert.match(src, /case "requested-date-required":/);
 });
 
 // -------------------------------------------------------------------- shape
@@ -113,16 +120,23 @@ test("the requested date is surfaced in tracking and confirmation", () => {
   assert.match(confirmation, /Requested Delivery Date/i, "confirmation shows it");
 });
 
-test("the Cloud Function validates and persists the date, only when present", () => {
+test("the Cloud Function requires, validates and always persists the date", () => {
   const policy = read("functions/src/policy.js");
   assert.match(policy, /function normalizeRequestedDeliveryDate\(value, now\)/, "server validator exists");
   assert.match(policy, /normalizeRequestedDeliveryDate,/, "and is exported");
+  assert.match(policy, /"requested-date-required"/, "a missing date has its own stable code");
 
   const ops = read("functions/src/operations.js");
   assert.match(ops, /normalizeRequestedDeliveryDate\(\s*payload\?\.requestedDeliveryDate/, "callable validates it");
-  assert.match(
-    ops,
-    /\.\.\.\(requestedDeliveryDate \? \{ requestedDeliveryDate \} : \{\}\)/,
-    "callable stores it only when present"
+  // Validated before the idempotency record or any stock is touched.
+  assert.ok(
+    ops.indexOf("normalizeRequestedDeliveryDate(") < ops.indexOf("canonicalRequestFingerprint({"),
+    "the date is checked before the request is fingerprinted"
+  );
+  assert.match(ops, /\n\s*requestedDeliveryDate,\s*items: orderItems,/, "callable always stores it");
+  assert.equal(
+    /\.\.\.\(requestedDeliveryDate \? \{ requestedDeliveryDate \} : \{\}\)/.test(ops),
+    false,
+    "no conditional write that could leave a new order undated"
   );
 });

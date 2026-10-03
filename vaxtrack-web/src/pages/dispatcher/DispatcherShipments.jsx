@@ -16,6 +16,12 @@ import {
 } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
 import KpiCard from "../../components/ui/KpiCard";
+import {
+  dispatchEligibility,
+  formatScheduledDate,
+  isEarlyDispatchAnomaly,
+} from "../../services/dispatchEligibility";
+import useManilaDayNow from "../../components/useManilaDayNow";
 
 // A local status-label copy used to live here for the status-change toasts.
 // Those toasts are gone with the Delivered/Delay/Resume actions, and the
@@ -79,6 +85,7 @@ function DispatcherShipments() {
   const [toastType, setToastType] = useState("success");
   const [updating, setUpdating] = useState("");
   const [filterStatus, setFilterStatus] = useState("active");
+  const now = useManilaDayNow();
 
   useEffect(() => {
     const unsub = subscribeDeliveries(
@@ -377,6 +384,7 @@ function DispatcherShipments() {
                     <ShipmentRow
                       key={order.id}
                       order={order}
+                      now={now}
                       updating={updating === order.id}
                       onRequestCancel={openCancelDialog}
                       onRequestReassign={openReassignDialog}
@@ -760,10 +768,15 @@ function CancelOrderDialog({ order, onDismiss, onConfirm }) {
   );
 }
 
-function ShipmentRow({ order, updating, onRequestCancel, onRequestReassign, onRequestCorrection }) {
+function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign, onRequestCorrection }) {
   const sKey = order.statusKey;
   const cancellable = canCancel(sKey);
-  const reassignable = canReassign(sKey);
+  // Recovery puts the order back into dispatch, so it waits for the scheduled
+  // day like any first assignment. The service and the rules re-check.
+  const schedule = dispatchEligibility(order, now);
+  const recoveryHeld = canReassign(sKey) && !schedule.eligible;
+  const reassignable = canReassign(sKey) && schedule.eligible;
+  const earlyDispatch = isEarlyDispatchAnomaly(order, sKey, now);
   const correctable = canCorrectDestination(order);
   const awaitingApproval = !!order.destinationChangeRequest;
   const isDelayed = sKey === "delayed" || sKey === "delivery_failed";
@@ -804,12 +817,23 @@ function ShipmentRow({ order, updating, onRequestCancel, onRequestReassign, onRe
       </td>
       <td>
         <StatusBadge statusKey={sKey} />
+        {earlyDispatch && (
+          <div>
+            <span
+              className="dispatch-anomaly"
+              title="Dispatched before its scheduled date. Review it manually; nothing is changed automatically."
+            >
+              Early dispatch · scheduled {formatScheduledDate(schedule.iso)}
+            </span>
+          </div>
+        )}
       </td>
       <td className="shp-td-meta">{updated}</td>
       <td>
-        {cancellable || reassignable || correctable || awaitingApproval ? (
+        {cancellable || reassignable || recoveryHeld || correctable || awaitingApproval ? (
           <div className="shp-actions">
             {awaitingApproval && <span className="shp-muted">Awaiting Med Rep approval</span>}
+            {recoveryHeld && <span className="shp-muted">{schedule.message}</span>}
             {correctable && (
               <button type="button" className="shp-act-btn" disabled={updating}
                 onClick={(e) => onRequestCorrection(order, e.currentTarget)}>

@@ -82,8 +82,9 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
 
   const requestId = validateRequestId(payload?.requestId);
   const { doctorId, doctorAddressId, items } = validateCreatePayload(payload);
-  // Optional booking date. Validated here (before any read/write) so an invalid
-  // or past date fails fast without touching stock; null means none was given.
+  // Required booking date. Validated here (before any read/write) so a missing,
+  // invalid or past date fails fast without touching stock or the idempotency
+  // record — an undated order could never be dispatched, so it is never made.
   const requestedDeliveryDate = normalizeRequestedDeliveryDate(
     payload?.requestedDeliveryDate,
     now
@@ -250,9 +251,9 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
         typeof payload?.deliveryInstructions === "string"
           ? payload.deliveryInstructions.trim().slice(0, 1000)
           : "",
-      // Stored only when the rep supplied one — a coord-less/blank date leaves
-      // no field, exactly like clinic coordinates and deliveryInstructions.
-      ...(requestedDeliveryDate ? { requestedDeliveryDate } : {}),
+      // Always present on a new order: normalizeRequestedDeliveryDate has
+      // already refused a missing or invalid one.
+      requestedDeliveryDate,
       items: orderItems,
       // ---- immutable price snapshot ----
       //

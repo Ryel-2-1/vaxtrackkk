@@ -549,11 +549,80 @@ service cloud.firestore {
         && (nextStatus() == 'delivered' || nextStatus() == 'cancelled');
     }
 
+    // ---------------- scheduled dispatch ----------------
+    //
+    // `requestedDeliveryDate` is a REQUIRED date-only 'YYYY-MM-DD' string, a
+    // Manila calendar day, written by createOrderWithReservation (which refuses
+    // an order without one). An order may not be assigned, loaded or put in
+    // transit before 00:00 Asia/Manila on that day. Mirrors
+    // src/services/dispatchEligibility.js. FAILS CLOSED:
+    //
+    //   a real date      → dispatchable once request.time reaches Manila
+    //                      midnight on it
+    //   field absent     → refused (legacy orders from before the date was
+    //                      required; an admin must first store a valid date)
+    //   null / blank / malformed / impossible date / non-string → refused
+    function scheduledDateField() { return 'requestedDeliveryDate'; }
+    function utcMidnightOf(date) { return timestamp.value(date + 'T00:00:00Z'); }
+    // A real calendar date in canonical form. timestamp.value() ROLLS an
+    // impossible date over ('2026-02-31' becomes Mar 3) rather than failing,
+    // so the parsed day is required to read back as the same y/m/d. Anything
+    // the parser rejects outright (month 13) raises, which also denies.
+    function isScheduledDateShape(value) {
+      return value is string
+        && value.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && utcMidnightOf(value).year() == int(value[0:4])
+        && utcMidnightOf(value).month() == int(value[5:7])
+        && utcMidnightOf(value).day() == int(value[8:10]);
+    }
+    // 00:00 +08:00 on the date = 16:00 UTC the previous day. The Philippines
+    // has no daylight saving, so the fixed offset is exact all year.
+    function manilaStartOf(date) {
+      return utcMidnightOf(date) - duration.value(8, 'h');
+    }
+    function scheduleAllowsDispatch(d) {
+      return (scheduledDateField() in d)
+        && isScheduledDateShape(d[scheduledDateField()])
+        && request.time >= manilaStartOf(d[scheduledDateField()]);
+    }
+    // Plain field reads rather than changedKeys(): this runs on every client
+    // order write, including the rider's frequent location updates, and a
+    // second full diff there eats into the per-request expression budget.
+    function entersDispatch() {
+      let next = request.resource.data.get('status', null);
+      return next in ['assigned', 'loading', 'in_transit']
+        && next != resource.data.get('status', null);
+    }
+    // Applies to EVERY client, admin included: a status move into dispatch is
+    // checked against the date the order will hold after the write.
+    function scheduleGuardHolds() {
+      return !entersDispatch() || scheduleAllowsDispatch(request.resource.data);
+    }
+    // The schedule itself is not editable by the roles that run a delivery.
+    // Dispatcher and Rider are already confined by their hasOnly() allowlists,
+    // which exclude it; the Sales Rep branch states it explicitly. Admin may
+    // correct it — the authorized repair path for a missing or malformed
+    // legacy date — but only TO a real date: never to null, blank or garbage,
+    // and never by deleting it.
+    function scheduledDateUnchanged() {
+      return (scheduledDateField() in request.resource.data)
+          == (scheduledDateField() in resource.data)
+        && request.resource.data.get(scheduledDateField(), null)
+          == resource.data.get(scheduledDateField(), null);
+    }
+    function scheduledDateWriteIsValid() {
+      return scheduledDateUnchanged()
+        || ((scheduledDateField() in request.resource.data)
+            && isScheduledDateShape(request.resource.data[scheduledDateField()]));
+    }
+
     // The guard every client order write now carries.
     function clientOrderWriteIsAllowed() {
       return !writesServerOnlyStatus()
         && !changedKeys().hasAny(serverOnlyOrderFields())
-        && !changedKeys().hasAny(immutableDestinationFields());
+        && !changedKeys().hasAny(immutableDestinationFields())
+        && scheduleGuardHolds()
+        && scheduledDateWriteIsValid();
     }
 
     // A new stock batch, as Admin Add Stock writes it. Quantities are Firestore
@@ -1122,7 +1191,14 @@ service cloud.firestore {
       // repair, and may not fabricate an allocation.
       allow create: if isAdmin()
         && !request.resource.data.keys().hasAny(serverOnlyOrderFields())
-        && clinicSnapshotValidOnCreate();
+        && clinicSnapshotValidOnCreate()
+        // Every new order carries a real delivery date — the same requirement
+        // the callable enforces — and a repair-created order cannot be born
+        // already dispatched ahead of it.
+        && (scheduledDateField() in request.resource.data)
+        && isScheduledDateShape(request.resource.data[scheduledDateField()])
+        && (!(request.resource.data.get('status', null) in ['assigned', 'loading', 'in_transit'])
+            || scheduleAllowsDispatch(request.resource.data));
 
       // Admin: full update.
       // Dispatcher: only dispatch/assignment/status fields (allowlist).
@@ -1180,6 +1256,9 @@ service cloud.firestore {
           // name onto their own order — manufacturing proof for a delivery
           // they never made. Evidence belongs to the assigned rider alone.
           && !changedKeys().hasAny(evidenceFields())
+          // Nor the schedule. Moving their own order's date to today would
+          // make it dispatchable early; the date is fixed at checkout.
+          && scheduledDateUnchanged()
           // The snapshot is immutable after creation. Dispatcher and Rider are
           // already confined by their hasOnly() allowlists, which exclude these
           // fields; Sales Rep has no allowlist, so it is stated explicitly here.

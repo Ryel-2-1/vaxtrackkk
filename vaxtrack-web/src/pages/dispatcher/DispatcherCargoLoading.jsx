@@ -16,6 +16,11 @@ import {
   updateOrderLoadedState,
 } from "../../services/cargoLoadingService";
 import { getUserProfile } from "../../services/userService";
+import {
+  dispatchEligibility,
+  SCHEDULED_DATE_NOT_REACHED,
+} from "../../services/dispatchEligibility";
+import useManilaDayNow from "../../components/useManilaDayNow";
 import { auth } from "../../firebase";
 import StatusBadge from "../../components/ui/StatusBadge";
 import KpiCard from "../../components/ui/KpiCard";
@@ -60,6 +65,7 @@ function DispatcherCargoLoading() {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const now = useManilaDayNow();
 
   const [dispatcher, setDispatcher] = useState(() => {
     const user = auth.currentUser;
@@ -305,6 +311,7 @@ function DispatcherCargoLoading() {
                   dispatched={!!dispatchedRiders[group.riderId]}
                   savingOrders={savingOrders}
                   finalizing={finalizingRider === group.riderId}
+                  now={now}
                   onToggleLoaded={handleToggleLoaded}
                   onPrint={() => setPrintGroup(group)}
                   onFinalize={() => setConfirmGroup(group)}
@@ -335,12 +342,22 @@ function RiderCard({
   dispatched,
   savingOrders,
   finalizing,
+  now,
   onToggleLoaded,
   onPrint,
   onFinalize,
 }) {
   const badge = loadingBadge(group, dispatched);
-  const canFinalize = group.allLoaded && !dispatched && !finalizing;
+  // Orders assigned before the schedule guard existed may still sit here ahead
+  // of their date, or with no usable date at all. They cannot be loaded
+  // (assigned → loading) or dispatched until they are eligible, so one of them
+  // holds the whole group — finalizing is all-or-nothing in the service too.
+  const scheduleById = Object.fromEntries(
+    group.orders.map((o) => [o.id, dispatchEligibility(o, now)])
+  );
+  const heldOrders = group.orders.filter((o) => !scheduleById[o.id].eligible);
+  const canFinalize =
+    group.allLoaded && !dispatched && !finalizing && heldOrders.length === 0;
   const total = group.totalOrders || 0;
   const loaded = group.loadedCount || 0;
   const pct = total > 0 ? Math.round((loaded / total) * 100) : 0;
@@ -390,6 +407,11 @@ function RiderCard({
           const checkboxId = `loaded-${order.id}`;
           const saving = !!savingOrders[order.id];
           const isLoaded = order.isLoaded === true;
+          const schedule = scheduleById[order.id];
+          // Confirming an `assigned` order promotes it to `loading`, which is
+          // dispatch preparation — not allowed ahead of the scheduled day.
+          const loadBlocked =
+            !schedule.eligible && order.statusKey === "assigned" && !isLoaded;
           const seq = Number.isFinite(Number(order.deliverySequence))
             ? Number(order.deliverySequence)
             : index + 1;
@@ -416,6 +438,16 @@ function RiderCard({
                   </span>
                   {order.batchId ? ` · Batch ${order.batchId}` : ""}
                 </small>
+                {!schedule.eligible && (
+                  <>
+                    {schedule.code === SCHEDULED_DATE_NOT_REACHED && (
+                      <span className="dispatch-anomaly">
+                        Assigned before its scheduled date
+                      </span>
+                    )}
+                    <p className="dispatch-hold-note">{schedule.message}</p>
+                  </>
+                )}
               </div>
 
               <label
@@ -426,7 +458,7 @@ function RiderCard({
                   type="checkbox"
                   id={checkboxId}
                   checked={isLoaded}
-                  disabled={saving || dispatched}
+                  disabled={saving || dispatched || loadBlocked}
                   onChange={(e) => onToggleLoaded(order, e.target.checked)}
                 />
                 {saving ? (
@@ -442,8 +474,17 @@ function RiderCard({
         })}
       </div>
 
-      {!group.allLoaded && !dispatched && (
-        <p className="cl-hint">Confirm all orders as loaded to enable dispatch.</p>
+      {heldOrders.length > 0 && !dispatched ? (
+        <p className="cl-hint">
+          {heldOrders.length === 1
+            ? "One order cannot be dispatched yet (see its note), so this group is on hold."
+            : `${heldOrders.length} orders cannot be dispatched yet (see their notes), so this group is on hold.`}
+        </p>
+      ) : (
+        !group.allLoaded &&
+        !dispatched && (
+          <p className="cl-hint">Confirm all orders as loaded to enable dispatch.</p>
+        )
       )}
 
       <div className="cl-card-actions">

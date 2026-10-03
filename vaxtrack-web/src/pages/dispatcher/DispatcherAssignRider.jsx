@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { assignRiderToOrder } from "../../services/orderService";
 import { subscribeRiders } from "../../services/riderService";
+import { dispatchEligibility } from "../../services/dispatchEligibility";
+import useManilaDayNow from "../../components/useManilaDayNow";
 // `auth` is no longer imported here: the dispatcher's audit identity is taken
 // from the session inside assignRiderToOrder, so this page cannot supply — or
 // mis-supply — who performed the assignment.
@@ -54,6 +56,7 @@ function DispatcherAssignRider() {
       return null; // ignore parse errors
     }
   });
+  const now = useManilaDayNow();
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [toastType, setToastType] = useState("success");
@@ -152,7 +155,13 @@ function DispatcherAssignRider() {
   const getRiderEmployeeId = (r) => r.employeeId || "";
 
   const selectedRider = approvedRiders.find((r) => r.uid === selectedRiderId) || null;
-  const canAssign = !saving && !!selectedRiderId && !!selectedOrder;
+  // The handed-off order may have been opened from a stale queue (or a hand-
+  // edited localStorage). A scheduled order is not assignable before 00:00
+  // Manila on its date; the transaction and the rules refuse it regardless,
+  // this just says so before the operator tries.
+  const schedule = selectedOrder ? dispatchEligibility(selectedOrder, now) : null;
+  const scheduleBlocked = !!schedule && !schedule.eligible;
+  const canAssign = !saving && !!selectedRiderId && !!selectedOrder && !scheduleBlocked;
 
   return (
     <>
@@ -364,6 +373,12 @@ function DispatcherAssignRider() {
                 <p className="ar-assignee-empty">Select a rider from the list.</p>
               )}
             </div>
+
+            {scheduleBlocked && (
+              <p className="dispatch-hold-note" role="status">
+                {schedule.message}
+              </p>
+            )}
 
             <button
               type="button"

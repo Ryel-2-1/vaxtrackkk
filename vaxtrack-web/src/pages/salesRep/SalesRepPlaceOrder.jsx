@@ -73,10 +73,18 @@ function messageForCallableError(error) {
       return "An earlier attempt of this checkout was already placed with different details. Check Order Tracking first. If you still need this order, discard the previous attempt and finalize again.";
     case "duplicate-inventory-line":
       return "The same batch appears on two lines. Combine them into one.";
+    case "requested-date-required":
+      return "Choose a delivery date for this order. Nothing was placed.";
+    case "invalid-requested-date":
+      return error?.message || "Choose a valid delivery date, today or later.";
     default:
       return error?.message || "Unable to create order. Please try again.";
   }
 }
+
+// One shared empty list, so "no addresses yet" keeps a stable identity and the
+// destination options are not rebuilt on every render.
+const EMPTY_ADDRESSES = Object.freeze([]);
 
 // The confirmation is no longer assembled here from checkout state. It is
 // built from the stored order the callable named (services/orderConfirmation.js),
@@ -180,8 +188,11 @@ function SalesRepPlaceOrder() {
   const [doctors, setDoctors] = useState([]);
   const [doctorsLoading, setDoctorsLoading] = useState(true);
   const [selectedDoctorId, setSelectedDoctorId] = useState(restored?.doctorId ?? "");
-  const [doctorAddresses, setDoctorAddresses] = useState([]);
-  const [addressesLoading, setAddressesLoading] = useState(false);
+  // The last address snapshot, tagged with the doctor it belongs to. Written
+  // only by the subscription's callbacks; what the page shows is derived from
+  // it below, so a doctor change never needs a synchronous reset in an effect
+  // and another doctor's addresses can never be shown for this one.
+  const [addressBook, setAddressBook] = useState({ doctorId: null, docs: [] });
   const [selectedDestinationId, setSelectedDestinationId] = useState("");
   const [clinics, setClinics] = useState([]);
   const [clinicsLoading, setClinicsLoading] = useState(true);
@@ -227,21 +238,16 @@ function SalesRepPlaceOrder() {
     return unsubscribe;
   }, []);
 
+  // Subscribe to the selected doctor's addresses. The effect only subscribes;
+  // clearing the previous doctor's addresses and destination happens in
+  // handleDoctorChange, the event that changes the doctor.
   useEffect(() => {
-    setDoctorAddresses([]);
-    setSelectedDestinationId("");
+    if (!selectedDoctorId) return undefined;
 
-    if (!selectedDoctorId) {
-      setAddressesLoading(false);
-      return undefined;
-    }
-
-    setAddressesLoading(true);
     const unsubscribe = subscribeDoctorAddresses(
       selectedDoctorId,
       (docs) => {
-        setDoctorAddresses(docs);
-        setAddressesLoading(false);
+        setAddressBook({ doctorId: selectedDoctorId, docs });
         // Restore a pending attempt's destination once its doctor's addresses
         // are known. If it is no longer offered, the rep must choose again —
         // and a different choice is then caught as a changed draft.
@@ -252,13 +258,28 @@ function SalesRepPlaceOrder() {
         pendingDestinationRef.current = null;
       },
       () => {
-        setAddressesLoading(false);
+        // Loaded, with nothing usable — ends the loading state.
+        setAddressBook({ doctorId: selectedDoctorId, docs: [] });
         setDestinationLoadError("That doctor's delivery addresses could not be loaded.");
       }
     );
 
     return unsubscribe;
   }, [selectedDoctorId]);
+
+  // Derived, never stored: this doctor's addresses once their snapshot has
+  // arrived, and "loading" until it has.
+  const addressesReady = !!selectedDoctorId && addressBook.doctorId === selectedDoctorId;
+  const doctorAddresses = addressesReady ? addressBook.docs : EMPTY_ADDRESSES;
+  const addressesLoading = !!selectedDoctorId && !addressesReady;
+
+  const handleDoctorChange = (doctorId) => {
+    setSelectedDoctorId(doctorId);
+    // A new doctor starts with no addresses and no destination, exactly as
+    // before — the previous doctor's choice must never carry over.
+    setAddressBook({ doctorId: null, docs: [] });
+    setSelectedDestinationId("");
+  };
 
   const activeDoctors = useMemo(
     () => doctors.filter((doctor) => doctor.active === true),
@@ -468,7 +489,8 @@ function SalesRepPlaceOrder() {
             doctorAddressId: submission.doctorAddressId,
             priority: submission.priority,
             deliveryInstructions: submission.deliveryInstructions,
-            // null when none was chosen — the server stores nothing in that case.
+            // Required: validateRequestedDate has refused a blank date above,
+            // and the server refuses one again (requested-date-required).
             requestedDeliveryDate: requestedCheck.value,
             items: submission.items,
           });
@@ -666,7 +688,7 @@ function SalesRepPlaceOrder() {
               <select
                 id="checkout-doctor"
                 value={selectedDoctorId}
-                onChange={(event) => setSelectedDoctorId(event.target.value)}
+                onChange={(event) => handleDoctorChange(event.target.value)}
               >
                 <option value="">Choose a doctor</option>
                 {activeDoctors.map((doctor) => (
@@ -737,12 +759,14 @@ function SalesRepPlaceOrder() {
 
             <label className="place-v2-date-label" htmlFor="place-requested-date">
               <CalendarDays size={14} />
-              Requested delivery date (optional)
+              Requested delivery date
             </label>
             <input
               id="place-requested-date"
               className="place-v2-date-input"
               type="date"
+              required
+              aria-required="true"
               min={manilaToday()}
               value={requestedDate}
               onChange={(event) => setRequestedDate(event.target.value)}

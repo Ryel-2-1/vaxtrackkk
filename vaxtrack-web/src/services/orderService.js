@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { buildClinicLocationSnapshot } from "./orderLocation";
+import { dispatchEligibility } from "./dispatchEligibility";
 import {
   ACTOR_DISPATCHER,
   assertTransition,
@@ -204,6 +205,16 @@ function firstNonEmptyString(...values) {
 }
 
 /**
+ * Refuse a scheduled order before 00:00 Asia/Manila on its requested date, or
+ * one whose stored date is unusable. See dispatchEligibility.js.
+ * @throws {AssignmentError} code `scheduled-date-not-reached` / `scheduled-date-invalid`
+ */
+function assertScheduleReached(order) {
+  const schedule = dispatchEligibility(order);
+  if (!schedule.eligible) throw new AssignmentError(schedule.code, schedule.message);
+}
+
+/**
  * Whether an order already carries a rider.
  *
  * Absent, null and the empty string mean unassigned — sales-rep-created orders
@@ -293,6 +304,10 @@ export async function assignRiderToOrder(orderId, riderUid) {
         "That order has already been assigned to a rider."
       );
     }
+    // A scheduled order is not assignable before 00:00 Manila on its date,
+    // checked against the order as stored now — not the queue the page drew.
+    // firestore.rules refuses the same write independently.
+    assertScheduleReached(order);
 
     const riderSnap = await tx.get(riderRef);
     if (!riderSnap.exists()) {
@@ -354,20 +369,6 @@ export function subscribeAssignedRiderOrders(riderId, callback) {
       );
 
     callback(orders);
-  });
-}
-
-export async function startRiderDelivery(orderId) {
-  if (!orderId) {
-    throw new Error("Order ID is required.");
-  }
-
-  const orderRef = doc(db, ORDERS_COLLECTION, orderId);
-
-  return updateDoc(orderRef, {
-    status: "in_transit",
-    startedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
   });
 }
 
@@ -435,6 +436,8 @@ export async function reassignFailedOrder(orderId, riderUid) {
     }
     // Belt and braces: the move itself must also be legal for a dispatcher.
     assertTransition(ACTOR_DISPATCHER, current, "assigned");
+    // Recovery re-enters dispatch, so it is held to the same schedule.
+    assertScheduleReached(order);
 
     const riderSnap = await tx.get(riderRef);
     if (!riderSnap.exists()) {

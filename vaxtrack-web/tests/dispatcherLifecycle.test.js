@@ -33,8 +33,17 @@ const order = (over = {}) => ({
   clinicDocId: "clinicAbc",
   clinicLat: 14.5995,
   clinicLocationVerified: true,
+  // A valid, already-reached delivery date; undated orders fail closed.
+  requestedDeliveryDate: "2026-01-01",
   ...over,
 });
+
+/** The same order as it exists from before the date became required. */
+const undated = (over = {}) => {
+  const o = order(over);
+  delete o.requestedDeliveryDate;
+  return o;
+};
 
 const seed = (docs) =>
   createStore({
@@ -71,6 +80,34 @@ test("confirming an assigned order promotes it to loading", async () => {
   assert.equal(o.loadedByUid, DISPATCHER.uid);
   assert.equal(o.statusUpdatedAt, SERVER_TIMESTAMP);
   assert.equal(o.statusUpdatedByUid, DISPATCHER.uid);
+});
+
+test("an undated, invalid-dated or future order is not promoted to loading", async () => {
+  for (const [o, code] of [
+    [undated(), "scheduled-date-missing"],
+    [order({ requestedDeliveryDate: "" }), "scheduled-date-invalid"],
+    [order({ requestedDeliveryDate: "2999-01-01" }), "scheduled-date-not-reached"],
+  ]) {
+    const store = installStore(seed({ o1: o }), DISPATCHER);
+    await expectRejection(cargo.updateOrderLoadedState("o1", true), code);
+    assert.equal(data(store, "o1").status, "assigned", "nothing was written");
+    assert.equal(data(store, "o1").isLoaded, false);
+  }
+});
+
+test("finalize refuses the whole group if any order is undated or not yet due", async () => {
+  for (const [late, code] of [
+    [undated({ status: "loading", isLoaded: true }), "scheduled-date-missing"],
+    [order({ status: "loading", isLoaded: true, requestedDeliveryDate: "2999-01-01" }), "scheduled-date-not-reached"],
+  ]) {
+    const store = installStore(
+      seed({ o1: order({ status: "loading", isLoaded: true }), o2: late }),
+      DISPATCHER
+    );
+    await expectRejection(cargo.finalizeRiderDispatch(RIDER, ["o1", "o2"]), code);
+    assert.equal(data(store, "o1").status, "loading", "the eligible order was not dispatched alone");
+    assert.equal(data(store, "o2").status, "loading");
+  }
 });
 
 test("confirming an order that is already loading writes metadata only", async () => {
