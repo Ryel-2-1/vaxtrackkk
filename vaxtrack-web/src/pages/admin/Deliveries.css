@@ -3,7 +3,7 @@
   min-height: 100vh;
   background: #f6f8ff;
   padding: 30px 32px;
-  font-family: Inter, Arial, Helvetica, sans-serif;
+  font-family: var(--font-ui);
   color: #0f172a;
 }
 
@@ -20,7 +20,7 @@
   color: #0f172a;
   font-size: 30px;
   line-height: 1.05;
-  font-weight: 950;
+  font-weight: 700;
   letter-spacing: -0.04em;
 }
 
@@ -29,7 +29,7 @@
   color: #64748b;
   font-size: 14px;
   line-height: 1.35;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .deliveries-v4-header-right {
@@ -84,7 +84,7 @@
   justify-content: center;
   gap: 8px;
   font-size: 14px;
-  font-weight: 900;
+  font-weight: 700;
   white-space: nowrap;
   box-shadow: 0 10px 22px rgba(0, 87, 216, 0.18);
   cursor: pointer;
@@ -114,14 +114,14 @@
   display: block;
   color: #7c2d12;
   font-size: 15px;
-  font-weight: 950;
+  font-weight: 700;
 }
 
 .deliveries-alert-strip p {
   margin: 4px 0 0;
   color: #92400e;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .deliveries-alert-strip button {
@@ -132,7 +132,7 @@
   color: #c2410c;
   padding: 0 14px;
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -189,7 +189,7 @@
   justify-content: center;
   gap: 7px;
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
   white-space: nowrap;
   padding: 0 12px;
   cursor: pointer;
@@ -215,7 +215,7 @@
   color: #0057d8;
   padding: 0 13px;
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -287,14 +287,14 @@
   color: #0f172a;
   font-size: 28px;
   line-height: 1;
-  font-weight: 950;
+  font-weight: 700;
 }
 
 .deliveries-summary-card p {
   margin: 0;
   color: #475569;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .deliveries-summary-card small {
@@ -329,7 +329,7 @@
   margin: 0;
   color: #0f172a;
   font-size: 19px;
-  font-weight: 950;
+  font-weight: 700;
   letter-spacing: -0.02em;
 }
 
@@ -345,7 +345,7 @@
   background: transparent;
   color: #0057d8;
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
   padding: 0;
   cursor: pointer;
 }
@@ -367,7 +367,7 @@
   background: #f8fafc;
   color: #475569;
   font-size: 12px;
-  font-weight: 950;
+  font-weight: 700;
   text-align: left;
   padding: 14px 18px;
   border-bottom: 1px solid #e4ecf7;
@@ -408,7 +408,7 @@
   color: #0057d8;
   font-size: 14px;
   line-height: 1.1;
-  font-weight: 950;
+  font-weight: 700;
 }
 
 .deliveries-v4-id-cell small {
@@ -416,7 +416,7 @@
   margin-top: 5px;
   font-size: 12px;
   line-height: 1.2;
-  font-weight: 850;
+  font-weight: 600;
 }
 
 .deliveries-v4-id-cell small.normal {
@@ -448,7 +448,7 @@
   background: #dbeafe;
   color: #2563eb;
   font-size: 11px;
-  font-weight: 950;
+  font-weight: 700;
   display: grid;
   place-items: center;
   flex: 0 0 30px;
@@ -460,7 +460,7 @@
   color: #0f172a;
   font-size: 14px;
   line-height: 1.2;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .deliveries-v4-rider-cell small,
@@ -470,7 +470,7 @@
   color: #64748b;
   font-size: 12px;
   line-height: 1.35;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .deliveries-v4-status {
@@ -481,7 +481,7 @@
   border-radius: 8px;
   padding: 6px 10px;
   font-size: 12px;
-  font-weight: 950;
+  font-weight: 700;
   white-space: nowrap;
 }
 
@@ -533,7 +533,7 @@
   color: #0057d8;
   padding: 0 10px;
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -592,7 +592,7 @@
   justify-content: center;
   padding: 0 12px;
   font-size: 12px;
-  font-weight: 950;
+  font-weight: 700;
   cursor: pointer;
   box-shadow: 0 12px 26px rgba(15, 23, 42, 0.18);
 }
@@ -641,7 +641,7 @@
   border: 1px solid #dbe3f3;
   color: #475569;
   font-size: 12px;
-  font-weight: 850;
+  font-weight: 600;
 }
 
 .deliveries-map-legend span {
@@ -682,7 +682,7 @@
   margin-top: 8px;
   color: #0f172a;
   font-size: 17px;
-  font-weight: 950;
+  font-weight: 700;
 }
 
 .deliveries-empty-state p {
@@ -761,7 +761,7 @@
   margin: 0;
   color: #0f172a;
   font-size: 28px;
-  font-weight: 950;
+  font-weight: 700;
 }
 
 .deliveries-modal p {
@@ -793,7 +793,7 @@
   display: block;
   color: #64748b;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
   margin-bottom: 4px;
 }
 
@@ -801,7 +801,7 @@
   display: block;
   color: #0f172a;
   font-size: 16px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .deliveries-modal-actions {
@@ -821,7 +821,7 @@
   justify-content: center;
   gap: 7px;
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -862,7 +862,7 @@
   gap: 7px;
   color: #0f172a;
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .deliveries-form-grid label.wide {
@@ -878,7 +878,7 @@
   color: #0f172a;
   padding: 0 13px;
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 600;
   outline: none;
   box-shadow: none;
 }
@@ -901,7 +901,7 @@
   background: #0f172a;
   color: #ffffff;
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 600;
   box-shadow: 0 18px 38px rgba(15, 23, 42, 0.25);
 }
 
@@ -1000,7 +1000,7 @@
 
   color: #0f172a !important;
   font-size: 14px !important;
-  font-weight: 650 !important;
+  font-weight: 600 !important;
   line-height: 40px !important;
 }
 
@@ -1026,7 +1026,7 @@
 
   color: #0f172a !important;
   font-size: 14px !important;
-  font-weight: 650 !important;
+  font-weight: 600 !important;
   line-height: 46px !important;
 
   box-sizing: border-box !important;

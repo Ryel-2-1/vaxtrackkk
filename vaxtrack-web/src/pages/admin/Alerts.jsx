@@ -168,8 +168,6 @@ function Alerts() {
 
         <header className="alerts-v2-topbar">
           <div>
-            <p>VaxTrack / Alert Center</p>
-            <h1>Alerts</h1>
             <small>
               Review route deviations, stock issues, and delivery notifications.
             </small>

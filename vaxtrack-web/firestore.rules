@@ -1091,6 +1091,54 @@ service cloud.firestore {
         in ['approved', 'pending', 'pending_approval', 'rejected', 'disabled'];
     }
 
+    // ---- a user's own profile edits ("My profile") ----
+    function selfProfileFields() {
+      return ['name', 'fullName', 'phone', 'contactNumber', 'updatedAt'];
+    }
+    // Written by the Rider app to the rider's own record
+    // (vaxtrack_mobile/lib/services/location_service.dart).
+    function riderLocationUserFields() {
+      return ['lastLocation', 'lastLocationUpdate', 'locationAccuracy', 'heading', 'speed'];
+    }
+    function selfEditableUserFields() {
+      return selfProfileFields().concat(riderLocationUserFields());
+    }
+    function selfNameValid(value) {
+      return value is string && value.trim().size() >= 2 && value.size() <= 80;
+    }
+    function selfPhoneValid(value) {
+      return value is string && value.size() <= 30;
+    }
+    function selfProfileValuesValid() {
+      let d = request.resource.data;
+      let changed = changedKeys();
+      return (!changed.hasAny(['name']) || selfNameValid(d.name))
+        && (!changed.hasAny(['fullName']) || selfNameValid(d.fullName))
+        && (!changed.hasAny(['phone']) || selfPhoneValid(d.phone))
+        && (!changed.hasAny(['contactNumber']) || selfPhoneValid(d.contactNumber))
+        && (!changed.hasAny(['updatedAt']) || d.updatedAt == request.time);
+    }
+
+    // The stored status as the access resolver reads it: trimmed, lowercased,
+    // '' when absent or not a string — so a legacy "Rejected" is protected
+    // exactly like "rejected".
+    function storedUserStatus() {
+      let s = resource.data.get('status', null);
+      return s is string ? s.trim().lower() : '';
+    }
+
+    // An admin status change that leaves the status alone (a role change, a
+    // profile fix) is always fine. A real change may not start from rejected,
+    // and may enter rejected only from an application still awaiting a
+    // decision — never from an active or deactivated account.
+    function adminStatusChangeAllowed() {
+      let next = request.resource.data.get('status', null);
+      return next == resource.data.get('status', null)
+        || (storedUserStatus() != 'rejected'
+            && (next != 'rejected'
+                || !(storedUserStatus() in ['approved', 'disabled'])));
+    }
+
     match /users/{uid} {
       // Self-read at ANY status (so login + route guards can detect
       // pending/disabled/rejected). Admin reads all; Dispatcher reads only
@@ -1138,14 +1186,28 @@ service cloud.firestore {
       // unknown STATUS used to be read as approved, so the two gaps together
       // were a way to mint access. Both allowlists are enforced here now.
       //
-      // A user may edit their own profile/location but may NOT change their own
-      // role or status (no self-approval, no self-elevation).
-      allow update: if (isAdmin() && isKnownRole() && isKnownStatus())
+      // A user may edit ONLY their own name and phone (and a rider their own
+      // location) — nothing else on their record. Role and status were already
+      // protected; employee ID, email, organization, department and branch
+      // were not, although every screen presents them as administrator-managed.
+      // selfEditableUserFields() mirrors SELF_EDITABLE_FIELDS in
+      // src/services/profileModel.js plus the Flutter location write.
+      //
+      // An admin's status change must also be an allowed TRANSITION
+      // (adminStatusChangeAllowed): a REJECTED application is final here —
+      // never re-activated, deactivated or returned to pending — and only an
+      // application still awaiting a decision can be rejected. Mirrors
+      // src/services/staffAccount.js.
+      allow update: if (isAdmin() && isKnownRole() && isKnownStatus() && adminStatusChangeAllowed())
         || (
           signedIn()
           && request.auth.uid == uid
-          && request.resource.data.role == resource.data.role
-          && request.resource.data.status == resource.data.status
+          && changedKeys().hasOnly(selfEditableUserFields())
+          && selfProfileValuesValid()
+          && (
+            !changedKeys().hasAny(riderLocationUserFields())
+            || resource.data.role == 'rider'
+          )
         );
 
       allow delete: if isAdmin();

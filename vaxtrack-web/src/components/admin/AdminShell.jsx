@@ -34,6 +34,31 @@ function wrapperClassFor(pathname) {
   return WRAPPER_CLASS[pathname] || "inventory-page";
 }
 
+// The page title shown in the shared top bar — the same pattern the Sales Rep
+// and Dispatcher shells use. The top bar owns each page's <h1> (DESIGN.md ›
+// Layout), so admin pages no longer render their own large heading.
+const ROUTE_TITLE = {
+  "/admin": "Dashboard",
+  "/admin/inventory": "Inventory",
+  "/admin/add-stock": "Add Stock",
+  "/admin/add-vaccine": "Add Vaccine",
+  "/admin/deliveries": "Deliveries",
+  "/admin/riders": "Riders",
+  "/admin/alerts": "Alerts",
+  "/admin/analytics": "Analytics",
+  "/admin/settings": "Settings",
+  "/admin/clinics": "Clinics",
+  "/admin/invoices": "Invoices",
+  "/admin/register-clinic": "Register Clinic",
+  "/admin/clinic-success": "Clinics",
+};
+
+function adminTitleFor(pathname) {
+  if (ROUTE_TITLE[pathname]) return ROUTE_TITLE[pathname];
+  if (pathname.startsWith("/admin/invoices/")) return "Invoice";
+  return "Admin";
+}
+
 function AdminShell() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -49,6 +74,14 @@ function AdminShell() {
   return (
     <div className={wrapperClassFor(location.pathname)}>
       <AdminSidebar onLogout={handleLogout} />
+
+      {/* The shared top bar (same as Sales Rep and Dispatcher). Fixed beside
+          the rail, like the rail itself, so the page's own <main> remains the
+          direct flex child the existing admin page CSS expects. Admin has no
+          global search or notification feed, so it carries the title only. */}
+      <header className="m-topbar admin-shell-topbar">
+        <h1 className="m-topbar-title">{adminTitleFor(location.pathname)}</h1>
+      </header>
 
       {/* No wrapper div here on purpose: the page's own <main> must stay a
           direct flex child of `.inventory-page`. The Suspense fallback is scoped

@@ -57,16 +57,6 @@
   margin: 0 !important;
   white-space: nowrap !important;
 }
-/* Right-hand hub badge — was a pale-blue pill (fill #eff6ff, border
-   #dbeafe, text #0057d8). Retint to a quiet, restrained green with a
-   thin subtle border. Text/location unchanged. */
-.dispatcher-main .dispatcher-hub {
-  color: var(--green-800) !important;
-  font-weight: 600 !important;
-  background: var(--green-50) !important;
-  border: 1px solid var(--green-100) !important;
-}
-
 /* Body section heading (the demoted page titles) */
 .dispatcher-main .disp-section-title {
   font-family: var(--font-ui) !important;
@@ -253,23 +243,6 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   font-size: 13px !important;
   font-weight: 600 !important;
   border-radius: var(--radius-control) !important;
-}
-
-/* ---- Settings preference switches ------------------------
-   The switch is correctly sized/rounded already (48×28 pill, white
-   20px thumb, overflow-hidden so no square background). Only the
-   ENABLED track colour was bright blue (#2563eb). Retint to VaxTrack
-   green; keep the off track neutral gray. Dimensions, thumb, and the
-   accessible button hit target are untouched. Selectors carry the
-   `.dispatcher-settings-card` scope so they out-specify (and, being
-   imported last, win the tie against) the legacy blue rule. */
-.dispatcher-main .dispatcher-toggle,
-.dispatcher-main .dispatcher-settings-card .dispatcher-toggle {
-  background: var(--gray-300) !important;   /* off = neutral gray */
-}
-.dispatcher-main .dispatcher-toggle.enabled,
-.dispatcher-main .dispatcher-settings-card .dispatcher-toggle.enabled {
-  background: var(--green-700) !important;  /* on = VaxTrack green */
 }
 
 /* ============================================================

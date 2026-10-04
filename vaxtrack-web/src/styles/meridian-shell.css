@@ -272,9 +272,3 @@ header.dispatcher-topbar .dispatcher-bell:hover,
 header.salesrep-topbar .salesrep-icon-btn:hover {
   background: var(--gray-50) !important;
 }
-
-header.dispatcher-topbar .dispatcher-hub {
-  color: var(--gray-500) !important;
-  font-size: 13px !important;
-  font-weight: 500 !important;
-}

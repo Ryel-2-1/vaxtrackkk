@@ -164,7 +164,7 @@
   margin: 0;
   color: #64748b;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .v2-summary-card h2 {
@@ -172,13 +172,13 @@
   color: #0f172a;
   font-size: 28px;
   line-height: 1;
-  font-weight: 950;
+  font-weight: 700;
 }
 
 .v2-summary-card small {
   color: #64748b;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 /* Cards */
@@ -269,7 +269,7 @@
   margin-top: 8px;
   color: #475569;
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .v2-hub-bar-item b {
@@ -277,7 +277,7 @@
   margin-top: 3px;
   color: #64748b;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 /* Cold and alert cards */
@@ -318,7 +318,7 @@
 
 .v2-cold-list small {
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .v2-cold-list small.critical {
@@ -598,7 +598,7 @@
   margin-top: 3px;
   color: #64748b;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .v2-stock-status {
@@ -655,7 +655,7 @@
   margin: 0;
   color: #64748b;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .v2-pagination {
@@ -842,7 +842,7 @@
   background: #0f172a;
   color: #ffffff;
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 600;
   box-shadow: 0 18px 38px rgba(15, 23, 42, 0.25);
 }
 
@@ -1029,7 +1029,7 @@
   box-shadow: none !important;
   color: #0f172a !important;
   font-size: 14px !important;
-  font-weight: 650 !important;
+  font-weight: 600 !important;
 }
 
 .v2-inventory-search input::placeholder {

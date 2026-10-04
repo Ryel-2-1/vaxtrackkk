@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { auth } from "../../firebase";
 import { subscribeActiveAlerts } from "../../services/alertService";
+import SidebarProfile from "../../components/shell/SidebarProfile";
 import {
   DRAWER_MEDIA_QUERY,
   nextNavState,
@@ -60,7 +61,7 @@ const ROUTE_META = {
 };
 
 function metaForDispatcher(pathname) {
-  return ROUTE_META[pathname] || { key: "dashboard", title: "VaxTrack Logistics" };
+  return ROUTE_META[pathname] || { key: "dashboard", title: "Dashboard" };
 }
 
 function DispatcherLayout() {
@@ -329,13 +330,17 @@ function DispatcherLayout() {
         id="dispatcher-nav"
         aria-label="Dispatcher navigation"
       >
+        {/* The wordmark is not a heading: the top bar owns the page's one <h1>
+            (this used to be a second <h1> on every Dispatcher page). */}
         <div className="dispatcher-brand">
-          <h1>VaxTrack</h1>
+          <div className="m-brand">VaxTrack</div>
           <span className="m-role-chip">
             <span className="m-role-dot" />
             Dispatch
           </span>
         </div>
+
+        <SidebarProfile fallbackRole="Dispatcher" />
 
         <nav className="dispatcher-nav">
           <NavLink
@@ -414,10 +419,14 @@ function DispatcherLayout() {
           drawer is open. `undefined` (not `false`) so the attribute is absent
           — and therefore inert is never in play at desktop widths. */}
       <main className="dispatcher-main" inert={navOpen || undefined}>
-        <header className="dispatcher-topbar">
-          <h1>{title}</h1>
+        <header className="dispatcher-topbar m-topbar">
+          <h1 className="m-topbar-title">{title}</h1>
 
-          <form className="dispatcher-search" onSubmit={handleSearchSubmit}>
+          {/* Search + bell grouped on the right, as in every role's top bar.
+              Below 1025px the group is `display: contents`, so the existing
+              tablet/phone grid still places each control individually. */}
+          <div className="m-topbar-actions">
+          <form className="dispatcher-search m-topbar-search" onSubmit={handleSearchSubmit}>
             <Search size={15} />
             <input
               placeholder="Search orders, clinics, or vaccine types..."
@@ -429,7 +438,8 @@ function DispatcherLayout() {
           <div className="dispatcher-notification-wrap">
             <button
               type="button"
-              className="dispatcher-bell"
+              className="dispatcher-bell m-topbar-icon-btn"
+              aria-label="Open notifications"
               onClick={() => setShowNotifications((prev) => !prev)}
             >
               <Bell size={16} />
@@ -491,8 +501,7 @@ function DispatcherLayout() {
               </div>
             )}
           </div>
-
-          <strong className="dispatcher-hub">VaxTrack Logistics</strong>
+          </div>
         </header>
 
         {/* Keyed by route so only this content region replays the entrance

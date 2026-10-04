@@ -192,7 +192,6 @@ function Deliveries() {
 
         <header className="mdl-header">
           <div>
-            <h1>Deliveries</h1>
             {/* Was "Monitor and route active cold-chain shipments." Admin does
                 not route anything and this page performs no cold-chain
                 measurement; it reads the orders collection. */}

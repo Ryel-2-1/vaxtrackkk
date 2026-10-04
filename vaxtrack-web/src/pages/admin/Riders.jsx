@@ -58,7 +58,6 @@ function normalizeRider(raw) {
     statusText: mapped.statusText,
     assignment: mapped.uiStatus === "standby" ? "Available at Hub" : mapped.statusText,
     currentDelivery: "None",
-    hub: raw.hub || "Manila Central Hub",
     lastActive: "—",
     onTimeRate: "—",
     routeCompliance: "—",
@@ -128,7 +127,6 @@ function Riders() {
 
         <header className="riders-v2-header">
           <div>
-            <h1>Riders</h1>
             <p>Monitor field personnel and cold-chain assignments.</p>
             {/* Admin does not create rider accounts — riders self-register in
                 the Flutter app and arrive here as pending for approval. Saying

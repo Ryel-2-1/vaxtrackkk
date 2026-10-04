@@ -178,7 +178,7 @@
 .inventory-main .blue-btn,
 .inventory-main .outline-btn {
   border-radius: 8px !important;
-  font-weight: 650 !important;
+  font-weight: 600 !important;
 }
 
 /* The legacy `.blue-btn, .admin-primary-btn, .primary-button, …` block
@@ -516,7 +516,7 @@
 .vaccine-form-card .add-type-header h3 {
   margin: 0;
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 600;
   color: var(--gray-900);
   letter-spacing: -0.005em;
 }

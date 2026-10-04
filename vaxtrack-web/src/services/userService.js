@@ -3,10 +3,13 @@ import {
   doc,
   getDoc,
   onSnapshot,
+  runTransaction,
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { canChangeStaffStatus, statusChangeRefusal } from "./staffAccount";
+import { SELF_EDITABLE_FIELDS } from "./profileModel";
 
 const USERS_COLLECTION = "users";
 
@@ -32,11 +35,40 @@ export function subscribeUsers(callback) {
   });
 }
 
+/** A refused status change. `code` is stable; `message` is written for the admin. */
+export class UserStatusError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "UserStatusError";
+    this.code = code;
+  }
+}
+
+/**
+ * Change a staff account's status — only along the allowed transitions
+ * (staffAccount.js). The stored status is re-read inside a transaction, so a
+ * stale Staff Directory row cannot drive a change: in particular a REJECTED
+ * application can never be activated, deactivated or sent back to pending.
+ * firestore.rules refuses the same writes independently.
+ */
 export async function updateUserStatus(uid, status) {
   if (!VALID_STATUSES.includes(status)) {
     throw new Error(`Invalid status: ${status}`);
   }
-  return updateDoc(doc(db, USERS_COLLECTION, uid), { status, updatedAt: serverTimestamp() });
+  const ref = doc(db, USERS_COLLECTION, uid);
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) {
+      throw new UserStatusError("user-not-found", "That account no longer exists.");
+    }
+    const current = snap.data().status;
+    if (!canChangeStaffStatus(current, status)) {
+      const refusal = statusChangeRefusal(current);
+      throw new UserStatusError(refusal.code, refusal.message);
+    }
+    tx.update(ref, { status, updatedAt: serverTimestamp() });
+    return { uid, status };
+  });
 }
 
 export async function updateUserRole(uid, role) {
@@ -56,11 +88,30 @@ export async function getUserProfile(uid) {
   return { ...snap.data(), id: snap.id };
 }
 
-const PROFILE_EDITABLE_FIELDS = ["name", "phone", "contactNumber", "organization", "company", "clinic"];
+/**
+ * Live view of the signed-in user's OWN users/{uid} document, for "My profile"
+ * and the sidebar profile card. `onData` receives the document (document id
+ * last, so it always wins) or null when it does not exist.
+ */
+export function subscribeOwnProfile(uid, onData, onError) {
+  return onSnapshot(
+    doc(db, USERS_COLLECTION, uid),
+    (snap) => onData(snap.exists() ? { ...snap.data(), id: snap.id } : null),
+    (error) => {
+      if (onError) onError(error);
+    }
+  );
+}
 
+/**
+ * A user's own profile edit. Only SELF_EDITABLE_FIELDS (name, phone and their
+ * legacy spellings) ever leave here — organization, employee ID, email, role
+ * and status are an administrator's to change. firestore.rules enforces the
+ * same allowlist on the user's own document.
+ */
 export async function updateUserProfile(uid, profileData) {
   const clean = {};
-  for (const key of PROFILE_EDITABLE_FIELDS) {
+  for (const key of SELF_EDITABLE_FIELDS) {
     if (key in profileData) {
       clean[key] = profileData[key];
     }

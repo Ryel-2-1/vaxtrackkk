@@ -108,12 +108,12 @@
 .inv-summary-card h2 {
   margin: 0;
   font-size: 26px;
-  font-weight: 900;
+  font-weight: 700;
 }
 .inv-summary-card p {
   margin: 2px 0 0;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 600;
   text-transform: uppercase;
   color: #64748b;
   letter-spacing: 0.03em;
@@ -137,7 +137,7 @@
 .inv-table-toolbar h2 {
   margin: 0;
   font-size: 18px;
-  font-weight: 800;
+  font-weight: 600;
 }
 .inv-search {
   display: flex;
@@ -277,7 +277,7 @@
   border: 1px solid #cbd5e1;
   padding: 0 8px;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 600;
   background: #fff;
   cursor: pointer;
 }
@@ -313,7 +313,7 @@
   border-radius: 7px;
   border: 1px solid transparent;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
   cursor: pointer;
 }
 .inv-btn-primary {
@@ -996,7 +996,7 @@
 }
 .inv-company-name {
   font-size: 20px !important;
-  font-weight: 900 !important;
+  font-weight: 700 !important;
 }
 .inv-cold-note {
   margin: 6px 0 0;
@@ -1062,7 +1062,7 @@
 }
 .inv-field-label {
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 600;
   text-transform: uppercase;
   color: #64748b;
   letter-spacing: 0.03em;
@@ -1115,7 +1115,7 @@
   padding: 8px;
   font-size: 11px;
   text-align: left;
-  font-weight: 800;
+  font-weight: 600;
 }
 .inv-items-table td {
   border: 1px solid #cbd5e1;
@@ -1211,7 +1211,7 @@
   margin-top: 4px;
   text-align: center;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 600;
   text-transform: uppercase;
   color: #64748b;
 }

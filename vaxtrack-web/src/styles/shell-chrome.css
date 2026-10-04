@@ -1,0 +1,431 @@
+/* ============================================================
+   Shell chrome — ONE sidebar and ONE top bar for every web role.
+
+   The Admin, Sales Rep and Dispatcher shells each grew their own rail
+   (280 / 250 / 260px wide, 40–54px nav items, profile card only on two of
+   them) and their own top bar (none / 72px with a 20px title / 64px with a
+   16px title, different search and bell sizes). This layer states the
+   DESIGN.md shell once and applies it to all three:
+
+     sidebar  240px; brand 16/600; role chip; profile card; 40px nav items
+              2px apart; Logout pinned to the bottom
+     top bar  64px, white, hairline bottom border; page <h1> (DESIGN.md Headline, 20–24px/600) on the
+              left; working controls (search 320×40, 40px icon buttons) on
+              the right
+     content  starts one gutter below the top bar, with the same gutter at
+              the sides — DESIGN.md's clamp(16px, 2.4vw, 26px)
+
+   Why `#root` + `!important`: the legacy stylesheets declare these same
+   elements dozens of times, many with `!important` (see the comments in
+   AdminSidebar.css and meridian-shell.css). The `#root` prefix outweighs
+   them regardless of which file the bundler emits last; `!important` is
+   only there to beat existing `!important`s.
+
+   Scope: the desktop rail (≥1025px). Below that every role already has its
+   own drawer / bottom-bar layout, which is left alone — except the Admin
+   top bar, which is new and therefore styled at every width here.
+   Imported last in main.jsx.
+   ============================================================ */
+
+:root {
+  --shell-sidebar-width: 240px;
+  --shell-topbar-height: 64px;
+  /* DESIGN.md "Content": one responsive horizontal padding for every page —
+     the value the Admin pages already use. */
+  --shell-gutter: clamp(16px, 2.4vw, 26px);
+  /* DESIGN.md "Headline": the page <h1>, owned by the top bar. */
+  --shell-title-size: clamp(20px, 2.4vw, 24px);
+}
+
+/* Admin reads its rail width from one variable (AdminSidebar.css); point it
+   at the shared width so the rail and the content offset stay in lock-step. */
+#root .inventory-page {
+  --admin-sidebar-width: var(--shell-sidebar-width);
+}
+
+/* index.css still carries the Vite scaffold's `border-inline: 1px solid` on
+   #root. Inside a role shell it draws a hairline down both screen edges and
+   pushes the in-flow Sales Rep / Dispatcher rails 1px off the edge (the fixed
+   Admin rail escapes it, which is why the three never lined up). Removed only
+   where a role shell is mounted; the global rule is a separate clean-up. */
+#root:has(> .inventory-page, > .salesrep-page, > .dispatcher-page) {
+  border-inline: 0 !important;
+}
+
+/* ---------------------------------------------------------------
+   Shared profile card (SidebarProfile.jsx) — every width
+   --------------------------------------------------------------- */
+#root .m-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  min-width: 0;
+  margin: 0 0 20px;
+  padding: 10px 12px;
+  background: var(--green-900);
+  border-radius: 10px;
+}
+
+#root .m-profile-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-pill);
+  background: var(--green-700);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+#root .m-profile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+#root .m-profile-text strong,
+#root .m-profile-text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#root .m-profile-text strong {
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+#root .m-profile-text span {
+  color: var(--sidebar-item, #9db8ac);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+}
+
+/* The Sales Rep phone layout turns the rail into a 72px bottom bar; there is
+   no room for an account card there (the legacy one was simply clipped). */
+@media (max-width: 768px) {
+  #root aside.salesrep-sidebar .m-profile {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------
+   Admin top bar — new element, styled at every width
+   It is fixed beside the (fixed) rail, so the page's own <main> keeps
+   its place as the shell's direct flex child.
+   --------------------------------------------------------------- */
+#root .admin-shell-topbar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: var(--admin-sidebar-width);
+  z-index: 25;
+}
+
+@media (min-width: 1001px) {
+  #root > .inventory-page {
+    padding-top: var(--shell-topbar-height) !important;
+  }
+
+  #root > .inventory-page > main {
+    padding-top: var(--shell-gutter) !important;
+  }
+}
+
+/* Below the rail breakpoint the Admin page already reserves 64px for the
+   fixed menu button; the bar spans the full width and leaves room for it. */
+@media (max-width: 1000px) {
+  #root .admin-shell-topbar {
+    left: 0;
+    padding-left: 68px !important;
+  }
+}
+
+/* The Admin bar has no legacy rules to fight, so its look is set here at
+   every width. Sales Rep and Dispatcher get the same look at ≥1025px below. */
+#root .admin-shell-topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: var(--shell-topbar-height);
+  margin: 0;
+  padding: 0 var(--shell-gutter);
+  background: #ffffff;
+  border-bottom: 1px solid var(--gray-200);
+  box-sizing: border-box;
+}
+
+#root .admin-shell-topbar .m-topbar-title {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--gray-900);
+  font-size: var(--shell-title-size);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+/* ---------------------------------------------------------------
+   Desktop rail + top bar (≥1025px): the canonical shell
+   --------------------------------------------------------------- */
+@media (min-width: 1025px) {
+  /* Rail width (Admin's comes from the variable above). */
+  #root aside.dispatcher-sidebar,
+  #root aside.salesrep-sidebar {
+    width: var(--shell-sidebar-width) !important;
+    min-width: var(--shell-sidebar-width) !important;
+    max-width: var(--shell-sidebar-width) !important;
+    flex: 0 0 var(--shell-sidebar-width) !important;
+  }
+
+  /* The Sales Rep content column was hard-sized to calc(100vw - 250px) and
+     capped at 1180px; it now simply fills what the rail leaves, like the
+     other two roles. Padding moves to the content region so the top bar can
+     run edge to edge. */
+  #root .salesrep-main {
+    flex: 1 1 0 !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Rail layout: brand → chip → profile → scrolling nav → Logout. */
+  #root aside.inventory-sidebar,
+  #root aside.dispatcher-sidebar,
+  #root aside.salesrep-sidebar {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0 !important;
+    padding: 24px 16px 16px !important;
+    box-sizing: border-box !important;
+  }
+
+  #root aside .m-brand {
+    margin: 0 0 12px !important;
+    padding: 0 4px !important;
+    color: #ffffff !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    line-height: 24px !important;
+    letter-spacing: -0.01em !important;
+  }
+
+  /* Dispatcher wraps brand + chip in one block; it must not add its own
+     spacing, background or border on top of the shared rhythm. */
+  #root aside.dispatcher-sidebar .dispatcher-brand {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    flex: 0 0 auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: none !important;
+  }
+
+  #root aside .m-role-chip {
+    align-self: flex-start !important;
+    flex: 0 0 auto !important;
+    margin: 0 0 16px !important;
+    /* Dispatcher's brand block passed a 1.1 line-height down to the chip,
+       making it 5px shorter than the other two. */
+    line-height: 18px !important;
+  }
+
+  #root aside.inventory-sidebar nav,
+  #root aside.dispatcher-sidebar .dispatcher-nav,
+  #root aside.salesrep-sidebar .salesrep-nav {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 2px !important;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+
+  #root aside.inventory-sidebar nav a,
+  #root aside.dispatcher-sidebar .dispatcher-nav a,
+  #root aside.salesrep-sidebar .salesrep-nav a {
+    height: 40px !important;
+    min-height: 40px !important;
+    max-height: 40px !important;
+    margin: 0 !important;
+    padding: 0 12px !important;
+    gap: 10px !important;
+    border-radius: var(--radius-control) !important;
+    font-size: 14px !important;
+    line-height: 20px !important;
+    flex: 0 0 auto !important;
+    box-sizing: border-box !important;
+  }
+
+  #root aside.inventory-sidebar .sidebar-logout,
+  #root aside.dispatcher-sidebar .dispatcher-logout,
+  #root aside.salesrep-sidebar .salesrep-logout {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 10px !important;
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    margin: 12px 0 0 !important;
+    margin-top: auto !important;
+    padding: 0 12px !important;
+    border: 0 !important;
+    border-radius: var(--radius-control) !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: var(--sidebar-item, #9db8ac) !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    line-height: 20px !important;
+    cursor: pointer;
+  }
+
+  #root aside.inventory-sidebar .sidebar-logout:hover,
+  #root aside.dispatcher-sidebar .dispatcher-logout:hover,
+  #root aside.salesrep-sidebar .salesrep-logout:hover {
+    background: var(--green-900) !important;
+    color: #ffffff !important;
+  }
+
+  /* ---- top bar (Sales Rep + Dispatcher; Admin's is styled above) ---- */
+  #root .m-topbar {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 16px !important;
+    height: var(--shell-topbar-height) !important;
+    min-height: var(--shell-topbar-height) !important;
+    margin: 0 !important;
+    padding: 0 var(--shell-gutter) !important;
+    background: #ffffff !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--gray-200) !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    box-sizing: border-box !important;
+  }
+
+  #root .m-topbar .m-topbar-title {
+    margin: 0 !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    color: var(--gray-900) !important;
+    font-size: var(--shell-title-size) !important;
+    font-weight: 600 !important;
+    line-height: 1.2 !important;
+    letter-spacing: -0.01em !important;
+  }
+
+  #root .m-topbar .m-topbar-actions {
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    flex: 0 1 auto !important;
+    min-width: 0 !important;
+    margin: 0 0 0 auto !important;
+  }
+
+  #root .m-topbar .m-topbar-search {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    width: 320px !important;
+    max-width: 40vw !important;
+    /* SalesRep.css pins the box with flex-basis 310px; width alone loses. */
+    flex: 0 1 320px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    margin: 0 !important;
+    padding: 0 12px !important;
+    border: 1px solid var(--gray-300) !important;
+    border-radius: var(--radius-control) !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    color: var(--gray-500) !important;
+    box-sizing: border-box !important;
+  }
+
+  #root .m-topbar .m-topbar-search:focus-within {
+    border-color: var(--green-700) !important;
+    box-shadow: 0 0 0 3px var(--green-100) !important;
+  }
+
+  #root .m-topbar .m-topbar-search input {
+    flex: 1 1 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    height: 38px !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    outline: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: var(--gray-900) !important;
+    font-size: 14px !important;
+    font-weight: 400 !important;
+  }
+
+  #root .m-topbar .m-topbar-icon-btn {
+    position: relative !important;
+    display: grid !important;
+    place-items: center !important;
+    width: 40px !important;
+    min-width: 40px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 1px solid var(--gray-200) !important;
+    border-radius: var(--radius-control) !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    color: var(--gray-600) !important;
+  }
+
+  #root .m-topbar .m-topbar-icon-btn:hover {
+    background: var(--gray-50) !important;
+  }
+
+  /* ---- content starts at the same place for every role ---- */
+  #root .salesrep-route-view,
+  #root .dispatcher-content {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: var(--shell-gutter) var(--shell-gutter) 32px !important;
+    box-sizing: border-box !important;
+  }
+}
+
+/* Below the rail breakpoint the Dispatcher top bar is a grid that places the
+   title, search and bell individually (Dispatcher.css); the shared actions
+   group must not get in its way. */
+@media (max-width: 1024px) {
+  #root .dispatcher-topbar .m-topbar-actions {
+    display: contents;
+  }
+}

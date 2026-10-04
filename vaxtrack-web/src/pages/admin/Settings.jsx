@@ -1,13 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Bell,
   Building2,
   Globe,
-  Clock,
   MoreVertical,
   Search,
   Settings as SettingsIcon,
-  ShieldCheck,
   UserRound,
   Users,
   X,
@@ -16,6 +13,8 @@ import { auth } from "../../firebase";
 import KpiCard from "../../components/ui/KpiCard";
 import "./Settings.css";
 import { subscribeUsers, updateUserStatus, updateUserRole } from "../../services/userService";
+import { staffActionsFor, staffStatusOf } from "../../services/staffAccount";
+import MyProfile from "../../components/profile/MyProfile";
 // The invoice issuer is a constant in the invoice model, not a stored setting.
 import { COMPANY_NAME } from "../../services/invoiceModel";
 
@@ -32,16 +31,9 @@ const ASSIGNABLE_ROLES = [
   { value: "rider", label: "Rider" },
 ];
 
-const UI_STATUS = {
-  approved: { status: "active", statusLabel: "Active" },
-  pending: { status: "pending", statusLabel: "Pending" },
-  pending_approval: { status: "pending", statusLabel: "Pending" },
-  rejected: { status: "inactive", statusLabel: "Inactive" },
-  disabled: { status: "inactive", statusLabel: "Inactive" },
-};
-
 function normalizeUser(raw) {
-  const uiStatus = UI_STATUS[raw.status] || { status: "pending", statusLabel: "Pending" };
+  // Rejected is its own state — never folded into Inactive (staffAccount.js).
+  const uiStatus = staffStatusOf(raw.status);
   return {
     uid: raw.id,
     id: raw.employeeId || "—",
@@ -51,8 +43,8 @@ function normalizeUser(raw) {
     role: ROLE_DISPLAY[raw.role] || raw.role || "Unassigned",
     department: raw.department || "—",
     branch: raw.branch || "—",
-    status: uiStatus.status,
-    statusLabel: uiStatus.statusLabel,
+    status: uiStatus.key,
+    statusLabel: uiStatus.label,
     lastLogin: "—",
   };
 }
@@ -76,54 +68,35 @@ function Settings() {
 
         <header className="settings-v3-header">
           <div>
-            <h1>Settings</h1>
-
             <p>
               {activeTab === "general"
                 ? "Manage organization details and system-wide logistics rules."
-                : "Manage personnel, permissions, branches, and registration requests."}
+                : activeTab === "profile"
+                  ? "Your own account: name, phone and password."
+                  : "Manage personnel, permissions, branches, and registration requests."}
             </p>
           </div>
 
-          <div className="settings-v3-actions">
-            <div className="settings-v3-search">
-              <Search size={15} />
-              <input
-                placeholder={
-                  activeTab === "general"
-                    ? "Search settings or ID..."
-                    : "Search employee, role, email..."
-                }
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
+          {/* The bell, clock and shield buttons that sat here only raised
+              invented toasts ("Last settings update: Today, 6:18 PM.") —
+              nothing records settings notifications, update times or a
+              security state — so they were removed. */}
+          {activeTab !== "profile" && (
+            <div className="settings-v3-actions">
+              <div className="settings-v3-search">
+                <Search size={15} />
+                <input
+                  placeholder={
+                    activeTab === "general"
+                      ? "Search settings or ID..."
+                      : "Search employee, role, email..."
+                  }
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
             </div>
-
-            <button
-              type="button"
-              className="settings-icon-btn"
-              onClick={() => showToast("No new settings notifications.")}
-            >
-              <Bell size={15} />
-              <span></span>
-            </button>
-
-            <button
-              type="button"
-              className="settings-icon-btn"
-              onClick={() => showToast("Last settings update: Today, 6:18 PM.")}
-            >
-              <Clock size={15} />
-            </button>
-
-            <button
-              type="button"
-              className="settings-icon-btn"
-              onClick={() => showToast("Security settings are active.")}
-            >
-              <ShieldCheck size={15} />
-            </button>
-          </div>
+          )}
         </header>
 
         <div className="settings-tabs">
@@ -142,10 +115,20 @@ function Settings() {
           >
             User Management
           </button>
+
+          <button
+            type="button"
+            className={activeTab === "profile" ? "active" : ""}
+            onClick={() => setActiveTab("profile")}
+          >
+            My Profile
+          </button>
         </div>
 
         {activeTab === "general" ? (
           <GeneralSettings searchTerm={searchTerm} showToast={showToast} />
+        ) : activeTab === "profile" ? (
+          <MyProfile />
         ) : (
           <UserManagement searchTerm={searchTerm} showToast={showToast} />
         )}
@@ -403,16 +386,31 @@ function UserManagement({ searchTerm, showToast }) {
   const pendingCount = staff.filter((person) => person.status === "pending").length;
   const inactiveCount = staff.filter((person) => person.status === "inactive").length;
 
+  // No optimistic update: the row's status comes only from the Firestore
+  // subscription, so a refused or failed change never shows a false state.
   const updateStatus = async (uid, firestoreStatus) => {
     try {
       await updateUserStatus(uid, firestoreStatus);
-      const label = UI_STATUS[firestoreStatus]?.statusLabel || firestoreStatus;
-      showToast(`User status updated to ${label}.`);
-    } catch {
-      showToast("Failed to update user status. Please try again.");
+      showToast(`User status updated to ${staffStatusOf(firestoreStatus).label}.`);
+    } catch (error) {
+      // A refused transition (e.g. activating a rejected application) carries
+      // a message written for the admin; anything else stays generic.
+      showToast(
+        error?.name === "UserStatusError"
+          ? error.message
+          : "Failed to update user status. Please try again."
+      );
     } finally {
       setActionMenuUid(null);
     }
+  };
+
+  // Reject asks first: it is final in the normal workflow.
+  const [rejectTarget, setRejectTarget] = useState(null);
+  const confirmReject = async () => {
+    const target = rejectTarget;
+    setRejectTarget(null);
+    if (target) await updateStatus(target.uid, "rejected");
   };
 
   const currentAdminUid = auth.currentUser?.uid;
@@ -539,7 +537,11 @@ function UserManagement({ searchTerm, showToast }) {
             </thead>
 
             <tbody>
-              {paginatedStaff.map((person) => (
+              {paginatedStaff.map((person) => {
+                const actions = staffActionsFor(person.status, {
+                  isSelf: person.uid === currentAdminUid,
+                });
+                return (
                 <tr key={person.uid} onClick={() => setSelectedStaff(person)}>
                   <td>
                     <div className="staff-profile">
@@ -584,26 +586,29 @@ function UserManagement({ searchTerm, showToast }) {
                             View Profile
                           </button>
 
-                          {person.status === "pending" && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => updateStatus(person.uid, "approved")}
-                              >
-                                Approve
-                              </button>
-
-                              <button
-                                type="button"
-                                className="danger"
-                                onClick={() => updateStatus(person.uid, "rejected")}
-                              >
-                                Reject
-                              </button>
-                            </>
+                          {actions.includes("approve") && (
+                            <button
+                              type="button"
+                              onClick={() => updateStatus(person.uid, "approved")}
+                            >
+                              Approve
+                            </button>
                           )}
 
-                          {person.status === "active" && (
+                          {actions.includes("reject") && (
+                            <button
+                              type="button"
+                              className="danger"
+                              onClick={() => {
+                                setRejectTarget(person);
+                                setActionMenuUid(null);
+                              }}
+                            >
+                              Reject
+                            </button>
+                          )}
+
+                          {actions.includes("deactivate") && (
                             <button
                               type="button"
                               className="danger"
@@ -613,7 +618,7 @@ function UserManagement({ searchTerm, showToast }) {
                             </button>
                           )}
 
-                          {person.status === "inactive" && (
+                          {actions.includes("reactivate") && (
                             <button
                               type="button"
                               onClick={() => updateStatus(person.uid, "approved")}
@@ -622,7 +627,7 @@ function UserManagement({ searchTerm, showToast }) {
                             </button>
                           )}
 
-                          {person.uid !== currentAdminUid && (
+                          {actions.includes("changeRole") && (
                             <button
                               type="button"
                               onClick={() => {
@@ -638,7 +643,8 @@ function UserManagement({ searchTerm, showToast }) {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
 
@@ -691,6 +697,14 @@ function UserManagement({ searchTerm, showToast }) {
         </div>
       </section>
 
+      {rejectTarget && (
+        <RejectApplicationDialog
+          person={rejectTarget}
+          onCancel={() => setRejectTarget(null)}
+          onConfirm={confirmReject}
+        />
+      )}
+
       {selectedStaff && (
         <StaffDetailsModal
           person={selectedStaff}
@@ -698,6 +712,10 @@ function UserManagement({ searchTerm, showToast }) {
           onClose={() => setSelectedStaff(null)}
           onApprove={() => {
             updateStatus(selectedStaff.uid, "approved");
+            setSelectedStaff(null);
+          }}
+          onReject={() => {
+            setRejectTarget(selectedStaff);
             setSelectedStaff(null);
           }}
           onDeactivate={() => {
@@ -726,7 +744,17 @@ function UserManagement({ searchTerm, showToast }) {
   );
 }
 
-function StaffDetailsModal({ person, isSelf, onClose, onApprove, onDeactivate, onReactivate, onChangeRole }) {
+function StaffDetailsModal({
+  person,
+  isSelf,
+  onClose,
+  onApprove,
+  onReject,
+  onDeactivate,
+  onReactivate,
+  onChangeRole,
+}) {
+  const actions = staffActionsFor(person.status, { isSelf });
   return (
     <div className="settings-modal-backdrop">
       <div className="settings-modal">
@@ -776,13 +804,19 @@ function StaffDetailsModal({ person, isSelf, onClose, onApprove, onDeactivate, o
         </div>
 
         <div className="settings-modal-actions">
-          {person.status === "pending" && (
+          {actions.includes("approve") && (
             <button type="button" className="settings-primary-action" onClick={onApprove}>
               Approve User
             </button>
           )}
 
-          {person.status === "active" && (
+          {actions.includes("reject") && (
+            <button type="button" className="settings-danger-action" onClick={onReject}>
+              Reject
+            </button>
+          )}
+
+          {actions.includes("deactivate") && (
             <button
               type="button"
               className="settings-danger-action"
@@ -792,7 +826,7 @@ function StaffDetailsModal({ person, isSelf, onClose, onApprove, onDeactivate, o
             </button>
           )}
 
-          {person.status === "inactive" && (
+          {actions.includes("reactivate") && (
             <button
               type="button"
               className="settings-primary-action"
@@ -802,7 +836,7 @@ function StaffDetailsModal({ person, isSelf, onClose, onApprove, onDeactivate, o
             </button>
           )}
 
-          {!isSelf && (
+          {actions.includes("changeRole") && (
             <button type="button" className="settings-primary-action" onClick={onChangeRole}>
               Change Role
             </button>
@@ -810,6 +844,44 @@ function StaffDetailsModal({ person, isSelf, onClose, onApprove, onDeactivate, o
 
           <button type="button" className="settings-light-action" onClick={onClose}>
             Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Reject is final in the normal workflow, so it is confirmed first. Cancel
+// closes the dialog and writes nothing.
+function RejectApplicationDialog({ person, onCancel, onConfirm }) {
+  return (
+    <div className="settings-modal-backdrop">
+      <div
+        className="settings-modal confirm-modal"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="reject-confirm-title"
+      >
+        <button type="button" className="settings-modal-close" onClick={onCancel} aria-label="Close">
+          <X size={18} />
+        </button>
+
+        <div className="settings-modal-avatar warning">
+          <UserRound size={28} />
+        </div>
+
+        <h2 id="reject-confirm-title">Reject this application?</h2>
+        <p>
+          <strong>{person.name}</strong> ({person.email}) will not be able to sign in.
+          Normal activation will no longer be available for this account.
+        </p>
+
+        <div className="settings-modal-actions">
+          <button type="button" className="settings-danger-action" onClick={onConfirm}>
+            Reject application
+          </button>
+          <button type="button" className="settings-light-action" onClick={onCancel} autoFocus>
+            Cancel
           </button>
         </div>
       </div>

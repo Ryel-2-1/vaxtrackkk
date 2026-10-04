@@ -302,7 +302,7 @@
 .forgot-brand h1 {
   color: #0057d8;
   font-size: 15px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .forgot-brand p {
@@ -315,7 +315,7 @@
   margin: 0;
   color: #0f172a;
   font-size: 18px;
-  font-weight: 900;
+  font-weight: 700;
   text-align: left;
 }
 
@@ -331,7 +331,7 @@
   margin-top: 10px;
   color: #0057d8;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
   text-decoration: none;
   display: inline-flex;
   align-items: center;
@@ -364,7 +364,7 @@
   border-radius: 6px;
   text-align: center;
   font-size: 16px;
-  font-weight: 800;
+  font-weight: 600;
   color: #0f172a;
   background: #ffffff;
 }
@@ -374,7 +374,7 @@
   background: transparent;
   color: #0057d8;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
   align-self: flex-start;
   padding: 0;
 }
@@ -438,7 +438,7 @@
   margin: 0;
   color: #0f172a;
   font-size: 17px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .success-card p {
@@ -462,7 +462,7 @@
 }
 .auth-brand h1 {
   font-size: 24px;
-  font-weight: 800;
+  font-weight: 600;
   color: #0057d8;
 }
 
@@ -540,7 +540,7 @@ input[type="checkbox"]:focus {
   background: linear-gradient(135deg, #0b63f6 0%, #14b8a6 50%, #22c55e 100%) !important;
   color: #ffffff !important;
   font-size: 36px !important;
-  font-weight: 950 !important;
+  font-weight: 700 !important;
   box-shadow: 0 18px 34px rgba(11, 99, 246, 0.28) !important;
 }
 
@@ -549,7 +549,7 @@ input[type="checkbox"]:focus {
   color: #0057d9 !important;
   font-size: 28px !important;
   line-height: 1.1 !important;
-  font-weight: 950 !important;
+  font-weight: 700 !important;
   letter-spacing: -0.04em !important;
 }
 
@@ -559,7 +559,7 @@ input[type="checkbox"]:focus {
   margin-top: 10px;
   color: #64748b;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: 0;
 }
 
@@ -574,7 +574,7 @@ input[type="checkbox"]:focus {
   margin: 0 !important;
   color: #0f172a !important;
   font-size: 15px !important;
-  font-weight: 900 !important;
+  font-weight: 700 !important;
   line-height: 1.2 !important;
 }
 
@@ -587,7 +587,7 @@ input[type="checkbox"]:focus {
 
 .auth-card.login-card .small-link {
   font-size: 12px !important;
-  font-weight: 850 !important;
+  font-weight: 600 !important;
   color: #0057d9 !important;
   text-decoration: none !important;
 }
@@ -638,7 +638,7 @@ input[type="checkbox"]:focus {
   background: transparent !important;
   color: #0f172a !important;
   font-size: 16px !important;
-  font-weight: 650 !important;
+  font-weight: 600 !important;
   border: 0 !important;
   outline: 0 !important;
   box-shadow: none !important;
@@ -648,7 +648,7 @@ input[type="checkbox"]:focus {
 
 .auth-card.login-card .auth-input input::placeholder {
   color: #94a3b8 !important;
-  font-weight: 550 !important;
+  font-weight: 500 !important;
 }
 
 .auth-card.login-card .icon-ghost {
@@ -679,7 +679,7 @@ input[type="checkbox"]:focus {
   gap: 10px !important;
   color: #0f172a !important;
   font-size: 15px !important;
-  font-weight: 850 !important;
+  font-weight: 600 !important;
   cursor: pointer !important;
   line-height: 1 !important;
 }
@@ -710,7 +710,7 @@ input[type="checkbox"]:focus {
   content: "✓";
   color: #ffffff;
   font-size: 14px;
-  font-weight: 950;
+  font-weight: 700;
   line-height: 1;
 }
 
@@ -736,7 +736,7 @@ input[type="checkbox"]:focus {
   background: linear-gradient(135deg, #0b63f6, #0057d9) !important;
   color: #ffffff !important;
   font-size: 16px !important;
-  font-weight: 950 !important;
+  font-weight: 700 !important;
   cursor: pointer !important;
   box-shadow: 0 14px 28px rgba(11, 99, 246, 0.28) !important;
   transition:
@@ -771,7 +771,7 @@ input[type="checkbox"]:focus {
   margin: 0 !important;
   color: #94a3b8 !important;
   font-size: 13px !important;
-  font-weight: 750 !important;
+  font-weight: 600 !important;
 }
 
 .auth-card.login-card .google-auth-btn {
@@ -787,7 +787,7 @@ input[type="checkbox"]:focus {
   background: #ffffff !important;
   color: #334155 !important;
   font-size: 16px !important;
-  font-weight: 900 !important;
+  font-weight: 700 !important;
   cursor: pointer !important;
   transition:
     border-color 0.16s ease,
@@ -806,12 +806,12 @@ input[type="checkbox"]:focus {
   text-align: center !important;
   color: #64748b !important;
   font-size: 13px !important;
-  font-weight: 650 !important;
+  font-weight: 600 !important;
 }
 
 .auth-card.login-card .text-link {
   color: #0057d9 !important;
-  font-weight: 900 !important;
+  font-weight: 700 !important;
   text-decoration: none !important;
 }
 
@@ -884,7 +884,7 @@ input[type="checkbox"]:focus {
   background: linear-gradient(135deg, #0b63f6 0%, #14b8a6 50%, #22c55e 100%) !important;
   color: #ffffff !important;
   font-size: 36px !important;
-  font-weight: 950 !important;
+  font-weight: 700 !important;
   box-shadow: 0 18px 34px rgba(11, 99, 246, 0.28) !important;
 }
 
@@ -920,7 +920,7 @@ input[type="checkbox"]:focus {
   background: linear-gradient(135deg, #0b63f6 0%, #14b8a6 50%, #22c55e 100%) !important;
   color: #ffffff !important;
   font-size: 36px !important;
-  font-weight: 950 !important;
+  font-weight: 700 !important;
   box-shadow: 0 18px 34px rgba(11, 99, 246, 0.28) !important;
 }
 
@@ -931,7 +931,7 @@ input[type="checkbox"]:focus {
   color: #0057d9 !important;
   font-size: 28px !important;
   line-height: 1.1 !important;
-  font-weight: 950 !important;
+  font-weight: 700 !important;
   letter-spacing: -0.04em !important;
 }
 
@@ -947,7 +947,7 @@ input[type="checkbox"]:focus {
   margin: 0 !important;
   color: #0f172a !important;
   font-size: 15px !important;
-  font-weight: 900 !important;
+  font-weight: 700 !important;
   line-height: 1.25 !important;
 }
 
@@ -1015,7 +1015,7 @@ input[type="checkbox"]:focus {
   background: transparent !important;
   color: #0f172a !important;
   font-size: 16px !important;
-  font-weight: 650 !important;
+  font-weight: 600 !important;
   border: 0 !important;
   outline: 0 !important;
   box-shadow: none !important;
@@ -1025,7 +1025,7 @@ input[type="checkbox"]:focus {
 
 .register-card input::placeholder {
   color: #94a3b8 !important;
-  font-weight: 550 !important;
+  font-weight: 500 !important;
 }
 
 .register-card .icon-ghost,
@@ -1068,7 +1068,7 @@ input[type="checkbox"]:focus {
   gap: 10px !important;
   color: #0f172a !important;
   font-size: 15px !important;
-  font-weight: 850 !important;
+  font-weight: 600 !important;
   line-height: 1.35 !important;
   cursor: pointer !important;
 }
@@ -1103,7 +1103,7 @@ input[type="checkbox"]:focus {
   content: "✓";
   color: #ffffff;
   font-size: 14px;
-  font-weight: 950;
+  font-weight: 700;
   line-height: 1;
 }
 
@@ -1121,7 +1121,7 @@ input[type="checkbox"]:focus {
   background: linear-gradient(135deg, #0b63f6, #0057d9) !important;
   color: #ffffff !important;
   font-size: 16px !important;
-  font-weight: 950 !important;
+  font-weight: 700 !important;
   cursor: pointer !important;
   box-shadow: 0 14px 28px rgba(11, 99, 246, 0.28) !important;
 }
@@ -1149,7 +1149,7 @@ input[type="checkbox"]:focus {
   margin: 0 !important;
   color: #94a3b8 !important;
   font-size: 13px !important;
-  font-weight: 750 !important;
+  font-weight: 600 !important;
 }
 
 .register-card .google-auth-btn,
@@ -1166,7 +1166,7 @@ input[type="checkbox"]:focus {
   background: #ffffff !important;
   color: #334155 !important;
   font-size: 16px !important;
-  font-weight: 900 !important;
+  font-weight: 700 !important;
   cursor: pointer !important;
 }
 
@@ -1183,13 +1183,13 @@ input[type="checkbox"]:focus {
   text-align: center !important;
   color: #64748b !important;
   font-size: 13px !important;
-  font-weight: 650 !important;
+  font-weight: 600 !important;
 }
 
 .register-card .text-link,
 .register-card .inline-link {
   color: #0057d9 !important;
-  font-weight: 900 !important;
+  font-weight: 700 !important;
   text-decoration: none !important;
 }
 
@@ -1252,7 +1252,7 @@ input[type="checkbox"]:focus {
   background: linear-gradient(135deg, #0b63f6 0%, #14b8a6 50%, #22c55e 100%) !important;
   color: #ffffff !important;
   font-size: 36px !important;
-  font-weight: 950 !important;
+  font-weight: 700 !important;
   box-shadow: 0 18px 34px rgba(11, 99, 246, 0.28) !important;
 }
 
@@ -1261,7 +1261,7 @@ input[type="checkbox"]:focus {
   color: #0057d9 !important;
   font-size: 28px !important;
   line-height: 1.1 !important;
-  font-weight: 950 !important;
+  font-weight: 700 !important;
   letter-spacing: -0.04em !important;
 }
 
@@ -1269,7 +1269,7 @@ input[type="checkbox"]:focus {
   margin: 9px 0 0 !important;
   color: #64748b !important;
   font-size: 13px !important;
-  font-weight: 650 !important;
+  font-weight: 600 !important;
 }
 
 .register-form {
@@ -1289,7 +1289,7 @@ input[type="checkbox"]:focus {
   margin: 0 !important;
   color: #0f172a !important;
   font-size: 15px !important;
-  font-weight: 900 !important;
+  font-weight: 700 !important;
   line-height: 1.2 !important;
 }
 
@@ -1341,7 +1341,7 @@ input[type="checkbox"]:focus {
   background: transparent !important;
   color: #0f172a !important;
   font-size: 16px !important;
-  font-weight: 650 !important;
+  font-weight: 600 !important;
   border: 0 !important;
   outline: 0 !important;
   box-shadow: none !important;
@@ -1351,7 +1351,7 @@ input[type="checkbox"]:focus {
 
 .register-input-box input::placeholder {
   color: #94a3b8 !important;
-  font-weight: 550 !important;
+  font-weight: 500 !important;
 }
 
 .register-eye-btn {
@@ -1385,7 +1385,7 @@ input[type="checkbox"]:focus {
   gap: 10px !important;
   color: #0f172a !important;
   font-size: 15px !important;
-  font-weight: 850 !important;
+  font-weight: 600 !important;
   line-height: 1.35 !important;
   cursor: pointer !important;
 }
@@ -1415,13 +1415,13 @@ input[type="checkbox"]:focus {
   content: "✓";
   color: #ffffff;
   font-size: 14px;
-  font-weight: 950;
+  font-weight: 700;
   line-height: 1;
 }
 
 .text-link-inline {
   color: #0057d9 !important;
-  font-weight: 950 !important;
+  font-weight: 700 !important;
 }
 
 @media (max-width: 520px) {
@@ -1657,7 +1657,7 @@ input[type="checkbox"]:focus {
   padding-left: 32px !important;
   color: #0f172a !important;
   font-size: 15px !important;
-  font-weight: 850 !important;
+  font-weight: 600 !important;
 }
 
 /* Register terms layout */
@@ -1675,7 +1675,7 @@ input[type="checkbox"]:focus {
   padding-left: 32px !important;
   color: #0f172a !important;
   font-size: 15px !important;
-  font-weight: 850 !important;
+  font-weight: 600 !important;
   line-height: 1.35 !important;
 }
 
@@ -1857,7 +1857,7 @@ input[type="checkbox"]:focus {
 /* Keep Terms and Privacy as blue text, not checkboxes */
 .register-card-v2 .text-link-inline {
   color: #0057d9 !important;
-  font-weight: 950 !important;
+  font-weight: 700 !important;
   display: inline !important;
   padding-left: 0 !important;
 }
@@ -1922,7 +1922,7 @@ input[type="checkbox"]:focus {
   margin: 0 !important;
   color: #0f172a !important;
   font-size: 15px !important;
-  font-weight: 850 !important;
+  font-weight: 600 !important;
   line-height: 1.45 !important;
   text-align: left !important;
 }
@@ -1933,7 +1933,7 @@ input[type="checkbox"]:focus {
   padding: 0 !important;
   margin: 0 !important;
   color: #0057d9 !important;
-  font-weight: 950 !important;
+  font-weight: 700 !important;
 }
 /* =========================================================
    Align Register Terms Checkbox with Text
@@ -2004,7 +2004,7 @@ input[type="checkbox"]:focus {
 
   color: #0f172a !important;
   font-size: 15px !important;
-  font-weight: 850 !important;
+  font-weight: 600 !important;
   line-height: 1.45 !important;
   text-align: left !important;
 }
@@ -2020,7 +2020,7 @@ input[type="checkbox"]:focus {
   padding: 0 !important;
   margin: 0 !important;
   color: #0057d9 !important;
-  font-weight: 950 !important;
+  font-weight: 700 !important;
 }
 
 /* Role select dropdown in Register */
@@ -2035,7 +2035,7 @@ input[type="checkbox"]:focus {
   background: transparent !important;
   color: #0f172a !important;
   font-size: 16px !important;
-  font-weight: 650 !important;
+  font-weight: 600 !important;
   border: 0 !important;
   outline: 0 !important;
   box-shadow: none !important;
@@ -2073,7 +2073,7 @@ input[type="checkbox"]:focus {
   margin: 0 0 14px;
   color: #0f172a;
   font-size: 22px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .pending-card p {
@@ -2111,7 +2111,7 @@ input[type="checkbox"]:focus {
   background: linear-gradient(135deg, #0b63f6, #0057d9);
   color: #ffffff;
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 600;
   display: inline-flex;
   align-items: center;
   justify-content: center;

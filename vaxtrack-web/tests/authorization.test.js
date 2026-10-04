@@ -421,7 +421,12 @@ test("role changes go through an explicit allowlist on both sides", () => {
   const rules = read("firestore.rules");
   assert.match(rules, /function isKnownRole\(\)/);
   assert.match(rules, /function isKnownStatus\(\)/);
-  assert.match(rules, /allow update: if \(isAdmin\(\) && isKnownRole\(\) && isKnownStatus\(\)\)/);
+  // ...plus the transition check that keeps a rejected application rejected
+  // (BG-001; behaviour in the rules suite, ACC1–ACC6).
+  assert.match(
+    rules,
+    /allow update: if \(isAdmin\(\) && isKnownRole\(\) && isKnownStatus\(\) && adminStatusChangeAllowed\(\)\)/
+  );
 });
 
 test("the three vocabularies cannot drift apart", () => {

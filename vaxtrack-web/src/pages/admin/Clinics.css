@@ -4,7 +4,7 @@
   min-height: 100vh;
   background: #f6f8ff;
   padding: 0 28px 34px;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-ui);
 }
 
 .clinics-topbar {
@@ -21,7 +21,7 @@
   margin: 0;
   color: #172033;
   font-size: 17px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .clinics-search {
@@ -92,7 +92,7 @@
   justify-content: center;
   gap: 7px;
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
   white-space: nowrap;
   box-shadow: 0 8px 18px rgba(0, 87, 216, 0.14);
 }
@@ -115,7 +115,7 @@
   align-items: center;
   gap: 7px;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .clinics-view-btn {
@@ -151,7 +151,7 @@
   color: #475569;
   font-size: 11px;
   text-transform: uppercase;
-  font-weight: 900;
+  font-weight: 700;
   text-align: left;
   padding: 0 22px;
 }
@@ -217,7 +217,7 @@
   display: grid;
   place-items: center;
   font-size: 9px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .clinic-contact-avatar.blue {
@@ -234,7 +234,7 @@
 
 .clinic-delivery-cell .danger {
   color: #dc2626;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .clinics-pagination {
@@ -267,7 +267,7 @@
   background: #ffffff;
   color: #334155;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
   display: grid;
   place-items: center;
 }
@@ -298,7 +298,7 @@
   margin: 0;
   color: #172033;
   font-size: 28px;
-  font-weight: 900;
+  font-weight: 700;
   letter-spacing: -0.04em;
 }
 
@@ -359,7 +359,7 @@
   margin: 3px 0 0;
   color: #172033;
   font-size: 16px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .clinic-form-grid {
@@ -377,7 +377,7 @@
   margin-bottom: 7px;
   color: #475569;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .clinic-field input,
@@ -406,7 +406,7 @@
   border-radius: 7px;
   padding: 0 20px;
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .clinic-cancel-btn {
@@ -461,7 +461,7 @@
   margin: 0;
   color: #172033;
   font-size: 26px;
-  font-weight: 900;
+  font-weight: 700;
   letter-spacing: -0.04em;
 }
 
@@ -515,7 +515,7 @@
   color: #64748b;
   font-size: 9px;
   text-transform: uppercase;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .success-info-box strong {
@@ -523,7 +523,7 @@
   color: #0057d8;
   margin-top: 2px;
   font-size: 11px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .success-next-steps {
@@ -568,7 +568,7 @@
   align-items: center;
   gap: 7px;
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .success-primary-btn {
@@ -690,7 +690,7 @@
   margin: 0 !important;
   color: #172033 !important;
   font-size: 17px !important;
-  font-weight: 900 !important;
+  font-weight: 700 !important;
   line-height: 1.2 !important;
   white-space: nowrap !important;
   letter-spacing: 0 !important;
@@ -925,7 +925,7 @@
   box-shadow: none !important;
   color: #0f172a !important;
   font-size: 14px !important;
-  font-weight: 650 !important;
+  font-weight: 600 !important;
   line-height: 40px !important;
 }
 
@@ -1065,14 +1065,14 @@
   color: #0f172a;
   font-size: 28px;
   line-height: 1;
-  font-weight: 950;
+  font-weight: 700;
 }
 
 .clinics-summary-card p {
   margin: 0;
   color: #475569;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .clinics-summary-card small {
@@ -1579,7 +1579,7 @@
   box-shadow: none;
   color: #0f172a;
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 600;
   line-height: 46px;
   box-sizing: border-box;
   outline: none;
@@ -2244,7 +2244,7 @@
   background: #0f172a;
   color: #ffffff;
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 600;
   box-shadow: 0 18px 38px rgba(15, 23, 42, 0.25);
 }
 

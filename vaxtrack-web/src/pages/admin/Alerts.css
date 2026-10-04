@@ -150,7 +150,7 @@
   margin: 0;
   color: #475569;
   font-size: 13px;
-  font-weight: 850;
+  font-weight: 600;
 }
 
 .alert-kpi h2 {
@@ -158,7 +158,7 @@
   color: #0f172a;
   font-size: 28px;
   line-height: 1;
-  font-weight: 950;
+  font-weight: 700;
 }
 
 .alert-kpi small {
@@ -250,7 +250,7 @@
   box-shadow: none !important;
   color: #0f172a !important;
   font-size: 14px !important;
-  font-weight: 650 !important;
+  font-weight: 600 !important;
   line-height: 40px !important;
 }
 
@@ -396,7 +396,7 @@
   color: #475569;
   font-size: 14px;
   line-height: 1.45;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .alert-row-meta {
@@ -408,7 +408,7 @@
 .alert-row-meta small {
   color: #64748b;
   font-size: 12px;
-  font-weight: 750;
+  font-weight: 600;
 }
 
 .alert-view-btn {
@@ -498,7 +498,7 @@
   margin: 5px 0 0;
   color: #475569;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .priority-alert-card {
@@ -552,7 +552,7 @@
   color: #475569;
   font-size: 14px;
   line-height: 1.5;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .priority-alert-card button {
@@ -827,7 +827,7 @@
   background: #0f172a;
   color: #ffffff;
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 600;
   box-shadow: 0 18px 38px rgba(15, 23, 42, 0.25);
 }
 

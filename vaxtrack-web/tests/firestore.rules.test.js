@@ -3428,13 +3428,28 @@ async function main() {
     }
   });
 
+  // Fresh user records for status-transition cases (BG-001).
+  const seedUser = (id, status, role = "salesrep") =>
+    testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "users", id), { role, status, email: `${id}@x.com`, name: id })
+    );
+  const setStatus = (ctx, id, status) =>
+    updateDoc(doc(ctx, "users", id), { status, updatedAt: serverTimestamp() });
+
   await check("Prole1 an admin may set any KNOWN role and status", async () => {
     for (const role of ["admin", "dispatcher", "salesrep", "rider"]) {
       await assertSucceeds(updateDoc(doc(admin, "users", salesRepUid), { role }));
     }
-    for (const status of ["approved", "pending", "pending_approval", "rejected", "disabled"]) {
+    // Every known status, each reached through a legitimate transition. This
+    // used to walk ...→ rejected → disabled on one account, which is exactly
+    // the BG-001 hole (a rejected application turned into another state);
+    // rejected is final now, so it is reached on its own pending record. The
+    // shared account still ends `disabled`, as before, for the cases below.
+    for (const status of ["approved", "pending", "pending_approval", "approved", "disabled"]) {
       await assertSucceeds(updateDoc(doc(admin, "users", salesRepUid), { status }));
     }
+    await seedUser("prole1Rejected", "pending");
+    await assertSucceeds(updateDoc(doc(admin, "users", "prole1Rejected"), { status: "rejected" }));
   });
 
   await check("Nrole4 a non-admin cannot manage anyone else's role or status", async () => {
@@ -3805,6 +3820,142 @@ async function main() {
     }));
     await assertFails(updateDoc(doc(rider, "orders", "sdAnomaly"), {
       status: "in_transit", startedAt: serverTimestamp(), ...audit(riderUid),
+    }));
+  });
+
+  // ---------------- BG-001: a rejected application stays rejected ----------------
+  console.log("\n--- staff account status (BG-001) ---");
+
+  await check("ACC1 admin approves or rejects a pending application", async () => {
+    await seedUser("accPendA", "pending");
+    await seedUser("accPendR", "pending");
+    await seedUser("accPendApprovalR", "pending_approval");
+    await assertSucceeds(setStatus(admin, "accPendA", "approved"));
+    await assertSucceeds(setStatus(admin, "accPendR", "rejected"));
+    await assertSucceeds(setStatus(admin, "accPendApprovalR", "rejected"));
+  });
+
+  await check("ACC2 a rejected application can never be activated, deactivated or reopened", async () => {
+    await seedUser("accRej", "rejected");
+    for (const next of ["approved", "disabled", "pending", "pending_approval"]) {
+      await assertFails(setStatus(admin, "accRej", next));
+    }
+    // ...including a legacy capitalised value, read the way the resolver reads it.
+    await seedUser("accRejLegacy", "Rejected");
+    await assertFails(setStatus(admin, "accRejLegacy", "approved"));
+    await seedUser("accRejSpaced", " REJECTED ");
+    await assertFails(setStatus(admin, "accRejSpaced", "approved"));
+  });
+
+  await check("ACC3 only an application awaiting a decision can be rejected", async () => {
+    await seedUser("accActive", "approved");
+    await seedUser("accDisabled", "disabled");
+    await assertFails(setStatus(admin, "accActive", "rejected"));
+    await assertFails(setStatus(admin, "accDisabled", "rejected"));
+  });
+
+  await check("ACC4 deactivation and reactivation still work", async () => {
+    await seedUser("accCycle", "approved");
+    await assertSucceeds(setStatus(admin, "accCycle", "disabled"));
+    await assertSucceeds(setStatus(admin, "accCycle", "approved"));
+  });
+
+  await check("ACC5 non-status admin edits on a rejected record are not blocked", async () => {
+    await seedUser("accRejEdit", "rejected");
+    await assertSucceeds(updateDoc(doc(admin, "users", "accRejEdit"), { name: "Corrected Name", updatedAt: serverTimestamp() }));
+  });
+
+  await check("ACC6 a rejected user reads only their own profile and cannot self-approve", async () => {
+    await seedUser("accRejSelf", "rejected");
+    const rejected = testEnv.authenticatedContext("accRejSelf").firestore();
+    // Enough to show the access-denied message...
+    await assertSucceeds(getDoc(doc(rejected, "users", "accRejSelf")));
+    // ...and nothing else.
+    await assertFails(getDoc(doc(rejected, "orders", "ordSR1")));
+    await assertFails(getDoc(doc(rejected, "inventory", "inv1")));
+    await assertFails(getDoc(doc(rejected, "clinics", "cl1")));
+    await assertFails(setStatus(rejected, "accRejSelf", "approved"));
+    await assertFails(setStatus(rejected, "accRejSelf", "pending"));
+  });
+
+  // ---------------- "My profile": a user's own record ----------------
+  console.log("\n--- own profile edits ---");
+  const seedProfile = (id, fields) =>
+    testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "users", id), {
+        email: `${id}@x.com`,
+        employeeId: "EMP-0001",
+        organization: "3MGS",
+        department: "Sales",
+        branch: "Manila",
+        ...fields,
+      })
+    );
+
+  await check("SELF1 every web role edits its own name and phone", async () => {
+    for (const [id, role] of [["selfAdmin", "admin"], ["selfDisp", "dispatcher"], ["selfRep", "salesrep"]]) {
+      await seedProfile(id, { role, status: "approved", name: "Old Name", phone: "", fullName: "Old Name", contactNumber: "" });
+      const me = testEnv.authenticatedContext(id).firestore();
+      await assertSucceeds(updateDoc(doc(me, "users", id), {
+        name: "New Name", fullName: "New Name", phone: "+63 917 123 4567", contactNumber: "+63 917 123 4567",
+        updatedAt: serverTimestamp(),
+      }));
+    }
+  });
+
+  await check("SELF2 a user cannot change any administrator-managed field on their own record", async () => {
+    await seedProfile("selfDispatch", { role: "dispatcher", status: "approved", name: "Dispatcher" });
+    const me = testEnv.authenticatedContext("selfDispatch").firestore();
+    for (const [field, value] of [
+      ["role", "admin"],
+      ["role", "salesrep"],
+      ["status", "pending"],
+      ["employeeId", "EMP-9999"],
+      ["email", "someone-else@x.com"],
+      ["organization", "Another Org"],
+      ["department", "Admin"],
+      ["branch", "Cebu"],
+      ["vehicleType", "Car"],
+      ["anythingNew", true],
+    ]) {
+      await assertFails(updateDoc(doc(me, "users", "selfDispatch"), { [field]: value }));
+    }
+    // Not folded into an otherwise-valid name edit either.
+    await assertFails(updateDoc(doc(me, "users", "selfDispatch"), { name: "Fine Name", role: "admin" }));
+    // ...nor on anyone else's record.
+    await seedProfile("selfOther", { role: "salesrep", status: "approved", name: "Other" });
+    await assertFails(updateDoc(doc(me, "users", "selfOther"), { name: "Hijacked" }));
+  });
+
+  await check("SELF3 name and phone values are checked", async () => {
+    await seedProfile("selfValues", { role: "salesrep", status: "approved", name: "Valid Name" });
+    const me = testEnv.authenticatedContext("selfValues").firestore();
+    await assertFails(updateDoc(doc(me, "users", "selfValues"), { name: "" }));
+    await assertFails(updateDoc(doc(me, "users", "selfValues"), { name: " " }));
+    await assertFails(updateDoc(doc(me, "users", "selfValues"), { name: "x".repeat(81) }));
+    await assertFails(updateDoc(doc(me, "users", "selfValues"), { name: 42 }));
+    await assertFails(updateDoc(doc(me, "users", "selfValues"), { phone: "1".repeat(31) }));
+    await assertFails(updateDoc(doc(me, "users", "selfValues"), { name: "Fine Name", updatedAt: "yesterday" }));
+    await assertSucceeds(updateDoc(doc(me, "users", "selfValues"), { phone: "" }));
+  });
+
+  await check("SELF4 only a rider writes location fields to their own record", async () => {
+    await seedProfile("selfRider", { role: "rider", status: "approved", fullName: "A Rider" });
+    const riderMe = testEnv.authenticatedContext("selfRider").firestore();
+    await assertSucceeds(updateDoc(doc(riderMe, "users", "selfRider"), {
+      lastLocation: { lat: 14.6, lng: 121.0 },
+      lastLocationUpdate: serverTimestamp(),
+      locationAccuracy: 5, heading: 90, speed: 1.5,
+    }));
+    await seedProfile("selfRepLoc", { role: "salesrep", status: "approved", name: "A Rep" });
+    const repMe = testEnv.authenticatedContext("selfRepLoc").firestore();
+    await assertFails(updateDoc(doc(repMe, "users", "selfRepLoc"), { lastLocation: { lat: 1, lng: 1 } }));
+  });
+
+  await check("SELF5 an administrator still manages the fields users cannot", async () => {
+    await seedProfile("selfManaged", { role: "salesrep", status: "approved", name: "Managed" });
+    await assertSucceeds(updateDoc(doc(admin, "users", "selfManaged"), {
+      employeeId: "EMP-1234", organization: "3MGS Pharma", department: "Sales", branch: "Cebu",
     }));
   });
 

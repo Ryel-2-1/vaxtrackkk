@@ -201,7 +201,6 @@ function AddVaccine() {
             <p>
               Inventory / <span>Register New Vaccine</span>
             </p>
-            <h1>Register New Vaccine</h1>
             <small>
               Onboard new pharmaceutical assets into the national tracking
               system.

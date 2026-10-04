@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
+import SidebarProfile from "../../components/shell/SidebarProfile";
 import "./SalesRep.css";
 
 /**
@@ -150,21 +151,14 @@ function SalesRepShell() {
   return (
     <div className="salesrep-page">
       <aside className="salesrep-sidebar">
-        <div className="salesrep-brand">VaxTrack</div>
+        <div className="salesrep-brand m-brand">VaxTrack</div>
 
         <span className="m-role-chip">
           <span className="m-role-dot" />
           Sales
         </span>
 
-        <div className="salesrep-profile">
-          <div className="salesrep-profile-icon">SR</div>
-          <div>
-            <h3>Sales Representative</h3>
-            <p>Manila Central Hub</p>
-            <small>VaxTrack Web</small>
-          </div>
-        </div>
+        <SidebarProfile fallbackRole="Sales Representative" />
 
         <nav className="salesrep-nav">
           <Link className={active === "dashboard" ? "active" : ""} to="/sales-rep">
@@ -205,12 +199,15 @@ function SalesRepShell() {
       </aside>
 
       <main className="salesrep-main">
-        <header className="salesrep-topbar">
-          <h1>{meta.topbarTitle || meta.title}</h1>
+        <header className="salesrep-topbar m-topbar">
+          <h1 className="m-topbar-title">{meta.topbarTitle || meta.title}</h1>
 
-          <div className="salesrep-topbar-right">
+          <div className="salesrep-topbar-right m-topbar-actions">
             {meta.showSearch && (
-              <form className="salesrep-search salesrep-global-search" onSubmit={handleTopSearch}>
+              <form
+                className="salesrep-search salesrep-global-search m-topbar-search"
+                onSubmit={handleTopSearch}
+              >
                 <Search size={15} />
                 <input
                   value={topSearch}
@@ -233,7 +230,7 @@ function SalesRepShell() {
             <div className="salesrep-notification-wrap" ref={notificationRef}>
               <button
                 type="button"
-                className={`salesrep-icon-btn salesrep-bell-btn ${notificationOpen ? "active" : ""}`}
+                className={`salesrep-icon-btn salesrep-bell-btn m-topbar-icon-btn ${notificationOpen ? "active" : ""}`}
                 onClick={() => setNotificationOpen((open) => !open)}
                 aria-label="Open notifications"
               >

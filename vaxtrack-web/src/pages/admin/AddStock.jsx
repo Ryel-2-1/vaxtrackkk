@@ -253,7 +253,6 @@ function AddStock() {
             <p>
               Inventory / <span>Add New Stock</span>
             </p>
-            <h1>Register Vaccine Batch</h1>
             <small>
               Enter vaccine batch details accurately to maintain supply chain
               integrity.

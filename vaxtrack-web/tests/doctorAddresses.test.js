@@ -273,12 +273,14 @@ test("changing the checkout doctor clears its addresses and destination without 
   assert.match(checkout, /const doctorAddresses = addressesReady \? addressBook\.docs : EMPTY_ADDRESSES;/);
   assert.match(checkout, /const addressesLoading = !!selectedDoctorId && !addressesReady;/);
 
-  // 4. The doctor changes in ONE place, which also clears the old destination.
+  // 4. The doctor changes in ONE place, which also clears the old destination
+  //    and drops any destination still waiting to be restored.
   const handler = /const handleDoctorChange = \(doctorId\) => \{([\s\S]*?)\n {2}\};/.exec(checkout);
   assert.ok(handler, "the doctor change handler must exist");
   assert.match(handler[1], /setSelectedDoctorId\(doctorId\);/);
   assert.match(handler[1], /setAddressBook\(\{ doctorId: null, docs: \[\] \}\);/);
   assert.match(handler[1], /setSelectedDestinationId\(""\);/);
+  assert.match(handler[1], /setPendingRestore\(null\);/);
   assert.match(checkout, /onChange=\{\(event\) => handleDoctorChange\(event\.target\.value\)\}/);
   assert.equal(
     (checkout.match(/setSelectedDoctorId\(/g) ?? []).length,
@@ -286,12 +288,12 @@ test("changing the checkout doctor clears its addresses and destination without 
     "no other code path changes the doctor without clearing the destination"
   );
 
-  // 5. A restored checkout still gets its saved destination back, only for
-  //    the doctor it was saved with, once that doctor's addresses load.
-  assert.match(
-    checkout,
-    /setAddressBook\(\{ doctorId: selectedDoctorId, docs \}\);[\s\S]{0,400}if \(pending && pending\.doctorId === selectedDoctorId\) \{\s*\n\s*setSelectedDestinationId\(pending\.destinationId\);/
-  );
+  // 5. The subscription callback no longer applies a restored destination.
+  //    Restoration is verified against the loaded options instead — its
+  //    behaviour is proven in tests/checkoutDraftRestore.test.js, not here.
+  const callback = /setAddressBook\(\{ doctorId: selectedDoctorId, docs \}\);\s*\n\s*\},/.exec(checkout);
+  assert.ok(callback, "the success callback only records the snapshot");
+  assert.doesNotMatch(checkout, /pendingDestinationRef/);
 
   // 6. Fixed, not silenced.
   assert.doesNotMatch(checkout, /eslint-disable/);

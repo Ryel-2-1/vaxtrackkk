@@ -217,7 +217,6 @@ function Invoices() {
 
         <header className="inv-header">
           <div>
-            <h1>Sales Invoice Queue</h1>
             <p>Manage approved customer orders and prioritize sales invoice preparation.</p>
           </div>
         </header>

@@ -164,10 +164,138 @@ export function loadCartDraft(storage, uid) {
   return { draft: claimed, migrated: true };
 }
 
-/** Save [draft] as [uid]'s cart. Returns true only when verifiably stored. */
+/**
+ * Save [draft] as [uid]'s cart. Returns true only when verifiably stored.
+ *
+ * The rep's checkout selection (doctor, destination, date) rides on the same
+ * record. Rebuilding the cart from the catalog ("Add more items") keeps it
+ * unless the new draft states its own.
+ */
 export function saveCartDraft(storage, uid, draft) {
   const key = cartStorageKey(uid);
-  return persistVerified(storage, key, JSON.stringify({ ...draft, ownerUid: uid }));
+  const existing = parseJson(safeGet(storage, key));
+  const kept =
+    !(draft && "checkout" in draft) && isCartDraft(existing) && existing.ownerUid === uid
+      ? normalizeCheckoutSelection(existing.checkout)
+      : null;
+  return persistVerified(
+    storage,
+    key,
+    JSON.stringify({ ...draft, ...(kept ? { checkout: kept } : {}), ownerUid: uid })
+  );
+}
+
+// ------------------------------------------- the editable checkout selection
+//
+// What the rep has chosen at checkout but not yet submitted: the doctor, the
+// destination and the requested delivery date. Stored on the rep's own cart
+// record (`checkout`), so it is user-scoped, survives a refresh, and is
+// removed with the cart when an order is confirmed. It is ONLY a convenience:
+// nothing here is sent anywhere, and it is entirely separate from the pending
+// attempt (request id + submission snapshot) that governs idempotency.
+
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_ID_LENGTH = 200;
+const EMPTY_SELECTION = Object.freeze({ doctorId: "", doctorAddressId: "", requestedDeliveryDate: "" });
+
+/**
+ * A real calendar date in exact 'YYYY-MM-DD' form, else "". Compared as
+ * integers through Date.UTC, so neither the device timezone nor a UTC/local
+ * conversion can move the day; the original string is returned untouched.
+ */
+function exactDateOnly(value) {
+  if (typeof value !== "string" || !DATE_ONLY_PATTERN.test(value)) return "";
+  const [y, m, d] = value.split("-").map(Number);
+  const probe = new Date(Date.UTC(y, m - 1, d));
+  return probe.getUTCFullYear() === y && probe.getUTCMonth() === m - 1 && probe.getUTCDate() === d
+    ? value
+    : "";
+}
+
+/** A plausible document id as stored (no padding, no path), else "". */
+function documentIdOrBlank(value) {
+  return typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= MAX_ID_LENGTH &&
+    value === value.trim() &&
+    !value.includes("/")
+    ? value
+    : "";
+}
+
+/**
+ * The checkout selection in canonical form, or null when [value] is not an
+ * object at all. Unusable fields become "" rather than failing the whole
+ * draft, and a destination never survives without the doctor it belongs to.
+ */
+export function normalizeCheckoutSelection(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const doctorId = documentIdOrBlank(value.doctorId);
+  return {
+    doctorId,
+    doctorAddressId: doctorId ? documentIdOrBlank(value.doctorAddressId) : "",
+    requestedDeliveryDate: exactDateOnly(value.requestedDeliveryDate),
+  };
+}
+
+/** [uid]'s saved checkout selection, or null (no cart, foreign, or malformed). */
+export function loadCheckoutSelection(storage, uid) {
+  const draft = parseJson(safeGet(storage, cartStorageKey(uid)));
+  if (!isCartDraft(draft) || draft.ownerUid !== uid) return null;
+  return normalizeCheckoutSelection(draft.checkout);
+}
+
+/**
+ * Record [selection] on [uid]'s cart. Like updateCartDraftLines, it never
+ * creates a cart: once a confirmed order has cleared the draft, nothing is
+ * resurrected. Touches only the cart record — never the pending attempt.
+ */
+export function saveCheckoutSelection(storage, uid, selection) {
+  const key = cartStorageKey(uid);
+  const draft = parseJson(safeGet(storage, key));
+  if (!isCartDraft(draft) || draft.ownerUid !== uid) return false;
+  const checkout = normalizeCheckoutSelection(selection) ?? EMPTY_SELECTION;
+  return persistVerified(storage, key, JSON.stringify({ ...draft, checkout }));
+}
+
+/**
+ * What checkout opens with after a load or refresh.
+ *
+ *  1. A pending attempt's snapshot wins: an unchanged retry must match it to
+ *     replay safely, so the form is restored to exactly what was submitted.
+ *  2. Otherwise the saved selection, with a fresh one-shot date handed over
+ *     from the dashboard planner taking precedence for the date only.
+ */
+export function initialCheckoutSelection({ attempt = null, saved = null, plannedDate = "" } = {}) {
+  if (attempt) {
+    return normalizeCheckoutSelection({
+      doctorId: attempt.doctorId,
+      doctorAddressId: attempt.doctorAddressId,
+      requestedDeliveryDate: attempt.requestedDeliveryDate ?? "",
+    });
+  }
+  const base = normalizeCheckoutSelection(saved) ?? { ...EMPTY_SELECTION };
+  const planned = exactDateOnly(plannedDate);
+  return planned ? { ...base, requestedDeliveryDate: planned } : base;
+}
+
+/**
+ * Decide a restored destination. [pending] is `{ doctorId, destinationId }`
+ * from the saved draft; it is applied only when the SAME doctor is selected,
+ * that doctor's destinations have loaded ([ready]), and the id is still one of
+ * them ([optionIds] — built only from that doctor's live addresses).
+ *
+ * @returns {{status: "none"|"pending"|"restored"|"rejected", destinationId: string}}
+ *   "pending" until it can be verified; "rejected" for another doctor, a
+ *   vanished destination or no doctor at all — the field is then left blank.
+ */
+export function resolveRestoredDestination({ pending, doctorId, ready, optionIds }) {
+  if (!pending || !pending.destinationId) return { status: "none", destinationId: "" };
+  if (!doctorId || pending.doctorId !== doctorId) return { status: "rejected", destinationId: "" };
+  if (!ready) return { status: "pending", destinationId: "" };
+  return Array.isArray(optionIds) && optionIds.includes(pending.destinationId)
+    ? { status: "restored", destinationId: pending.destinationId }
+    : { status: "rejected", destinationId: "" };
 }
 
 /**

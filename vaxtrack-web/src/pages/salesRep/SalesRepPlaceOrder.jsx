@@ -16,8 +16,12 @@ import { createOrderWithReservation } from "../../services/inventoryCallables";
 import {
   UNAUTHENTICATED_MESSAGE,
   discardOrderAttempt,
+  initialCheckoutSelection,
   loadCartDraft,
+  loadCheckoutSelection,
   loadPendingAttempt,
+  resolveRestoredDestination,
+  saveCheckoutSelection,
   submitOrderDraft,
   updateCartDraftLines,
 } from "../../services/orderDraftRequest";
@@ -161,9 +165,29 @@ function SalesRepPlaceOrder() {
     uid ? loadPendingAttempt(localStorage, uid) : null
   );
   const restored = pendingAttempt?.submission ?? null;
-  // Applied once, and only to the doctor it belongs to (see the address effect).
-  const pendingDestinationRef = useRef(
-    restored ? { doctorId: restored.doctorId, destinationId: restored.doctorAddressId } : null
+
+  /**
+   * What checkout reopens with: a pending attempt's snapshot, else the rep's
+   * saved selection (doctor, destination, date) from their own cart record,
+   * with a fresh planner date taking precedence for the date. Read once.
+   */
+  const [initialCheckout] = useState(() =>
+    initialCheckoutSelection({
+      attempt: restored,
+      saved: uid ? loadCheckoutSelection(localStorage, uid) : null,
+      plannedDate: restored ? "" : getPlannedRequestedDate(),
+    })
+  );
+  /**
+   * A destination waiting to be restored: shown only once the SAME doctor's
+   * destinations have loaded and it is verifiably one of them (see
+   * resolveRestoredDestination). Cleared by any explicit doctor or
+   * destination choice, so a deliberate change is never overridden.
+   */
+  const [pendingRestore, setPendingRestore] = useState(() =>
+    initialCheckout.doctorAddressId
+      ? { doctorId: initialCheckout.doctorId, destinationId: initialCheckout.doctorAddressId }
+      : null
   );
 
   const [saving, setSaving] = useState(false);
@@ -187,7 +211,7 @@ function SalesRepPlaceOrder() {
 
   const [doctors, setDoctors] = useState([]);
   const [doctorsLoading, setDoctorsLoading] = useState(true);
-  const [selectedDoctorId, setSelectedDoctorId] = useState(restored?.doctorId ?? "");
+  const [selectedDoctorId, setSelectedDoctorId] = useState(initialCheckout.doctorId);
   // The last address snapshot, tagged with the doctor it belongs to. Written
   // only by the subscription's callbacks; what the page shows is derived from
   // it below, so a doctor change never needs a synchronous reset in an effect
@@ -198,9 +222,8 @@ function SalesRepPlaceOrder() {
   const [clinicsLoading, setClinicsLoading] = useState(true);
   const [destinationLoadError, setDestinationLoadError] = useState("");
   const [instructions, setInstructions] = useState(restored?.deliveryInstructions ?? "");
-  const [requestedDate, setRequestedDate] = useState(() =>
-    restored ? restored.requestedDeliveryDate ?? "" : getPlannedRequestedDate()
-  );
+  // Exact 'YYYY-MM-DD' text, never parsed into a Date, so it cannot shift.
+  const [requestedDate, setRequestedDate] = useState(initialCheckout.requestedDeliveryDate);
   const [urgent, setUrgent] = useState(restored?.priority === "Urgent");
   const [message, setMessage] = useState(
     pendingAttempt
@@ -247,15 +270,10 @@ function SalesRepPlaceOrder() {
     const unsubscribe = subscribeDoctorAddresses(
       selectedDoctorId,
       (docs) => {
+        // A restored destination is NOT applied here: it is verified against
+        // this doctor's options once they (and the clinics they reference)
+        // have loaded — see resolveRestoredDestination below.
         setAddressBook({ doctorId: selectedDoctorId, docs });
-        // Restore a pending attempt's destination once its doctor's addresses
-        // are known. If it is no longer offered, the rep must choose again —
-        // and a different choice is then caught as a changed draft.
-        const pending = pendingDestinationRef.current;
-        if (pending && pending.doctorId === selectedDoctorId) {
-          setSelectedDestinationId(pending.destinationId);
-        }
-        pendingDestinationRef.current = null;
       },
       () => {
         // Loaded, with nothing usable — ends the loading state.
@@ -273,12 +291,22 @@ function SalesRepPlaceOrder() {
   const doctorAddresses = addressesReady ? addressBook.docs : EMPTY_ADDRESSES;
   const addressesLoading = !!selectedDoctorId && !addressesReady;
 
+  // A USER changing (or clearing) the doctor: the new doctor starts with no
+  // addresses and no destination, and any destination still waiting to be
+  // restored is dropped — the previous doctor's choice must never carry over.
+  // Initial restoration after a refresh does not pass through here.
   const handleDoctorChange = (doctorId) => {
     setSelectedDoctorId(doctorId);
-    // A new doctor starts with no addresses and no destination, exactly as
-    // before — the previous doctor's choice must never carry over.
     setAddressBook({ doctorId: null, docs: [] });
     setSelectedDestinationId("");
+    setPendingRestore(null);
+  };
+
+  // A user's explicit destination choice (including "none") always wins over
+  // a restore that has not resolved yet.
+  const handleDestinationChange = (destinationId) => {
+    setSelectedDestinationId(destinationId);
+    setPendingRestore(null);
   };
 
   const activeDoctors = useMemo(
@@ -291,10 +319,38 @@ function SalesRepPlaceOrder() {
     () => buildDoctorDestinationOptions(doctorAddresses, clinics),
     [doctorAddresses, clinics]
   );
+  // The restored destination, once verified against THIS doctor's loaded
+  // options; until then it is "pending" and the field stays blank. A doctor
+  // who is no longer active (or no longer exists) cannot have a destination
+  // restored — but that is only known once the doctors have loaded.
+  const restore = resolveRestoredDestination({
+    pending: pendingRestore,
+    doctorId: doctorsLoading || selectedDoctor ? selectedDoctorId : "",
+    ready: addressesReady && !clinicsLoading && !doctorsLoading,
+    optionIds: destinationOptions.map((destination) => destination.id),
+  });
+  const destinationId = selectedDestinationId !== "" ? selectedDestinationId : restore.destinationId;
   const selectedDestination =
-    destinationOptions.find(
-      (destination) => destination.id === selectedDestinationId
-    ) || null;
+    destinationOptions.find((destination) => destination.id === destinationId) || null;
+
+  // Keep the rep's checkout selection in their saved draft so a refresh
+  // restores it. While a restored destination is still being verified it is
+  // kept as-is rather than overwritten with the blank field. This writes only
+  // the browser's own cart record — nothing is submitted or sent anywhere.
+  const draftDestinationId =
+    selectedDestinationId !== ""
+      ? selectedDestinationId
+      : restore.status === "pending" || restore.status === "restored"
+        ? pendingRestore.destinationId
+        : "";
+  useEffect(() => {
+    if (!uid) return;
+    saveCheckoutSelection(localStorage, uid, {
+      doctorId: selectedDoctorId,
+      doctorAddressId: draftDestinationId,
+      requestedDeliveryDate: requestedDate,
+    });
+  }, [uid, selectedDoctorId, draftDestinationId, requestedDate]);
 
   const filteredItems = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -716,8 +772,8 @@ function SalesRepPlaceOrder() {
             ) : (
               <select
                 id="checkout-destination"
-                value={selectedDestinationId}
-                onChange={(event) => setSelectedDestinationId(event.target.value)}
+                value={destinationId}
+                onChange={(event) => handleDestinationChange(event.target.value)}
               >
                 <option value="">Choose Home or a linked Clinic</option>
                 {destinationOptions.map((destination) => (

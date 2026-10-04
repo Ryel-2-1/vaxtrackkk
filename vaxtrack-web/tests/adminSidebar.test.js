@@ -54,7 +54,11 @@ test("AdminLayout renders no second toggle, overlay or open state", () => {
   assert.ok(!layoutJsx.includes("<AdminSidebar"), "AdminLayout no longer renders the sidebar");
   const shellJsx = src("components", "admin", "AdminShell.jsx");
   assert.match(shellJsx, /<AdminSidebar onLogout=\{handleLogout\} \/>/);
-  assert.match(layoutJsx, /<h1>\{title\}<\/h1>/, "the topbar still owns the page h1");
+  // The page <h1> moved up into AdminShell's shared top bar (the same bar as
+  // Sales Rep and Dispatcher), so AdminLayout renders no heading of its own.
+  const layoutCode = layoutJsx.replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(layoutCode, /<h1/, "AdminLayout no longer renders a second page heading");
+  assert.match(shellJsx, /<h1 className="m-topbar-title">\{adminTitleFor\(location\.pathname\)\}<\/h1>/);
 });
 
 test("the legacy rail block was removed from admin-polish rather than left to drift", () => {

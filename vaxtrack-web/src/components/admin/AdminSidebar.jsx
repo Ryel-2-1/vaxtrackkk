@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import "./AdminSidebar.css";
+import SidebarProfile from "../shell/SidebarProfile";
 
 /// Shared Admin navigation sidebar. The single source of the sidebar markup —
 /// used by AdminLayout (and directly by admin pages not yet on AdminLayout).
@@ -130,21 +131,14 @@ export function AdminSidebar({ active: activeProp, onLogout }) {
         id="admin-nav"
         aria-label="Admin navigation"
       >
-        <h2>VaxTrack</h2>
+        <h2 className="m-brand">VaxTrack</h2>
 
         <span className="m-role-chip">
           <span className="m-role-dot" />
           Admin Console
         </span>
 
-        <div className="profile-mini">
-          <div className="avatar">LA</div>
-          <div className="profile-mini-text">
-            <h3>Logistics Admin</h3>
-            <p>Manila Central Hub</p>
-            <small>VaxTrack Web</small>
-          </div>
-        </div>
+        <SidebarProfile fallbackRole="Administrator" />
 
         <nav>
           <Link

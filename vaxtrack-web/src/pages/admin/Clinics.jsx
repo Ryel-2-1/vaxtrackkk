@@ -117,44 +117,29 @@ const EMPTY_CLINIC = {
   geofenceRadiusM: "",
 };
 
+const NO_LINKED_DOCTORS = Object.freeze({ doctors: [], loading: false, error: "" });
+const LINKED_DOCTORS_LOADING = Object.freeze({ doctors: [], loading: true, error: "" });
+
 function useLinkedDoctorsForClinic(
   clinicDocId,
   doctors,
   doctorsLoading,
   doctorLoadError
 ) {
-  const [result, setResult] = useState({
-    doctors: [],
-    loading: false,
-    error: "",
+  // What the per-doctor subscriptions last reported, tagged with the clinic and
+  // doctor list they were opened for. Every other state is derived below during
+  // render, so the effect only ever sets state from a subscription callback.
+  const [reported, setReported] = useState({
+    clinicDocId: "",
+    doctors: null,
+    result: NO_LINKED_DOCTORS,
   });
+  const subscribing =
+    Boolean(clinicDocId) && !doctorsLoading && !doctorLoadError && doctors.length > 0;
 
   useEffect(() => {
+    if (!subscribing) return undefined;
     let mounted = true;
-    if (!clinicDocId) {
-      setResult({ doctors: [], loading: false, error: "" });
-      return () => {
-        mounted = false;
-      };
-    }
-    if (doctorsLoading) {
-      setResult({ doctors: [], loading: true, error: "" });
-      return () => {
-        mounted = false;
-      };
-    }
-    if (doctorLoadError) {
-      setResult({ doctors: [], loading: false, error: doctorLoadError });
-      return () => {
-        mounted = false;
-      };
-    }
-    if (doctors.length === 0) {
-      setResult({ doctors: [], loading: false, error: "" });
-      return () => {
-        mounted = false;
-      };
-    }
 
     const linkedByDoctorId = new Map();
     const settledDoctorIds = new Set();
@@ -165,17 +150,20 @@ function useLinkedDoctorsForClinic(
       const linkedDoctors = doctors
         .filter((doctor) => linkedByDoctorId.get(doctor.id) === true)
         .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-      setResult({
-        doctors: linkedDoctors,
-        loading: settledDoctorIds.size < doctors.length,
-        error:
-          failedDoctorIds.size > 0
-            ? "Some doctor links could not be loaded. Refresh and try again."
-            : "",
+      setReported({
+        clinicDocId,
+        doctors,
+        result: {
+          doctors: linkedDoctors,
+          loading: settledDoctorIds.size < doctors.length,
+          error:
+            failedDoctorIds.size > 0
+              ? "Some doctor links could not be loaded. Refresh and try again."
+              : "",
+        },
       });
     };
 
-    setResult({ doctors: [], loading: true, error: "" });
     const unsubscribes = doctors.map((doctor) =>
       subscribeDoctorAddresses(
         doctor.id,
@@ -206,9 +194,17 @@ function useLinkedDoctorsForClinic(
       mounted = false;
       unsubscribes.forEach((unsubscribe) => unsubscribe());
     };
-  }, [clinicDocId, doctorLoadError, doctors, doctorsLoading]);
+  }, [clinicDocId, doctors, subscribing]);
 
-  return result;
+  if (!clinicDocId) return NO_LINKED_DOCTORS;
+  if (doctorsLoading) return LINKED_DOCTORS_LOADING;
+  if (doctorLoadError) return { doctors: [], loading: false, error: doctorLoadError };
+  if (doctors.length === 0) return NO_LINKED_DOCTORS;
+  // Subscriptions for this clinic + doctor list have not reported yet.
+  if (reported.clinicDocId !== clinicDocId || reported.doctors !== doctors) {
+    return LINKED_DOCTORS_LOADING;
+  }
+  return reported.result;
 }
 
 function Clinics() {
@@ -530,7 +526,6 @@ function Clinics() {
 
         <header className="clinics-v2-topbar">
           <div>
-            <h1>Clinic Management</h1>
             <p>Manage and monitor affiliated healthcare facilities.</p>
           </div>
 
@@ -1461,7 +1456,7 @@ function DoctorsModal({
   onClose,
 }) {
   const [name, setName] = useState("");
-  const [areaId, setAreaId] = useState("");
+  const [chosenAreaId, setChosenAreaId] = useState("");
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
   const [updatingId, setUpdatingId] = useState("");
@@ -1476,6 +1471,12 @@ function DoctorsModal({
     () => areas.filter((area) => area.active === true),
     [areas]
   );
+  // An area deactivated (or deleted) while the dialog is open drops out of the
+  // selection, so a doctor is never registered under an inactive area. Derived
+  // here rather than reset in an effect.
+  const areaId = activeAreas.some((area) => area.id === chosenAreaId)
+    ? chosenAreaId
+    : "";
   const managedDoctor = doctors.find(
     (doctor) => doctor.id === managedDoctorId
   );
@@ -1483,12 +1484,6 @@ function DoctorsModal({
   useEffect(() => {
     nameInputRef.current?.focus();
   }, []);
-
-  useEffect(() => {
-    if (areaId && !activeAreas.some((area) => area.id === areaId)) {
-      setAreaId("");
-    }
-  }, [activeAreas, areaId]);
 
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -1537,7 +1532,7 @@ function DoctorsModal({
       setError(message);
     } else {
       setName("");
-      setAreaId("");
+      setChosenAreaId("");
       nameInputRef.current?.focus();
     }
     setAdding(false);
@@ -1631,7 +1626,7 @@ function DoctorsModal({
             <select
               id="new-doctor-area"
               value={areaId}
-              onChange={(event) => setAreaId(event.target.value)}
+              onChange={(event) => setChosenAreaId(event.target.value)}
               disabled={busy || areasLoading}
               required
             >
