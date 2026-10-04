@@ -17,7 +17,7 @@ const USERS_COLLECTION = "users";
 const VALID_STATUSES = ["approved", "pending", "pending_approval", "rejected", "disabled"];
 const VALID_ROLES = ["admin", "dispatcher", "salesrep", "rider"];
 
-export function subscribeUsers(callback) {
+export function subscribeUsers(callback, onError) {
   return onSnapshot(collection(db, USERS_COLLECTION), (snapshot) => {
     const users = snapshot.docs
       // Document id LAST so it always wins.
@@ -33,6 +33,10 @@ export function subscribeUsers(callback) {
       .map((d) => ({ ...d.data(), id: d.id }))
       .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     callback(users);
+  }, (error) => {
+    // Optional: existing callers pass no handler and keep their behaviour.
+    console.error("subscribeUsers error:", error);
+    if (onError) onError(error);
   });
 }
 

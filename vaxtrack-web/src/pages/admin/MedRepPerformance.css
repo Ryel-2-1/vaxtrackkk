@@ -1,0 +1,163 @@
+/* Admin → Analytics → Med Rep Performance. Scoped to .mrp-*; read-only view. */
+
+.inventory-page .mrp-card {
+  margin-top: 18px;
+}
+
+.mrp-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.mrp-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.mrp-sub,
+.mrp-range,
+.mrp-state,
+.mrp-muted {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--gray-600);
+}
+
+.mrp-range {
+  margin: 0 0 14px;
+}
+
+.mrp-ranges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-control);
+  background: var(--gray-50);
+}
+
+.inventory-page .mrp-ranges button {
+  min-height: 32px !important;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--gray-600);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.inventory-page .mrp-ranges button.active {
+  background: #ffffff;
+  color: var(--green-800);
+  font-weight: 600;
+  box-shadow: var(--shadow-card);
+}
+
+.mrp-ranges button:focus-visible {
+  outline: 2px solid var(--green-700);
+  outline-offset: 1px;
+}
+
+.mrp-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.mrp-empty {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-control);
+  background: var(--gray-50);
+  color: var(--gray-600);
+  font-size: 13px;
+}
+
+.mrp-error {
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
+  color: var(--danger-text);
+}
+
+.mrp-state .spin {
+  vertical-align: middle;
+  animation: mrp-spin 0.9s linear infinite;
+}
+
+@keyframes mrp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.mrp-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.mrp-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.mrp-table th {
+  padding: 12px;
+  background: var(--gray-50);
+  color: var(--gray-600);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.mrp-table td {
+  padding: 12px;
+  color: var(--gray-900);
+  border-bottom: 1px solid var(--gray-200);
+  vertical-align: middle;
+}
+
+.mrp-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.mrp-rank-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--success-text);
+  font-weight: 600;
+}
+
+.mrp-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--gray-100);
+  color: var(--gray-600);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mrp-note {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--gray-600);
+}

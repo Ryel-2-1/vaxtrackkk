@@ -11,6 +11,7 @@ import AdminLayout from "../../components/admin/AdminLayout";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeAllAlerts } from "../../services/alertService";
 import KpiCard from "../../components/ui/KpiCard";
+import MedRepPerformance from "./MedRepPerformance";
 import {
   averageDeliveryTime,
   formatDuration,
@@ -666,6 +667,15 @@ function Analytics() {
             ))}
           </section>
         </section>
+
+        {/* Read-only ranking of Med Reps by delivered orders. Reuses this page's
+            orders subscription; adds one users and one areas listener. */}
+        <MedRepPerformance
+          orders={allOrders}
+          ordersLoading={loading}
+          ordersError={loadError}
+          nowMs={nowMs}
+        />
       {selectedModal && (
         <AnalyticsModal modal={selectedModal} onClose={() => setSelectedModal(null)} />
       )}
