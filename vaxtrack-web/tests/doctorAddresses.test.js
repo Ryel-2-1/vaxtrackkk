@@ -245,7 +245,10 @@ test("Sales Rep checkout is Doctor-first and sends only stable destination ids",
   const callable = read("src/services/inventoryCallables.js");
   assert.match(checkout, /subscribeDoctors/);
   assert.match(checkout, /subscribeDoctorAddresses/);
-  assert.match(checkout, /buildDoctorDestinationOptions/);
+  // Options are built by buildDoctorDestinationOptions, then narrowed to the
+  // Med Rep's territory (src/services/territory.js).
+  assert.match(checkout, /territoryDestinationOptions\(doctorAddresses, clinics, territory\)/);
+  assert.match(read("src/services/territory.js"), /buildDoctorDestinationOptions\(addresses \|\| \[\], clinics \|\| \[\]\)/);
   assert.match(checkout, /doctorId: selectedDoctor\.id/);
   assert.match(checkout, /doctorAddressId: selectedDestination\.id/);
   assert.doesNotMatch(callable, /clinicName|clinicAddress|latitude|longitude/);

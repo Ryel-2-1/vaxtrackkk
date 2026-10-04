@@ -321,10 +321,14 @@ test("15. the page restores through these helpers, with no lint suppression", ()
   assert.match(page, /useState\(initialCheckout\.requestedDeliveryDate\)/);
   // The destination is verified against the selected doctor's loaded options.
   assert.match(page, /resolveRestoredDestination\(\{\s*\n\s*pending: pendingRestore,/);
-  assert.match(page, /ready: addressesReady && !clinicsLoading && !doctorsLoading,/);
+  assert.match(page, /ready: addressesReady && !doctorListLoading,/);
+  // doctorListLoading still covers doctors and clinics (plus the territory).
+  assert.match(page, /const doctorListLoading =\s*doctorsLoading \|\|\s*clinicsLoading \|\|/);
   assert.match(page, /value=\{destinationId\}/);
   // Every selection change is saved to the draft — and only to the draft.
-  assert.match(page, /saveCheckoutSelection\(localStorage, uid, \{\s*\n\s*doctorId: selectedDoctorId,\s*\n\s*doctorAddressId: draftDestinationId,\s*\n\s*requestedDeliveryDate: requestedDate,/);
+  // The saved doctor is the one still permitted (kept as-is while loading),
+  // so a doctor outside the territory is not written back into the draft.
+  assert.match(page, /saveCheckoutSelection\(localStorage, uid, \{\s*\n\s*doctorId: doctorSelectValue,\s*\n\s*doctorAddressId: draftDestinationId,\s*\n\s*requestedDeliveryDate: requestedDate,/);
   // A user's doctor change clears the destination and any pending restore.
   const doctorChange = /const handleDoctorChange = \(doctorId\) => \{([\s\S]*?)\n {2}\};/.exec(page)[1];
   assert.match(doctorChange, /setSelectedDestinationId\(""\);/);

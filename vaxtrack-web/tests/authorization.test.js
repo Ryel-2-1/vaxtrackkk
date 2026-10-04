@@ -425,8 +425,11 @@ test("role changes go through an explicit allowlist on both sides", () => {
   // (BG-001; behaviour in the rules suite, ACC1–ACC6).
   assert.match(
     rules,
-    /allow update: if \(isAdmin\(\) && isKnownRole\(\) && isKnownStatus\(\) && adminStatusChangeAllowed\(\)\)/
+    /allow update: if \(isAdmin\(\) && isKnownRole\(\) && isKnownStatus\(\) && adminStatusChangeAllowed\(\)\s*&& \(!changedKeys\(\)\.hasAny\(territoryUserFields\(\)\) \|\| territoryWriteValid\(\)\)\)/
   );
+  // The Med Rep territory gate rides on the same admin path and adds nothing
+  // to role/status: a territory write must leave both unchanged.
+  assert.match(rules, /function territoryWriteValid\(\)/);
 });
 
 test("the three vocabularies cannot drift apart", () => {

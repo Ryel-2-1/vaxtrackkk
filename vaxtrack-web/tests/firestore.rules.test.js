@@ -4007,6 +4007,84 @@ async function main() {
     await assertSucceeds(updateDoc(doc(admin, "orders", "ordRider1"), { deliveryInstructions: "Leave at reception" }));
   });
 
+
+  // ---------------------------------------------------------------- territory
+  //
+  // Med Rep territory (assignedAreaIds / assignedClinicIds): Admin-only, Med
+  // Rep-only, never alongside a role/status change, never self-assigned.
+  const territoryWrite = (by, extra = {}) => ({
+    assignedAreaIds: ["areaA"],
+    assignedClinicIds: ["clinicA"],
+    territoryUpdatedAt: serverTimestamp(),
+    territoryUpdatedByUid: by,
+    ...extra,
+  });
+
+  await check("TERR1 Admin assigns areas and clinics to a Med Rep", async () => {
+    await seedProfile("terrRep1", { role: "salesrep", status: "approved", name: "Med Rep" });
+    await assertSucceeds(updateDoc(doc(admin, "users", "terrRep1"), territoryWrite(adminUid)));
+    // ...and can clear them again.
+    await assertSucceeds(updateDoc(doc(admin, "users", "terrRep1"), territoryWrite(adminUid, { assignedAreaIds: [], assignedClinicIds: [] })));
+  });
+
+  await check("TERR2 the Med Rep can read their own assignment", async () => {
+    await seedProfile("terrRep2", { role: "salesrep", status: "approved", name: "Med Rep", assignedAreaIds: ["areaA"], assignedClinicIds: [] });
+    const me = testEnv.authenticatedContext("terrRep2").firestore();
+    const snap = await assertSucceeds(getDoc(doc(me, "users", "terrRep2")));
+    if (snap.data().assignedAreaIds[0] !== "areaA") throw new Error("assignment not readable");
+  });
+
+  await check("TERR3 no non-admin can change a territory — the Med Rep included", async () => {
+    await seedProfile("terrRep3", { role: "salesrep", status: "approved", name: "Med Rep" });
+    const me = testEnv.authenticatedContext("terrRep3").firestore();
+    await assertFails(updateDoc(doc(me, "users", "terrRep3"), territoryWrite("terrRep3")));
+    await assertFails(updateDoc(doc(me, "users", "terrRep3"), { assignedAreaIds: ["areaA"] }));
+    await assertFails(updateDoc(doc(dispatcher, "users", "terrRep3"), territoryWrite(dispatcherUid)));
+    await assertFails(updateDoc(doc(rider, "users", "terrRep3"), territoryWrite(riderUid)));
+    await assertFails(updateDoc(doc(salesRep, "users", "terrRep3"), territoryWrite(salesRepUid)));
+    // My Profile still works for the same user.
+    await assertSucceeds(updateDoc(doc(me, "users", "terrRep3"), { name: "Renamed Rep", updatedAt: serverTimestamp() }));
+  });
+
+  await check("TERR4 a territory can only be put on a Med Rep account", async () => {
+    await seedProfile("terrDisp", { role: "dispatcher", status: "approved", name: "Dispatcher" });
+    await seedProfile("terrRider", { role: "rider", status: "approved", name: "Rider" });
+    await seedProfile("terrAdmin", { role: "admin", status: "approved", name: "Admin" });
+    for (const id of ["terrDisp", "terrRider", "terrAdmin"]) {
+      await assertFails(updateDoc(doc(admin, "users", id), territoryWrite(adminUid)));
+    }
+  });
+
+  await check("TERR5 malformed or duplicated assignments are refused", async () => {
+    await seedProfile("terrRep5", { role: "salesrep", status: "approved", name: "Med Rep" });
+    const ref = doc(admin, "users", "terrRep5");
+    await assertFails(updateDoc(ref, territoryWrite(adminUid, { assignedAreaIds: ["areaA", "areaA"] })));
+    await assertFails(updateDoc(ref, territoryWrite(adminUid, { assignedClinicIds: ["c", "c"] })));
+    await assertFails(updateDoc(ref, territoryWrite(adminUid, { assignedAreaIds: "areaA" })));
+    await assertFails(updateDoc(ref, territoryWrite(adminUid, { assignedAreaIds: Array.from({ length: 51 }, (_, i) => `a${i}`) })));
+    await assertFails(updateDoc(ref, territoryWrite(adminUid, { territoryUpdatedByUid: "someoneElse" })));
+    await assertFails(updateDoc(ref, { assignedAreaIds: ["areaA"], assignedClinicIds: [] }));
+  });
+
+  await check("TERR6 a territory write cannot carry a role or status change", async () => {
+    await seedProfile("terrRep6", { role: "salesrep", status: "approved", name: "Med Rep" });
+    const ref = doc(admin, "users", "terrRep6");
+    await assertFails(updateDoc(ref, territoryWrite(adminUid, { role: "dispatcher" })));
+    await assertFails(updateDoc(ref, territoryWrite(adminUid, { status: "disabled" })));
+    // Role and status management by Admin is unchanged on its own.
+    await assertSucceeds(updateDoc(ref, { status: "disabled" }));
+  });
+
+  await check("TERR7 an applicant cannot register with a territory", async () => {
+    const applicant = testEnv.authenticatedContext("terrApplicant").firestore();
+    await assertFails(setDoc(doc(applicant, "users", "terrApplicant"), {
+      role: "salesrep", status: "pending", fullName: "New Applicant", email: "new@x.com",
+      assignedAreaIds: ["areaA"], assignedClinicIds: [],
+    }));
+    await assertSucceeds(setDoc(doc(applicant, "users", "terrApplicant"), {
+      role: "salesrep", status: "pending", fullName: "New Applicant", email: "new@x.com",
+    }));
+  });
   await testEnv.cleanup();
 
   console.log(`\n==== RESULT: ${passed} passed, ${failed} failed ====`);

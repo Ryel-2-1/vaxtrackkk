@@ -26,6 +26,8 @@ const {
   canonicalRequestFingerprint,
   evaluateBatch,
   isLegacyOrder,
+  territoryOf,
+  assertOrderWithinTerritory,
   settleBatch,
   validateCreatePayload,
   validateDocumentId,
@@ -187,6 +189,26 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
       relationship,
       clinic,
       area: areaSnap.exists ? areaSnap.data() : null,
+    });
+
+    // ---- territory ----
+    // The caller's assignment is re-read INSIDE the transaction, so the one
+    // that counts is the one current when this order commits — an Admin who
+    // removes a territory mid-checkout wins. The role/status gate repeats on
+    // this read for the same reason. Nothing has been written yet, so a
+    // refusal here leaves no order, reservation, request key or counter change.
+    const callerSnap = await tx.get(db.collection(USERS).doc(uid));
+    const caller = callerSnap.exists ? callerSnap.data() : null;
+    requireRole(caller, "salesrep");
+    const linksSnap = await tx.get(doctorRef.collection(DOCTOR_ADDRESSES));
+    assertOrderWithinTerritory({
+      territory: territoryOf(caller),
+      doctorLinks: linksSnap.docs.map((d) => ({ ...d.data(), id: d.id })),
+      destination: {
+        type: destination.orderFields.destinationType,
+        areaId: destination.orderFields.destinationAreaId,
+        clinicDocId: destination.orderFields.clinicDocId,
+      },
     });
 
     const invRefs = items.map((i) => db.collection(INVENTORY).doc(i.inventoryId));

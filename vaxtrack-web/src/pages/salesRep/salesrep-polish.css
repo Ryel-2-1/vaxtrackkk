@@ -638,3 +638,25 @@ aside.salesrep-sidebar .salesrep-logout {
   border-color: var(--green-600, #16a34a);
   box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
 }
+
+/* Checkout territory messages (Med Rep territory). */
+.salesrep-main .checkout-territory-empty,
+.salesrep-main .checkout-territory-notice {
+  margin: 4px 0 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.salesrep-main .checkout-territory-empty {
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  color: var(--gray-600);
+}
+
+.salesrep-main .checkout-territory-notice {
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  color: var(--warning-text);
+}

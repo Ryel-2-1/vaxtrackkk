@@ -78,7 +78,9 @@ test("doctors are deactivated rather than deleted", () => {
 
 test("Med Rep checkout selects an active Doctor before a delivery address", () => {
   const checkout = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
-  assert.match(checkout, /doctors\.filter\(\(doctor\) => doctor\.active === true\)/);
+  // Only active doctors — now further narrowed to the Med Rep's territory.
+  assert.match(checkout, /permittedDoctors\(doctors, addressesByDoctor, clinics, territory\)/);
+  assert.match(read("src/services/territory.js"), /doctor\?\.active === true &&/);
   assert.match(checkout, /Select Doctor/);
   assert.match(checkout, /Choose a doctor first/);
   assert.match(checkout, /doctorId: selectedDoctor\.id/);

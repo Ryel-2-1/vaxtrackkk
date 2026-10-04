@@ -14,6 +14,8 @@ import KpiCard from "../../components/ui/KpiCard";
 import "./Settings.css";
 import { subscribeUsers, updateUserStatus, updateUserRole } from "../../services/userService";
 import { staffActionsFor, staffStatusOf } from "../../services/staffAccount";
+import { canManageTerritory, readTerritory } from "../../services/territory";
+import MedRepTerritoryDialog from "./MedRepTerritoryDialog";
 import MyProfile from "../../components/profile/MyProfile";
 // The invoice issuer is a constant in the invoice model, not a stored setting.
 import { COMPANY_NAME } from "../../services/invoiceModel";
@@ -46,6 +48,12 @@ function normalizeUser(raw) {
     status: uiStatus.key,
     statusLabel: uiStatus.label,
     lastLogin: "—",
+    // The stored assignment, passed to Manage territory unchanged.
+    territorySource: {
+      assignedAreaIds: raw.assignedAreaIds,
+      assignedClinicIds: raw.assignedClinicIds,
+    },
+    territory: readTerritory(raw),
   };
 }
 
@@ -346,6 +354,7 @@ function UserManagement({ searchTerm, showToast }) {
   // the row they clicked. The writes themselves already used person.uid.
   const [actionMenuUid, setActionMenuUid] = useState(null);
   const [roleChangeTarget, setRoleChangeTarget] = useState(null);
+  const [territoryTarget, setTerritoryTarget] = useState(null);
 
   useEffect(() => {
     const unsubscribe = subscribeUsers((raw) => {
@@ -586,6 +595,18 @@ function UserManagement({ searchTerm, showToast }) {
                             View Profile
                           </button>
 
+                          {canManageTerritory(person) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTerritoryTarget(person);
+                                setActionMenuUid(null);
+                              }}
+                            >
+                              Manage Territory
+                            </button>
+                          )}
+
                           {actions.includes("approve") && (
                             <button
                               type="button"
@@ -730,6 +751,21 @@ function UserManagement({ searchTerm, showToast }) {
             setSelectedStaff(null);
             setRoleChangeTarget(selectedStaff);
           }}
+          onManageTerritory={() => {
+            setSelectedStaff(null);
+            setTerritoryTarget(selectedStaff);
+          }}
+        />
+      )}
+
+      {territoryTarget && (
+        <MedRepTerritoryDialog
+          person={territoryTarget}
+          onClose={() => setTerritoryTarget(null)}
+          onSaved={(message) => {
+            setTerritoryTarget(null);
+            showToast(message);
+          }}
         />
       )}
 
@@ -753,6 +789,7 @@ function StaffDetailsModal({
   onDeactivate,
   onReactivate,
   onChangeRole,
+  onManageTerritory,
 }) {
   const actions = staffActionsFor(person.status, { isSelf });
   return (
@@ -801,6 +838,17 @@ function StaffDetailsModal({
             <span>Access Level</span>
             <strong>{person.role}</strong>
           </div>
+
+          {canManageTerritory(person) && (
+            <div>
+              <span>Territory</span>
+              <strong>
+                {person.territory.assigned
+                  ? `${person.territory.areaIds.length} area${person.territory.areaIds.length === 1 ? "" : "s"}, ${person.territory.clinicIds.length} clinic${person.territory.clinicIds.length === 1 ? "" : "s"}`
+                  : "Not assigned"}
+              </strong>
+            </div>
+          )}
         </div>
 
         <div className="settings-modal-actions">
@@ -839,6 +887,12 @@ function StaffDetailsModal({
           {actions.includes("changeRole") && (
             <button type="button" className="settings-primary-action" onClick={onChangeRole}>
               Change Role
+            </button>
+          )}
+
+          {canManageTerritory(person) && (
+            <button type="button" className="settings-primary-action" onClick={onManageTerritory}>
+              Manage Territory
             </button>
           )}
 

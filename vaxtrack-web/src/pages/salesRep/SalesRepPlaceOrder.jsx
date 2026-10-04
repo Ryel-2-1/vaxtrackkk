@@ -31,7 +31,13 @@ import { auth } from "../../firebase";
 import { subscribeClinics } from "../../services/clinicService";
 import { subscribeDoctors } from "../../services/doctorService";
 import { subscribeDoctorAddresses } from "../../services/doctorAddressService";
-import { buildDoctorDestinationOptions } from "../../services/doctorAddressModel";
+import useOwnProfile from "../../components/profile/useOwnProfile";
+import {
+  NO_TERRITORY_MESSAGE,
+  permittedDoctors,
+  readTerritory,
+  territoryDestinationOptions,
+} from "../../services/territory";
 import { manilaToday, validateRequestedDate } from "../../services/requestedDate";
 import { formatCentavos, readPriceCentavos } from "../../services/money";
 
@@ -217,6 +223,9 @@ function SalesRepPlaceOrder() {
   // it below, so a doctor change never needs a synchronous reset in an effect
   // and another doctor's addresses can never be shown for this one.
   const [addressBook, setAddressBook] = useState({ doctorId: null, docs: [] });
+  // Every active doctor's addresses, keyed by doctor id — used only to decide
+  // which doctors this Med Rep's territory reaches.
+  const [addressesByDoctor, setAddressesByDoctor] = useState({});
   const [selectedDestinationId, setSelectedDestinationId] = useState("");
   const [clinics, setClinics] = useState([]);
   const [clinicsLoading, setClinicsLoading] = useState(true);
@@ -285,6 +294,39 @@ function SalesRepPlaceOrder() {
     return unsubscribe;
   }, [selectedDoctorId]);
 
+  // The Med Rep's own territory (Admin-assigned, read-only to them).
+  const { profile: ownProfile, loading: profileLoading } = useOwnProfile();
+  const territory = useMemo(() => readTerritory(ownProfile), [ownProfile]);
+
+  // Subscribe to every active doctor's addresses. The effect only subscribes;
+  // state changes come from the snapshot callbacks.
+  const activeDoctorKey = doctors
+    .filter((doctor) => doctor.active === true)
+    .map((doctor) => doctor.id)
+    .sort()
+    .join("|");
+  useEffect(() => {
+    if (!activeDoctorKey) return undefined;
+    const unsubscribes = activeDoctorKey.split("|").map((doctorId) =>
+      subscribeDoctorAddresses(
+        doctorId,
+        (docs) => setAddressesByDoctor((current) => ({ ...current, [doctorId]: docs })),
+        () => setAddressesByDoctor((current) => ({ ...current, [doctorId]: [] }))
+      )
+    );
+    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
+  }, [activeDoctorKey]);
+  const territoryAddressesReady = activeDoctorKey
+    .split("|")
+    .every((doctorId) => !doctorId || doctorId in addressesByDoctor);
+  // Doctors, clinics, the territory and (when one is assigned) every doctor's
+  // addresses must all be loaded before the list can be trusted.
+  const doctorListLoading =
+    doctorsLoading ||
+    clinicsLoading ||
+    profileLoading ||
+    (territory.assigned && !territoryAddressesReady);
+
   // Derived, never stored: this doctor's addresses once their snapshot has
   // arrived, and "loading" until it has.
   const addressesReady = !!selectedDoctorId && addressBook.doctorId === selectedDoctorId;
@@ -309,15 +351,20 @@ function SalesRepPlaceOrder() {
     setPendingRestore(null);
   };
 
-  const activeDoctors = useMemo(
-    () => doctors.filter((doctor) => doctor.active === true),
-    [doctors]
+  // Only doctors with at least one active destination inside the territory;
+  // for each, only the destinations inside it. No territory → no doctors.
+  const allowedDoctors = useMemo(
+    () => permittedDoctors(doctors, addressesByDoctor, clinics, territory),
+    [doctors, addressesByDoctor, clinics, territory]
   );
   const selectedDoctor =
-    activeDoctors.find((doctor) => doctor.id === selectedDoctorId) || null;
+    allowedDoctors.find((doctor) => doctor.id === selectedDoctorId) || null;
+  // A saved doctor outside the territory is not restored. While the list is
+  // still loading the saved id is kept, so it is never cleared prematurely.
+  const doctorSelectValue = doctorListLoading || selectedDoctor ? selectedDoctorId : "";
   const destinationOptions = useMemo(
-    () => buildDoctorDestinationOptions(doctorAddresses, clinics),
-    [doctorAddresses, clinics]
+    () => territoryDestinationOptions(doctorAddresses, clinics, territory),
+    [doctorAddresses, clinics, territory]
   );
   // The restored destination, once verified against THIS doctor's loaded
   // options; until then it is "pending" and the field stays blank. A doctor
@@ -325,13 +372,20 @@ function SalesRepPlaceOrder() {
   // restored — but that is only known once the doctors have loaded.
   const restore = resolveRestoredDestination({
     pending: pendingRestore,
-    doctorId: doctorsLoading || selectedDoctor ? selectedDoctorId : "",
-    ready: addressesReady && !clinicsLoading && !doctorsLoading,
+    doctorId: doctorListLoading || selectedDoctor ? selectedDoctorId : "",
+    ready: addressesReady && !doctorListLoading,
     optionIds: destinationOptions.map((destination) => destination.id),
   });
   const destinationId = selectedDestinationId !== "" ? selectedDestinationId : restore.destinationId;
   const selectedDestination =
     destinationOptions.find((destination) => destination.id === destinationId) || null;
+  // A saved doctor or destination that is no longer permitted was dropped, not
+  // silently kept: the rep is told to choose again.
+  const savedSelectionDropped =
+    !doctorListLoading &&
+    territory.assigned &&
+    ((pendingRestore && restore.status === "rejected") ||
+      (Boolean(selectedDoctorId) && !selectedDoctor));
 
   // Keep the rep's checkout selection in their saved draft so a refresh
   // restores it. While a restored destination is still being verified it is
@@ -346,11 +400,11 @@ function SalesRepPlaceOrder() {
   useEffect(() => {
     if (!uid) return;
     saveCheckoutSelection(localStorage, uid, {
-      doctorId: selectedDoctorId,
+      doctorId: doctorSelectValue,
       doctorAddressId: draftDestinationId,
       requestedDeliveryDate: requestedDate,
     });
-  }, [uid, selectedDoctorId, draftDestinationId, requestedDate]);
+  }, [uid, doctorSelectValue, draftDestinationId, requestedDate]);
 
   const filteredItems = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -443,9 +497,15 @@ function SalesRepPlaceOrder() {
     // Re-check both stable document ids against the latest subscriptions. This
     // is only the fast user-facing guard: the callable repeats the decision
     // from Firestore inside the same transaction that reserves inventory.
-    if (doctorsLoading || clinicsLoading || addressesLoading) {
+    if (doctorListLoading || addressesLoading) {
       submittingRef.current = false;
       setMessage("Verifying the doctor and delivery address — please wait.");
+      return;
+    }
+    // UI guard only — the callable refuses an order outside the territory itself.
+    if (!territory.assigned) {
+      submittingRef.current = false;
+      setMessage(NO_TERRITORY_MESSAGE);
       return;
     }
     if (!selectedDoctor) {
@@ -731,23 +791,27 @@ function SalesRepPlaceOrder() {
             </h2>
 
             <label htmlFor="checkout-doctor">Select Doctor</label>
-            {doctorsLoading ? (
+            {doctorListLoading ? (
               <p style={{ fontSize: 13, color: "#64748b" }}>
                 <Loader2 size={14} className="spin" style={{ verticalAlign: "middle", marginRight: 6 }} />
                 Loading doctors...
               </p>
-            ) : activeDoctors.length === 0 ? (
+            ) : !territory.assigned ? (
+              <p className="checkout-territory-empty" role="status">
+                {NO_TERRITORY_MESSAGE}
+              </p>
+            ) : allowedDoctors.length === 0 ? (
               <p style={{ fontSize: 13, color: "#94a3b8" }}>
-                No active doctors are available. Ask Admin to register one.
+                No doctor in your assigned territory has an active delivery address. Contact an administrator.
               </p>
             ) : (
               <select
                 id="checkout-doctor"
-                value={selectedDoctorId}
+                value={doctorSelectValue}
                 onChange={(event) => handleDoctorChange(event.target.value)}
               >
                 <option value="">Choose a doctor</option>
-                {activeDoctors.map((doctor) => (
+                {allowedDoctors.map((doctor) => (
                   <option key={doctor.id} value={doctor.id}>
                     {doctor.name} — {doctor.area || "Area unavailable"}
                   </option>
@@ -755,19 +819,27 @@ function SalesRepPlaceOrder() {
               </select>
             )}
 
+            {savedSelectionDropped && (
+              <p className="checkout-territory-notice" role="status">
+                Your saved doctor or delivery address is no longer available to you — it may
+                have left your assigned territory or been deactivated. Select the doctor and
+                delivery address again.
+              </p>
+            )}
+
             <label htmlFor="checkout-destination">Select Delivery Address</label>
-            {selectedDoctorId && (addressesLoading || clinicsLoading) ? (
+            {doctorSelectValue && (addressesLoading || clinicsLoading) ? (
               <p style={{ fontSize: 13, color: "#64748b" }}>
                 <Loader2 size={14} className="spin" style={{ verticalAlign: "middle", marginRight: 6 }} />
                 Loading this doctor's addresses...
               </p>
-            ) : !selectedDoctorId ? (
+            ) : !doctorSelectValue ? (
               <p style={{ fontSize: 13, color: "#94a3b8" }}>
                 Choose a doctor first.
               </p>
             ) : destinationOptions.length === 0 ? (
               <p style={{ fontSize: 13, color: "#94a3b8" }}>
-                This doctor has no active verified delivery address. Ask Admin to add or reactivate one.
+                This doctor has no active delivery address in your assigned territory.
               </p>
             ) : (
               <select
@@ -877,8 +949,8 @@ function SalesRepPlaceOrder() {
               disabled={
                 saving ||
                 items.length === 0 ||
-                doctorsLoading ||
-                clinicsLoading ||
+                doctorListLoading ||
+                !territory.assigned ||
                 addressesLoading ||
                 !selectedDoctor ||
                 !selectedDestination

@@ -7,9 +7,10 @@ import {
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
-import { db } from "../firebase";
+import { auth, db } from "../firebase";
 import { canChangeStaffStatus, statusChangeRefusal } from "./staffAccount";
 import { SELF_EDITABLE_FIELDS } from "./profileModel";
+import { validateTerritoryAssignment } from "./territory";
 
 const USERS_COLLECTION = "users";
 
@@ -121,4 +122,67 @@ export async function updateUserProfile(uid, profileData) {
   }
   clean.updatedAt = serverTimestamp();
   return updateDoc(doc(db, USERS_COLLECTION, uid), clean);
+}
+
+/** A territory change that was refused, with every reason found. */
+export class TerritoryAssignmentError extends Error {
+  constructor(messages) {
+    super(messages.join(" "));
+    this.name = "TerritoryAssignmentError";
+    this.messages = messages;
+  }
+}
+
+/**
+ * Admin: set a Med Rep's territory. Writes ONLY the territory fields — never
+ * role or status — inside a transaction that re-reads the Med Rep and every
+ * area and clinic involved, so the check and the write see the same data.
+ * Duplicates are normalised away; inactive or missing areas, unverified or
+ * missing clinics, and clinics outside a selected area are refused.
+ * Firestore rules enforce the admin-only, Med-Rep-only boundary; order creation
+ * re-checks the territory itself.
+ */
+export async function updateMedRepTerritory(uid, { areaIds, clinicIds }) {
+  const adminUid = auth.currentUser?.uid;
+  if (!adminUid) throw new TerritoryAssignmentError(["Your session has expired. Please sign in again."]);
+  const userRef = doc(db, USERS_COLLECTION, uid);
+
+  return runTransaction(db, async (transaction) => {
+    const userSnap = await transaction.get(userRef);
+    if (!userSnap.exists()) throw new TerritoryAssignmentError(["That account no longer exists."]);
+    const user = userSnap.data();
+    if (String(user.role || "").trim().toLowerCase() !== "salesrep") {
+      throw new TerritoryAssignmentError(["Territory can only be assigned to a Med Rep."]);
+    }
+
+    const wantedAreas = [...new Set((areaIds || []).filter((id) => typeof id === "string" && id.trim()))];
+    const wantedClinics = [...new Set((clinicIds || []).filter((id) => typeof id === "string" && id.trim()))];
+    const areas = [];
+    for (const id of wantedAreas) {
+      const snap = await transaction.get(doc(db, "areas", id));
+      if (snap.exists()) areas.push({ ...snap.data(), id: snap.id });
+    }
+    const clinics = [];
+    for (const id of wantedClinics) {
+      const snap = await transaction.get(doc(db, "clinics", id));
+      if (snap.exists()) clinics.push({ ...snap.data(), id: snap.id });
+    }
+
+    const check = validateTerritoryAssignment({
+      areaIds: wantedAreas,
+      clinicIds: wantedClinics,
+      areas,
+      clinics,
+      previous: user,
+    });
+    if (!check.ok) throw new TerritoryAssignmentError(check.errors);
+
+    transaction.update(userRef, {
+      assignedAreaIds: check.value.areaIds,
+      assignedClinicIds: check.value.clinicIds,
+      territoryUpdatedAt: serverTimestamp(),
+      territoryUpdatedByUid: adminUid,
+    });
+    return check.value;
+  });
 }

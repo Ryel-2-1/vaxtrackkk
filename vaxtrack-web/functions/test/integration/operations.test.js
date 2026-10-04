@@ -57,8 +57,11 @@ async function wipe() {
 
 async function seed(inventory = {}) {
   await wipe();
-  await db.collection("users").doc(SR).set({ role: "salesrep", status: "approved" });
-  await db.collection("users").doc(SR2).set({ role: "salesrep", status: "approved" });
+  // Both approved Med Reps cover the seeded area and clinic, so every case
+  // that is not about territory keeps testing exactly what it did before.
+  const territory = { assignedAreaIds: [AREA], assignedClinicIds: [CLINIC] };
+  await db.collection("users").doc(SR).set({ role: "salesrep", status: "approved", ...territory });
+  await db.collection("users").doc(SR2).set({ role: "salesrep", status: "approved", ...territory });
   await db.collection("users").doc(SR_PENDING).set({ role: "salesrep", status: "pending" });
   await db.collection("users").doc(DISPATCHER).set({ role: "dispatcher", status: "approved" });
   await db.collection("users").doc(DISP_DISABLED).set({ role: "dispatcher", status: "disabled" });
@@ -158,6 +161,105 @@ const reservation = async (id) => {
 };
 const assign = (orderId, riderUid) =>
   db.collection("orders").doc(orderId).update({ assignedRiderId: riderUid, status: "in_transit" });
+
+// ---------------------------------------------------------------- territory
+
+const AREA2 = "area2";
+const CLINIC2 = "clinic2";
+const DOCTOR2 = "doctor2";
+
+/** A second area with its own clinic, and a doctor linked to both clinics. */
+async function seedTerritoryWorld() {
+  await seed();
+  await db.collection("areas").doc(AREA2).set({ name: "Laguna", active: true });
+  await db.collection("clinics").doc(CLINIC2).set({
+    name: "Laguna Clinic", location: "1 National Highway, Biñan", areaId: AREA2, area: "Laguna",
+    status: "active", locationVerified: true, latitude: 14.33, longitude: 121.08, geofenceRadiusM: 300,
+  });
+  // DOCTOR (seeded) gains a second clinic link, outside SR's territory.
+  await db.collection("doctors").doc(DOCTOR).collection("deliveryAddresses").doc(CLINIC2).set({ active: true });
+  // DOCTOR2 only reaches AREA2: Home in Laguna and CLINIC2.
+  const d2 = db.collection("doctors").doc(DOCTOR2);
+  await d2.set({ name: "Dr. Ben Cruz", areaId: AREA2, area: "Laguna", active: true });
+  await d2.collection("deliveryAddresses").doc("home").set({
+    kind: "home", addressLine: "9 Rizal Street, Biñan", areaId: AREA2, area: "Laguna",
+    latitude: 14.34, longitude: 121.09, geofenceRadiusM: 250, active: true,
+  });
+  await d2.collection("deliveryAddresses").doc(CLINIC2).set({ active: true });
+}
+
+const counts = async () => ({
+  orders: (await db.collection("orders").get()).size,
+  reservations: (await db.collection("inventoryReservations").get()).size,
+  keys: (await db.collection("orderRequestKeys").get()).size,
+  good: await inv("good"),
+});
+
+test("territory: orders outside the Med Rep's territory are refused before any write", async (t) => {
+  await seedTerritoryWorld();
+  const line = [{ inventoryId: "good", quantity: 2 }];
+  const before = await counts();
+
+  await t.test("no assignment at all → territory-not-assigned", async () => {
+    await db.collection("users").doc(SR).update({ assignedAreaIds: [], assignedClinicIds: [] });
+    assert.equal(await codeOf(create(SR, line)), "territory-not-assigned");
+    await db.collection("users").doc(SR).update({ assignedAreaIds: [AREA], assignedClinicIds: [CLINIC] });
+  });
+
+  await t.test("a doctor with no destination in the territory → doctor-outside-territory", async () => {
+    assert.equal(await codeOf(create(SR, line, { doctorId: DOCTOR2, doctorAddressId: CLINIC2 })), "doctor-outside-territory");
+    assert.equal(await codeOf(create(SR, line, { doctorId: DOCTOR2, doctorAddressId: "home" })), "doctor-outside-territory");
+  });
+
+  await t.test("an in-territory doctor's out-of-territory clinic → destination-outside-territory", async () => {
+    assert.equal(await codeOf(create(SR, line, { doctorAddressId: CLINIC2 })), "destination-outside-territory");
+  });
+
+  await t.test("an assigned clinic whose area is not assigned is still refused", async () => {
+    await db.collection("users").doc(SR).update({ assignedAreaIds: [AREA], assignedClinicIds: [CLINIC, CLINIC2] });
+    assert.equal(await codeOf(create(SR, line, { doctorAddressId: CLINIC2 })), "destination-outside-territory");
+  });
+
+  await t.test("an area alone does not open its clinics", async () => {
+    await db.collection("users").doc(SR).update({ assignedAreaIds: [AREA], assignedClinicIds: [] });
+    // Home in AREA keeps the doctor reachable, but the clinic itself is not assigned.
+    assert.equal(await codeOf(create(SR, line, { doctorAddressId: CLINIC })), "destination-outside-territory");
+    await db.collection("users").doc(SR).update({ assignedAreaIds: [AREA], assignedClinicIds: [CLINIC] });
+  });
+
+  await t.test("a refusal leaves no order, reservation, request key or stock change", async () => {
+    assert.deepEqual(await counts(), before);
+  });
+
+  await t.test("in-territory Home and Clinic destinations still succeed", async () => {
+    const viaClinic = await create(SR, line);
+    const viaHome = await create(SR, line, { doctorAddressId: "home" });
+    assert.equal((await order(viaClinic.orderId)).destinationType, "clinic");
+    assert.equal((await order(viaHome.orderId)).destinationType, "home");
+    assert.equal((await inv("good")).reservedQuantity, 4);
+  });
+});
+
+test("territory: the assignment current at commit is the one enforced", async (t) => {
+  await seedTerritoryWorld();
+  const placed = await create(SR, [{ inventoryId: "good", quantity: 1 }]);
+  const snapshot = await order(placed.orderId);
+
+  await t.test("removing the territory refuses the NEXT order", async () => {
+    await db.collection("users").doc(SR).update({ assignedAreaIds: [], assignedClinicIds: [] });
+    assert.equal(await codeOf(create(SR, [{ inventoryId: "good", quantity: 1 }])), "territory-not-assigned");
+  });
+
+  await t.test("...and leaves the existing order exactly as it was", async () => {
+    assert.deepEqual(await order(placed.orderId), snapshot);
+    assert.equal((await reservation(placed.orderId)).status, "reserved");
+  });
+
+  await t.test("a pending Med Rep is refused before territory is considered", async () => {
+    await db.collection("users").doc(SR_PENDING).update({ assignedAreaIds: [AREA], assignedClinicIds: [CLINIC] });
+    assert.equal(await codeOf(create(SR_PENDING, [{ inventoryId: "good", quantity: 1 }])), "not-approved");
+  });
+});
 
 // ---------------------------------------------------------------- reservation
 

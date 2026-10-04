@@ -1082,3 +1082,134 @@
   line-height: 1.5;
   color: var(--gray-500, #6b7280);
 }
+
+/* ---- Manage territory (Med Rep) ---- */
+.settings-modal.territory-modal {
+  width: 680px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  text-align: left;
+}
+
+.territory-modal h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.territory-modal h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.territory-modal h4 {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-600);
+}
+
+.territory-sub,
+.territory-muted {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--gray-600);
+}
+
+.territory-body {
+  display: grid;
+  gap: 18px;
+  margin-top: 8px;
+}
+
+.territory-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.territory-list label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-control);
+  font-size: 14px;
+  color: var(--gray-900);
+  cursor: pointer;
+}
+
+.territory-list label:hover {
+  background: var(--green-50);
+}
+
+.territory-list input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  accent-color: var(--green-700);
+}
+
+.territory-list small {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--gray-600);
+}
+
+.territory-flag {
+  font-size: 12px;
+  font-style: normal;
+  color: var(--warning-text);
+}
+
+.territory-summary {
+  padding: 12px 14px;
+  border-radius: var(--radius-control);
+  background: var(--gray-50);
+  font-size: 13px;
+  color: var(--gray-600);
+}
+
+.territory-summary strong {
+  color: var(--gray-900);
+}
+
+.territory-summary p {
+  margin: 6px 0 0;
+}
+
+.territory-warning {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: var(--radius-control);
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  color: var(--warning-text);
+  font-size: 13px;
+}
+
+.territory-warning p {
+  margin: 4px 0 0;
+}
+
+.territory-error {
+  margin: 12px 0 0;
+  padding: 10px 14px 10px 28px;
+  border-radius: var(--radius-control);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
+  color: var(--danger-text);
+  font-size: 13px;
+}

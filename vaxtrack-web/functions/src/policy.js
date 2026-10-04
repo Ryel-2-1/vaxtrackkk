@@ -894,6 +894,79 @@ function normalizeRequestedDeliveryDate(value, now) {
   return iso;
 }
 
+// ---------------------------------------------------------------- territory
+
+/**
+ * Med Rep territory, read from the Med Rep's own users/{uid} document. Written
+ * only by an Admin (Firestore rules); a Med Rep can read but never set it.
+ *
+ * It is ORDERING ELIGIBILITY, not read access: doctors, clinics and areas stay
+ * readable to every approved user exactly as before. What a territory decides
+ * is which destinations this callable will create an order for.
+ *
+ *   - Home destination: its area must be assigned.
+ *   - Clinic destination: the clinic must be assigned AND its area assigned.
+ *   - No assigned area: nothing is permitted.
+ *
+ * src/services/territory.js applies the same rule to shape the checkout UI.
+ */
+function territoryIds(values) {
+  if (!Array.isArray(values)) return [];
+  const out = [];
+  for (const v of values) {
+    const id = typeof v === "string" ? v.trim() : "";
+    if (id && !id.includes("/") && !out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+function territoryOf(userData) {
+  const areaIds = territoryIds(userData?.assignedAreaIds);
+  const clinicIds = territoryIds(userData?.assignedClinicIds);
+  return { areaIds, clinicIds, assigned: areaIds.length > 0 };
+}
+
+/** Can this doctor's link (a deliveryAddresses doc) be reached at all? */
+function linkWithinTerritory(link, territory) {
+  if (!link || link.active !== true) return false;
+  if (link.id === HOME_ADDRESS_ID) {
+    return typeof link.areaId === "string" && territory.areaIds.includes(link.areaId.trim());
+  }
+  return territory.clinicIds.includes(link.id);
+}
+
+/**
+ * Refuse an order outside the caller's territory. Runs inside the reservation
+ * transaction, after the destination snapshot is built and BEFORE any batch is
+ * read or anything is written — a refusal leaves no order, reservation, request
+ * key or counter change behind.
+ */
+function assertOrderWithinTerritory({ territory, doctorLinks, destination }) {
+  if (!territory || !territory.assigned) {
+    throw new PolicyError(
+      "territory-not-assigned",
+      "No territory has been assigned to your account. Contact an administrator."
+    );
+  }
+  if (!(doctorLinks || []).some((link) => linkWithinTerritory(link, territory))) {
+    throw new PolicyError(
+      "doctor-outside-territory",
+      "That doctor is outside your assigned territory."
+    );
+  }
+  const areaOk = territory.areaIds.includes(destination?.areaId);
+  const permitted =
+    destination?.type === "home"
+      ? areaOk
+      : destination?.type === "clinic" && areaOk && territory.clinicIds.includes(destination.clinicDocId);
+  if (!permitted) {
+    throw new PolicyError(
+      "destination-outside-territory",
+      "That delivery address is outside your assigned territory."
+    );
+  }
+}
+
 module.exports = {
   ALLOCATION_VERSION,
   PRICING_VERSION,
@@ -930,4 +1003,7 @@ module.exports = {
   validateRequestId,
   validateReason,
   isLegacyOrder,
+  territoryOf,
+  linkWithinTerritory,
+  assertOrderWithinTerritory,
 };
