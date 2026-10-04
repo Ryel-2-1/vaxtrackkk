@@ -1719,3 +1719,20 @@ a.mdl-btn:focus-visible {
     text-align: left;
   }
 }
+
+/* ---------- status history (server-recorded, oldest first) ---------- */
+.mdl-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mdl-history-reason {
+  margin: 2px 0 0;
+  font-size: 13px !important;
+  color: var(--gray-600) !important;
+  line-height: 1.5;
+}

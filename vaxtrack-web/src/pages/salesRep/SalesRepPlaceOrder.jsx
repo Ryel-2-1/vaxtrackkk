@@ -126,7 +126,7 @@ function getInitialItems(uid) {
       }));
     }
   } catch (error) {
-    console.warn("Unable to load sales rep cart:", error);
+    console.warn("Unable to load Med Rep cart:", error);
   }
 
   return [];

@@ -141,7 +141,7 @@ function DispatcherSchedule() {
           <div>
             <h2>Delivery schedule</h2>
             <p>
-              Orders appear on the date the Sales Rep requested. Pick a day to see
+              Orders appear on the date the Med Rep requested. Pick a day to see
               only that day's deliveries.
             </p>
           </div>

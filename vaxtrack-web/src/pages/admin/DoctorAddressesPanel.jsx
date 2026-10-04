@@ -70,9 +70,9 @@ function DoctorAddressesPanel({
   const [addresses, setAddresses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [clinicDraft, setClinicDraft] = useState(EMPTY_CLINIC_DESTINATION);
+  const [clinicDraftState, setClinicDraft] = useState(EMPTY_CLINIC_DESTINATION);
   const [clinicErrors, setClinicErrors] = useState({});
-  const [homeDraft, setHomeDraft] = useState(EMPTY_HOME_ADDRESS);
+  const [homeDraftState, setHomeDraft] = useState(EMPTY_HOME_ADDRESS);
   const [homeErrors, setHomeErrors] = useState({});
   const [editingHome, setEditingHome] = useState(false);
   const [savingTarget, setSavingTarget] = useState("");
@@ -153,25 +153,22 @@ function DoctorAddressesPanel({
     return () => unsubscribe();
   }, [doctor.id]);
 
-  useEffect(() => {
-    if (
-      clinicDraft.clinicDocId &&
-      !availableClinics.some(
-        (clinic) => clinic.firestoreId === clinicDraft.clinicDocId
-      )
-    ) {
-      setClinicDraft(EMPTY_CLINIC_DESTINATION);
-    }
-  }, [availableClinics, clinicDraft.clinicDocId]);
-
-  useEffect(() => {
-    if (
-      homeDraft.areaId &&
-      !activeAreas.some((area) => area.id === homeDraft.areaId)
-    ) {
-      setHomeDraft((current) => ({ ...current, areaId: "" }));
-    }
-  }, [activeAreas, homeDraft.areaId]);
+  // A selection that stops being valid while the panel is open (the clinic got
+  // linked or lost its location, the area was deactivated) drops out of the
+  // draft. Derived here rather than reset in an effect, so a stale clinic or
+  // inactive area can never be submitted.
+  const clinicDraft =
+    clinicDraftState.clinicDocId &&
+    !availableClinics.some(
+      (clinic) => clinic.firestoreId === clinicDraftState.clinicDocId
+    )
+      ? EMPTY_CLINIC_DESTINATION
+      : clinicDraftState;
+  const homeDraft =
+    homeDraftState.areaId &&
+    !activeAreas.some((area) => area.id === homeDraftState.areaId)
+      ? { ...homeDraftState, areaId: "" }
+      : homeDraftState;
 
   const openHomeEditor = () => {
     if (busy || doctor.active !== true) return;

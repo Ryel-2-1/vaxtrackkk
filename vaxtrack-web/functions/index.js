@@ -21,12 +21,18 @@
  *   operator actions; the cap bounds accidental cost far below anything the
  *   real workload needs.
  *
- * ⚠️ APP CHECK IS NOT ENFORCED. Web and Android App Check are not configured
- * and the physical phone is unavailable, so `enforceAppCheck` stays off. That
- * means these callables authenticate the USER but do not attest the CLIENT: a
+ * ⚠️ APP CHECK IS NOT ENFORCED BY DEFAULT. Enforcement is a per-project switch,
+ * ENFORCE_APP_CHECK, read at deploy time from functions/.env.<projectId>
+ * (e.g. functions/.env.vaxtrack-staging: ENFORCE_APP_CHECK=true). Until it is
+ * set, these callables authenticate the USER but do not attest the CLIENT: a
  * valid signed-in token from any client reaches them. Firebase Authentication
- * is not App Check and is not claimed to be. Enabling App Check enforcement is
- * a required RELEASE-SECURITY GATE before production.
+ * is not App Check and is not claimed to be.
+ *
+ * Turn it on for a project only once EVERY client of that project sends App
+ * Check tokens: the web app (reCAPTCHA Enterprise, src/firebase.js) AND the
+ * rider app, which calls markOrderDeliveredWithInventoryConsumption. Enforcing
+ * before the rider app is attested would refuse every delivery completion.
+ * Enabling it in production remains a required RELEASE-SECURITY GATE.
  *
  * PRICING IS SERVER-AUTHORITATIVE. Each inventory batch owns a VAT-exclusive
  * clinic selling price in PHP centavos (`sellingPriceCentavos`, integer > 0),
@@ -44,6 +50,7 @@
 
 const { setGlobalOptions } = require("firebase-functions/v2");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 
@@ -51,6 +58,7 @@ const { PolicyError } = require("./src/policy");
 const operations = require("./src/operations");
 const destinationOperations = require("./src/destinationOperations");
 const invoiceOperations = require("./src/invoiceOperations");
+const statusEvents = require("./src/statusEvents");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -139,8 +147,11 @@ function toHttpsError(error, context) {
 }
 
 /** Shared entry: require authentication, then run the operation. */
+// Per-project App Check enforcement (see the header). Read once, at deploy.
+const ENFORCE_APP_CHECK = process.env.ENFORCE_APP_CHECK === "true";
+
 function callable(name, run) {
-  return onCall(async (request) => {
+  return onCall({ enforceAppCheck: ENFORCE_APP_CHECK }, async (request) => {
     const uid = request.auth?.uid;
     if (!uid) {
       throw new HttpsError("unauthenticated", "Please sign in and try again.");
@@ -226,4 +237,41 @@ exports.issueInvoiceForPricedOrder = callable(
   "issueInvoiceForPricedOrder",
   ({ db, FieldValue, uid, data, now }) =>
     invoiceOperations.issueInvoiceForPricedOrder({ db, FieldValue, uid, payload: data, now })
+);
+
+/**
+ * Order status history (see src/statusEvents.js).
+ *
+ * Fires on every write to an order and records an event only when the status
+ * actually changed. Its own `firstDispatchedAt` stamp re-fires it with an
+ * unchanged status, which records nothing — so it cannot loop.
+ */
+exports.recordOrderStatusEvent = onDocumentWritten(
+  // retry: a transient failure must not lose a history entry. Safe because the
+  // CloudEvent id is the event document id, so a redelivery is a no-op.
+  { document: "orders/{orderId}", retry: true },
+  async (event) => {
+    const before = event.data?.before?.exists ? event.data.before.data() : null;
+    const after = event.data?.after?.exists ? event.data.after.data() : null;
+    const statusEvent = statusEvents.deriveStatusEvent({ before, after });
+    if (!statusEvent) return;
+
+    const orderId = event.params.orderId;
+    try {
+      const result = await statusEvents.recordStatusEvent({
+        db,
+        orderId,
+        eventId: event.id,
+        event: statusEvent,
+        at: event.data.after.updateTime,
+      });
+      if (!result.recorded) {
+        logger.info("recordOrderStatusEvent: skipped", { orderId, reason: result.reason });
+      }
+    } catch (error) {
+      // Rethrown so the platform retries; the event id keeps a retry idempotent.
+      logger.error("recordOrderStatusEvent failed", { orderId, code: error?.code ?? null });
+      throw error;
+    }
+  }
 );

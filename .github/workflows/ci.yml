@@ -1,0 +1,120 @@
+# VaxTrack CI — runs every check the repo already has, on every push and PR.
+#
+# Nothing here deploys, and nothing can reach a real Firebase project: every
+# emulator run uses a `demo-` project id, which the Firebase CLI never connects
+# to the cloud, and no credentials or secrets are configured.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FIREBASE_TOOLS_VERSION: 15.17.0
+
+jobs:
+  web:
+    name: Web — lint, unit tests, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vaxtrack-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: vaxtrack-web/package-lock.json
+      - run: npm ci
+      - name: ESLint (zero warnings)
+        run: npm run lint
+      - name: Unit tests
+        run: npm test
+      - name: Staging build
+        # No .env files exist in CI. The build does not read them; the Firebase
+        # config is only read at runtime in the browser.
+        run: npm run build:staging
+
+  rules:
+    name: Security rules — Firestore + Storage (emulator)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vaxtrack-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: vaxtrack-web/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ env.FIREBASE_TOOLS_VERSION }}
+      - run: npm ci
+      - run: npm install -g firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }}
+      - name: Firestore rules
+        run: npm run test:rules
+      - name: Storage rules
+        run: npm run test:storage-rules
+
+  functions:
+    name: Cloud Functions — unit + emulator integration
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vaxtrack-web/functions
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: vaxtrack-web/functions/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ env.FIREBASE_TOOLS_VERSION }}
+      - run: npm ci
+      - run: npm install -g firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }}
+      - name: Unit tests
+        run: npm test
+      - name: Integration tests (Firestore emulator)
+        run: npm run test:emulator
+      - name: Invoice integration tests (Firestore emulator)
+        run: npm run test:emulator-invoices
+
+  mobile:
+    name: Rider app — analyze + tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vaxtrack_mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.41.7
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test

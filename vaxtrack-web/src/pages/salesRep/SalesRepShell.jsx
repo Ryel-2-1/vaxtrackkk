@@ -155,10 +155,10 @@ function SalesRepShell() {
 
         <span className="m-role-chip">
           <span className="m-role-dot" />
-          Sales
+          Med Rep
         </span>
 
-        <SidebarProfile fallbackRole="Sales Representative" />
+        <SidebarProfile fallbackRole="Med Rep" />
 
         <nav className="salesrep-nav">
           <Link className={active === "dashboard" ? "active" : ""} to="/sales-rep">

@@ -3959,6 +3959,54 @@ async function main() {
     }));
   });
 
+  // ---------------- order status history ----------------
+  //
+  // orders/{id}/statusEvents is written only by the recordOrderStatusEvent
+  // trigger (Admin SDK). Anyone who can read the order can read its history;
+  // no client can add, edit or erase an entry, or move firstDispatchedAt.
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    // Prole1 above leaves the shared sales-rep account as a disabled rider;
+    // these cases need the owning sales rep back as an approved one.
+    await setDoc(doc(ctx.firestore(), "users", salesRepUid), { role: "salesrep", status: "approved", email: "s@x.com" });
+    await setDoc(doc(ctx.firestore(), "orders", "ordRider1", "statusEvents", "evt1"), {
+      from: "loading", to: "in_transit", actorUid: dispatcherUid, riderId: riderUid, reason: null,
+      at: Timestamp.fromDate(new Date("2026-10-04T02:00:00Z")), eventId: "evt1",
+    });
+  });
+  const otherRep = testEnv.authenticatedContext(otherSalesRepUid).firestore();
+  const otherRiderDb = testEnv.authenticatedContext(otherRiderUid).firestore();
+  const historyDoc = (db) => doc(db, "orders", "ordRider1", "statusEvents", "evt1");
+
+  await check("HIST1 admin, dispatcher, owning sales rep and assigned rider read an order's history", async () => {
+    for (const db of [admin, dispatcher, salesRep, rider]) {
+      await assertSucceeds(getDoc(historyDoc(db)));
+      await assertSucceeds(getDocs(collection(db, "orders", "ordRider1", "statusEvents")));
+    }
+  });
+
+  await check("HIST2 another sales rep and an unassigned rider cannot read it", async () => {
+    await assertFails(getDoc(historyDoc(otherRep)));
+    await assertFails(getDoc(historyDoc(otherRiderDb)));
+  });
+
+  await check("HIST3 no client — admin included — can write, edit or erase a history entry", async () => {
+    for (const db of [admin, dispatcher, salesRep, rider]) {
+      await assertFails(setDoc(doc(db, "orders", "ordRider1", "statusEvents", "forged"), { from: null, to: "delivered" }));
+      await assertFails(updateDoc(historyDoc(db), { to: "delivered" }));
+      await assertFails(deleteDoc(historyDoc(db)));
+    }
+  });
+
+  await check("HIST4 no client — admin included — can set or move firstDispatchedAt", async () => {
+    const stamp = Timestamp.fromDate(new Date("2026-10-01T00:00:00Z"));
+    await assertFails(updateDoc(doc(admin, "orders", "ordRider1"), { firstDispatchedAt: stamp }));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordRider1"), { firstDispatchedAt: stamp }));
+    await assertFails(updateDoc(doc(rider, "orders", "ordRider1"), { firstDispatchedAt: stamp }));
+    // Control: the same admin write without the field is still allowed, so the
+    // denial above is about firstDispatchedAt and nothing else.
+    await assertSucceeds(updateDoc(doc(admin, "orders", "ordRider1"), { deliveryInstructions: "Leave at reception" }));
+  });
+
   await testEnv.cleanup();
 
   console.log(`\n==== RESULT: ${passed} passed, ${failed} failed ====`);

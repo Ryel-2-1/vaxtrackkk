@@ -24,7 +24,7 @@
  * Management, never applied for through a public form.
  */
 export const APPLICABLE_ROLES = Object.freeze([
-  { value: "salesrep", label: "Sales Representative" },
+  { value: "salesrep", label: "Medical Representative" },
   { value: "dispatcher", label: "Dispatcher" },
   { value: "rider", label: "Rider" },
 ]);

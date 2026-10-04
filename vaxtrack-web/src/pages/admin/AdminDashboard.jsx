@@ -280,7 +280,7 @@ function AdminDashboard() {
                 <Package size={18} aria-hidden="true" />
               </span>
               <strong>No orders yet</strong>
-              <p>Orders appear here as Sales Reps place them.</p>
+              <p>Orders appear here as Med Reps place them.</p>
             </div>
           ) : (
             <div className="adx-breakdown">
@@ -397,7 +397,7 @@ function AdminDashboard() {
               <Package size={18} aria-hidden="true" />
             </span>
             <strong>No orders yet</strong>
-            <p>Orders appear here as Sales Reps place them.</p>
+            <p>Orders appear here as Med Reps place them.</p>
           </div>
         ) : (
           <div className="adx-table-wrap">

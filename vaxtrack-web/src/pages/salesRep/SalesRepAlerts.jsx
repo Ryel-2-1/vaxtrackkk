@@ -22,8 +22,9 @@ function deriveAlertFromOrder(order) {
   let tone = "info";
   let tag = "INFO";
   let icon = <Info size={18} />;
-  let title = "";
-  let body = "";
+  // Every branch of the switch below (including default) assigns both.
+  let title;
+  let body;
 
   const clinic = order.clinicName || "Unknown Clinic";
   const orderNum = order.orderNumber || order.id;
@@ -128,8 +129,8 @@ function formatTime(ts) {
 
 function SalesRepAlerts() {
   const [alerts, setAlerts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [loadingState, setLoading] = useState(true);
+  const [errorState, setError] = useState("");
 
   const [activeTab, setActiveTab] = useState("active");
   const [activeFilter, setActiveFilter] = useState("all");
@@ -137,16 +138,17 @@ function SalesRepAlerts() {
   const [message, setMessage] = useState("");
   const [selectedAlert, setSelectedAlert] = useState(null);
 
+  // Signed-out is derived here rather than set from inside the effect. The
+  // route guard normally prevents it; this keeps the page honest if not.
+  const uid = auth.currentUser?.uid ?? null;
+  const loading = uid ? loadingState : false;
+  const error = uid ? errorState : "You must be logged in to view alerts.";
+
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) {
-      setError("You must be logged in to view alerts.");
-      setLoading(false);
-      return;
-    }
+    if (!uid) return undefined;
 
     const unsubscribe = subscribeSalesRepOrders(
-      user.uid,
+      uid,
       (raw) => {
         const derived = raw.map(deriveAlertFromOrder);
         setAlerts(derived);
@@ -164,7 +166,7 @@ function SalesRepAlerts() {
     );
 
     return unsubscribe;
-  }, []);
+  }, [uid]);
 
   const activeAlerts = useMemo(
     () => alerts.filter((a) => a.statusKey !== "completed" && a.statusKey !== "delivered" && a.statusKey !== "cancelled" && a.statusKey !== "canceled"),

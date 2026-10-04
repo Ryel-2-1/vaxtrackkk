@@ -405,7 +405,10 @@
 
 .analytics-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* Five cards (on-time rate joined the four). auto-fit lets them share one
+     row on a desktop and wrap cleanly in between; the mobile rule below still
+     fixes two columns. */
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 14px;
   margin-bottom: 18px;
 }

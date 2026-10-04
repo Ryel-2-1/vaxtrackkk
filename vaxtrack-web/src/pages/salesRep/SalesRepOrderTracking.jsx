@@ -226,8 +226,12 @@ function SalesRepOrderTracking() {
         setLoading(false);
         setError("");
 
-        if (!selectedOrderId && normalized.length > 0) {
-          setSelectedOrderId(normalized[0].id);
+        // Pre-select the first order only when nothing is selected yet. This
+        // read the selection captured at mount (always empty), so every live
+        // update snapped the panel back to the first order; the functional
+        // update reads the current selection instead.
+        if (normalized.length > 0) {
+          setSelectedOrderId((current) => current || normalized[0].id);
         }
       },
       (err) => {

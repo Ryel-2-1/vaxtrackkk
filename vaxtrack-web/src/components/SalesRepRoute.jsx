@@ -32,7 +32,7 @@ function SalesRepRoute() {
         setRedirectTo(decision.redirectTo);
         setState("redirect");
       } catch (error) {
-        console.error("Sales Representative route error:", error);
+        console.error("Med Rep route error:", error);
         setRedirectTo(LOGIN_PATH);
         setState("redirect");
       }

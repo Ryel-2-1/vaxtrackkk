@@ -106,7 +106,7 @@ test("routed Admin pages no longer repeat the title as a second heading", () => 
 test("every rail has the same brand, role chip, profile card and pinned logout", () => {
   for (const [role, fallback, logout] of [
     ["admin", "Administrator", "sidebar-logout"],
-    ["salesrep", "Sales Representative", "salesrep-logout"],
+    ["salesrep", "Med Rep", "salesrep-logout"],
     ["dispatcher", "Dispatcher", "dispatcher-logout"],
   ]) {
     const src = shellCode(role);

@@ -208,11 +208,10 @@ test("the metric is labelled as the segment it measures, not the whole journey",
     "the modal must state what the window excludes"
   );
 
-  // No rendered text may go back to claiming the full journey. Checked against
-  // comment-stripped source: the code comment explaining the correction names
-  // the old label, but nothing rendered may.
+  // The latest-segment figure never claims the full journey. "Average delivery
+  // time" is now a real, separate measure (first dispatch → delivered, see
+  // below) and may only appear on the card that computes it.
   for (const claim of [
-    "Average delivery time",
     "hub dispatch",
     "Dispatch → delivery",
     "(dispatch)",
@@ -226,11 +225,11 @@ test("the metric is labelled as the segment it measures, not the whole journey",
     );
   }
 
-  // And no replacement timestamp was invented to paper over the gap. Total
-  // elapsed time needs a first-dispatch field the schema does not keep, and
-  // adding one here would be a lifecycle change, not a label change.
+  // And no client-side timestamp was invented to paper over the gap. The
+  // first-dispatch time now exists only as a lifecycle change on the SERVER —
+  // see "the full delivery time comes only from the server-stamped first
+  // dispatch" — never derived or guessed on this page.
   for (const invented of [
-    "firstDispatchedAt",
     "originalStartedAt",
     "firstStartedAt",
     "transitStartedAt",
@@ -238,6 +237,21 @@ test("the metric is labelled as the segment it measures, not the whole journey",
   ]) {
     assert.equal(CODE.includes(invented), false, `${invented} must not be introduced`);
   }
+});
+
+test("the full delivery time comes only from the server-stamped first dispatch", () => {
+  // "Average delivery time" is shown only when orders in range carry
+  // firstDispatchedAt, and is computed by the shared metrics module from that
+  // field alone. Otherwise the latest-segment card is shown under its own label.
+  assert.match(CODE, /measuresFullDelivery \? \(\s*<KpiCard\s+label="Average delivery time"/);
+  assert.match(CODE, /\) : \(\s*<KpiCard\s+label="Average latest transit segment"/);
+  const metrics = read("src/services/deliveryMetrics.js");
+  assert.ok(metrics.includes("timestampMs(order.firstDispatchedAt)"));
+  assert.ok(metrics.includes("if (start == null || end == null || end <= start) continue;"));
+  // The field is server-only and stamped once by the status-history trigger.
+  assert.match(read("firestore.rules"), /function serverOnlyOrderFields\(\)[\s\S]*?'firstDispatchedAt'\s*\]/);
+  const events = read("functions/src/statusEvents.js");
+  assert.ok(events.includes('event.to === "in_transit" && orderSnap.get("firstDispatchedAt") == null'));
 });
 
 test("the label stays honest for as long as resumeTransit re-stamps startedAt", () => {
@@ -264,10 +278,9 @@ test("the label stays honest for as long as resumeTransit re-stamps startedAt", 
 });
 
 test("the completion rate is labelled for what it measures", () => {
-  // It is delivered/total. It is NOT an on-time rate: no promised or scheduled
-  // deadline exists on an order, so on-time cannot be computed at all.
+  // It is delivered/total, and is kept separate from the on-time rate below.
   assert.match(SRC, /label="Completion rate"/);
-  assert.equal(/On-Time|On Time/.test(CODE), false, "no on-time claim without a deadline field");
+  assert.match(SRC, /const completionRate = totalDeliveries > 0/);
   assert.equal(
     /promisedAt|scheduledFor|dueAt|slaMinutes/.test(CODE),
     false,
@@ -557,4 +570,14 @@ test("the modal keeps its box model, padding and controls", () => {
   assert.match(CODE, /<h2>\{modal\.title\}<\/h2>/);
   assert.match(CODE, /<p>\{modal\.description\}<\/p>/);
   assert.match(CODE, /modal\.rows\.map\(/);
+});
+
+test("the on-time rate is measured against the requested delivery date only", () => {
+  // The requested date is mandatory and server-validated at checkout, so it is
+  // a real deadline. It is the only one: no other deadline field is invented.
+  assert.match(SRC, /label="On-time rate"/);
+  const metrics = read("src/services/deliveryMetrics.js");
+  assert.ok(metrics.includes("isoDateOnly(order.requestedDeliveryDate)"));
+  assert.ok(metrics.includes("manilaToday(new Date(end)) <= due"));
+  assert.equal(/promisedAt|scheduledFor|dueAt|slaMinutes/.test(CODE + metrics), false);
 });

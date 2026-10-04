@@ -12,9 +12,9 @@ export default function DestinationCorrectionDialog({ order, onDismiss, onConfir
   const [addresses, setAddresses] = useState([]);
   const [clinics, setClinics] = useState([]);
   const [history, setHistory] = useState([]);
-  const [loadingAddresses, setLoadingAddresses] = useState(true);
+  const [loadingAddressesState, setLoadingAddresses] = useState(true);
   const [loadingClinics, setLoadingClinics] = useState(true);
-  const [loadError, setLoadError] = useState("");
+  const [loadErrorState, setLoadError] = useState("");
   const [historyError, setHistoryError] = useState("");
   const [selected, setSelected] = useState("");
   const [reason, setReason] = useState("");
@@ -25,12 +25,16 @@ export default function DestinationCorrectionDialog({ order, onDismiss, onConfir
   const selectRef = useRef(null);
   const closeButtonRef = useRef(null);
 
+  // An order without a doctor has nothing to load; that state is derived
+  // rather than set from inside the effect.
+  const noDoctor = !order.doctorId;
+  const loadingAddresses = noDoctor ? false : loadingAddressesState;
+  const loadError = noDoctor
+    ? "This order has no doctor destination. Ask Admin to review it."
+    : loadErrorState;
+
   useEffect(() => {
-    if (!order.doctorId) {
-      setLoadingAddresses(false);
-      setLoadError("This order has no doctor destination. Ask Admin to review it.");
-      return;
-    }
+    if (!order.doctorId) return undefined;
     const fail = () => setLoadError("Could not load this doctor's linked addresses. Try again.");
     const stopAddresses = subscribeDoctorAddresses(order.doctorId, (items) => {
       setAddresses(items);

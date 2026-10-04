@@ -161,7 +161,7 @@ function Invoices() {
       "Order ID",
       "Date Order",
       "Customer / Clinic",
-      "Sales Rep",
+      "Med Rep",
       "Qty",
       "Unit",
       "Invoice No.",
@@ -253,7 +253,7 @@ function Invoices() {
               <div className="inv-search">
                 <Search size={15} />
                 <input
-                  placeholder="Search order, customer, or sales rep..."
+                  placeholder="Search order, customer, or Med Rep..."
                   value={search}
                   onChange={(e) => {
                     setSearch(e.target.value);
@@ -326,7 +326,7 @@ function Invoices() {
                 <tr>
                   <th>Order ID</th>
                   <th>Customer / clinic</th>
-                  <th>Sales rep</th>
+                  <th>Med Rep</th>
                   <th>Date Order</th>
                   <th>Qty</th>
                   <th>Amount</th>

@@ -52,8 +52,18 @@ test("the callables are the only inventory-affecting entry points", () => {
       `must not export ${forbidden}`
     );
   }
+  // The only other export is the status-history trigger. It is not callable by
+  // anyone, and it cannot move stock: its module never names inventory.
+  const NON_CALLABLE_EXPORTS = ["recordOrderStatusEvent"];
   const exported = [...index.matchAll(/^exports\.(\w+)\s*=/gm)].map((m) => m[1]);
-  assert.deepEqual(exported.sort(), [...CALLABLE_NAMES].sort(), "exactly these eight callables");
+  assert.deepEqual(
+    exported.sort(),
+    [...CALLABLE_NAMES, ...NON_CALLABLE_EXPORTS].sort(),
+    "exactly these eight callables, plus the status-history trigger"
+  );
+  assert.match(index, /exports\.recordOrderStatusEvent = onDocumentWritten\(/);
+  const history = read("functions/src/statusEvents.js").replace(/^\s*(\*|\/\/).*$/gm, "");
+  assert.equal(/inventory|reservedQuantity|RESERVATIONS|allocation/i.test(history), false);
 });
 
 test("no page reaches around the boundary", () => {

@@ -110,8 +110,12 @@ function SalesRepDashboard() {
   const navigate = useNavigate();
 
   const [orders, setOrders] = useState([]);
-  const [ordersLoading, setOrdersLoading] = useState(true);
-  const [ordersError, setOrdersError] = useState("");
+  const [ordersLoadingState, setOrdersLoading] = useState(true);
+  const [ordersErrorState, setOrdersError] = useState("");
+  // Signed-out is derived rather than set from inside the effect.
+  const uid = auth.currentUser?.uid ?? null;
+  const ordersLoading = uid ? ordersLoadingState : false;
+  const ordersError = uid ? ordersErrorState : "Not logged in.";
 
   const [inventory, setInventory] = useState([]);
   const [invLoading, setInvLoading] = useState(true);
@@ -124,15 +128,10 @@ function SalesRepDashboard() {
   const [selectedDate, setSelectedDate] = useState("");
 
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) {
-      setOrdersError("Not logged in.");
-      setOrdersLoading(false);
-      return;
-    }
+    if (!uid) return undefined;
 
     const unsubscribe = subscribeSalesRepOrders(
-      user.uid,
+      uid,
       (raw) => {
         const normalized = raw.map((o) => {
           const rawStatus = getOrderStatusValue(o);
@@ -165,7 +164,7 @@ function SalesRepDashboard() {
     );
 
     return unsubscribe;
-  }, []);
+  }, [uid]);
 
   useEffect(() => {
     const unsubscribe = subscribeInventory(

@@ -519,7 +519,11 @@ service cloud.firestore {
         'destinationLng', 'destinationGeofenceRadiusM',
         'destinationLocationVerified', 'destinationSnapshotAt',
         'destinationRevision', 'destinationCorrectedAt', 'destinationCorrectedByUid',
-        'destinationChangeRequest'
+        'destinationChangeRequest',
+        // Stamped once by the status-history trigger (functions/src/statusEvents.js)
+        // from the commit time of the first move into in_transit. It is the start
+        // of the true delivery duration, so no client may author or move it.
+        'firstDispatchedAt'
       ];
     }
 
@@ -1229,6 +1233,17 @@ service cloud.firestore {
         allow read: if isAdmin() || isDispatcher()
           || (isSalesRep()
             && get(/databases/$(database)/documents/orders/$(orderId)).data.createdByUid == request.auth.uid);
+        allow write: if false;
+      }
+      // Status history, written only by the recordOrderStatusEvent trigger
+      // through the Admin SDK. Readable by whoever can read the order itself;
+      // no client can add, edit or erase an entry.
+      match /statusEvents/{eventId} {
+        allow read: if isAdmin() || isDispatcher()
+          || (isSalesRep()
+            && get(/databases/$(database)/documents/orders/$(orderId)).data.createdByUid == request.auth.uid)
+          || (isRider()
+            && get(/databases/$(database)/documents/orders/$(orderId)).data.assignedRiderId == request.auth.uid);
         allow write: if false;
       }
       // Admin + Dispatcher see all orders. Sales Rep sees only orders they

@@ -21,12 +21,12 @@ import { COMPANY_NAME } from "../../services/invoiceModel";
 const ROLE_DISPLAY = {
   admin: "Admin",
   dispatcher: "Dispatcher",
-  salesrep: "Sales Representative",
+  salesrep: "Med Rep",
   rider: "Rider",
 };
 
 const ASSIGNABLE_ROLES = [
-  { value: "salesrep", label: "Sales Representative" },
+  { value: "salesrep", label: "Med Rep" },
   { value: "dispatcher", label: "Dispatcher" },
   { value: "rider", label: "Rider" },
 ];

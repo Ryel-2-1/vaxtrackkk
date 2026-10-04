@@ -11,6 +11,12 @@ import AdminLayout from "../../components/admin/AdminLayout";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeAllAlerts } from "../../services/alertService";
 import KpiCard from "../../components/ui/KpiCard";
+import {
+  averageDeliveryTime,
+  formatDuration,
+  formatRate,
+  onTimeStats,
+} from "../../services/deliveryMetrics";
 
 const MS_PER_DAY = 86400000;
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -254,7 +260,7 @@ function Analytics() {
   const totalDeliveries = filtered.length;
   const delayedCount = filtered.filter((o) => o.statusKey === "delayed").length;
   const completedCount = filtered.filter((o) => o.statusKey === "delivered" || o.statusKey === "completed").length;
-  const onTimeRate = totalDeliveries > 0
+  const completionRate = totalDeliveries > 0
     ? `${Math.round((completedCount / totalDeliveries) * 100)}%`
     : "—";
 
@@ -263,6 +269,14 @@ function Analytics() {
     [filtered]
   );
   const avgDeliveryText = formatAvgDelivery(avgDeliveryMinutes);
+
+  // True delivery time needs the server-stamped first dispatch, which only
+  // orders dispatched since the status history went live carry. When none in
+  // range do, the card keeps the latest-segment figure under that figure's own
+  // label — the two are never mixed into one average.
+  const fullDelivery = useMemo(() => averageDeliveryTime(filtered), [filtered]);
+  const measuresFullDelivery = fullDelivery.count > 0;
+  const onTime = useMemo(() => onTimeStats(filtered), [filtered]);
 
   const volumeData = useMemo(() => {
     if (nowMs == null) return [{ label: "—", adjustedValue: 0 }];
@@ -364,6 +378,26 @@ function Analytics() {
               leg — the earlier transit and the delay itself are not in it. The
               label now says which segment it is rather than implying the whole
               journey. The computation is unchanged; only the claim about it is. */}
+          {measuresFullDelivery ? (
+          <KpiCard
+            label="Average delivery time"
+            value={formatDuration(fullDelivery.averageMinutes)}
+            context={`First dispatch → delivered · ${fullDelivery.count} order${fullDelivery.count === 1 ? "" : "s"}`}
+            tone="neutral"
+            onClick={() =>
+              openModal({
+                title: "Average delivery time",
+                description:
+                  "From each order's first dispatch (firstDispatchedAt, stamped once by the server's status history) to deliveredAt. Delays and resumed legs are included.",
+                rows: [
+                  ["Current average", formatDuration(fullDelivery.averageMinutes)],
+                  ["Orders measured", fullDelivery.count],
+                  ["Not measured", "Orders dispatched before the status history existed"],
+                ],
+              })
+            }
+          />
+          ) : (
           <KpiCard
             label="Average latest transit segment"
             value={avgDeliveryText}
@@ -392,10 +426,11 @@ function Analytics() {
               })
             }
           />
+          )}
 
           <KpiCard
             label="Completion rate"
-            value={onTimeRate}
+            value={completionRate}
             context={totalDeliveries > 0 ? `${completedCount} of ${totalDeliveries} completed` : "No orders in range"}
             tone="success"
             onClick={() =>
@@ -405,7 +440,32 @@ function Analytics() {
                 rows: [
                   ["Completed", completedCount],
                   ["Total orders", totalDeliveries],
-                  ["Rate", onTimeRate],
+                  ["Rate", completionRate],
+                ],
+              })
+            }
+          />
+
+          <KpiCard
+            label="On-time rate"
+            value={formatRate(onTime.rate)}
+            context={
+              onTime.measured > 0
+                ? `${onTime.onTime} of ${onTime.measured} delivered by the requested date`
+                : "No delivered order with a requested date in range"
+            }
+            tone="success"
+            attention={onTime.late > 0}
+            onClick={() =>
+              openModal({
+                title: "On-time rate",
+                description:
+                  "A delivered order is on time when its Manila delivery date is on or before the requested delivery date chosen at checkout.",
+                rows: [
+                  ["On time", onTime.onTime],
+                  ["Late", onTime.late],
+                  ["Delivered orders measured", onTime.measured],
+                  ["Rate", formatRate(onTime.rate)],
                 ],
               })
             }

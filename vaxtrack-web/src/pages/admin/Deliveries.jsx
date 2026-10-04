@@ -17,6 +17,7 @@ import { ORDER_STATUSES, STATUS_LABELS } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
 import KpiCard from "../../components/ui/KpiCard";
 import LiveDeliveryMap from "../../components/LiveDeliveryMap";
+import { subscribeOrderStatusEvents } from "../../services/statusEventService";
 import "./Deliveries.css";
 
 function normalizeDelivery(raw) {
@@ -203,7 +204,7 @@ function Deliveries() {
               the thing it is labelled with is not a control — the same fact is
               stated as text, where it belongs. */}
           <p className="mdl-header-note">
-            Orders are created by Sales Reps and dispatched by a Dispatcher.
+            Orders are created by Med Reps and dispatched by a Dispatcher.
           </p>
         </header>
 
@@ -504,7 +505,7 @@ function Deliveries() {
                 </strong>
                 <p>
                   {deliveryList.length === 0
-                    ? "Deliveries appear here when orders are created by Sales Representatives."
+                    ? "Deliveries appear here when orders are created by Medical Representatives."
                     : "Try adjusting your search or selected filters."}
                 </p>
               </div>
@@ -533,6 +534,20 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
   const created = formatDateTime(delivery.createdAt);
   const assigned = formatDateTime(delivery.assignedAt);
   const statusUpdated = formatDateTime(delivery.statusUpdatedAt);
+
+  // Server-recorded status history. Tagged with the order it was loaded for,
+  // so switching orders shows "loading" rather than the previous order's list.
+  const [history, setHistory] = useState({ orderId: null, events: [], error: false });
+  useEffect(
+    () =>
+      subscribeOrderStatusEvents(
+        delivery.uid,
+        (events) => setHistory({ orderId: delivery.uid, events, error: false }),
+        () => setHistory({ orderId: delivery.uid, events: [], error: true })
+      ),
+    [delivery.uid]
+  );
+  const historyLoaded = history.orderId === delivery.uid;
 
   return (
     <div className="mdl-drawer-backdrop" onMouseDown={onClose}>
@@ -688,6 +703,34 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
             )}
             {!created && !assigned && !statusUpdated && (
               <p className="mdl-drawer-note">No activity recorded yet.</p>
+            )}
+          </section>
+
+          <section className="mdl-drawer-section">
+            <h3>Status history</h3>
+            {!historyLoaded && <p className="mdl-drawer-note">Loading status history…</p>}
+            {historyLoaded && history.error && (
+              <p className="mdl-drawer-note">Status history could not be loaded.</p>
+            )}
+            {historyLoaded && !history.error && history.events.length === 0 && (
+              <p className="mdl-drawer-note">
+                No status changes recorded for this order. History is kept for
+                changes made since it was introduced; earlier ones were not
+                recorded and are not reconstructed.
+              </p>
+            )}
+            {historyLoaded && history.events.length > 0 && (
+              <ol className="mdl-history">
+                {history.events.map((event) => (
+                  <li key={event.id}>
+                    <div className="mdl-drawer-row">
+                      <span>{STATUS_LABELS[event.to] ?? event.to}</span>
+                      <strong className="tnum">{formatDateTime(event.at) ?? "—"}</strong>
+                    </div>
+                    {event.reason && <p className="mdl-history-reason">{event.reason}</p>}
+                  </li>
+                ))}
+              </ol>
             )}
           </section>
         </div>

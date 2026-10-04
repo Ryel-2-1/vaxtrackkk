@@ -601,12 +601,12 @@ function InvoiceEditor() {
                   <span className="sit-static sit-static-id">{order.id}</span>
                 </div>
                 <div className="sit-mr-cell">
-                  <span className="sit-lbl">Sales Rep Code</span>
+                  <span className="sit-lbl">Med Rep Code</span>
                   <TextInput
                     value={form.salesRepCode}
                     onChange={(v) => setField("salesRepCode", v)}
                     readOnly={readOnly}
-                    aria-label="Sales rep code"
+                    aria-label="Med Rep code"
                   />
                 </div>
               </div>

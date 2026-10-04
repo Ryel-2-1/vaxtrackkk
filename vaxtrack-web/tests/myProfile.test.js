@@ -53,7 +53,7 @@ test("readProfile shows the stored values, whatever spelling the record uses", (
 
   assert.equal(readProfile(null).name, "");
   assert.equal(roleLabelOf("dispatcher"), "Dispatcher");
-  assert.equal(roleLabelOf("salesrep"), "Sales Representative");
+  assert.equal(roleLabelOf("salesrep"), "Med Rep");
   assert.equal(roleLabelOf("admin"), "Administrator");
 });
 
@@ -198,7 +198,7 @@ test("the sidebar cards show the signed-in user, not a hardcoded hub", () => {
 
   for (const [file, gone, role] of [
     ["src/components/admin/AdminSidebar.jsx", ["Logistics Admin", "Manila Central Hub", '<div className="avatar">LA</div>'], "Administrator"],
-    ["src/pages/salesRep/SalesRepShell.jsx", ["Manila Central Hub", '<div className="salesrep-profile-icon">SR</div>'], "Sales Representative"],
+    ["src/pages/salesRep/SalesRepShell.jsx", ["Manila Central Hub", '<div className="salesrep-profile-icon">SR</div>'], "Med Rep"],
     // Dispatcher had no profile card at all before; it gets the same one.
     ["src/pages/dispatcher/DispatcherLayout.jsx", [], "Dispatcher"],
   ]) {

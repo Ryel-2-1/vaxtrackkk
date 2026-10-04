@@ -300,7 +300,7 @@ function DispatcherGeofence() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [selectedId, setSelectedId] = useState("");
+  const [chosenId, setSelectedId] = useState("");
   // Route generation state, scoped to the order it belongs to (so an error or
   // in-flight request never bleeds onto a different selected order).
   const [busyOrderId, setBusyOrderId] = useState(null);
@@ -333,15 +333,12 @@ function DispatcherGeofence() {
     [orders]
   );
 
-  useEffect(() => {
-    if (activeOrders.length === 0) {
-      if (selectedId) setSelectedId("");
-      return;
-    }
-    if (!activeOrders.some((o) => o.id === selectedId)) {
-      setSelectedId(activeOrders[0].id);
-    }
-  }, [activeOrders, selectedId]);
+  // The operator's pick while it is still an active order; otherwise the first
+  // active order (or none). Derived, so the list and the selection can never
+  // disagree for a render.
+  const selectedId = activeOrders.some((o) => o.id === chosenId)
+    ? chosenId
+    : activeOrders[0]?.id ?? "";
 
   const selected = activeOrders.find((o) => o.id === selectedId) || null;
 

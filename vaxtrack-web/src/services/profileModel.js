@@ -28,7 +28,7 @@ export const MAX_PHONE_LENGTH = 30;
 const ROLE_LABELS = Object.freeze({
   [ROLES.ADMIN]: "Administrator",
   [ROLES.DISPATCHER]: "Dispatcher",
-  [ROLES.SALES_REP]: "Sales Representative",
+  [ROLES.SALES_REP]: "Med Rep",
   [ROLES.RIDER]: "Rider",
 });
 

@@ -38,14 +38,14 @@ export default function GoogleMapsFeasibility() {
   const mapRef = useRef(null);
   const [status, setStatus] = useState("Loading Google Maps…");
   const [metrics, setMetrics] = useState(null);
-  const [error, setError] = useState(null);
+  const [loadError, setError] = useState(null);
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+  // A missing key is a configuration fact, derived here rather than set from
+  // inside the effect.
+  const error = apiKey ? loadError : "VITE_GOOGLE_MAPS_API_KEY is not configured.";
 
   useEffect(() => {
-    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-    if (!apiKey) {
-      setError("VITE_GOOGLE_MAPS_API_KEY is not configured.");
-      return;
-    }
+    if (!apiKey) return undefined;
     let cancelled = false;
 
     // Google calls this global on auth failure (bad key / referrer / billing /
@@ -61,6 +61,9 @@ export default function GoogleMapsFeasibility() {
       try {
         await loadGoogleMaps(apiKey);
         if (cancelled) return;
+        // The Maps bootstrap installs `google` as a browser global; read it
+        // from window so the dependency is explicit.
+        const { google } = window;
         const { Map } = await google.maps.importLibrary("maps");
         const { Route } = await google.maps.importLibrary("routes");
         if (cancelled) return;
@@ -130,7 +133,7 @@ export default function GoogleMapsFeasibility() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [apiKey]);
 
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", padding: 16 }}>

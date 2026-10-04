@@ -11,14 +11,15 @@ async function callDestinationFunction(name, payload) {
     return result.data;
   } catch (error) {
     if (typeof error?.details?.code === "string") {
-      const failure = new Error(error.message);
+      const failure = new Error(error.message, { cause: error });
       failure.code = error.details.code;
       throw failure;
     }
     throw new Error(
       error?.code === "functions/unauthenticated"
         ? "Your session has expired. Please sign in again."
-        : "Destination review is unavailable. Please try again."
+        : "Destination review is unavailable. Please try again.",
+      { cause: error }
     );
   }
 }

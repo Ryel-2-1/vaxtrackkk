@@ -21,12 +21,12 @@ const devCsp = [
   // NOTE: `https://maps.googleapis.com` (+ maps.gstatic / *.googleapis wildcards
   // in img-src/connect-src) are TEMPORARY additions for the Google Maps
   // feasibility spike. Remove on rollback.
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://apis.google.com https://accounts.google.com https://maps.googleapis.com",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://apis.google.com https://accounts.google.com https://maps.googleapis.com https://www.google.com/recaptcha/",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
   "img-src 'self' data: blob: https://lh3.googleusercontent.com https://www.gstatic.com https://tile.openstreetmap.org https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com https://*.gstatic.com",
-  "connect-src 'self' ws://localhost:* http://localhost:* https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://accounts.google.com https://apis.google.com https://www.gstatic.com https://api.openrouteservice.org https://maps.googleapis.com https://asia-southeast1-vaxtrack-staging.cloudfunctions.net https://asia-southeast1-vaxtrack-bef1b.cloudfunctions.net",
-  "frame-src 'self' https://accounts.google.com",
+  "connect-src 'self' ws://localhost:* http://localhost:* https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://accounts.google.com https://apis.google.com https://www.gstatic.com https://api.openrouteservice.org https://maps.googleapis.com https://asia-southeast1-vaxtrack-staging.cloudfunctions.net https://asia-southeast1-vaxtrack-bef1b.cloudfunctions.net https://content-firebaseappcheck.googleapis.com https://www.google.com/recaptcha/",
+  "frame-src 'self' https://accounts.google.com https://www.google.com/recaptcha/ https://recaptcha.google.com/recaptcha/",
   "frame-ancestors 'self'",
   "object-src 'none'",
   "base-uri 'self'",
@@ -43,12 +43,12 @@ const devCsp = [
 const previewCsp = [
   "default-src 'self'",
   // TEMPORARY Google Maps feasibility-spike additions (remove on rollback).
-  "script-src 'self' https://www.gstatic.com https://apis.google.com https://accounts.google.com https://maps.googleapis.com",
+  "script-src 'self' https://www.gstatic.com https://apis.google.com https://accounts.google.com https://maps.googleapis.com https://www.google.com/recaptcha/",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
   "img-src 'self' data: blob: https://lh3.googleusercontent.com https://www.gstatic.com https://tile.openstreetmap.org https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com https://*.gstatic.com",
-  "connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://accounts.google.com https://apis.google.com https://www.gstatic.com https://api.openrouteservice.org https://maps.googleapis.com https://asia-southeast1-vaxtrack-staging.cloudfunctions.net https://asia-southeast1-vaxtrack-bef1b.cloudfunctions.net",
-  "frame-src 'self' https://accounts.google.com",
+  "connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://accounts.google.com https://apis.google.com https://www.gstatic.com https://api.openrouteservice.org https://maps.googleapis.com https://asia-southeast1-vaxtrack-staging.cloudfunctions.net https://asia-southeast1-vaxtrack-bef1b.cloudfunctions.net https://content-firebaseappcheck.googleapis.com https://www.google.com/recaptcha/",
+  "frame-src 'self' https://accounts.google.com https://www.google.com/recaptcha/ https://recaptcha.google.com/recaptcha/",
   "frame-ancestors 'self'",
   "object-src 'none'",
   "base-uri 'self'",

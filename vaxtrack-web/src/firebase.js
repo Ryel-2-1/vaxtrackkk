@@ -1,4 +1,5 @@
 import { initializeApp } from "firebase/app";
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "firebase/app-check";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
@@ -37,6 +38,28 @@ if (missingEnv.length > 0) {
 }
 
 const app = initializeApp(firebaseConfig);
+
+// App Check attests that requests come from THIS web app, not just from a
+// signed-in user. It turns on only when the project's reCAPTCHA Enterprise site
+// key is configured, and must start before any other Firebase service so their
+// first requests already carry a token.
+//
+// Configuring the key does not by itself block anything: enforcement is
+// switched on separately per project (Functions: ENFORCE_APP_CHECK; Firestore /
+// Storage: Firebase console → App Check → APIs).
+//
+// Local development: set VITE_APPCHECK_DEBUG=true to make the SDK print a debug
+// token in the browser console; register it once in the Firebase console.
+const appCheckSiteKey = import.meta.env.VITE_APPCHECK_RECAPTCHA_SITE_KEY;
+if (appCheckSiteKey) {
+  if (import.meta.env.DEV && import.meta.env.VITE_APPCHECK_DEBUG === "true") {
+    globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  }
+  initializeAppCheck(app, {
+    provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey),
+    isTokenAutoRefreshEnabled: true,
+  });
+}
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
