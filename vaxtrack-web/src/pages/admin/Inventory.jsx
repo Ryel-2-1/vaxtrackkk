@@ -12,6 +12,7 @@ import {
   manilaToday,
   WARNING_WITHIN_DAYS,
 } from "../../services/expiry";
+import { formatBatchDate, readManufacturingDate } from "../../services/stockBatchDates";
 import { correctStockQuantity, updateStockPrice } from "../../services/vaccineService";
 import { validateStockCorrection } from "../../services/stockCorrection";
 import {
@@ -96,6 +97,10 @@ function normalizeInventoryItem(raw, todayIso) {
     batch: raw.batchId || "—",
     expiry: formatExpiry(raw.expiryDate),
     expiryRaw: raw.expiryDate || "",
+    // Batches created before this field existed have none: "Not recorded",
+    // never an invented date and never "Invalid Date".
+    manufacturing: formatBatchDate(raw.manufacturingDate),
+    manufacturingRaw: readManufacturingDate(raw) ?? "",
     onHand: onHandOk ? raw.quantity.toLocaleString() : "—",
     reserved: reservedOk ? reserved.toLocaleString() : "—",
     available: available === null ? "—" : available.toLocaleString(),
@@ -755,6 +760,11 @@ function Inventory() {
                     {selectedVaccine.flags.join(" · ")}
                   </small>
                 )}
+              </div>
+
+              <div>
+                <span>Manufacturing Date</span>
+                <strong>{selectedVaccine.manufacturing}</strong>
               </div>
 
               <div>

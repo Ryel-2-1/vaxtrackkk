@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { validateStockBatchDates } from "../src/services/stockBatchDates.js";
 
 // Admin → Add New Stock.
 //
@@ -178,12 +179,34 @@ test("quantity must be a positive whole number and is not pre-filled", () => {
 });
 
 test("arrival and expiry dates are validated and ordered", () => {
-  assert.match(addStock, /Arrival date is required/);
-  assert.match(addStock, /Expiry date is required/);
-  assert.match(addStock, /Arrival date is invalid/);
-  assert.match(addStock, /Expiry date is invalid/);
-  assert.match(addStock, /expiry <= arrival/, "expiry must be after arrival");
-  assert.match(addStock, /Expiry date must be after the arrival date/);
+  // The rules moved into services/stockBatchDates.js (date-only, Manila
+  // "today"); the form now calls it. Behaviour, not source text:
+  const today = "2026-10-05";
+  const base = { manufacturingDate: "2026-09-01", arrivalDate: "2026-09-10", expiryDate: "2027-09-10", todayIso: today };
+  const msg = (over) => validateStockBatchDates({ ...base, ...over }).message;
+  assert.equal(msg({ arrivalDate: "" }), "Arrival date is required.");
+  assert.equal(msg({ expiryDate: "" }), "Expiry date is required.");
+  assert.equal(msg({ arrivalDate: "2026-13-01" }), "Arrival date is invalid.");
+  assert.equal(msg({ expiryDate: "2027-02-30" }), "Expiry date is invalid.");
+  assert.equal(msg({ expiryDate: "2026-09-10" }), "Expiry date must be after the arrival date.");
+  assert.equal(msg({ arrivalDate: "2026-11-05" }), "Arrival date cannot be more than 30 days in the future.");
+  assert.equal(msg({ arrivalDate: "2026-11-04" }), undefined, "exactly 30 days ahead is allowed");
+  assert.equal(msg({ arrivalDate: "2026-09-01", expiryDate: "2026-10-05" }), "Expired stock cannot be added to inventory.");
+  assert.equal(validateStockBatchDates(base).ok, true);
+  assert.match(addStock, /validateStockBatchDates\(\{ manufacturingDate, arrivalDate, expiryDate \}\)/);
+});
+
+test("Add Stock collects a required Manufacturing Date between Batch ID and Arrival Date", () => {
+  const order = ["stock-batch-id", "stock-manufacturing-date", "stock-arrival-date", "stock-expiry-date", "stock-quantity", "stock-unit-price"]
+    .map((id) => addStock.indexOf(`id="${id}"`));
+  assert.ok(order.every((i) => i > 0), "every field is present");
+  assert.deepEqual([...order].sort((a, b) => a - b), order, "fields appear in the agreed order");
+  assert.match(addStock, /<label htmlFor="stock-manufacturing-date">Manufacturing Date<\/label>/);
+  assert.match(addStock, /id="stock-manufacturing-date"\s+type="date"\s+required/);
+  // Passed to the service as the raw date-only string.
+  assert.match(addStock, /batchId: cleanedBatchId,\s+manufacturingDate,\s+arrivalDate,\s+expiryDate,/);
+  // No browser Date parsing of the new field.
+  assert.doesNotMatch(addStock, /new Date\(manufacturingDate/);
 });
 
 // ---------------------------------------------------------------------------

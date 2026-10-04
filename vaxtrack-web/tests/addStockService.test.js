@@ -4,6 +4,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { manilaToday } from "../src/services/expiry.js";
+import { addDaysIso } from "../src/services/stockBatchDates.js";
 
 // Add Stock — EXECUTED success path.
 //
@@ -81,11 +83,18 @@ writeFileSync(
   readFileSync(join(here, "..", "src", "services", "stockCorrection.js"), "utf8")
 );
 
+// The pure `./stockBatchDates` sibling and the `./expiry.js` helper it
+// imports are copied verbatim too, so date validation is the shipped logic.
+writeFileSync(join(tmp, "expiry.js"), readFileSync(join(here, "..", "src", "services", "expiry.js"), "utf8"));
+const stockBatchDatesFile = join(tmp, "stockBatchDates.mjs");
+writeFileSync(stockBatchDatesFile, readFileSync(join(here, "..", "src", "services", "stockBatchDates.js"), "utf8"));
+
 const original = readFileSync(servicePath, "utf8");
 const rewritten = original
   .replace('"firebase/firestore"', JSON.stringify(pathToFileURL(join(tmp, "firestore.mjs")).href))
   .replace('"../firebase"', JSON.stringify(pathToFileURL(join(tmp, "firebase.mjs")).href))
-  .replace('"./stockCorrection"', JSON.stringify(pathToFileURL(stockCorrectionFile).href));
+  .replace('"./stockCorrection"', JSON.stringify(pathToFileURL(stockCorrectionFile).href))
+  .replace('"./stockBatchDates"', JSON.stringify(pathToFileURL(stockBatchDatesFile).href));
 
 // If the service's imports are ever renamed, fail loudly rather than silently
 // testing an unrewritten (or unexecutable) module.
@@ -93,8 +102,9 @@ assert.ok(
   rewritten !== original
     && !rewritten.includes('"firebase/firestore"')
     && !rewritten.includes('"../firebase"')
-    && !rewritten.includes('"./stockCorrection"'),
-  "all three service imports (firestore, firebase, stockCorrection) must have been redirected to the stand-ins"
+    && !rewritten.includes('"./stockCorrection"')
+    && !rewritten.includes('"./stockBatchDates"'),
+  "all four service imports (firestore, firebase, stockCorrection, stockBatchDates) must have been redirected to the stand-ins"
 );
 
 const serviceFile = join(tmp, "vaccineService.mjs");
@@ -127,6 +137,14 @@ const SELECTED_VACCINE = {
   internalSku: "VXT-123-ABCDE",
 };
 
+// Dates relative to today in Manila: the service now refuses expired stock and
+// a future manufacturing date, so fixed calendar dates would start failing as
+// the real clock moves past them.
+const TODAY = manilaToday(Date.now());
+const MFG = addDaysIso(TODAY, -45);
+const ARRIVAL = addDaysIso(TODAY, -30);
+const EXPIRY = addDaysIso(TODAY, 150);
+
 /** The payload AddStock.jsx builds from a selected vaccine. */
 const payloadFor = (vaccine) => ({
   vaccineId: vaccine.id,
@@ -135,8 +153,9 @@ const payloadFor = (vaccine) => ({
   manufacturer: vaccine.manufacturer,
   internalSku: vaccine.internalSku,
   batchId: "BATCH-QA-0001",
-  arrivalDate: "2026-09-01",
-  expiryDate: "2027-03-01",
+  manufacturingDate: MFG,
+  arrivalDate: ARRIVAL,
+  expiryDate: EXPIRY,
   quantity: 1200,
   // ₱1,250.00 per vial, VAT-exclusive. Required from the batch's first moment:
   // the service refuses a write without it.
@@ -174,8 +193,9 @@ test("batch id, both dates and the quantity arrive unaltered", opts, async () =>
   const w = calls.addDoc[0].data;
 
   assert.equal(w.batchId, "BATCH-QA-0001");
-  assert.equal(w.arrivalDate, "2026-09-01");
-  assert.equal(w.expiryDate, "2027-03-01");
+  assert.equal(w.manufacturingDate, MFG);
+  assert.equal(w.arrivalDate, ARRIVAL);
+  assert.equal(w.expiryDate, EXPIRY);
   assert.equal(w.quantity, 1200);
   assert.equal(typeof w.quantity, "number", "quantity must stay numeric");
   assert.equal(w.status, "stable");
@@ -346,4 +366,56 @@ test("a signed-out caller records no uid rather than a forged one", opts, async 
   calls.currentUser = null;
   await mod.updateStockPrice({ inventoryId: "batchDocId", sellingPriceCentavos: 140000 });
   assert.equal(calls.updateDoc[0].data.priceSetByUid, null);
+});
+
+// ---------------------------------------------------------------- manufacturing date
+
+test("a valid manufacturing date is written as the date-only string", opts, async () => {
+  const { mod, calls } = await loadService();
+  await mod.addStockBatch(payloadFor(SELECTED_VACCINE));
+  assert.equal(calls.addDoc.length, 1);
+  assert.equal(calls.addDoc[0].data.manufacturingDate, MFG);
+  assert.match(calls.addDoc[0].data.manufacturingDate, /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test("manufacturing equal to arrival is accepted", opts, async () => {
+  const { mod, calls } = await loadService();
+  await mod.addStockBatch({ ...payloadFor(SELECTED_VACCINE), manufacturingDate: ARRIVAL });
+  assert.equal(calls.addDoc[0].data.manufacturingDate, ARRIVAL);
+});
+
+test("every invalid manufacturing date is refused before any Firestore write", opts, async () => {
+  const cases = [
+    [undefined, "Enter the manufacturing date."],
+    ["", "Enter the manufacturing date."],
+    ["15/08/2026", "Enter a valid manufacturing date."],
+    ["2026-02-31", "Enter a valid manufacturing date."],
+    [addDaysIso(TODAY, 1), "Manufacturing date cannot be in the future."],
+    [addDaysIso(ARRIVAL, 1), "Manufacturing date cannot be after the arrival date."],
+  ];
+  for (const [manufacturingDate, message] of cases) {
+    const { mod, calls } = await loadService();
+    await assert.rejects(
+      () => mod.addStockBatch({ ...payloadFor(SELECTED_VACCINE), manufacturingDate }),
+      { message },
+      String(manufacturingDate)
+    );
+    assert.equal(calls.addDoc.length, 0, `no write for ${manufacturingDate}`);
+  }
+});
+
+test("a manufacturing date on or after the expiry date is refused", opts, async () => {
+  const { mod, calls } = await loadService();
+  for (const expiryDate of ["2026-06-10", "2026-06-05"]) {
+    await assert.rejects(
+      () =>
+        mod.addStockBatch(
+          { ...payloadFor(SELECTED_VACCINE), manufacturingDate: "2026-06-10", arrivalDate: "2026-06-12", expiryDate },
+          { todayIso: "2026-06-15" }
+        ),
+      { message: "Manufacturing date must be before the expiry date." },
+      expiryDate
+    );
+  }
+  assert.equal(calls.addDoc.length, 0);
 });

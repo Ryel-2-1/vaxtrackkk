@@ -650,7 +650,41 @@ service cloud.firestore {
         && d.sellingPriceCentavos <= maxSafeInteger()
         && d.batchId is string && d.batchId.size() > 0
         && d.vaccineName is string && d.vaccineName.size() > 0
-        && d.expiryDate is string && d.expiryDate.size() == 10;
+        && d.expiryDate is string && d.expiryDate.size() == 10
+        // Batch dates are date-only 'YYYY-MM-DD' strings, so they order
+        // correctly as strings: manufactured on/before arrival, before expiry.
+        // LIMITATION: the pattern accepts an impossible day such as
+        // 2026-02-31 and rules cannot read "today" in Manila, so a real
+        // calendar date and a not-in-the-future manufacturing date are
+        // enforced by the Add Stock form and addStockBatch, not here.
+        && isDateOnlyString(d.expiryDate)
+        && isDateOnlyString(d.get('arrivalDate', null))
+        && isDateOnlyString(d.get('manufacturingDate', null))
+        && d.manufacturingDate <= d.arrivalDate
+        && d.manufacturingDate < d.expiryDate;
+    }
+
+    function isDateOnlyString(value) {
+      return value is string && value.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$');
+    }
+
+    // A write that changes ANY batch date — manufacturing, arrival or expiry —
+    // must leave a complete, consistent set: all three present, date-only, and
+    // manufacturing <= arrival < expiry (so manufacturing < expiry as well).
+    // A legacy batch without a manufacturing date keeps loading and accepting
+    // unrelated updates; only editing one of its dates requires the Admin to
+    // supply a valid manufacturingDate in the same write. Nothing is back-filled.
+    function stockDatesValidIfChanged() {
+      let d = request.resource.data;
+      return !changedKeys().hasAny(['manufacturingDate', 'arrivalDate', 'expiryDate'])
+        || (
+          isDateOnlyString(d.get('manufacturingDate', null))
+          && isDateOnlyString(d.get('arrivalDate', null))
+          && isDateOnlyString(d.get('expiryDate', null))
+          && d.manufacturingDate <= d.arrivalDate
+          && d.manufacturingDate < d.expiryDate
+          && d.arrivalDate < d.expiryDate
+        );
     }
 
     // Re-pricing an existing batch is an ordinary admin update — that IS the
@@ -1408,7 +1442,7 @@ service cloud.firestore {
     match /inventory/{id} {
       allow read: if isApprovedUser();
       allow create: if isAdmin() && isValidNewStockBatch();
-      allow update: if isAdmin() && (
+      allow update: if isAdmin() && stockDatesValidIfChanged() && (
         (
           !changedKeys().hasAny(['quantity', 'reservedQuantity'])
           && stockPriceValidIfPresent()

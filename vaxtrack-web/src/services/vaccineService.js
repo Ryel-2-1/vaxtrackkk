@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { validateStockCorrection } from "./stockCorrection";
+import { validateStockBatchDates } from "./stockBatchDates";
 
 const VACCINES = "vaccines";
 const VACCINE_TYPES = "vaccineTypes";
@@ -83,12 +84,22 @@ export async function addStockBatch({
   manufacturer,
   internalSku,
   batchId,
+  manufacturingDate,
   arrivalDate,
   expiryDate,
   quantity,
   sellingPriceCentavos,
   status,
-}) {
+}, { todayIso } = {}) {
+  // The batch's dates, re-checked here so nothing invalid reaches Firestore
+  // even if a caller skipped the form: manufacturing present, real, not in the
+  // future (Asia/Manila), on/before arrival and before expiry; plus the
+  // existing arrival/expiry rules. Date-only strings, never browser Dates.
+  // `todayIso` exists for tests; the app always uses today in Manila.
+  const dates = validateStockBatchDates({ manufacturingDate, arrivalDate, expiryDate, todayIso });
+  if (!dates.ok) {
+    throw new Error(dates.message);
+  }
   // Refused here as well as in the rules and the callable. A price that reaches
   // Firestore as a float, a string or a zero is a price that will eventually be
   // read as one, and the cheapest place to stop it is before the write.
@@ -106,8 +117,10 @@ export async function addStockBatch({
     manufacturer,
     internalSku: internalSku || "",
     batchId,
-    arrivalDate,
-    expiryDate,
+    // Date-only 'YYYY-MM-DD' strings — the canonical, validated values.
+    manufacturingDate: dates.value.manufacturingDate,
+    arrivalDate: dates.value.arrivalDate,
+    expiryDate: dates.value.expiryDate,
     quantity,
     // Every batch starts with nothing reserved.
     //

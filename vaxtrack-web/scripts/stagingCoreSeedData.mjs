@@ -229,6 +229,9 @@ export function buildSeedPlan({ today = SEED_DATE } = {}) {
         manufacturer: v.manufacturer,
         internalSku: `VTSEED-SKU-${pad2(v.n)}`,
         batchId,
+        // Fictional, deterministic: 60 days before the seed date, which is on/before
+        // arrival and before every batch's expiry (the rules require both).
+        manufacturingDate: addDaysIso(today, -60),
         arrivalDate: today,
         expiryDate, // 'YYYY-MM-DD' (10 chars) — rule requires size == 10
         quantity: b.qty, // positive integer
@@ -427,6 +430,13 @@ export function validateSeedPlan(plan) {
     expect(vaccineIds.has(b.data.vaccineId), `batch ${b.id} references an unknown vaccine`);
     expect(typeof b.data.expiryDate === "string" && b.data.expiryDate.length === 10,
       `batch ${b.id} expiryDate must be 'YYYY-MM-DD'`);
+    expect(
+      typeof b.data.manufacturingDate === "string" &&
+        /^\d{4}-\d{2}-\d{2}$/.test(b.data.manufacturingDate) &&
+        b.data.manufacturingDate <= b.data.arrivalDate &&
+        b.data.manufacturingDate < b.data.expiryDate,
+      `batch ${b.id} manufacturingDate must be 'YYYY-MM-DD', on/before arrival and before expiry`
+    );
     expect(Number.isInteger(b.data.quantity) && b.data.quantity > 0,
       `batch ${b.id} quantity must be a positive integer`);
     expect(b.data.reservedQuantity === 0, `batch ${b.id} reservedQuantity must be 0`);

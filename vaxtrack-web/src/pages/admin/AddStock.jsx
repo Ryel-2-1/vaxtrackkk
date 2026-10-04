@@ -7,6 +7,7 @@ import {
   addStockBatch,
 } from "../../services/vaccineService";
 import { parsePesosToCentavos } from "../../services/money";
+import { validateStockBatchDates } from "../../services/stockBatchDates";
 import "./AdminForms.css";
 
 function AddStock() {
@@ -16,6 +17,8 @@ function AddStock() {
   const [selectedVaccineId, setSelectedVaccineId] = useState("");
   const [manufacturer, setManufacturer] = useState("");
   const [batchId, setBatchId] = useState("");
+  // Date-only 'YYYY-MM-DD' straight from the date input; never a browser Date.
+  const [manufacturingDate, setManufacturingDate] = useState("");
   const [arrivalDate, setArrivalDate] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
   // Starts empty rather than a pre-filled figure: a default quantity is a
@@ -105,45 +108,12 @@ function AddStock() {
       return false;
     }
 
-    if (!arrivalDate) {
-      showMessage("Arrival date is required.");
-      return false;
-    }
-
-    if (!expiryDate) {
-      showMessage("Expiry date is required.");
-      return false;
-    }
-
-    const today = normalizeDate(new Date());
-    const arrival = normalizeDate(new Date(arrivalDate));
-    const expiry = normalizeDate(new Date(expiryDate));
-
-    if (Number.isNaN(arrival.getTime())) {
-      showMessage("Arrival date is invalid.");
-      return false;
-    }
-
-    if (Number.isNaN(expiry.getTime())) {
-      showMessage("Expiry date is invalid.");
-      return false;
-    }
-
-    const maxFutureArrivalDate = new Date(today);
-    maxFutureArrivalDate.setDate(maxFutureArrivalDate.getDate() + 30);
-
-    if (arrival > maxFutureArrivalDate) {
-      showMessage("Arrival date cannot be more than 30 days in the future.");
-      return false;
-    }
-
-    if (expiry <= arrival) {
-      showMessage("Expiry date must be after the arrival date.");
-      return false;
-    }
-
-    if (expiry <= today) {
-      showMessage("Expired stock cannot be added to inventory.");
+    // Manufacturing, arrival and expiry, compared as date-only strings against
+    // today in Asia/Manila (services/stockBatchDates.js). Same arrival/expiry
+    // rules as before; the service repeats this check before writing.
+    const dates = validateStockBatchDates({ manufacturingDate, arrivalDate, expiryDate });
+    if (!dates.ok) {
+      showMessage(dates.message);
       return false;
     }
 
@@ -222,6 +192,7 @@ function AddStock() {
         manufacturer: cleanedManufacturer,
         internalSku: selectedVaccine.internalSku,
         batchId: cleanedBatchId,
+        manufacturingDate,
         arrivalDate,
         expiryDate,
         quantity: Number(String(quantity).trim()),
@@ -343,7 +314,8 @@ function AddStock() {
               Logistics & Quantity
             </h2>
 
-            <div className="three-col-form">
+            {/* Batch ID, Manufacturing, Arrival, Expiry — a responsive 2 × 2. */}
+            <div className="two-col-form">
               <div>
                 <label htmlFor="stock-batch-id">Batch ID</label>
                 <input
@@ -351,6 +323,17 @@ function AddStock() {
                   placeholder="BT-2026-X90"
                   value={batchId}
                   onChange={(e) => setBatchId(e.target.value.toUpperCase())}
+                />
+              </div>
+
+              <div>
+                <label htmlFor="stock-manufacturing-date">Manufacturing Date</label>
+                <input
+                  id="stock-manufacturing-date"
+                  type="date"
+                  required
+                  value={manufacturingDate}
+                  onChange={(e) => setManufacturingDate(e.target.value)}
                 />
               </div>
 

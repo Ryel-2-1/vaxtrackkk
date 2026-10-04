@@ -51,6 +51,15 @@ export const INVENTORY_EXPORT_COLUMN_DEFS = [
   { key: "type", header: "Vaccine type", kind: "text", width: 18 },
   { key: "batch", header: "Batch ID", kind: "text", width: 18 },
   {
+    // Before Expiry — the batch's dates read in lifecycle order. Legacy
+    // batches without one export an empty cell, like any other missing date.
+    key: "manufactured",
+    header: "Manufacturing date",
+    kind: "date",
+    width: 18,
+    format: "mmm d, yyyy",
+  },
+  {
     key: "expiry",
     header: "Expiry date",
     kind: "date",
@@ -168,6 +177,7 @@ export function toInventoryExportRow(item) {
     name: cleanText(item?.name),
     type: cleanText(item?.type),
     batch: cleanText(item?.batch),
+    manufactured: coerceExportDate(item?.manufacturingRaw),
     expiry: coerceExportDate(item?.expiryRaw),
     onHand: finiteNumberOrNull(item?.onHandValue),
     reserved: finiteNumberOrNull(item?.reservedValue),

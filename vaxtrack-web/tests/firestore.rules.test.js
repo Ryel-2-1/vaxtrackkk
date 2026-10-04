@@ -605,6 +605,8 @@ async function main() {
     await assertSucceeds(setDoc(doc(admin, "inventory", "invAdmin"), {
       vaccineName: "Y",
       batchId: "ADM-0001",
+      manufacturingDate: "2026-08-01",
+      arrivalDate: "2026-09-01",
       expiryDate: "2027-12-31",
       quantity: 100,
       reservedQuantity: 0,
@@ -3168,6 +3170,7 @@ async function main() {
   await check("Nlock7 a new stock batch must be a valid integer batch", async () => {
     const valid = {
       vaccineName: "V", batchId: "B-1", expiryDate: "2027-12-31",
+      manufacturingDate: "2026-08-01", arrivalDate: "2026-09-01",
       quantity: 10, reservedQuantity: 0, sellingPriceCentavos: 125000,
     };
     await assertSucceeds(setDoc(doc(admin, "inventory", "invValid"), valid));
@@ -3272,6 +3275,7 @@ async function main() {
   await check("Nprice3 a new stock batch must carry a valid positive price", async () => {
     const valid = {
       vaccineName: "V", batchId: "B-PRICE", expiryDate: "2027-12-31",
+      manufacturingDate: "2026-08-01", arrivalDate: "2026-09-01",
       quantity: 10, reservedQuantity: 0, sellingPriceCentavos: 125000,
     };
     await assertSucceeds(setDoc(doc(admin, "inventory", "invPriced"), valid));
@@ -3355,6 +3359,7 @@ async function main() {
     // the rule is guarded by presence, so it does not strand legacy stock.
     await assertSucceeds(setDoc(doc(admin, "inventory", "invLegacyNoPrice"), {
       vaccineName: "Legacy", batchId: "LEG-1", expiryDate: "2027-12-31",
+      manufacturingDate: "2026-08-01", arrivalDate: "2026-09-01",
       quantity: 5, reservedQuantity: 0, sellingPriceCentavos: 100,
     }));
     await assertSucceeds(updateDoc(doc(admin, "inventory", "invLegacyNoPrice"), {
@@ -4084,6 +4089,120 @@ async function main() {
     await assertSucceeds(setDoc(doc(applicant, "users", "terrApplicant"), {
       role: "salesrep", status: "pending", fullName: "New Applicant", email: "new@x.com",
     }));
+  });
+
+  // ---------------------------------------------------------------- manufacturing date
+  //
+  // New batches carry a date-only manufacturingDate, on/before arrivalDate and
+  // before expiryDate. Legacy batches without it keep loading and updating.
+  const newBatch = (over = {}) => ({
+    vaccineName: "MFG Vaccine", batchId: "MFG-0001",
+    manufacturingDate: "2026-08-01", arrivalDate: "2026-09-01", expiryDate: "2027-09-01",
+    quantity: 10, reservedQuantity: 0, sellingPriceCentavos: 125000,
+    ...over,
+  });
+
+  await check("MFG1 Admin creates a batch with a valid manufacturing date", async () => {
+    await assertSucceeds(setDoc(doc(admin, "inventory", "mfgValid"), newBatch()));
+    // Manufactured and received the same day is allowed.
+    await assertSucceeds(setDoc(doc(admin, "inventory", "mfgSameDay"), newBatch({ manufacturingDate: "2026-09-01" })));
+  });
+
+  await check("MFG2 a missing, malformed or out-of-order manufacturing date is refused", async () => {
+    const missing = newBatch();
+    delete missing.manufacturingDate;
+    await assertFails(setDoc(doc(admin, "inventory", "mfgBad"), missing));
+    const noArrival = newBatch();
+    delete noArrival.arrivalDate;
+    await assertFails(setDoc(doc(admin, "inventory", "mfgBad"), noArrival));
+    for (const manufacturingDate of ["", "2026-8-01", "01/08/2026", "2026-13-01", "2026-08-32", 20260801, null]) {
+      await assertFails(setDoc(doc(admin, "inventory", "mfgBad"), newBatch({ manufacturingDate })));
+    }
+    // After arrival, on expiry, after expiry.
+    await assertFails(setDoc(doc(admin, "inventory", "mfgBad"), newBatch({ manufacturingDate: "2026-09-02" })));
+    await assertFails(setDoc(doc(admin, "inventory", "mfgBad"), newBatch({ manufacturingDate: "2026-09-01", arrivalDate: "2026-09-01", expiryDate: "2026-09-01" })));
+    await assertFails(setDoc(doc(admin, "inventory", "mfgBad"), newBatch({ manufacturingDate: "2026-08-01", arrivalDate: "2026-08-01", expiryDate: "2026-07-01" })));
+  });
+
+  await check("MFG3 non-admins still cannot create stock", async () => {
+    for (const db of [dispatcher, salesRep, rider, anon]) {
+      await assertFails(setDoc(doc(db, "inventory", "mfgNonAdmin"), newBatch()));
+    }
+  });
+
+  await check("MFG4 legacy batches without the field stay readable and updatable", async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "inventory", "mfgLegacy"), {
+        vaccineName: "Legacy", batchId: "LEG-MFG", arrivalDate: "2026-01-20", expiryDate: "2027-12-31",
+        quantity: 20, reservedQuantity: 0, sellingPriceCentavos: 50000,
+      })
+    );
+    await assertSucceeds(getDoc(doc(salesRep, "inventory", "mfgLegacy")));
+    await assertSucceeds(getDoc(doc(admin, "inventory", "mfgLegacy")));
+    // An unrelated correction still works without the field.
+    await assertSucceeds(updateDoc(doc(admin, "inventory", "mfgLegacy"), { manufacturer: "Corrected" }));
+    // Adding one later is held to the same shape and order.
+    await assertFails(updateDoc(doc(admin, "inventory", "mfgLegacy"), { manufacturingDate: "2026/01/01" }));
+    await assertFails(updateDoc(doc(admin, "inventory", "mfgLegacy"), { manufacturingDate: "2028-01-01" }));
+    await assertSucceeds(updateDoc(doc(admin, "inventory", "mfgLegacy"), { manufacturingDate: "2026-01-15" }));
+  });
+
+  await check("MFG5 a date update must leave manufacturing <= arrival < expiry", async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "inventory", "mfgDates"), newBatch({ batchId: "MFG-DATES" }))
+    );
+    const ref = doc(admin, "inventory", "mfgDates"); // mfg 2026-08-01, arrival 2026-09-01, expiry 2027-09-01
+    // 1 · arrival moved before manufacturing
+    await assertFails(updateDoc(ref, { arrivalDate: "2026-07-31" }));
+    // 2 · expiry on / before manufacturing
+    await assertFails(updateDoc(ref, { expiryDate: "2026-08-01" }));
+    await assertFails(updateDoc(ref, { expiryDate: "2026-07-01" }));
+    // 3 · expiry on / before arrival (but after manufacturing)
+    await assertFails(updateDoc(ref, { expiryDate: "2026-09-01" }));
+    await assertFails(updateDoc(ref, { expiryDate: "2026-08-15" }));
+    // a malformed or removed date is refused too
+    await assertFails(updateDoc(ref, { arrivalDate: "2026-9-1" }));
+    await assertFails(updateDoc(ref, { arrivalDate: deleteField() }));
+    // 4 · a valid coordinated update is accepted
+    await assertSucceeds(updateDoc(ref, { manufacturingDate: "2026-07-01", arrivalDate: "2026-07-15", expiryDate: "2027-07-15" }));
+    await assertSucceeds(updateDoc(ref, { arrivalDate: "2026-07-01" })); // equal to manufacturing is allowed
+  });
+
+  await check("MFG6 a legacy batch without manufacturingDate: unrelated updates pass, date edits need one", async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "inventory", "mfgLegacy2"), {
+        vaccineName: "Legacy", batchId: "LEG-MFG-2", arrivalDate: "2026-01-20", expiryDate: "2027-12-31",
+        quantity: 20, reservedQuantity: 0, sellingPriceCentavos: 50000,
+      })
+    );
+    const ref = doc(admin, "inventory", "mfgLegacy2");
+    // 5 · an unrelated permitted update is unaffected by the missing field
+    await assertSucceeds(updateDoc(ref, { manufacturer: "Corrected Manufacturer" }));
+    // 6 · editing a date without supplying a manufacturing date is refused
+    await assertFails(updateDoc(ref, { expiryDate: "2027-11-30" }));
+    await assertFails(updateDoc(ref, { arrivalDate: "2026-01-25" }));
+    // 7 · editing the dates while adding a valid manufacturing date is accepted
+    await assertSucceeds(updateDoc(ref, { manufacturingDate: "2026-01-10", expiryDate: "2027-11-30" }));
+  });
+
+  await check("MFG7 date updates stay Admin-only", async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "inventory", "mfgNonAdminUpd"), newBatch({ batchId: "MFG-NA" }))
+    );
+    // 8 · every non-admin is refused, even with a fully valid date set
+    const valid = { manufacturingDate: "2026-07-01", arrivalDate: "2026-07-15", expiryDate: "2027-07-15" };
+    for (const db of [dispatcher, salesRep, rider, anon]) {
+      await assertFails(updateDoc(doc(db, "inventory", "mfgNonAdminUpd"), valid));
+      await assertFails(updateDoc(doc(db, "inventory", "mfgNonAdminUpd"), { manufacturer: "X" }));
+    }
+  });
+
+  await check("MFG8 date checks leave the quantity/reservation guards unchanged", async () => {
+    const ref = doc(admin, "inventory", "mfgDates");
+    // A valid date edit cannot smuggle a reserved or on-hand change through.
+    await assertFails(updateDoc(ref, { expiryDate: "2027-08-15", reservedQuantity: 5 }));
+    await assertFails(updateDoc(ref, { expiryDate: "2027-08-15", quantity: 9999 }));
+    await assertSucceeds(updateDoc(ref, { expiryDate: "2027-08-15" }));
   });
   await testEnv.cleanup();
 

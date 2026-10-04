@@ -22,6 +22,7 @@ function completeItem(overrides = {}) {
     name: "Pfizer-BioNTech",
     type: "mRNA",
     batch: "PFZ-2026-01",
+    manufacturingRaw: "2026-06-01",
     expiryRaw: "2026-12-31",
     onHandValue: 1200,
     reservedValue: 200,
@@ -41,6 +42,7 @@ test("column headers and order are fixed and in sync with the columns", () => {
     "Vaccine name",
     "Vaccine type",
     "Batch ID",
+    "Manufacturing date",
     "Expiry date",
     "On hand",
     "Reserved",
@@ -67,6 +69,7 @@ test("a complete row maps every business field, and nothing else", () => {
   assert.equal(row.name, "Pfizer-BioNTech");
   assert.equal(row.type, "mRNA");
   assert.equal(row.batch, "PFZ-2026-01");
+  assert.ok(row.manufactured instanceof Date);
   assert.ok(row.expiry instanceof Date);
   assert.equal(row.onHand, 1200);
   assert.equal(row.reserved, 200);
@@ -84,6 +87,7 @@ test("a complete row maps every business field, and nothing else", () => {
     "available",
     "batch",
     "expiry",
+    "manufactured",
     "name",
     "onHand",
     "reserved",
@@ -122,9 +126,9 @@ test("missing optional fields degrade to empty text / null numbers, not zeros", 
 
 test("quantities are written as numeric cells, empties as blank cells", () => {
   const columns = buildInventoryExportColumns();
-  const onHand = columns[4];
-  const reserved = columns[5];
-  const available = columns[6];
+  const onHand = columns[5];
+  const reserved = columns[6];
+  const available = columns[7];
   const row = toInventoryExportRow(completeItem());
 
   assert.deepEqual(onHand.cell(row), { type: Number, value: 1200 });
@@ -137,7 +141,7 @@ test("quantities are written as numeric cells, empties as blank cells", () => {
 });
 
 test("price stays numeric, comes from centavos, and carries peso formatting", () => {
-  const priceCol = buildInventoryExportColumns()[7];
+  const priceCol = buildInventoryExportColumns()[8];
   assert.equal(priceCol.header.value, "Unit price (₱)");
 
   // 125050 centavos -> 1250.50 pesos, numeric with a peso number format.
@@ -182,7 +186,7 @@ test("valid dates convert to real Dates from every supported shape", () => {
   assert.equal(iso.getUTCMonth(), 2);
 
   // In a date column this becomes a typed Date cell.
-  const expiryCol = buildInventoryExportColumns()[3];
+  const expiryCol = buildInventoryExportColumns()[4];
   const cell = expiryCol.cell(toInventoryExportRow(completeItem()));
   assert.equal(cell.type, Date);
   assert.equal(cell.format, "mmm d, yyyy");
@@ -208,7 +212,7 @@ test("invalid or missing dates yield null and never throw", () => {
   }
 
   // The date column renders a blank cell rather than crashing.
-  const expiryCol = buildInventoryExportColumns()[3];
+  const expiryCol = buildInventoryExportColumns()[4];
   assert.equal(expiryCol.cell(toInventoryExportRow({ expiryRaw: "" })), null);
 });
 
@@ -321,4 +325,20 @@ test("smoke: the real write-excel-file/node engine produces a valid .xlsx buffer
   assert.ok(buffer.length > 0);
   // .xlsx is a ZIP: the local file header signature is PK\x03\x04.
   assert.deepEqual([...buffer.subarray(0, 4)], [0x50, 0x4b, 0x03, 0x04]);
+});
+
+test("Manufacturing date exports beside Expiry, and a legacy batch exports a blank cell", () => {
+  const columns = buildInventoryExportColumns();
+  const idx = INVENTORY_EXPORT_HEADERS.indexOf("Manufacturing date");
+  assert.equal(INVENTORY_EXPORT_HEADERS[idx + 1], "Expiry date", "sits immediately before Expiry date");
+  const col = columns[idx];
+
+  const cell = col.cell(toInventoryExportRow(completeItem()));
+  assert.equal(cell.type, Date);
+  assert.equal(cell.format, "mmm d, yyyy", "same format as the other batch date");
+  assert.equal(cell.value.toISOString().slice(0, 10), "2026-06-01", "the stored calendar day, not shifted");
+
+  // A batch created before the field existed: empty cell, like any missing date.
+  assert.equal(col.cell(toInventoryExportRow(completeItem({ manufacturingRaw: "" }))), null);
+  assert.equal(col.cell(toInventoryExportRow(completeItem({ manufacturingRaw: undefined }))), null);
 });
