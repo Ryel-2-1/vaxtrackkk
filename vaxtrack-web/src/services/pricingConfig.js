@@ -12,16 +12,39 @@
  * VAT is extracted from a VATable amount, never added on top. Whether an
  * amount IS VATable is not decided here (classification is unresolved).
  *
+ * NEW RECORDS ONLY. PRICES_INCLUDE_VAT is what a new record is stamped with.
+ * An existing record is read under its OWN `priceIsVatInclusive`: one stamped
+ * `false` keeps its VAT-exclusive meaning and is labelled as legacy pricing.
+ *
  * Pure module (no Firebase) so node tests import it directly.
  */
 
 /** VAT rate for VATable sales, in percent. */
 export const VAT_RATE_PERCENT = 12;
-/** Prices entered and shown in VaxTrack already include VAT (for VATable products). */
+/** The convention stamped on NEW records: their prices already include VAT (for VATable products). */
 export const PRICES_INCLUDE_VAT = true;
 
-/** The wording shown wherever prices appear. Never claims every vaccine is VATable. */
+/** The wording for VAT-inclusive data. Never claims every vaccine is VATable. */
 export const VAT_INCLUSIVE_NOTE = "Prices are VAT-inclusive for VATable products.";
+/** The wording for a record whose prices were recorded VAT-exclusive. */
+export const LEGACY_VAT_EXCLUSIVE_NOTE = "Legacy pricing — VAT recorded as exclusive.";
+
+/** A record's stored convention: true, false, or null when it carries no boolean. */
+export function readPriceConvention(value) {
+  return typeof value === "boolean" ? value : null;
+}
+
+/**
+ * The pricing note for ONE record, from its own stored convention. Null when
+ * the record does not say — neither wording is ever shown on a guess, and the
+ * VAT-inclusive wording is never shown on a legacy record.
+ */
+export function priceConventionNote(priceIsVatInclusive) {
+  const inclusive = readPriceConvention(priceIsVatInclusive);
+  if (inclusive === true) return VAT_INCLUSIVE_NOTE;
+  if (inclusive === false) return LEGACY_VAT_EXCLUSIVE_NOTE;
+  return null;
+}
 
 /**
  * Split a VAT-inclusive VATable amount (integer centavos) into VAT and net:

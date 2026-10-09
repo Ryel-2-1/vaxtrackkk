@@ -5,9 +5,11 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
+  LEGACY_VAT_EXCLUSIVE_NOTE,
   PRICES_INCLUDE_VAT,
   VAT_INCLUSIVE_NOTE,
   VAT_RATE_PERCENT,
+  priceConventionNote,
   splitVatInclusiveCentavos,
 } from "../src/services/pricingConfig.js";
 import { receiptPriceLabels } from "../src/services/orderHistory.js";
@@ -18,7 +20,8 @@ import { receiptPriceLabels } from "../src/services/orderHistory.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
-const read = (...p) => readFileSync(join(root, ...p), "utf8");
+// Line-ending neutral: a Windows checkout stores CRLF in the working tree.
+const read = (...p) => readFileSync(join(root, ...p), "utf8").replace(/\r\n/g, "\n");
 const require = createRequire(import.meta.url);
 const server = require("../functions/src/pricingConfig.js");
 
@@ -77,10 +80,51 @@ function sources(dir) {
   return out;
 }
 
+// The ONLY code allowed to put VAT on top of a price: the preserved legacy
+// calculation for records stamped `priceIsVatInclusive: false`. Each is a named,
+// top-level function, stripped before the scan below — so VAT-on-top anywhere
+// else (a NEW record) still fails this test.
+const LEGACY_VAT_ON_TOP = /\nfunction (legacyItemizedTotals|legacyExclusiveTotals|legacyVatOnTopCentavos)\([\s\S]*?\r?\n}\r?\n/g;
+
+test("the legacy VAT-on-top arithmetic exists only in its named functions, behind an explicit false", () => {
+  const model = read("src/services/invoiceModel.js");
+  assert.equal(model.match(LEGACY_VAT_ON_TOP)?.length, 2);
+  assert.match(model, /if \(!inclusive\) \{\r?\n\s+if \(vatClassification === ITEMIZED_VAT && hasItemizedVat\(items\)\) \{\r?\n\s+return legacyItemizedTotals\(/);
+  const server = read("functions/src/pricingConfig.js");
+  assert.equal(server.match(LEGACY_VAT_ON_TOP)?.length, 1);
+  const pricing = read("functions/src/invoicePricing.js");
+  // Called only from the `else` (inclusive === false) branches.
+  assert.equal((pricing.match(/legacyVatOnTopCentavos\(/g) ?? []).length, 2);
+  assert.doesNotMatch(pricing, /PRICES_INCLUDE_VAT/, "an existing record's totals never read the new-record default");
+});
+
+test("the new-record default is read only where a NEW record is stamped or quoted", () => {
+  // Existing orders, receipts, drafts and invoices take their own stored flag.
+  for (const f of [
+    "functions/src/invoicePricing.js",
+    "functions/src/invoiceOperations.js",
+    "functions/src/orderHistory.js",
+    "functions/src/orderHistoryOutbox.js",
+    "src/services/orderHistory.js",
+  ]) {
+    assert.doesNotMatch(read(f), /PRICES_INCLUDE_VAT|PRICE_IS_VAT_INCLUSIVE/, f);
+  }
+  // operations.js stamps it on a new order; the replay reads the order's own flag.
+  const ops = read("functions/src/operations.js");
+  assert.doesNotMatch(ops, /priceIsVatInclusive \?\? PRICE_IS_VAT_INCLUSIVE/);
+  assert.match(ops, /priceIsVatInclusive: readPriceConvention\(order\.priceIsVatInclusive\)/);
+  // The web model uses the default for a brand-new manual invoice only.
+  const model = read("src/services/invoiceModel.js").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.equal((model.match(/PRICES_INCLUDE_VAT/g) ?? []).length, 2, "import + new manual invoice");
+});
+
 test("no code adds VAT on top of a price, and 12 is defined only in the pricing configuration", () => {
   const files = [...sources(join(root, "src")), ...sources(join(root, "functions", "src"))];
   for (const f of files) {
-    const code = readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const code = readFileSync(f, "utf8")
+      .replace(LEGACY_VAT_ON_TOP, "\n")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
     assert.doesNotMatch(code, /\*\s*1\.12\b|\*\s*0\.12\b|vatRate\s*\/\s*100|VAT_STANDARD_RATE\)?\s*\/\s*100|\+\s*vatAmount\s*\+\s*other/i, f);
     if (!/pricingConfig\.js$/.test(f)) {
       assert.doesNotMatch(code, /VAT[A-Z_]*\s*=\s*12\b/, `${f} must take the VAT rate from pricingConfig`);
@@ -98,26 +142,50 @@ test("price wording says VAT-inclusive for VATable products, never that every va
     assert.doesNotMatch(text, /excl\.? VAT|excluding VAT|(?<!no )VAT is added|added at invoicing|adds 12%/i, f);
     assert.doesNotMatch(text, /all (vaccines|products) are VATable/i, f);
   }
+  // Price ENTRY (a new record) always states the current convention.
   for (const page of [
     "src/pages/salesRep/SalesRepPlaceOrder.jsx",
-    "src/pages/salesRep/SalesRepOrderConfirmation.jsx",
     "src/pages/admin/AddStock.jsx",
     "src/pages/admin/Inventory.jsx",
-    "src/pages/admin/InvoiceEditor.jsx",
   ]) {
     assert.match(read(page), /VAT_INCLUSIVE_NOTE/, `${page} states the convention`);
   }
+  // A page showing an EXISTING record labels it by that record's own flag.
+  for (const page of [
+    "src/pages/salesRep/SalesRepOrderConfirmation.jsx",
+    "src/pages/admin/InvoiceEditor.jsx",
+  ]) {
+    const text = read(page);
+    assert.match(text, /priceConventionNote\(/, `${page} labels the record's own convention`);
+    assert.doesNotMatch(text, /VAT_INCLUSIVE_NOTE/, `${page} never hard-codes the VAT-inclusive wording`);
+  }
   assert.match(read("src/pages/salesRep/SalesRepRequestOrder.jsx"), /per vial · VAT-inclusive for VATable products/);
+});
+
+test("new and legacy records get different, exact labels", () => {
+  assert.equal(priceConventionNote(true), "Prices are VAT-inclusive for VATable products.");
+  assert.equal(priceConventionNote(false), "Legacy pricing — VAT recorded as exclusive.");
+  assert.equal(LEGACY_VAT_EXCLUSIVE_NOTE, "Legacy pricing — VAT recorded as exclusive.");
+  for (const missing of [undefined, null, "false", 0]) assert.equal(priceConventionNote(missing), null);
 });
 
 test("a receipt is described by the convention recorded on it — historical ones are not re-labelled", () => {
   const now = receiptPriceLabels({ priceIsVatInclusive: true });
   assert.equal(now.inclusive, true);
   assert.match(now.subtotalLabel, /VAT-inclusive for VATable products/);
+  assert.equal(now.note, VAT_INCLUSIVE_NOTE);
   const old = receiptPriceLabels({ priceIsVatInclusive: false });
   assert.equal(old.inclusive, false);
+  assert.equal(old.legacy, true);
   assert.match(old.subtotalLabel, /recorded as VAT-exclusive/);
-  assert.match(old.note, /shown exactly as recorded/);
+  assert.equal(old.note, "Legacy pricing — VAT recorded as exclusive.");
+  assert.doesNotMatch(JSON.stringify(old), /VAT-inclusive/, "never the VAT-inclusive wording on a legacy record");
+  // A record with no convention claims neither.
+  for (const missing of [{}, { priceIsVatInclusive: null }, { priceIsVatInclusive: "true" }]) {
+    const none = receiptPriceLabels(missing);
+    assert.deepEqual([none.inclusive, none.legacy, none.subtotalLabel], [false, false, "Subtotal"]);
+    assert.doesNotMatch(none.note, /VAT-inclusive for VATable|Legacy pricing/);
+  }
   const detail = read("src/components/history/OrderHistoryDetail.jsx");
   assert.match(detail, /formatCentavos\(receipt\.subtotalCentavos\)/, "stored amounts, never recomputed");
   assert.match(detail, /formatCentavos\(receipt\.vatAmountCentavos\)/);

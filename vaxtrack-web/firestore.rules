@@ -780,10 +780,20 @@ service cloud.firestore {
     // which would have let one admin record a re-price as another's — or as
     // null. Pinned to request.auth.uid and request.time, so the audit trail on
     // a price change is evidence rather than a claim.
+    //
+    // The price CONVENTION travels with the price. A price entered now is
+    // VAT-inclusive, so a re-price must stamp `priceIsVatInclusive == true`,
+    // and the flag can only ever be set to true — by the same audited act. A
+    // legacy batch recorded VAT-exclusive therefore becomes orderable again
+    // only through an Admin re-confirming its price; nothing flips it silently.
     function stockPriceAuditValid() {
       let d = request.resource.data;
-      return !changedKeys().hasAny(['sellingPriceCentavos'])
-        || (d.priceSetAt == request.time && d.priceSetByUid == request.auth.uid);
+      return !changedKeys().hasAny(['sellingPriceCentavos', 'priceIsVatInclusive'])
+        || (
+          d.priceSetAt == request.time
+          && d.priceSetByUid == request.auth.uid
+          && d.get('priceIsVatInclusive', null) == true
+        );
     }
 
     // Number.MAX_SAFE_INTEGER. NOT a price cap — there is deliberately no
@@ -1772,11 +1782,19 @@ service cloud.firestore {
         && request.resource.data.invoiceNumber.matches('INV-[0-9]{4}-[0-9]{6}')
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time
-        && request.resource.data.createdByUid == request.auth.uid;
+        && request.resource.data.createdByUid == request.auth.uid
+        // A NEW manual invoice records the current convention: its prices are
+        // entered VAT-inclusive (pricingConfig.js).
+        && request.resource.data.get('priceIsVatInclusive', null) == true;
 
       allow update: if isAdmin()
         // A priced order's invoice is the callable's alone — see above.
         && !invoiceOrderIsServerPriced(invoiceId)
+        // The convention a manual invoice was recorded under never changes. A
+        // draft saved before the flag existed was computed VAT-exclusive, so an
+        // absent flag reads as false — and stays false.
+        && request.resource.data.get('priceIsVatInclusive', false)
+             == resource.data.get('priceIsVatInclusive', false)
         // identity + creation trail are immutable
         && request.resource.data.orderId == resource.data.orderId
         && request.resource.data.invoiceNumber == resource.data.invoiceNumber

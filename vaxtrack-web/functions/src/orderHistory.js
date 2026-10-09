@@ -54,6 +54,7 @@
  */
 
 const { computeInvoiceTotalsCentavos, VAT_STANDARD_RATE, ITEMIZED_VAT } = require("./invoicePricing");
+const { readPriceConvention } = require("./pricingConfig");
 const { PolicyError } = require("./policy");
 
 const RECEIPTS = "orderReceipts";
@@ -397,6 +398,8 @@ function buildOrderReceipt({
       subtotalCentavos,
       adjustments: { discountCentavos: 0, otherChargesCentavos: 0, withholdingTaxCentavos: 0, vatClassification: ITEMIZED_VAT },
       items: lines,
+      // The convention this new order was stamped with, in the same transaction.
+      priceIsVatInclusive: orderFields.priceIsVatInclusive,
     });
     vatStatus = classes.size > 1 ? "mixed" : [...classes][0];
     vatRatePercent = classes.has("vatable") ? VAT_STANDARD_RATE : 0;
@@ -508,7 +511,8 @@ function buildReconstructedReceipt(orderId, order) {
     totalQuantityRequested: lines.reduce((s, l) => s + l.quantityRequested, 0),
     pricingVersion: order.pricingVersion,
     priceCurrency: order.priceCurrency ?? "PHP",
-    priceIsVatInclusive: order.priceIsVatInclusive ?? false,
+    // As recorded, or null — a reconstruction never guesses a convention.
+    priceIsVatInclusive: readPriceConvention(order.priceIsVatInclusive),
     subtotalCentavos: Number.isInteger(order.subtotalCentavos) ? order.subtotalCentavos : null,
     vatStatus: "not_recorded",
     vatRatePercent: null,

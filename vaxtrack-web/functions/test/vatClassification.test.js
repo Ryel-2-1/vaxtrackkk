@@ -69,7 +69,7 @@ const adj = (over = {}) => ({ discountCentavos: 0, otherChargesCentavos: 0, with
 test("12% VAT applies to VATable lines only, in a mixed invoice — extracted, never added", () => {
   // Prices are VAT-inclusive (pricingConfig.js): the ₱1,000 VATable line already
   // contains its VAT; the invoice total stays ₱1,500.
-  const t = computeInvoiceTotalsCentavos({
+  const t = computeInvoiceTotalsCentavos({ priceIsVatInclusive: true,
     subtotalCentavos: 150000,
     items: [line("vatable", 100000), line("vat_exempt", 50000)],
     adjustments: adj(),
@@ -85,7 +85,7 @@ test("12% VAT applies to VATable lines only, in a mixed invoice — extracted, n
 
 test("a mixed invoice with a discount: split first, VAT on the discounted VATable sales, rounded once", () => {
   // 1,000.01 VATable + 500.00 exempt, ₱1.00 discount.
-  const t = computeInvoiceTotalsCentavos({
+  const t = computeInvoiceTotalsCentavos({ priceIsVatInclusive: true,
     subtotalCentavos: 150001,
     items: [line("vatable", 100001), line("vat_exempt", 50000)],
     adjustments: adj({ discountCentavos: 100, otherChargesCentavos: 500, withholdingTaxCentavos: 200 }),
@@ -102,7 +102,7 @@ test("a mixed invoice with a discount: split first, VAT on the discounted VATabl
 });
 
 test("an all-exempt itemized invoice carries no VAT", () => {
-  const t = computeInvoiceTotalsCentavos({ subtotalCentavos: 2000, items: [line("vat_exempt", 2000)], adjustments: adj() });
+  const t = computeInvoiceTotalsCentavos({ priceIsVatInclusive: true, subtotalCentavos: 2000, items: [line("vat_exempt", 2000)], adjustments: adj() });
   assert.equal(t.vatAmountCentavos, 0);
   assert.equal(t.vatRate, 0);
   assert.equal(t.vatExemptSalesCentavos, 2000);
@@ -110,19 +110,19 @@ test("an all-exempt itemized invoice carries no VAT", () => {
 
 test("an itemized invoice refuses a line without a valid snapshot", () => {
   assert.equal(
-    codeOf(() => computeInvoiceTotalsCentavos({ subtotalCentavos: 2000, items: [line(null, 2000)], adjustments: adj() })),
+    codeOf(() => computeInvoiceTotalsCentavos({ priceIsVatInclusive: true, subtotalCentavos: 2000, items: [line(null, 2000)], adjustments: adj() })),
     "order-snapshot-invalid"
   );
 });
 
 test("legacy (invoice-level) totals: VAT extracted from the VAT-inclusive amount", () => {
-  const t = computeInvoiceTotalsCentavos({
+  const t = computeInvoiceTotalsCentavos({ priceIsVatInclusive: true,
     subtotalCentavos: 80000,
     adjustments: adj({ vatClassification: "vatable" }),
   });
   // Was 80,000 + 9,600 = 89,600 (VAT on top); now ₱800 stays ₱800.
   assert.deepEqual([t.netCentavos, t.vatAmountCentavos, t.grandTotalCentavos], [71429, 8571, 80000]);
-  const z = computeInvoiceTotalsCentavos({ subtotalCentavos: 80000, adjustments: adj({ vatClassification: "zero_rated" }) });
+  const z = computeInvoiceTotalsCentavos({ priceIsVatInclusive: true, subtotalCentavos: 80000, adjustments: adj({ vatClassification: "zero_rated" }) });
   assert.equal(z.zeroRatedSalesCentavos, 80000);
 });
 
@@ -131,7 +131,7 @@ test("legacy (invoice-level) totals: VAT extracted from the VAT-inclusive amount
 const pricedOrder = (items) => ({
   pricingVersion: PRICING_VERSION,
   priceCurrency: PRICE_CURRENCY,
-  priceIsVatInclusive: false,
+  priceIsVatInclusive: true,
   unit: "vials",
   subtotalCentavos: items.reduce((s, i) => s + i.lineTotalCentavos, 0),
   items,
@@ -162,6 +162,59 @@ test("for an itemized order the caller cannot choose the VAT classification", ()
   // A legacy order still takes (and validates) the Admin's choice.
   assert.equal(validateAdjustments({ vatClassification: "zero_rated" }, 1000).vatClassification, "zero_rated");
   assert.equal(codeOf(() => validateAdjustments({ vatClassification: ITEMIZED_VAT }, 1000)), "invalid-adjustment");
+});
+
+// ---------------------------------------------------------------- legacy VAT-exclusive records
+//
+// An order recorded `priceIsVatInclusive: false` keeps the calculation it was
+// recorded under. These are the figures the per-item path produced before the
+// VAT-inclusive rule (VAT added on top), reproduced exactly.
+
+const legacyTotals = (a) => computeInvoiceTotalsCentavos({ priceIsVatInclusive: false, ...a });
+
+test("LEGACY per-item: 12% on top of the VATable lines, exactly as originally invoiced", () => {
+  const t = legacyTotals({
+    subtotalCentavos: 150000,
+    items: [line("vatable", 100000), line("vat_exempt", 50000)],
+    adjustments: adj(),
+  });
+  assert.deepEqual(
+    [t.vatableSalesCentavos, t.vatExemptSalesCentavos, t.vatAmountCentavos, t.netCentavos, t.grandTotalCentavos],
+    [100000, 50000, 12000, 150000, 162000]
+  );
+  // Discount split first, then 12% of the discounted VATable 99,934 = 11,992.08 → 11,992.
+  const d = legacyTotals({
+    subtotalCentavos: 150001,
+    items: [line("vatable", 100001), line("vat_exempt", 50000)],
+    adjustments: adj({ discountCentavos: 100, otherChargesCentavos: 500 }),
+  });
+  assert.deepEqual([d.vatableSalesCentavos, d.vatAmountCentavos, d.grandTotalCentavos], [99934, 11992, 149901 + 11992 + 500]);
+});
+
+test("LEGACY invoice-level: the original 800 / 96 / 896 case is unchanged", () => {
+  const t = legacyTotals({ subtotalCentavos: 80000, adjustments: adj({ vatClassification: "vatable" }) });
+  assert.deepEqual([t.netCentavos, t.vatAmountCentavos, t.grandTotalCentavos], [80000, 9600, 89600]);
+});
+
+test("the same figures under the two conventions differ — the convention is never inferred", () => {
+  const items = [line("vatable", 100000)];
+  const a = { subtotalCentavos: 100000, items, adjustments: adj() };
+  const now = computeInvoiceTotalsCentavos({ ...a, priceIsVatInclusive: true });
+  const old = legacyTotals(a);
+  assert.deepEqual([now.vatAmountCentavos, now.grandTotalCentavos], [10714, 100000]);
+  assert.deepEqual([old.vatAmountCentavos, old.grandTotalCentavos], [12000, 112000]);
+  for (const missing of [undefined, null, "true", 1, 0]) {
+    assert.equal(
+      codeOf(() => computeInvoiceTotalsCentavos({ ...a, priceIsVatInclusive: missing })),
+      "price-convention-required",
+      String(missing)
+    );
+  }
+});
+
+test("a legacy order's invoice base keeps its recorded convention", () => {
+  const base = buildInvoiceBaseFromOrder({ ...pricedOrder([orderLine("a", 2, 1000, "vatable")]), priceIsVatInclusive: false });
+  assert.equal(base.priceIsVatInclusive, false);
 });
 
 test("a stored invoice whose line snapshot was altered no longer matches its order", () => {

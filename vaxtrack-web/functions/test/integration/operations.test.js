@@ -115,20 +115,20 @@ async function seed(inventory = {}) {
   await doctorRef.collection("deliveryAddresses").doc(CLINIC).set({ active: true });
 
   const batches = {
-    good: { quantity: 100, reservedQuantity: 0, sellingPriceCentavos: PRICES.good, status: "OK", expiryDate: "2027-12-31", batchId: "MOD-STG-001", vaccineName: "Moderna COVID-19 Vaccine", vaccineType: "COVID-19", manufacturer: "Moderna" },
-    second: { quantity: 50, reservedQuantity: 5, sellingPriceCentavos: PRICES.second, status: "Low", expiryDate: "2027-10-30", batchId: "FLU-STG-002", vaccineName: "Flu Vaccine Quadrivalent", vaccineType: "Influenza" },
-    legacyString: { quantity: "120", sellingPriceCentavos: PRICE, status: "OK", expiryDate: "2027-12-31", batchId: "HEP-STG-003", vaccineName: "Hepatitis B Vaccine" },
-    badReserved: { quantity: 100, reservedQuantity: "5", sellingPriceCentavos: PRICE, status: "OK", expiryDate: "2027-12-31", batchId: "BAD-RES" },
-    expired: { quantity: 100, reservedQuantity: 0, sellingPriceCentavos: PRICE, status: "OK", expiryDate: "2020-01-01", batchId: "EXP-001" },
-    inactive: { quantity: 100, reservedQuantity: 0, sellingPriceCentavos: PRICE, status: "Recalled", expiryDate: "2027-12-31", batchId: "INACT-001" },
-    lastUnit: { quantity: 1, reservedQuantity: 0, sellingPriceCentavos: PRICE, status: "OK", expiryDate: "2027-12-31", batchId: "LAST-001", vaccineName: "Last One" },
-    shadowed: { quantity: 100, reservedQuantity: 0, sellingPriceCentavos: PRICE, status: "OK", expiryDate: "2027-12-31", batchId: "SHADOW-001", vaccineName: "Real Name", id: "ATTACKER_DOC_ID" },
+    good: { quantity: 100, reservedQuantity: 0, sellingPriceCentavos: PRICES.good, priceIsVatInclusive: true, status: "OK", expiryDate: "2027-12-31", batchId: "MOD-STG-001", vaccineName: "Moderna COVID-19 Vaccine", vaccineType: "COVID-19", manufacturer: "Moderna" },
+    second: { quantity: 50, reservedQuantity: 5, sellingPriceCentavos: PRICES.second, priceIsVatInclusive: true, status: "Low", expiryDate: "2027-10-30", batchId: "FLU-STG-002", vaccineName: "Flu Vaccine Quadrivalent", vaccineType: "Influenza" },
+    legacyString: { quantity: "120", sellingPriceCentavos: PRICE, priceIsVatInclusive: true, status: "OK", expiryDate: "2027-12-31", batchId: "HEP-STG-003", vaccineName: "Hepatitis B Vaccine" },
+    badReserved: { quantity: 100, reservedQuantity: "5", sellingPriceCentavos: PRICE, priceIsVatInclusive: true, status: "OK", expiryDate: "2027-12-31", batchId: "BAD-RES" },
+    expired: { quantity: 100, reservedQuantity: 0, sellingPriceCentavos: PRICE, priceIsVatInclusive: true, status: "OK", expiryDate: "2020-01-01", batchId: "EXP-001" },
+    inactive: { quantity: 100, reservedQuantity: 0, sellingPriceCentavos: PRICE, priceIsVatInclusive: true, status: "Recalled", expiryDate: "2027-12-31", batchId: "INACT-001" },
+    lastUnit: { quantity: 1, reservedQuantity: 0, sellingPriceCentavos: PRICE, priceIsVatInclusive: true, status: "OK", expiryDate: "2027-12-31", batchId: "LAST-001", vaccineName: "Last One" },
+    shadowed: { quantity: 100, reservedQuantity: 0, sellingPriceCentavos: PRICE, priceIsVatInclusive: true, status: "OK", expiryDate: "2027-12-31", batchId: "SHADOW-001", vaccineName: "Real Name", id: "ATTACKER_DOC_ID" },
     // Deliberately UNPRICED — the state every batch created before this
     // checkpoint is in, and the one ordering must refuse rather than sell at 0.
     unpriced: { quantity: 100, reservedQuantity: 0, status: "OK", expiryDate: "2027-12-31", batchId: "NOPRICE-001", vaccineName: "Unpriced Vaccine" },
     // Priced, but stored as TEXT — the same class of defect as a string
     // quantity, and refused for the same reason rather than coerced.
-    stringPrice: { quantity: 100, reservedQuantity: 0, sellingPriceCentavos: "125000", status: "OK", expiryDate: "2027-12-31", batchId: "STRPRICE-001", vaccineName: "Text Price Vaccine" },
+    stringPrice: { quantity: 100, reservedQuantity: 0, sellingPriceCentavos: "125000", priceIsVatInclusive: true, status: "OK", expiryDate: "2027-12-31", batchId: "STRPRICE-001", vaccineName: "Text Price Vaccine" },
   };
   for (const [id, data] of Object.entries(inventory)) {
     batches[id] = data && data.__isolate
@@ -345,10 +345,10 @@ test("vat: every order item snapshots its vaccine's classification", async (t) =
 
 test("vat: an unclassified product refuses the whole order before any write", async (t) => {
   await seed({
-    unlinked: { quantity: 10, reservedQuantity: 0, sellingPriceCentavos: PRICE, status: "OK", expiryDate: "2027-12-31", batchId: "NOVAC-001", vaccineId: null },
-    unclassified: { quantity: 10, reservedQuantity: 0, sellingPriceCentavos: PRICE, status: "OK", expiryDate: "2027-12-31", batchId: "NOCLS-001", vaccineId: "vaccineLegacy" },
-    badValue: { quantity: 10, reservedQuantity: 0, sellingPriceCentavos: PRICE, status: "OK", expiryDate: "2027-12-31", batchId: "BADCLS-001", vaccineId: "vaccineBad" },
-    ghost: { quantity: 10, reservedQuantity: 0, sellingPriceCentavos: PRICE, status: "OK", expiryDate: "2027-12-31", batchId: "GHOST-001", vaccineId: "vaccineGone" },
+    unlinked: { quantity: 10, reservedQuantity: 0, sellingPriceCentavos: PRICE, priceIsVatInclusive: true, status: "OK", expiryDate: "2027-12-31", batchId: "NOVAC-001", vaccineId: null },
+    unclassified: { quantity: 10, reservedQuantity: 0, sellingPriceCentavos: PRICE, priceIsVatInclusive: true, status: "OK", expiryDate: "2027-12-31", batchId: "NOCLS-001", vaccineId: "vaccineLegacy" },
+    badValue: { quantity: 10, reservedQuantity: 0, sellingPriceCentavos: PRICE, priceIsVatInclusive: true, status: "OK", expiryDate: "2027-12-31", batchId: "BADCLS-001", vaccineId: "vaccineBad" },
+    ghost: { quantity: 10, reservedQuantity: 0, sellingPriceCentavos: PRICE, priceIsVatInclusive: true, status: "OK", expiryDate: "2027-12-31", batchId: "GHOST-001", vaccineId: "vaccineGone" },
   });
   await db.collection("vaccines").doc("vaccineLegacy").set({ vaccineName: "Legacy" });
   await db.collection("vaccines").doc("vaccineBad").set({ vaccineName: "Bad", vatClassification: "zero_rated" });
@@ -644,7 +644,7 @@ test("reservation: stock moving under an open checkout is backordered, not overs
 
 test("reservation RACE: two reps chasing the final unit — exactly one gets it", async () => {
   // "lastUnit" is its own product here, so one unit is all there is.
-  await seed({ lastUnit: { quantity: 1, reservedQuantity: 0, sellingPriceCentavos: PRICE, status: "OK", expiryDate: "2027-12-31", batchId: "LAST-001", vaccineName: "Last One", vaccineId: VAC_LAST } });
+  await seed({ lastUnit: { quantity: 1, reservedQuantity: 0, sellingPriceCentavos: PRICE, priceIsVatInclusive: true, status: "OK", expiryDate: "2027-12-31", batchId: "LAST-001", vaccineName: "Last One", vaccineId: VAC_LAST } });
   await db.collection("vaccines").doc(VAC_LAST).set({ vaccineName: "Last One", vatClassification: "vatable" });
   const results = await Promise.all([
     create(SR, [{ inventoryId: "lastUnit", quantity: 1 }]),

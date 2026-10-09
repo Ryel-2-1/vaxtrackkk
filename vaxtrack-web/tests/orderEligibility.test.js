@@ -34,6 +34,7 @@ function batch(overrides = {}) {
     status: "Stable",
     expiryDate: FUTURE,
     sellingPriceCentavos: 50000,
+    priceIsVatInclusive: true,
     ...overrides,
   };
 }
@@ -104,6 +105,14 @@ test("an unpriced or invalidly priced batch is not orderable", () => {
     const result = evaluateBatchEligibility(batch({ sellingPriceCentavos }), TODAY);
     assert.equal(result.eligible, false, String(sellingPriceCentavos));
     assert.equal(result.reasonCode, ELIGIBILITY_REASONS.MISSING_PRICE, String(sellingPriceCentavos));
+  }
+  // A price recorded under the legacy VAT-exclusive convention (or with none
+  // recorded) is never quoted as if it included VAT — mirrors the server.
+  for (const priceIsVatInclusive of [false, undefined, null, "true"]) {
+    const result = evaluateBatchEligibility(batch({ priceIsVatInclusive }), TODAY);
+    assert.equal(result.eligible, false, String(priceIsVatInclusive));
+    assert.equal(result.reasonCode, ELIGIBILITY_REASONS.LEGACY_PRICE_CONVENTION, String(priceIsVatInclusive));
+    assert.match(result.reason, /Legacy pricing — VAT recorded as exclusive/);
   }
 });
 
@@ -228,7 +237,7 @@ test("valid batches remain orderable (no over-blocking)", () => {
   assert.equal(isOrderableStatus("Critical"), false);
   // A legacy batch with no reservedQuantity field is still orderable.
   const legacy = evaluateBatchEligibility(
-    { id: "inv-9", quantity: 25, status: "stable", expiryDate: FUTURE, sellingPriceCentavos: 12345 },
+    { id: "inv-9", quantity: 25, status: "stable", expiryDate: FUTURE, sellingPriceCentavos: 12345, priceIsVatInclusive: true },
     TODAY
   );
   assert.equal(legacy.eligible, true);
@@ -270,7 +279,7 @@ test("the server eligibility policy remains authoritative and the client mirrors
 test("an on-hand figure above the 100,000,000 ceiling is shown as awaiting confirmation, not orderable", () => {
   const typo = {
     id: "OCvsrsrMCJum7Skfgil8", vaccineId: "p", status: "Warning", expiryDate: "2027-11-07",
-    quantity: 99999999999900, reservedQuantity: 70, sellingPriceCentavos: 100,
+    quantity: 99999999999900, reservedQuantity: 70, sellingPriceCentavos: 100, priceIsVatInclusive: true,
   };
   const r = evaluateBatchEligibility(typo, "2026-10-06");
   assert.equal(r.eligible, false);

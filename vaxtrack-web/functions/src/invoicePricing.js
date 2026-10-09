@@ -10,9 +10,11 @@
  *
  * THE AUTHORITY BOUNDARY
  *   Base pricing — item identity, quantity, unitPriceCentavos, lineTotalCentavos,
- *   subtotalCentavos and currency — comes from the ORDER's snapshot and from
- *   nowhere else; the VAT rate and the VAT-inclusive convention come from
- *   pricingConfig.js. The caller cannot supply, override or influence any of it.
+ *   subtotalCentavos, currency and the price convention (`priceIsVatInclusive`)
+ *   — comes from the ORDER's snapshot and from nowhere else; only the VAT rate
+ *   comes from pricingConfig.js. The caller cannot supply, override or
+ *   influence any of it, and neither can the CURRENT pricing configuration: an
+ *   order recorded VAT-exclusive is invoiced VAT-exclusive, forever.
  *
  *   Adjustments — discount, other charges, withholding tax and the VAT
  *   classification — are genuinely the admin's decision, so they ARE accepted
@@ -30,7 +32,12 @@ const {
   PolicyError,
   readProductVatClassification,
 } = require("./policy");
-const { VAT_RATE_PERCENT, PRICES_INCLUDE_VAT, splitVatInclusiveCentavos } = require("./pricingConfig");
+const {
+  VAT_RATE_PERCENT,
+  readPriceConvention,
+  splitVatInclusiveCentavos,
+  legacyVatOnTopCentavos,
+} = require("./pricingConfig");
 
 /** Philippine VAT, from the one pricing configuration (pricingConfig.js). */
 const VAT_STANDARD_RATE = VAT_RATE_PERCENT;
@@ -40,10 +47,11 @@ const VAT_CLASSIFICATIONS = Object.freeze(["vatable", "vat_exempt", "zero_rated"
  * The invoice-level marker for an order whose EVERY item carries a VAT
  * snapshot. Its VAT comes from those items, not from an Admin choice: VATable
  * and VAT-Exempt sales are summed per line, an invoice discount is split
- * between them pro-rata (see allocateDiscountCentavos), and the 12% VAT is
- * EXTRACTED from the discounted, VAT-inclusive VATable sales only — never added
- * on top (pricingConfig.js). Orders without item snapshots keep the Admin's
- * invoice-level classification, which must be chosen explicitly.
+ * between them pro-rata (see allocateDiscountCentavos), and the 12% VAT
+ * applies to the discounted VATable sales only — extracted from them for a
+ * VAT-inclusive order, added on top for a legacy VAT-exclusive one (the
+ * order's own `priceIsVatInclusive`). Orders without item snapshots keep the
+ * Admin's invoice-level classification, which must be chosen explicitly.
  */
 const ITEMIZED_VAT = "per_item";
 
@@ -172,6 +180,17 @@ function buildInvoiceBaseFromOrder(order) {
       "This order's subtotal does not match its line items."
     );
   }
+  // Every server-priced order has recorded its convention since pricing began
+  // (the same commit stamped pricingVersion and priceIsVatInclusive). One
+  // without it is damaged; guessing — from the current configuration or
+  // anything else — would decide after the fact what the clinic was charged.
+  const priceIsVatInclusive = readPriceConvention(order.priceIsVatInclusive);
+  if (priceIsVatInclusive === null) {
+    throw new PolicyError(
+      "order-snapshot-invalid",
+      "This order does not record whether its prices include VAT."
+    );
+  }
 
   return {
     items,
@@ -179,13 +198,10 @@ function buildInvoiceBaseFromOrder(order) {
     subtotal: centavosToPesos(subtotalCentavos),
     // Recorded on the order, carried onto the invoice rather than assumed.
     priceCurrency: typeof order.priceCurrency === "string" ? order.priceCurrency : PRICE_CURRENCY,
-    // The convention THIS invoice is computed under: the confirmed rule that
-    // prices are VAT-inclusive (pricingConfig.js) — for every invoice computed
-    // from now on, including one for an order placed before the rule, whose own
-    // recorded flag is left untouched. A draft saved under the old convention
-    // no longer matches this base, so it cannot be issued until it is re-saved
-    // (and recomputed); an already-issued invoice is never recomputed.
-    priceIsVatInclusive: PRICES_INCLUDE_VAT,
+    // The ORDER's recorded convention, carried onto the invoice unchanged: a
+    // new order's prices include VAT; a legacy order recorded VAT-exclusive is
+    // invoiced VAT-exclusive. Never the current configuration.
+    priceIsVatInclusive,
     pricingVersion: PRICING_VERSION,
     // True only when every line carries a VAT snapshot (orders created with
     // per-item classification). Partial snapshots are not itemized.
@@ -277,11 +293,15 @@ function validateAdjustments(raw, subtotalCentavos, { itemizedVat = false } = {}
 }
 
 /**
- * Invoice totals, in centavos, for VAT-INCLUSIVE prices (pricingConfig.js).
+ * Invoice totals, in centavos, under the record's OWN price convention.
  *
- * The amount after any discount is VAT-inclusive. For a VATable invoice the
- * VAT is EXTRACTED from it — never added on top — so the total stays exactly
- * that amount (plus any other charges):
+ * `priceIsVatInclusive` is REQUIRED and must be the stored flag of the order
+ * (or receipt) being totalled — never the current configuration, which only
+ * decides what a NEW record is stamped with. Anything but a boolean is refused.
+ *
+ * priceIsVatInclusive: true — the amount after any discount is VAT-inclusive.
+ * For VATable sales the VAT is EXTRACTED — never added on top — so the total
+ * stays exactly that amount (plus any other charges):
  *
  *   grossAfterDiscount = max(0, subtotal − discount)       (discount handling unchanged)
  *   VATable:  vat = round(grossAfterDiscount × 12 ÷ 112)    (half up, integers)
@@ -289,13 +309,27 @@ function validateAdjustments(raw, subtotalCentavos, { itemizedVat = false } = {}
  *   exempt / zero-rated:  vat = 0, net = grossAfterDiscount
  *   grandTotal = net + vat + otherCharges  = grossAfterDiscount + otherCharges
  *
- * One rounding, on the aggregated VATable amount — the invoice's documented
- * policy. Mirrors computeInvoiceTotals in src/services/invoiceModel.js, which
- * is used for the editor's display and the legacy manual path.
+ * priceIsVatInclusive: false — LEGACY. The calculation those orders were
+ * recorded under, preserved exactly: the amount after discount is net of VAT,
+ * and 12% is added on top (Math.round, once on the aggregate):
+ *
+ *   net = max(0, subtotal − discount);  vat = round(VATable net × 12 ÷ 100)
+ *   grandTotal = net + vat + otherCharges
+ *
+ * One rounding, on the aggregated VATable amount, in both conventions. Mirrors
+ * computeInvoiceTotals in src/services/invoiceModel.js, which is used for the
+ * editor's display and the manual path.
  */
-function computeInvoiceTotalsCentavos({ subtotalCentavos, adjustments, items = [] }) {
+function computeInvoiceTotalsCentavos({ subtotalCentavos, adjustments, items = [], priceIsVatInclusive }) {
   const { discountCentavos, otherChargesCentavos, withholdingTaxCentavos, vatClassification } =
     adjustments;
+  const inclusive = readPriceConvention(priceIsVatInclusive);
+  if (inclusive === null) {
+    throw new PolicyError(
+      "price-convention-required",
+      "These totals need the record's own price convention (VAT-inclusive or VAT-exclusive)."
+    );
+  }
 
   let netCentavos;
   let vatRate;
@@ -324,22 +358,34 @@ function computeInvoiceTotalsCentavos({ subtotalCentavos, adjustments, items = [
       throw new PolicyError("order-snapshot-invalid", "This order's subtotal does not match its line items.");
     }
     const share = allocateDiscountCentavos({ vatableGrossCentavos, vatExemptGrossCentavos, discountCentavos });
-    // Both buckets are VAT-inclusive amounts. VAT is extracted from the
-    // VATable bucket once, on its aggregate (one rounding per invoice).
     const vatableAfterDiscountCentavos = vatableGrossCentavos - share.vatableCentavos;
-    vatAmountCentavos = splitVatInclusiveCentavos(vatableAfterDiscountCentavos).vatCentavos;
-    vatableSalesCentavos = vatableAfterDiscountCentavos - vatAmountCentavos; // net of VAT
+    if (inclusive) {
+      // Both buckets are VAT-inclusive amounts. VAT is extracted from the
+      // VATable bucket once, on its aggregate (one rounding per invoice).
+      vatAmountCentavos = splitVatInclusiveCentavos(vatableAfterDiscountCentavos).vatCentavos;
+      vatableSalesCentavos = vatableAfterDiscountCentavos - vatAmountCentavos; // net of VAT
+    } else {
+      // LEGACY: the buckets are net of VAT; 12% is added on top.
+      vatableSalesCentavos = vatableAfterDiscountCentavos;
+      vatAmountCentavos = legacyVatOnTopCentavos(vatableSalesCentavos);
+    }
     vatExemptSalesCentavos = vatExemptGrossCentavos - share.vatExemptCentavos;
     zeroRatedSalesCentavos = 0;
     netCentavos = vatableSalesCentavos + vatExemptSalesCentavos;
     vatRate = vatableAfterDiscountCentavos > 0 ? VAT_STANDARD_RATE : 0;
   } else {
-    const grossAfterDiscountCentavos = Math.max(0, subtotalCentavos - discountCentavos);
+    const afterDiscountCentavos = Math.max(0, subtotalCentavos - discountCentavos);
     vatRate = vatClassification === "vatable" ? VAT_STANDARD_RATE : 0;
-    vatAmountCentavos =
-      vatClassification === "vatable" ? splitVatInclusiveCentavos(grossAfterDiscountCentavos).vatCentavos : 0;
-    // The amount net of VAT (equal to the gross when no VAT applies).
-    netCentavos = grossAfterDiscountCentavos - vatAmountCentavos;
+    if (inclusive) {
+      vatAmountCentavos =
+        vatClassification === "vatable" ? splitVatInclusiveCentavos(afterDiscountCentavos).vatCentavos : 0;
+      // The amount net of VAT (equal to the gross when no VAT applies).
+      netCentavos = afterDiscountCentavos - vatAmountCentavos;
+    } else {
+      // LEGACY: the amount after discount IS the net; VAT goes on top.
+      netCentavos = afterDiscountCentavos;
+      vatAmountCentavos = vatClassification === "vatable" ? legacyVatOnTopCentavos(netCentavos) : 0;
+    }
     vatableSalesCentavos = vatClassification === "vatable" ? netCentavos : 0;
     vatExemptSalesCentavos = vatClassification === "vat_exempt" ? netCentavos : 0;
     zeroRatedSalesCentavos = vatClassification === "zero_rated" ? netCentavos : 0;

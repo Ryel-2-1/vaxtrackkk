@@ -122,6 +122,10 @@ function toHttpsError(error, context) {
       "inventory-invalid-reserved": "failed-precondition",
       "inventory-invariant-broken": "failed-precondition",
       "batch-unpriced": "failed-precondition",
+      // A batch whose price was recorded VAT-exclusive (before the VAT-inclusive
+      // rule) stays unorderable until an Admin re-confirms it. Never reinterpreted.
+      "batch-price-convention-legacy": "failed-precondition",
+      "price-convention-required": "failed-precondition",
       "price-not-confirmed": "failed-precondition",
       "invalid-requested-date": "invalid-argument",
       "requested-date-required": "invalid-argument",

@@ -17,6 +17,8 @@ const batch = (over = {}) => ({
   quantity: 100,
   reservedQuantity: 10,
   sellingPriceCentavos: PRICE,
+  // Priced under the current rule (the convention every new price is stamped with).
+  priceIsVatInclusive: true,
   status: "OK",
   expiryDate: "2027-12-31",
   batchId: "MOD-STG-001",
@@ -682,4 +684,16 @@ test("normalizeRequestedDeliveryDate: required, real, and never in the past", ()
       String(bad)
     );
   }
+});
+
+test("a batch priced under the legacy VAT-exclusive convention is never quoted onto a new order", () => {
+  // Recorded VAT-exclusive (`false`) or with no recorded convention at all:
+  // quoting it would silently re-interpret the figure as VAT-inclusive.
+  for (const flag of [false, undefined, null, "true"]) {
+    assert.equal(codeOf(() => evaluate({ priceIsVatInclusive: flag })), "batch-price-convention-legacy", String(flag));
+  }
+  // Re-confirmed by an Admin (stamped VAT-inclusive): orderable again.
+  assert.equal(evaluate({ priceIsVatInclusive: true }).unitPriceCentavos, PRICE);
+  // An unpriced batch is still reported as unpriced first.
+  assert.equal(codeOf(() => evaluate({ sellingPriceCentavos: null, priceIsVatInclusive: false })), "batch-unpriced");
 });

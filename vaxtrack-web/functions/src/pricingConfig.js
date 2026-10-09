@@ -14,6 +14,13 @@
  * VAT-exempt / unclassified) is unresolved and stays wherever it already was;
  * an unclassified or VAT-exempt amount gets no VAT from this module.
  *
+ * NEW RECORDS ONLY. PRICES_INCLUDE_VAT is the convention STAMPED on a record
+ * when it is created (a batch's price, an order, its receipt, a new invoice).
+ * Every record carries its own `priceIsVatInclusive`, and any calculation over
+ * an EXISTING record takes that stored flag — never this constant. A record
+ * stamped `false` (priced before this rule) keeps the VAT-exclusive meaning it
+ * was recorded with; nothing here, and no automatic migration, reinterprets it.
+ *
  * The web app mirrors these two values in src/services/pricingConfig.js for
  * DISPLAY only; tests/pricingConfig.test.js pins the two together. Stored
  * financial amounts are computed here, on the server.
@@ -21,8 +28,17 @@
 
 /** VAT rate for VATable sales, in percent. */
 const VAT_RATE_PERCENT = 12;
-/** Prices entered and shown in VaxTrack already include VAT (for VATable products). */
+/** The convention stamped on NEW records: their prices already include VAT (for VATable products). */
 const PRICES_INCLUDE_VAT = true;
+
+/**
+ * A record's stored convention: `true` or `false`, or null when the record
+ * does not carry a boolean. Callers refuse null rather than fall back to
+ * PRICES_INCLUDE_VAT — a default would silently decide what a stored price meant.
+ */
+function readPriceConvention(value) {
+  return typeof value === "boolean" ? value : null;
+}
 
 /**
  * Split a VAT-inclusive VATable amount into its VAT and its net-of-VAT part.
@@ -44,4 +60,23 @@ function splitVatInclusiveCentavos(grossCentavos) {
   return { grossCentavos, vatCentavos, netCentavos: grossCentavos - vatCentavos };
 }
 
-module.exports = { VAT_RATE_PERCENT, PRICES_INCLUDE_VAT, splitVatInclusiveCentavos };
+/**
+ * LEGACY: the VAT on a VAT-EXCLUSIVE VATable amount, exactly as every record
+ * stamped `priceIsVatInclusive: false` was computed — 12% ADDED on top,
+ * Math.round, once on the aggregate. Kept byte-for-byte so a legacy order is
+ * still invoiced the way its price was recorded. Never used for a new record.
+ */
+function legacyVatOnTopCentavos(netCentavos) {
+  if (!Number.isSafeInteger(netCentavos) || netCentavos < 0) {
+    throw new RangeError("A VAT-exclusive amount must be a whole, non-negative number of centavos.");
+  }
+  return Math.round((netCentavos * VAT_RATE_PERCENT) / 100);
+}
+
+module.exports = {
+  VAT_RATE_PERCENT,
+  PRICES_INCLUDE_VAT,
+  readPriceConvention,
+  splitVatInclusiveCentavos,
+  legacyVatOnTopCentavos,
+};

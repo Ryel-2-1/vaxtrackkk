@@ -158,7 +158,8 @@ export async function addStockBatch({
     arrivalDate: dates.value.arrivalDate,
     expiryDate: dates.value.expiryDate,
     quantity,
-    // The VAT-EXCLUSIVE clinic selling price for this batch, in PHP centavos.
+    // The clinic selling price for this batch, in PHP centavos — VAT-inclusive
+    // for VATable products (the server stamps the convention).
     sellingPriceCentavos,
     ...(typeof manufacturer === "string" && manufacturer.trim() ? { manufacturer: manufacturer.trim() } : {}),
   });

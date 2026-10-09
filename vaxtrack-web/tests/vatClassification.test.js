@@ -152,6 +152,7 @@ test("19/20 · the invoice preview equals the server's authoritative totals, VAT
       subtotalCentavos,
       items,
       adjustments: { discountCentavos, otherChargesCentavos, withholdingTaxCentavos, vatClassification: ITEMIZED_VAT },
+      priceIsVatInclusive: true,
     });
     const c = computeInvoiceTotals({
       items,
@@ -159,7 +160,30 @@ test("19/20 · the invoice preview equals the server's authoritative totals, VAT
       otherCharges: otherChargesCentavos / 100,
       withholdingTax: withholdingTaxCentavos / 100,
       vatClassification: ITEMIZED_VAT,
+      priceIsVatInclusive: true,
     });
+    // A legacy VAT-exclusive record: the preview equals the server too.
+    const sl = server.computeInvoiceTotalsCentavos({
+      subtotalCentavos,
+      items,
+      adjustments: { discountCentavos, otherChargesCentavos, withholdingTaxCentavos, vatClassification: ITEMIZED_VAT },
+      priceIsVatInclusive: false,
+    });
+    const cl = computeInvoiceTotals({
+      items,
+      discount: discountCentavos / 100,
+      otherCharges: otherChargesCentavos / 100,
+      withholdingTax: withholdingTaxCentavos / 100,
+      vatClassification: ITEMIZED_VAT,
+      priceIsVatInclusive: false,
+    });
+    const r2 = (pesos) => Math.round(pesos * 100);
+    assert.deepEqual(
+      [r2(cl.vatableSales), r2(cl.vatAmount), r2(cl.grandTotal)],
+      [sl.vatableSalesCentavos, sl.vatAmountCentavos, sl.grandTotalCentavos],
+      `legacy case ${k}`
+    );
+    assert.equal(sl.vatAmountCentavos, Math.round((sl.vatableSalesCentavos * 12) / 100), "legacy: 12% on top");
     const cents = (pesos) => Math.round(pesos * 100);
     assert.equal(cents(c.vatableSales), s.vatableSalesCentavos, `case ${k}`);
     assert.equal(cents(c.vatExemptSales), s.vatExemptSalesCentavos, `case ${k}`);
@@ -176,11 +200,11 @@ test("19/20 · the invoice preview equals the server's authoritative totals, VAT
 
 test("18 · an order without snapshots uses the invoice-level path (VAT-inclusive)", () => {
   const items = [{ quantity: 4, unitPrice: 200 }];
-  const legacy = computeInvoiceTotals({ items, vatClassification: "vatable" });
+  const legacy = computeInvoiceTotals({ items, vatClassification: "vatable", priceIsVatInclusive: true });
   // Was 800 + 96 = 896 (VAT on top); prices are VAT-inclusive, so ₱800 stays ₱800.
   assert.deepEqual([legacy.net, legacy.vatAmount, legacy.grandTotal], [714.29, 85.71, 800]);
   // Asking for itemized on items that lack snapshots falls back to the old path.
-  assert.equal(computeInvoiceTotals({ items, vatClassification: ITEMIZED_VAT }).vatClassification, "vatable");
+  assert.equal(computeInvoiceTotals({ items, vatClassification: ITEMIZED_VAT, priceIsVatInclusive: true }).vatClassification, "vatable");
 });
 
 // ---------------------------------------------------------------- registration + admin

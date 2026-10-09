@@ -87,7 +87,7 @@ async function seed(batches = {}) {
   for (const [id, over] of Object.entries(batches)) {
     await db.collection("inventory").doc(id).set({
       vaccineId: P, vaccineName: "Vaccine P", batchId: id.toUpperCase(), status: "Stable",
-      expiryDate: "2027-06-30", quantity: 0, reservedQuantity: 0, sellingPriceCentavos: PRICE,
+      expiryDate: "2027-06-30", quantity: 0, reservedQuantity: 0, sellingPriceCentavos: PRICE, priceIsVatInclusive: true,
       ...over,
     });
   }

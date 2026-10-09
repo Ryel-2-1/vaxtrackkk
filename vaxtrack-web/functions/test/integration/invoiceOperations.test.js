@@ -53,7 +53,8 @@ const pricedOrderDoc = (over = {}) => ({
   allocationVersion: 1,
   pricingVersion: 1,
   priceCurrency: "PHP",
-  priceIsVatInclusive: false,
+  // A NEW order, stamped with the current convention. Legacy cases pass false.
+  priceIsVatInclusive: true,
   subtotalCentavos: 4 * PRICE + 3 * SECOND,
   items: [
     { inventoryId: "inv1", batchId: "MOD-STG-001", name: "Moderna COVID-19 Vaccine", chain: "COVID-19", quantity: 4, unitPriceCentavos: PRICE, lineTotalCentavos: 4 * PRICE, unitPrice: 1250 },
@@ -119,10 +120,9 @@ test("invoice: saving a priced draft takes its base from the order", async (t) =
     assert.equal(inv.invoicePricingSource, "order-snapshot");
     assert.equal(inv.subtotalCentavos, SUBTOTAL);
     assert.equal(inv.priceCurrency, "PHP");
-    // Computed under the confirmed VAT-inclusive rule; the order's own recorded
-    // `false` (placed before the rule) is left untouched.
+    // The ORDER's recorded convention, carried onto its invoice.
     assert.equal(inv.priceIsVatInclusive, true);
-    assert.equal((await db.collection("orders").doc(ORDER).get()).data().priceIsVatInclusive, false);
+    assert.equal((await db.collection("orders").doc(ORDER).get()).data().priceIsVatInclusive, true);
 
     assert.equal(inv.items.length, 2);
     assert.equal(inv.items[0].unitPriceCentavos, PRICE);
@@ -682,7 +682,7 @@ test("VAT: the client can never supply a VAT amount or a total", async () => {
 });
 
 test("VAT: an invoice issued under the earlier VAT-on-top convention is never recomputed", async () => {
-  await seed();
+  await seed({ priceIsVatInclusive: false });
   // Exactly as such an invoice was stored when it was issued (₱6,350 + 12% on top).
   const historical = {
     orderId: ORDER, invoiceNumber: "INV-2026-000777", invoiceStatus: "issued", pricingVersion: 1,
@@ -702,17 +702,17 @@ test("VAT: an invoice issued under the earlier VAT-on-top convention is never re
   assert.deepEqual(after.data(), historical, "the issued figures stand exactly as issued");
 });
 
-test("VAT: a draft saved under the earlier convention cannot be issued until it is re-saved", async () => {
+test("VAT: a draft whose convention differs from its order's cannot be issued until it is re-saved", async () => {
   await seed();
   await save(ADMIN, { orderId: ORDER, presentation: PRESENTATION });
-  // Turn it into a draft as the earlier code wrote it: VAT-exclusive, VAT on top.
+  // A VAT-inclusive order's draft re-labelled VAT-exclusive, VAT on top.
   await db.collection("invoices").doc(ORDER).update({
     priceIsVatInclusive: false, netCentavos: SUBTOTAL, vatAmountCentavos: 76200,
     grandTotalCentavos: 711200, totalAmountDueCentavos: 711200,
   });
   assert.equal(await codeOf(issue(ADMIN, { orderId: ORDER })), "invoice-base-mismatch");
   assert.equal((await invoice(ORDER)).invoiceStatus, "draft", "refused, not issued");
-  // Re-saving recomputes it under the confirmed rule; then it issues.
+  // Re-saving recomputes it under the ORDER's convention; then it issues.
   await save(ADMIN, { orderId: ORDER, presentation: PRESENTATION });
   await issue(ADMIN, { orderId: ORDER });
   const inv = await invoice(ORDER);
@@ -728,4 +728,100 @@ test("VAT: a new invoice uses the order's price snapshot, not today's catalog pr
   assert.equal(inv.items[0].unitPriceCentavos, PRICE, "the snapshot price, not 999900");
   assert.equal(inv.subtotalCentavos, SUBTOTAL);
   assert.equal(inv.grandTotalCentavos, SUBTOTAL);
+});
+
+// ------------------------------------------------------------ legacy VAT-exclusive orders
+//
+// An order recorded `priceIsVatInclusive: false` keeps that meaning on every
+// invoice drafted from it, whenever it is drafted. 635,000 + 12% on top:
+// VAT 76,200, total 711,200 — the figures the earlier code issued.
+
+const LEGACY_FIGURES = { netCentavos: SUBTOTAL, vatAmountCentavos: 76200, grandTotalCentavos: SUBTOTAL + 76200 };
+const figures = (inv) => ({ netCentavos: inv.netCentavos, vatAmountCentavos: inv.vatAmountCentavos, grandTotalCentavos: inv.grandTotalCentavos });
+
+test("LEGACY: a new invoice from an old VAT-exclusive order follows the order's recorded convention", async (t) => {
+  await seed({ priceIsVatInclusive: false });
+  const orderBefore = await db.collection("orders").doc(ORDER).get();
+
+  await t.test("the draft is computed VAT-exclusive and labelled so — never reinterpreted", async () => {
+    await save(ADMIN, { orderId: ORDER, presentation: PRESENTATION });
+    const inv = await invoice(ORDER);
+    assert.equal(inv.priceIsVatInclusive, false);
+    assert.deepEqual(figures(inv), LEGACY_FIGURES);
+    assert.equal(inv.vatableSalesCentavos, SUBTOTAL);
+  });
+
+  await t.test("the order itself is not modified", async () => {
+    const orderAfter = await db.collection("orders").doc(ORDER).get();
+    assert.ok(orderAfter.updateTime.isEqual(orderBefore.updateTime));
+    assert.deepEqual(orderAfter.data(), orderBefore.data());
+  });
+
+  await t.test("catalog changes cannot alter the order's convention or its invoice", async () => {
+    // Both batches re-priced and re-stamped VAT-inclusive after the order.
+    await db.collection("inventory").doc("inv1").set({ sellingPriceCentavos: 999900, priceIsVatInclusive: true });
+    await db.collection("inventory").doc("inv2").set({ sellingPriceCentavos: 1, priceIsVatInclusive: true });
+    await save(ADMIN, { orderId: ORDER, presentation: PRESENTATION });
+    const inv = await invoice(ORDER);
+    assert.equal(inv.priceIsVatInclusive, false);
+    assert.deepEqual(figures(inv), LEGACY_FIGURES);
+    assert.equal((await db.collection("orders").doc(ORDER).get()).data().priceIsVatInclusive, false);
+  });
+
+  await t.test("a draft re-labelled VAT-inclusive cannot be issued; a re-save restores the order's convention", async () => {
+    await db.collection("invoices").doc(ORDER).update({
+      priceIsVatInclusive: true, netCentavos: 566964, vatAmountCentavos: 68036,
+      grandTotalCentavos: SUBTOTAL, totalAmountDueCentavos: SUBTOTAL,
+    });
+    assert.equal(await codeOf(issue(ADMIN, { orderId: ORDER })), "invoice-base-mismatch");
+    await save(ADMIN, { orderId: ORDER, presentation: PRESENTATION });
+    const inv = await invoice(ORDER);
+    assert.deepEqual([inv.priceIsVatInclusive, figures(inv)], [false, LEGACY_FIGURES]);
+  });
+
+  await t.test("it issues with the legacy figures, and retries change nothing", async () => {
+    const first = await issue(ADMIN, { orderId: ORDER });
+    assert.equal(first.replayed, false);
+    const issued = await db.collection("invoices").doc(ORDER).get();
+    assert.deepEqual([issued.data().invoiceStatus, issued.data().priceIsVatInclusive, figures(issued.data())], ["issued", false, LEGACY_FIGURES]);
+    for (let i = 0; i < 3; i += 1) {
+      assert.equal((await issue(ADMIN, { orderId: ORDER })).replayed, true);
+    }
+    assert.equal(await codeOf(save(ADMIN, { orderId: ORDER, presentation: PRESENTATION })), "invoice-already-issued");
+    const after = await db.collection("invoices").doc(ORDER).get();
+    assert.ok(after.updateTime.isEqual(issued.updateTime), "an issued invoice is never rewritten");
+    assert.deepEqual(after.data(), issued.data(), "byte-for-byte unchanged");
+  });
+});
+
+test("₱1,000 VATable: a new order stays ₱1,000; a legacy order keeps VAT on top", async () => {
+  const oneThousand = (priceIsVatInclusive) => ({
+    priceIsVatInclusive,
+    subtotalCentavos: 100000,
+    items: [{ inventoryId: "inv1", batchId: "B1", name: "Vaccine", quantity: 1, unitPriceCentavos: 100000, lineTotalCentavos: 100000, vatClassification: "vatable" }],
+  });
+  await seed(oneThousand(true));
+  await save(ADMIN, { orderId: ORDER, presentation: PRESENTATION });
+  const now = await invoice(ORDER);
+  assert.deepEqual(
+    [now.priceIsVatInclusive, now.vatableSalesCentavos, now.vatAmountCentavos, now.grandTotalCentavos],
+    [true, 89286, 10714, 100000],
+    "₱892.86 net + ₱107.14 VAT = ₱1,000.00"
+  );
+
+  await seed(oneThousand(false));
+  await save(ADMIN, { orderId: ORDER, presentation: PRESENTATION });
+  const old = await invoice(ORDER);
+  assert.deepEqual(
+    [old.priceIsVatInclusive, old.vatableSalesCentavos, old.vatAmountCentavos, old.grandTotalCentavos],
+    [false, 100000, 12000, 112000],
+    "the legacy order's ₱1,000 was recorded net of VAT"
+  );
+});
+
+test("an order that records no price convention is refused, never defaulted", async () => {
+  await seed();
+  await db.collection("orders").doc(ORDER).update({ priceIsVatInclusive: FieldValue.delete() });
+  assert.equal(await codeOf(save(ADMIN, { orderId: ORDER, presentation: PRESENTATION })), "order-snapshot-invalid");
+  assert.equal(await invoice(ORDER), null, "nothing was written");
 });

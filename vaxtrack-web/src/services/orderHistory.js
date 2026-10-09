@@ -18,7 +18,7 @@
 
 import { statusLabel, normalizeStatus } from "./orderWorkflow.js";
 import { describeAllocation, ALLOCATION_STATE_LABELS } from "./backorder.js";
-import { VAT_RATE_PERCENT, VAT_INCLUSIVE_NOTE } from "./pricingConfig.js";
+import { VAT_RATE_PERCENT, readPriceConvention, priceConventionNote } from "./pricingConfig.js";
 
 export const LEGACY_RECEIPT_MESSAGE = "Legacy order — original receipt snapshot unavailable";
 export const LEGACY_RECEIPT_DETAIL =
@@ -391,17 +391,28 @@ export const VAT_STATUS_LABELS = Object.freeze({
 
 /**
  * How a receipt's money is described, from the convention recorded ON that
- * receipt — never re-interpreted. Receipts recorded with VAT-inclusive prices
- * (every receipt under the confirmed rule) say the VAT is included; a receipt
- * recorded under the earlier VAT-exclusive convention is shown exactly as
- * recorded and labelled so. Amounts are the stored ones; nothing is recomputed.
+ * receipt — never re-interpreted, never taken from the current configuration.
+ * VAT-inclusive receipts say the VAT is included; a receipt recorded under the
+ * earlier VAT-exclusive convention carries the legacy label and never the
+ * VAT-inclusive wording; a receipt that records neither (a reconstruction of
+ * an order without the flag) claims neither. Amounts are the stored ones;
+ * nothing is recomputed.
  */
 export function receiptPriceLabels(receipt) {
-  const inclusive = receipt?.priceIsVatInclusive === true;
+  const convention = readPriceConvention(receipt?.priceIsVatInclusive);
+  const inclusive = convention === true;
+  const legacy = convention === false;
   return {
     inclusive,
-    subtotalLabel: inclusive ? "Subtotal (VAT-inclusive for VATable products)" : "Subtotal (recorded as VAT-exclusive)",
+    legacy,
+    subtotalLabel: inclusive
+      ? "Subtotal (VAT-inclusive for VATable products)"
+      : legacy
+        ? "Subtotal (recorded as VAT-exclusive)"
+        : "Subtotal",
     vatSuffix: inclusive ? " (included in the subtotal)" : "",
-    note: inclusive ? VAT_INCLUSIVE_NOTE : "Recorded before prices were confirmed as VAT-inclusive; shown exactly as recorded.",
+    note:
+      priceConventionNote(convention) ??
+      "This receipt does not record whether its prices include VAT; amounts are shown exactly as recorded.",
   };
 }

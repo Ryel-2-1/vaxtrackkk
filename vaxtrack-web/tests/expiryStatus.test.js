@@ -240,7 +240,7 @@ test("the server independently refuses expired and undated stock", async () => {
   // A batch whose stored status still reads "Stable" is refused on the date.
   const base = {
     quantity: 10, reservedQuantity: 0, status: "Stable",
-    sellingPriceCentavos: 50000, expiryDate: "2027-12-31",
+    sellingPriceCentavos: 50000, priceIsVatInclusive: true, expiryDate: "2027-12-31",
   };
   const codeOf = (overrides) => {
     try {

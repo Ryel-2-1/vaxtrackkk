@@ -158,7 +158,7 @@ test("15 · quantity, reservation, pricing and expiry writes are unchanged", () 
 
 test("20 · order eligibility accepts an otherwise valid legacy batch with no manufacturing date", () => {
   const legacy = {
-    quantity: 100, reservedQuantity: 0, sellingPriceCentavos: 125000, status: "OK",
+    quantity: 100, reservedQuantity: 0, sellingPriceCentavos: 125000, priceIsVatInclusive: true, status: "OK",
     expiryDate: "2027-12-31", batchId: "LEG-001", vaccineName: "Legacy Vaccine",
   };
   const result = evaluateBatch({

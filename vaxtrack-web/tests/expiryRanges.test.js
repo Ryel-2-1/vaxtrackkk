@@ -139,7 +139,7 @@ test("missing, malformed and expired batches are unavailable in the catalog", ()
   // expiry cases that used to slip past the old expiry-only gate; every one is
   // now ineligible with a specific reason. Ordering-irrelevant fields are held
   // valid so expiry is the variable.
-  const base = { id: "inv1", quantity: 10, reservedQuantity: 0, status: "Stable", sellingPriceCentavos: 50000 };
+  const base = { id: "inv1", quantity: 10, reservedQuantity: 0, status: "Stable", sellingPriceCentavos: 50000, priceIsVatInclusive: true };
   const check = (expiryDate) => evaluateBatchEligibility({ ...base, expiryDate }, TODAY);
 
   // Expired.
@@ -175,6 +175,7 @@ test("no client-side gate can pass a batch the server would refuse", async () =>
     reservedQuantity: 0,
     status: "Stable",
     sellingPriceCentavos: 50000,
+    priceIsVatInclusive: true,
   };
   const serverRefuses = (expiryDate) => {
     try {

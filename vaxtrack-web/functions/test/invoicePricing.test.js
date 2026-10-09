@@ -13,10 +13,11 @@ const I = require("../src/invoicePricing");
 const PRICE = 125000; // ₱1,250.00
 const SECOND = 45000; // ₱450.00
 
+// A NEW order: stamped with the current convention (VAT-inclusive).
 const pricedOrder = (over = {}) => ({
   pricingVersion: 1,
   priceCurrency: "PHP",
-  priceIsVatInclusive: false,
+  priceIsVatInclusive: true,
   unit: "vials",
   clinicId: "clinic1",
   orderNumber: "VT-ORD-1",
@@ -55,14 +56,27 @@ test("base pricing comes from the order and nowhere else", async (t) => {
     assert.equal(base.items[0].lineTotalCentavos, 4 * PRICE);
     assert.equal(base.subtotalCentavos, 4 * PRICE);
     assert.equal(base.priceCurrency, "PHP");
-    // Computed under the confirmed rule (prices are VAT-inclusive), even for an
-    // order that recorded the earlier `false` — whose own flag is untouched.
-    assert.equal(base.priceIsVatInclusive, true);
+    assert.equal(base.priceIsVatInclusive, true, "a new order's convention");
     assert.equal(base.pricingVersion, 1);
   });
 
+  await t.test("a LEGACY VAT-exclusive order keeps its recorded convention — never the current config", () => {
+    const base = I.buildInvoiceBaseFromOrder(pricedOrder({ priceIsVatInclusive: false }));
+    assert.equal(base.priceIsVatInclusive, false);
+  });
+
+  await t.test("an order that records no convention is refused, never defaulted", () => {
+    for (const flag of [undefined, null, "false", 0, 1]) {
+      assert.equal(
+        codeOf(() => I.buildInvoiceBaseFromOrder(pricedOrder({ priceIsVatInclusive: flag }))),
+        "order-snapshot-invalid",
+        String(flag)
+      );
+    }
+  });
+
   await t.test("building an invoice base never mutates the order (historical flag preserved)", () => {
-    const order = pricedOrder();
+    const order = pricedOrder({ priceIsVatInclusive: false });
     const before = JSON.stringify(order);
     I.buildInvoiceBaseFromOrder(order);
     assert.equal(JSON.stringify(order), before);
@@ -227,6 +241,7 @@ test("invoice totals, in exact centavos — prices are VAT-inclusive", async (t)
     I.computeInvoiceTotalsCentavos({
       subtotalCentavos,
       adjustments: I.validateAdjustments({ vatClassification: "vatable", ...adjustments }, subtotalCentavos),
+      priceIsVatInclusive: true,
     });
 
   await t.test("₱1,000 / ₱3,000: VAT extracted, the total is unchanged — never added on top", () => {
@@ -300,10 +315,76 @@ test("invoice totals, in exact centavos — prices are VAT-inclusive", async (t)
             withholdingTaxCentavos: 0,
             vatClassification: "vat_exempt",
           },
+          priceIsVatInclusive: true,
         })
       ),
       "invoice-total-out-of-range"
     );
+  });
+});
+
+test("LEGACY VAT-exclusive totals follow the order's recorded convention", async (t) => {
+  const legacy = (adjustments, subtotalCentavos = 100000) =>
+    I.computeInvoiceTotalsCentavos({
+      subtotalCentavos,
+      adjustments: I.validateAdjustments({ vatClassification: "vatable", ...adjustments }, subtotalCentavos),
+      priceIsVatInclusive: false,
+    });
+  // The calculation these orders were recorded under, verbatim (pre-change).
+  const original = (subtotal, discount, other, wht, cls) => {
+    const net = Math.max(0, subtotal - discount);
+    const vatable = cls === "vatable" ? net : 0;
+    const vat = Math.round((vatable * 12) / 100);
+    return [net, vat, net + vat + other, net + vat + other - wht];
+  };
+
+  await t.test("₱1,000 recorded VAT-exclusive: 12% goes on top, as it always did", () => {
+    const one = legacy({});
+    assert.deepEqual([one.netCentavos, one.vatAmountCentavos, one.grandTotalCentavos], [100000, 12000, 112000]);
+  });
+
+  await t.test("identical to the pre-change calculation for every classification and adjustment", () => {
+    for (const subtotal of [0, 1, 5, 14, 42, 1042, 80000, 99999, 123457, 500000]) {
+      for (const cls of ["vatable", "vat_exempt", "zero_rated"]) {
+        for (const [discount, other, wht] of [[0, 0, 0], [Math.floor(subtotal / 3), 777, 25], [subtotal, 0, 0]]) {
+          const t1 = legacy({ vatClassification: cls, discountCentavos: discount, otherChargesCentavos: other, withholdingTaxCentavos: wht }, subtotal);
+          assert.deepEqual(
+            [t1.netCentavos, t1.vatAmountCentavos, t1.grandTotalCentavos, t1.totalAmountDueCentavos],
+            original(subtotal, discount, other, wht, cls),
+            `${subtotal}/${cls}/${discount}`
+          );
+        }
+      }
+    }
+  });
+
+  await t.test("retries return identical totals (pure, deterministic)", () => {
+    for (const flag of [true, false]) {
+      const run = () =>
+        I.computeInvoiceTotalsCentavos({
+          subtotalCentavos: 123457,
+          adjustments: I.validateAdjustments({ vatClassification: "vatable", discountCentavos: 1001 }, 123457),
+          priceIsVatInclusive: flag,
+        });
+      const first = run();
+      for (let i = 0; i < 5; i += 1) assert.deepEqual(run(), first);
+    }
+  });
+
+  await t.test("the convention is required — the current configuration is never a fallback", () => {
+    for (const flag of [undefined, null, "true"]) {
+      assert.equal(
+        codeOf(() =>
+          I.computeInvoiceTotalsCentavos({
+            subtotalCentavos: 100000,
+            adjustments: I.validateAdjustments({ vatClassification: "vatable" }, 100000),
+            priceIsVatInclusive: flag,
+          })
+        ),
+        "price-convention-required",
+        String(flag)
+      );
+    }
   });
 });
 
@@ -372,7 +453,7 @@ test("a stored invoice is checked back against its order", async (t) => {
       (s) => { s.subtotalCentavos = 1; },
       (s) => { s.items[0].inventoryId = "somewhere-else"; },
       (s) => { s.priceCurrency = "USD"; },
-      // A draft saved under the earlier VAT-exclusive convention must be re-saved.
+      // An invoice whose convention differs from its ORDER's is never issued.
       (s) => { s.priceIsVatInclusive = false; },
       (s) => { s.pricingVersion = 2; },
       (s) => { s.items.push({ ...s.items[0] }); },
@@ -383,4 +464,41 @@ test("a stored invoice is checked back against its order", async (t) => {
       assert.equal(I.baseMatchesOrder(s, base), false);
     }
   });
+
+  await t.test("a legacy order's invoice matches only under the legacy convention", () => {
+    const legacyBase = I.buildInvoiceBaseFromOrder(pricedOrder({ priceIsVatInclusive: false }));
+    const s = { ...stored(), priceIsVatInclusive: false };
+    assert.equal(I.baseMatchesOrder(s, legacyBase), true);
+    assert.equal(I.baseMatchesOrder({ ...s, priceIsVatInclusive: true }, legacyBase), false, "never re-labelled VAT-inclusive");
+  });
+});
+
+test("the CURRENT pricing configuration never changes an existing order's invoice", () => {
+  // Re-load invoicePricing against a configuration whose new-record default is
+  // FLIPPED. An existing order's base and totals must not move at all: the
+  // convention comes from the order, and the default only stamps new records.
+  const cfgPath = require.resolve("../src/pricingConfig");
+  const ipPath = require.resolve("../src/invoicePricing");
+  const realCfg = require.cache[cfgPath].exports;
+  const realIp = require.cache[ipPath];
+  try {
+    require.cache[cfgPath].exports = { ...realCfg, PRICES_INCLUDE_VAT: !realCfg.PRICES_INCLUDE_VAT };
+    delete require.cache[ipPath];
+    const flipped = require(ipPath);
+    for (const flag of [true, false]) {
+      const order = pricedOrder({ priceIsVatInclusive: flag });
+      const a = I.buildInvoiceBaseFromOrder(order);
+      const b = flipped.buildInvoiceBaseFromOrder(order);
+      assert.deepEqual(b, a, `base, order flag ${flag}`);
+      const args = {
+        subtotalCentavos: a.subtotalCentavos,
+        adjustments: I.validateAdjustments({ vatClassification: "vatable", discountCentavos: 1234 }, a.subtotalCentavos),
+        priceIsVatInclusive: a.priceIsVatInclusive,
+      };
+      assert.deepEqual(flipped.computeInvoiceTotalsCentavos(args), I.computeInvoiceTotalsCentavos(args), `totals, order flag ${flag}`);
+    }
+  } finally {
+    require.cache[cfgPath].exports = realCfg;
+    require.cache[ipPath] = realIp;
+  }
 });

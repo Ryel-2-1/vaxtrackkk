@@ -38,6 +38,7 @@ const {
   DELIVERABLE_FROM,
   HOME_ADDRESS_ID,
 } = require("./policy");
+const { readPriceConvention } = require("./pricingConfig");
 const { deliveryEvidenceProblem } = require("./deliveryEvidence");
 const { statusUpdatedByEmailValue } = require("./attribution");
 const { settleFailureReturn } = require("./failureReturn");
@@ -567,7 +568,8 @@ function pricingFromOrder(order) {
     })),
     subtotalCentavos: order.subtotalCentavos,
     priceCurrency: order.priceCurrency ?? PRICE_CURRENCY,
-    priceIsVatInclusive: order.priceIsVatInclusive ?? PRICE_IS_VAT_INCLUSIVE,
+    // The order's own recorded convention — a replay never re-labels it.
+    priceIsVatInclusive: readPriceConvention(order.priceIsVatInclusive),
     pricingVersion: PRICING_VERSION,
   };
 }

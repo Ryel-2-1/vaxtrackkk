@@ -6,13 +6,21 @@
 // invoiceService.js re-exports the VAT helpers; InvoiceEditor.jsx imports the
 // rest. Behaviour is identical to the Phase 5B/5C editor code it replaced.
 
-import { VAT_RATE_PERCENT, splitVatInclusiveCentavos } from "./pricingConfig.js";
+import {
+  VAT_RATE_PERCENT,
+  PRICES_INCLUDE_VAT,
+  readPriceConvention,
+  splitVatInclusiveCentavos,
+} from "./pricingConfig.js";
 
 export const COMPANY_NAME = "3MGS PHARMA INC.";
 
-// ---- VAT (Philippine sales invoice, VAT-INCLUSIVE prices) ----
-// Confirmed rule (pricingConfig.js): prices are VAT-inclusive, so for VATable
-// sales the 12% VAT is EXTRACTED from the amount, never added on top.
+// ---- VAT (Philippine sales invoice) ----
+// Every total is computed under the RECORD's own convention
+// (`priceIsVatInclusive`), never the current configuration:
+//   true  — prices include VAT; for VATable sales the 12% is EXTRACTED.
+//   false — LEGACY: prices were recorded VAT-exclusive; 12% is added on top,
+//           exactly as those invoices were always computed.
 export const VAT_STANDARD_RATE = VAT_RATE_PERCENT;
 export const VAT_CLASSIFICATIONS = ["vatable", "vat_exempt", "zero_rated"];
 
@@ -82,6 +90,90 @@ function lineCentavos(it) {
   return Math.round(q * (Number(it.unitPrice) || 0) * 100);
 }
 
+// LEGACY per-item totals for a VAT-EXCLUSIVE record — the calculation such
+// invoices were made with, kept verbatim so they never change meaning.
+function legacyItemizedTotals({ items, discount, otherCharges, withholdingTax }) {
+  const lines = items.map((it) => lineCentavos(it) / 100);
+  let vatableGross = 0;
+  let exemptGross = 0;
+  for (const it of items) {
+    if (itemVatClassification(it) === "vatable") vatableGross += lineCentavos(it);
+    else exemptGross += lineCentavos(it);
+  }
+  const subtotalCentavos = vatableGross + exemptGross;
+  const discCentavos = Math.min(Math.max(0, Math.round((Number(discount) || 0) * 100)), subtotalCentavos);
+  const share = allocateDiscountCentavos({ vatableGrossCentavos: vatableGross, vatExemptGrossCentavos: exemptGross, discountCentavos: discCentavos });
+  const vatableSalesC = vatableGross - share.vatableCentavos;
+  const exemptSalesC = exemptGross - share.vatExemptCentavos;
+  const netC = vatableSalesC + exemptSalesC;
+  const vatC = Math.round((vatableSalesC * VAT_STANDARD_RATE) / 100);
+  const other = Number(otherCharges) || 0;
+  const wht = Number(withholdingTax) || 0;
+  const net = netC / 100;
+  const vatAmount = vatC / 100;
+  const grandTotal = net + vatAmount + other;
+  return {
+    lines,
+    subtotal: subtotalCentavos / 100,
+    discount: Number(discount) || 0,
+    otherCharges: other,
+    withholdingTax: wht,
+    net,
+    vatClassification: ITEMIZED_VAT,
+    vatRate: vatableSalesC > 0 ? VAT_STANDARD_RATE : 0,
+    vatableSales: vatableSalesC / 100,
+    vatExemptSales: exemptSalesC / 100,
+    zeroRatedSales: 0,
+    vatAmount,
+    grandTotal,
+    totalSalesVatInclusive: net + vatAmount,
+    totalAmountDue: grandTotal - wht,
+  };
+}
+
+// LEGACY invoice-level totals for a VAT-EXCLUSIVE record, kept verbatim: the
+// amount after discount is the net, and 12% goes on top of it.
+function legacyExclusiveTotals({ items, discount, otherCharges, withholdingTax, vatClassification }) {
+  const lines = items.map(
+    (it) => (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0)
+  );
+  const subtotal = lines.reduce((a, b) => a + b, 0);
+  const disc = Number(discount) || 0;
+  const other = Number(otherCharges) || 0;
+  const wht = Number(withholdingTax) || 0;
+  const net = Math.max(0, subtotal - disc);
+
+  const cls = VAT_CLASSIFICATIONS.includes(vatClassification)
+    ? vatClassification
+    : "vatable";
+  const vatRate = cls === "vatable" ? VAT_STANDARD_RATE : 0;
+  const vatableSales = cls === "vatable" ? net : 0;
+  const vatExemptSales = cls === "vat_exempt" ? net : 0;
+  const zeroRatedSales = cls === "zero_rated" ? net : 0;
+  const vatAmount = vatableSales * (vatRate / 100);
+  const grandTotal = net + vatAmount + other;
+  const totalSalesVatInclusive = net + vatAmount;
+  const totalAmountDue = grandTotal - wht;
+
+  return {
+    lines,
+    subtotal,
+    discount: disc,
+    otherCharges: other,
+    withholdingTax: wht,
+    net,
+    vatClassification: cls,
+    vatRate,
+    vatableSales,
+    vatExemptSales,
+    zeroRatedSales,
+    vatAmount,
+    grandTotal,
+    totalSalesVatInclusive,
+    totalAmountDue,
+  };
+}
+
 // Per-item totals, computed in centavos and returned in pesos — the same shape
 // computeInvoiceTotals returns for the invoice-level path.
 function itemizedTotals({ items, discount, otherCharges, withholdingTax }) {
@@ -125,12 +217,19 @@ function itemizedTotals({ items, discount, otherCharges, withholdingTax }) {
 }
 
 /**
- * Invoice totals for VAT-INCLUSIVE prices. Mirrors computeInvoiceTotalsCentavos
- * in functions/src/invoicePricing.js (which is authoritative for priced
- * orders); used for the editor's display and the legacy manual path.
+ * Invoice totals under the record's OWN price convention. Mirrors
+ * computeInvoiceTotalsCentavos in functions/src/invoicePricing.js (which is
+ * authoritative for priced orders); used for the editor's display and the
+ * manual path.
  *
- * Computed in integer centavos — no floating-point peso arithmetic — and
- * returned in pesos for the template:
+ * `priceIsVatInclusive` is REQUIRED — see invoicePriceConvention(). Anything
+ * but a boolean throws: a default here would silently pick a convention.
+ *
+ * false — LEGACY: the calculation VAT-exclusive invoices were made with, kept
+ * verbatim (VAT added on top).
+ *
+ * true — computed in integer centavos — no floating-point peso arithmetic —
+ * and returned in pesos for the template:
  *
  *   grossAfterDiscount = max(0, subtotal − discount)   (discount handling unchanged)
  *   VATable:  vat = round(grossAfterDiscount × 12 ÷ 112), net = gross − vat
@@ -149,7 +248,18 @@ export function computeInvoiceTotals({
   otherCharges = 0,
   withholdingTax = 0,
   vatClassification = "vatable",
+  priceIsVatInclusive,
 } = {}) {
+  const inclusive = readPriceConvention(priceIsVatInclusive);
+  if (inclusive === null) {
+    throw new Error("Invoice totals need the record's own price convention.");
+  }
+  if (!inclusive) {
+    if (vatClassification === ITEMIZED_VAT && hasItemizedVat(items)) {
+      return legacyItemizedTotals({ items, discount, otherCharges, withholdingTax });
+    }
+    return legacyExclusiveTotals({ items, discount, otherCharges, withholdingTax, vatClassification });
+  }
   if (vatClassification === ITEMIZED_VAT && hasItemizedVat(items)) {
     return itemizedTotals({ items, discount, otherCharges, withholdingTax });
   }
@@ -189,6 +299,22 @@ export function computeInvoiceTotals({
     totalSalesVatInclusive: p(netC + vatC),
     totalAmountDue: p(grandC - whtC),
   };
+}
+
+/**
+ * The price convention an invoice is computed and labelled under — always a
+ * RECORDED value, never the current configuration applied to old data:
+ *
+ *   - server-priced order: the ORDER's own `priceIsVatInclusive` (null if it
+ *     does not record one — the server refuses such an order too);
+ *   - manual path, existing invoice: the invoice's recorded flag; an invoice
+ *     saved before the flag existed was computed VAT-exclusive, so `false`;
+ *   - manual path, no invoice yet: a NEW record, so PRICES_INCLUDE_VAT.
+ */
+export function invoicePriceConvention({ order, invoice } = {}) {
+  if (isServerPricedOrder(order)) return readPriceConvention(order?.priceIsVatInclusive);
+  if (invoice) return readPriceConvention(invoice.priceIsVatInclusive) ?? false;
+  return PRICES_INCLUDE_VAT;
 }
 
 // ---- Editor helpers (moved verbatim from InvoiceEditor.jsx) ----
@@ -489,20 +615,24 @@ export function assertConsistentInvoiceTotals(data) {
 
 /**
  * Build the Firestore invoice document from the current order + form. Pure: it
- * derives totals internally (VAT-inclusive) and NEVER emits an invoiceNumber,
- * createdAt, or create-audit fields — those are owned by the service so the
- * reserved INV-YYYY-###### number and creation trail are preserved on update.
+ * derives totals internally under `priceIsVatInclusive` (the invoice's own
+ * convention — invoicePriceConvention()), records that convention on the
+ * document, and NEVER emits an invoiceNumber, createdAt, or create-audit
+ * fields — those are owned by the service so the reserved INV-YYYY-######
+ * number and creation trail are preserved on update.
  */
-export function serializeInvoiceDoc({ orderId, order, form }) {
+export function serializeInvoiceDoc({ orderId, order, form, priceIsVatInclusive }) {
   const t = computeInvoiceTotals({
     items: form.items,
     discount: form.discount,
     otherCharges: form.otherCharges,
     withholdingTax: form.withholdingTax,
     vatClassification: form.vatClassification,
+    priceIsVatInclusive,
   });
   return {
     orderId,
+    priceIsVatInclusive,
     orderNumber: order.orderNumber || order.id,
     customerId: order.clinicId || null,
     clinicId: order.clinicId || null,

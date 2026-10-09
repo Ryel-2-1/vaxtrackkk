@@ -21,6 +21,7 @@
  */
 import { deriveExpiryCondition } from "./expiry.js";
 import { readPriceCentavos } from "./money.js";
+import { PRICES_INCLUDE_VAT } from "./pricingConfig.js";
 
 /**
  * The batch statuses the server treats as orderable — the exact set in
@@ -51,6 +52,9 @@ export const ELIGIBILITY_REASONS = Object.freeze({
   EXPIRED: "expired",
   MISSING_EXPIRY: "missing-expiry",
   MISSING_PRICE: "missing-price",
+  // The price was recorded VAT-exclusive (before the VAT-inclusive rule) and
+  // awaits Admin re-confirmation. Mirrors the server's batch-price-convention-legacy.
+  LEGACY_PRICE_CONVENTION: "legacy-price-convention",
   NO_AVAILABLE_STOCK: "no-available-stock",
   // Cart-line only: the batch is orderable, but the requested quantity is more
   // than is available. Mirrors the server's `insufficient-stock`.
@@ -67,6 +71,7 @@ const REASON_MESSAGES = Object.freeze({
   expired: "Expired batch",
   "missing-expiry": "Expiry date missing",
   "missing-price": "Price not available",
+  "legacy-price-convention": "Legacy pricing — VAT recorded as exclusive; awaiting Admin price confirmation",
   "no-available-stock": "No available stock",
   "insufficient-stock": "Not enough stock available",
 });
@@ -187,6 +192,12 @@ export function evaluateBatchEligibility(batch, todayIso) {
   // 5. Price — a positive, safe-integer centavo amount, or the batch is unpriced.
   if (readPriceCentavos(batch?.sellingPriceCentavos) === null) {
     return ineligible(ELIGIBILITY_REASONS.MISSING_PRICE, availableQuantity, normalizedStatus);
+  }
+
+  // 5b. The price must be RECORDED under the convention new orders carry. A
+  //     legacy VAT-exclusive price is never quoted as if it included VAT.
+  if (batch?.priceIsVatInclusive !== PRICES_INCLUDE_VAT) {
+    return ineligible(ELIGIBILITY_REASONS.LEGACY_PRICE_CONVENTION, availableQuantity, normalizedStatus);
   }
 
   // 6. No available stock is NOT a refusal any more: the batch is a valid

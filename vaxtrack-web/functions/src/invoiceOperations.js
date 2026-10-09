@@ -149,6 +149,8 @@ async function saveInvoiceDraftForPricedOrder({ db, FieldValue, uid, payload, no
       items: base.items,
       subtotalCentavos: base.subtotalCentavos,
       adjustments,
+      // The ORDER's recorded convention, never the current configuration.
+      priceIsVatInclusive: base.priceIsVatInclusive,
     });
 
     const document = buildInvoiceDocument({
@@ -262,6 +264,8 @@ async function issueInvoiceForPricedOrder({ db, FieldValue, uid, payload }) {
       items: base.items,
       subtotalCentavos: base.subtotalCentavos,
       adjustments,
+      // The ORDER's recorded convention, never the current configuration.
+      priceIsVatInclusive: base.priceIsVatInclusive,
     });
     if (
       invoice.grandTotalCentavos !== totals.grandTotalCentavos ||

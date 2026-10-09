@@ -1010,8 +1010,10 @@ async function main() {
       updatedAt: serverTimestamp(),
       createdByUid: adminUid,
       createdByEmail: "a@x.com",
+      // A NEW manual invoice records today's convention (VAT-inclusive).
+      priceIsVatInclusive: true,
       subtotal: 800,
-      grandTotal: 896,
+      grandTotal: 800,
       items: [{ quantity: 8, unitPrice: 100 }],
     }));
   });
@@ -1278,6 +1280,7 @@ async function main() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         createdByUid: adminUid,
+        priceIsVatInclusive: true,
         subtotal: 0,
         grandTotal: 0,
         items: [],
@@ -1312,6 +1315,7 @@ async function main() {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       createdByUid: adminUid,
+      priceIsVatInclusive: true,
       subtotal: 0,
       grandTotal: 0,
       items: [],
@@ -1326,6 +1330,7 @@ async function main() {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       createdByUid: adminUid,
+      priceIsVatInclusive: true,
       subtotal: 0,
       grandTotal: 0,
       items: [],
@@ -1340,6 +1345,7 @@ async function main() {
       createdAt: "2000-01-01T00:00:00Z", // not the server write time
       updatedAt: serverTimestamp(),
       createdByUid: adminUid,
+      priceIsVatInclusive: true,
       subtotal: 0,
       grandTotal: 0,
       items: [],
@@ -1351,6 +1357,7 @@ async function main() {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       createdByUid: dispatcherUid, // not the calling admin
+      priceIsVatInclusive: true,
       subtotal: 0,
       grandTotal: 0,
       items: [],
@@ -1365,6 +1372,7 @@ async function main() {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       createdByUid: adminUid,
+      priceIsVatInclusive: true,
       subtotal: 0,
       grandTotal: 0,
       items: [],
@@ -3539,7 +3547,7 @@ async function main() {
     }
     // A VALID audit is supplied throughout, so each of these fails on the
     // amount alone rather than incidentally on the audit rule.
-    const audit = { priceSetAt: serverTimestamp(), priceSetByUid: adminUid };
+    const audit = { priceSetAt: serverTimestamp(), priceSetByUid: adminUid, priceIsVatInclusive: true };
     for (const bad of [0, -1, "125000", 1250.5]) {
       await assertFails(updateDoc(doc(admin, "inventory", "invAdmin"), {
         sellingPriceCentavos: bad, ...audit,
@@ -3551,8 +3559,41 @@ async function main() {
     }));
   });
 
+  // ---- VAT price convention on a batch ----
+  await check("Nprice-conv a re-price must stamp VAT-inclusive; the flag never flips silently", async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "inventory", "invConvLegacy"), {
+        vaccineName: "Legacy priced", batchId: "CONV-1", expiryDate: "2027-12-31",
+        manufacturingDate: "2026-08-01", arrivalDate: "2026-09-01",
+        quantity: 5, reservedQuantity: 0, sellingPriceCentavos: 100000, priceIsVatInclusive: false,
+      })
+    );
+    const audit = { priceSetAt: serverTimestamp(), priceSetByUid: adminUid };
+    // A new price that does not say it is VAT-inclusive (false, or omitted).
+    await assertFails(updateDoc(doc(admin, "inventory", "invConvLegacy"), { sellingPriceCentavos: 110000, ...audit }));
+    await assertFails(updateDoc(doc(admin, "inventory", "invConvLegacy"), { sellingPriceCentavos: 110000, priceIsVatInclusive: false, ...audit }));
+    // Flipping the flag alone is a re-confirmation — it needs the audit.
+    await assertFails(updateDoc(doc(admin, "inventory", "invConvLegacy"), { priceIsVatInclusive: true }));
+    // ...and nobody but an Admin may do it.
+    for (const ctx of [dispatcher, rider, salesRep]) {
+      await assertFails(updateDoc(doc(ctx, "inventory", "invConvLegacy"), { priceIsVatInclusive: true, ...audit }));
+    }
+  });
+
+  await check("Pprice-conv an Admin re-confirms a legacy batch's price as VAT-inclusive, audited", async () => {
+    await assertSucceeds(updateDoc(doc(admin, "inventory", "invConvLegacy"), {
+      sellingPriceCentavos: 100000, priceIsVatInclusive: true,
+      priceSetAt: serverTimestamp(), priceSetByUid: adminUid,
+    }));
+    // Once VAT-inclusive, it cannot be turned back to the legacy convention.
+    await assertFails(updateDoc(doc(admin, "inventory", "invConvLegacy"), {
+      priceIsVatInclusive: false, priceSetAt: serverTimestamp(), priceSetByUid: adminUid,
+    }));
+  });
+
   await check("Nprice5 a re-price cannot forge its own audit trail", async () => {
-    const base = { sellingPriceCentavos: 141000, priceCurrency: "PHP" };
+    // A valid convention throughout, so each case fails on its audit alone.
+    const base = { sellingPriceCentavos: 141000, priceCurrency: "PHP", priceIsVatInclusive: true };
     // No audit at all.
     await assertFails(updateDoc(doc(admin, "inventory", "invAdmin"), base));
     // A uid that is not the caller — one admin recording a re-price as another.
@@ -3590,7 +3631,8 @@ async function main() {
     await assertSucceeds(updateDoc(doc(admin, "inventory", "invAdmin"), {
       sellingPriceCentavos: 140000,
       priceCurrency: "PHP",
-      priceIsVatInclusive: false,
+      // A price entered now is VAT-inclusive.
+      priceIsVatInclusive: true,
       priceSetAt: serverTimestamp(),
       priceSetByUid: adminUid,
     }));
@@ -3763,17 +3805,59 @@ async function main() {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       createdByUid: adminUid,
+      priceIsVatInclusive: true,
       subtotal: 800,
-      grandTotal: 896,
+      grandTotal: 800,
       items: [{ itemDescription: "Hepatitis B", quantity: 8, unitPrice: 100 }],
     }));
     // ...and the admin can still type a price on it.
     await assertSucceeds(updateDoc(doc(admin, "invoices", "ordLegacyPrice"), {
       items: [{ itemDescription: "Hepatitis B", quantity: 8, unitPrice: 125 }],
       subtotal: 1000,
-      grandTotal: 1120,
+      grandTotal: 1000,
       updatedAt: serverTimestamp(),
       updatedByUid: adminUid,
+    }));
+  });
+
+  // ---- VAT price convention on a manual invoice ----
+  await check("Ninv-conv a NEW manual invoice must record VAT-inclusive", async () => {
+    const fresh = (id, extra) => ({
+      orderId: id, invoiceStatus: "draft", invoiceNumber: "INV-2026-000300",
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp(), createdByUid: adminUid,
+      subtotal: 800, grandTotal: 800, items: [{ quantity: 8, unitPrice: 100 }], ...extra,
+    });
+    await assertFails(setDoc(doc(admin, "invoices", "ordConvNew"), fresh("ordConvNew", {})));
+    await assertFails(setDoc(doc(admin, "invoices", "ordConvNew"), fresh("ordConvNew", { priceIsVatInclusive: false })));
+    await assertSucceeds(setDoc(doc(admin, "invoices", "ordConvNew"), fresh("ordConvNew", { priceIsVatInclusive: true })));
+  });
+
+  await check("Ninv-conv2 an existing manual invoice's convention can never change", async () => {
+    const upd = { updatedAt: serverTimestamp(), updatedByUid: adminUid };
+    // A draft saved before the flag existed (absent = VAT-exclusive).
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "invoices", "ordConvOld"), {
+        orderId: "ordConvOld", invoiceStatus: "draft", invoiceNumber: "INV-2026-000301",
+        createdByUid: adminUid, createdAt: "seed", updatedAt: "seed",
+        subtotal: 800, net: 800, vatAmount: 96, grandTotal: 896, items: [{ quantity: 8, unitPrice: 100 }],
+      })
+    );
+    await assertFails(updateDoc(doc(admin, "invoices", "ordConvOld"), { priceIsVatInclusive: true, ...upd }));
+    // The VAT-inclusive draft from the previous check cannot become legacy.
+    await assertFails(updateDoc(doc(admin, "invoices", "ordConvNew"), { priceIsVatInclusive: false, ...upd }));
+    await assertFails(updateDoc(doc(admin, "invoices", "ordConvNew"), { priceIsVatInclusive: null, ...upd }));
+  });
+
+  await check("Pinv-conv a legacy manual draft keeps — and may record — its VAT-exclusive convention", async () => {
+    const upd = { updatedAt: serverTimestamp(), updatedByUid: adminUid };
+    // Saving it again, recording the convention it already had, is allowed.
+    await assertSucceeds(updateDoc(doc(admin, "invoices", "ordConvOld"), {
+      priceIsVatInclusive: false, subtotal: 1000, net: 1000, vatAmount: 120, grandTotal: 1120,
+      items: [{ quantity: 10, unitPrice: 100 }], ...upd,
+    }));
+    // It issues with its legacy figures intact.
+    await assertSucceeds(updateDoc(doc(admin, "invoices", "ordConvOld"), {
+      invoiceStatus: "issued", issuedAt: serverTimestamp(), issuedByUid: adminUid, ...upd,
     }));
   });
 

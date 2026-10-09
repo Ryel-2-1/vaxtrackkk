@@ -12,15 +12,22 @@ import {
   VAT_STANDARD_RATE,
   VAT_CLASSIFICATIONS,
   vatClassificationLabel,
-  computeInvoiceTotals,
+  computeInvoiceTotals as computeUnderConvention,
   formatOrderDate,
   itemsFromOrder,
   buildInitialForm,
-  serializeInvoiceDoc,
+  invoicePriceConvention,
+  serializeInvoiceDoc as serializeUnderConvention,
   normalizeStoredTotals,
   isIssued,
   assertConsistentInvoiceTotals,
 } from "../src/services/invoiceModel.js";
+
+// Most cases below are NEW records (VAT-inclusive). The convention is always
+// passed explicitly — the model refuses to guess — and the legacy cases at the
+// end pass `false`.
+const computeInvoiceTotals = (args = {}) => computeUnderConvention({ priceIsVatInclusive: true, ...args });
+const serializeInvoiceDoc = (args) => serializeUnderConvention({ priceIsVatInclusive: true, ...args });
 
 // ---------------------------------------------------------------------------
 // computeInvoiceTotals — VAT-INCLUSIVE prices (confirmed client rule)
@@ -425,6 +432,87 @@ test("assertConsistentInvoiceTotals: serializer output is always consistent", ()
   });
   assert.equal(built.subtotal, 150); // 3 x 50
   assert.doesNotThrow(() => assertConsistentInvoiceTotals(built));
+});
+
+// ------------------------------------------------- legacy VAT-exclusive records
+//
+// A record stamped `priceIsVatInclusive: false` keeps the calculation it was
+// recorded under — the original VAT-on-top figures — and is labelled legacy.
+
+test("legacy VAT-exclusive totals are exactly the original calculation", () => {
+  const items = [{ quantity: 4, unitPrice: 200 }];
+  const old = computeUnderConvention({ items, vatClassification: "vatable", priceIsVatInclusive: false });
+  assert.deepEqual([old.net, old.vatAmount, old.grandTotal, old.totalAmountDue], [800, 96, 896, 896]);
+  const twenty = computeUnderConvention({ items: [{ quantity: 20, unitPrice: 85 }], priceIsVatInclusive: false });
+  assert.deepEqual([twenty.vatAmount, twenty.grandTotal], [204, 1904]);
+  // The same ₱1,000 under the two conventions.
+  const one = [{ quantity: 1, unitPrice: 1000 }];
+  assert.deepEqual(
+    [computeUnderConvention({ items: one, priceIsVatInclusive: true }).grandTotal, computeUnderConvention({ items: one, priceIsVatInclusive: false }).grandTotal],
+    [1000, 1120]
+  );
+  const itemized = computeUnderConvention({
+    items: [
+      { quantity: 1, unitPriceCentavos: 100000, vatClassification: "vatable" },
+      { quantity: 1, unitPriceCentavos: 50000, vatClassification: "vat_exempt" },
+    ],
+    vatClassification: "per_item",
+    priceIsVatInclusive: false,
+  });
+  assert.deepEqual([itemized.vatableSales, itemized.vatAmount, itemized.grandTotal], [1000, 120, 1620]);
+});
+
+test("the convention is required — never defaulted from the current configuration", () => {
+  for (const missing of [undefined, null, "true", 1]) {
+    assert.throws(() => computeUnderConvention({ items: [{ quantity: 1, unitPrice: 1 }], priceIsVatInclusive: missing }), /own price convention/);
+  }
+});
+
+test("retries return identical totals under either convention", () => {
+  for (const priceIsVatInclusive of [true, false]) {
+    const args = { items: [{ quantity: 7, unitPrice: 123.45 }], discount: 10, otherCharges: 5, withholdingTax: 2, priceIsVatInclusive };
+    const first = computeUnderConvention(args);
+    for (let i = 0; i < 5; i += 1) assert.deepEqual(computeUnderConvention(args), first);
+  }
+});
+
+test("invoicePriceConvention: always a RECORDED value, never the configuration applied to old data", () => {
+  const priced = (flag) => ({ pricingVersion: 1, priceIsVatInclusive: flag });
+  // Server-priced: the ORDER's own flag, whatever the invoice says.
+  assert.equal(invoicePriceConvention({ order: priced(true) }), true);
+  assert.equal(invoicePriceConvention({ order: priced(false) }), false);
+  assert.equal(invoicePriceConvention({ order: priced(false), invoice: { priceIsVatInclusive: true } }), false);
+  assert.equal(invoicePriceConvention({ order: priced(undefined) }), null, "a damaged order is not guessed");
+  // Manual path: an existing invoice keeps its own; one saved before the flag
+  // existed was computed VAT-exclusive; only a brand-new invoice takes today's rule.
+  const manual = { id: "m" };
+  assert.equal(invoicePriceConvention({ order: manual, invoice: { priceIsVatInclusive: true } }), true);
+  assert.equal(invoicePriceConvention({ order: manual, invoice: { priceIsVatInclusive: false } }), false);
+  assert.equal(invoicePriceConvention({ order: manual, invoice: { invoiceStatus: "draft" } }), false);
+  assert.equal(invoicePriceConvention({ order: manual, invoice: null }), true);
+});
+
+test("the serialized manual invoice records its convention and is computed under it", () => {
+  const form = {
+    ...buildInitialForm({ id: "O1" }, null, ""),
+    items: [{ key: "k", quantity: 1, unitPrice: 1000, itemDescription: "X" }],
+  };
+  const fresh = serializeUnderConvention({ orderId: "O1", order: { id: "O1" }, form, priceIsVatInclusive: true });
+  assert.deepEqual([fresh.priceIsVatInclusive, fresh.vatAmount, fresh.grandTotal], [true, 107.14, 1000]);
+  const old = serializeUnderConvention({ orderId: "O1", order: { id: "O1" }, form, priceIsVatInclusive: false });
+  assert.deepEqual([old.priceIsVatInclusive, old.vatAmount, old.grandTotal], [false, 120, 1120]);
+  assert.doesNotThrow(() => assertConsistentInvoiceTotals(old));
+});
+
+test("an issued legacy invoice shows its STORED figures, whatever is computed live", () => {
+  const issued = { invoiceStatus: "issued", priceIsVatInclusive: false, subtotal: 800, net: 800, vatAmount: 96, grandTotal: 896, totalAmountDue: 896, vatableSales: 800 };
+  const before = JSON.stringify(issued);
+  for (const priceIsVatInclusive of [true, false]) {
+    const live = computeUnderConvention({ items: [{ quantity: 4, unitPrice: 200 }], priceIsVatInclusive });
+    const shown = normalizeStoredTotals(issued, live);
+    assert.deepEqual([shown.net, shown.vatAmount, shown.grandTotal, shown.totalAmountDue], [800, 96, 896, 896]);
+  }
+  assert.equal(JSON.stringify(issued), before, "never mutated");
 });
 
 // ------------------------------------------------- server-priced orders

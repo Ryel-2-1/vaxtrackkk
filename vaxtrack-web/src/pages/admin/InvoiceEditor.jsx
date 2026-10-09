@@ -27,6 +27,7 @@ import {
   buildInitialForm,
   computeInvoiceTotals,
   formatOrderDate,
+  invoicePriceConvention,
   ITEMIZED_VAT,
   itemVatLabelForLine,
   isServerPricedOrder,
@@ -36,7 +37,7 @@ import {
   serializeInvoiceDoc,
   vatClassificationLabel,
 } from "../../services/invoiceModel";
-import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
+import { priceConventionNote } from "../../services/pricingConfig";
 import {
   issueInvoiceForPricedOrder,
   messageForInvoiceError,
@@ -52,17 +53,19 @@ function formatCurrency(value) {
   })}`;
 }
 
-// Totals from the live form — prices are VAT-inclusive, so VAT is extracted,
-// never added (single source of truth in the service so the editor and CSV
-// export agree). Display only for a priced order: the server computes and
-// stores the authoritative figures.
-function computeTotals(form) {
+// Totals from the live form, under the invoice's OWN recorded convention
+// (invoicePriceConvention): VAT extracted for VAT-inclusive prices, added on
+// top for a legacy VAT-exclusive record (single source of truth in the service
+// so the editor and CSV export agree). Display only for a priced order: the
+// server computes and stores the authoritative figures.
+function computeTotals(form, priceIsVatInclusive) {
   return computeInvoiceTotals({
     items: form.items,
     discount: form.discount,
     otherCharges: form.otherCharges,
     withholdingTax: form.withholdingTax,
     vatClassification: form.vatClassification,
+    priceIsVatInclusive,
   });
 }
 
@@ -104,6 +107,10 @@ function InvoiceEditor() {
    */
   const serverPriced = isServerPricedOrder(order);
   const baseLocked = readOnly || serverPriced;
+  // The recorded convention this invoice is computed and labelled under —
+  // never the current configuration applied to an existing record.
+  const priceConvention = invoicePriceConvention({ order, invoice });
+  const priceNote = priceConventionNote(priceConvention);
 
   // Load order + invoice on mount (and on retry via reloadKey). All setState
   // runs after an await inside this async effect, so it never fires
@@ -130,6 +137,13 @@ function InvoiceEditor() {
           }
         }
         if (cancelled) return;
+        if (invoicePriceConvention({ order: orderData, invoice: invoiceData }) === null) {
+          // A priced order that does not record whether its prices include
+          // VAT. The server refuses to invoice it too; nothing is guessed.
+          setError("This order does not record whether its prices include VAT, so it cannot be invoiced.");
+          setLoading(false);
+          return;
+        }
         setOrder(orderData);
         setInvoice(invoiceData);
         setForm(buildInitialForm(orderData, invoiceData, repName));
@@ -171,13 +185,13 @@ function InvoiceEditor() {
   // STORED figures exactly as locked — including a legacy taxAmount surfaced as
   // vatAmount — so nothing about an already-issued invoice can shift.
   const totals = useMemo(() => {
-    if (!form) return null;
-    const live = computeTotals(form);
+    if (!form || priceConvention === null) return null;
+    const live = computeTotals(form, priceConvention);
     if (readOnly && invoice && Number.isFinite(Number(invoice.grandTotal))) {
       return normalizeStoredTotals(invoice, live);
     }
     return live;
-  }, [form, readOnly, invoice]);
+  }, [form, readOnly, invoice, priceConvention]);
 
   const setField = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -219,7 +233,8 @@ function InvoiceEditor() {
     setDirty(true);
   };
 
-  const buildInvoiceData = () => serializeInvoiceDoc({ orderId, order, form });
+  const buildInvoiceData = () =>
+    serializeInvoiceDoc({ orderId, order, form, priceIsVatInclusive: priceConvention });
 
   const admin = () => {
     const u = auth.currentUser;
@@ -449,9 +464,19 @@ function InvoiceEditor() {
               cannot be edited here.{" "}
               {form.vatClassification === ITEMIZED_VAT
                 ? "VAT comes from each item's own classification. Discounts, other charges and withholding tax are still yours to set."
-                : "Discounts, other charges, withholding tax and the VAT classification are still yours to set."}{" "}
-              {VAT_INCLUSIVE_NOTE}
+                : "Discounts, other charges, withholding tax and the VAT classification are still yours to set."}
             </span>
+          </div>
+        )}
+
+        {/* The pricing convention THIS record was recorded under — the
+            VAT-inclusive wording never appears on a legacy record. */}
+        {priceNote && (
+          <div
+            className={`inv-price-convention inv-no-print${priceConvention === false ? " legacy" : ""}`}
+            data-price-convention={priceConvention ? "vat-inclusive" : "legacy-vat-exclusive"}
+          >
+            {priceNote}
           </div>
         )}
 

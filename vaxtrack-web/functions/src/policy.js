@@ -694,6 +694,20 @@ function evaluateBatch({ inventoryId, data, requested, expectedUnitPriceCentavos
     );
   }
 
+  // The batch's price must have been RECORDED under the convention new orders
+  // are stamped with (VAT-inclusive). A price set before that rule was entered
+  // VAT-exclusive (`priceIsVatInclusive: false`); quoting it onto a new order
+  // would silently change what the figure means. It stays unorderable — like
+  // an unpriced batch — until an Admin re-confirms the price, which stamps the
+  // current convention. Nothing converts it automatically.
+  if (data.priceIsVatInclusive !== PRICE_IS_VAT_INCLUSIVE) {
+    throw new PolicyError(
+      "batch-price-convention-legacy",
+      "This batch's price was recorded under legacy pricing (VAT-exclusive). An admin must re-confirm it as a VAT-inclusive price before it can be ordered.",
+      { inventoryId, batchId: data.batchId ?? null }
+    );
+  }
+
   // The one check that makes pricing tamper-evident in BOTH directions. A cart
   // that expected less than the batch now costs is refused just as firmly as
   // one that expected more: the rep is buying at a price they were not shown,

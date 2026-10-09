@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { formatCentavos } from "../../services/money";
-import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
+import { priceConventionNote, readPriceConvention } from "../../services/pricingConfig";
 import AllocationSummary from "../../components/ui/AllocationSummary";
 
 /**
@@ -53,6 +53,8 @@ function getLatestOrder() {
       priority: saved.priority || "Standard",
       items: Array.isArray(saved.items) ? saved.items : [],
       subtotalCentavos: typeof saved.subtotalCentavos === "number" ? saved.subtotalCentavos : null,
+      // The ORDER's recorded convention (a replay can return an older order).
+      priceIsVatInclusive: readPriceConvention(saved.priceIsVatInclusive),
       // Server-written allocation (null on a confirmation saved before it).
       allocation: saved.allocation && typeof saved.allocation === "object" ? saved.allocation : null,
     };
@@ -226,7 +228,8 @@ function SalesRepOrderConfirmation() {
         </button>
 
         <small>
-          This confirmation is a record of order submission. {VAT_INCLUSIVE_NOTE}
+          This confirmation is a record of order submission.{" "}
+          {priceConventionNote(order.priceIsVatInclusive)}
         </small>
       </section>
     </>

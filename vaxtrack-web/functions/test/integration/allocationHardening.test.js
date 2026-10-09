@@ -108,7 +108,7 @@ async function world() {
 async function batch(id, over = {}) {
   await db.collection("inventory").doc(id).set({
     vaccineId: P, vaccineName: "Vaccine P", batchId: id.toUpperCase(), status: "Stable",
-    expiryDate: "2027-06-30", quantity: 0, reservedQuantity: 0, sellingPriceCentavos: PRICE,
+    expiryDate: "2027-06-30", quantity: 0, reservedQuantity: 0, sellingPriceCentavos: PRICE, priceIsVatInclusive: true,
     ...over,
   });
 }
@@ -614,7 +614,7 @@ test("R1. the staging ARV remediation: dry run writes nothing; apply converts on
   // A copy of the staging documents as exported read-only on 2026-10-06.
   await db.collection("inventory").doc(script.BATCH_ID).set({
     vaccineId: script.PRODUCT_ID, vaccineName: "ARV", batchId: "BT_2026-013", status: "Warning",
-    expiryDate: "2026-11-07", quantity: 338, reservedQuantity: 2, sellingPriceCentavos: PRICE,
+    expiryDate: "2026-11-07", quantity: 338, reservedQuantity: 2, sellingPriceCentavos: PRICE, priceIsVatInclusive: true,
   });
   for (const t of script.TARGETS) {
     await db.collection("orders").doc(t.orderId).set({
