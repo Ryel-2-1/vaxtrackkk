@@ -42,7 +42,8 @@ const {
   unitsByBatch,
 } = require("./allocation");
 const { statusUpdatedByEmailValue } = require("./attribution");
-const { settleFailureReturn } = require("./failureReturn");
+const { settleFailureReturn, failureWouldSettle } = require("./failureReturn");
+const { dispositionEvent, epochOf, requeueEvent, prepareEvents, createPreparedEvents } = require("./orderHistory");
 
 const ORDERS = "orders";
 const INVENTORY = "inventory";
@@ -140,6 +141,7 @@ async function addStockBatchWithAllocation({ db, FieldValue, uid, payload, now }
   await loadApproved(db, uid, "admin");
   const input = validateStockBatchPayload(payload, now);
   const batchRef = db.collection(INVENTORY).doc();
+  const source = { operation: "addStockBatchWithAllocation", triggeredBy: { uid, role: "admin" } };
 
   const first = await db.runTransaction(async (tx) => {
     const dupe = await tx.get(db.collection(INVENTORY).where("batchId", "==", input.batchId).limit(1));
@@ -175,6 +177,7 @@ async function addStockBatchWithAllocation({ db, FieldValue, uid, payload, now }
       productKey: input.vaccineId,
       now,
       extraBatches: [{ id: batchRef.id, data: batchData }],
+      source,
     });
     const reservedFromNew = r.extraReserved.get(batchRef.id) ?? 0;
     tx.set(batchRef, {
@@ -204,6 +207,7 @@ async function addStockBatchWithAllocation({ db, FieldValue, uid, payload, now }
       productKey: input.vaccineId,
       now,
       cursors: { batchCursor: step.batchCursor, orderCursor: step.orderCursor },
+      source,
     });
     allocations.push(...more.allocations);
     const snap = await batchRef.get();
@@ -320,6 +324,18 @@ async function confirmReturnDisposition({ db, FieldValue, uid, payload, now }) {
     const refs = perBatch.map(([id]) => db.collection(INVENTORY).doc(id));
     const snaps = [];
     for (const ref of refs) snaps.push(await tx.get(ref));
+    // The order, for its history event (owner, reference, lines). Read before
+    // any write, as Firestore requires; a deleted order still gets an event.
+    const orderSnap = typeof ret.orderId === "string" && ret.orderId
+      ? await tx.get(db.collection(ORDERS).doc(ret.orderId))
+      : null;
+    // History, READ phase: create-only, checked before the first write.
+    const preparedHistory = orderSnap
+      ? await prepareEvents(tx, {
+          db,
+          events: [dispositionEvent({ returnId, ret, order: orderSnap.exists ? orderSnap.data() : null, disposition, uid })],
+        })
+      : [];
     perBatch.forEach(([inventoryId, quantity], i) => {
       const data = snaps[i].exists ? snaps[i].data() : null;
       if (!data) throw new PolicyError("inventory-not-found", "A batch on this return no longer exists.", { inventoryId });
@@ -356,6 +372,8 @@ async function confirmReturnDisposition({ db, FieldValue, uid, payload, now }) {
         returnResolvedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });
+      // Recorded once: a repeated decision replays above without writing.
+      createPreparedEvents(tx, { FieldValue, prepared: preparedHistory });
     }
     return {
       returnId,
@@ -367,7 +385,13 @@ async function confirmReturnDisposition({ db, FieldValue, uid, payload, now }) {
 
   let reallocated = [];
   if (result.productKeys.length > 0) {
-    const runs = await allocateProducts({ db, FieldValue, productKeys: result.productKeys, now });
+    const runs = await allocateProducts({
+      db,
+      FieldValue,
+      productKeys: result.productKeys,
+      now,
+      source: { operation: "confirmReturnDisposition", triggeredBy: { uid, role: "admin" } },
+    });
     reallocated = runs.flatMap((r) => r.allocations);
   }
   const { productKeys, ...rest } = result;
@@ -416,6 +440,26 @@ async function requeueFailedOrder({ db, FieldValue, uid, email = null, payload, 
     // the compatibility trigger has not run yet, settle it here first — the
     // fresh reservation below must never overwrite reserved units.
     let settlement = { settled: false, orderFields: {} };
+    // History, READ phase — before settlement writes anything. The requeue
+    // belongs to the epoch the order will be in afterwards: one more when the
+    // settlement below moves units (it advances failureCount), else the same.
+    let preparedHistory = [];
+    if (order.allocationVersion === ALLOCATION_VERSION_BACKORDER) {
+      preparedHistory = await prepareEvents(tx, {
+        db,
+        events: [requeueEvent({
+          orderId,
+          order,
+          afterItems: (Array.isArray(order.items) ? order.items : []).map((l) => ({
+            ...l,
+            reservedQuantity: 0,
+            backorderedQuantity: l.quantity,
+          })),
+          epoch: failureWouldSettle(order, reservation) ? epochOf(order) + 1 : epochOf(order),
+          uid,
+        })],
+      });
+    }
     if (order.allocationVersion === ALLOCATION_VERSION_BACKORDER) {
       settlement = await settleFailureReturn(tx, {
         db,
@@ -426,6 +470,7 @@ async function requeueFailedOrder({ db, FieldValue, uid, email = null, payload, 
         reservation,
         reason: order.deliveryFailureReason ?? null,
         reportedByUid: order.deliveryFailedByUid ?? null,
+        sourceOperation: "requeueFailedOrder",
       });
     }
     const update = {
@@ -473,6 +518,13 @@ async function requeueFailedOrder({ db, FieldValue, uid, email = null, payload, 
         update.failureCount = settlement.orderFields.failureCount;
         update.pendingReturnId = settlement.returnId;
       }
+      // The epoch named above must be the one the order now carries.
+      const epochNow = settlement.settled ? settlement.orderFields.failureCount : epochOf(order);
+      if (preparedHistory.length && preparedHistory[0].event.epoch !== epochNow) {
+        throw new Error("requeue history epoch mismatch");
+      }
+      // Recorded once per failure: a repeated requeue replays above.
+      createPreparedEvents(tx, { FieldValue, prepared: preparedHistory });
     }
     tx.update(orderRef, update);
     return { orderId, status: "pending_dispatch", replayed: false, productKeys };
@@ -480,7 +532,13 @@ async function requeueFailedOrder({ db, FieldValue, uid, email = null, payload, 
 
   let reallocated = [];
   if (result.productKeys.length > 0) {
-    const runs = await allocateProducts({ db, FieldValue, productKeys: result.productKeys, now });
+    const runs = await allocateProducts({
+      db,
+      FieldValue,
+      productKeys: result.productKeys,
+      now,
+      source: { operation: "requeueFailedOrder", triggeredBy: { uid, role: "dispatcher" } },
+    });
     reallocated = runs.flatMap((r) => r.allocations);
   }
   const orderSnap = await orderRef.get();

@@ -668,6 +668,13 @@ service cloud.firestore {
       return scheduledDateUnchanged();
     }
 
+    // Who placed the order and its reference are fixed at creation. Receipts
+    // and allocation history are filtered to the Med Rep by the owner the
+    // server copied from here, so no client — Admin included — may redirect it.
+    function immutableOwnershipFields() {
+      return ['createdByUid', 'createdByRole', 'orderNumber'];
+    }
+
     // The guard every client order write now carries.
     function clientOrderWriteIsAllowed() {
       return !writesServerOnlyStatus()
@@ -676,6 +683,7 @@ service cloud.firestore {
         // Admin included — may rewrite them after creation.
         && !changedKeys().hasAny(['items'])
         && !changedKeys().hasAny(immutableDestinationFields())
+        && !changedKeys().hasAny(immutableOwnershipFields())
         && scheduleGuardHolds()
         && scheduledDateWriteIsValid();
     }
@@ -1510,6 +1518,32 @@ service cloud.firestore {
     // one bounded pass. Server-only — a client that could write one could
     // re-order or stall allocation.
     match /allocationContinuations/{productKey} {
+      allow read, write: if false;
+    }
+
+    // ---------------- order history (server-only, read-only) ----------------
+    //
+    // Order Confirmation Receipts and the Stock Allocation History ledger
+    // (functions/src/orderHistory.js). Written only by the trusted callables
+    // and triggers through the Admin SDK, inside the transaction that made the
+    // change; no client role may create, edit or delete an entry. Readable by
+    // Admin, and by the Med Rep the SERVER recorded as the order's owner
+    // (`medRepUid`) — a list query must filter on it. Dispatcher and Rider have
+    // no access here.
+    match /orderReceipts/{orderId} {
+      allow get, list: if isAdmin()
+        || (isSalesRep() && resource.data.medRepUid == request.auth.uid);
+      allow write: if false;
+    }
+    match /inventoryAllocationEvents/{eventId} {
+      allow get, list: if isAdmin()
+        || (isSalesRep() && resource.data.medRepUid == request.auth.uid);
+      allow write: if false;
+    }
+    // Outbox markers that guarantee each new order's initial-allocation
+    // history is recorded (functions/src/orderHistoryOutbox.js). Server-only:
+    // a client that could write one could suppress or forge that record.
+    match /orderHistoryOutbox/{orderId} {
       allow read, write: if false;
     }
 

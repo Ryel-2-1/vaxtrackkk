@@ -6,6 +6,7 @@ import {
   Bell,
   Box,
   CheckCircle2,
+  History,
   LayoutDashboard,
   LogOut,
   MapPin,
@@ -36,6 +37,7 @@ const ROUTE_META = {
   "/sales-rep/place-order": { key: "request", title: "Checkout", showSearch: false },
   "/sales-rep/order-confirmation": { key: "request", title: "Order Confirmation", showSearch: false },
   "/sales-rep/order-tracking": { key: "tracking", title: "Order Tracking", showSearch: false },
+  "/sales-rep/order-history": { key: "history", title: "Order History", showSearch: false },
   "/sales-rep/alerts": { key: "alerts", title: "Alerts", showSearch: false },
   "/sales-rep/settings": { key: "settings", title: "Settings", showSearch: false },
 };
@@ -179,6 +181,11 @@ function SalesRepShell() {
           <Link className={active === "tracking" ? "active" : ""} to="/sales-rep/order-tracking">
             <MapPin size={17} />
             <span>Order Tracking</span>
+          </Link>
+
+          <Link className={active === "history" ? "active" : ""} to="/sales-rep/order-history">
+            <History size={17} />
+            <span>Order History</span>
           </Link>
 
           <Link className={active === "alerts" ? "active" : ""} to="/sales-rep/alerts">

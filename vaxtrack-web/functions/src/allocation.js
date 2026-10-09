@@ -51,6 +51,9 @@
 // The same usability and date rules the order path applies (policy.js), so a
 // batch is never allocatable here while being unorderable there.
 const { isUsableStatus, isoDateOnly, manilaDateString, isUnconfirmedStockQuantity } = require("./policy");
+// Every allocation writes its Stock Allocation History event in the same
+// transaction (orderHistory.js).
+const { allocationEvents, prepareEvents, createPreparedEvents } = require("./orderHistory");
 
 const ALLOCATION_VERSION_BACKORDER = 2;
 const ALLOCATION_STATES = Object.freeze(["awaiting_stock", "partially_reserved", "fully_reserved"]);
@@ -327,6 +330,11 @@ function unitsByBatch(slices) {
  *
  * [extraBatches] are batches created in the same transaction and not yet
  * readable — their reserved units are returned for the caller to write.
+ *
+ * [source] names what started this allocation ({ operation, triggeredBy }) for
+ * the history events written alongside each order update — same transaction,
+ * deterministic ids, create-only (orderHistory.prepareEvents), so a committed
+ * reservation always has exactly one event and no event is ever overwritten.
  */
 async function allocateInTransaction(tx, {
   db,
@@ -338,6 +346,7 @@ async function allocateInTransaction(tx, {
   maxBatches = MAX_BATCHES_PER_PRODUCT,
   batchCursor = null,
   orderCursor = null,
+  source = null,
 }) {
   let batchQuery = db
     .collection("inventory")
@@ -364,6 +373,21 @@ async function allocateInTransaction(tx, {
   const plan = planAllocation({ productKey, batches, orders, now });
 
   const extraIds = new Set(extraBatches.map((b) => b.id));
+  const ordersById = new Map(orders.map((o) => [o.id, o.data]));
+  // History, READ phase: every event this round will append is checked
+  // before the first write. An existing different event aborts the round, so
+  // no reservation can commit without its own, untouched history.
+  const history = await prepareEvents(tx, {
+    db,
+    events: plan.orderUpdates.flatMap((u) => allocationEvents({
+      orderId: u.orderId,
+      before: ordersById.get(u.orderId),
+      update: u,
+      productKey,
+      source,
+      newInventoryIds: extraIds,
+    })),
+  });
   const extraReserved = new Map();
   for (const u of plan.batchUpdates) {
     if (extraIds.has(u.id)) extraReserved.set(u.id, u.reservedQuantity);
@@ -394,6 +418,7 @@ async function allocateInTransaction(tx, {
       { merge: true }
     );
   }
+  createPreparedEvents(tx, { FieldValue, prepared: history });
   const lastBatch = batchSnap.docs[batchSnap.size - 1];
   const lastOrder = orderSnap.docs[orderSnap.size - 1];
   return {
@@ -465,6 +490,7 @@ async function allocateProduct({
   maxBatches = MAX_BATCHES_PER_PRODUCT,
   cursors = {},
   generation = 0,
+  source = null,
 }) {
   const summary = {
     productKey,
@@ -483,7 +509,7 @@ async function allocateProduct({
   let progressed = false;
   for (let round = 0; round < maxRounds; round += 1) {
     const r = await db.runTransaction((tx) =>
-      allocateInTransaction(tx, { db, FieldValue, productKey, now, maxOrders, maxBatches, ...state })
+      allocateInTransaction(tx, { db, FieldValue, productKey, now, maxOrders, maxBatches, source, ...state })
     );
     summary.rounds += 1;
     summary.leftAvailable = r.leftAvailable;
@@ -503,7 +529,7 @@ async function allocateProduct({
   }
   summary.cursors = state;
   if (!summary.done && progressed) {
-    summary.continued = await requestContinuation({ db, FieldValue, productKey, cursors: state, generation: generation + 1 });
+    summary.continued = await requestContinuation({ db, FieldValue, productKey, cursors: state, generation: generation + 1, source });
   }
   return summary;
 }
@@ -513,7 +539,7 @@ async function allocateProduct({
  * writes nothing) once a chain reaches MAX_CONTINUATIONS — reported by the
  * caller's logs, never looped past.
  */
-async function requestContinuation({ db, FieldValue, productKey, cursors, generation }) {
+async function requestContinuation({ db, FieldValue, productKey, cursors, generation, source = null }) {
   if (generation > MAX_CONTINUATIONS) {
     console.error(`allocation continuation limit reached for ${productKey}`);
     return false;
@@ -524,6 +550,8 @@ async function requestContinuation({ db, FieldValue, productKey, cursors, genera
     generation,
     batchCursor: cursors.batchCursor ?? null,
     orderCursor: cursors.orderCursor ?? null,
+    // What started the chain, kept for the history events of later links.
+    sourceOperation: typeof source?.operation === "string" ? source.operation : null,
     requestedAt: FieldValue.serverTimestamp(),
   });
   return true;
@@ -545,6 +573,10 @@ async function runContinuation({ db, FieldValue, productKey, data, now, maxRound
     cursors: { batchCursor: data.batchCursor ?? null, orderCursor: data.orderCursor ?? null },
     generation,
     maxRounds,
+    source: {
+      operation: "continueAllocation",
+      continuationOf: typeof data.sourceOperation === "string" ? data.sourceOperation : null,
+    },
   });
   if (!result.continued) {
     // Only close the record this event opened; a newer request stays pending.
@@ -560,10 +592,10 @@ async function runContinuation({ db, FieldValue, productKey, data, now, maxRound
 }
 
 /** Allocate several products independently; one shortage never blocks another. */
-async function allocateProducts({ db, FieldValue, productKeys, now }) {
+async function allocateProducts({ db, FieldValue, productKeys, now, source = null }) {
   const results = [];
   for (const key of [...new Set(productKeys)].filter(Boolean).sort()) {
-    results.push(await allocateProduct({ db, FieldValue, productKey: key, now }));
+    results.push(await allocateProduct({ db, FieldValue, productKey: key, now, source }));
   }
   return results;
 }

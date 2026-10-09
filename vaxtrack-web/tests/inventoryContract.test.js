@@ -70,19 +70,27 @@ test("the callables are the only inventory-affecting entry points", () => {
   //   settleClientReportedFailure  TEMPORARY rollout compatibility: settles a
   //                                failure written directly by an older Rider
   //                                build, through the same code as the callable
+  //   materializeOrderHistory      records a new order's initial-allocation
+  //                                history from its outbox marker (running the
+  //                                same allocator first); never sets a status
   const NON_CALLABLE_EXPORTS = [
     "recordOrderStatusEvent",
     "allocateOnInventoryWrite",
     "allocateOnOrderWrite",
     "continueAllocation",
     "settleClientReportedFailure",
+    "materializeOrderHistory",
   ];
   const exported = [...index.matchAll(/^exports\.(\w+)\s*=/gm)].map((m) => m[1]);
   assert.deepEqual(
     exported.sort(),
     [...CALLABLE_NAMES, ...NON_CALLABLE_EXPORTS].sort(),
-    "exactly these callables, plus the five triggers"
+    "exactly these callables, plus the six triggers"
   );
+  assert.match(index, /exports\.materializeOrderHistory = onDocumentWritten\(\s*\{ document: "orderHistoryOutbox\/\{orderId\}", retry: true \}/);
+  const outboxModule = read("functions/src/orderHistoryOutbox.js").replace(/^\s*(\*|\/\/).*$/gm, "");
+  assert.doesNotMatch(outboxModule, /status:\s*"(pending_dispatch|assigned|loading|in_transit|delayed|delivered|cancelled|delivery_failed)"/,
+    "the history trigger never writes an order status");
   assert.match(index, /exports\.continueAllocation = onDocumentWritten\(\s*\{ document: "allocationContinuations\/\{productKey\}", retry: true \}/);
   assert.match(index, /exports\.settleClientReportedFailure = onDocumentWritten\(\s*\{ document: "orders\/\{orderId\}", retry: true \}/);
   assert.match(index, /exports\.allocateOnInventoryWrite = onDocumentWritten\(\s*\{ document: "inventory\/\{inventoryId\}", retry: true \}/);

@@ -181,3 +181,21 @@
     flex: 1 1 100%;
   }
 }
+
+/* Link from the current backlog to the historical records (Order History). */
+.inventory-page .alloc-history-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--green-700);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.inventory-page .alloc-history-link:hover {
+  background: var(--green-50);
+}

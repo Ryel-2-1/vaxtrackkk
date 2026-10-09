@@ -85,6 +85,8 @@ export async function remediateOne({ db, FieldValue, target, apply }) {
       reservation,
       reason: order.deliveryFailureReason ?? null,
       reportedByUid: order.deliveryFailedByUid ?? null,
+      // Named in the Stock Allocation History event this settlement writes.
+      sourceOperation: "remediateStagingArvReturns",
     });
     tx.update(orderRef, {
       ...settled.orderFields,

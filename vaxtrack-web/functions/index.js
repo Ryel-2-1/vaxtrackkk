@@ -63,6 +63,7 @@ const statusEvents = require("./src/statusEvents");
 const inventoryWorkflow = require("./src/inventoryWorkflow");
 const allocation = require("./src/allocation");
 const failureReturn = require("./src/failureReturn");
+const orderHistoryOutbox = require("./src/orderHistoryOutbox");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -152,6 +153,9 @@ function toHttpsError(error, context) {
       "return-already-resolved": "failed-precondition",
       "invalid-disposition": "invalid-argument",
       "invalid-notes": "invalid-argument",
+      // An order-history record with this id already holds different content.
+      // Nothing was written or changed (orderHistory.js).
+      "history-integrity-conflict": "failed-precondition",
     };
     const httpsCode = map[error.code] ?? "invalid-argument";
     return new HttpsError(httpsCode, error.message, {
@@ -191,8 +195,10 @@ function callable(name, run) {
 
 exports.createOrderWithReservation = callable(
   "createOrderWithReservation",
-  ({ db, FieldValue, uid, data, now }) =>
-    operations.createOrderWithReservation({ db, FieldValue, uid, payload: data, now })
+  // `email` (from the verified token) is snapshotted onto the order's
+  // confirmation receipt; it never decides anything.
+  ({ db, FieldValue, uid, email, data, now }) =>
+    operations.createOrderWithReservation({ db, FieldValue, uid, email, payload: data, now })
 );
 
 exports.correctOrderDestination = callable(
@@ -327,7 +333,7 @@ exports.allocateOnInventoryWrite = onDocumentWritten(
     const now = new Date();
     const productKeys = inventoryWorkflow.productKeysForInventoryWrite(before, after, now);
     if (productKeys.length === 0) return;
-    await allocation.allocateProducts({ db, FieldValue, productKeys, now });
+    await allocation.allocateProducts({ db, FieldValue, productKeys, now, source: { operation: "allocateOnInventoryWrite" } });
   }
 );
 
@@ -338,7 +344,13 @@ exports.allocateOnOrderWrite = onDocumentWritten(
     const after = event.data?.after?.exists ? event.data.after.data() : null;
     const productKeys = inventoryWorkflow.productKeysForOrderWrite(before, after);
     if (productKeys.length === 0) return;
-    await allocation.allocateProducts({ db, FieldValue, productKeys, now: new Date() });
+    await allocation.allocateProducts({
+      db,
+      FieldValue,
+      productKeys,
+      now: new Date(),
+      source: { operation: "allocateOnOrderWrite" },
+    });
   }
 );
 
@@ -357,6 +369,34 @@ exports.continueAllocation = onDocumentWritten(
       data: after,
       now: new Date(),
     });
+  }
+);
+
+// Order history outbox (src/orderHistoryOutbox.js). Every new order's creation
+// transaction creates orderHistoryOutbox/{orderId} { status: "pending" }; this
+// records the order's initial-allocation outcome if the placing call did not
+// (it stopped between transactions, or its allocation failed). retry: true, so
+// a transient failure is retried; the marker makes a duplicate impossible, and
+// marking it "done" re-fires this trigger as a no-op.
+exports.materializeOrderHistory = onDocumentWritten(
+  { document: "orderHistoryOutbox/{orderId}", retry: true },
+  async (event) => {
+    const after = event.data?.after?.exists ? event.data.after.data() : null;
+    if (!after || after.status !== "pending") return;
+    const result = await orderHistoryOutbox.materializeInitialHistory({
+      db,
+      FieldValue,
+      orderId: event.params.orderId,
+      now: new Date(),
+      materializedBy: "materializeOrderHistory",
+      allocate: true,
+    });
+    if (result.reason === "integrity-conflict") {
+      logger.error("materializeOrderHistory: integrity conflict, nothing overwritten", {
+        orderId: event.params.orderId,
+        fields: result.fields,
+      });
+    }
   }
 );
 

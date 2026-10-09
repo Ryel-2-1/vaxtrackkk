@@ -1,0 +1,418 @@
+/*
+ * Order Receipt History + Stock Allocation History (OrderHistoryView /
+ * OrderHistoryDetail). Every selector is under `.ohx` (or the scoped print
+ * class below), so nothing reaches another page, role, Login or Flutter.
+ * `!important` appears only where the global `button`/`input` resets in
+ * styles.css would otherwise inflate these controls (the documented reason).
+ */
+
+.ohx {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  color: var(--gray-900);
+  font-family: var(--font-ui, inherit);
+}
+
+.ohx-scope-note {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius-card, 12px);
+  background: var(--info-bg);
+  color: var(--info-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ohx-muted {
+  color: var(--gray-600);
+  font-size: 13px;
+}
+.ohx small,
+.ohx-table small {
+  display: block;
+}
+.ohx-loaded-notice {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-control, 8px);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 13px;
+}
+.ohx-error {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-control, 8px);
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  font-size: 13px;
+}
+.ohx-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 16px;
+  border: 1px dashed var(--gray-300);
+  border-radius: var(--radius-card, 12px);
+  color: var(--gray-600);
+  justify-content: center;
+  text-align: center;
+}
+
+/* ---- controls ---- */
+
+.ohx-lookup,
+.ohx-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card, 12px);
+  background: #fff;
+}
+.ohx-lookup label,
+.ohx-filters label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--gray-600);
+}
+.ohx-filter-search {
+  flex: 1 1 240px;
+}
+.ohx-lookup input[type="search"] {
+  flex: 1 1 220px;
+}
+.ohx input,
+.ohx select {
+  min-height: 36px !important;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control, 8px);
+  background: #fff !important;
+  color: var(--gray-900);
+  font: inherit;
+  font-size: 13px;
+  min-width: 0;
+  max-width: 100%;
+}
+.ohx input:focus-visible,
+.ohx select:focus-visible,
+.ohx-btn:focus-visible,
+.ohx-link:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+}
+
+.ohx-btn {
+  min-height: 36px !important;
+  height: 36px;
+  padding: 0 14px !important;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control, 8px);
+  background: #fff;
+  color: var(--gray-900);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ohx-btn:hover:not(:disabled) {
+  background: var(--gray-50);
+}
+.ohx-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.ohx-btn-primary {
+  border-color: var(--green-700);
+  background: var(--green-700);
+  color: #fff;
+}
+.ohx-btn-primary:hover:not(:disabled) {
+  background: var(--green-800);
+}
+.ohx-more {
+  justify-self: center;
+}
+.ohx-nav-link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.ohx-link {
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0;
+  background: none;
+  color: var(--green-700);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.ohx-link:hover {
+  text-decoration: underline;
+}
+/* Full references never truncate: they wrap at any character instead. */
+.ohx-ref {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- table ---- */
+
+.ohx-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card, 12px);
+  background: #fff;
+}
+.ohx-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ohx-table th {
+  padding: 10px 12px;
+  background: var(--gray-50);
+  color: var(--gray-600);
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+.ohx-table td {
+  padding: 10px 12px;
+  border-top: 1px solid var(--gray-100);
+  vertical-align: top;
+}
+.ohx-table tbody tr:hover {
+  background: var(--green-50);
+}
+
+.ohx-chip {
+  display: inline-block;
+  margin: 2px 6px 2px 0;
+  padding: 2px 8px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-pill, 999px);
+  background: var(--gray-50);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.ohx-chip-danger {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  margin-left: 6px;
+}
+
+.ohx-stage {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--gray-100);
+  font-size: 12px;
+  font-weight: 600;
+}
+.ohx-stage-delivered,
+.ohx-stage-fully_reserved {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+.ohx-stage-awaiting_stock,
+.ohx-stage-partially_reserved,
+.ohx-stage-loading,
+.ohx-stage-delayed {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+.ohx-stage-assigned,
+.ohx-stage-in_transit {
+  background: var(--info-bg);
+  color: var(--info-text);
+}
+.ohx-stage-cancelled,
+.ohx-stage-failed {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+/* ---- detail ---- */
+
+.ohx-detail {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.ohx-back {
+  justify-self: start;
+}
+.ohx-detail-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 650;
+}
+.ohx-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card, 12px);
+  background: #fff;
+  box-shadow: var(--shadow-card, none);
+}
+.ohx-card h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+.ohx-receipt-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+.ohx-disclaimer {
+  margin: 4px 0 0;
+  color: var(--gray-600);
+  font-size: 12px;
+}
+.ohx-banner {
+  padding: 10px 12px;
+  border-radius: var(--radius-control, 8px);
+  font-size: 13px;
+}
+.ohx-banner p {
+  margin: 4px 0 0;
+}
+.ohx-banner-warning {
+  border: 1px solid var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.ohx-fields,
+.ohx-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+}
+.ohx-totals {
+  justify-content: end;
+  padding-top: 8px;
+  border-top: 1px solid var(--gray-100);
+}
+.ohx-field {
+  min-width: 0;
+}
+.ohx-field dt {
+  color: var(--gray-600);
+  font-size: 12px;
+}
+.ohx-field dd {
+  margin: 2px 0 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.ohx-field code,
+.ohx-table code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.ohx-meta {
+  margin: 0;
+  color: var(--gray-500);
+  font-size: 12px;
+}
+
+.ohx-timeline {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ohx-event {
+  padding: 10px 12px 10px 14px;
+  border: 1px solid var(--gray-200);
+  border-left: 4px solid var(--gray-300);
+  border-radius: var(--radius-control, 8px);
+}
+.ohx-event p {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+.ohx-event-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.ohx-event-head time,
+.ohx-event-meta {
+  color: var(--gray-600);
+  font-size: 12px;
+}
+.ohx-tone-success { border-left-color: var(--green-600); }
+.ohx-tone-info { border-left-color: var(--info-text); }
+.ohx-tone-warning { border-left-color: var(--warning-text); }
+.ohx-tone-danger { border-left-color: var(--danger-text); }
+
+@media (max-width: 640px) {
+  .ohx-lookup,
+  .ohx-filters {
+    padding: 10px;
+  }
+  .ohx-filters label,
+  .ohx-lookup label,
+  .ohx-lookup input[type="search"] {
+    flex: 1 1 100%;
+  }
+  .ohx-receipt-head {
+    flex-direction: column;
+  }
+}
+
+/*
+ * Printing the receipt. Active only while OrderHistoryDetail's Print button
+ * has set `body.ohx-printing`, so printing any other page is unaffected.
+ */
+@media print {
+  body.ohx-printing * {
+    visibility: hidden !important;
+  }
+  body.ohx-printing .ohx-receipt,
+  body.ohx-printing .ohx-receipt * {
+    visibility: visible !important;
+  }
+  body.ohx-printing .ohx-receipt {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+  }
+  body.ohx-printing .ohx-noprint {
+    display: none !important;
+  }
+  body.ohx-printing .ohx-table-wrap {
+    overflow: visible;
+    border: 0;
+  }
+}

@@ -22,6 +22,17 @@
 
 const { isLegacyOrder, settleBatch } = require("./policy");
 const { ALLOCATION_VERSION_BACKORDER, unitsByBatch } = require("./allocation");
+const { returnPendingEvent, prepareEvents, createPreparedEvents } = require("./orderHistory");
+
+/**
+ * Whether settleFailureReturn will move units for this order: true exactly
+ * when it will advance the failure epoch AND create a return. Callers that
+ * must name history before settlement writes anything (requeue) use this.
+ */
+function failureWouldSettle(order, reservation) {
+  if (isLegacyOrder(order) || reservation?.status !== "reserved") return false;
+  return unitsByBatch(reservation.items).size > 0;
+}
 
 const INVENTORY = "inventory";
 const RETURNS = "inventoryReturns";
@@ -30,8 +41,22 @@ const RETURNS = "inventoryReturns";
  * [order] / [reservation] are the documents as read in [tx] (reservation may be
  * null). Returns `{ settled, returnId, returnItems, orderFields }`; `settled` is
  * false — and nothing is written — when there is nothing reserved to return.
+ *
+ * When units move, the Stock Allocation History event is written here too, in
+ * [tx], under the return's deterministic id — so all four paths record it the
+ * same way and at most once. [sourceOperation] names the path that settled it.
  */
-async function settleFailureReturn(tx, { db, FieldValue, orderId, order, reservationRef, reservation, reason, reportedByUid }) {
+async function settleFailureReturn(tx, {
+  db,
+  FieldValue,
+  orderId,
+  order,
+  reservationRef,
+  reservation,
+  reason,
+  reportedByUid,
+  sourceOperation = "reportDeliveryFailure",
+}) {
   const failureSeq = (Number.isInteger(order.failureCount) ? order.failureCount : 0) + 1;
   const orderFields = { failureCount: failureSeq };
   if (order.allocationVersion === ALLOCATION_VERSION_BACKORDER) {
@@ -48,17 +73,27 @@ async function settleFailureReturn(tx, { db, FieldValue, orderId, order, reserva
     });
   }
 
-  if (isLegacyOrder(order) || reservation?.status !== "reserved") {
+  if (!failureWouldSettle(order, reservation)) {
     return { settled: false, returnId: null, returnItems: [], orderFields };
   }
   const perBatch = [...unitsByBatch(reservation.items)];
-  if (perBatch.length === 0) return { settled: false, returnId: null, returnItems: [], orderFields };
 
   const refs = perBatch.map(([id]) => db.collection(INVENTORY).doc(id));
   const snaps = [];
   for (const ref of refs) snaps.push(await tx.get(ref));
 
   const returnId = `${orderId}_${failureSeq}`;
+  // History, READ phase (before this function's first write): create-only.
+  const history = returnPendingEvent({
+    orderId,
+    order,
+    reservationItems: reservation.items,
+    returnId,
+    reportedByUid,
+    sourceOperation,
+  });
+  const preparedHistory = await prepareEvents(tx, { db, events: [history] });
+
   const returnItems = [];
   perBatch.forEach(([inventoryId, quantity], i) => {
     const data = snaps[i].exists ? snaps[i].data() : null;
@@ -90,6 +125,7 @@ async function settleFailureReturn(tx, { db, FieldValue, orderId, order, reserva
     settlementType: "delivery_failed",
     returnId,
   });
+  createPreparedEvents(tx, { FieldValue, prepared: preparedHistory });
   Object.assign(orderFields, { allocationStatus: "returned", pendingReturnId: returnId });
   return { settled: true, returnId, returnItems, orderFields };
 }
@@ -135,6 +171,7 @@ async function settleClientReportedFailure({ db, FieldValue, orderId, before, af
       reservation: resSnap.exists ? resSnap.data() : null,
       reason: order.deliveryFailureReason ?? null,
       reportedByUid: order.deliveryFailedByUid ?? null,
+      sourceOperation: "settleClientReportedFailure",
     });
     if (result.settled || order.allocationVersion === ALLOCATION_VERSION_BACKORDER) {
       tx.update(orderRef, { ...result.orderFields, updatedAt: FieldValue.serverTimestamp() });
@@ -143,4 +180,4 @@ async function settleClientReportedFailure({ db, FieldValue, orderId, before, af
   });
 }
 
-module.exports = { settleFailureReturn, settleClientReportedFailure };
+module.exports = { settleFailureReturn, settleClientReportedFailure, failureWouldSettle };

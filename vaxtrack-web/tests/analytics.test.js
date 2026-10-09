@@ -127,7 +127,11 @@ test("the live order-creation path still writes no region", () => {
   // is the point: restoring the section then becomes a decision someone makes
   // deliberately, not a gap nobody notices.
   const live = read("functions/src/operations.js");
-  const created = /tx\.set\(orderRef, \{([\s\S]*?)\n {4}\}\);/.exec(live);
+  // The document is built as `orderData` (it is also the receipt's source) and
+  // written, unchanged, with tx.set(orderRef, orderData).
+  const created =
+    (/tx\.set\(orderRef, orderData\);/.test(live) && /const orderData = \{([\s\S]*?)\n {4}\};\r?\n/.exec(live)) ||
+    /tx\.set\(orderRef, \{([\s\S]*?)\n {4}\}\);/.exec(live);
   assert.ok(created, "the order document shape must be found");
   assert.equal(
     /\bregion\b/i.test(created[1]),

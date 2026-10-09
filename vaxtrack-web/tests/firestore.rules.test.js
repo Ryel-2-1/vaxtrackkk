@@ -30,6 +30,7 @@ import {
   query,
   where,
   orderBy,
+  limit,
   serverTimestamp,
   runTransaction,
   Timestamp,
@@ -4686,6 +4687,132 @@ async function main() {
     await assertSucceeds(getDoc(doc(salesRep, "orders", "ordVat")));
     await assertSucceeds(updateDoc(doc(admin, "orders", "ordVat"), { deliveryInstructions: "Leave at reception" }));
   });
+
+  // ---------------------------------------------------------------- order history
+  //
+  // Order Confirmation Receipts + Stock Allocation History: Admin reads all; a
+  // Med Rep reads only what the server recorded as theirs; Dispatcher and
+  // Rider have no access; no client role writes, edits or deletes an entry.
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const f = ctx.firestore();
+    const receipt = (orderId, medRepUid) => ({
+      receiptType: "order_confirmation", receiptKind: "original", isReconstructed: false,
+      orderId, orderNumber: `VT-ORD-${orderId}`, medRepUid, priority: "Standard",
+      lines: [{ lineIndex: 0, productKey: "vacP", sku: "ATV-001", quantityRequested: 3, unitPriceCentavos: 125000 }],
+      skus: ["ATV-001"], subtotalCentavos: 375000, createdAt: Timestamp.fromDate(new Date("2026-10-05T02:00:00Z")),
+    });
+    const event = (orderId, medRepUid) => ({
+      eventType: "stock_allocated", orderId, medRepUid, quantityChanged: 1, batchIds: ["BT-3131-3131"],
+      createdAt: Timestamp.fromDate(new Date("2026-10-05T02:00:01Z")), ordinal: 0,
+    });
+    await setDoc(doc(f, "orderReceipts", "ordSR1"), receipt("ordSR1", salesRepUid));
+    await setDoc(doc(f, "orderReceipts", "ordOtherRep"), receipt("ordOtherRep", otherSalesRepUid));
+    await setDoc(doc(f, "inventoryAllocationEvents", "ordSR1__e0__alloc__vacP__r1"), event("ordSR1", salesRepUid));
+    await setDoc(doc(f, "inventoryAllocationEvents", "ordOtherRep__e0__alloc__vacP__r1"), event("ordOtherRep", otherSalesRepUid));
+  });
+  {
+    const otherRepDb = testEnv.authenticatedContext(otherSalesRepUid).firestore();
+    const ownEventId = "ordSR1__e0__alloc__vacP__r1";
+    const otherEventId = "ordOtherRep__e0__alloc__vacP__r1";
+
+    await check("ORH1 admin reads every receipt and every allocation event", async () => {
+      await assertSucceeds(getDoc(doc(admin, "orderReceipts", "ordSR1")));
+      await assertSucceeds(getDoc(doc(admin, "orderReceipts", "ordOtherRep")));
+      await assertSucceeds(getDocs(query(collection(admin, "orderReceipts"), orderBy("createdAt", "desc"))));
+      await assertSucceeds(getDocs(query(collection(admin, "orderReceipts"), where("skus", "array-contains", "ATV-001"))));
+      await assertSucceeds(getDoc(doc(admin, "inventoryAllocationEvents", otherEventId)));
+      await assertSucceeds(getDocs(query(collection(admin, "inventoryAllocationEvents"), where("orderId", "==", "ordOtherRep"))));
+      await assertSucceeds(getDocs(query(collection(admin, "inventoryAllocationEvents"), where("batchIds", "array-contains", "BT-3131-3131"))));
+    });
+
+    await check("ORH2 a Med Rep reads their own receipts and allocation history", async () => {
+      await assertSucceeds(getDoc(doc(salesRep, "orderReceipts", "ordSR1")));
+      await assertSucceeds(getDocs(query(collection(salesRep, "orderReceipts"), where("medRepUid", "==", salesRepUid))));
+      await assertSucceeds(getDocs(query(
+        collection(salesRep, "orderReceipts"),
+        where("medRepUid", "==", salesRepUid),
+        where("orderId", "in", ["ordSR1", "ordOtherRep"])
+      )));
+      await assertSucceeds(getDoc(doc(salesRep, "inventoryAllocationEvents", ownEventId)));
+      await assertSucceeds(getDocs(query(
+        collection(salesRep, "inventoryAllocationEvents"),
+        where("medRepUid", "==", salesRepUid),
+        where("orderId", "==", "ordSR1")
+      )));
+    });
+
+    await check("ORH3 a Med Rep cannot read another Med Rep's receipts or history", async () => {
+      await assertFails(getDoc(doc(salesRep, "orderReceipts", "ordOtherRep")));
+      await assertFails(getDoc(doc(salesRep, "inventoryAllocationEvents", otherEventId)));
+      await assertFails(getDoc(doc(otherRepDb, "orderReceipts", "ordSR1")));
+      // A query must be scoped to the caller; an unscoped or foreign one is refused.
+      await assertFails(getDocs(collection(salesRep, "orderReceipts")));
+      await assertFails(getDocs(query(collection(salesRep, "orderReceipts"), where("medRepUid", "==", otherSalesRepUid))));
+      await assertFails(getDocs(query(collection(salesRep, "inventoryAllocationEvents"), where("orderId", "==", "ordOtherRep"))));
+    });
+
+    await check("ORH4 Dispatcher, Rider, unapproved and signed-out users have no access", async () => {
+      for (const db of [dispatcher, rider, pendingRider, disabled, anon]) {
+        await assertFails(getDoc(doc(db, "orderReceipts", "ordSR1")));
+        await assertFails(getDocs(collection(db, "orderReceipts")));
+        await assertFails(getDoc(doc(db, "inventoryAllocationEvents", ownEventId)));
+        await assertFails(getDocs(collection(db, "inventoryAllocationEvents")));
+      }
+    });
+
+    await check("ORH5 no client role can create, edit or delete a receipt or an allocation event", async () => {
+      for (const db of [admin, salesRep, dispatcher, rider]) {
+        await assertFails(setDoc(doc(db, "orderReceipts", "forged"), { orderId: "forged", medRepUid: salesRepUid }));
+        await assertFails(updateDoc(doc(db, "orderReceipts", "ordSR1"), { subtotalCentavos: 1 }));
+        await assertFails(setDoc(doc(db, "orderReceipts", "ordSR1"), { orderId: "ordSR1", medRepUid: salesRepUid }));
+        await assertFails(deleteDoc(doc(db, "orderReceipts", "ordSR1")));
+        await assertFails(setDoc(doc(db, "inventoryAllocationEvents", "forged"), { orderId: "ordSR1", medRepUid: salesRepUid }));
+        await assertFails(updateDoc(doc(db, "inventoryAllocationEvents", ownEventId), { quantityChanged: 99 }));
+        await assertFails(deleteDoc(doc(db, "inventoryAllocationEvents", ownEventId)));
+      }
+    });
+
+    await check("ORH6 an order's owner and reference are fixed — not even Admin can redirect them", async () => {
+      await assertFails(updateDoc(doc(admin, "orders", "ordSR1"), { createdByUid: otherSalesRepUid }));
+      await assertFails(updateDoc(doc(admin, "orders", "ordSR1"), { orderNumber: "VT-ORD-FORGED" }));
+      await assertFails(updateDoc(doc(admin, "orders", "ordSR1"), { createdByRole: "admin" }));
+      // An ordinary Admin edit is unaffected.
+      await assertSucceeds(updateDoc(doc(admin, "orders", "ordSR1"), { deliveryInstructions: "Gate 2", updatedAt: serverTimestamp() }));
+    });
+
+    await check("ORH7 the history outbox is server-only: no client reads or writes it", async () => {
+      await testEnv.withSecurityRulesDisabled((ctx) =>
+        setDoc(doc(ctx.firestore(), "orderHistoryOutbox", "ordSR1"), { status: "pending", orderId: "ordSR1", medRepUid: salesRepUid })
+      );
+      for (const db of [admin, salesRep, dispatcher, rider, anon]) {
+        await assertFails(getDoc(doc(db, "orderHistoryOutbox", "ordSR1")));
+        await assertFails(getDocs(collection(db, "orderHistoryOutbox")));
+        await assertFails(setDoc(doc(db, "orderHistoryOutbox", "forged"), { status: "done" }));
+        await assertFails(updateDoc(doc(db, "orderHistoryOutbox", "ordSR1"), { status: "done" }));
+        await assertFails(deleteDoc(doc(db, "orderHistoryOutbox", "ordSR1")));
+      }
+    });
+
+    await check("ORH8 the history pages' exact query shapes: scoped for a Med Rep, bounded for Admin", async () => {
+      const since = Timestamp.fromDate(new Date("2026-01-01T00:00:00Z"));
+      // Med Rep: paging and exact-reference lookup carry the ownership filter.
+      await assertSucceeds(getDocs(query(collection(salesRep, "orders"),
+        where("createdByUid", "==", salesRepUid), where("createdAt", ">=", since), orderBy("createdAt", "desc"), limit(25))));
+      await assertSucceeds(getDocs(query(collection(salesRep, "orders"),
+        where("createdByUid", "==", salesRepUid), where("orderNumber", "==", "VT-ORD-ordSR1"), limit(10))));
+      await assertSucceeds(getDocs(query(collection(salesRep, "inventoryAllocationEvents"),
+        where("medRepUid", "==", salesRepUid), where("orderId", "==", "ordSR1"), orderBy("createdAt", "asc"), limit(500))));
+      // ...and without it, or aimed at another Med Rep, the same shapes are refused.
+      await assertFails(getDocs(query(collection(salesRep, "orders"), where("orderNumber", "==", "VT-ORD-ordSR2"), limit(10))));
+      await assertFails(getDocs(query(collection(salesRep, "orders"), orderBy("createdAt", "desc"), limit(25))));
+      await assertFails(getDocs(query(collection(salesRep, "orderReceipts"), where("orderId", "in", ["ordSR1"]))));
+      // Admin: the whole history, page by page.
+      await assertSucceeds(getDocs(query(collection(admin, "orders"), orderBy("createdAt", "desc"), limit(25))));
+      await assertSucceeds(getDocs(query(collection(admin, "orders"), where("orderNumber", "==", "VT-ORD-ordSR2"), limit(10))));
+      await assertSucceeds(getDocs(query(collection(admin, "orderReceipts"), where("orderId", "in", ["ordSR1", "ordOtherRep"]))));
+    });
+  }
+
   // ---------------------------------------------------------------- STRICT (phase 2)
   //
   // The same rules with legacyRiderFailureWritesAllowed() → false: what is

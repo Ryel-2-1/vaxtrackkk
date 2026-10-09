@@ -49,6 +49,19 @@ const {
   unitsByBatch,
   allocateProducts,
 } = require("./allocation");
+const {
+  OUTBOX,
+  buildOrderReceipt,
+  orderPlacedEvent,
+  initialHistoryMarker,
+  cancellationEvent,
+  consumptionEvent,
+  prepareEvents,
+  createPreparedEvents,
+  prepareReceipt,
+  createPreparedReceipt,
+} = require("./orderHistory");
+const { materializeInitialHistory } = require("./orderHistoryOutbox");
 
 const ORDERS = "orders";
 const INVENTORY = "inventory";
@@ -90,18 +103,46 @@ async function loadUser(db, uid) {
  * `reservedQuantity` increment commit together or not at all — there is no
  * window in which an order exists without its reservation.
  */
-async function createOrderWithReservation({ db, FieldValue, uid, payload, now }) {
-  const result = await createOrderTransaction({ db, FieldValue, uid, payload, now });
+async function createOrderWithReservation({ db, FieldValue, uid, email = null, payload, now }) {
+  const result = await createOrderTransaction({ db, FieldValue, uid, email, payload, now });
   const { productKeys, ...response } = result;
   // Allocation runs AFTER the order commits, per product, in its own bounded
   // transactions — so a new order competes for stock in priority order instead
   // of jumping ahead of waiting higher-priority orders. A failure here leaves a
   // valid, fully-backordered order; the inventory/order triggers retry it.
+  let allocationFailed = false;
   if (!response.replayed && Array.isArray(productKeys) && productKeys.length > 0) {
     try {
-      await allocateProducts({ db, FieldValue, productKeys, now });
+      await allocateProducts({
+        db,
+        FieldValue,
+        productKeys,
+        now,
+        source: { operation: "createOrderWithReservation", triggeredBy: { uid, role: "salesrep" } },
+      });
     } catch (error) {
+      allocationFailed = true;
       console.error("createOrderWithReservation: allocation deferred", { orderId: response.orderId, code: error?.code ?? null });
+    }
+  }
+  // The reservation at confirmation (orderHistoryOutbox.js). Normal path: this
+  // call completed the first allocation pass above, so it records the outcome
+  // now. If allocation failed, it leaves the marker pending for the trigger,
+  // which runs its own pass first. A replay finishes a marker the original
+  // call left pending. Either way the outbox marker created with the order
+  // guarantees the record; this only makes it immediate.
+  if (!allocationFailed) {
+    try {
+      await materializeInitialHistory({
+        db,
+        FieldValue,
+        orderId: response.orderId,
+        now,
+        materializedBy: response.replayed ? "createOrderWithReservation:replay" : "createOrderWithReservation",
+        allocate: response.replayed === true,
+      });
+    } catch (error) {
+      console.error("createOrderWithReservation: initial history deferred to the outbox trigger", { orderId: response.orderId, code: error?.code ?? null });
     }
   }
   const orderSnap = await db.collection(ORDERS).doc(response.orderId).get();
@@ -129,7 +170,7 @@ function allocationFromOrder(order) {
   };
 }
 
-async function createOrderTransaction({ db, FieldValue, uid, payload, now }) {
+async function createOrderTransaction({ db, FieldValue, uid, email = null, payload, now }) {
   const userData = await loadUser(db, uid);
   requireRole(userData, "salesrep");
 
@@ -310,6 +351,13 @@ async function createOrderTransaction({ db, FieldValue, uid, payload, now }) {
         vaccine: vSnap && vSnap.exists ? vSnap.data() : null,
       });
     });
+    // The canonical SKU is the catalog vaccine's internalSku, snapshotted per
+    // line so the receipt and the history keep the identifier the order used.
+    const lineSku = invSnaps.map((snap) => {
+      const v = snap.exists ? vaccineSnaps.get(snap.data().vaccineId) : null;
+      const sku = v && v.exists ? v.data().internalSku : null;
+      return typeof sku === "string" && sku.trim() !== "" ? sku.trim() : null;
+    });
 
     const subtotalCentavos = sumLineTotalsCentavos(evaluated);
     const orderItems = evaluated.map((e, index) => ({
@@ -332,6 +380,7 @@ async function createOrderTransaction({ db, FieldValue, uid, payload, now }) {
       // The product this line is DEMAND for. Allocation reserves any eligible
       // batch of it (FEFO); the quoted batch above only fixes price and VAT.
       productKey: invSnaps[index].data().vaccineId,
+      ...(lineSku[index] ? { sku: lineSku[index] } : {}),
     }));
     const allocationLines = initialAllocationLines(orderItems);
     const allocationSummary = summarizeAllocation(allocationLines, { open: true });
@@ -340,7 +389,7 @@ async function createOrderTransaction({ db, FieldValue, uid, payload, now }) {
     // No stock counter changes here: the order is written fully backordered and
     // the allocation engine reserves for it — in priority order — right after.
 
-    tx.set(orderRef, {
+    const orderData = {
       orderNumber,
       status: "pending_dispatch",
       ...destination.orderFields,
@@ -400,7 +449,54 @@ async function createOrderTransaction({ db, FieldValue, uid, payload, now }) {
       createdByUid: uid,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
+    };
+    // ---- history: READ phase (orderHistory.js), still before any write ----
+    // The Order Confirmation Receipt — the order exactly as accepted — and the
+    // first ledger entry. Both are create-only: an existing identical record is
+    // left as it is, a different one aborts this transaction (integrity
+    // conflict), and the order cannot commit without them.
+    const preparedReceipt = await prepareReceipt(tx, {
+      db,
+      orderId: orderRef.id,
+      receipt: buildOrderReceipt({
+        orderId: orderRef.id,
+        orderNumber,
+        requestId,
+        uid,
+        user: userData,
+        email,
+        orderFields: orderData,
+        items: orderItems,
+        FieldValue,
+      }),
     });
+    const preparedHistory = await prepareEvents(tx, {
+      db,
+      events: [orderPlacedEvent({
+        orderId: orderRef.id,
+        order: orderData,
+        actor: { actorUid: uid, actorRole: "salesrep" },
+      })],
+    });
+
+    // ---- writes (continued) ----
+    tx.set(orderRef, orderData);
+    createPreparedReceipt(tx, preparedReceipt);
+    createPreparedEvents(tx, { FieldValue, prepared: preparedHistory });
+    // The initial-allocation outbox marker: the order's first allocation pass
+    // runs after this commit, and whoever completes it records the outcome —
+    // the callable below, or the materializeOrderHistory trigger if the call
+    // stops first (orderHistoryOutbox.js). Never left permanently unrecorded.
+    tx.create(
+      db.collection(OUTBOX).doc(orderRef.id),
+      initialHistoryMarker({
+        orderId: orderRef.id,
+        orderNumber,
+        medRepUid: uid,
+        productKeys: allocationSummary.backorderedProductKeys,
+        FieldValue,
+      })
+    );
 
     // Empty until the allocation engine reserves: one slice per (line, batch).
     tx.set(db.collection(RESERVATIONS).doc(orderRef.id), {
@@ -517,7 +613,13 @@ async function cancelOrderWithInventoryRelease({ db, FieldValue, uid, email = nu
   let reallocated = [];
   if (releasedProductKeys.length > 0) {
     try {
-      reallocated = await allocateProducts({ db, FieldValue, productKeys: releasedProductKeys, now });
+      reallocated = await allocateProducts({
+        db,
+        FieldValue,
+        productKeys: releasedProductKeys,
+        now,
+        source: { operation: "cancelOrderWithInventoryRelease", triggeredBy: { uid, role: "dispatcher" } },
+      });
     } catch (error) {
       console.error("cancelOrderWithInventoryRelease: reallocation deferred", { orderId, code: error?.code ?? null });
     }
@@ -596,6 +698,7 @@ async function cancelOrderTransaction({ db, FieldValue, uid, email, orderId, rea
         reservation,
         reason: order.deliveryFailureReason ?? null,
         reportedByUid: order.deliveryFailedByUid ?? null,
+        sourceOperation: "cancelOrderWithInventoryRelease",
       });
       alreadyReturned = true;
     }
@@ -629,6 +732,11 @@ async function cancelOrderTransaction({ db, FieldValue, uid, email, orderId, rea
         });
       });
     }
+    // History, READ phase: the release (or withdrawn backorder), create-only.
+    // A retried cancel replays above and never reaches this.
+    const preparedHistory = !legacy && !alreadyReturned
+      ? await prepareEvents(tx, { db, events: [cancellationEvent({ orderId, order, reservationItems: reservation.items, uid })] })
+      : [];
 
     // ---- writes ----
     for (const s of settlements) tx.update(s.ref, s.update);
@@ -676,6 +784,8 @@ async function cancelOrderTransaction({ db, FieldValue, uid, email, orderId, rea
         settledByUid: uid,
         settlementType: "cancelled",
       });
+      // Released units (and any backorder no longer awaited), recorded once.
+      createPreparedEvents(tx, { FieldValue, prepared: preparedHistory });
     }
     tx.update(orderRef, orderUpdate);
 
@@ -791,6 +901,11 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
         });
       });
     }
+    // History, READ phase: the consumption, create-only. A retried completion
+    // replays above and never reaches this.
+    const preparedHistory = !legacy
+      ? await prepareEvents(tx, { db, events: [consumptionEvent({ orderId, order, reservationItems: reservation.items, uid })] })
+      : [];
 
     // ---- writes ----
     for (const s of settlements) tx.update(s.ref, s.update);
@@ -825,6 +940,8 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
         settledByUid: uid,
         settlementType: "delivered",
       });
+      // Consumption recorded once: a retried completion replays above.
+      createPreparedEvents(tx, { FieldValue, prepared: preparedHistory });
     }
     tx.update(orderRef, orderUpdate);
 
@@ -838,5 +955,8 @@ module.exports = {
   markOrderDeliveredWithInventoryConsumption,
   requireRole,
   loadUser,
+  // The creation transaction alone — exactly what is committed if the callable
+  // stops right after it. Exported for the failure-injection tests.
+  createOrderTransaction,
   COLLECTIONS: { ORDERS, INVENTORY, RESERVATIONS, REQUEST_KEYS, USERS },
 };

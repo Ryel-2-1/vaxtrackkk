@@ -27,6 +27,7 @@ const Inventory = lazy(() => import("./pages/admin/Inventory"));
 const AddStock = lazy(() => import("./pages/admin/AddStock"));
 const AddVaccine = lazy(() => import("./pages/admin/AddVaccine"));
 const AdminAllocation = lazy(() => import("./pages/admin/AdminAllocation"));
+const AdminOrderHistory = lazy(() => import("./pages/admin/AdminOrderHistory"));
 const Deliveries = lazy(() => import("./pages/admin/Deliveries"));
 const AdminDeliveryCalendar = lazy(() => import("./pages/admin/AdminDeliveryCalendar"));
 const Riders = lazy(() => import("./pages/admin/Riders"));
@@ -46,6 +47,7 @@ const SalesRepRequestOrder = lazy(() => import("./pages/salesRep/SalesRepRequest
 const SalesRepPlaceOrder = lazy(() => import("./pages/salesRep/SalesRepPlaceOrder"));
 const SalesRepOrderConfirmation = lazy(() => import("./pages/salesRep/SalesRepOrderConfirmation"));
 const SalesRepOrderTracking = lazy(() => import("./pages/salesRep/SalesRepOrderTracking"));
+const SalesRepOrderHistory = lazy(() => import("./pages/salesRep/SalesRepOrderHistory"));
 const SalesRepAlerts = lazy(() => import("./pages/salesRep/SalesRepAlerts"));
 const SalesRepSettings = lazy(() => import("./pages/salesRep/SalesRepSettings"));
 
@@ -83,6 +85,7 @@ function App() {
               <Route path="/admin/add-stock" element={<AddStock />} />
               <Route path="/admin/add-vaccine" element={<AddVaccine />} />
               <Route path="/admin/allocation" element={<AdminAllocation />} />
+              <Route path="/admin/order-history" element={<AdminOrderHistory />} />
               <Route path="/admin/deliveries" element={<Deliveries />} />
               <Route path="/admin/delivery-calendar" element={<AdminDeliveryCalendar />} />
               <Route path="/admin/riders" element={<Riders />} />
@@ -120,6 +123,7 @@ function App() {
               <Route path="/sales-rep/place-order" element={<SalesRepPlaceOrder />} />
               <Route path="/sales-rep/order-confirmation" element={<SalesRepOrderConfirmation />} />
               <Route path="/sales-rep/order-tracking" element={<SalesRepOrderTracking />} />
+              <Route path="/sales-rep/order-history" element={<SalesRepOrderHistory />} />
               <Route path="/sales-rep/alerts" element={<SalesRepAlerts />} />
               <Route path="/sales-rep/settings" element={<SalesRepSettings />} />
             </Route>

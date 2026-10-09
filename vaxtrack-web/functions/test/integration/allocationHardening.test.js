@@ -645,11 +645,22 @@ test("R1. the staging ARV remediation: dry run writes nothing; apply converts on
     assert.equal((await get("inventoryReturns", `${t.orderId}_1`)).status, "pending");
     assert.equal((await order(t.orderId)).status, "delivery_failed", "the order itself is not moved");
   }
+  // The Stock Allocation History names the remediation as the source — not a
+  // rider's failure report it never was — and records it once.
+  const ledgerFor = async (orderId) =>
+    (await db.collection("inventoryAllocationEvents").where("orderId", "==", orderId).get()).docs.map((d) => d.data());
+  for (const t of script.TARGETS) {
+    const ev = await ledgerFor(t.orderId);
+    assert.equal(ev.length, 1);
+    assert.deepEqual([ev[0].eventType, ev[0].sourceOperation, ev[0].returnId, ev[0].quantityChanged],
+      ["moved_to_return_pending", "remediateStagingArvReturns", `${t.orderId}_1`, 1]);
+  }
   for (const target of script.TARGETS) {
     const again = await script.remediateOne({ db, FieldValue, target, apply: true });
     assert.equal(again.action, "skip");
     assert.match(again.why, /already returned/);
   }
+  for (const t of script.TARGETS) assert.equal((await ledgerFor(t.orderId)).length, 1, "a rerun records nothing");
   assert.equal((await counters(script.BATCH_ID)).returnPending, 2, "idempotent");
   // Then the Admin's "Returned and usable" makes them available (nothing is waiting for ARV).
   for (const t of script.TARGETS) await dispose(`${t.orderId}_1`, "usable");

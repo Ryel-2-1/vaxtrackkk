@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import AdminLayout from "../../components/admin/AdminLayout";
 import KpiCard from "../../components/ui/KpiCard";
 import { subscribeBackorderQueue, subscribePendingReturns } from "../../services/allocationService";
@@ -129,7 +130,14 @@ function AdminAllocation() {
   const returnUnits = returns.reduce((sum, r) => sum + (Number(r.totalQuantity) || 0), 0);
 
   return (
-    <AdminLayout description="Future orders waiting for stock, and stock returned by failed deliveries that needs a decision.">
+    <AdminLayout
+      description="Current backlog: future orders waiting for stock now, and returned stock that needs a decision. Resolved orders leave this queue; their receipts and allocation history stay in Order History."
+      actions={
+        <Link className="alloc-btn alloc-history-link" to="/admin/order-history">
+          Order &amp; allocation history
+        </Link>
+      }
+    >
       <section className="alloc-kpis" aria-label="Allocation summary">
         <KpiCard label="Awaiting stock" value={awaiting} context="nothing reserved yet" tone="warning" />
         <KpiCard label="Partially reserved" value={partial} context="some items held" tone="info" />
@@ -241,7 +249,7 @@ function AdminAllocation() {
 
       <section className="alloc-card" aria-labelledby="alloc-queue-heading">
         <header>
-          <h2 id="alloc-queue-heading">Backorder queue</h2>
+          <h2 id="alloc-queue-heading">Backorder queue (current)</h2>
           <p>
             In the order stock will be given out: Urgent first, then the earliest requested date and time,
             then the order placed first. Orders are dispatched only once fully reserved.

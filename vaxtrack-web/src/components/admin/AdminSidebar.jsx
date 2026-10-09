@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   Box,
   ListOrdered,
+  History,
   Truck,
   CalendarDays,
   Users,
@@ -44,6 +45,7 @@ const ROUTE_ACTIVE = {
   "/admin/add-stock": "inventory",
   "/admin/add-vaccine": "inventory",
   "/admin/allocation": "allocation",
+  "/admin/order-history": "orderHistory",
   "/admin/deliveries": "deliveries",
   "/admin/delivery-calendar": "delivery-calendar",
   "/admin/riders": "riders",
@@ -172,6 +174,15 @@ export function AdminSidebar({ active: activeProp, onLogout }) {
           >
             <ListOrdered size={16} aria-hidden="true" />
             <span>Stock Allocation</span>
+          </Link>
+
+          <Link
+            className={active === "orderHistory" ? "active" : ""}
+            aria-current={active === "orderHistory" ? "page" : undefined}
+            to="/admin/order-history"
+          >
+            <History size={16} aria-hidden="true" />
+            <span>Order History</span>
           </Link>
 
           <Link
