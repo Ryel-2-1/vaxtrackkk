@@ -30,9 +30,12 @@
  *   trusted "exclude from analytics" flag in the data model today, so none is
  *   honoured; inventing one would let anyone hide demand.
  *
- *   Product: the line's `productKey` (the vaccines-catalog id the allocation
- *   engine reserves against); for older lines without it, the quoted batch's
- *   `vaccineId`; otherwise the line is excluded with a warning.
+ *   Product: resolved deterministically (resolveLineProduct) — the line's
+ *   productKey, vaccineId or productId when it exists in the vaccine catalog,
+ *   else the referenced batch's catalog vaccineId, else an EXACT SKU match to
+ *   exactly one vaccine. Never names, partial SKUs or guesses; an unresolved
+ *   or ambiguous line is excluded with a warning, and the source used for
+ *   every line is recorded in the run's identity diagnostics.
  *
  *   Demand date (canonical): the order's requestedDeliveryDate when it is a
  *   real YYYY-MM-DD date; otherwise the Manila calendar day of createdAt;
@@ -90,6 +93,8 @@ const CONFIRMED_INCOMING_TRACKED = false;
 const WARNING = Object.freeze({
   MISSING_ORDER_DATE: "missing_order_date",
   MISSING_PRODUCT_ID: "missing_product_id",
+  AMBIGUOUS_SKU: "ambiguous_product_sku",
+  ALLOCATION_MAY_BE_PENDING: "allocation_may_be_pending",
   UNKNOWN_SKU: "unknown_sku",
   INVALID_QUANTITY: "invalid_quantity",
   CANCELLED_EXCLUDED: "cancelled_excluded",
@@ -103,7 +108,9 @@ const WARNING = Object.freeze({
 
 const WARNING_TEXT = Object.freeze({
   [WARNING.MISSING_ORDER_DATE]: "Order lines without a usable requested delivery date or creation date — excluded from the weekly history.",
-  [WARNING.MISSING_PRODUCT_ID]: "Order lines with no vaccine/product identity — excluded from demand.",
+  [WARNING.MISSING_PRODUCT_ID]: "Order lines whose vaccine/product cannot be resolved deterministically — excluded from demand.",
+  [WARNING.AMBIGUOUS_SKU]: "Order lines whose SKU matches more than one catalog vaccine — excluded from demand (never first-match).",
+  [WARNING.ALLOCATION_MAY_BE_PENDING]: "Vaccines whose available stock could cover every backordered vial — allocation may be pending; not a shortage.",
   [WARNING.UNKNOWN_SKU]: "Products with no SKU in the vaccine catalog (or no catalog entry at all).",
   [WARNING.INVALID_QUANTITY]: "Order lines with a missing, zero, negative or non-whole quantity — rejected.",
   [WARNING.CANCELLED_EXCLUDED]: "Cancelled orders — excluded from demand.",
@@ -192,6 +199,95 @@ function trainingWindowFor(now) {
   return { asOfDate, lastWeekStart, earliestWeekStart, windowEnd: addDays(lastWeekStart, 6) };
 }
 
+// ---------------------------------------------------------------- product identity
+
+/** Where a line's product identity came from (recorded in run diagnostics). */
+const IDENTITY_SOURCE = Object.freeze({
+  LINE_PRODUCT_KEY: "line_product_key",
+  LINE_VACCINE_ID: "line_vaccine_id",
+  LINE_PRODUCT_ID: "line_product_id",
+  INVENTORY_BATCH: "inventory_batch",
+  EXACT_SKU: "exact_sku",
+});
+const IDENTITY_UNRESOLVED = "unresolved";
+const IDENTITY_AMBIGUOUS_SKU = "ambiguous_sku";
+const IDENTITY_RESULTS = Object.freeze([...Object.values(IDENTITY_SOURCE), IDENTITY_UNRESOLVED, IDENTITY_AMBIGUOUS_SKU]);
+
+/** Identifier fields a line may carry. Diagnostics report their NAMES only. */
+const LINE_IDENTIFIER_FIELDS = Object.freeze(["productKey", "vaccineId", "productId", "inventoryId", "sku", "batchId"]);
+const MAX_UNRESOLVED_DIAGNOSTICS = 50;
+
+/** The vaccine catalog as the resolver needs it: ids, and SKU → vaccine ids. */
+function createProductCatalog({ vaccines = [], batchesById = new Map() } = {}) {
+  const vaccineIds = new Set();
+  const skuIndex = new Map();
+  for (const { id, data } of vaccines) {
+    vaccineIds.add(id);
+    const sku = data?.internalSku;
+    if (typeof sku === "string" && sku !== "") skuIndex.set(sku, [...(skuIndex.get(sku) ?? []), id]);
+  }
+  return { vaccineIds, skuIndex, batchesById };
+}
+
+const nonEmpty = (v) => (typeof v === "string" && v !== "" ? v : null);
+
+/**
+ * The product an order line is demand for — from deterministic sources only,
+ * in this order:
+ *
+ *   1. line.productKey that exists in the vaccine catalog
+ *   2. line.vaccineId, then line.productId, that exists in the catalog
+ *   3. the referenced inventory batch's vaccineId, when that exists in the catalog
+ *   4. line.sku EXACTLY equal (case-sensitive, untrimmed) to the internalSku of
+ *      exactly ONE catalog vaccine
+ *
+ * Never a product name, a partial or fuzzy SKU, clinic or doctor data, a guess,
+ * or the first of several matches: several vaccines sharing the SKU is
+ * "ambiguous_sku", and the line stays excluded.
+ * Returns { vaccineId, source } — vaccineId null when unresolved/ambiguous.
+ */
+function resolveLineProduct(line, catalog) {
+  const known = (v) => (v !== null && catalog.vaccineIds.has(v) ? v : null);
+  const productKey = known(nonEmpty(line?.productKey));
+  if (productKey) return { vaccineId: productKey, source: IDENTITY_SOURCE.LINE_PRODUCT_KEY };
+  const vaccineId = known(nonEmpty(line?.vaccineId));
+  if (vaccineId) return { vaccineId, source: IDENTITY_SOURCE.LINE_VACCINE_ID };
+  const productId = known(nonEmpty(line?.productId));
+  if (productId) return { vaccineId: productId, source: IDENTITY_SOURCE.LINE_PRODUCT_ID };
+  const inventoryId = nonEmpty(line?.inventoryId);
+  const batchVaccine = known(nonEmpty(inventoryId ? catalog.batchesById.get(inventoryId)?.vaccineId : null));
+  if (batchVaccine) return { vaccineId: batchVaccine, source: IDENTITY_SOURCE.INVENTORY_BATCH };
+  const sku = nonEmpty(line?.sku);
+  if (sku) {
+    const matches = catalog.skuIndex.get(sku) ?? [];
+    if (matches.length === 1) return { vaccineId: matches[0], source: IDENTITY_SOURCE.EXACT_SKU };
+    if (matches.length > 1) return { vaccineId: null, source: IDENTITY_AMBIGUOUS_SKU };
+  }
+  return { vaccineId: null, source: IDENTITY_UNRESOLVED };
+}
+
+/** A SKU as a product code, or "[redacted]" when it does not look like one. */
+function safeSku(value) {
+  if (typeof value !== "string" || value === "") return null;
+  return /^[A-Za-z0-9._-]{1,40}$/.test(value) ? value : "[redacted]";
+}
+
+/**
+ * A structural description of an unresolved line: document id, line index,
+ * which identifier FIELDS exist, the SKU code and the inventory document id.
+ * Never names, clinics, doctors, addresses, emails, phones or user ids.
+ */
+function lineDiagnostic(orderId, lineIndex, line, result) {
+  return {
+    orderId,
+    lineIndex,
+    identifierFields: LINE_IDENTIFIER_FIELDS.filter((f) => line?.[f] !== undefined && line?.[f] !== null && line?.[f] !== ""),
+    sku: safeSku(line?.sku),
+    inventoryId: nonEmpty(line?.inventoryId),
+    result,
+  };
+}
+
 // ---------------------------------------------------------------- orders → demand
 
 /** "In Transit" / "in-transit" / "completed" → canonical key, or "" when absent. */
@@ -209,13 +305,25 @@ function lineQuantity(raw) {
  * Every demand line, counted once, plus the data-quality findings.
  *
  * [orders]        [{ id, data }]
- * [batchesById]   Map inventoryId → batch data (to resolve older lines' product)
- * Returns { lines: [{ orderId, vaccineId, quantity, date, dateSource }],
- *           counts, warnings: WarningLog }
+ * [batchesById]   Map inventoryId → batch data
+ * [vaccines]      [{ id, data }] the vaccine catalog (identity + SKU)
+ * Returns { lines: [{ orderId, lineIndex, vaccineId, quantity, date, dateSource,
+ *           identitySource }], counts, identity, warnings: WarningLog }
  */
-function extractDemand({ orders, batchesById = new Map(), warnings = createWarningLog() }) {
+function extractDemand({
+  orders,
+  batchesById = new Map(),
+  vaccines = [],
+  catalog = createProductCatalog({ vaccines, batchesById }),
+  warnings = createWarningLog(),
+}) {
   const lines = [];
   const counts = { ordersRead: 0, ordersCounted: 0, ordersExcluded: 0, candidateLines: 0, linesCounted: 0, linesExcluded: 0 };
+  const identity = {
+    bySource: Object.fromEntries(IDENTITY_RESULTS.map((r) => [r, 0])),
+    unresolvedLines: [],
+    unresolvedLineCount: 0,
+  };
 
   for (const { id, data } of orders) {
     counts.ordersRead += 1;
@@ -239,7 +347,7 @@ function extractDemand({ orders, batchesById = new Map(), warnings = createWarni
     counts.ordersCounted += 1;
     const { date, source } = demandDateOf(data);
 
-    for (const line of items) {
+    for (const [lineIndex, line] of items.entries()) {
       counts.candidateLines += 1;
       const quantity = lineQuantity(line?.quantity);
       if (quantity === null) {
@@ -247,12 +355,14 @@ function extractDemand({ orders, batchesById = new Map(), warnings = createWarni
         counts.linesExcluded += 1;
         continue;
       }
-      const productKey = typeof line?.productKey === "string" && line.productKey ? line.productKey : null;
-      const quoted = typeof line?.inventoryId === "string" ? batchesById.get(line.inventoryId) : null;
-      const vaccineId =
-        productKey ?? (typeof quoted?.vaccineId === "string" && quoted.vaccineId ? quoted.vaccineId : null);
+      const { vaccineId, source: identitySource } = resolveLineProduct(line, catalog);
+      identity.bySource[identitySource] += 1;
       if (!vaccineId) {
-        warnings.add(WARNING.MISSING_PRODUCT_ID, id);
+        warnings.add(identitySource === IDENTITY_AMBIGUOUS_SKU ? WARNING.AMBIGUOUS_SKU : WARNING.MISSING_PRODUCT_ID, id);
+        identity.unresolvedLineCount += 1;
+        if (identity.unresolvedLines.length < MAX_UNRESOLVED_DIAGNOSTICS) {
+          identity.unresolvedLines.push(lineDiagnostic(id, lineIndex, line, identitySource));
+        }
         counts.linesExcluded += 1;
         continue;
       }
@@ -262,22 +372,23 @@ function extractDemand({ orders, batchesById = new Map(), warnings = createWarni
         continue;
       }
       counts.linesCounted += 1;
-      lines.push({ orderId: id, vaccineId, quantity, date, dateSource: source });
+      lines.push({ orderId: id, lineIndex, vaccineId, quantity, date, dateSource: source, identitySource });
     }
   }
-  return { lines, counts, warnings };
+  return { lines, counts, identity, warnings };
 }
 
 /**
  * Active backorders per product: requested − reserved on the lines of every
  * order the allocator is still serving. Nothing else is "backordered".
  */
-function backorderedByProduct(orders) {
+function backorderedByProduct(orders, catalog) {
   const out = new Map();
   for (const { data } of orders) {
     if (!isAllocatableOrder(data)) continue;
     for (const line of Array.isArray(data.items) ? data.items : []) {
-      const key = typeof line?.productKey === "string" && line.productKey ? line.productKey : null;
+      // The same deterministic resolver as demand; an unresolved line is not attributed.
+      const key = catalog ? resolveLineProduct(line, catalog).vaccineId : nonEmpty(line?.productKey);
       if (!key) continue;
       const { backordered } = lineCounts(line);
       if (backordered > 0) out.set(key, (out.get(key) ?? 0) + backordered);
@@ -402,6 +513,13 @@ module.exports = {
   demandDateOf,
   trainingWindowFor,
   normalizeOrderStatus,
+  IDENTITY_SOURCE,
+  IDENTITY_UNRESOLVED,
+  IDENTITY_AMBIGUOUS_SKU,
+  LINE_IDENTIFIER_FIELDS,
+  createProductCatalog,
+  resolveLineProduct,
+  lineDiagnostic,
   extractDemand,
   backorderedByProduct,
   stockByProduct,

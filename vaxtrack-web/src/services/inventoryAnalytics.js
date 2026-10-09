@@ -31,6 +31,21 @@ export const RISK_META = Object.freeze({
   unknown: { label: "Unknown", tone: "unknown" },
 });
 
+/**
+ * Why a risk level was given (functions/src/analyticsRisk.js riskBasis). The
+ * page keeps a KNOWN shortage (orders already placed) visibly separate from a
+ * FORECASTED one and from "not enough history to forecast".
+ */
+export const RISK_BASIS_LABELS = Object.freeze({
+  current_backorder_shortage: "Current shortage",
+  forecast_shortage: "Forecasted shortage",
+  lead_time_shortage: "Forecasted shortage (lead time)",
+  insufficient_history: "Insufficient forecast history",
+  configuration_missing: "Reorder configuration required",
+  below_safety_stock: "Below safety stock",
+  above_safety_stock: "Above safety stock",
+});
+
 export const CONFIDENCE_LABELS = Object.freeze({
   high: "High",
   medium: "Medium",
@@ -108,7 +123,14 @@ export function forecastRow(doc) {
     reserved: formatQuantity(doc.reservedQuantity),
     backordered: formatQuantity(doc.backorderedQuantity),
     predicted: insufficient ? "—" : formatQuantity(doc.predictedDemandQuantity),
-    shortage: formatQuantity(doc.projectedShortageQuantity),
+    // Known now, from placed orders — never depends on a forecast.
+    currentShortage: formatQuantity(doc.currentBackorderShortageQuantity),
+    hasCurrentShortage: isQuantity(doc.currentBackorderShortageQuantity) && doc.currentBackorderShortageQuantity > 0,
+    // Forecast-based; without a forecast it says so instead of showing a number.
+    forecastShortage: insufficient ? "Insufficient history" : formatQuantity(doc.forecastShortageQuantity),
+    totalShortage: insufficient ? "—" : formatQuantity(doc.totalProjectedShortageQuantity),
+    riskBasis: typeof doc.riskBasis === "string" ? doc.riskBasis : null,
+    riskBasisLabel: RISK_BASIS_LABELS[doc.riskBasis] ?? "",
     reorder: needsConfiguration ? REORDER_CONFIGURATION_REQUIRED : formatQuantity(doc.recommendedReorderQuantity),
     needsConfiguration,
     insufficient,

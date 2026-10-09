@@ -115,6 +115,12 @@ export async function runGenerator({ db, FieldValue, options, now = asOfInstant(
   log(`Engine: ${plan.run.engineLabel} (${plan.run.engineType} ${plan.run.modelVersion}). Advisory only — no inventory is changed.`);
   log(`Read: ${orders.length} orders, ${batches.length} batches, ${vaccines.length} vaccines, ${configs.length} configurations.`);
   log(`Demand lines counted: ${plan.run.inputCounts.linesCounted} of ${plan.run.inputCounts.candidateLines}.`);
+  const identity = plan.run.identityDiagnostics;
+  log(
+    `Product identity: ${Object.entries(identity.bySource).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(", ") || "no lines"}; unresolved or ambiguous lines: ${identity.unresolvedLineCount}.`
+  );
+  // Structural fields only: order doc id, line index, identifier field NAMES, SKU code, inventory doc id.
+  for (const u of identity.unresolvedLines) log(`UNRESOLVED ${JSON.stringify(u)}`);
   if (plan.warnings.length === 0) log("Data quality: no warnings.");
   for (const w of plan.warnings) {
     log(`WARNING ${w.code} ×${w.count}: ${w.message}${w.sampleRefs.length ? ` (e.g. ${w.sampleRefs.join(", ")})` : ""}`);
@@ -128,9 +134,11 @@ export async function runGenerator({ db, FieldValue, options, now = asOfInstant(
         predicted30d: d.predictedDemandQuantity,
         available: d.availableQuantity,
         backordered: d.backorderedQuantity,
-        shortage: d.projectedShortageQuantity,
+        currentShortage: d.currentBackorderShortageQuantity,
+        forecastShortage: d.forecastShortageQuantity,
         reorder: d.recommendedReorderQuantity,
         risk: d.stockoutRiskLevel,
+        riskBasis: d.riskBasis,
         confidence: d.confidenceLevel,
       })
     );
@@ -152,6 +160,10 @@ export async function runGenerator({ db, FieldValue, options, now = asOfInstant(
     writeCount: writeCountFor(plan),
     estimatedPayloadBytes: payloadBytes,
     stagingWarning: options.project === ALLOWED_PROJECT,
+    demandLinesCounted: plan.run.inputCounts.linesCounted,
+    candidateLines: plan.run.inputCounts.candidateLines,
+    unresolvedLineCount: plan.run.identityDiagnostics.unresolvedLineCount,
+    currentShortageCount: plan.run.currentShortageCount,
   };
   if (!options.apply) {
     log("Dry run only — nothing was written.");

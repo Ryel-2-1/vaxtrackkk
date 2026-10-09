@@ -40,8 +40,14 @@ const batch = (id, over = {}) => ({
     ...over,
   },
 });
-const demandOf = (orders, batches = []) =>
-  A.extractDemand({ orders, batchesById: new Map(batches.map((b) => [b.id, b.data])) });
+// The vaccine catalog the resolver checks every identity against.
+const CATALOG = [
+  { id: "vacA", data: { vaccineName: "Vaccine A", internalSku: "SKU-A" } },
+  { id: "vacB", data: { vaccineName: "Vaccine B", internalSku: "SKU-B" } },
+  { id: "vacZ", data: { vaccineName: "Vaccine Z", internalSku: "SKU-Z" } },
+];
+const demandOf = (orders, batches = [], vaccines = CATALOG) =>
+  A.extractDemand({ orders, batchesById: new Map(batches.map((b) => [b.id, b.data])), vaccines });
 const total = (lines) => lines.reduce((s, l) => s + l.quantity, 0);
 const engine = E.createWeightedMovingAverageEngine();
 const weeks = (...qs) => qs.map((quantity, i) => ({ weekStart: A.addDays("2026-01-05", 7 * i), quantity }));
@@ -119,7 +125,7 @@ test("9 · negative, zero, fractional and non-numeric quantities are rejected", 
   }
 });
 
-test("product identity: productKey, else the quoted batch's vaccineId, else excluded", () => {
+test("product identity: a line with no deterministic identity is excluded and reported", () => {
   const legacy = order("o1", { items: [{ inventoryId: "b1", quantity: 5 }] });
   assert.equal(demandOf([legacy], [batch("b1", { vaccineId: "vacZ" })]).lines[0].vaccineId, "vacZ");
   const unknown = demandOf([order("o2", { items: [{ name: "Some vaccine", quantity: 5 }] })]);
@@ -274,10 +280,14 @@ const assess = (over = {}) =>
 
 test("18 · backorders add to the projected shortage", () => {
   const none = assess({ stock: { availableQuantity: 300, reservedQuantity: 0 } }); // forecast 300
-  assert.equal(none.projectedShortageQuantity, 0);
+  assert.equal(none.totalProjectedShortageQuantity, 0);
+  // 25 backordered can be served from 300; the 300 forecast then lacks 25.
   const withBackorder = assess({ stock: { availableQuantity: 300, reservedQuantity: 0 }, backorderedQuantity: 25 });
-  assert.equal(withBackorder.projectedShortageQuantity, 25);
-  assert.equal(withBackorder.stockoutRiskLevel, "high");
+  assert.deepEqual(
+    [withBackorder.currentBackorderShortageQuantity, withBackorder.forecastShortageQuantity, withBackorder.totalProjectedShortageQuantity],
+    [0, 25, 25]
+  );
+  assert.deepEqual([withBackorder.stockoutRiskLevel, withBackorder.riskBasis], ["high", "forecast_shortage"]);
 });
 
 test("19 · missing, disabled or invalid configuration: no reorder figure, and it says why", () => {
@@ -313,10 +323,12 @@ test("21 · each risk level's reason is built from its stored figures", () => {
   const high = assess({ stock: { availableQuantity: 250, reservedQuantity: 0 }, backorderedQuantity: 10 });
   const c = high.calculation;
   assert.equal(high.stockoutRiskLevel, "high");
-  assert.ok(high.stockoutRiskReason.includes(`shortage of ${c.projectedShortageQuantity} vials within 30 days`));
+  assert.equal(high.riskBasis, "forecast_shortage");
+  assert.ok(high.stockoutRiskReason.includes(`Forecast shortage of ${c.forecastShortageQuantity} vials within 30 days`));
   assert.ok(high.stockoutRiskReason.includes(`forecast ${c.predictedDemandQuantity} + backordered ${c.backorderedQuantity}`));
   assert.ok(high.stockoutRiskReason.includes(`available ${c.availableQuantity}`));
-  assert.equal(c.projectedShortageQuantity, c.predictedDemandQuantity + c.backorderedQuantity - c.availableQuantity);
+  assert.equal(c.totalProjectedShortageQuantity, c.predictedDemandQuantity + c.backorderedQuantity - c.availableQuantity);
+  assert.equal(c.totalProjectedShortageQuantity, c.currentBackorderShortageQuantity + c.forecastShortageQuantity);
 
   // Lead time longer than the horizon can reveal a shortage the horizon misses.
   const lead = assess({ horizonDays: 7, stock: { availableQuantity: 100, reservedQuantity: 0 } });
@@ -629,4 +641,158 @@ test("a staging run records the seed/test-data warning; other projects do not", 
   assert.equal(staging.run.projectId, "vaxtrack-staging");
   assert.equal(RUN.buildAnalyticsPlan({ ...planInput(), projectId: "demo-x" }).run.dataEnvironmentWarning, null);
   assert.equal(staging.runId, runIdOf(planInput()), "where the data came from is not part of the fingerprint");
+});
+
+// ---------------------------------------------------------------- current backorder shortage
+
+test("an existing backorder shortage is High without any forecast — confidence stays Insufficient", () => {
+  // available 0, backordered 2, no usable history, no configuration.
+  const r = assess({ history: weeks(5, 5), stock: { availableQuantity: 0, reservedQuantity: 0 }, backorderedQuantity: 2, config: null });
+  assert.equal(r.stockoutRiskLevel, "high");
+  assert.equal(r.riskBasis, "current_backorder_shortage");
+  assert.equal(r.prediction.confidenceLevel, "insufficient", "confidence is not upgraded by a known shortage");
+  assert.equal(r.prediction.predictedQuantity, null, "no demand is invented");
+  assert.equal(r.currentBackorderShortageQuantity, 2);
+  assert.equal(r.forecastShortageQuantity, null);
+  assert.equal(r.totalProjectedShortageQuantity, null);
+  assert.equal(r.recommendedReorderQuantity, null, "missing configuration keeps reorder null");
+  assert.match(r.stockoutRiskReason, /^Existing backorder shortage of 2 vials: current backorders exceed stock available to satisfy them/);
+  assert.match(r.stockoutRiskReason, /orders already placed, not from a forecast/);
+  assert.match(r.stockoutRiskReason, /No forecast is made: insufficient history/);
+  // With a complete configuration but still no forecast, reorder stays null too.
+  assert.equal(assess({ history: weeks(5, 5), stock: { availableQuantity: 0, reservedQuantity: 0 }, backorderedQuantity: 2 }).recommendedReorderQuantity, null);
+});
+
+test("a backlog that available stock can satisfy is not a known shortage — allocation may be pending", () => {
+  const r = assess({ history: weeks(5, 5), stock: { availableQuantity: 5, reservedQuantity: 0 }, backorderedQuantity: 2, config: null });
+  assert.equal(r.currentBackorderShortageQuantity, 0);
+  assert.notEqual(r.stockoutRiskLevel, "high", "no false High");
+  assert.deepEqual([r.stockoutRiskLevel, r.riskBasis], ["unknown", "insufficient_history"]);
+  assert.equal(r.allocationMayBePending, true);
+  assert.match(r.stockoutRiskReason, /could cover all 2 backordered vials — allocation may be pending/);
+  // Exactly covered is still covered.
+  assert.equal(assess({ history: weeks(5, 5), stock: { availableQuantity: 2, reservedQuantity: 0 }, backorderedQuantity: 2 }).currentBackorderShortageQuantity, 0);
+  // No backlog at all: nothing pending.
+  assert.equal(assess({ history: weeks(5, 5), stock: { availableQuantity: 5, reservedQuantity: 0 } }).allocationMayBePending, false);
+});
+
+test("current and forecast shortages add up; the reason names both", () => {
+  // forecast 300 (10/day × 30), backordered 50, available 20 → current 30, forecast 300, total 330.
+  const r = assess({ stock: { availableQuantity: 20, reservedQuantity: 0 }, backorderedQuantity: 50 });
+  assert.deepEqual([r.currentBackorderShortageQuantity, r.forecastShortageQuantity, r.totalProjectedShortageQuantity], [30, 300, 330]);
+  assert.equal(r.riskBasis, "current_backorder_shortage");
+  assert.match(r.stockoutRiskReason, /The 30-day forecast adds a further 300 vials \(total projected shortage 330\)/);
+});
+
+test("the plan stores the three shortages; the 0-available / 2-backordered vaccine is High with Insufficient confidence", () => {
+  const input = planInput();
+  input.vaccines.push({ id: "vacC", data: { vaccineName: "Vaccine C", internalSku: "SKU-C" } });
+  input.batches.push(batch("bC", { vaccineId: "vacC", quantity: 0, arrivalDate: "2026-09-28" }));
+  input.orders.push(order("open", {
+    status: "pending_dispatch", allocationVersion: 2, allocationOpen: true, requestedDeliveryDate: "2026-10-20",
+    items: [{ productKey: "vacC", quantity: 2, reservedQuantity: 0, backorderedQuantity: 2 }],
+  }));
+  const plan = RUN.buildAnalyticsPlan(input);
+  const c30 = plan.forecasts.find((f) => f.id === "vacC__all__30d").data;
+  assert.deepEqual(E.validateForecastDocument(c30), []);
+  assert.deepEqual(
+    [c30.stockoutRiskLevel, c30.riskBasis, c30.confidenceLevel, c30.predictedDemandQuantity, c30.currentBackorderShortageQuantity,
+      c30.forecastShortageQuantity, c30.totalProjectedShortageQuantity, c30.recommendedReorderQuantity],
+    ["high", "current_backorder_shortage", "insufficient", null, 2, null, null, null]
+  );
+  assert.equal(plan.run.currentShortageCount, 1);
+  assert.equal(plan.run.riskSummary.high, 1);
+  // The contract refuses a forecast shortage without a forecast.
+  assert.ok(E.validateForecastDocument({ ...c30, forecastShortageQuantity: 0 }).length > 0);
+  assert.ok(E.validateForecastDocument({ ...c30, currentBackorderShortageQuantity: null }).length > 0);
+});
+
+// ---------------------------------------------------------------- deterministic product identity
+
+const catalog = (vaccines = CATALOG, batches = []) =>
+  A.createProductCatalog({ vaccines, batchesById: new Map(batches.map((b) => [b.id, b.data])) });
+
+test("each deterministic identity source resolves, in priority order", () => {
+  const cat = catalog(CATALOG, [batch("b1", { vaccineId: "vacZ" }), batch("bNoProduct", { vaccineId: undefined })]);
+  const resolve = (line) => A.resolveLineProduct(line, cat);
+  assert.deepEqual(resolve({ productKey: "vacA" }), { vaccineId: "vacA", source: "line_product_key" });
+  assert.deepEqual(resolve({ vaccineId: "vacB" }), { vaccineId: "vacB", source: "line_vaccine_id" });
+  assert.deepEqual(resolve({ productId: "vacB" }), { vaccineId: "vacB", source: "line_product_id" });
+  assert.deepEqual(resolve({ inventoryId: "b1" }), { vaccineId: "vacZ", source: "inventory_batch" });
+  assert.deepEqual(resolve({ sku: "SKU-A" }), { vaccineId: "vacA", source: "exact_sku" });
+  // Priority: productKey beats a conflicting SKU or batch.
+  assert.deepEqual(resolve({ productKey: "vacA", inventoryId: "b1", sku: "SKU-B" }), { vaccineId: "vacA", source: "line_product_key" });
+  // An id that is NOT in the catalog does not count; the next source is tried.
+  assert.deepEqual(resolve({ productKey: "ghost", vaccineId: "vacB" }), { vaccineId: "vacB", source: "line_vaccine_id" });
+  assert.deepEqual(resolve({ productKey: "ghost" }), { vaccineId: null, source: "unresolved" });
+  assert.deepEqual(resolve({ inventoryId: "bNoProduct" }), { vaccineId: null, source: "unresolved" }, "a batch without a vaccineId");
+  assert.deepEqual(resolve({ inventoryId: "missingBatch" }), { vaccineId: null, source: "unresolved" });
+  assert.deepEqual(A.resolveLineProduct({ inventoryId: "b1" }, catalog(CATALOG.filter((v) => v.id !== "vacZ"), [batch("b1", { vaccineId: "vacZ" })])),
+    { vaccineId: null, source: "unresolved" }, "the batch's vaccine must exist in the catalog");
+});
+
+test("an ambiguous SKU stays excluded — never first-match", () => {
+  const dup = [...CATALOG, { id: "vacA2", data: { vaccineName: "Vaccine A (other)", internalSku: "SKU-A" } }];
+  assert.deepEqual(A.resolveLineProduct({ sku: "SKU-A" }, catalog(dup)), { vaccineId: null, source: "ambiguous_sku" });
+  const d = demandOf([order("amb", { items: [{ sku: "SKU-A", quantity: 3 }] })], [], dup);
+  assert.equal(d.lines.length, 0);
+  assert.equal(d.warnings.count(A.WARNING.AMBIGUOUS_SKU), 1);
+  assert.equal(d.identity.bySource.ambiguous_sku, 1);
+  assert.deepEqual(d.identity.unresolvedLines[0].result, "ambiguous_sku");
+});
+
+test("fuzzy names and partial or near-miss SKUs are never used", () => {
+  const cat = catalog();
+  for (const line of [
+    { name: "Vaccine A" }, // exact product NAME — still not an identity source
+    { vaccineName: "Vaccine A" },
+    { sku: "sku-a" }, // case differs
+    { sku: " SKU-A" }, // whitespace differs
+    { sku: "SKU-" }, // prefix
+    { sku: "SKU-AA" }, // superset
+    { batchId: "SKU-A" }, // a batch code is not a product SKU
+  ]) {
+    assert.deepEqual(A.resolveLineProduct(line, cat), { vaccineId: null, source: "unresolved" }, JSON.stringify(line));
+  }
+});
+
+test("the same order line is never counted twice, whichever sources agree", () => {
+  const cat = [batch("b1", { vaccineId: "vacA" })];
+  const o = order("one", { items: [{ productKey: "vacA", vaccineId: "vacA", productId: "vacA", inventoryId: "b1", sku: "SKU-A", quantity: 7 }] });
+  const d = demandOf([o], cat);
+  assert.deepEqual(d.lines.map((l) => [l.orderId, l.lineIndex, l.vaccineId, l.quantity, l.identitySource]), [["one", 0, "vacA", 7, "line_product_key"]]);
+  const resolved = Object.entries(d.identity.bySource).filter(([k]) => k !== "unresolved" && k !== "ambiguous_sku").reduce((s, [, n]) => s + n, 0);
+  assert.equal(resolved, 1, "one resolution per line");
+  // Backorders use the SAME resolver: a backordered line identified only by SKU is attributed once.
+  const open = order("open", { status: "pending_dispatch", allocationVersion: 2, allocationOpen: true, items: [{ sku: "SKU-B", quantity: 4, reservedQuantity: 1 }] });
+  assert.equal(A.backorderedByProduct([open], A.createProductCatalog({ vaccines: CATALOG })).get("vacB"), 3);
+});
+
+test("identity diagnostics carry structural fields only — no names, clinics, doctors, addresses, emails, phones or uids", () => {
+  const sensitive = {
+    clinicName: "Sunrise Clinic", doctorName: "Dr. Maria Santos", deliveryAddress: "12 Rizal St, Manila",
+    clinicAddress: "Somewhere 5", createdByEmail: "rep@example.test", createdByUid: "uid-secret-123",
+    assignedRiderPhone: "+639171234567", destinationName: "Home of Patient",
+  };
+  const o = order("ord-x", {
+    ...sensitive,
+    items: [
+      { name: "Patient-specific note", quantity: 2, inventoryId: "bNoProduct", batchId: "BT-9" },
+      { sku: "NOT A CODE; call +63917", quantity: 1 },
+    ],
+  });
+  const d = demandOf([o], [batch("bNoProduct", { vaccineId: undefined })]);
+  assert.equal(d.identity.unresolvedLineCount, 2);
+  assert.deepEqual(d.identity.unresolvedLines[0], {
+    orderId: "ord-x", lineIndex: 0, identifierFields: ["inventoryId", "batchId"], sku: null, inventoryId: "bNoProduct", result: "unresolved",
+  });
+  assert.equal(d.identity.unresolvedLines[1].sku, "[redacted]", "a non-code SKU value is redacted");
+  const json = JSON.stringify(d.identity) + JSON.stringify(d.warnings.list());
+  for (const value of [...Object.values(sensitive), "Patient-specific note"]) assert.ok(!json.includes(value), value);
+  for (const key of Object.keys(sensitive)) assert.ok(!json.includes(key), key);
+  // The same holds on the stored run record.
+  const input = planInput();
+  input.orders.push(o);
+  const runJson = JSON.stringify(RUN.buildAnalyticsPlan(input).run);
+  for (const value of Object.values(sensitive)) assert.ok(!runJson.includes(value), value);
 });

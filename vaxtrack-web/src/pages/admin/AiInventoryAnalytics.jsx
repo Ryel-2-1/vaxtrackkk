@@ -45,7 +45,9 @@ const CALCULATION_ROWS = [
   ["backorderedQuantity", "Active backorders"],
   ["availableQuantity", "Available stock"],
   ["confirmedIncomingUsed", "Confirmed incoming (not tracked — 0)"],
-  ["projectedShortageQuantity", "Projected shortage"],
+  ["currentBackorderShortageQuantity", "Current backorder shortage (known, from placed orders)"],
+  ["forecastShortageQuantity", "Forecasted shortage (baseline forecast)"],
+  ["totalProjectedShortageQuantity", "Total projected shortage"],
   ["remainingAfterHorizonQuantity", "Remaining after the horizon"],
   ["leadTimeDays", "Lead time (days)"],
   ["leadTimeDemandQuantity", "Forecast demand during lead time"],
@@ -144,13 +146,20 @@ function ForecastDetail({ horizons, config, onClose }) {
       </header>
 
       <p className={`aia-reason aia-reason--${row.riskTone}`}>
-        <RiskBadge level={row.risk} /> {row.riskReason}
+        <RiskBadge level={row.risk} />
+        {row.riskBasisLabel && <strong className="aia-basis-inline">{row.riskBasisLabel}:</strong>} {row.riskReason}
       </p>
+      {row.hasCurrentShortage && (
+        <p className="aia-note aia-note--high">
+          Current shortage: {row.currentShortage} vials are already backordered beyond the stock available to satisfy
+          them. This comes from orders already placed — it is not a forecast.
+        </p>
+      )}
 
       {row.insufficient && (
         <p className="aia-note aia-note--unknown">
-          Insufficient history: {primary.usableWeekCount ?? 0} usable week(s). At least 4 complete weeks are needed before a
-          baseline forecast is made.
+          Insufficient forecast history: {primary.usableWeekCount ?? 0} usable week(s). At least 4 complete weeks are needed
+          before a baseline forecast is made, so there is no forecasted shortage or reorder figure.
         </p>
       )}
       {configChangedSinceForecast(config, primary) && (
@@ -167,7 +176,8 @@ function ForecastDetail({ horizons, config, onClose }) {
             <tr>
               <th>Horizon</th>
               <th>Predicted demand</th>
-              <th>Projected shortage</th>
+              <th>Current shortage</th>
+              <th>Forecasted shortage</th>
               <th>Recommended reorder</th>
               <th>Risk</th>
               <th>Confidence</th>
@@ -189,7 +199,8 @@ function ForecastDetail({ horizons, config, onClose }) {
                 <tr key={h}>
                   <td>{h} days</td>
                   <td className="tnum">{r.predicted}</td>
-                  <td className="tnum">{r.shortage}</td>
+                  <td className={`tnum${r.hasCurrentShortage ? " aia-current-shortage" : ""}`}>{r.currentShortage}</td>
+                  <td className={r.insufficient ? "aia-muted-cell" : "tnum"}>{r.forecastShortage}</td>
                   <td className={r.needsConfiguration ? "aia-config-required" : "tnum"}>{r.reorder}</td>
                   <td><RiskBadge level={r.risk} /></td>
                   <td>{r.confidence}</td>
@@ -334,7 +345,7 @@ function AiInventoryAnalytics() {
           <KpiCard
             label="High stockout risk"
             value={totals.highRisk}
-            context="projected shortage"
+            context="current or forecasted shortage"
             tone={totals.highRisk ? "danger" : "neutral"}
             attention={totals.highRisk > 0}
           />
@@ -367,7 +378,8 @@ function AiInventoryAnalytics() {
                   <th>Reserved</th>
                   <th>Backordered</th>
                   <th>Predicted 30-day demand</th>
-                  <th>Projected shortage</th>
+                  <th>Current shortage</th>
+                  <th>Forecasted shortage</th>
                   <th>Recommended reorder</th>
                   <th>Risk</th>
                   <th>Confidence</th>
@@ -387,9 +399,13 @@ function AiInventoryAnalytics() {
                     <td className="tnum">{r.reserved}</td>
                     <td className="tnum">{r.backordered}</td>
                     <td className="tnum">{r.insufficient ? <span className="aia-muted">Insufficient history</span> : r.predicted}</td>
-                    <td className="tnum">{r.shortage}</td>
+                    <td className={`tnum${r.hasCurrentShortage ? " aia-current-shortage" : ""}`}>{r.currentShortage}</td>
+                    <td className={r.insufficient ? "aia-muted-cell" : "tnum"}>{r.forecastShortage}</td>
                     <td className={r.needsConfiguration ? "aia-config-required" : "tnum"}>{r.reorder}</td>
-                    <td><RiskBadge level={r.risk} /></td>
+                    <td>
+                      <RiskBadge level={r.risk} />
+                      {r.riskBasisLabel && <small className="aia-basis">{r.riskBasisLabel}</small>}
+                    </td>
                     <td>{r.confidence}</td>
                     <td className="tnum">{r.generatedAt}</td>
                   </tr>

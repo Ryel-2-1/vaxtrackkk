@@ -83,7 +83,8 @@ test("31 · rows show only stored figures: a missing value is '—' or its reaso
 
   // A document with nothing in it renders nothing invented.
   const empty = forecastRow({ vaccineId: "x", stockoutRiskLevel: "bogus" });
-  for (const key of ["available", "reserved", "backordered", "predicted", "shortage"]) assert.equal(empty[key], "—", key);
+  for (const key of ["available", "reserved", "backordered", "predicted", "currentShortage", "totalShortage"]) assert.equal(empty[key], "—", key);
+  assert.equal(empty.forecastShortage, "Insufficient history", "no forecast → no forecasted-shortage number");
   assert.equal(empty.reorder, REORDER_CONFIGURATION_REQUIRED);
   assert.equal(empty.risk, "unknown");
   assert.equal(empty.name, "Name not recorded");
@@ -222,4 +223,31 @@ test("the page names its environment; staging carries the seed/test-data warning
   assert.match(page, /environmentNotice\(import\.meta\.env\.VITE_FIREBASE_PROJECT_ID \|\| run\?\.projectId\)/);
   assert.match(page, /\{ANALYTICS_DISCLAIMER\}/, "the advisory disclaimer stays");
   assert.match(page, /environment\.warning && <> — \{environment\.warning\}<\/>/);
+});
+
+test("the page separates a current shortage, a forecasted shortage and insufficient forecast history", () => {
+  // The staging case: 0 available, 2 backordered, not enough history — built by the SERVER plan.
+  const line = (q) => ({ productKey: "vacA", quantity: q, reservedQuantity: q, backorderedQuantity: 0 });
+  const plan = serverRun.buildAnalyticsPlan({
+    now: new Date("2026-10-09T04:00:00.000Z"),
+    orders: [
+      { id: "d1", data: { status: "delivered", requestedDeliveryDate: "2026-09-29", items: [line(1)] } },
+      { id: "open", data: { status: "pending_dispatch", allocationVersion: 2, allocationOpen: true, requestedDeliveryDate: "2026-10-20",
+        items: [{ productKey: "vacA", quantity: 2, reservedQuantity: 0, backorderedQuantity: 2 }] } },
+    ],
+    batches: [{ id: "b1", data: { vaccineId: "vacA", quantity: 0, reservedQuantity: 0, status: "OK", expiryDate: "2027-12-31", arrivalDate: "2026-09-28" } }],
+    vaccines: [{ id: "vacA", data: { vaccineName: "Vaccine A", internalSku: "SKU-A" } }],
+    configs: [],
+  });
+  const row = forecastRow({ ...plan.forecasts.find((f) => f.id === "vacA__all__30d").data, generatedAt: ts("2026-10-09T05:00:00Z") });
+  assert.deepEqual(
+    [row.risk, row.riskBasisLabel, row.currentShortage, row.hasCurrentShortage, row.forecastShortage, row.predicted, row.confidence, row.reorder],
+    ["high", "Current shortage", "2", true, "Insufficient history", "—", "Insufficient data", REORDER_CONFIGURATION_REQUIRED]
+  );
+  const page = read("src/pages/admin/AiInventoryAnalytics.jsx");
+  assert.match(page, /<th>Current shortage<\/th>/);
+  assert.match(page, /<th>Forecasted shortage<\/th>/);
+  assert.match(page, /Insufficient forecast history/);
+  assert.match(page, /it is not a forecast/);
+  assert.doesNotMatch(page, /Projected shortage<\/th>/, "no single blended column");
 });

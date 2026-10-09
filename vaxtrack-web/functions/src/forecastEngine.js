@@ -187,11 +187,14 @@ const FORECAST_DOCUMENT_FIELDS = Object.freeze([
   "backorderedQuantity",
   "confirmedIncomingQuantity",
   "confirmedIncomingTracked",
-  "projectedShortageQuantity",
+  "currentBackorderShortageQuantity",
+  "forecastShortageQuantity",
+  "totalProjectedShortageQuantity",
   "recommendedReorderQuantity",
   "reorderConfigurationComplete",
   "reorderConfigurationStatus",
   "stockoutRiskLevel",
+  "riskBasis",
   "stockoutRiskReason",
   "calculation",
   "confidenceLevel",
@@ -211,6 +214,16 @@ const FORECAST_DOCUMENT_FIELDS = Object.freeze([
 ]);
 
 const RISK_LEVELS = Object.freeze(["high", "medium", "low", "unknown"]);
+/** Why a risk level was given (analyticsRisk.assessProduct). */
+const RISK_BASES = Object.freeze([
+  "current_backorder_shortage",
+  "insufficient_history",
+  "forecast_shortage",
+  "lead_time_shortage",
+  "configuration_missing",
+  "below_safety_stock",
+  "above_safety_stock",
+]);
 
 const isWholeOrNull = (v) => v === null || (Number.isSafeInteger(v) && v >= 0);
 
@@ -226,7 +239,9 @@ function validateForecastDocument(doc) {
     "reservedQuantity",
     "backorderedQuantity",
     "confirmedIncomingQuantity",
-    "projectedShortageQuantity",
+    "currentBackorderShortageQuantity",
+    "forecastShortageQuantity",
+    "totalProjectedShortageQuantity",
     "recommendedReorderQuantity",
     "sampleOrderCount",
     "usableWeekCount",
@@ -234,6 +249,15 @@ function validateForecastDocument(doc) {
     if (f in doc && !isWholeOrNull(doc[f])) problems.push(`${f} must be a whole number ≥ 0 or null`);
   }
   if (!RISK_LEVELS.includes(doc.stockoutRiskLevel)) problems.push("stockoutRiskLevel is not a known level");
+  if (!RISK_BASES.includes(doc.riskBasis)) problems.push("riskBasis is not a known basis");
+  // The known (backorder) shortage never depends on a forecast, so it is always a number.
+  if ("currentBackorderShortageQuantity" in doc && !(Number.isSafeInteger(doc.currentBackorderShortageQuantity) && doc.currentBackorderShortageQuantity >= 0)) {
+    problems.push("currentBackorderShortageQuantity must be a whole number ≥ 0");
+  }
+  // A forecast shortage needs a forecast.
+  if (doc.predictedDemandQuantity === null && (doc.forecastShortageQuantity !== null || doc.totalProjectedShortageQuantity !== null)) {
+    problems.push("forecast shortages must be null when there is no forecast");
+  }
   if (typeof doc.stockoutRiskReason !== "string" || !doc.stockoutRiskReason) problems.push("stockoutRiskReason is required");
   if (!Object.values(CONFIDENCE).includes(doc.confidenceLevel)) problems.push("confidenceLevel is not a known level");
   if (doc.advisoryOnly !== true) problems.push("advisoryOnly must be true");
@@ -258,5 +282,6 @@ module.exports = {
   assertForecastEngine,
   FORECAST_DOCUMENT_FIELDS,
   RISK_LEVELS,
+  RISK_BASES,
   validateForecastDocument,
 };

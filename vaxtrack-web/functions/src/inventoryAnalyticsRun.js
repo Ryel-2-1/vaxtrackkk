@@ -36,6 +36,7 @@ const {
   WARNING_TEXT,
   createWarningLog,
   toDate,
+  createProductCatalog,
   extractDemand,
   backorderedByProduct,
   stockByProduct,
@@ -88,7 +89,9 @@ const FIRESTORE_DOCUMENTED_REQUEST_LIMIT_BYTES = 10 * 1024 * 1024;
  * reorder formulas, document shape). Bump it whenever any of those change, so
  * a run under new rules can never share an id with one under old rules.
  */
-const CALCULATION_CONTRACT_VERSION = "inventory-analytics-1";
+// 2: current backorder shortage separated from forecast shortage (riskBasis);
+//    deterministic product-identity resolution.
+const CALCULATION_CONTRACT_VERSION = "inventory-analytics-2";
 
 /** Shown (and stored on the run) when the data comes from the staging project. */
 const STAGING_DATA_WARNING =
@@ -134,7 +137,7 @@ function normalizedInputs({ orders, batches, vaccines, configs }) {
         id,
         ...pick(data, ["status", "requestedDeliveryDate", "createdAt", "allocationVersion", "allocationOpen"]),
         items: Array.isArray(data?.items)
-          ? data.items.map((l) => pick(l, ["productKey", "inventoryId", "quantity", "reservedQuantity"]))
+          ? data.items.map((l) => pick(l, ["productKey", "vaccineId", "productId", "inventoryId", "sku", "quantity", "reservedQuantity"]))
           : null,
       }))
       .sort(byId),
@@ -213,13 +216,16 @@ function buildAnalyticsPlan({
   const vaccinesById = new Map(vaccines.map((v) => [v.id, v.data]));
   const configsById = new Map(configs.map((c) => [c.id, c.data]));
 
-  const demand = extractDemand({ orders, batchesById, warnings });
+  // ONE catalog for demand AND backorders: the same deterministic identity rule.
+  const catalog = createProductCatalog({ vaccines, batchesById });
+  const demand = extractDemand({ orders, batchesById, catalog, warnings });
   const stock = stockByProduct({ batches, now, warnings });
-  const backordered = backorderedByProduct(orders);
+  const backordered = backorderedByProduct(orders, catalog);
 
   // Confidence is lowered for EVERY forecast when too many candidate lines had
   // to be dropped for a missing date or product identity.
-  const identityOrDateExcluded = warnings.count(WARNING.MISSING_ORDER_DATE) + warnings.count(WARNING.MISSING_PRODUCT_ID);
+  const identityOrDateExcluded =
+    warnings.count(WARNING.MISSING_ORDER_DATE) + warnings.count(WARNING.MISSING_PRODUCT_ID) + warnings.count(WARNING.AMBIGUOUS_SKU);
   const excludedLineRatio = demand.counts.candidateLines === 0 ? 0 : identityOrDateExcluded / demand.counts.candidateLines;
   const confidenceDowngraded = excludedLineRatio >= DATA_QUALITY_DOWNGRADE_RATIO;
 
@@ -243,6 +249,7 @@ function buildAnalyticsPlan({
   const riskSummary = { high: 0, medium: 0, low: 0, unknown: 0 };
   let reorderConfigurationRequiredCount = 0;
   let lowConfidenceCount = 0;
+  let currentShortageCount = 0;
 
   for (const vaccineId of productIds) {
     const vaccine = vaccinesById.get(vaccineId) ?? null;
@@ -279,6 +286,7 @@ function buildAnalyticsPlan({
 
     let productHasMissingConfig = false;
     let productInsufficient = false;
+    let productAllocationPending = false;
 
     for (const horizonDays of HORIZONS) {
       const assessed = assessProduct({
@@ -294,6 +302,7 @@ function buildAnalyticsPlan({
       const confidenceLevel = confidenceDowngraded ? downgradeConfidence(p.confidenceLevel) : p.confidenceLevel;
       if (p.predictedQuantity === null) productInsufficient = true;
       if (!assessed.configComplete) productHasMissingConfig = true;
+      if (assessed.allocationMayBePending) productAllocationPending = true;
 
       const docWarnings = [...productWarnings];
       if (p.predictedQuantity === null) {
@@ -301,6 +310,12 @@ function buildAnalyticsPlan({
       }
       if (!assessed.configComplete) {
         docWarnings.push({ code: WARNING.MISSING_REORDER_CONFIG, message: CONFIG_STATUS_TEXT[assessed.configStatus] });
+      }
+      if (assessed.allocationMayBePending) {
+        docWarnings.push({
+          code: WARNING.ALLOCATION_MAY_BE_PENDING,
+          message: `Available stock (${productStock.availableQuantity}) could cover all ${backorderedQuantity} backordered vials — allocation may be pending. Not a shortage.`,
+        });
       }
 
       const explanationFactors = [
@@ -331,11 +346,14 @@ function buildAnalyticsPlan({
         backorderedQuantity,
         confirmedIncomingQuantity: null,
         confirmedIncomingTracked: CONFIRMED_INCOMING_TRACKED,
-        projectedShortageQuantity: assessed.projectedShortageQuantity,
+        currentBackorderShortageQuantity: assessed.currentBackorderShortageQuantity,
+        forecastShortageQuantity: assessed.forecastShortageQuantity,
+        totalProjectedShortageQuantity: assessed.totalProjectedShortageQuantity,
         recommendedReorderQuantity: assessed.recommendedReorderQuantity,
         reorderConfigurationComplete: assessed.configComplete,
         reorderConfigurationStatus: assessed.configStatus,
         stockoutRiskLevel: assessed.stockoutRiskLevel,
+        riskBasis: assessed.riskBasis,
         stockoutRiskReason: assessed.stockoutRiskReason,
         calculation: assessed.calculation,
         confidenceLevel,
@@ -361,10 +379,12 @@ function buildAnalyticsPlan({
         riskSummary[assessed.stockoutRiskLevel] += 1;
         if ([CONFIDENCE.INSUFFICIENT, CONFIDENCE.LOW].includes(confidenceLevel)) lowConfidenceCount += 1;
         if (!assessed.configComplete) reorderConfigurationRequiredCount += 1;
+        if (assessed.riskBasis === "current_backorder_shortage") currentShortageCount += 1;
       }
     }
     if (productHasMissingConfig) warnings.add(WARNING.MISSING_REORDER_CONFIG, vaccineId);
     if (productInsufficient) warnings.add(WARNING.INSUFFICIENT_HISTORY, vaccineId);
+    if (productAllocationPending) warnings.add(WARNING.ALLOCATION_MAY_BE_PENDING, vaccineId);
   }
 
   // The run fingerprint covers everything that can change the output — the
@@ -416,6 +436,10 @@ function buildAnalyticsPlan({
       configsRead: configs.length,
     },
     riskSummary,
+    currentShortageCount,
+    // Which deterministic source resolved each demand line, and the lines that
+    // could not be resolved (structural fields only — no names or people).
+    identityDiagnostics: demand.identity,
     reorderConfigurationRequiredCount,
     lowConfidenceCount,
     excludedLineRatio: Math.round(excludedLineRatio * 10000) / 10000,
