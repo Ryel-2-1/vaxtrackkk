@@ -1155,6 +1155,65 @@
   color: var(--gray-500, #6b7280);
 }
 
+/* A price recorded under the legacy VAT-exclusive convention. Amber (warning
+   tokens), never green: it is a decision waiting for the Admin. */
+.inv-price-legacy-tag {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--warning-text, #b45309);
+  white-space: nowrap;
+}
+.inv-price-legacy {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--warning-border, #f2dbae);
+  border-radius: 8px;
+  background: var(--warning-bg, #fef6e7);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--gray-700, #374151);
+}
+.inv-price-legacy p {
+  margin: 0 0 6px;
+}
+.inv-price-legacy .inv-price-legacy-note {
+  font-weight: 600;
+  color: var(--warning-text, #b45309);
+}
+.inv-price-legacy-options {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+.inv-price-modal .inv-price-legacy-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 0 !important; /* out-specifies the global button min-height reset */
+  padding: 8px 12px;
+  border: 1px solid var(--gray-300, #d1d5db);
+  border-radius: 8px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+.inv-price-modal .inv-price-legacy-option:hover {
+  border-color: var(--green-600, #27714f);
+  background: var(--green-50, #f0f7f3);
+}
+.inv-price-legacy-option strong {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--gray-900, #111827);
+}
+.inv-price-legacy-option span {
+  font-size: 12px;
+  color: var(--gray-500, #6b7280);
+}
+
 .inv-price-error {
   margin: 12px 0 0;
   font-size: 13px;

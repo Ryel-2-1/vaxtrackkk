@@ -47,6 +47,19 @@ export function priceConventionNote(priceIsVatInclusive) {
 }
 
 /**
+ * LEGACY: the VAT a VAT-EXCLUSIVE VATable amount carried — 12% on top,
+ * Math.round. Identical to legacyVatOnTopCentavos on the server. Used only to
+ * DESCRIBE a legacy record (e.g. what a legacy batch price came to with VAT);
+ * never to price a new record.
+ */
+export function legacyVatOnTopCentavos(netCentavos) {
+  if (!Number.isSafeInteger(netCentavos) || netCentavos < 0) {
+    throw new RangeError("A VAT-exclusive amount must be a whole, non-negative number of centavos.");
+  }
+  return Math.round((netCentavos * VAT_RATE_PERCENT) / 100);
+}
+
+/**
  * Split a VAT-inclusive VATable amount (integer centavos) into VAT and net:
  *   vat = round(gross × 12 ÷ 112), half up, exact integers;  net = gross − vat.
  * Identical to splitVatInclusiveCentavos on the server.

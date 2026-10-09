@@ -32,6 +32,11 @@ import KpiCard from "../../components/ui/KpiCard";
 import ReservationProvenance from "../../components/admin/ReservationProvenance";
 import { MAX_STOCK_QUANTITY } from "../../services/orderEligibility";
 import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
+import {
+  describePriceReconfirmation,
+  priceNeedsReconfirmation,
+  priceReconfirmationFlag,
+} from "../../services/priceReconfirmation";
 import "./Inventory.css";
 
 /* `getDaysUntilExpiry` was deleted. It built its answer from LOCAL midnight
@@ -109,6 +114,10 @@ function normalizeInventoryItem(raw, todayIso) {
         : "Selling price is invalid — cannot be ordered"
     );
   }
+  // Priced under the legacy VAT-exclusive convention (or with none recorded):
+  // the server refuses to quote it until an Admin re-confirms the price.
+  const reconfirmFlag = priceReconfirmationFlag(raw);
+  if (reconfirmFlag) flags.push(reconfirmFlag);
   if (reservedRaw === undefined || reservedRaw === null) flags.push("No reserved field yet");
   if (available !== null && available < 0) flags.push("Held units exceed stock on hand");
   if (expiryCondition.level === "expired") flags.push("Expired");
@@ -144,6 +153,9 @@ function normalizeInventoryItem(raw, todayIso) {
     availableValue: available,
     priceCentavos,
     price: formatCentavos(priceCentavos),
+    // The convention the stored price was recorded under, as stored.
+    priceIsVatInclusive: typeof raw.priceIsVatInclusive === "boolean" ? raw.priceIsVatInclusive : null,
+    priceNeedsReconfirm: priceNeedsReconfirmation(raw),
     flags,
     qty: raw.quantity != null ? Number(raw.quantity).toLocaleString() : "—",
     qtyRaw: raw.quantity != null ? Number(raw.quantity) : 0,
@@ -216,7 +228,10 @@ function Inventory() {
 
   const openPriceDialog = (item) => {
     setPricing(item);
-    setPriceInput(centavosToInputValue(item.priceCentavos));
+    // A legacy (VAT-exclusive) price is NOT pre-filled: saving it unchanged
+    // would silently re-read it as VAT-inclusive. The Admin enters or picks
+    // the figure deliberately.
+    setPriceInput(item.priceNeedsReconfirm ? "" : centavosToInputValue(item.priceCentavos));
     setPriceError("");
   };
 
@@ -261,7 +276,11 @@ function Inventory() {
       // The live subscription re-renders the row; nothing is patched locally,
       // so what is on screen is what Firestore actually holds.
       closePriceDialog();
-      showToast(`Price updated for batch ${pricing.batch}.`);
+      showToast(
+        pricing.priceNeedsReconfirm
+          ? `Price re-confirmed as VAT-inclusive for batch ${pricing.batch}. It can be ordered again.`
+          : `Price updated for batch ${pricing.batch}.`
+      );
     } catch (error) {
       console.error("Update price error:", error);
       setPriceError("Could not save the price. Please try again.");
@@ -470,6 +489,16 @@ function Inventory() {
     (safePage - 1) * pageSize,
     safePage * pageSize
   );
+
+  // The open price dialog's legacy-price choice (VAT recorded as exclusive),
+  // or null for an ordinary re-price.
+  const reconfirm = pricing
+    ? describePriceReconfirmation({
+        priceCentavos: pricing.priceCentavos,
+        priceIsVatInclusive: pricing.priceIsVatInclusive,
+        vatClassification: pricing.vatClassification ?? null,
+      })
+    : null;
 
   const startItem =
     filteredVaccines.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
@@ -722,6 +751,11 @@ function Inventory() {
                         the two lead to different actions. */}
                     <td className={item.priceCentavos === null ? "inv-unpriced" : "tnum"}>
                       {item.price}
+                      {item.priceNeedsReconfirm && (
+                        <small className="inv-price-legacy-tag">
+                          {item.priceIsVatInclusive === false ? "Legacy · VAT exclusive" : "VAT not recorded"}
+                        </small>
+                      )}
                     </td>
 
                     <td>
@@ -736,7 +770,11 @@ function Inventory() {
                         className="inv-price-btn"
                         onClick={() => openPriceDialog(item)}
                       >
-                        {item.priceCentavos === null ? "Set price" : "Edit price"}
+                        {item.priceCentavos === null
+                          ? "Set price"
+                          : item.priceNeedsReconfirm
+                            ? "Re-confirm price"
+                            : "Edit price"}
                       </button>
                     </td>
                   </tr>
@@ -953,12 +991,41 @@ function Inventory() {
               <X size={18} />
             </button>
 
-            <h2 id="inv-price-title">Set selling price</h2>
+            <h2 id="inv-price-title">{reconfirm ? "Re-confirm selling price" : "Set selling price"}</h2>
 
             <p className="inv-price-batch">
               <strong>{pricing.name}</strong>
               <span>Batch {pricing.batch}</span>
             </p>
+
+            {/* A legacy price: show what was recorded and what it came to, and
+                let the Admin choose. Nothing is converted automatically — a
+                choice only fills the field; Save is still required. */}
+            {reconfirm && (
+              <div className="inv-price-legacy" role="note">
+                <p className="inv-price-legacy-note">{reconfirm.recordedNote}</p>
+                <p>{reconfirm.recordedLine}</p>
+                <p>{reconfirm.explanation}</p>
+                <p>Enter the new price including VAT, or pick one:</p>
+                <div className="inv-price-legacy-options">
+                  {reconfirm.options.map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      className="inv-price-legacy-option"
+                      onClick={() => {
+                        setPriceInput(centavosToInputValue(option.centavos));
+                        setPriceError("");
+                      }}
+                      disabled={savingPrice}
+                    >
+                      <strong>{option.label}</strong>
+                      <span>{option.detail}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <label htmlFor="inv-price-input">Unit selling price (₱)</label>
             <input
@@ -996,7 +1063,7 @@ function Inventory() {
                 onClick={handleSavePrice}
                 disabled={savingPrice}
               >
-                {savingPrice ? "Saving…" : "Save price"}
+                {savingPrice ? "Saving…" : reconfirm ? "Confirm VAT-inclusive price" : "Save price"}
               </button>
             </div>
           </div>
