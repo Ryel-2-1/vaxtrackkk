@@ -36,6 +36,23 @@ const RIDER_PENDING = "rider_pending";
 const DOCTOR = "doctor1";
 const CLINIC = "clinic1";
 const AREA = "area1";
+const VAC_VAT = "vaccineVat";
+const VAC_EXEMPT = "vaccineExempt";
+const VAC_LAST = "vaccineLastUnit";
+
+/**
+ * Seed overrides that move every OTHER batch of the VAT product to its own
+ * product id, so [keep] is the only stock of that product — for cases about a
+ * single batch's arithmetic, now that allocation pools a product's batches.
+ */
+function isolateFrom(keep) {
+  const others = ["good", "lastUnit", "shadowed", "unpriced", "stringPrice", "legacyString", "badReserved", "expired", "inactive"];
+  const overrides = {};
+  for (const id of others) {
+    if (id !== keep) overrides[id] = { __isolate: true };
+  }
+  return overrides;
+}
 
 const NOW = new Date("2026-09-06T02:00:00.000Z");
 // Every new order must carry a requested delivery date (Manila calendar day,
@@ -49,7 +66,7 @@ const PRICE = 125000;
 const PRICES = { good: PRICE, second: 45000 };
 
 async function wipe() {
-  for (const c of ["users", "doctors", "clinics", "areas", "inventory", "orders", "inventoryReservations", "orderRequestKeys"]) {
+  for (const c of ["users", "doctors", "clinics", "areas", "vaccines", "inventory", "orders", "inventoryReservations", "orderRequestKeys"]) {
     const snap = await db.collection(c).get();
     await Promise.all(snap.docs.map((d) => d.ref.delete()));
   }
@@ -112,10 +129,19 @@ async function seed(inventory = {}) {
     // Priced, but stored as TEXT — the same class of defect as a string
     // quantity, and refused for the same reason rather than coerced.
     stringPrice: { quantity: 100, reservedQuantity: 0, sellingPriceCentavos: "125000", status: "OK", expiryDate: "2027-12-31", batchId: "STRPRICE-001", vaccineName: "Text Price Vaccine" },
-    ...inventory,
   };
+  for (const [id, data] of Object.entries(inventory)) {
+    batches[id] = data && data.__isolate
+      ? { ...batches[id], vaccineId: `isolated-${id}` }
+      : data;
+  }
+  // Every batch is linked to a classified vaccine product, so cases that are
+  // not about VAT order exactly as before. "second" is VAT Exempt; the rest
+  // are VAT. A case may override vaccineId (or omit the link) explicitly.
+  await db.collection("vaccines").doc(VAC_VAT).set({ vaccineName: "VAT Vaccine", vatClassification: "vatable" });
+  await db.collection("vaccines").doc(VAC_EXEMPT).set({ vaccineName: "Exempt Vaccine", vatClassification: "vat_exempt" });
   for (const [id, data] of Object.entries(batches)) {
-    await db.collection("inventory").doc(id).set(data);
+    await db.collection("inventory").doc(id).set({ vaccineId: id === "second" ? VAC_EXEMPT : VAC_VAT, ...data });
   }
 }
 
@@ -147,8 +173,36 @@ const create = (uid, items, over = {}) =>
 const cancel = (uid, orderId, reason = "Clinic closed") =>
   ops.cancelOrderWithInventoryRelease({ db, FieldValue, uid, orderId, reason, now: NOW });
 
-const deliver = (uid, orderId) =>
+// Completion now requires recorded proof + invoice evidence (deliveryEvidence.js).
+// The Rider app records both — two one-shot submissions through the rules —
+// before it completes, so this does the same: while the order can still take
+// evidence and has none, the caller's evidence is recorded first, then the
+// real callable runs. Every other precondition is the callable's own.
+const { canonicalProofPath, canonicalInvoicePath } = require("../../src/deliveryEvidence");
+async function recordEvidenceAs(uid, orderId) {
+  const ref = db.collection("orders").doc(orderId);
+  const snap = await ref.get();
+  if (!snap.exists) return;
+  const o = snap.data();
+  if (!["in_transit", "delayed"].includes(o.status) || o.proofSubmittedAt) return;
+  await ref.update({
+    proofOfDeliveryUrl: `https://storage/${orderId}/proof.jpg`,
+    proofOfDeliveryPath: canonicalProofPath(orderId),
+    proofRecipientName: "Maria Santos",
+    proofSubmittedAt: FieldValue.serverTimestamp(),
+    proofSubmittedByUid: uid,
+    invoiceUrl: `https://storage/${orderId}/invoice.jpg`,
+    invoicePath: canonicalInvoicePath(orderId),
+    invoiceSubmittedAt: FieldValue.serverTimestamp(),
+    invoiceSubmittedByUid: uid,
+  });
+}
+const completeOnly = (uid, orderId) =>
   ops.markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid, orderId, now: NOW });
+const deliver = async (uid, orderId) => {
+  await recordEvidenceAs(uid, orderId);
+  return completeOnly(uid, orderId);
+};
 
 const codeOf = async (p) => {
   try { await p; return null; } catch (e) { return e.code; }
@@ -261,6 +315,67 @@ test("territory: the assignment current at commit is the one enforced", async (t
   });
 });
 
+// ---------------------------------------------------------------- VAT classification
+
+test("vat: every order item snapshots its vaccine's classification", async (t) => {
+  await seed();
+
+  await t.test("a mixed order keeps a different classification per item", async () => {
+    const r = await create(SR, [{ inventoryId: "good", quantity: 1 }, { inventoryId: "second", quantity: 2 }]);
+    const items = (await order(r.orderId)).items;
+    assert.deepEqual(items.map((i) => [i.inventoryId, i.vatClassification]), [["good", "vatable"], ["second", "vat_exempt"]]);
+  });
+
+  await t.test("the caller cannot send or override a classification", async () => {
+    assert.equal(
+      await codeOf(create(SR, [{ inventoryId: "good", quantity: 1, expectedUnitPriceCentavos: PRICE, vatClassification: "vat_exempt" }])),
+      "unknown-field"
+    );
+  });
+
+  await t.test("re-classifying a vaccine later does not rewrite an existing order item", async () => {
+    const r = await create(SR, [{ inventoryId: "good", quantity: 1 }]);
+    await db.collection("vaccines").doc(VAC_VAT).update({ vatClassification: "vat_exempt" });
+    assert.equal((await order(r.orderId)).items[0].vatClassification, "vatable");
+    // ...while the NEXT order takes the new value.
+    const next = await create(SR, [{ inventoryId: "good", quantity: 1 }]);
+    assert.equal((await order(next.orderId)).items[0].vatClassification, "vat_exempt");
+  });
+});
+
+test("vat: an unclassified product refuses the whole order before any write", async (t) => {
+  await seed({
+    unlinked: { quantity: 10, reservedQuantity: 0, sellingPriceCentavos: PRICE, status: "OK", expiryDate: "2027-12-31", batchId: "NOVAC-001", vaccineId: null },
+    unclassified: { quantity: 10, reservedQuantity: 0, sellingPriceCentavos: PRICE, status: "OK", expiryDate: "2027-12-31", batchId: "NOCLS-001", vaccineId: "vaccineLegacy" },
+    badValue: { quantity: 10, reservedQuantity: 0, sellingPriceCentavos: PRICE, status: "OK", expiryDate: "2027-12-31", batchId: "BADCLS-001", vaccineId: "vaccineBad" },
+    ghost: { quantity: 10, reservedQuantity: 0, sellingPriceCentavos: PRICE, status: "OK", expiryDate: "2027-12-31", batchId: "GHOST-001", vaccineId: "vaccineGone" },
+  });
+  await db.collection("vaccines").doc("vaccineLegacy").set({ vaccineName: "Legacy" });
+  await db.collection("vaccines").doc("vaccineBad").set({ vaccineName: "Bad", vatClassification: "zero_rated" });
+
+  const counts = async () => ({
+    orders: (await db.collection("orders").get()).size,
+    reservations: (await db.collection("inventoryReservations").get()).size,
+    keys: (await db.collection("orderRequestKeys").get()).size,
+    good: await inv("good"),
+  });
+  const before = await counts();
+
+  for (const id of ["unlinked", "unclassified", "badValue", "ghost"]) {
+    await t.test(`refuses: ${id}`, async () => {
+      // Paired with a perfectly valid line: one bad item refuses the whole order.
+      assert.equal(await codeOf(create(SR, [{ inventoryId: "good", quantity: 1 }, { inventoryId: id, quantity: 1 }])), "vat-classification-required");
+    });
+  }
+
+  await t.test("no order, reservation, request key or stock change survives", async () => {
+    assert.deepEqual(await counts(), before);
+    for (const id of ["unlinked", "unclassified", "badValue", "ghost"]) {
+      assert.equal((await inv(id)).reservedQuantity, 0, id);
+    }
+  });
+});
+
 // ---------------------------------------------------------------- reservation
 
 test("reservation: valid orders reserve without touching on-hand stock", async (t) => {
@@ -270,11 +385,18 @@ test("reservation: valid orders reserve without touching on-hand stock", async (
     const r = await create(SR, [{ inventoryId: "good", quantity: 10, expectedUnitPriceCentavos: PRICE }]);
     const b = await inv("good");
     assert.equal(b.quantity, 100, "on-hand is untouched by a reservation");
+    // FEFO across the product: "good" is the first eligible batch (ties on
+    // expiry break by document id), so it supplies all 10.
     assert.equal(b.reservedQuantity, 10);
 
     const o = await order(r.orderId);
-    assert.equal(o.allocationVersion, 1);
+    assert.equal(o.allocationVersion, 2, "backorder-aware allocation");
     assert.equal(o.allocationStatus, "reserved");
+    assert.equal(o.allocationState, "fully_reserved");
+    assert.deepEqual(o.backorderedProductKeys, []);
+    assert.equal(o.items[0].reservedQuantity, 10);
+    assert.equal(o.items[0].backorderedQuantity, 0);
+    assert.equal(r.allocation.allocationState, "fully_reserved");
     assert.equal(o.items[0].inventoryId, "good");
     assert.equal(o.status, "pending_dispatch");
     assert.equal(o.createdByUid, SR);
@@ -292,7 +414,8 @@ test("reservation: valid orders reserve without touching on-hand stock", async (
 
     const res = await reservation(r.orderId);
     assert.equal(res.status, "reserved");
-    assert.deepEqual(res.items, [{ inventoryId: "good", batchId: "MOD-STG-001", quantity: 10 }]);
+    assert.deepEqual(res.items, [{ lineIndex: 0, productKey: VAC_VAT, inventoryId: "good", batchId: "MOD-STG-001", quantity: 10 }]);
+    assert.deepEqual(res.inventoryIds, ["good"]);
     assert.match(r.orderNumber, /^VT-ORD-\d+-[A-Z0-9]{4}$/);
   });
 
@@ -387,7 +510,6 @@ test("reservation: refusals leave nothing behind", async (t) => {
     ["expired batch", [{ inventoryId: "expired", quantity: 1 }], "batch-expired"],
     ["inactive batch", [{ inventoryId: "inactive", quantity: 1 }], "batch-unavailable"],
     ["duplicate inventory ids", [{ inventoryId: "good", quantity: 1, expectedUnitPriceCentavos: PRICE }, { inventoryId: "good", quantity: 2, expectedUnitPriceCentavos: PRICE }], "duplicate-inventory-line"],
-    ["insufficient stock", [{ inventoryId: "good", quantity: 101, expectedUnitPriceCentavos: PRICE }], "insufficient-stock"],
     ["zero quantity", [{ inventoryId: "good", quantity: 0, expectedUnitPriceCentavos: PRICE }], "invalid-quantity"],
     ["negative quantity", [{ inventoryId: "good", quantity: -5 }], "invalid-quantity"],
     ["decimal quantity", [{ inventoryId: "good", quantity: 2.5 }], "invalid-quantity"],
@@ -411,6 +533,21 @@ test("reservation: refusals leave nothing behind", async (t) => {
   });
 });
 
+test("reservation: a shortfall is BACKORDERED, never refused or oversold", async () => {
+  // Only "good" carries this product here, so the 100 on hand is all there is.
+  await seed(isolateFrom("good"));
+  const r = await create(SR, [{ inventoryId: "good", quantity: 130, expectedUnitPriceCentavos: PRICE }]);
+  const o = await order(r.orderId);
+  assert.equal(o.status, "pending_dispatch");
+  assert.equal(o.allocationState, "partially_reserved");
+  assert.equal(o.items[0].reservedQuantity, 100);
+  assert.equal(o.items[0].backorderedQuantity, 30);
+  assert.deepEqual(o.backorderedProductKeys, [VAC_VAT]);
+  assert.equal((await inv("good")).reservedQuantity, 100, "never more than on hand");
+  // The quote is still the batch's price for every requested unit.
+  assert.equal(o.subtotalCentavos, 130 * PRICE);
+});
+
 test("reservation: caller data can never override server identity", async (t) => {
   await seed();
 
@@ -419,7 +556,12 @@ test("reservation: caller data can never override server identity", async (t) =>
     const o = await order(r.orderId);
     assert.equal(o.items[0].inventoryId, "shadowed", "the DOCUMENT id wins");
     assert.notEqual(o.items[0].inventoryId, "ATTACKER_DOC_ID");
-    assert.equal((await reservation(r.orderId)).items[0].inventoryId, "shadowed");
+    // Which batch supplies the units is the allocator's (FEFO) choice, but
+    // every slice names a real DOCUMENT id — never the stored `id` field.
+    for (const slice of (await reservation(r.orderId)).items) {
+      assert.notEqual(slice.inventoryId, "ATTACKER_DOC_ID");
+      assert.ok((await db.collection("inventory").doc(slice.inventoryId).get()).exists);
+    }
   });
 
   await t.test("display fields are snapshotted from the document", async () => {
@@ -488,30 +630,36 @@ test("requested delivery date: a new order cannot be created without a valid one
   });
 });
 
-test("reservation: stock moving under an open checkout is caught", async () => {
-  await seed();
+test("reservation: stock moving under an open checkout is backordered, not oversold", async () => {
+  await seed(isolateFrom("good"));
   // Catalog said 100 available; another order takes 95 before checkout commits.
   await create(SR2, [{ inventoryId: "good", quantity: 95, expectedUnitPriceCentavos: PRICE }]);
-  assert.equal(await codeOf(create(SR, [{ inventoryId: "good", quantity: 10, expectedUnitPriceCentavos: PRICE }])), "insufficient-stock");
-  assert.equal((await inv("good")).reservedQuantity, 95, "the failed attempt reserved nothing");
+  const r = await create(SR, [{ inventoryId: "good", quantity: 10, expectedUnitPriceCentavos: PRICE }]);
+  const o = await order(r.orderId);
+  assert.equal(o.allocationState, "partially_reserved");
+  assert.equal(o.items[0].reservedQuantity, 5);
+  assert.equal(o.items[0].backorderedQuantity, 5);
+  assert.equal((await inv("good")).reservedQuantity, 100, "exactly the stock on hand, never more");
 });
 
-test("reservation RACE: two reps chasing the final unit — exactly one wins", async () => {
-  await seed();
-  const results = await Promise.allSettled([
+test("reservation RACE: two reps chasing the final unit — exactly one gets it", async () => {
+  // "lastUnit" is its own product here, so one unit is all there is.
+  await seed({ lastUnit: { quantity: 1, reservedQuantity: 0, sellingPriceCentavos: PRICE, status: "OK", expiryDate: "2027-12-31", batchId: "LAST-001", vaccineName: "Last One", vaccineId: VAC_LAST } });
+  await db.collection("vaccines").doc(VAC_LAST).set({ vaccineName: "Last One", vatClassification: "vatable" });
+  const results = await Promise.all([
     create(SR, [{ inventoryId: "lastUnit", quantity: 1 }]),
     create(SR2, [{ inventoryId: "lastUnit", quantity: 1 }]),
   ]);
-  const won = results.filter((r) => r.status === "fulfilled");
-  const lost = results.filter((r) => r.status === "rejected");
-  assert.equal(won.length, 1, "exactly one reservation succeeds");
-  assert.equal(lost.length, 1);
-  assert.equal(lost[0].reason.code, "insufficient-stock");
+  // Both orders are accepted (a future order is allowed) …
+  assert.equal(results.length, 2);
+  const states = [];
+  for (const r of results) states.push((await order(r.orderId)).allocationState);
+  // … but exactly one holds the unit; the other waits for stock.
+  assert.deepEqual(states.sort(), ["awaiting_stock", "fully_reserved"]);
 
   const b = await inv("lastUnit");
   assert.equal(b.reservedQuantity, 1, "never oversold");
   assert.equal(b.quantity, 1, "on-hand untouched");
-  assert.equal((await db.collection("inventoryReservations").get()).size, 1);
 });
 
 // ------------------------------------------------------------------- pricing
@@ -553,7 +701,7 @@ test("pricing: the order carries a server-generated snapshot", async (t) => {
     const r = await create(SR, [{ inventoryId: "good", quantity: 1, expectedUnitPriceCentavos: PRICE }]);
     const res = await reservation(r.orderId);
     for (const item of res.items) {
-      assert.deepEqual(Object.keys(item).sort(), ["batchId", "inventoryId", "quantity"]);
+      assert.deepEqual(Object.keys(item).sort(), ["batchId", "inventoryId", "lineIndex", "productKey", "quantity"]);
     }
   });
 
@@ -986,14 +1134,28 @@ test("legacy orders keep their lifecycle and move no stock", async (t) => {
   });
 });
 
+test("delivery without recorded evidence is refused and consumes nothing", async () => {
+  await seed();
+  const r = await create(SR, [{ inventoryId: "good", quantity: 3, expectedUnitPriceCentavos: PRICE }]);
+  await assign(r.orderId, RIDER);
+  const stock = await inv("good");
+  assert.equal(await codeOf(completeOnly(RIDER, r.orderId)), "proof-missing");
+  const o = await order(r.orderId);
+  assert.equal(o.status, "in_transit");
+  assert.equal((await reservation(r.orderId)).status, "reserved");
+  assert.deepEqual(await inv("good"), stock, "no stock moved");
+});
+
 test("intermediate lifecycle changes have no inventory effect", async () => {
   await seed();
   const r = await create(SR, [{ inventoryId: "good", quantity: 10, expectedUnitPriceCentavos: PRICE }]);
   const snapshot = await inv("good");
 
-  // Assignment, loading, dispatch, delay, failure and reassignment are all
-  // written by their existing paths and are not inventory events.
-  for (const status of ["assigned", "loading", "in_transit", "delayed", "in_transit", "delivery_failed", "assigned"]) {
+  // Assignment, loading, dispatch, delay and resume are written by their
+  // existing paths and are not inventory events. (A delivery FAILURE is one —
+  // it moves the reservation to return-pending; see allocation.test.js — and a
+  // failed order never returns to `assigned` directly, so neither is here.)
+  for (const status of ["assigned", "loading", "in_transit", "delayed", "in_transit"]) {
     await db.collection("orders").doc(r.orderId).update({ status });
     assert.deepEqual(await inv("good"), snapshot, `status ${status} must not move stock`);
   }

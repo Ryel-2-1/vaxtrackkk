@@ -20,25 +20,49 @@ import '../theme/app_theme.dart';
 /// [onConfirm] performs the real completion and throws on failure. This widget
 /// contains no Firebase or upload code, so it is exercised in a widget test with
 /// a plain fake callback.
+///
+/// "Submit Proof & Complete Delivery" opens it BEFORE anything is uploaded, so
+/// the previews may be the rider's local photos ([proofImage]/[invoiceImage])
+/// rather than recorded URLs, and [progress]/[progressText] narrate the upload,
+/// record and completion steps while [onConfirm] runs.
 class CompleteDeliveryConfirmSheet extends StatefulWidget {
   const CompleteDeliveryConfirmSheet({
     super.key,
     required this.orderNumber,
     required this.destinationTitle,
     this.destinationSubtitle,
-    required this.proofImageUrl,
-    required this.invoiceImageUrl,
+    this.proofImageUrl,
+    this.invoiceImageUrl,
+    this.proofImage,
+    this.invoiceImage,
     required this.onConfirm,
-  });
+    this.title = 'Complete this delivery?',
+    this.confirmLabel = 'Confirm Delivery',
+    this.progress,
+    this.progressText,
+  })  : assert(proofImageUrl != null || proofImage != null),
+        assert(invoiceImageUrl != null || invoiceImage != null);
 
   final String orderNumber;
   final String destinationTitle;
   final String? destinationSubtitle;
 
-  /// Canonical Storage download URLs already recorded on the order. Only URLs are
-  /// shown — never a local file path.
-  final String proofImageUrl;
-  final String invoiceImageUrl;
+  /// Canonical Storage download URLs already recorded on the order.
+  final String? proofImageUrl;
+  final String? invoiceImageUrl;
+
+  /// Previews supplied directly — the rider's local photos, before upload.
+  /// Take precedence over the URLs. Never shown as a path.
+  final ImageProvider? proofImage;
+  final ImageProvider? invoiceImage;
+
+  final String title;
+  final String confirmLabel;
+
+  /// Optional live progress while [onConfirm] runs (e.g. the submission
+  /// controller): the sheet rebuilds on [progress] and shows [progressText].
+  final Listenable? progress;
+  final String? Function()? progressText;
 
   /// Runs the trusted completion. Resolves on authoritative success; throws with
   /// a rider-facing message on failure.
@@ -119,9 +143,9 @@ class _CompleteDeliveryConfirmSheetState
                     ),
                   ),
                 ),
-                const Text(
-                  'Complete this delivery?',
-                  style: TextStyle(
+                Text(
+                  widget.title,
+                  style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
                     color: AppColors.textDark,
@@ -153,14 +177,16 @@ class _CompleteDeliveryConfirmSheetState
                     Expanded(
                       child: _EvidenceThumb(
                         label: 'Proof of delivery',
-                        imageUrl: widget.proofImageUrl,
+                        image: widget.proofImage ??
+                            NetworkImage(widget.proofImageUrl!),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: _EvidenceThumb(
                         label: 'Invoice',
-                        imageUrl: widget.invoiceImageUrl,
+                        image: widget.invoiceImage ??
+                            NetworkImage(widget.invoiceImageUrl!),
                       ),
                     ),
                   ],
@@ -190,6 +216,35 @@ class _CompleteDeliveryConfirmSheetState
                     ],
                   ),
                 ),
+                if (_submitting && widget.progressText != null)
+                  ListenableBuilder(
+                    listenable: widget.progress ?? const _NoChange(),
+                    builder: (context, _) {
+                      final text = widget.progressText!();
+                      if (text == null) return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Row(
+                          children: [
+                            const SizedBox(
+                              height: 16,
+                              width: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                text,
+                                key: const ValueKey('confirm-sheet-progress'),
+                                style: const TextStyle(
+                                    fontSize: 13, color: AppColors.textMedium),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
                   Container(
@@ -242,7 +297,7 @@ class _CompleteDeliveryConfirmSheetState
                                 child: CircularProgressIndicator(
                                     color: Colors.white, strokeWidth: 2),
                               )
-                            : const Text('Confirm Delivery'),
+                            : Text(widget.confirmLabel),
                       ),
                     ),
                   ],
@@ -256,11 +311,20 @@ class _CompleteDeliveryConfirmSheetState
   }
 }
 
+/// A Listenable that never fires, for when no progress source is given.
+class _NoChange implements Listenable {
+  const _NoChange();
+  @override
+  void addListener(VoidCallback listener) {}
+  @override
+  void removeListener(VoidCallback listener) {}
+}
+
 class _EvidenceThumb extends StatelessWidget {
-  const _EvidenceThumb({required this.label, required this.imageUrl});
+  const _EvidenceThumb({required this.label, required this.image});
 
   final String label;
-  final String imageUrl;
+  final ImageProvider image;
 
   @override
   Widget build(BuildContext context) {
@@ -275,8 +339,8 @@ class _EvidenceThumb extends StatelessWidget {
         const SizedBox(height: 6),
         ClipRRect(
           borderRadius: BorderRadius.circular(10),
-          child: Image.network(
-            imageUrl,
+          child: Image(
+            image: image,
             height: 110,
             width: double.infinity,
             fit: BoxFit.cover,

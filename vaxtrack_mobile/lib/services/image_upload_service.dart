@@ -30,6 +30,9 @@ abstract class ProofUploader {
   /// The download URL of an order's canonical proof object, or null when no
   /// such object exists.
   Future<String?> existingProofUrl(String orderId);
+
+  /// The same, for the order's canonical invoice object.
+  Future<String?> existingInvoiceUrl(String orderId);
 }
 
 class ImageUploadService implements ProofUploader {
@@ -94,9 +97,16 @@ class ImageUploadService implements ProofUploader {
   /// quota — is rethrown, because silently treating those as "no object" would
   /// hide a real fault and create the duplicate this method exists to avoid.
   @override
-  Future<String?> existingProofUrl(String orderId) async {
+  Future<String?> existingProofUrl(String orderId) =>
+      _existingUrl(proofObjectPath(orderId));
+
+  @override
+  Future<String?> existingInvoiceUrl(String orderId) =>
+      _existingUrl(invoiceObjectPath(orderId));
+
+  Future<String?> _existingUrl(String path) async {
     try {
-      return await _storage.ref(proofObjectPath(orderId)).getDownloadURL();
+      return await _storage.ref(path).getDownloadURL();
     } on FirebaseException catch (e) {
       if (e.code == 'object-not-found') return null;
       rethrow;

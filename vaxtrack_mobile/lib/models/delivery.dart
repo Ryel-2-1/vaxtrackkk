@@ -8,6 +8,12 @@ class Delivery {
   final String orderNumber;
   final String clinicName;
   final String clinicAddress;
+
+  /// The doctor and the destination the order was placed for (doctor-first
+  /// orders). [clinicName] is the combined "Doctor — Destination" alias; these
+  /// are the separate parts, null on older orders that never had them.
+  final String? doctorName;
+  final String? destinationName;
   final String vaccineName;
   final String? vaccineType;
   final int quantity;
@@ -38,6 +44,12 @@ class Delivery {
   /// order look fresh.
   final String? deliveryFailureReason;
   final String? invoiceUrl;
+
+  /// Canonical Storage object behind [invoiceUrl], and when the invoice was
+  /// recorded (server-stamped, one-shot) — the invoice's half of the evidence
+  /// the server requires before it will complete the delivery.
+  final String? invoicePath;
+  final DateTime? invoiceSubmittedAt;
   final List<String> itemSummaries;
   final DateTime? createdAt;
   final DateTime? assignedAt;
@@ -74,6 +86,8 @@ class Delivery {
     required this.orderNumber,
     required this.clinicName,
     required this.clinicAddress,
+    this.doctorName,
+    this.destinationName,
     required this.vaccineName,
     this.vaccineType,
     required this.quantity,
@@ -91,6 +105,8 @@ class Delivery {
     this.proofSubmittedAt,
     this.deliveryFailureReason,
     this.invoiceUrl,
+    this.invoicePath,
+    this.invoiceSubmittedAt,
     this.itemSummaries = const [],
     this.createdAt,
     this.assignedAt,
@@ -114,6 +130,9 @@ class Delivery {
     this.tripDurationSeconds,
   });
 
+  static String? _nonBlank(Object? value) =>
+      value is String && value.trim().isNotEmpty ? value.trim() : null;
+
   factory Delivery.fromFirestore(String docId, Map<String, dynamic> data) {
     final rawStatus = _getStatus(data);
     final normalizedStatus = _normalizeStatus(rawStatus);
@@ -123,6 +142,8 @@ class Delivery {
       orderNumber: data['orderNumber'] ?? docId,
       clinicName: data['clinicName'] ?? 'Unknown Clinic',
       clinicAddress: data['clinicAddress'] ?? '',
+      doctorName: _nonBlank(data['doctorName']),
+      destinationName: _nonBlank(data['destinationName']),
       vaccineName: data['vaccineName'] ?? '',
       vaccineType: data['vaccineType'],
       quantity: _toQuantity(data['quantity']) ?? 0,
@@ -140,6 +161,8 @@ class Delivery {
       proofSubmittedAt: _toDateTime(data['proofSubmittedAt']),
       deliveryFailureReason: data['deliveryFailureReason'],
       invoiceUrl: data['invoiceUrl'],
+      invoicePath: data['invoicePath'],
+      invoiceSubmittedAt: _toDateTime(data['invoiceSubmittedAt']),
       itemSummaries: _itemSummaries(data['items']),
       createdAt: _toDateTime(data['createdAt']),
       assignedAt: _toDateTime(data['assignedAt']),
@@ -293,6 +316,27 @@ class Delivery {
   /// The proof has been recorded through the canonical path and is final. The
   /// rider may no longer replace it; changing it is an admin repair.
   bool get isProofFinalized => proofSubmittedAt != null;
+
+  /// The invoice has been recorded and is final (one-shot, like the proof).
+  bool get isInvoiceFinalized => invoiceSubmittedAt != null;
+
+  /// Proof is RECORDED the way the server's completion check requires: the
+  /// one-shot submission landed, for this order's canonical object, with a URL
+  /// and a recipient. A bare URL (the removed manual-link fallback) or a file
+  /// in Storage with no metadata does not count. Mirrors
+  /// functions/src/deliveryEvidence.js; the server stays the authority.
+  bool get hasRecordedProof =>
+      isProofFinalized &&
+      hasProof &&
+      (proofRecipientName ?? '').trim().isNotEmpty &&
+      proofOfDeliveryPath == proofObjectPath(id);
+
+  /// The invoice's half of the same check.
+  bool get hasRecordedInvoice =>
+      isInvoiceFinalized && hasInvoice && invoicePath == invoiceObjectPath(id);
+
+  /// Both photos are recorded: only the completion itself is left.
+  bool get hasRecordedEvidence => hasRecordedProof && hasRecordedInvoice;
 
   /// The rider may attach proof right now.
   ///

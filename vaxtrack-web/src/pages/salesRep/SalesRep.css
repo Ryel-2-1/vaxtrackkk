@@ -3838,6 +3838,78 @@
   margin: 4px 0 8px !important;
 }
 
+/* Future (backorder) orders: amber = waiting, explained in words. The figures
+   in the cart are an estimate; the server reports the real split. */
+.request-v2-cart-item .request-v2-cart-backorder {
+  display: flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  margin-top: 4px !important;
+  color: #b45309 !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+}
+
+.request-v2-cart-backorder-note {
+  color: #92400e !important;
+  background: #fffbeb !important;
+  border: 1px solid #fde68a !important;
+  border-radius: 8px !important;
+  padding: 8px 10px !important;
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+  margin: 4px 0 8px !important;
+}
+
+.request-v2-product-card .stock.future {
+  background: #fffbeb !important;
+  color: #b45309 !important;
+  border: 1px solid #fde68a !important;
+}
+
+/* Requested / reserved / backordered — shared by Place Order, Confirmation and
+   Order Tracking. */
+.salesrep-page .alloc-summary {
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  color: #78350f;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.salesrep-page .alloc-summary.full {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #14532d;
+}
+
+.salesrep-page .alloc-summary strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.salesrep-page .alloc-lines {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.salesrep-page .alloc-lines th,
+.salesrep-page .alloc-lines td {
+  text-align: left;
+  padding: 3px 6px 3px 0;
+  font-size: 12px;
+}
+
+.salesrep-page .alloc-lines th {
+  font-weight: 600;
+  color: inherit;
+  opacity: 0.8;
+}
+
 .request-v2-cart .cart-footer {
   padding: 18px 22px !important;
 }
@@ -7371,4 +7443,16 @@
     padding-left: 0;
     padding-top: 16px;
   }
+}
+
+/* Place Order: future-order explanation inside the dark Order Summary card. */
+.place-v2-pricing-card .place-v2-backorder-note {
+  display: block !important;
+  background: #fffbeb !important;
+  color: #78350f !important;
+  border-radius: 8px !important;
+  padding: 8px 10px !important;
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+  margin: 8px 0 !important;
 }

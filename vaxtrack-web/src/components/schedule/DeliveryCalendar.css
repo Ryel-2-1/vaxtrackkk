@@ -1,0 +1,525 @@
+/* Delivery Calendar — shared by the Admin and Dispatcher shells. Meridian tokens
+   only, every selector under .dcal (or the dialog overlay it renders), so it
+   stays neutral inside either role and reaches nothing else. */
+
+.dcal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.dcal-head p {
+  margin: 0;
+  max-width: 680px;
+  font-size: 13px;
+  color: var(--gray-500);
+}
+
+.dcal-muted {
+  color: var(--gray-500);
+  font-weight: 400;
+}
+
+/* ---------------------------------------------------------------- filters */
+
+.dcal-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.dcal-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gray-600);
+}
+
+.dcal-filter select {
+  min-width: 170px;
+  padding: 0 12px;
+  border: 1px solid var(--gray-200);
+  background: #fff;
+  color: var(--gray-900);
+}
+
+.dcal-filter select:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 1px;
+}
+
+.dcal-filter-summary {
+  margin: 0 0 0 auto;
+  align-self: center;
+  font-size: 12px;
+  color: var(--gray-500);
+}
+
+.dcal-notice {
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--green-100);
+  border-radius: var(--radius-control, 8px);
+  background: var(--green-50);
+  color: var(--green-800);
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- states */
+
+.dcal-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 48px 16px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card, 12px);
+  background: #fff;
+  color: var(--gray-500);
+  text-align: center;
+}
+
+.dcal-state strong {
+  font-size: 15px;
+  color: var(--gray-900);
+}
+
+.dcal-state p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.dcal .spin {
+  animation: dcal-spin 0.9s linear infinite;
+}
+
+@keyframes dcal-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------------------------------------------------------------- layout */
+
+.dcal-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.dcal-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card, 12px);
+  background: #fff;
+  box-shadow: var(--shadow-card);
+}
+
+.dcal-calendar-card {
+  position: sticky;
+  top: 16px;
+}
+
+.dcal-side {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.dcal-card-head {
+  margin-bottom: 12px;
+}
+
+.dcal-card-head h2 {
+  margin: 0 0 2px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.dcal-card-head p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--gray-500);
+}
+
+.dcal-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 24px 12px;
+  color: var(--gray-500);
+  text-align: center;
+}
+
+.dcal-empty strong {
+  font-size: 14px;
+  color: var(--gray-900);
+}
+
+.dcal-empty p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.dcal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dcal-list-scroll {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+/* ---------------------------------------------------------------- events */
+
+.dcal-event {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--gray-200);
+  border-left: 3px solid var(--gray-300);
+  border-radius: var(--radius-control, 8px);
+  background: var(--gray-50);
+}
+
+/* Urgent: red rule + tinted card. The "Urgent" chip carries the meaning in
+   text, so colour is never the only signal. */
+.dcal-event-urgent {
+  border-color: var(--danger-border);
+  border-left-color: var(--danger-text);
+  background: var(--danger-bg);
+}
+
+.dcal-event-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.dcal-event-id {
+  margin-right: auto;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-900);
+  font-variant-numeric: tabular-nums;
+}
+
+.dcal-priority {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-pill, 999px);
+  background: #fff;
+  color: var(--gray-600);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dcal-priority-urgent {
+  border-color: var(--danger-text);
+  background: var(--danger-text);
+  color: #fff;
+}
+
+.dcal-event-when {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-800, var(--gray-900));
+}
+
+.dcal-event-original {
+  margin: 0;
+  font-size: 12px;
+  color: var(--warning-text);
+}
+
+.dcal-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 14px;
+  margin: 0;
+}
+
+.dcal-field {
+  min-width: 0;
+}
+
+.dcal-field dt {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gray-500);
+}
+
+.dcal-field dd {
+  margin: 0;
+  font-size: 13px;
+  color: var(--gray-900);
+  overflow-wrap: anywhere;
+}
+
+.dcal-field-missing {
+  color: var(--gray-400, var(--gray-500)) !important;
+  font-style: italic;
+}
+
+.dcal-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--warning-text);
+}
+
+.dcal-note-anomaly {
+  color: var(--danger-text);
+}
+
+.dcal-closed-note {
+  margin: 0;
+  font-size: 12px;
+}
+
+/* ---------------------------------------------------------------- buttons */
+
+.dcal-action,
+.dcal-primary,
+.dcal-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: var(--radius-control, 8px);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dcal-action {
+  align-self: flex-start;
+  border: 1px solid var(--green-700);
+  background: #fff;
+  color: var(--green-800);
+}
+
+.dcal-action:hover {
+  background: var(--green-50);
+}
+
+.dcal-primary {
+  border: 1px solid var(--green-700);
+  background: var(--green-700);
+  color: #fff;
+}
+
+.dcal-primary:hover:not(:disabled) {
+  background: var(--green-800);
+}
+
+.dcal-secondary {
+  border: 1px solid var(--gray-200);
+  background: #fff;
+  color: var(--gray-700);
+}
+
+.dcal-secondary:hover:not(:disabled) {
+  background: var(--gray-50);
+}
+
+.dcal-action:focus-visible,
+.dcal-primary:focus-visible,
+.dcal-secondary:focus-visible,
+.dcal-icon-btn:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+}
+
+.dcal-primary:disabled,
+.dcal-secondary:disabled,
+.dcal-icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.dcal-clear {
+  align-self: flex-end;
+}
+
+/* ---------------------------------------------------------------- dialog */
+
+.dcal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.45); /* same scrim as the admin nav backdrop */
+}
+
+.dcal-dialog {
+  width: min(460px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 20px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card, 12px);
+  background: #fff;
+  box-shadow: var(--shadow-float);
+}
+
+.dcal-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.dcal-dialog-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.dcal-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-control, 8px);
+  background: #fff;
+  color: var(--gray-600);
+  cursor: pointer;
+}
+
+.dcal-dialog-desc {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: var(--gray-700);
+}
+
+.dcal-dialog-desc p {
+  margin: 0;
+}
+
+.dcal-dialog-warn {
+  padding: 8px 10px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-control, 8px);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.dcal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dcal-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-700);
+}
+
+.dcal-label input,
+.dcal-label textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--gray-200);
+  background: #fff;
+  color: var(--gray-900);
+  font-family: inherit;
+}
+
+.dcal-label input:focus-visible,
+.dcal-label textarea:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 1px;
+}
+
+.dcal-form-error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--danger-text);
+}
+
+.dcal-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ---------------------------------------------------------------- responsive */
+
+@media (max-width: 1024px) {
+  .dcal-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dcal-calendar-card {
+    position: static;
+  }
+}
+
+@media (max-width: 640px) {
+  .dcal-card {
+    padding: 14px;
+  }
+  .dcal-filter,
+  .dcal-filter select {
+    width: 100%;
+    min-width: 0;
+  }
+  .dcal-filter-summary {
+    margin-left: 0;
+  }
+  .dcal-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dcal-dialog-actions {
+    flex-direction: column-reverse;
+  }
+  .dcal-dialog-actions button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dcal .spin {
+    animation: none;
+  }
+}

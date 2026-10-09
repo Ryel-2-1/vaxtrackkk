@@ -35,6 +35,7 @@ export function createStore(seed = {}) {
 }
 
 export const SERVER_TIMESTAMP = "__SERVER_TIMESTAMP__";
+export const DELETE_FIELD = "__DELETE_FIELD__";
 
 function buildFirestoreStandIn() {
   return `
@@ -58,6 +59,7 @@ export const query = (ref, ...clauses) => ({ ...ref, __isQuery: true, __clauses:
 export const where = (field, op, value) => ({ __t: 'where', field, op, value });
 export const orderBy = (...a) => ({ __t: 'orderBy', a });
 export const serverTimestamp = () => "${SERVER_TIMESTAMP}";
+export const deleteField = () => "${DELETE_FIELD}";
 export const GeoPoint = class { constructor(lat, lng) { this.latitude = lat; this.longitude = lng; } };
 
 const matches = (data, clauses = []) => clauses
@@ -81,7 +83,10 @@ export const onSnapshot = (ref, next, _err) => {
 export const updateDoc = async (ref, data) => {
   const c = col(ref.__col); const rec = c[ref.__id];
   if (!rec) throw new Error('No document to update: ' + ref.__col + '/' + ref.__id);
-  rec.data = { ...rec.data, ...data }; rec.version += 1;
+  rec.data = { ...rec.data, ...data };
+  // deleteField() removes the key, as Firestore does.
+  for (const [k, v] of Object.entries(data)) if (v === "${DELETE_FIELD}") delete rec.data[k];
+  rec.version += 1;
   S().writes.push({ op: 'update', col: ref.__col, id: ref.__id, data });
 };
 

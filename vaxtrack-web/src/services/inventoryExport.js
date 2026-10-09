@@ -49,6 +49,8 @@
 export const INVENTORY_EXPORT_COLUMN_DEFS = [
   { key: "name", header: "Vaccine name", kind: "text", width: 28 },
   { key: "type", header: "Vaccine type", kind: "text", width: 18 },
+  // The vaccine product's VAT classification; legacy products: "Not classified".
+  { key: "vat", header: "VAT Classification", kind: "text", width: 18 },
   { key: "batch", header: "Batch ID", kind: "text", width: 18 },
   {
     // Before Expiry — the batch's dates read in lifecycle order. Legacy
@@ -176,6 +178,7 @@ export function toInventoryExportRow(item) {
   return {
     name: cleanText(item?.name),
     type: cleanText(item?.type),
+    vat: cleanText(item?.vatLabel) || "Not classified",
     batch: cleanText(item?.batch),
     manufactured: coerceExportDate(item?.manufacturingRaw),
     expiry: coerceExportDate(item?.expiryRaw),

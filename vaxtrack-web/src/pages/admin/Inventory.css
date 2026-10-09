@@ -1190,3 +1190,50 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* Batch drawer — VAT classification (set on the vaccine product). */
+.inv-vat-field small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--gray-600);
+}
+
+.inv-vat-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.inventory-page .inv-vat-edit select,
+.inventory-page .inv-vat-edit button {
+  min-height: 34px !important;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control);
+  background: #ffffff !important;
+  color: var(--gray-900);
+  font-size: 13px;
+}
+
+.inventory-page .inv-vat-edit button:not(:disabled) {
+  border-color: var(--green-700);
+  background: var(--green-700) !important;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.inv-vat-edit small {
+  flex-basis: 100%;
+}
+
+/* What "On hand" means, stated once above the stock table. */
+.inventory-page .inv-onhand-note {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--gray-600);
+}

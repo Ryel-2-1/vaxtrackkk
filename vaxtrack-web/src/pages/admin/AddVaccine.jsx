@@ -14,6 +14,7 @@ import {
   skuExists,
   addVaccine,
 } from "../../services/vaccineService";
+import { PRODUCT_VAT_CLASSIFICATIONS, PRODUCT_VAT_LABELS } from "../../services/vatClassification";
 import "./AdminForms.css";
 
 function AddVaccine() {
@@ -23,6 +24,8 @@ function AddVaccine() {
   const [manufacturer, setManufacturer] = useState("");
   const [vaccineType, setVaccineType] = useState("");
   const [internalSku, setInternalSku] = useState("");
+  // No default: the Admin must choose. "" means not yet chosen.
+  const [vatClassification, setVatClassification] = useState("");
 
   const [vaccineTypes, setVaccineTypes] = useState([]);
   const [newTypeName, setNewTypeName] = useState("");
@@ -114,6 +117,11 @@ function AddVaccine() {
       return false;
     }
 
+    if (!PRODUCT_VAT_CLASSIFICATIONS.includes(vatClassification)) {
+      showMessage("Select VAT or VAT Exempt for this vaccine.");
+      return false;
+    }
+
     if (await skuExists(internalSku.trim().toUpperCase())) {
       showMessage("This internal inventory SKU already exists.");
       return false;
@@ -179,6 +187,7 @@ function AddVaccine() {
         manufacturer: manufacturer.trim(),
         vaccineType,
         internalSku: internalSku.trim().toUpperCase(),
+        vatClassification,
       });
 
       showMessage("Vaccine registered successfully.", "success");
@@ -351,6 +360,29 @@ function AddVaccine() {
             Format: VXT-123-ABCDE. This is used as the internal inventory
             identifier.
           </small>
+
+          <fieldset className="vat-choice">
+            <legend>VAT Classification</legend>
+            <div className="vat-choice-options">
+              {PRODUCT_VAT_CLASSIFICATIONS.map((value) => (
+                <label key={value} className={vatClassification === value ? "selected" : ""}>
+                  <input
+                    type="radio"
+                    name="vat-classification"
+                    value={value}
+                    checked={vatClassification === value}
+                    onChange={() => setVatClassification(value)}
+                    required
+                  />
+                  {PRODUCT_VAT_LABELS[value]}
+                </label>
+              ))}
+            </div>
+            <small className="input-helper">
+              Becomes the VAT status of every future order item for this
+              vaccine. Existing orders and issued invoices are not changed.
+            </small>
+          </fieldset>
 
           {message && (
             <p className={`form-response ${messageType}`}>{message}</p>

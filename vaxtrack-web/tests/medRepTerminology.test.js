@@ -97,7 +97,7 @@ test("order, tracking and invoice surfaces use Med Rep wording", () => {
   assert.match(code("src/pages/admin/Deliveries.jsx"), /Orders are created by Med Reps and dispatched by a Dispatcher\./);
   assert.match(code("src/pages/admin/Deliveries.jsx"), /created by Medical Representatives\./);
   assert.equal(code("src/pages/admin/AdminDashboard.jsx").split("Orders appear here as Med Reps place them.").length - 1, 2);
-  assert.match(code("src/pages/dispatcher/DispatcherSchedule.jsx"), /the date the Med Rep requested/);
+  assert.match(code("src/components/schedule/DeliveryCalendar.jsx"), /the date the Med Rep requested/);
 });
 
 test("no visible Sales Rep wording remains anywhere in the web source", () => {

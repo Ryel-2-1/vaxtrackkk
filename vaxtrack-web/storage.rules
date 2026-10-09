@@ -17,6 +17,19 @@ rules_version = '2';
 // is a server-side guarantee rather than a convention a modified client could
 // ignore.
 //
+// DEPLOY PREREQUISITE — cross-service IAM. Every identity test below is a
+// firestore.get() into the users/orders documents. Live (not in the emulator),
+// that read only works if the project's Storage service agent
+//   service-<PROJECT_NUMBER>@gcp-sa-firebasestorage.iam.gserviceaccount.com
+// holds roles/firebaserules.firestoreServiceAgent. Without it every get()
+// errors, the rule denies, and EVERY proof/invoice request — admin, assigned
+// rider, recovery check — returns 403 storage/unauthorized. `firebase deploy`
+// grants the role only after an interactive "Grant the new role?" prompt; run
+// non-interactively (CI, an agent shell) it skips the check silently and still
+// exits 0. Deploy these rules from an interactive terminal, or confirm the role
+// in Google Cloud Console > IAM (include Google-provided role grants).
+// tests/storage.rules.test.js NS37 pins the resulting 403.
+//
 // LIMITATION: Storage rules cannot inspect image pixels/EXIF — they can only
 // gate on size + contentType and cross-check the order doc in Firestore. Deeper
 // validation (e.g. that the photo is genuinely a delivery) is out of scope.

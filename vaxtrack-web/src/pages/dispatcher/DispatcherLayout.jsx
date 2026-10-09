@@ -52,7 +52,7 @@ function alertToneClass(severity) {
 // shell's <Outlet/>, so the sidebar never unmounts on navigation.
 const ROUTE_META = {
   "/dispatcher": { key: "dashboard", title: "Dashboard" },
-  "/dispatcher/schedule": { key: "schedule", title: "Delivery Schedule" },
+  "/dispatcher/schedule": { key: "schedule", title: "Delivery Calendar" },
   "/dispatcher/assign-rider": { key: "assign-rider", title: "Assign Rider" },
   "/dispatcher/shipments": { key: "shipments", title: "Shipments" },
   "/dispatcher/cargo-loading": { key: "cargo-loading", title: "Cargo Loading" },
@@ -359,7 +359,7 @@ function DispatcherLayout() {
             onClick={selectDestination}
           >
             <CalendarClock size={16} />
-            <span>Schedule</span>
+            <span>Calendar</span>
           </NavLink>
 
           <NavLink

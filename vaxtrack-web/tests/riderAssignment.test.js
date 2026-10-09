@@ -121,6 +121,24 @@ test("assignment timestamps and audit identity are server-stamped and authentic"
   // The dispatcher identity comes from the session, not from a caller argument.
   assert.equal(order.assignedByUid, DISPATCHER.uid);
   assert.equal(order.assignedByEmail, DISPATCHER.email);
+  // ...and so is the status attribution, which assignment used to omit.
+  assert.equal(order.statusUpdatedAt, SERVER_TIMESTAMP);
+  assert.equal(order.statusUpdatedByUid, DISPATCHER.uid);
+  assert.equal(order.statusUpdatedByEmail, DISPATCHER.email);
+});
+
+test("assignment replaces a previous writer's attribution instead of keeping it", async () => {
+  const stale = { statusUpdatedByUid: "someoneElse", statusUpdatedByEmail: "someone@else.com" };
+  // With an email on the session it is replaced...
+  let store = installStore(seed({ order: pendingOrder(stale) }), DISPATCHER);
+  await assignRiderToOrder(ORDER_ID, RIDER_UID);
+  assert.equal(orderIn(store).statusUpdatedByUid, DISPATCHER.uid);
+  assert.equal(orderIn(store).statusUpdatedByEmail, DISPATCHER.email);
+  // ...and without one it is removed, never left naming the wrong person.
+  store = installStore(seed({ order: pendingOrder(stale) }), { uid: DISPATCHER.uid });
+  await assignRiderToOrder(ORDER_ID, RIDER_UID);
+  assert.equal(orderIn(store).statusUpdatedByUid, DISPATCHER.uid);
+  assert.equal("statusUpdatedByEmail" in orderIn(store), false);
 });
 
 test("display fields are copied from the rider document", async () => {
@@ -370,6 +388,8 @@ test("assignment touches only assignment fields", async () => {
   const allowed = [
     "status", "assignedRiderId", "assignedRiderName", "assignedRiderPhone",
     "assignedAt", "assignedByUid", "assignedByEmail", "updatedAt",
+    // Who changed the status (Assigned history actor, Activity "Updated by").
+    "statusUpdatedAt", "statusUpdatedByUid", "statusUpdatedByEmail",
   ];
   for (const key of Object.keys(written)) {
     assert.ok(allowed.includes(key), `unexpected field written: ${key}`);

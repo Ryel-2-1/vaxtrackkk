@@ -598,3 +598,44 @@ test("invoice: an issued invoice does not follow a later re-price", async () => 
   assert.equal(after.grandTotalCentavos, issued.grandTotalCentavos);
   assert.equal(after.invoiceStatus, "issued");
 });
+
+// ------------------------------------------------------------ per-item VAT
+
+test("invoice: a mixed per-item order is itemized — VAT on VAT lines only, discount split pro-rata", async (t) => {
+  const snapshotItems = pricedOrderDoc().items.map((it, i) => ({
+    ...it,
+    vatClassification: i === 0 ? "vatable" : "vat_exempt",
+  }));
+  await seed({ items: snapshotItems });
+
+  await t.test("the Admin's invoice-level choice is ignored; totals come from the lines", async () => {
+    await save(ADMIN, {
+      orderId: ORDER,
+      presentation: PRESENTATION,
+      adjustments: { discountCentavos: 35000, vatClassification: "zero_rated" },
+    });
+    const inv = await invoice(ORDER);
+    assert.equal(inv.vatClassification, "per_item");
+    assert.deepEqual(inv.items.map((i) => i.vatClassification), ["vatable", "vat_exempt"]);
+    // 500,000 VATable / 135,000 exempt; ₱350.00 discount → 27,560 / 7,440.
+    assert.equal(inv.vatableSalesCentavos, 500000 - 27560);
+    assert.equal(inv.vatExemptSalesCentavos, 135000 - 7440);
+    assert.equal(inv.zeroRatedSalesCentavos, 0);
+    assert.equal(inv.netCentavos, SUBTOTAL - 35000);
+    assert.equal(inv.vatAmountCentavos, 56693); // 12% of 472,440, rounded once
+    assert.equal(inv.grandTotalCentavos, SUBTOTAL - 35000 + 56693);
+    // Unit prices are untouched.
+    assert.equal(inv.items[0].unitPriceCentavos, PRICE);
+  });
+
+  await t.test("it issues, and an altered line snapshot can no longer be issued", async () => {
+    await db.collection("orders").doc(ORDER).update({
+      items: snapshotItems.map((it) => ({ ...it, vatClassification: "vatable" })),
+    });
+    assert.equal(await codeOf(issue(ADMIN, { orderId: ORDER })), "invoice-base-mismatch");
+    await db.collection("orders").doc(ORDER).update({ items: snapshotItems });
+    const r = await issue(ADMIN, { orderId: ORDER });
+    assert.equal(r.invoiceId, ORDER);
+    assert.equal((await invoice(ORDER)).invoiceStatus, "issued");
+  });
+});

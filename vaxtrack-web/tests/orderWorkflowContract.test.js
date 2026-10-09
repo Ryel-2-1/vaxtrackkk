@@ -127,10 +127,12 @@ test("the Flutter service exposes no loading, dispatch or arbitrary status write
   const calls = service.match(/assertTransition\(kActorRider,/g) ?? [];
   assert.equal(calls.length, 4, "every rider write validates its transition");
 
-  // The failure report stamps its own fields server-side and takes the reporter
-  // from the session, never from an argument.
-  assert.match(service, /'deliveryFailedAt': FieldValue\.serverTimestamp\(\)/);
-  assert.match(service, /'deliveryFailedByUid': uid/);
+  // The failure report runs on the SERVER (it moves reserved stock to
+  // return-pending), which stamps its fields and takes the reporter from the
+  // authenticated call — the client sends only the order id and the reason.
+  assert.match(service, /httpsCallable\('reportDeliveryFailure'\)/);
+  assert.match(service, /\{'orderId': orderId, 'reason': checked\.value\}/);
+  assert.doesNotMatch(service, /'deliveryFailedByUid'/);
   assert.match(service, /FirebaseAuth\.instance\.currentUser\?\.uid/);
 
   // Server timestamps and audit identity are unchanged for the writes that
@@ -160,7 +162,9 @@ test("the Flutter detail screen offers no loading or transit control", () => {
 
   // The approved rider actions, and the waiting states.
   assert.match(screen, /'Resume Transit'/);
-  assert.match(screen, /'Complete Delivery'/);
+  // Proof and completion are ONE action now; the separate button is gone.
+  assert.match(screen, /'Submit Proof & Complete Delivery'/);
+  assert.ok(!screen.includes("'Complete Delivery'"), "no separate Complete Delivery button");
   assert.match(screen, /'Report Delay'/);
   assert.match(screen, /'Report Delivery Failure'/);
   assert.match(screen, /isAwaitingLoading/);

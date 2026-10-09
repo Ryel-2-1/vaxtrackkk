@@ -15,7 +15,7 @@ const expectedDispatcher = <String, List<String>>{
   'loading': ['in_transit', 'cancelled'],
   'in_transit': ['cancelled'],
   'delayed': ['cancelled'],
-  'delivery_failed': ['assigned', 'cancelled'],
+  'delivery_failed': ['pending_dispatch', 'cancelled'],
   'delivered': <String>[],
   'cancelled': <String>[],
 };
@@ -225,6 +225,12 @@ void main() {
         expect(canTransition(kActorRider, 'delivery_failed', to).allowed, isFalse,
             reason: 'rider must not move delivery_failed to $to');
       }
+    });
+
+    test('a failed delivery never goes straight back to a rider', () {
+      expect(canTransition(kActorDispatcher, 'delivery_failed', 'assigned').allowed, isFalse);
+      expect(canTransition(kActorDispatcher, 'delivery_failed', 'pending_dispatch').allowed, isTrue);
+      expect(canTransition(kActorDispatcher, 'delivery_failed', 'cancelled').allowed, isTrue);
     });
 
     test('a failed delivery is parked, not finished', () {

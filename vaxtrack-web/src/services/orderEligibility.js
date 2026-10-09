@@ -36,10 +36,16 @@ export const ORDERABLE_STATUSES = Object.freeze([
   "available",
 ]);
 
+/** The Add Stock ceiling — MAX_STOCK_QUANTITY in functions/src/policy.js. */
+export const MAX_STOCK_QUANTITY = 100000000;
+
 /** Stable reason codes the UI branches on — never parsed from prose. */
 export const ELIGIBILITY_REASONS = Object.freeze({
   MISSING_INVENTORY_ID: "missing-inventory-id",
   INVALID_QUANTITY: "invalid-quantity",
+  // On hand above the Add Stock ceiling: unconfirmed, never quoted or allocated.
+  // Mirrors the server's inventory-quantity-unconfirmed.
+  UNCONFIRMED_QUANTITY: "unconfirmed-quantity",
   CRITICAL: "critical",
   UNAVAILABLE: "unavailable",
   EXPIRED: "expired",
@@ -55,6 +61,7 @@ export const ELIGIBILITY_REASONS = Object.freeze({
 const REASON_MESSAGES = Object.freeze({
   "missing-inventory-id": "Batch record is missing an ID",
   "invalid-quantity": "Stock figure needs admin review",
+  "unconfirmed-quantity": "Stock figure awaiting Admin confirmation",
   critical: "Critical batch is not orderable",
   unavailable: "Batch is not available to order",
   expired: "Expired batch",
@@ -89,14 +96,17 @@ export function computeAvailableQuantity(batch) {
   if (typeof onHand !== "number" || !Number.isInteger(onHand) || onHand < 0) {
     return null;
   }
-  const reserved = batch?.reservedQuantity;
-  if (reserved === undefined || reserved === null) return onHand;
-  if (typeof reserved !== "number" || !Number.isInteger(reserved) || reserved < 0) {
-    return null;
+  // Reserved, back-from-a-failed-delivery and quarantined units are all on
+  // hand but none is available. Absent means zero; anything else is corrupt.
+  let held = 0;
+  for (const raw of [batch?.reservedQuantity, batch?.returnPendingQuantity, batch?.quarantinedQuantity]) {
+    if (raw === undefined || raw === null) continue;
+    if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0) return null;
+    held += raw;
   }
-  // reserved > onHand is a broken invariant on the server, not "some stock".
-  if (reserved > onHand) return null;
-  return onHand - reserved;
+  // More held than on hand is a broken invariant on the server, not "some stock".
+  if (held > onHand) return null;
+  return onHand - held;
 }
 
 function reasonText(reasonCode, override) {
@@ -147,6 +157,13 @@ export function evaluateBatchEligibility(batch, todayIso) {
     );
   }
 
+  // 2b. An on-hand figure above the Add Stock ceiling (MAX_STOCK_QUANTITY in
+  //     functions/src/policy.js) is unconfirmed — the server refuses to quote
+  //     or allocate it until an Admin corrects it.
+  if (Number.isInteger(batch?.quantity) && batch.quantity > MAX_STOCK_QUANTITY) {
+    return ineligible(ELIGIBILITY_REASONS.UNCONFIRMED_QUANTITY, null, normalizedStatus);
+  }
+
   // 3. Stored status must be one the server treats as orderable. This is the
   //    check the catalog was missing — a "Critical" (or otherwise non-usable)
   //    status passed every other gate and then failed the callable.
@@ -172,21 +189,16 @@ export function evaluateBatchEligibility(batch, todayIso) {
     return ineligible(ELIGIBILITY_REASONS.MISSING_PRICE, availableQuantity, normalizedStatus);
   }
 
-  // 6. There must be stock left to allocate.
-  if (availableQuantity <= 0) {
-    return ineligible(
-      ELIGIBILITY_REASONS.NO_AVAILABLE_STOCK,
-      availableQuantity,
-      normalizedStatus
-    );
-  }
-
+  // 6. No available stock is NOT a refusal any more: the batch is a valid
+  //    QUOTE (price + VAT), and the server backorders what it cannot reserve.
+  //    Dispatch waits until every line is fully reserved.
   return {
     eligible: true,
     availableQuantity,
     normalizedStatus,
     reasonCode: null,
     reason: "",
+    backorderOnly: availableQuantity <= 0,
   };
 }
 
@@ -232,19 +244,14 @@ export function reconcileCartLine(cartLine, batch, todayIso) {
     };
   }
 
-  if (quantity > eligibility.availableQuantity) {
-    return {
-      ok: false,
-      reasonCode: ELIGIBILITY_REASONS.INSUFFICIENT_STOCK,
-      reason: `Only ${eligibility.availableQuantity} available`,
-      availableQuantity: eligibility.availableQuantity,
-    };
-  }
-
+  // More than is available is allowed: the rest is BACKORDERED. Reported so
+  // the cart can say so, never silently.
+  const backorderedQuantity = Math.max(0, quantity - eligibility.availableQuantity);
   return {
     ok: true,
     reasonCode: null,
     reason: "",
     availableQuantity: eligibility.availableQuantity,
+    backorderedQuantity,
   };
 }

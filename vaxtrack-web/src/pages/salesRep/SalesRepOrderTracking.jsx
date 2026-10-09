@@ -19,12 +19,15 @@ import {
   getOrderStatusValue,
 } from "../../services/deliveryService";
 import { auth } from "../../firebase";
+import { originalRequestNote, scheduleLabel } from "../../services/deliverySchedule";
 import {
   reviewOrderDestinationChange,
   subscribeDestinationCorrections,
 } from "../../services/destinationCorrectionService";
 import StatusBadge from "../../components/ui/StatusBadge";
 import LiveDeliveryMap from "../../components/LiveDeliveryMap";
+import AllocationSummary from "../../components/ui/AllocationSummary";
+import { describeAllocation } from "../../services/backorder";
 
 function mapTrackingLabel(statusKey) {
   switch (statusKey) {
@@ -165,6 +168,9 @@ function normalizeOrder(raw) {
     priority: raw.priority || "Standard",
     instructions: raw.deliveryInstructions || "",
     requestedDeliveryDate: raw.requestedDeliveryDate || null,
+    // Current schedule (an Admin may have moved it) and the original request.
+    scheduledDeliveryTime: raw.scheduledDeliveryTime || null,
+    originalRequestedDeliveryDate: raw.originalRequestedDeliveryDate || null,
     // Live-location + saved-route fields for the read-only tracking map.
     lastLocation: raw.lastLocation || null,
     lastLocationUpdate: raw.lastLocationUpdate || null,
@@ -185,6 +191,9 @@ function normalizeOrder(raw) {
     stopSequence: raw.stopSequence,
     stopEtaText: raw.stopEtaText || "",
     items,
+    // Requested / reserved / backordered as the server wrote them. Only an
+    // order still waiting to be dispatched has anything to explain.
+    allocation: statusKey === "pending_dispatch" ? describeAllocation(raw) : null,
   };
 }
 
@@ -529,14 +538,28 @@ function SalesRepOrderTracking() {
                   </div>
                 </div>
 
-                {selectedOrder.requestedDeliveryDate && (
-                  <div className="tracking-v2-info-box">
-                    <CalendarDays size={15} />
-                    <div>
-                      <strong>Requested delivery date</strong>
-                      <p>{selectedOrder.requestedDeliveryDate}</p>
-                    </div>
+                {/* The current schedule — the Requested delivery date, or the
+                    date and time an Admin has since set — and, when it was
+                    moved, what was originally requested. No date: Unscheduled. */}
+                <div className="tracking-v2-info-box">
+                  <CalendarDays size={15} />
+                  <div>
+                    <strong>
+                      {originalRequestNote(selectedOrder) ? "Delivery schedule" : "Requested delivery date"}
+                    </strong>
+                    <p className="tnum">{scheduleLabel(selectedOrder)}</p>
+                    {originalRequestNote(selectedOrder) && <p>{originalRequestNote(selectedOrder)}</p>}
                   </div>
+                </div>
+
+                {selectedOrder.allocation?.tracked && (
+                  <>
+                    <h3>Stock reservation</h3>
+                    <AllocationSummary
+                      summary={selectedOrder.allocation}
+                      lines={selectedOrder.allocation.lines}
+                    />
+                  </>
                 )}
 
                 <h3>Live location</h3>
@@ -627,6 +650,12 @@ function TrackingRow({ selected, order, onSelect }) {
       <td>
         <strong>{order.destination}</strong>
         <small>{order.vaccineName}</small>
+        {order.allocation?.tracked && !order.allocation.fullyReserved && (
+          <small>
+            Waiting for stock — {order.allocation.reserved.toLocaleString()} of{" "}
+            {order.allocation.requested.toLocaleString()} reserved
+          </small>
+        )}
         {order.changeRequest && <small>Destination change awaiting your approval</small>}
       </td>
 

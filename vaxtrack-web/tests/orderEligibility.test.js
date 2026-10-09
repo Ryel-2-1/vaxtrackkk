@@ -108,16 +108,25 @@ test("an unpriced or invalidly priced batch is not orderable", () => {
 });
 
 // 7. Zero (or fully reserved) available stock is not orderable.
-test("a batch with zero available stock is not orderable", () => {
-  assert.equal(
-    evaluateBatchEligibility(batch({ quantity: 0 }), TODAY).reasonCode,
-    ELIGIBILITY_REASONS.NO_AVAILABLE_STOCK
-  );
-  // On hand but fully reserved → nothing available.
-  assert.equal(
-    evaluateBatchEligibility(batch({ quantity: 40, reservedQuantity: 40 }), TODAY).reasonCode,
-    ELIGIBILITY_REASONS.NO_AVAILABLE_STOCK
-  );
+test("a batch with zero available stock is a FUTURE order, not a refusal", () => {
+  // Nothing on hand: still a valid quote (price + VAT); fully backordered.
+  const empty = evaluateBatchEligibility(batch({ quantity: 0 }), TODAY);
+  assert.equal(empty.eligible, true);
+  assert.equal(empty.backorderOnly, true);
+  assert.equal(empty.availableQuantity, 0);
+  // On hand but fully reserved → nothing available, still orderable.
+  const held = evaluateBatchEligibility(batch({ quantity: 40, reservedQuantity: 40 }), TODAY);
+  assert.equal(held.eligible, true);
+  assert.equal(held.backorderOnly, true);
+  // With stock, it is not a backorder-only card.
+  assert.equal(evaluateBatchEligibility(batch({ quantity: 5 }), TODAY).backorderOnly, false);
+});
+
+test("return-pending and quarantined units are never available", () => {
+  const b = batch({ quantity: 20, reservedQuantity: 5, returnPendingQuantity: 3, quarantinedQuantity: 2 });
+  assert.equal(evaluateBatchEligibility(b, TODAY).availableQuantity, 10);
+  // More held than on hand is a broken invariant, never "some stock".
+  assert.equal(evaluateBatchEligibility(batch({ quantity: 4, reservedQuantity: 2, returnPendingQuantity: 3 }), TODAY).eligible, false);
 });
 
 // 8. Reserved quantity reduces available stock.
@@ -155,13 +164,15 @@ test("a batch with no inventory document id is rejected", () => {
 });
 
 // 11. Quantity cannot exceed available stock (cart line).
-test("a cart line quantity cannot exceed available stock", () => {
+test("a cart line above available stock is allowed and reports the backorder", () => {
   const b = batch({ quantity: 100, reservedQuantity: 40 }); // 60 available
-  assert.equal(reconcileCartLine({ inventoryId: "inv-1", quantity: 60 }, b, TODAY).ok, true);
-  const over = reconcileCartLine({ inventoryId: "inv-1", quantity: 61 }, b, TODAY);
-  assert.equal(over.ok, false);
-  assert.equal(over.reasonCode, ELIGIBILITY_REASONS.INSUFFICIENT_STOCK);
-  assert.match(over.reason, /60/); // names how many are available
+  const exact = reconcileCartLine({ inventoryId: "inv-1", quantity: 60 }, b, TODAY);
+  assert.equal(exact.ok, true);
+  assert.equal(exact.backorderedQuantity, 0);
+  const over = reconcileCartLine({ inventoryId: "inv-1", quantity: 75 }, b, TODAY);
+  assert.equal(over.ok, true);
+  assert.equal(over.availableQuantity, 60);
+  assert.equal(over.backorderedQuantity, 15);
 });
 
 test("a cart line with a malformed quantity is rejected", () => {
@@ -200,7 +211,6 @@ test("every ineligible outcome carries a specific, distinct, non-empty reason", 
     expired: evaluateBatchEligibility(batch({ expiryDate: PAST }), TODAY),
     missingExpiry: evaluateBatchEligibility(batch({ expiryDate: "" }), TODAY),
     unpriced: evaluateBatchEligibility(batch({ sellingPriceCentavos: null }), TODAY),
-    noStock: evaluateBatchEligibility(batch({ quantity: 0 }), TODAY),
   };
   const reasons = Object.values(causes).map((r) => r.reason);
   for (const reason of reasons) assert.ok(typeof reason === "string" && reason.length > 0);
@@ -255,4 +265,19 @@ test("the server eligibility policy remains authoritative and the client mirrors
     false,
     "eligibility helper must not import a functions/ server module"
   );
+});
+
+test("an on-hand figure above the 100,000,000 ceiling is shown as awaiting confirmation, not orderable", () => {
+  const typo = {
+    id: "OCvsrsrMCJum7Skfgil8", vaccineId: "p", status: "Warning", expiryDate: "2027-11-07",
+    quantity: 99999999999900, reservedQuantity: 70, sellingPriceCentavos: 100,
+  };
+  const r = evaluateBatchEligibility(typo, "2026-10-06");
+  assert.equal(r.eligible, false);
+  assert.equal(r.reasonCode, ELIGIBILITY_REASONS.UNCONFIRMED_QUANTITY);
+  // Mirrors the server: same ceiling, same refusal.
+  const policy = readFileSync(new URL("../functions/src/policy.js", import.meta.url), "utf8");
+  assert.match(policy, /const MAX_STOCK_QUANTITY = 100000000;/);
+  assert.match(readFileSync(new URL("../src/services/orderEligibility.js", import.meta.url), "utf8"), /export const MAX_STOCK_QUANTITY = 100000000;/);
+  assert.equal(evaluateBatchEligibility({ ...typo, quantity: 100000000, reservedQuantity: 0 }, "2026-10-06").eligible, true);
 });

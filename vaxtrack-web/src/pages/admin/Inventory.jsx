@@ -13,7 +13,14 @@ import {
   WARNING_WITHIN_DAYS,
 } from "../../services/expiry";
 import { formatBatchDate, readManufacturingDate } from "../../services/stockBatchDates";
-import { correctStockQuantity, updateStockPrice } from "../../services/vaccineService";
+import { correctStockQuantity, setVaccineVatClassification, updateStockPrice } from "../../services/vaccineService";
+import { subscribeVaccines } from "../../services/vaccineCatalogService";
+import {
+  NOT_CLASSIFIED,
+  PRODUCT_VAT_CLASSIFICATIONS,
+  PRODUCT_VAT_LABELS,
+  batchVatClassification,
+} from "../../services/vatClassification";
 import { validateStockCorrection } from "../../services/stockCorrection";
 import {
   centavosToInputValue,
@@ -22,6 +29,8 @@ import {
   readPriceCentavos,
 } from "../../services/money";
 import KpiCard from "../../components/ui/KpiCard";
+import ReservationProvenance from "../../components/admin/ReservationProvenance";
+import { MAX_STOCK_QUANTITY } from "../../services/orderEligibility";
 import "./Inventory.css";
 
 /* `getDaysUntilExpiry` was deleted. It built its answer from LOCAL midnight
@@ -42,7 +51,8 @@ function formatExpiry(dateStr) {
 /**
  * One row per batch, showing on hand / reserved / available.
  *
- * Available is DERIVED (`quantity - reservedQuantity`), never stored — a third
+ * Available is DERIVED (`quantity - reserved - returnPending - quarantined`),
+ * never stored — a third
  * persisted total would be a number nothing could keep honest. Data problems
  * are surfaced as flags rather than smoothed over: a quantity stored as text
  * reads "—", not "0", because those mean very different things to whoever has
@@ -60,7 +70,18 @@ function normalizeInventoryItem(raw, todayIso) {
     reservedRaw === null ||
     (typeof reservedRaw === "number" && Number.isInteger(reservedRaw) && reservedRaw >= 0);
   const reserved = typeof reservedRaw === "number" ? reservedRaw : 0;
-  const available = onHandOk && reservedOk ? raw.quantity - reserved : null;
+  // Units back from a failed delivery (awaiting an Admin decision) and units
+  // in quarantine are on hand but NOT available. Absent means zero.
+  const heldOk = (v) =>
+    v === undefined || v === null || (typeof v === "number" && Number.isInteger(v) && v >= 0);
+  const returnPendingOk = heldOk(raw.returnPendingQuantity);
+  const quarantinedOk = heldOk(raw.quarantinedQuantity);
+  const returnPending = typeof raw.returnPendingQuantity === "number" ? raw.returnPendingQuantity : 0;
+  const quarantined = typeof raw.quarantinedQuantity === "number" ? raw.quarantinedQuantity : 0;
+  const available =
+    onHandOk && reservedOk && returnPendingOk && quarantinedOk
+      ? raw.quantity - reserved - returnPending - quarantined
+      : null;
 
   const flags = [];
   if (!onHandOk) {
@@ -71,6 +92,12 @@ function normalizeInventoryItem(raw, todayIso) {
     );
   }
   if (!reservedOk) flags.push("Reserved figure is invalid");
+  if (!returnPendingOk || !quarantinedOk) flags.push("Return or quarantine figure is invalid");
+  if (onHandOk && raw.quantity > MAX_STOCK_QUANTITY) {
+    flags.push("On hand is above 100,000,000 — not allocated or orderable until an Admin confirms it");
+  }
+  if (returnPending > 0) flags.push(`${returnPending} returned, awaiting decision`);
+  if (quarantined > 0) flags.push(`${quarantined} quarantined`);
   // Surfaced as a flag, not smoothed over: an unpriced batch is invisible to
   // ordering, and the admin looking at this row is the person who can fix it.
   const priceCentavos = readPriceCentavos(raw.sellingPriceCentavos);
@@ -82,7 +109,7 @@ function normalizeInventoryItem(raw, todayIso) {
     );
   }
   if (reservedRaw === undefined || reservedRaw === null) flags.push("No reserved field yet");
-  if (available !== null && available < 0) flags.push("Reserved exceeds stock on hand");
+  if (available !== null && available < 0) flags.push("Held units exceed stock on hand");
   if (expiryCondition.level === "expired") flags.push("Expired");
   // A batch nobody can date is a batch nobody can judge, and the server refuses
   // it for that reason. Surfaced rather than quietly treated as healthy.
@@ -100,6 +127,8 @@ function normalizeInventoryItem(raw, todayIso) {
     // Batches created before this field existed have none: "Not recorded",
     // never an invented date and never "Invalid Date".
     manufacturing: formatBatchDate(raw.manufacturingDate),
+    // The vaccine product, which holds the VAT classification.
+    vaccineId: typeof raw.vaccineId === "string" && raw.vaccineId ? raw.vaccineId : null,
     manufacturingRaw: readManufacturingDate(raw) ?? "",
     onHand: onHandOk ? raw.quantity.toLocaleString() : "—",
     reserved: reservedOk ? reserved.toLocaleString() : "—",
@@ -109,6 +138,8 @@ function normalizeInventoryItem(raw, todayIso) {
     // the same "unusable figure" meaning the "—" display does.
     onHandValue: onHandOk ? raw.quantity : null,
     reservedValue: reservedOk ? reserved : null,
+    returnPendingValue: returnPendingOk ? returnPending : null,
+    quarantinedValue: quarantinedOk ? quarantined : null,
     availableValue: available,
     priceCentavos,
     price: formatCentavos(priceCentavos),
@@ -138,6 +169,10 @@ function Inventory() {
   const [selectedVaccine, setSelectedVaccine] = useState(null);
   const [toast, setToast] = useState("");
   const [exporting, setExporting] = useState(false);
+  // Vaccine catalog (VAT classification), and the drawer's classification edit.
+  const [vaccines, setVaccines] = useState([]);
+  const [vatChoice, setVatChoice] = useState("");
+  const [savingVat, setSavingVat] = useState(false);
 
   /**
    * Price-management dialog state.
@@ -271,6 +306,8 @@ function Inventory() {
       newQuantity: Number(raw),
       currentQuantity: correcting.onHandValue,
       reservedQuantity: correcting.reservedValue,
+      returnPendingQuantity: correcting.returnPendingValue,
+      quarantinedQuantity: correcting.quarantinedValue,
       reason: correctReason,
     });
     if (!pre.ok) {
@@ -297,8 +334,43 @@ function Inventory() {
     }
   };
 
+  // One catalog listener for the page; each batch inherits its product's VAT.
+  useEffect(() => subscribeVaccines((docs) => setVaccines(docs), () => setVaccines([])), []);
+  const vaccinesById = useMemo(() => new Map(vaccines.map((v) => [v.id, v])), [vaccines]);
+  const inventoryWithVat = useMemo(
+    () =>
+      inventory.map((item) => {
+        const cls = batchVatClassification(item, vaccinesById);
+        return {
+          ...item,
+          vatClassification: cls,
+          vatLabel: cls ? PRODUCT_VAT_LABELS[cls] : NOT_CLASSIFIED,
+          vaccineProductName: vaccinesById.get(item.vaccineId)?.vaccineName || item.name,
+        };
+      }),
+    [inventory, vaccinesById]
+  );
+  // The drawer reads the live row, so a classification saved from it shows at once.
+  const drawerItem = selectedVaccine
+    ? inventoryWithVat.find((item) => item.id === selectedVaccine.id) ?? selectedVaccine
+    : null;
+
+  const saveVatClassification = async () => {
+    if (!drawerItem?.vaccineId || savingVat || !vatChoice) return;
+    setSavingVat(true);
+    try {
+      await setVaccineVatClassification(drawerItem.vaccineId, vatChoice);
+      setVatChoice("");
+      showToast(`${drawerItem.vaccineProductName} is now ${PRODUCT_VAT_LABELS[vatChoice]}. Future orders use it; existing orders are unchanged.`);
+    } catch (error) {
+      showToast(error?.message || "Could not save the VAT classification.");
+    } finally {
+      setSavingVat(false);
+    }
+  };
+
   const filteredVaccines = useMemo(() => {
-    return inventory.filter((item) => {
+    return inventoryWithVat.filter((item) => {
       const searchValue =
         `${item.name} ${item.type} ${item.batch} ${item.status}`.toLowerCase();
 
@@ -314,7 +386,7 @@ function Inventory() {
 
       return matchesSearch && matchesStatus && matchesExpiry;
     });
-  }, [inventory, searchTerm, statusFilter, expiryFilter]);
+  }, [inventoryWithVat, searchTerm, statusFilter, expiryFilter]);
 
   /**
    * Download the currently filtered inventory as a real .xlsx workbook.
@@ -586,6 +658,15 @@ function Inventory() {
               supported operation behind it at all, so the checkboxes went with
               it. Per-batch actions are unaffected: Set/Edit price still writes,
               and a row still opens its detail drawer. */}
+          {/* "On hand" is the batch's `quantity`: every unit the business holds
+              and has not yet DELIVERED. It drops only when a delivery is
+              completed, a return is written off as missing, or an Admin
+              corrects it — so it includes stock out with riders. */}
+          <p className="inv-onhand-note">
+            On hand counts every unit not yet delivered, including stock reserved for orders, out with
+            riders, returned from a failed delivery and awaiting a decision, or quarantined. Available is
+            what remains for new orders.
+          </p>
           <div className="v2-table-scroll">
             <table className="v2-vaccine-table">
               <thead>
@@ -593,9 +674,9 @@ function Inventory() {
                   <th>Vaccine name</th>
                   <th>Batch ID</th>
                   <th>Expiry date</th>
-                  <th>On hand</th>
+                  <th title="Not yet delivered — includes stock out with riders">On hand</th>
                 <th>Reserved</th>
-                <th>Available</th>
+                <th title="On hand minus reserved, returned-awaiting-decision and quarantined">Available</th>
                   <th>Unit price</th>
                   <th>Status</th>
                   <th></th>
@@ -750,7 +831,7 @@ function Inventory() {
               </div>
 
               <div>
-                <span>On hand / Reserved / Available</span>
+                <span>On hand (not yet delivered) / Reserved / Available</span>
                 <strong>
                   {selectedVaccine.onHand} / {selectedVaccine.reserved} /{" "}
                   {selectedVaccine.available}
@@ -781,7 +862,43 @@ function Inventory() {
                 <span>Manufacturer</span>
                 <strong>{selectedVaccine.manufacturer}</strong>
               </div>
+
+              <div className="inv-vat-field">
+                <span>VAT Classification</span>
+                <strong>{drawerItem.vatLabel}</strong>
+                {drawerItem.vaccineId ? (
+                  <div className="inv-vat-edit">
+                    <select
+                      id="inv-vat-choice"
+                      aria-label="Set VAT classification for this vaccine"
+                      value={vatChoice}
+                      onChange={(e) => setVatChoice(e.target.value)}
+                      disabled={savingVat}
+                    >
+                      <option value="">{drawerItem.vatClassification ? "Change…" : "Classify…"}</option>
+                      {PRODUCT_VAT_CLASSIFICATIONS.filter((v) => v !== drawerItem.vatClassification).map((v) => (
+                        <option key={v} value={v}>
+                          {PRODUCT_VAT_LABELS[v]}
+                        </option>
+                      ))}
+                    </select>
+                    <button type="button" onClick={saveVatClassification} disabled={!vatChoice || savingVat}>
+                      {savingVat ? "Saving…" : "Save"}
+                    </button>
+                    <small>Applies to {drawerItem.vaccineProductName} for future orders only.</small>
+                  </div>
+                ) : (
+                  <small>
+                    Not linked to a registered vaccine, so it cannot be classified
+                    or ordered.
+                  </small>
+                )}
+              </div>
             </div>
+
+            {/* "2 reserved" is always inspectable: which orders hold it,
+                and whether those add up to the batch's counter. */}
+            <ReservationProvenance key={selectedVaccine.id} inventoryId={selectedVaccine.id} />
 
             <div className="v2-modal-actions">
               <button

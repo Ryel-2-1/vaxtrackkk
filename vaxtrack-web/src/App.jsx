@@ -26,7 +26,9 @@ const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
 const Inventory = lazy(() => import("./pages/admin/Inventory"));
 const AddStock = lazy(() => import("./pages/admin/AddStock"));
 const AddVaccine = lazy(() => import("./pages/admin/AddVaccine"));
+const AdminAllocation = lazy(() => import("./pages/admin/AdminAllocation"));
 const Deliveries = lazy(() => import("./pages/admin/Deliveries"));
+const AdminDeliveryCalendar = lazy(() => import("./pages/admin/AdminDeliveryCalendar"));
 const Riders = lazy(() => import("./pages/admin/Riders"));
 const Alerts = lazy(() => import("./pages/admin/Alerts"));
 const Analytics = lazy(() => import("./pages/admin/Analytics"));
@@ -80,7 +82,9 @@ function App() {
               <Route path="/admin/inventory" element={<Inventory />} />
               <Route path="/admin/add-stock" element={<AddStock />} />
               <Route path="/admin/add-vaccine" element={<AddVaccine />} />
+              <Route path="/admin/allocation" element={<AdminAllocation />} />
               <Route path="/admin/deliveries" element={<Deliveries />} />
+              <Route path="/admin/delivery-calendar" element={<AdminDeliveryCalendar />} />
               <Route path="/admin/riders" element={<Riders />} />
               <Route path="/admin/alerts" element={<Alerts />} />
               <Route path="/admin/analytics" element={<Analytics />} />

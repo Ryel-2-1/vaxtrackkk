@@ -14,6 +14,7 @@ import {
 import { assignRiderToOrder } from "../../services/orderService";
 import { subscribeRiders } from "../../services/riderService";
 import { dispatchEligibility } from "../../services/dispatchEligibility";
+import { assignmentBlockReason } from "../../services/backorder";
 import useManilaDayNow from "../../components/useManilaDayNow";
 // `auth` is no longer imported here: the dispatcher's audit identity is taken
 // from the session inside assignRiderToOrder, so this page cannot supply — or
@@ -161,7 +162,11 @@ function DispatcherAssignRider() {
   // this just says so before the operator tries.
   const schedule = selectedOrder ? dispatchEligibility(selectedOrder, now) : null;
   const scheduleBlocked = !!schedule && !schedule.eligible;
-  const canAssign = !saving && !!selectedRiderId && !!selectedOrder && !scheduleBlocked;
+  // No partial dispatch: a future order waits until it is fully reserved. The
+  // handed-off order may be a stale snapshot; the transaction re-reads it.
+  const stockBlock = selectedOrder ? assignmentBlockReason(selectedOrder) : null;
+  const canAssign =
+    !saving && !!selectedRiderId && !!selectedOrder && !scheduleBlocked && !stockBlock;
 
   return (
     <>
@@ -377,6 +382,11 @@ function DispatcherAssignRider() {
             {scheduleBlocked && (
               <p className="dispatch-hold-note" role="status">
                 {schedule.message}
+              </p>
+            )}
+            {stockBlock && (
+              <p className="dispatch-hold-note" role="status">
+                {stockBlock}
               </p>
             )}
 

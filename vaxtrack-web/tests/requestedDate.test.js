@@ -133,7 +133,10 @@ test("the Cloud Function requires, validates and always persists the date", () =
     ops.indexOf("normalizeRequestedDeliveryDate(") < ops.indexOf("canonicalRequestFingerprint({"),
     "the date is checked before the request is fingerprinted"
   );
-  assert.match(ops, /\n\s*requestedDeliveryDate,\s*items: orderItems,/, "callable always stores it");
+  // Stored unconditionally beside the items (which now carry their reserved /
+  // backordered split from initialAllocationLines(orderItems)).
+  assert.match(ops, /\n\s*requestedDeliveryDate,\s*items: allocationLines,/, "callable always stores it");
+  assert.match(ops, /const allocationLines = initialAllocationLines\(orderItems\);/);
   assert.equal(
     /\.\.\.\(requestedDeliveryDate \? \{ requestedDeliveryDate \} : \{\}\)/.test(ops),
     false,

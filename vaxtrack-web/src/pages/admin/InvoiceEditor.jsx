@@ -27,6 +27,8 @@ import {
   buildInitialForm,
   computeVatExclusiveTotals,
   formatOrderDate,
+  ITEMIZED_VAT,
+  itemVatLabelForLine,
   isServerPricedOrder,
   nextKey,
   normalizeStoredTotals,
@@ -440,8 +442,10 @@ function InvoiceEditor() {
             <CheckCircle2 size={16} />
             <span>
               Prices and quantities on this invoice come from the order and
-              cannot be edited here. Discounts, other charges, withholding tax
-              and the VAT classification are still yours to set.
+              cannot be edited here.{" "}
+              {form.vatClassification === ITEMIZED_VAT
+                ? "VAT comes from each item's own classification. Discounts, other charges and withholding tax are still yours to set."
+                : "Discounts, other charges, withholding tax and the VAT classification are still yours to set."}
             </span>
           </div>
         )}
@@ -457,19 +461,29 @@ function InvoiceEditor() {
             form, so it lives here; the chosen bucket shows in the totals. */}
         {!readOnly && (
           <div className="inv-tmpl-controls inv-no-print">
-            <label>
-              VAT classification
-              <select
-                className="inv-input inv-vat-select"
-                value={form.vatClassification}
-                onChange={(e) => setField("vatClassification", e.target.value)}
-                aria-label="VAT classification"
-              >
-                <option value="vatable">VATable (12%)</option>
-                <option value="vat_exempt">VAT-Exempt</option>
-                <option value="zero_rated">Zero-Rated</option>
-              </select>
-            </label>
+            {form.vatClassification === ITEMIZED_VAT ? (
+              /* Per-item VAT: each line carries its vaccine's classification
+                 (snapshotted on the order). Nothing to choose here; an
+                 invoice discount is split pro-rata between the two. */
+              <span className="inv-vat-itemized">
+                VAT classification: <strong>Per item</strong> — VAT (12%) or VAT
+                Exempt, as recorded on each order item.
+              </span>
+            ) : (
+              <label>
+                VAT classification
+                <select
+                  className="inv-input inv-vat-select"
+                  value={form.vatClassification}
+                  onChange={(e) => setField("vatClassification", e.target.value)}
+                  aria-label="VAT classification"
+                >
+                  <option value="vatable">VATable (12%)</option>
+                  <option value="vat_exempt">VAT-Exempt</option>
+                  <option value="zero_rated">Zero-Rated</option>
+                </select>
+              </label>
+            )}
             <span className="inv-tmpl-hint">
               Blank TIN, signature, and legal/printer lines are intentional —
               fill only with confirmed client data.
@@ -698,6 +712,8 @@ function InvoiceEditor() {
                         readOnly={readOnly}
                         aria-label={`Item ${i + 1} batch id`}
                       />
+                      {/* The order item's VAT snapshot — printed with the line. */}
+                      <span className="sit-vat">{itemVatLabelForLine(it)}</span>
                     </div>
                   </td>
                   <td className="sit-qty">

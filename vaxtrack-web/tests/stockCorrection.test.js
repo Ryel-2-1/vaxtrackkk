@@ -99,7 +99,8 @@ const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 
 test("the service reads the batch fresh, then writes only quantity + audit", () => {
   const src = read("src/services/vaccineService.js");
-  const fn = /export async function correctStockQuantity\([\s\S]*?\n}\n/.exec(src);
+  // CRLF-tolerant: a Windows checkout (core.autocrlf=true) ends lines in \r\n.
+  const fn = /export async function correctStockQuantity\([\s\S]*?\r?\n}\r?\n/.exec(src);
   assert.ok(fn, "correctStockQuantity must exist");
   const body = fn[0];
   assert.match(body, /getDoc\(/, "must read the current batch");

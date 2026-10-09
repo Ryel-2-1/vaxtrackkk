@@ -8,11 +8,37 @@ import '../services/delivery_service.dart';
 import '../services/image_upload_service.dart';
 import '../services/proof_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/proof_eligibility.dart';
 import '../utils/proof_validation.dart';
+import '../widgets/complete_delivery_confirm_sheet.dart';
+import '../widgets/proof_order_selector.dart';
 import 'proof_submission_controller.dart';
 
+/// Proof of Delivery — and, in the same action, completing the delivery.
+///
+/// "Submit Proof & Complete Delivery" replaces the old two-step flow (submit
+/// proof here, then "Complete Delivery" on Delivery Detail). One tap opens the
+/// existing confirmation sheet; once the rider confirms, both photos are
+/// uploaded and recorded and the trusted completion callable runs. The order
+/// becomes delivered only when that server call succeeds.
+///
+/// [initialOrderId] preselects a delivery (opened from Delivery Detail). The
+/// screen then pops with `true` once the delivery is completed.
+///
+/// Only deliveries that can still legally take proof and be completed are
+/// offered (proof_eligibility.dart). A preselected delivery that is not — or
+/// that becomes delivered while the screen is open — is shown as such, with no
+/// submission and no silent fallback to another order.
 class ProofScreen extends StatefulWidget {
-  const ProofScreen({super.key});
+  const ProofScreen({super.key, this.initialOrderId});
+
+  /// Open Proof of Delivery for [delivery]. Navigation identity is the
+  /// Firestore DOCUMENT id — never the visible order number or a list position.
+  ProofScreen.forDelivery(Delivery delivery, {Key? key})
+      : this(key: key, initialOrderId: delivery.id);
+
+  /// A Firestore document id.
+  final String? initialOrderId;
 
   @override
   State<ProofScreen> createState() => _ProofScreenState();
@@ -30,6 +56,10 @@ class _ProofScreenState extends State<ProofScreen> {
   File? _proofPhoto;
   File? _invoicePhoto;
 
+  /// The order the earlier-upload recovery has already run for, so it runs
+  /// once per selection and only once the order's recorded state is known.
+  String? _recoveryCheckedFor;
+
   /// Inline recipient error, shown only after a submit attempt so the field
   /// does not start out marked red.
   String? _recipientError;
@@ -38,9 +68,14 @@ class _ProofScreenState extends State<ProofScreen> {
   void initState() {
     super.initState();
     _riderId = FirebaseAuth.instance.currentUser?.uid;
+    _selectedOrderId = widget.initialOrderId;
     _submission = ProofSubmissionController(
       uploader: _imageService,
       writer: ProofService(),
+      completer: _deliveryService,
+      // Re-read the order before anything uploads: a stale screen must never
+      // add evidence to, or complete, an order that has since closed.
+      loader: _deliveryService,
     );
     _submission.addListener(_onSubmissionChanged);
   }
@@ -69,58 +104,146 @@ class _ProofScreenState extends State<ProofScreen> {
   Future<void> _pickInvoicePhoto() async {
     final picked = await _imageService.pickFromGallery();
     if (picked == null) return;
+    _submission.clearPendingInvoiceUpload();
     if (mounted) setState(() => _invoicePhoto = File(picked.path));
   }
 
-  Future<void> _onOrderSelected(String? orderId, List<Delivery> eligible) async {
+  void _onOrderSelected(String? orderId) {
     setState(() {
       _selectedOrderId = orderId;
       _proofPhoto = null;
       _invoicePhoto = null;
       _recipientError = null;
+      _recoveryCheckedFor = null;
     });
-    _submission.clearPendingUpload();
-    if (orderId == null) return;
-
-    final order = _findOrder(eligible, orderId);
-    // Only worth checking when the order could still accept proof: a completed
-    // or already-proven order has nothing pending to recover.
-    if (order != null && order.canSubmitProof && !order.hasProof) {
-      await _submission.recoverPendingUpload(orderId);
-    }
+    _recipientController.clear();
+    _submission.resetForNewOrder();
   }
 
-  Delivery? _findOrder(List<Delivery> deliveries, String id) {
-    for (final d in deliveries) {
-      if (d.id == id) return d;
-    }
-    return null;
+  /// Reuse uploads from an earlier attempt — but only for evidence the order
+  /// has NOT recorded yet. Runs after the frame, once per selected order.
+  void _scheduleRecovery(Delivery order) {
+    if (_recoveryCheckedFor == order.id) return;
+    _recoveryCheckedFor = order.id;
+    if (!order.canComplete) return;
+    final needsProof = !order.isProofFinalized;
+    final needsInvoice = !order.isInvoiceFinalized;
+    if (!needsProof && !needsInvoice) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _selectedOrderId != order.id) return;
+      _submission.recoverPendingUpload(order.id, includeInvoice: needsInvoice);
+    });
   }
 
-  Future<void> _submit(Delivery order) async {
-    final recipientCheck = validateRecipientName(_recipientController.text);
-    setState(() =>
-        _recipientError = recipientCheck.valid ? null : recipientCheck.message);
-    if (!recipientCheck.valid) return;
+  /// Proof is still to be recorded (and can be: not finalized in an older form).
+  bool _needsProof(Delivery d) => !d.hasRecordedProof && !d.isProofFinalized;
+  bool _needsInvoice(Delivery d) =>
+      !d.hasRecordedInvoice && !d.isInvoiceFinalized;
 
-    await _submission.submit(
+  /// Evidence was finalized in a form the server will not accept (e.g. the
+  /// removed manual-link fallback). It is one-shot, so the app cannot replace
+  /// it — staff must review instead of the rider being sent round in circles.
+  bool _blockedByLegacyEvidence(Delivery d) =>
+      (d.isProofFinalized && !d.hasRecordedProof) ||
+      (d.isInvoiceFinalized && !d.hasRecordedInvoice);
+
+  ImageProvider? _proofPreview(Delivery d) {
+    if (_proofPhoto != null) return FileImage(_proofPhoto!);
+    final url = _submission.pendingProofUrl ??
+        (d.hasRecordedProof ? d.proofOfDeliveryUrl : null);
+    return url == null ? null : NetworkImage(url);
+  }
+
+  ImageProvider? _invoicePreview(Delivery d) {
+    if (_invoicePhoto != null) return FileImage(_invoicePhoto!);
+    final url = _submission.pendingInvoiceUrl ??
+        (d.hasRecordedInvoice ? d.invoiceUrl : null);
+    return url == null ? null : NetworkImage(url);
+  }
+
+  /// The single action. Validates, then shows the confirmation; nothing is
+  /// uploaded, recorded or completed until the rider confirms.
+  Future<void> _submitAndComplete(Delivery order) async {
+    final needsProof = _needsProof(order) && !_submission.isProofSaved;
+    if (needsProof) {
+      final recipientCheck = validateRecipientName(_recipientController.text);
+      setState(() => _recipientError =
+          recipientCheck.valid ? null : recipientCheck.message);
+      if (!recipientCheck.valid) return;
+    }
+    final proofPreview = _proofPreview(order);
+    final invoicePreview = _invoicePreview(order);
+    if (proofPreview == null || invoicePreview == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(proofPreview == null
+              ? 'Take the proof-of-delivery photo first.'
+              : 'Add the invoice photo first.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
+    final completed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      isDismissible: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (_) => CompleteDeliveryConfirmSheet(
+        orderNumber: order.orderNumber,
+        destinationTitle: order.clinicName,
+        destinationSubtitle: order.clinicAddress,
+        proofImage: proofPreview,
+        invoiceImage: invoicePreview,
+        title: 'Submit proof & complete this delivery?',
+        confirmLabel: 'Submit & Complete',
+        progress: _submission,
+        progressText: () => _submission.progressText,
+        onConfirm: () => _runSubmitAndComplete(order),
+      ),
+    );
+
+    if (completed != true || !mounted) return;
+    setState(() {
+      _proofPhoto = null;
+      _invoicePhoto = null;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(ProofSubmissionController.completedMessage),
+        backgroundColor: AppColors.primary,
+      ),
+    );
+    // Opened for one delivery from Delivery Detail: hand back so it can close
+    // too. As a tab, the live list moves the order to Completed by itself.
+    if (widget.initialOrderId != null) Navigator.of(context).pop(true);
+  }
+
+  /// Runs inside the confirmation sheet. Throws (keeping the sheet open with
+  /// the message) unless the server completed the delivery.
+  Future<void> _runSubmitAndComplete(Delivery order) async {
+    final ok = await _submission.submitAndComplete(
       orderId: order.id,
+      currentStatus: order.status,
+      proofRecorded: order.hasRecordedProof,
+      invoiceRecorded: order.hasRecordedInvoice,
       recipientName: _recipientController.text,
       proofPhoto: _proofPhoto,
       invoicePhoto: _invoicePhoto,
+      riderUid: _riderId,
     );
-
-    if (!mounted) return;
-    if (_submission.phase == ProofPhase.submitted) {
-      // The photo is cleared only once it is safely referenced by the order.
-      // The recipient name stays: Firestore's snapshot is the source of truth
-      // for what was recorded, and the screen does not invent a local
-      // "completed" state — the order's own proof section takes over.
-      setState(() {
-        _proofPhoto = null;
-        _invoicePhoto = null;
-      });
-    }
+    if (ok) return;
+    final detail = _submission.completionFailureDetail;
+    final message = _submission.errorMessage ??
+        'Could not complete the delivery. Please try again.';
+    throw ProofException(
+      'not-completed',
+      detail == null ? message : '$message\n$detail',
+    );
   }
 
   @override
@@ -129,13 +252,13 @@ class _ProofScreenState extends State<ProofScreen> {
 
     return PopScope(
       // Refuse to leave mid-commit rather than abandoning a submission between
-      // the upload and the save.
+      // an upload, its record and the completion.
       canPop: !_submission.isCommitting,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Still saving your proof — one moment.'),
+              content: Text('Still completing this delivery — one moment.'),
             ),
           );
         }
@@ -149,49 +272,59 @@ class _ProofScreenState extends State<ProofScreen> {
               return const Center(child: CircularProgressIndicator());
             }
 
-            final deliveries = snapshot.data ?? [];
-            // In transit or delayed — the two statuses proof may be attached in
-            // — plus delivered orders, which appear READ-ONLY so a rider can
-            // confirm what was recorded without being invited to add more.
-            final eligible = deliveries
-                .where((d) => d.canSubmitProof || d.isDelivered || d.hasProof)
-                .toList();
-            final selected = _selectedOrderId == null
-                ? null
-                : _findOrder(eligible, _selectedOrderId!);
+            // Only deliveries that can still take proof and be completed are
+            // choices; the selection is resolved by Firestore document id.
+            final selection = resolveProofSelection(
+              deliveries: snapshot.data ?? const [],
+              riderUid: _riderId,
+              selectedId: _selectedOrderId,
+            );
+            final selected = selection.selected;
+            if (selected != null) _scheduleRecovery(selected);
 
             return ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                _selectDeliveryCard(eligible),
-                const SizedBox(height: 12),
-                if (selected == null)
-                  const _InfoCard(
-                    text: 'Choose a delivery above to record its proof.',
+                if (!selection.hasSelection)
+                  _Card(
+                    title: 'Choose a delivery',
+                    subtitle: 'Deliveries out for delivery that need proof',
+                    child: ProofOrderSelector(
+                      eligible: selection.eligible,
+                      selectedId: null,
+                      onSelected: _onOrderSelected,
+                      enabled: !_submission.isCommitting,
+                    ),
                   )
-                else if (!selected.canSubmitProof) ...[
-                  _readOnlyProofCard(selected),
-                  // Proof is finalized, but the invoice may still be needed: the
-                  // invoice is required before the delivery can be completed, so
-                  // an active order that is missing it must still be able to
-                  // attach one (this also covers a same-session invoice retry).
-                  if (_submission.hasOutstandingInvoice ||
-                      (selected.isActive && !selected.hasInvoice)) ...[
-                    const SizedBox(height: 12),
-                    _invoiceCard(),
-                    const SizedBox(height: 16),
-                    _statusMessages(),
-                    _invoiceOnlySubmitButton(selected),
-                  ],
-                ] else ...[
-                  _recipientCard(),
+                else if (selected == null)
+                  ..._notEligible(selection)
+                else ...[
+                  ProofOrderSummary(
+                    delivery: selected,
+                    onChange: _submission.isCommitting
+                        ? null
+                        : () => _onOrderSelected(null),
+                  ),
                   const SizedBox(height: 12),
-                  _proofPhotoCard(),
-                  const SizedBox(height: 12),
-                  _invoiceCard(),
-                  const SizedBox(height: 16),
-                  _statusMessages(),
-                  _submitButton(selected),
+                  if (_submission.isAlreadyCompleted)
+                    const _Notice(
+                      key: ValueKey('proof-already-completed'),
+                      icon: Icons.check_circle_outline,
+                      text: ProofSubmissionController.alreadyCompletedMessage,
+                      tone: AppColors.primary,
+                      background: AppColors.primaryLight,
+                    )
+                  else if (_blockedByLegacyEvidence(selected))
+                    const _Notice(
+                      icon: Icons.info_outline,
+                      text: 'This delivery\'s evidence was recorded in an older '
+                          'format that cannot be completed from the app. Contact '
+                          'your dispatcher.',
+                      tone: AppColors.warning,
+                      background: AppColors.warningBg,
+                    )
+                  else
+                    ..._activeEvidence(selected),
                 ],
               ],
             );
@@ -201,108 +334,104 @@ class _ProofScreenState extends State<ProofScreen> {
     );
   }
 
-  Widget _selectDeliveryCard(List<Delivery> eligible) {
-    return _Card(
-      title: 'Select Delivery',
-      subtitle: 'Choose a delivery to record proof for',
-      child: eligible.isEmpty
-          ? const Text(
-              'No deliveries available for proof upload.',
-              style: TextStyle(color: AppColors.textMuted, fontSize: 13),
-            )
-          : DropdownButtonFormField<String>(
-              // Fill the available width so long labels ellipsize instead of
-              // overflowing the field on narrow phones.
-              isExpanded: true,
-              initialValue: _selectedOrderId,
-              decoration: const InputDecoration(
-                labelText: 'Delivery Order',
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              ),
-              // Collapsed (selected) label: width-constrained + ellipsized,
-              // with the full label on long-press. The underlying value stays
-              // the full order id.
-              selectedItemBuilder: (context) => eligible.map((d) {
-                final label = '${d.orderNumber} — ${d.clinicName}';
-                return Align(
-                  alignment: Alignment.centerLeft,
-                  child: Tooltip(
-                    message: label,
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      softWrap: false,
-                    ),
-                  ),
-                );
-              }).toList(),
-              items: eligible.map((d) {
-                return DropdownMenuItem(
-                  value: d.id,
-                  child: Text(
-                    '${d.orderNumber} — ${d.clinicName}'
-                    '${d.canSubmitProof ? '' : ' (recorded)'}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    softWrap: false,
-                  ),
-                );
-              }).toList(),
-              onChanged: _submission.isCommitting
-                  ? null
-                  : (v) => _onOrderSelected(v, eligible),
-            ),
-    );
+  /// An active delivery: whatever evidence is still needed, then the action.
+  List<Widget> _activeEvidence(Delivery order) {
+    final needsProof = _needsProof(order) && !_submission.isProofSaved;
+    final needsInvoice = _needsInvoice(order) && !_submission.isInvoiceSaved;
+    final evidenceRecorded = !needsProof && !needsInvoice;
+    final pending = _submission.isCompletionPending ||
+        (evidenceRecorded && !_submission.isCommitting);
+
+    return [
+      if (needsProof) ...[
+        _recipientCard(),
+        const SizedBox(height: 12),
+        _proofPhotoCard(),
+        const SizedBox(height: 12),
+      ] else if (order.hasRecordedProof) ...[
+        _recordedThumbCard('Proof photo', order.proofOfDeliveryUrl!,
+            subtitle: (order.proofRecipientName ?? '').isEmpty
+                ? 'Recorded'
+                : 'Received by ${order.proofRecipientName}'),
+        const SizedBox(height: 12),
+      ],
+      if (needsInvoice) ...[
+        _invoiceCard(),
+        const SizedBox(height: 12),
+      ] else if (order.hasRecordedInvoice) ...[
+        _recordedThumbCard('Invoice photo', order.invoiceUrl!,
+            subtitle: 'Recorded'),
+        const SizedBox(height: 12),
+      ],
+      const SizedBox(height: 4),
+      // Recorded evidence with no completion yet — from this session or an
+      // earlier one — is the "completion still pending" state.
+      if (pending && _submission.errorMessage == null) ...[
+        const _Notice(
+          icon: Icons.cloud_done_outlined,
+          text: ProofSubmissionController.completionPendingMessage,
+          tone: AppColors.warning,
+          background: AppColors.warningBg,
+        ),
+        const SizedBox(height: 12),
+      ],
+      _statusMessages(),
+      _submitAndCompleteButton(order, retryOnly: pending),
+    ];
   }
 
-  /// A delivery that can no longer accept proof: delivered, or already proven.
-  /// Read-only by design — evidence is gathered during the delivery, and a
-  /// closed delivery with no proof is a gap for staff, not a prompt to create a
-  /// record after the fact.
-  Widget _readOnlyProofCard(Delivery order) {
+  /// The requested delivery cannot take proof (any more). Say why; never fall
+  /// back to another order. Completed in THIS session reads as success.
+  List<Widget> _notEligible(ProofSelection selection) {
+    final reason = selection.blockedReason!;
+    final completedHere = reason == ProofIneligibility.completed &&
+        (_submission.isCompleted || _submission.isAlreadyCompleted);
+    return [
+      _Notice(
+        key: const ValueKey('proof-not-eligible'),
+        icon: reason == ProofIneligibility.completed
+            ? Icons.check_circle
+            : Icons.info_outline,
+        text: completedHere
+            ? ProofSubmissionController.completedMessage
+            : proofIneligibilityMessage(reason),
+        tone: reason == ProofIneligibility.completed
+            ? AppColors.primary
+            : AppColors.warning,
+        background: reason == ProofIneligibility.completed
+            ? AppColors.primaryLight
+            : AppColors.warningBg,
+      ),
+      const SizedBox(height: 12),
+      if (selection.eligible.isNotEmpty && !_submission.isCommitting)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () => _onOrderSelected(null),
+            icon: const Icon(Icons.list_alt, size: 18),
+            label: const Text('Choose another delivery'),
+          ),
+        ),
+    ];
+  }
+
+  /// Evidence already recorded on the order, shown small and read-only.
+  Widget _recordedThumbCard(String title, String url, {String? subtitle}) {
     return _Card(
-      title: 'Proof of delivery',
-      subtitle: order.statusLabel,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (order.hasProof) ...[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: Image.network(
-                order.proofOfDeliveryUrl!,
-                height: 180,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const _Notice(
-                  icon: Icons.image_not_supported_outlined,
-                  text: 'The proof image could not be loaded.',
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            if ((order.proofRecipientName ?? '').isNotEmpty)
-              Text(
-                'Received by ${order.proofRecipientName}',
-                style: const TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w600),
-              ),
-            const SizedBox(height: 4),
-            const Text(
-              'Recorded. Contact your dispatcher if this needs to be changed.',
-              style: TextStyle(fontSize: 12, color: AppColors.textLight),
-            ),
-          ] else
-            const _Notice(
-              icon: Icons.info_outline,
-              text:
-                  'Proof unavailable. This delivery was completed without a '
-                  'proof photo — staff review is required. It cannot be added '
-                  'now.',
-            ),
-        ],
+      title: title,
+      subtitle: subtitle,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.network(
+          url,
+          height: 120,
+          width: double.infinity,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => const _Notice(
+            icon: Icons.image_not_supported_outlined,
+            text: 'The image could not be loaded.',
+          ),
+        ),
       ),
     );
   }
@@ -317,7 +446,7 @@ class _ProofScreenState extends State<ProofScreen> {
         textCapitalization: TextCapitalization.words,
         maxLength: kMaxRecipientNameLength,
         onChanged: (_) {
-          if (_recipientError != null) setState(() => _recipientError = null);
+          setState(() => _recipientError = null);
         },
         decoration: InputDecoration(
           // A visible label, not a placeholder that vanishes on focus.
@@ -335,7 +464,7 @@ class _ProofScreenState extends State<ProofScreen> {
     final hasRecovered = _submission.hasPendingUpload && _proofPhoto == null;
     return _Card(
       title: 'Proof Photo',
-      subtitle: 'Take a photo as delivery confirmation',
+      subtitle: 'Required — take a photo as delivery confirmation',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -381,7 +510,8 @@ class _ProofScreenState extends State<ProofScreen> {
             else
               const _Notice(
                 icon: Icons.cloud_done_outlined,
-                text: 'A photo from an earlier attempt is ready to save.',
+                text: 'A photo from an earlier attempt is uploaded and will be '
+                    'reused.',
               ),
             const SizedBox(height: 10),
             Align(
@@ -401,43 +531,53 @@ class _ProofScreenState extends State<ProofScreen> {
   }
 
   Widget _invoiceCard() {
+    final hasRecovered =
+        _submission.hasPendingInvoiceUpload && _invoicePhoto == null;
     return _Card(
       title: 'Invoice / Receipt',
       subtitle: 'Required to complete the delivery',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          GestureDetector(
-            onTap: _submission.isCommitting ? null : _pickInvoicePhoto,
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              decoration: BoxDecoration(
-                border: Border.all(color: AppColors.border),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Column(
-                children: [
-                  Icon(Icons.receipt_long, size: 24, color: AppColors.textLight),
-                  SizedBox(height: 6),
-                  Text('Upload invoice photo',
-                      style:
-                          TextStyle(fontSize: 12, color: AppColors.textLight)),
-                ],
-              ),
-            ),
-          ),
-          if (_invoicePhoto != null) ...[
-            const SizedBox(height: 12),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: Image.file(
-                _invoicePhoto!,
-                height: 120,
+          if (_invoicePhoto == null && !hasRecovered)
+            GestureDetector(
+              onTap: _submission.isCommitting ? null : _pickInvoicePhoto,
+              child: Container(
                 width: double.infinity,
-                fit: BoxFit.cover,
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppColors.border),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Column(
+                  children: [
+                    Icon(Icons.receipt_long,
+                        size: 24, color: AppColors.textLight),
+                    SizedBox(height: 6),
+                    Text('Upload invoice photo',
+                        style: TextStyle(
+                            fontSize: 12, color: AppColors.textLight)),
+                  ],
+                ),
               ),
-            ),
+            )
+          else ...[
+            if (_invoicePhoto != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(
+                  _invoicePhoto!,
+                  height: 120,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                ),
+              )
+            else
+              const _Notice(
+                icon: Icons.cloud_done_outlined,
+                text: 'An invoice photo from an earlier attempt is uploaded '
+                    'and will be reused.',
+              ),
             Align(
               alignment: Alignment.centerLeft,
               child: TextButton.icon(
@@ -455,7 +595,8 @@ class _ProofScreenState extends State<ProofScreen> {
   Widget _statusMessages() {
     final progress = _submission.progressText;
     final error = _submission.errorMessage;
-    final notice = _submission.noticeMessage;
+    final detail = _submission.completionFailureDetail;
+    final notice = _submission.isCompleted ? null : _submission.noticeMessage;
 
     return Column(
       children: [
@@ -468,9 +609,11 @@ class _ProofScreenState extends State<ProofScreen> {
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
               const SizedBox(width: 10),
-              Text(progress,
-                  style: const TextStyle(
-                      fontSize: 13, color: AppColors.textMedium)),
+              Expanded(
+                child: Text(progress,
+                    style: const TextStyle(
+                        fontSize: 13, color: AppColors.textMedium)),
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -478,7 +621,7 @@ class _ProofScreenState extends State<ProofScreen> {
         if (error != null) ...[
           _Notice(
             icon: Icons.error_outline,
-            text: error,
+            text: detail == null ? error : '$error\n$detail',
             tone: AppColors.urgent,
             background: AppColors.urgentBg,
           ),
@@ -497,66 +640,31 @@ class _ProofScreenState extends State<ProofScreen> {
     );
   }
 
-  Widget _submitButton(Delivery order) {
-    final ready = _submission.canSubmit(
+  Widget _submitAndCompleteButton(Delivery order, {required bool retryOnly}) {
+    final ready = _submission.canSubmitAndComplete(
       recipientName: _recipientController.text,
-      hasPhoto: _proofPhoto != null,
+      hasProofPhoto: _proofPhoto != null,
+      hasInvoicePhoto: _invoicePhoto != null,
+      proofRecorded: order.hasRecordedProof,
+      invoiceRecorded: order.hasRecordedInvoice,
     );
-    final idle = !_submission.isCommitting;
-
-    String label;
-    if (_submission.isProofSaved) {
-      label = 'Retry attaching the invoice photo';
-    } else if (_submission.hasPendingUpload && idle) {
-      label = 'Retry saving proof details';
-    } else {
-      label = 'Submit Proof of Delivery';
-    }
 
     return SizedBox(
       width: double.infinity,
-      child: ElevatedButton(
-        onPressed: ready ? () => _submit(order) : null,
-        child: _submission.isCommitting
+      child: ElevatedButton.icon(
+        key: const ValueKey('submit-and-complete'),
+        onPressed: ready ? () => _submitAndComplete(order) : null,
+        icon: _submission.isCommitting
             ? const SizedBox(
-                height: 20,
-                width: 20,
+                height: 18,
+                width: 18,
                 child: CircularProgressIndicator(
                     color: Colors.white, strokeWidth: 2),
               )
-            : Text(label),
-      ),
-    );
-  }
-
-  /// Attach just the invoice photo to an order whose proof is already recorded,
-  /// so a delivery that was proven without an invoice can still be completed.
-  Future<void> _submitInvoiceOnly(Delivery order) async {
-    await _submission.submitInvoiceOnly(
-      orderId: order.id,
-      invoicePhoto: _invoicePhoto,
-    );
-    if (!mounted) return;
-    if (_submission.phase == ProofPhase.submitted) {
-      setState(() => _invoicePhoto = null);
-    }
-  }
-
-  Widget _invoiceOnlySubmitButton(Delivery order) {
-    final ready =
-        _submission.canSubmitInvoiceOnly(hasInvoicePhoto: _invoicePhoto != null);
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton(
-        onPressed: ready ? () => _submitInvoiceOnly(order) : null,
-        child: _submission.isCommitting
-            ? const SizedBox(
-                height: 20,
-                width: 20,
-                child: CircularProgressIndicator(
-                    color: Colors.white, strokeWidth: 2),
-              )
-            : const Text('Submit Invoice Photo'),
+            : Icon(retryOnly ? Icons.refresh : Icons.check_circle),
+        label: Text(retryOnly
+            ? 'Retry Completion'
+            : 'Submit Proof & Complete Delivery'),
       ),
     );
   }
@@ -595,25 +703,9 @@ class _Card extends StatelessWidget {
   }
 }
 
-class _InfoCard extends StatelessWidget {
-  const _InfoCard({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Text(text,
-            style: const TextStyle(fontSize: 13, color: AppColors.textLight)),
-      ),
-    );
-  }
-}
-
 class _Notice extends StatelessWidget {
   const _Notice({
+    super.key,
     required this.icon,
     required this.text,
     this.tone = AppColors.textLight,

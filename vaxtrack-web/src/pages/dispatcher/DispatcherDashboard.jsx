@@ -24,6 +24,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import KpiCard from "../../components/ui/KpiCard";
+import { assignmentBlockReason } from "../../services/backorder";
 
 // How a pending order relates to its requested delivery date, measured against
 // today (Manila). `none` = the order carries no valid date — such an order is
@@ -142,6 +143,13 @@ function DispatcherDashboard() {
     const schedule = dispatchEligibility(order, new Date());
     if (!schedule.eligible) {
       setAssignNotice(schedule.message);
+      return;
+    }
+    // A future order that is not yet fully reserved cannot be assigned: there
+    // is no partial dispatch. The rules refuse the write independently.
+    const stockBlock = assignmentBlockReason(order);
+    if (stockBlock) {
+      setAssignNotice(stockBlock);
       return;
     }
     setAssignNotice("");
@@ -432,6 +440,7 @@ function DispatcherDashboard() {
                     const priority = order.priority || "Standard";
                     const isUrgent = priority.toLowerCase() === "urgent";
                     const dateMeta = requestedDateMeta(order, today);
+                    const stockBlock = assignmentBlockReason(order);
 
                     return (
                       <tr key={order.id}>
@@ -489,10 +498,17 @@ function DispatcherDashboard() {
                             type="button"
                             className="dispatcher-dash-assign-btn"
                             onClick={() => handleAssignRider(order)}
+                            disabled={Boolean(stockBlock)}
+                            aria-describedby={stockBlock ? `stock-block-${order.id}` : undefined}
                           >
                             <UserPlus size={14} />
-                            Assign Rider
+                            {stockBlock ? "Waiting for stock" : "Assign Rider"}
                           </button>
+                          {stockBlock && (
+                            <small id={`stock-block-${order.id}`} className="dispatcher-stock-block">
+                              {stockBlock}
+                            </small>
+                          )}
                         </td>
                       </tr>
                     );

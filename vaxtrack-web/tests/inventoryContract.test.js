@@ -29,6 +29,15 @@ const CALLABLE_NAMES = [
   // Invoice pricing. Each names one business action on one order's invoice.
   "saveInvoiceDraftForPricedOrder",
   "issueInvoiceForPricedOrder",
+  // Admin-only delivery reschedule: date/time + history, never stock or price.
+  "rescheduleOrderDelivery",
+  // Future-order allocation and failed-delivery returns. Each is one named
+  // business action, role-checked on the server (functions/src/inventoryWorkflow.js).
+  "addStockBatchWithAllocation", // Admin: add a batch + reserve it for waiting orders
+  "reportDeliveryFailure", // Rider: reserved units → return-pending
+  "confirmReturnDisposition", // Admin: usable | damaged | temperature_excursion | missing
+  "requeueFailedOrder", // Dispatcher: delivery_failed → pending_dispatch, re-enters allocation
+  "getReservationProvenance", // Admin: read-only — which orders hold a batch's units
 ];
 
 test("the callables are the only inventory-affecting entry points", () => {
@@ -52,14 +61,54 @@ test("the callables are the only inventory-affecting entry points", () => {
       `must not export ${forbidden}`
     );
   }
-  // The only other export is the status-history trigger. It is not callable by
-  // anyone, and it cannot move stock: its module never names inventory.
-  const NON_CALLABLE_EXPORTS = ["recordOrderStatusEvent"];
+  // The other exports are triggers, callable by no one:
+  //   recordOrderStatusEvent       status history (its module never names inventory)
+  //   allocateOnInventoryWrite /
+  //   allocateOnOrderWrite /
+  //   continueAllocation           the same server allocator, which never sets
+  //                                an order status
+  //   settleClientReportedFailure  TEMPORARY rollout compatibility: settles a
+  //                                failure written directly by an older Rider
+  //                                build, through the same code as the callable
+  const NON_CALLABLE_EXPORTS = [
+    "recordOrderStatusEvent",
+    "allocateOnInventoryWrite",
+    "allocateOnOrderWrite",
+    "continueAllocation",
+    "settleClientReportedFailure",
+  ];
   const exported = [...index.matchAll(/^exports\.(\w+)\s*=/gm)].map((m) => m[1]);
   assert.deepEqual(
     exported.sort(),
     [...CALLABLE_NAMES, ...NON_CALLABLE_EXPORTS].sort(),
-    "exactly these eight callables, plus the status-history trigger"
+    "exactly these callables, plus the five triggers"
+  );
+  assert.match(index, /exports\.continueAllocation = onDocumentWritten\(\s*\{ document: "allocationContinuations\/\{productKey\}", retry: true \}/);
+  assert.match(index, /exports\.settleClientReportedFailure = onDocumentWritten\(\s*\{ document: "orders\/\{orderId\}", retry: true \}/);
+  assert.match(index, /exports\.allocateOnInventoryWrite = onDocumentWritten\(\s*\{ document: "inventory\/\{inventoryId\}", retry: true \}/);
+  assert.match(index, /exports\.allocateOnOrderWrite = onDocumentWritten\(\s*\{ document: "orders\/\{orderId\}", retry: true \}/);
+  // The allocator moves reservations only: it never writes an order status,
+  // so no trigger can advance (or regress) the delivery lifecycle.
+  const allocator = read("functions/src/allocation.js").replace(/^\s*(\*|\/\/).*$/gm, "");
+  // The only `status:` values it writes are the RESERVATION document's own
+  // "reserved" and its continuation records' pending/done/stalled — never an
+  // order's. Every order write it makes is the one tx.update in the round.
+  const statuses = [...allocator.matchAll(/\bstatus:\s*([^,\n}]+)/g)].map((m) => m[1].trim());
+  assert.deepEqual(statuses, ['"reserved"', '"pending"', 'result.done ? "done" : "stalled"']);
+  assert.match(allocator, /db\.collection\("inventoryReservations"\)\.doc\(u\.orderId\),\s*\{[^}]*status: "reserved"/);
+  const orderWrites = allocator.match(/tx\.update\(db\.collection\("orders"\)[\s\S]*?\}\);/g) ?? [];
+  assert.equal(orderWrites.length, 1);
+  assert.equal(/\bstatus\b/.test(orderWrites[0]), false, "the allocator's order write has no status field");
+  // The reschedule callable cannot move stock: its code never names inventory.
+  // A new date does change the order's PLACE in the allocation queue, so it
+  // recomputes the priority key — and touches no other allocation field.
+  const schedule = read("functions/src/scheduleOperations.js").replace(/^\s*(\*|\/\/).*$/gm, "");
+  assert.equal(/inventory|reservedQuantity|RESERVATIONS|Centavos/i.test(schedule), false);
+  assert.deepEqual(
+    [...new Set([...schedule.matchAll(/\b(allocation\w*)/gi)].map((m) => m[1]))].sort(),
+    // The import (`ALLOCATION_VERSION_BACKORDER` from "./allocation") plus the
+    // version check and the one key it writes.
+    ["ALLOCATION_VERSION_BACKORDER", "allocation", "allocationPriorityKey", "allocationVersion"]
   );
   assert.match(index, /exports\.recordOrderStatusEvent = onDocumentWritten\(/);
   const history = read("functions/src/statusEvents.js").replace(/^\s*(\*|\/\/).*$/gm, "");
@@ -77,10 +126,17 @@ test("no page reaches around the boundary", () => {
   assert.match(shipments, /cancelOrderWithInventoryRelease/);
   assert.equal(shipments.includes("cancelOrderByDispatcher"), false);
 
-  // The Rider app completes a delivery through the callable too.
+  // The Rider app completes — and fails — a delivery through callables too.
   const deliveryService = read("../vaxtrack_mobile/lib/services/delivery_service.dart");
   assert.match(deliveryService, /markOrderDeliveredWithInventoryConsumption/);
-  assert.match(deliveryService, /httpsCallable/);
+  assert.match(deliveryService, /httpsCallable\('reportDeliveryFailure'\)/);
+  assert.equal(/'status': 'delivery_failed'/.test(deliveryService), false, "no direct failure write");
+
+  // Stock is added only through the allocating callable, and failed orders are
+  // recovered only through the requeue callable.
+  assert.match(read("src/pages/admin/AddStock.jsx"), /submit: addStockBatchWithAllocation/);
+  assert.equal(/addDoc\(collection\(db, INVENTORY\)/.test(read("src/services/vaccineService.js")), false);
+  assert.match(shipments, /requeueFailedOrder\(order\.id\)/);
 });
 
 test("proof submission still does not touch order status", () => {
@@ -126,15 +182,25 @@ test("client and server agree on the derived-availability rule", () => {
 
 test("the reservation state machine is exhaustive and terminal", async () => {
   const { RESERVATION_STATUSES } = await import("../functions/src/policy.js");
-  assert.deepEqual([...RESERVATION_STATUSES].sort(), ["consumed", "released", "reserved"]);
+  assert.deepEqual([...RESERVATION_STATUSES].sort(), ["consumed", "released", "reserved", "returned"]);
 
-  // Only `reserved` is non-terminal. Both settled states are final, which is
-  // what makes a repeated cancel or deliver a no-op instead of a second
-  // movement of stock.
+  // Only `reserved` is non-terminal for the units it held. The settled states
+  // are final, which is what makes a repeated cancel, deliver or failure report
+  // a no-op instead of a second movement of stock. `returned` means a failed
+  // delivery moved the units to return-pending; an Admin disposition resolves
+  // them, and a requeue starts a FRESH reservation for the order.
   const operations = read("functions/src/operations.js");
   assert.match(operations, /reservation\.status !== "reserved"/);
   assert.match(operations, /settlementType: "cancelled"/);
   assert.match(operations, /settlementType: "delivered"/);
+  // The failed-delivery settlement lives in ONE module, used by the callable,
+  // the compatibility trigger, requeue and cancel.
+  const failure = read("functions/src/failureReturn.js");
+  assert.match(failure, /status: "returned"/);
+  assert.match(failure, /mode: "return"/);
+  for (const user of ["functions/src/inventoryWorkflow.js", "functions/src/operations.js"]) {
+    assert.match(read(user), /require\("\.\/failureReturn"\)/, `${user} uses the shared settlement`);
+  }
 });
 
 test("legacy orders are detected only by the version stamp", async () => {

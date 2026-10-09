@@ -1366,3 +1366,20 @@
   flex: none;
   margin-top: 2px;
 }
+
+/* Per-item VAT label on each invoice line (prints with the line), and the
+   read-only note that replaces the invoice-level selector on itemized orders. */
+.sit-vat {
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.inv-vat-itemized {
+  font-size: 13px;
+  color: var(--gray-600);
+}

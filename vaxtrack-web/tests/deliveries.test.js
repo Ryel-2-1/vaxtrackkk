@@ -270,3 +270,37 @@ test("loading, error and empty states are preserved", () => {
   assert.match(PAGE, /\{loading &&/);
   assert.match(PAGE, /subscribeDeliveries\(/);
 });
+
+test("Activity 'Updated by' shows the attribution every status writer keeps current", () => {
+  // The panel shows statusUpdatedByEmail beside "Last status update"
+  // (statusUpdatedAt). Staging showed the dispatcher as "Updated by" on a
+  // delivery the rider completed: the completion callable re-stamped the time
+  // and the uid but not the email, so the dispatch write's email survived.
+  assert.match(PAGE, /statusUpdatedByEmail: raw\.statusUpdatedByEmail \|\| "",/);
+  assert.match(PAGE, /<span>Updated by<\/span>\s*\n\s*<strong>\{delivery\.statusUpdatedByEmail\}<\/strong>/);
+  // An absent email renders no row rather than a guessed actor.
+  assert.match(PAGE, /\{delivery\.statusUpdatedByEmail && \(/);
+
+  // The completion callable now writes the email together with the time and
+  // uid, from the caller's verified token — so the row names the rider.
+  const ops = read("functions/src/operations.js").replace(/\r\n/g, "\n");
+  const deliver = ops.slice(ops.indexOf("async function markOrderDeliveredWithInventoryConsumption("));
+  const update = /const orderUpdate = \{[\s\S]*?\n {4}\};/.exec(deliver)[0];
+  for (const field of ["statusUpdatedAt", "statusUpdatedByUid", "statusUpdatedByEmail"]) {
+    assert.match(update, new RegExp(`\\b${field}:`), `completion writes ${field}`);
+  }
+  assert.match(update, /statusUpdatedByEmail: statusUpdatedByEmailValue\(email, FieldValue\),/);
+  // Cancellation writes it the same way (it used to leave the previous email).
+  const cancel = ops.slice(ops.indexOf("async function cancelOrderWithInventoryRelease("));
+  const cancelUpdate = /const orderUpdate = \{[\s\S]*?\n {4}\};/.exec(cancel)[0];
+  assert.match(cancelUpdate, /statusUpdatedByEmail: statusUpdatedByEmailValue\(email, FieldValue\),/);
+  // The shared rule: the token email, or the field deleted — never kept stale.
+  const helper = read("functions/src/attribution.js");
+  assert.match(helper, /email\.trim\(\) !== "" \? email\.trim\(\) : FieldValue\.delete\(\)/);
+  // The web assignment now writes the attribution too.
+  assert.match(read("src/services/orderService.js"), /statusUpdatedByEmail: currentUser\.email \? currentUser\.email : deleteField\(\),/);
+  // Every web status writer already sets all three together.
+  for (const svc of ["src/services/orderService.js", "src/services/cargoLoadingService.js"]) {
+    assert.match(read(svc), /statusUpdatedByEmail/, svc);
+  }
+});

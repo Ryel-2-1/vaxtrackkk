@@ -1,0 +1,183 @@
+/* Admin › Stock allocation. Scoped under .inventory-page (Admin role root). */
+
+.inventory-page .alloc-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.inventory-page .alloc-card {
+  background: #fff;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-card);
+}
+
+.inventory-page .alloc-card header h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 4px;
+  color: var(--gray-900);
+}
+
+.inventory-page .alloc-card header p,
+.inventory-page .alloc-muted {
+  color: var(--gray-600);
+  font-size: 13px;
+  margin: 0 0 10px;
+}
+
+.inventory-page .alloc-error {
+  color: var(--danger-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.inventory-page .alloc-outcome {
+  border: 1px solid var(--success-border);
+  background: var(--green-50);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.inventory-page .alloc-outcome ul,
+.inventory-page .alloc-outcome p {
+  margin: 6px 0 0;
+}
+
+.inventory-page .alloc-table-wrap {
+  overflow-x: auto;
+}
+
+.inventory-page .alloc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.inventory-page .alloc-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--gray-600);
+  background: var(--gray-50);
+  padding: 8px 10px;
+}
+
+.inventory-page .alloc-table td {
+  padding: 8px 10px;
+  border-top: 1px solid var(--gray-100);
+  vertical-align: top;
+}
+
+.inventory-page .alloc-table td small {
+  display: block;
+  color: var(--gray-600);
+}
+
+.inventory-page .alloc-state {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.inventory-page .alloc-state-awaiting_stock {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.inventory-page .alloc-state-partially_reserved {
+  background: var(--info-bg);
+  color: var(--info-text);
+}
+
+.inventory-page .alloc-return-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.inventory-page .alloc-return {
+  border: 1px solid var(--gray-200);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.inventory-page .alloc-return-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.inventory-page .alloc-notes {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0;
+  font-size: 12px;
+  color: var(--gray-600);
+}
+
+.inventory-page .alloc-notes textarea {
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.inventory-page .alloc-notes textarea:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 1px;
+}
+
+.inventory-page .alloc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Out-specifies the global `button { min-height: 46px !important }` reset. */
+.inventory-page .alloc-actions .alloc-btn {
+  min-height: 36px !important;
+  border-radius: 8px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--gray-300);
+  background: #fff;
+  color: var(--gray-900);
+}
+
+.inventory-page .alloc-actions .alloc-btn-primary {
+  background: var(--green-700);
+  border-color: var(--green-700);
+  color: #fff;
+}
+
+.inventory-page .alloc-actions .alloc-btn-danger {
+  color: var(--danger-text);
+  border-color: var(--danger-border);
+}
+
+.inventory-page .alloc-actions .alloc-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .inventory-page .alloc-actions .alloc-btn {
+    flex: 1 1 100%;
+  }
+}

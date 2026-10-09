@@ -183,29 +183,41 @@ class DeliveryService implements DeliveryLoader, DeliveryCompleter {
   /// here moves the order onward — it parks in `delivery_failed` until the
   /// dispatcher acts.
   ///
-  /// `deliveryFailedByUid` is taken from the authenticated session, not from a
-  /// caller argument, so the report cannot be attributed to another rider. The
-  /// Firestore rules require it to equal request.auth.uid and require the
-  /// caller to be the order's assigned rider.
+  /// Runs on the SERVER (callable `reportDeliveryFailure`). A failure moves
+  /// stock: the order's reserved units — exact batches and quantities — become
+  /// return-pending (neither reserved nor available) until an Admin confirms
+  /// their condition, and a return record is written. That has to commit with
+  /// the status change, so Firestore rules now refuse a direct
+  /// `delivery_failed` write from any client.
+  ///
+  /// The rider's identity comes from the authenticated call, never an
+  /// argument; the server re-checks that the caller is the assigned rider and
+  /// that the order is in transit or delayed. A repeated report by the same
+  /// rider is answered as a replay, not a second return.
   Future<void> reportDeliveryFailure(
-      String orderId, String currentStatus, String reason) {
+      String orderId, String currentStatus, String reason) async {
     assertTransition(kActorRider, currentStatus, 'delivery_failed');
     final checked = validateReason(reason, label: 'reason this delivery failed');
     if (!checked.valid) {
       throw WorkflowException(checked.code!, checked.message!);
     }
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) {
+    if (FirebaseAuth.instance.currentUser?.uid == null) {
       throw const WorkflowException(
           'not-signed-in', 'Your session has expired. Please sign in again.');
     }
-    return _db.collection('orders').doc(orderId).update({
-      'status': 'delivery_failed',
-      'deliveryFailureReason': checked.value,
-      'deliveryFailedAt': FieldValue.serverTimestamp(),
-      'deliveryFailedByUid': uid,
-      ..._auditFields(),
-    });
+    try {
+      await _functions
+          .httpsCallable('reportDeliveryFailure')
+          .call<Map<String, dynamic>>({'orderId': orderId, 'reason': checked.value});
+    } on FirebaseFunctionsException catch (e) {
+      // Same mapping as markDelivered: the server's domain code when present,
+      // Firebase's own code otherwise (a dropped connection is not a refusal).
+      final code = (e.details is Map) ? e.details['code'] as String? : null;
+      throw WorkflowException(
+        code ?? e.code,
+        e.message ?? 'Could not report this delivery as failed. Please try again.',
+      );
+    }
   }
 
   /// delayed → in_transit.
@@ -231,8 +243,9 @@ class DeliveryService implements DeliveryLoader, DeliveryCompleter {
   /// re-reads the order and re-checks everything independently, including that
   /// the caller is the CURRENTLY assigned rider.
   ///
-  /// Proof of delivery is deliberately still not required — that contract is
-  /// unchanged and remains deferred until the physical-phone checkpoint.
+  /// The server also requires BOTH evidence photos to be recorded on the order
+  /// by this rider (functions/src/deliveryEvidence.js), so the Rider app calls
+  /// this only from "Submit Proof & Complete Delivery", after recording them.
   @override
   Future<void> markDelivered(String orderId, String currentStatus) async {
     assertTransition(kActorRider, currentStatus, 'delivered');
@@ -244,9 +257,11 @@ class DeliveryService implements DeliveryLoader, DeliveryCompleter {
       // The server's domain code travels in `details`; its message is already
       // written for the rider. Anything else is reported as a service problem
       // rather than dressed up as a delivery problem.
+      // Without a domain code, keep Firebase's own (e.g. 'unavailable'), so a
+      // dropped connection is never reported as a refusal.
       final code = (e.details is Map) ? e.details['code'] as String? : null;
       throw WorkflowException(
-        code ?? 'delivery-failed',
+        code ?? e.code,
         e.message ?? 'Could not complete this delivery. Please try again.',
       );
     }

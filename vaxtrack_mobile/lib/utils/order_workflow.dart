@@ -44,7 +44,9 @@ const Map<String, List<String>> kDispatcherTransitions = {
   'loading': ['in_transit', 'cancelled'],
   'in_transit': ['cancelled'],
   'delayed': ['cancelled'],
-  'delivery_failed': ['assigned', 'cancelled'],
+  // Recovery returns the order to the dispatch queue (server callable
+  // requeueFailedOrder); it is assigned again only once fully reserved.
+  'delivery_failed': ['pending_dispatch', 'cancelled'],
   'delivered': [],
   'cancelled': [],
 };

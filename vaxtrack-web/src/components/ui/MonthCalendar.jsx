@@ -24,6 +24,9 @@ import "./MonthCalendar.css";
  * @param {(iso: string) => void} props.onSelectDate
  * @param {() => void} props.onPrevMonth
  * @param {() => void} props.onNextMonth
+ * @param {() => void} [props.onCurrentMonth]     shows a "This month" button
+ * @param {Object<string, number>} [props.urgentCounts] iso -> urgent orders;
+ *        such days carry an extra marker (never colour alone — it is in the label)
  * @param {string} [props.caption]         small line under the header
  * @param {string} [props.ariaLabel]
  */
@@ -37,6 +40,8 @@ function MonthCalendar({
   onSelectDate,
   onPrevMonth,
   onNextMonth,
+  onCurrentMonth,
+  urgentCounts = {},
   caption,
   ariaLabel = "Delivery calendar",
 }) {
@@ -58,14 +63,21 @@ function MonthCalendar({
           <strong>{heading}</strong>
           {caption ? <span className="mcal-caption">{caption}</span> : null}
         </div>
-        <button
-          type="button"
-          className="mcal-nav"
-          onClick={onNextMonth}
-          aria-label="Next month"
-        >
-          <ChevronRight size={16} />
-        </button>
+        <div className="mcal-head-actions">
+          {onCurrentMonth ? (
+            <button type="button" className="mcal-current" onClick={onCurrentMonth}>
+              This month
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="mcal-nav"
+            onClick={onNextMonth}
+            aria-label="Next month"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
       </div>
 
       <div className="mcal-weekdays" aria-hidden="true">
@@ -77,6 +89,7 @@ function MonthCalendar({
       <div className="mcal-grid">
         {weeks.flat().map((cell) => {
           const count = counts[cell.iso] || 0;
+          const urgent = urgentCounts[cell.iso] || 0;
           const disabled = minDate ? cell.iso < minDate : false;
           const isSelected = selectedDate === cell.iso;
           const classes = [
@@ -85,11 +98,12 @@ function MonthCalendar({
             cell.isToday ? "mcal-day-today" : "",
             isSelected ? "mcal-day-selected" : "",
             count > 0 ? "mcal-day-has" : "",
+            urgent > 0 ? "mcal-day-urgent" : "",
           ]
             .filter(Boolean)
             .join(" ");
 
-          const label = `${cell.iso}${count > 0 ? `, ${count} order${count === 1 ? "" : "s"}` : ""}`;
+          const label = `${cell.iso}${count > 0 ? `, ${count} order${count === 1 ? "" : "s"}` : ""}${urgent > 0 ? `, ${urgent} urgent` : ""}`;
 
           return (
             <button
@@ -106,6 +120,7 @@ function MonthCalendar({
               {count > 0 ? (
                 <span className="mcal-day-count tnum">{count}</span>
               ) : null}
+              {urgent > 0 ? <span className="mcal-day-urgent-dot" aria-hidden="true" /> : null}
             </button>
           );
         })}

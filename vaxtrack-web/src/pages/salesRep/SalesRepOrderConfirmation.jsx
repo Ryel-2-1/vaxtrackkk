@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { formatCentavos } from "../../services/money";
+import AllocationSummary from "../../components/ui/AllocationSummary";
 
 /**
  * The confirmation shows ONLY what checkout stored after re-reading the order
@@ -50,6 +51,8 @@ function getLatestOrder() {
       priority: saved.priority || "Standard",
       items: Array.isArray(saved.items) ? saved.items : [],
       subtotalCentavos: typeof saved.subtotalCentavos === "number" ? saved.subtotalCentavos : null,
+      // Server-written allocation (null on a confirmation saved before it).
+      allocation: saved.allocation && typeof saved.allocation === "object" ? saved.allocation : null,
     };
   } catch (error) {
     console.warn("Unable to load latest sales order:", error);
@@ -147,18 +150,34 @@ function SalesRepOrderConfirmation() {
             key={item.inventoryId || `ITEM-${index + 1}`}
             icon={<PackageCheck size={18} />}
             name={item.name || "Selected vaccine"}
-            sku={`Batch: ${item.sku || "—"}`}
+            sku={`Batch: ${item.sku || "—"} · ${item.vatLabel || "Not recorded"}`}
             qty={`${Number(item.quantity || 0).toLocaleString()} ${
               Number(item.quantity) === 1 ? "vial" : "vials"
             }`}
           />
         ))}
 
+        <AllocationSummary
+          summary={order.allocation}
+          lines={order.items
+            .filter((item) => Number.isInteger(item.reservedQuantity))
+            .map((item) => ({
+              name: item.name || "Selected vaccine",
+              requested: Number(item.quantity) || 0,
+              reserved: item.reservedQuantity,
+              backordered: item.backorderedQuantity || 0,
+            }))}
+        />
+
         <div className="confirmation-details confirmation-v2-details">
           <div>
             <CalendarClock size={17} />
             <span>Estimated Delivery</span>
-            <strong>Pending dispatch schedule</strong>
+            <strong>
+              {order.allocation && !order.allocation.fullyReserved
+                ? "Waiting for stock — not yet scheduled"
+                : "Pending dispatch schedule"}
+            </strong>
           </div>
 
           <div>

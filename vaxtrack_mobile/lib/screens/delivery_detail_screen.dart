@@ -12,7 +12,7 @@ import '../utils/google_maps_url.dart';
 import '../utils/nav_availability.dart';
 import '../utils/order_workflow.dart';
 import '../utils/route_utils.dart';
-import '../widgets/complete_delivery_confirm_sheet.dart';
+import '../widgets/delivered_evidence_card.dart';
 import '../widgets/delivery_map.dart';
 import 'delivery_completion_coordinator.dart';
 import 'proof_screen.dart';
@@ -225,44 +225,33 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     }
   }
 
-  // Rider tapped "Complete Delivery". Completion settles inventory and cannot be
-  // casually reversed, so it never runs on this tap: it is validated first, then
-  // gated behind an explicit confirmation. Nothing is uploaded or written here.
+  // Rider tapped "Submit Proof & Complete Delivery". Identity, assignment and
+  // status are checked here first (fail-closed, early feedback only — the rules
+  // and the completion callable remain the authority). The evidence is then
+  // gathered on Proof of Delivery, whose single action uploads both photos and
+  // completes the delivery behind the existing confirmation. Nothing is
+  // uploaded or written on this tap.
   Future<void> _onCompletePressed() async {
     if (_busy) return;
-    // Fail-closed: order id, signed-in rider and the order's assigned rider are
-    // all checked before any status or evidence check. Early feedback only —
-    // the rules and the completion callable remain the authority.
     final readiness = _completion.readiness(
       currentRiderId: FirebaseAuth.instance.currentUser?.uid,
     );
-
-    if (!readiness.ready) {
+    // Missing photos are exactly what the next screen collects.
+    if (!readiness.ready && !readiness.isMissingEvidence) {
       _showCompletionBlocked(readiness);
       return; // no upload, no status change
     }
 
-    final confirmed = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      // The sheet owns its own dismissal while committing (PopScope inside).
-      isDismissible: true,
-      backgroundColor: AppColors.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (_) => CompleteDeliveryConfirmSheet(
-        orderNumber: d.orderNumber,
-        destinationTitle: d.clinicName,
-        destinationSubtitle: d.clinicAddress,
-        proofImageUrl: d.proofOfDeliveryUrl!,
-        invoiceImageUrl: d.invoiceUrl!,
-        onConfirm: _completeDelivery,
-      ),
+    // Auxiliary, best-effort location stamp — never blocks or fails completion.
+    unawaited(_stampLocation(d.id));
+    final completed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => ProofScreen.forDelivery(d)),
     );
+    if (!mounted) return;
 
-    // The sheet pops `true` only after the trusted completion has succeeded.
-    if (confirmed == true && mounted) {
+    // ProofScreen pops `true` only after the server completed the delivery.
+    if (completed == true) {
       await _locationService.stopTracking();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -272,20 +261,11 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
         ),
       );
       Navigator.pop(context);
+      return;
     }
-  }
-
-  // The trusted completion, run from inside the confirmation sheet. It settles
-  // inventory server-side via a callable, so it throws on failure (the sheet
-  // shows the message and keeps the delivery active) and returns only on
-  // authoritative success — the UI never shows "delivered" before this resolves.
-  // The duplicate guard makes concurrent confirmations impossible.
-  Future<void> _completeDelivery() async {
-    // Auxiliary, best-effort location stamp — never blocks or fails completion.
-    if (!_completion.completing) unawaited(_stampLocation(d.id));
-    // One request at a time; throws on failure so the sheet stays open. The
-    // server re-validates the transition and settles inventory idempotently.
-    await _completion.complete();
+    // Back without completing: whatever was recorded is reloaded, never assumed.
+    final ok = await _completion.refresh();
+    if (!ok && mounted) _showRefreshFailed();
   }
 
   // A completion the rider is not ready for: tell them exactly what is wrong.
@@ -323,7 +303,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     final ok = await _completion.addEvidenceThenRefresh(() async {
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const ProofScreen()),
+        MaterialPageRoute(builder: (_) => ProofScreen.forDelivery(d)),
       );
     });
     if (!ok && mounted) _showRefreshFailed();
@@ -548,6 +528,12 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
           _routeCard(),
           const SizedBox(height: 12),
           _statusCard(),
+          // Delivered: the recorded evidence, read-only. (It is no longer
+          // offered on the Proof screen, which takes only open deliveries.)
+          if (d.isDelivered) ...[
+            const SizedBox(height: 12),
+            DeliveredEvidenceCard(delivery: d),
+          ],
           if (!d.isDelivered &&
               d.status != 'delayed' &&
               d.status != 'cancelled') ...[
@@ -1049,7 +1035,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
           ),
         if (d.canComplete)
           _actionButton(
-            'Complete Delivery',
+            'Submit Proof & Complete Delivery',
             Icons.check_circle,
             AppColors.primary,
             _onCompletePressed,

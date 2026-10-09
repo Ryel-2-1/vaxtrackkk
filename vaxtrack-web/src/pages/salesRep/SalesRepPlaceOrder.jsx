@@ -40,6 +40,7 @@ import {
 } from "../../services/territory";
 import { manilaToday, validateRequestedDate } from "../../services/requestedDate";
 import { formatCentavos, readPriceCentavos } from "../../services/money";
+import { PRODUCT_VAT_LABELS, readVatClassification } from "../../services/vatClassification";
 
 /**
  * A server error code turned into something a rep can act on.
@@ -126,9 +127,12 @@ function getInitialItems(uid) {
         // localStorage value does not become a price, it becomes null, and the
         // submit guard below refuses the cart rather than quoting it.
         expectedUnitPriceCentavos: readPriceCentavos(item.unitPriceCentavos),
-        stockText: item.stock
-          ? `Available: ${Number(item.stock).toLocaleString()} ${Number(item.stock) === 1 ? "vial" : "vials"}`
-          : "",
+        // Display only: the classification the catalog showed. The server reads
+        // the vaccine's own value and snapshots it; this is never sent.
+        vatClassification: readVatClassification(item.vatClassification),
+        // Available in THIS batch when it entered the cart — display only. The
+        // server reserves across the product's batches and backorders the rest.
+        availableNow: Number.isInteger(Number(item.stock)) && Number(item.stock) >= 0 ? Number(item.stock) : null,
       }));
     }
   } catch (error) {
@@ -417,6 +421,11 @@ function SalesRepPlaceOrder() {
   }, [items, searchTerm]);
 
   const totalQuantity = items.reduce((total, item) => total + item.quantity, 0);
+  // Any line asking for more than its batch showed as available becomes (at
+  // least partly) a future order. An indication only; the server decides.
+  const mayBackorder = items.some(
+    (item) => item.availableNow !== null && item.quantity > item.availableNow
+  );
 
   /**
    * The cart's VAT-exclusive subtotal, in centavos — an ESTIMATE, and labelled
@@ -943,6 +952,16 @@ function SalesRepPlaceOrder() {
               the batch when the order is placed.
             </p>
 
+            {mayBackorder && (
+              <p className="place-v2-backorder-note" role="status">
+                Some items are out of stock or short. You can still place this
+                as a future order: what is in stock is reserved now and the rest
+                is reserved automatically as stock arrives, in priority order.
+                The order is dispatched only once every item is fully reserved —
+                no delivery date is guaranteed until then.
+              </p>
+            )}
+
             <button
               type="button"
               onClick={handleFinalizeOrder}
@@ -969,12 +988,25 @@ function SalesRepPlaceOrder() {
   );
 }
 
+/** Available now vs. what this line would backorder, in words. */
+function stockText(item) {
+  const vials = (n) => `${n.toLocaleString()} ${n === 1 ? "vial" : "vials"}`;
+  if (item.availableNow === 0) return "Out of stock — future order";
+  if (item.quantity > item.availableNow) {
+    return `Available now: ${vials(item.availableNow)} · about ${vials(item.quantity - item.availableNow)} backordered`;
+  }
+  return `Available: ${vials(item.availableNow)}`;
+}
+
 function OrderRow({ item, onDecrease, onIncrease, onRemove }) {
   return (
     <tr>
       <td>
         <strong>{item.name}</strong>
-        {item.stockText && <small>{item.stockText}</small>}
+        {item.availableNow !== null && <small>{stockText(item)}</small>}
+        <small className="place-v2-vat">
+          {item.vatClassification ? PRODUCT_VAT_LABELS[item.vatClassification] : "VAT status confirmed when placed"}
+        </small>
       </td>
 
       <td>

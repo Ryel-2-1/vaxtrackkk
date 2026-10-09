@@ -57,8 +57,12 @@ const admin = require("firebase-admin");
 const { PolicyError } = require("./src/policy");
 const operations = require("./src/operations");
 const destinationOperations = require("./src/destinationOperations");
+const scheduleOperations = require("./src/scheduleOperations");
 const invoiceOperations = require("./src/invoiceOperations");
 const statusEvents = require("./src/statusEvents");
+const inventoryWorkflow = require("./src/inventoryWorkflow");
+const allocation = require("./src/allocation");
+const failureReturn = require("./src/failureReturn");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -106,6 +110,9 @@ function toHttpsError(error, context) {
       "reservation-not-found": "failed-precondition",
       "reservation-already-settled": "failed-precondition",
       "invalid-status-transition": "failed-precondition",
+      "proof-missing": "failed-precondition",
+      "invoice-missing": "failed-precondition",
+      "evidence-not-yours": "failed-precondition",
       "insufficient-stock": "failed-precondition",
       "batch-expired": "failed-precondition",
       "batch-unavailable": "failed-precondition",
@@ -132,6 +139,19 @@ function toHttpsError(error, context) {
       // the caller. It is retryable, but only after a human has looked.
       "price-changed": "aborted",
       "idempotency-conflict": "aborted",
+      // Inventory allocation, failure returns and stock addition.
+      "order-not-fully-reserved": "failed-precondition",
+      "order-not-failed": "failed-precondition",
+      "legacy-order-not-requeueable": "failed-precondition",
+      "inventory-quantity-unconfirmed": "failed-precondition",
+      "batch-id-exists": "already-exists",
+      "vaccine-not-found": "not-found",
+      "invalid-stock-batch": "invalid-argument",
+      "unknown-field": "invalid-argument",
+      "return-not-found": "not-found",
+      "return-already-resolved": "failed-precondition",
+      "invalid-disposition": "invalid-argument",
+      "invalid-notes": "invalid-argument",
     };
     const httpsCode = map[error.code] ?? "invalid-argument";
     return new HttpsError(httpsCode, error.message, {
@@ -159,7 +179,10 @@ function callable(name, run) {
     try {
       // `now` is the server's clock, taken once per invocation so a retried
       // transaction cannot see the expiry cutoff move underneath it.
-      return await run({ db, FieldValue, uid, data: request.data ?? {}, now: new Date() });
+      // `email` is the caller's Firebase Auth email from the verified ID
+      // token (null when the account has none) — never a client-sent value.
+      const email = typeof request.auth?.token?.email === "string" ? request.auth.token.email : null;
+      return await run({ db, FieldValue, uid, email, data: request.data ?? {}, now: new Date() });
     } catch (error) {
       throw toHttpsError(error, name);
     }
@@ -191,13 +214,23 @@ exports.reviewOrderDestinationChange = callable(
     destinationOperations.reviewOrderDestinationChange({ db, FieldValue, uid, payload: data })
 );
 
+// Admin-only: move an order's delivery date/time, before or after rider
+// assignment or dispatch. Records who/when and a scheduleEvents entry; never
+// touches price, VAT, discount, inventory, destination or status.
+exports.rescheduleOrderDelivery = callable(
+  "rescheduleOrderDelivery",
+  ({ db, FieldValue, uid, data, now }) =>
+    scheduleOperations.rescheduleOrderDelivery({ db, FieldValue, uid, payload: data, now })
+);
+
 exports.cancelOrderWithInventoryRelease = callable(
   "cancelOrderWithInventoryRelease",
-  ({ db, FieldValue, uid, data, now }) =>
+  ({ db, FieldValue, uid, email, data, now }) =>
     operations.cancelOrderWithInventoryRelease({
       db,
       FieldValue,
       uid,
+      email,
       orderId: data.orderId,
       reason: data.reason,
       now,
@@ -206,11 +239,12 @@ exports.cancelOrderWithInventoryRelease = callable(
 
 exports.markOrderDeliveredWithInventoryConsumption = callable(
   "markOrderDeliveredWithInventoryConsumption",
-  ({ db, FieldValue, uid, data, now }) =>
+  ({ db, FieldValue, uid, email, data, now }) =>
     operations.markOrderDeliveredWithInventoryConsumption({
       db,
       FieldValue,
       uid,
+      email,
       orderId: data.orderId,
       now,
     })
@@ -246,6 +280,116 @@ exports.issueInvoiceForPricedOrder = callable(
  * actually changed. Its own `firstDispatchedAt` stamp re-fires it with an
  * unchanged status, which records nothing — so it cannot loop.
  */
+// ---------------------------------------------------------------- inventory
+//
+// Stock addition, delivery failure, return disposition and failed-order requeue
+// (src/inventoryWorkflow.js). Allocation itself is src/allocation.js.
+
+exports.addStockBatchWithAllocation = callable(
+  "addStockBatchWithAllocation",
+  ({ db, FieldValue, uid, data, now }) =>
+    inventoryWorkflow.addStockBatchWithAllocation({ db, FieldValue, uid, payload: data, now })
+);
+
+exports.reportDeliveryFailure = callable(
+  "reportDeliveryFailure",
+  ({ db, FieldValue, uid, email, data, now }) =>
+    inventoryWorkflow.reportDeliveryFailure({ db, FieldValue, uid, email, payload: data, now })
+);
+
+exports.confirmReturnDisposition = callable(
+  "confirmReturnDisposition",
+  ({ db, FieldValue, uid, data, now }) =>
+    inventoryWorkflow.confirmReturnDisposition({ db, FieldValue, uid, payload: data, now })
+);
+
+exports.requeueFailedOrder = callable(
+  "requeueFailedOrder",
+  ({ db, FieldValue, uid, email, data, now }) =>
+    inventoryWorkflow.requeueFailedOrder({ db, FieldValue, uid, email, payload: data, now })
+);
+
+exports.getReservationProvenance = callable(
+  "getReservationProvenance",
+  ({ db, uid, data, now }) => inventoryWorkflow.getReservationProvenance({ db, uid, payload: data, now })
+);
+
+// Safety net. The callables allocate synchronously; these re-run allocation
+// when free stock grows by any path (including an admin stock correction) or an
+// order newly joins the queue — e.g. if a synchronous round lost a race.
+// Allocation is idempotent and writes nothing when there is nothing to do, so
+// its own writes re-triggering these are harmless no-ops.
+exports.allocateOnInventoryWrite = onDocumentWritten(
+  { document: "inventory/{inventoryId}", retry: true },
+  async (event) => {
+    const before = event.data?.before?.exists ? event.data.before.data() : null;
+    const after = event.data?.after?.exists ? event.data.after.data() : null;
+    const now = new Date();
+    const productKeys = inventoryWorkflow.productKeysForInventoryWrite(before, after, now);
+    if (productKeys.length === 0) return;
+    await allocation.allocateProducts({ db, FieldValue, productKeys, now });
+  }
+);
+
+exports.allocateOnOrderWrite = onDocumentWritten(
+  { document: "orders/{orderId}", retry: true },
+  async (event) => {
+    const before = event.data?.before?.exists ? event.data.before.data() : null;
+    const after = event.data?.after?.exists ? event.data.after.data() : null;
+    const productKeys = inventoryWorkflow.productKeysForOrderWrite(before, after);
+    if (productKeys.length === 0) return;
+    await allocation.allocateProducts({ db, FieldValue, productKeys, now: new Date() });
+  }
+);
+
+// Allocation that outgrew one bounded run continues here (allocation.js
+// allocateProduct → allocationContinuations/{productKey}). Each link exists only
+// because the previous one made progress, and a chain is capped, so it always
+// ends; marking a finished record "done" re-triggers this as a no-op.
+exports.continueAllocation = onDocumentWritten(
+  { document: "allocationContinuations/{productKey}", retry: true },
+  async (event) => {
+    const after = event.data?.after?.exists ? event.data.after.data() : null;
+    await allocation.runContinuation({
+      db,
+      FieldValue,
+      productKey: event.params.productKey,
+      data: after,
+      now: new Date(),
+    });
+  }
+);
+
+// TEMPORARY COMPATIBILITY (Rider builds released before reportDeliveryFailure).
+// Those builds write in_transit|delayed → delivery_failed directly; while the
+// rules still accept that one write, this settles its stock exactly like the
+// callable (reserved → return-pending + a pending return). Remove together with
+// legacyRiderFailureWritesAllowed() in firestore.rules.
+exports.settleClientReportedFailure = onDocumentWritten(
+  { document: "orders/{orderId}", retry: true },
+  async (event) => {
+    const before = event.data?.before?.exists ? event.data.before.data() : null;
+    const after = event.data?.after?.exists ? event.data.after.data() : null;
+    const result = await failureReturn.settleClientReportedFailure({
+      db,
+      FieldValue,
+      orderId: event.params.orderId,
+      before,
+      after,
+    });
+    // Adoption telemetry for the rollout: every hit is an OLD Rider build still
+    // writing failures directly. Phase 2 (strict rules) waits until this stops.
+    // Ids only — no reason text, no personal data.
+    if (result) {
+      logger.info("legacy-rider-failure-write", {
+        orderId: event.params.orderId,
+        riderUid: after?.deliveryFailedByUid ?? null,
+        settled: result.settled === true,
+      });
+    }
+  }
+);
+
 exports.recordOrderStatusEvent = onDocumentWritten(
   // retry: a transient failure must not lose a history entry. Safe because the
   // CloudEvent id is the event document id, so a redelivery is a no-op.

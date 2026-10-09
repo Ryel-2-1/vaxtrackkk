@@ -6,6 +6,7 @@ import {
   batchIdExists,
   addStockBatch,
 } from "../../services/vaccineService";
+import { addStockBatchWithAllocation } from "../../services/inventoryCallables";
 import { parsePesosToCentavos } from "../../services/money";
 import { validateStockBatchDates } from "../../services/stockBatchDates";
 import "./AdminForms.css";
@@ -32,6 +33,9 @@ function AddStock() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("error");
+  // The server's report of what the new stock did: how much was added, how
+  // much went straight to waiting future orders (and which), and what is left.
+  const [result, setResult] = useState(null);
 
   // Duplicate-submit guard. `saving` drives the disabled button, but it is set
   // AFTER an async validation that queries Firestore for the batch id — two
@@ -180,17 +184,16 @@ function AddStock() {
 
       const cleanedBatchId = batchId.trim().toUpperCase();
       const cleanedManufacturer = manufacturer.trim();
-      const status = getBatchStatus(expiryDate);
 
       // Identity: `selectedVaccine.id` is the Firestore DOCUMENT id, kept
       // distinct from internalSku (the business SKU) and from the batch id.
-      // No storage temperature is written — none was collected.
-      await addStockBatch({
+      // No storage temperature is sent — none was collected. Name, type, SKU
+      // and the expiry-derived status are set by the SERVER from the vaccine
+      // document, which also reserves the new stock for waiting future orders
+      // in the same transaction.
+      const report = await addStockBatch({
         vaccineId: selectedVaccine.id,
-        vaccineName: selectedVaccine.vaccineName,
-        vaccineType: selectedVaccine.vaccineType,
         manufacturer: cleanedManufacturer,
-        internalSku: selectedVaccine.internalSku,
         batchId: cleanedBatchId,
         manufacturingDate,
         arrivalDate,
@@ -200,17 +203,19 @@ function AddStock() {
         // text in one place means the value written is the value validated,
         // even if the two ever drift apart.
         sellingPriceCentavos: parsePesosToCentavos(unitPrice).value,
-        status,
-      });
+      }, { submit: addStockBatchWithAllocation });
 
+      setResult(report ?? null);
       showMessage("Stock added successfully.", "success");
-
-      setTimeout(() => {
-        navigate("/admin/inventory");
-      }, 700);
     } catch (error) {
-      console.error("Add stock error:", error);
-      showMessage("Failed to add stock. Please try again.");
+      console.error("Add stock error:", error?.code || error);
+      // The server's own sentence for a domain refusal (duplicate batch id,
+      // a vaccine removed meanwhile, an invalid date) — generic otherwise.
+      showMessage(
+        error?.code && error.code !== "service-unavailable" && error.message
+          ? error.message
+          : "Failed to add stock. Please try again."
+      );
     } finally {
       submittingRef.current = false;
       setSaving(false);
@@ -440,6 +445,31 @@ function AddStock() {
                 {message}
               </p>
             )}
+
+            {result && (
+              <div className="stock-allocation-report" role="status">
+                <dl>
+                  <div><dt>Added</dt><dd className="tnum">{result.added.toLocaleString()} vials</dd></div>
+                  <div><dt>Reserved for waiting orders</dt><dd className="tnum">{result.allocatedToOrders.toLocaleString()}</dd></div>
+                  <div><dt>Left available</dt><dd className="tnum">{result.leftAvailable.toLocaleString()}</dd></div>
+                </dl>
+                {Array.isArray(result.allocations) && result.allocations.length > 0 ? (
+                  <ul>
+                    {result.allocations.map((a) => (
+                      <li key={a.orderId}>
+                        {a.orderNumber || a.orderId}: {a.units.toLocaleString()} reserved —{" "}
+                        {a.allocationState === "fully_reserved" ? "now fully reserved" : "still waiting for more stock"}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>No future orders were waiting for this vaccine.</p>
+                )}
+                <button type="button" onClick={() => navigate("/admin/inventory")}>
+                  Go to inventory
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="stock-form-footer">
@@ -480,15 +510,4 @@ function isExpiryAfterArrival(arrivalDate, expiryDate) {
   return expiry > arrival;
 }
 
-function getBatchStatus(expiryDate) {
-  const today = normalizeDate(new Date());
-  const expiry = normalizeDate(new Date(expiryDate));
-
-  const diffTime = expiry.getTime() - today.getTime();
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-  if (diffDays <= 30) return "Critical";
-  if (diffDays <= 90) return "Warning";
-  return "Stable";
-}
 export default AddStock;

@@ -88,13 +88,16 @@ writeFileSync(
 writeFileSync(join(tmp, "expiry.js"), readFileSync(join(here, "..", "src", "services", "expiry.js"), "utf8"));
 const stockBatchDatesFile = join(tmp, "stockBatchDates.mjs");
 writeFileSync(stockBatchDatesFile, readFileSync(join(here, "..", "src", "services", "stockBatchDates.js"), "utf8"));
+const vatClassificationFile = join(tmp, "vatClassification.mjs");
+writeFileSync(vatClassificationFile, readFileSync(join(here, "..", "src", "services", "vatClassification.js"), "utf8"));
 
 const original = readFileSync(servicePath, "utf8");
 const rewritten = original
   .replace('"firebase/firestore"', JSON.stringify(pathToFileURL(join(tmp, "firestore.mjs")).href))
   .replace('"../firebase"', JSON.stringify(pathToFileURL(join(tmp, "firebase.mjs")).href))
   .replace('"./stockCorrection"', JSON.stringify(pathToFileURL(stockCorrectionFile).href))
-  .replace('"./stockBatchDates"', JSON.stringify(pathToFileURL(stockBatchDatesFile).href));
+  .replace('"./stockBatchDates"', JSON.stringify(pathToFileURL(stockBatchDatesFile).href))
+  .replace('"./vatClassification"', JSON.stringify(pathToFileURL(vatClassificationFile).href));
 
 // If the service's imports are ever renamed, fail loudly rather than silently
 // testing an unrewritten (or unexecutable) module.
@@ -103,8 +106,9 @@ assert.ok(
     && !rewritten.includes('"firebase/firestore"')
     && !rewritten.includes('"../firebase"')
     && !rewritten.includes('"./stockCorrection"')
-    && !rewritten.includes('"./stockBatchDates"'),
-  "all four service imports (firestore, firebase, stockCorrection, stockBatchDates) must have been redirected to the stand-ins"
+    && !rewritten.includes('"./stockBatchDates"')
+    && !rewritten.includes('"./vatClassification"'),
+  "all five service imports (firestore, firebase, stockCorrection, stockBatchDates, vatClassification) must have been redirected to the stand-ins"
 );
 
 const serviceFile = join(tmp, "vaccineService.mjs");
@@ -122,8 +126,28 @@ function loadService() {
   state.getDocs = 0;
   state.currentUser = { uid: "admin1" };
   state.snapshot = { docs: [], empty: true };
+  // Add Stock now goes through the trusted callable (inventory creates are
+  // refused by the rules). The callable is injected as `submit`; this fake
+  // captures exactly what the page would send the server.
+  state.sent = [];
+  state.submit = (request) => {
+    state.sent.push(request);
+    return Promise.resolve({
+      inventoryId: "generated-doc-id",
+      batchId: request.batchId,
+      status: "Stable",
+      added: request.quantity,
+      allocatedToOrders: 0,
+      leftAvailable: request.quantity,
+      allocations: [],
+    });
+  };
   return {
-    mod: service,
+    mod: {
+      ...service,
+      addStockBatch: (payload, options = {}) =>
+        service.addStockBatch(payload, { submit: state.submit, ...options }),
+    },
     calls: state,
     setSnapshot: (s) => { state.snapshot = s; },
   };
@@ -163,34 +187,48 @@ const payloadFor = (vaccine) => ({
   status: "stable",
 });
 
-test("the batch is written to `inventory` with the vaccine document id as vaccineId", opts, async () => {
+test("the batch is sent to the server with the vaccine document id as vaccineId", opts, async () => {
   const { mod, calls } = await loadService();
-  await mod.addStockBatch(payloadFor(SELECTED_VACCINE));
+  const report = await mod.addStockBatch(payloadFor(SELECTED_VACCINE));
 
-  assert.equal(calls.addDoc.length, 1, "exactly one document is written");
-  assert.ok(calls.collection.includes("inventory"), "written to the inventory collection");
+  assert.equal(calls.sent.length, 1, "exactly one request is sent");
+  assert.equal(calls.addDoc.length, 0, "the client never writes inventory itself");
+  assert.equal(report.inventoryId, "generated-doc-id", "the server's report is returned");
 
-  const written = calls.addDoc[0].data;
+  const written = calls.sent[0];
   assert.equal(written.vaccineId, "AbC123RealDocId", "the document id, not the SKU or name");
   assert.notEqual(written.vaccineId, SELECTED_VACCINE.internalSku);
   assert.notEqual(written.vaccineId, SELECTED_VACCINE.vaccineName);
 });
 
-test("the selected vaccine's metadata is preserved on the batch", opts, async () => {
+test("only the fields the server accepts are sent — catalog metadata is the server's", opts, async () => {
+  // Name, type, SKU and status are read server-side from the vaccine document
+  // and the expiry; a client-supplied copy could only ever disagree with it.
   const { mod, calls } = await loadService();
   await mod.addStockBatch(payloadFor(SELECTED_VACCINE));
-  const w = calls.addDoc[0].data;
+  const w = calls.sent[0];
 
-  assert.equal(w.vaccineName, "Comirnaty BNT162b2");
-  assert.equal(w.vaccineType, "mRNA");
+  assert.deepEqual(Object.keys(w).sort(), [
+    "arrivalDate", "batchId", "expiryDate", "manufacturer", "manufacturingDate",
+    "quantity", "sellingPriceCentavos", "vaccineId",
+  ]);
   assert.equal(w.manufacturer, "Pfizer-BioNTech");
-  assert.equal(w.internalSku, "VXT-123-ABCDE");
+  for (const forbidden of ["vaccineName", "vaccineType", "internalSku", "status", "reservedQuantity", "createdAt"]) {
+    assert.ok(!(forbidden in w), `${forbidden} is never sent`);
+  }
+});
+
+test("stock cannot be added without the server callable", opts, async () => {
+  await assert.rejects(
+    () => service.addStockBatch(payloadFor(SELECTED_VACCINE)),
+    { message: "Stock can only be added through the server." }
+  );
 });
 
 test("batch id, both dates and the quantity arrive unaltered", opts, async () => {
   const { mod, calls } = await loadService();
   await mod.addStockBatch(payloadFor(SELECTED_VACCINE));
-  const w = calls.addDoc[0].data;
+  const w = calls.sent[0];
 
   assert.equal(w.batchId, "BATCH-QA-0001");
   assert.equal(w.manufacturingDate, MFG);
@@ -198,15 +236,13 @@ test("batch id, both dates and the quantity arrive unaltered", opts, async () =>
   assert.equal(w.expiryDate, EXPIRY);
   assert.equal(w.quantity, 1200);
   assert.equal(typeof w.quantity, "number", "quantity must stay numeric");
-  assert.equal(w.status, "stable");
-  assert.equal(w.createdAt, "__SERVER_TIMESTAMP__", "createdAt is server-stamped");
 });
 
 test("NO storage temperature is written — not a value, not a placeholder", opts, async () => {
   const { mod, calls } = await loadService();
   // Even if a caller still tried to pass one, the service must not forward it.
   await mod.addStockBatch({ ...payloadFor(SELECTED_VACCINE), storageTemp: "2-8°C" });
-  const w = calls.addDoc[0].data;
+  const w = calls.sent[0];
 
   assert.ok(!("storageTemp" in w), "storageTemp must be absent from the document");
   assert.ok(!("storageTempDisplay" in w), "storageTempDisplay must be absent");
@@ -216,17 +252,14 @@ test("NO storage temperature is written — not a value, not a placeholder", opt
   }
 });
 
-test("an absent internalSku degrades to an empty string rather than undefined", opts, async () => {
-  // addDoc rejects undefined, so this guard is what keeps the write alive for a
-  // vaccine registered without a SKU.
+test("a blank manufacturer is omitted rather than sent as undefined or empty", opts, async () => {
+  // The server falls back to the vaccine's own manufacturer when none is given.
   const { mod, calls } = await loadService();
-  const p = payloadFor(SELECTED_VACCINE);
-  delete p.internalSku;
-  await mod.addStockBatch(p);
+  await mod.addStockBatch({ ...payloadFor(SELECTED_VACCINE), manufacturer: "   " });
 
-  assert.equal(calls.addDoc[0].data.internalSku, "");
-  for (const [k, v] of Object.entries(calls.addDoc[0].data)) {
-    assert.notEqual(v, undefined, `${k} must never be undefined — addDoc rejects it`);
+  assert.ok(!("manufacturer" in calls.sent[0]));
+  for (const [k, v] of Object.entries(calls.sent[0])) {
+    assert.notEqual(v, undefined, `${k} must never be undefined`);
   }
 });
 
@@ -263,18 +296,15 @@ test("batchIdExists reports duplicates from the query result, not from a guess",
 // Firestore. The rules refuse one too, and the callable refuses to sell it —
 // but a price that got stored is a price something will eventually read.
 
-test("a batch is written with its VAT-exclusive selling price and currency", opts, async () => {
+test("a batch is sent with its VAT-exclusive selling price in centavos", opts, async () => {
+  // Currency and VAT-exclusivity are stamped by the server (PHP, exclusive);
+  // the client sends only the figure, which the server re-validates.
   const { mod, calls } = await loadService();
   await mod.addStockBatch(payloadFor(SELECTED_VACCINE));
-  const w = calls.addDoc[0].data;
+  const w = calls.sent[0];
 
   assert.equal(w.sellingPriceCentavos, 125000, "integer centavos, exactly as given");
-  assert.equal(w.priceCurrency, "PHP");
-  assert.equal(
-    w.priceIsVatInclusive,
-    false,
-    "recorded, not implied — the invoice adds 12% on top of this figure"
-  );
+  assert.ok(!("priceCurrency" in w) && !("priceIsVatInclusive" in w), "set by the server");
 });
 
 test("a batch cannot be created without a usable price", opts, async () => {
@@ -287,7 +317,7 @@ test("a batch cannot be created without a usable price", opts, async () => {
       `refused: ${String(bad)}`
     );
   }
-  assert.equal(calls.addDoc.length, 0, "not one of them reached Firestore");
+  assert.equal(calls.sent.length, 0, "not one of them reached the server");
 });
 
 test("updateStockPrice re-prices one batch and records who and when", opts, async () => {
@@ -373,18 +403,18 @@ test("a signed-out caller records no uid rather than a forged one", opts, async 
 test("a valid manufacturing date is written as the date-only string", opts, async () => {
   const { mod, calls } = await loadService();
   await mod.addStockBatch(payloadFor(SELECTED_VACCINE));
-  assert.equal(calls.addDoc.length, 1);
-  assert.equal(calls.addDoc[0].data.manufacturingDate, MFG);
-  assert.match(calls.addDoc[0].data.manufacturingDate, /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(calls.sent.length, 1);
+  assert.equal(calls.sent[0].manufacturingDate, MFG);
+  assert.match(calls.sent[0].manufacturingDate, /^\d{4}-\d{2}-\d{2}$/);
 });
 
 test("manufacturing equal to arrival is accepted", opts, async () => {
   const { mod, calls } = await loadService();
   await mod.addStockBatch({ ...payloadFor(SELECTED_VACCINE), manufacturingDate: ARRIVAL });
-  assert.equal(calls.addDoc[0].data.manufacturingDate, ARRIVAL);
+  assert.equal(calls.sent[0].manufacturingDate, ARRIVAL);
 });
 
-test("every invalid manufacturing date is refused before any Firestore write", opts, async () => {
+test("every invalid manufacturing date is refused before anything is sent", opts, async () => {
   const cases = [
     [undefined, "Enter the manufacturing date."],
     ["", "Enter the manufacturing date."],
@@ -400,7 +430,7 @@ test("every invalid manufacturing date is refused before any Firestore write", o
       { message },
       String(manufacturingDate)
     );
-    assert.equal(calls.addDoc.length, 0, `no write for ${manufacturingDate}`);
+    assert.equal(calls.sent.length, 0, `nothing sent for ${manufacturingDate}`);
   }
 });
 
@@ -417,5 +447,46 @@ test("a manufacturing date on or after the expiry date is refused", opts, async 
       expiryDate
     );
   }
-  assert.equal(calls.addDoc.length, 0);
+  assert.equal(calls.sent.length, 0);
+});
+
+// ---------------------------------------------------------------- VAT classification (vaccine products)
+
+const VACCINE = { vaccineName: "Sample Vaccine", manufacturer: "Maker", vaccineType: "Influenza", internalSku: "VXT-123-ABCDE" };
+
+test("registering a vaccine requires vatable or vat_exempt, and writes nothing otherwise", opts, async () => {
+  for (const vatClassification of [undefined, "", "VAT", "zero_rated", null]) {
+    const { mod, calls } = await loadService();
+    await assert.rejects(() => mod.addVaccine({ ...VACCINE, vatClassification }), { message: "Select VAT or VAT Exempt for this vaccine." });
+    assert.equal(calls.addDoc.length, 0, String(vatClassification));
+  }
+  for (const vatClassification of ["vatable", "vat_exempt"]) {
+    const { mod, calls } = await loadService();
+    await mod.addVaccine({ ...VACCINE, vatClassification });
+    assert.equal(calls.addDoc.length, 1);
+    assert.equal(calls.addDoc[0].data.vatClassification, vatClassification);
+    // Name, manufacturer, type and SKU are written exactly as before.
+    for (const key of Object.keys(VACCINE)) assert.equal(calls.addDoc[0].data[key], VACCINE[key], key);
+  }
+});
+
+test("classifying an existing product records the value, when, and who (from the session)", opts, async () => {
+  const { mod, calls } = await loadService();
+  await mod.setVaccineVatClassification("legacyVaccineId", "vat_exempt");
+  assert.equal(calls.updateDoc.length, 1);
+  assert.deepEqual(calls.updateDoc[0].data, {
+    vatClassification: "vat_exempt",
+    vatClassificationSetAt: "__SERVER_TIMESTAMP__",
+    vatClassificationSetByUid: "admin1",
+  });
+  assert.deepEqual(calls.doc.at(-1), { name: "vaccines", id: "legacyVaccineId" });
+});
+
+test("an invalid classification or a missing session writes nothing", opts, async () => {
+  const { mod, calls } = await loadService();
+  await assert.rejects(() => mod.setVaccineVatClassification("v1", "zero_rated"));
+  await assert.rejects(() => mod.setVaccineVatClassification("bad/id", "vatable"));
+  calls.currentUser = null;
+  await assert.rejects(() => mod.setVaccineVatClassification("v1", "vatable"), { message: "Your session has expired. Please sign in again." });
+  assert.equal(calls.updateDoc.length, 0);
 });

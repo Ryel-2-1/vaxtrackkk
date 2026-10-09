@@ -6,7 +6,8 @@ import app from "../firebase";
  *
  * Order creation, cancellation and delivery move stock, so they are no longer
  * client writes at all — Firestore rules now refuse each of them directly.
- * These three wrappers are the only way to perform them.
+ * These wrappers are the only way to perform them — and, for future orders,
+ * the only way stock is added, returned or reallocated.
  *
  * The region must match the deployed functions (asia-southeast1, the same
  * region as staging Firestore); a mismatch fails at call time rather than
@@ -20,6 +21,10 @@ function callables() {
     create: httpsCallable(fns, "createOrderWithReservation"),
     cancel: httpsCallable(fns, "cancelOrderWithInventoryRelease"),
     deliver: httpsCallable(fns, "markOrderDeliveredWithInventoryConsumption"),
+    addStock: httpsCallable(fns, "addStockBatchWithAllocation"),
+    disposition: httpsCallable(fns, "confirmReturnDisposition"),
+    requeue: httpsCallable(fns, "requeueFailedOrder"),
+    provenance: httpsCallable(fns, "getReservationProvenance"),
   };
 }
 
@@ -137,6 +142,85 @@ export async function markOrderDeliveredWithInventoryConsumption(orderId) {
 }
 
 /**
+ * Admin: add a stock batch. The server creates the batch, then — in the SAME
+ * transaction — reserves it for waiting future orders in priority order (FEFO
+ * per product). Resolves `{ inventoryId, batchId, status, added,
+ * allocatedToOrders, leftAvailable, allocations }`.
+ *
+ * Only the fields the server accepts are sent; catalog values (name, type,
+ * VAT) are read server-side from the vaccine document.
+ */
+export async function addStockBatchWithAllocation({
+  vaccineId,
+  batchId,
+  manufacturingDate,
+  arrivalDate,
+  expiryDate,
+  quantity,
+  sellingPriceCentavos,
+  manufacturer,
+}) {
+  try {
+    const result = await callables().addStock({
+      vaccineId,
+      batchId,
+      manufacturingDate,
+      arrivalDate,
+      expiryDate,
+      quantity,
+      sellingPriceCentavos,
+      ...(manufacturer ? { manufacturer } : {}),
+    });
+    return result.data;
+  } catch (error) {
+    return rethrow(error);
+  }
+}
+
+/**
+ * Admin: decide what happens to stock returned by a failed delivery.
+ * `disposition` is one of usable | damaged | temperature_excursion | missing.
+ * Usable stock is restored and immediately reallocated to waiting orders;
+ * the rest is quarantined or written off and never allocated.
+ */
+export async function confirmReturnDisposition(returnId, disposition, notes) {
+  try {
+    const result = await callables().disposition({
+      returnId,
+      disposition,
+      ...(notes && notes.trim() ? { notes: notes.trim() } : {}),
+    });
+    return result.data;
+  } catch (error) {
+    return rethrow(error);
+  }
+}
+
+/**
+ * Dispatcher: put a failed order back into the dispatch queue. Its stock was
+ * returned at failure, so it re-enters allocation and waits to be fully
+ * reserved again before it can be assigned.
+ */
+export async function requeueFailedOrder(orderId) {
+  try {
+    const result = await callables().requeue({ orderId });
+    return result.data;
+  } catch (error) {
+    return rethrow(error);
+  }
+}
+
+/** Admin: which orders and returns account for a batch's held units. */
+export async function getReservationProvenance(inventoryId) {
+  try {
+    const result = await callables().provenance({ inventoryId });
+    return result.data;
+  } catch (error) {
+    return rethrow(error);
+  }
+}
+
+/**
  * Available stock for a batch, derived — never stored.
  *
  * A persisted `availableQuantity` would be a third number that has to be kept
@@ -149,10 +233,12 @@ export function availableStock(batch) {
   if (typeof onHand !== "number" || !Number.isInteger(onHand) || onHand < 0) {
     return null; // legacy string quantity, or corrupt
   }
-  const reserved = batch?.reservedQuantity;
-  if (reserved === undefined || reserved === null) return onHand;
-  if (typeof reserved !== "number" || !Number.isInteger(reserved) || reserved < 0) {
-    return null;
+  // Reserved, return-pending and quarantined units are on hand but not free.
+  let held = 0;
+  for (const raw of [batch?.reservedQuantity, batch?.returnPendingQuantity, batch?.quarantinedQuantity]) {
+    if (raw === undefined || raw === null) continue;
+    if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0) return null;
+    held += raw;
   }
-  return Math.max(onHand - reserved, 0);
+  return Math.max(onHand - held, 0);
 }

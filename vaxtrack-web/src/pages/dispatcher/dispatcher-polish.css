@@ -483,3 +483,20 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
     width: 100%;
   }
 }
+
+/* Future orders not yet fully reserved: the Assign button is disabled and the
+   shortage is explained in words beside it (never by colour alone). */
+.dispatcher-main .dispatcher-dash-assign-btn:disabled {
+  background: var(--gray-200);
+  color: var(--gray-600);
+  cursor: not-allowed;
+}
+
+.dispatcher-main .dispatcher-stock-block {
+  display: block;
+  max-width: 260px;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--warning-text);
+}

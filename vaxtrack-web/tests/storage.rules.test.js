@@ -56,6 +56,9 @@ const ORDER_DELIVERED = "orderDelivered";
 const ORDER_CANCELLED = "orderCancelled";
 const ORDER_PROOF_FINAL = "orderProofFinal";     // proofSubmittedAt recorded
 const ORDER_INVOICE_FINAL = "orderInvoiceFinal"; // invoiceSubmittedAt recorded
+// Assigned to rider1, in transit, and NO object ever uploaded — the state the
+// proof screen's "earlier upload?" check runs against on a first visit.
+const ORDER_RECOVERY = "orderRecoveryCheck";
 
 let passed = 0;
 let failed = 0;
@@ -70,6 +73,12 @@ async function check(name, fn) {
     failed += 1;
     failures.push(`${name} -> ${e.message}`);
     console.log(`  FAIL  ${name}`);
+  }
+}
+
+function assertEqual(actual, expected, label = "") {
+  if (actual !== expected) {
+    throw new Error(`${label ? label + ": " : ""}expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
   }
 }
 
@@ -424,6 +433,110 @@ async function main() {
     await assertFails(
       fileFor(adminUid, proofPath(ORDER_A)).put(Buffer.from(imageBytes), imageMeta)
     );
+  });
+
+  console.log("\n--- Storage rules: earlier-upload recovery check ---");
+
+  // The Rider app's ProofScreen calls getDownloadURL() on the canonical proof
+  // object when it opens, to recover an upload whose metadata save failed.
+  // On a first visit there is no object. Storage evaluates the READ rule
+  // first: if it allows, the caller gets object-not-found (404, "nothing
+  // pending"); if it denies, unauthorized (403). So for the assigned rider a
+  // 403 can never mean "no photo yet" — it means the rules refused them.
+  //
+  // The physical-phone staging run got exactly that 403 for a rider whose
+  // assigned deliveries were loading fine, i.e. whose users doc and order
+  // assignment satisfy the identical Firestore checks. These cases pin the
+  // rules' half of that contract; see the header of storage.rules for the
+  // live-only cause (the cross-service IAM role).
+
+  const codeOf = async (promise) => {
+    try {
+      await promise;
+      return "ok";
+    } catch (e) {
+      return e.code;
+    }
+  };
+
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().doc(`orders/${ORDER_RECOVERY}`).set({
+      status: "in_transit", assignedRiderId: riderUid, createdByUid: salesRepUid,
+    });
+  });
+
+  await check("PS15 the assigned rider's recovery check on a fresh order is ALLOWED (404, not 403)", async () => {
+    const ref = fileFor(riderUid, proofPath(ORDER_RECOVERY));
+    assertEqual(await codeOf(ref.getDownloadURL()), "storage/object-not-found");
+    assertEqual(await codeOf(ref.getMetadata()), "storage/object-not-found");
+    assertEqual(
+      await codeOf(fileFor(riderUid, invoicePath(ORDER_RECOVERY)).getDownloadURL()),
+      "storage/object-not-found"
+    );
+  });
+
+  await check("PS16 admin and dispatcher checks on a fresh order are ALLOWED (404)", async () => {
+    for (const uid of [adminUid, dispatcherUid]) {
+      assertEqual(
+        await codeOf(fileFor(uid, proofPath(ORDER_RECOVERY)).getDownloadURL()),
+        "storage/object-not-found",
+        uid
+      );
+    }
+  });
+
+  await check("NS36 an unassigned or unapproved rider's check is REFUSED (403) even with no object", async () => {
+    for (const uid of [otherRiderUid, pendingRiderUid, disabledRiderUid, rejectedRiderUid, null]) {
+      assertEqual(
+        await codeOf(fileFor(uid, proofPath(ORDER_RECOVERY)).getDownloadURL()),
+        "storage/unauthorized",
+        String(uid)
+      );
+    }
+  });
+
+  await check("NS37 a rider with no readable users doc is REFUSED (403) — the cross-service failure mode", async () => {
+    // Every identity test in storage.rules is a firestore.get(). When that read
+    // cannot be made — no users doc here; live, a Storage service agent missing
+    // roles/firebaserules.firestoreServiceAgent — the rule errors and Storage
+    // denies. Even a correctly assigned uid gets the 403 the phone saw.
+    const ghost = "riderWithoutProfile";
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await ctx.firestore().doc("orders/orderGhostRider").set({
+        status: "in_transit", assignedRiderId: ghost, createdByUid: salesRepUid,
+      });
+    });
+    assertEqual(
+      await codeOf(fileFor(ghost, proofPath("orderGhostRider")).getDownloadURL()),
+      "storage/unauthorized"
+    );
+  });
+
+  await check("NS38 the recovery check on a non-canonical path is REFUSED, not reported missing", async () => {
+    for (const path of [
+      proofPath(ORDER_RECOVERY, "Proof.jpg"),
+      proofPath(ORDER_RECOVERY, "proof.png"),
+      `proof_of_delivery/${ORDER_RECOVERY}/nested/proof.jpg`,
+      `proof_of_delivery/${ORDER_RECOVERY}`,
+    ]) {
+      assertEqual(await codeOf(fileFor(riderUid, path).getDownloadURL()), "storage/unauthorized", path);
+    }
+  });
+
+  await check("PS17 proof replacement: a retry overwrites in place and the rider reads the new object", async () => {
+    const ref = fileFor(riderUid, proofPath(ORDER_RECOVERY));
+    await assertSucceeds(ref.put(Buffer.from(imageBytes), imageMeta));
+    const replacement = new Uint8Array(imageBytes.length + 6).fill(0xff);
+    await assertSucceeds(ref.put(Buffer.from(replacement), imageMeta));
+    const meta = await assertSucceeds(ref.getMetadata());
+    assertEqual(meta.size, replacement.length, "the stored object is the replacement");
+    assertEqual(meta.name, "proof.jpg", "still the one canonical object");
+    await assertSucceeds(ref.getDownloadURL());
+    // ...and the recovery check now finds it instead of 404.
+    assertEqual(await codeOf(ref.getDownloadURL()), "ok");
+    // Nobody else may replace it.
+    await assertFails(fileFor(otherRiderUid, proofPath(ORDER_RECOVERY)).put(Buffer.from(imageBytes), imageMeta));
+    await assertFails(fileFor(adminUid, proofPath(ORDER_RECOVERY)).put(Buffer.from(imageBytes), imageMeta));
   });
 
   console.log("\n--- Storage rules: evidence replacement policy ---");

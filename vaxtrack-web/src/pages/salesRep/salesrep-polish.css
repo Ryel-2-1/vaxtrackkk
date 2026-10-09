@@ -660,3 +660,21 @@ aside.salesrep-sidebar .salesrep-logout {
   border: 1px solid var(--warning-border);
   color: var(--warning-text);
 }
+
+/* Request Order — product VAT classification chip. */
+.salesrep-main .product-vat {
+  display: inline-flex;
+  align-self: flex-start;
+  margin: 6px 0 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--green-50);
+  color: var(--green-800);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.salesrep-main .product-vat.unclassified {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}

@@ -134,9 +134,10 @@ test("the vaccine document id is authoritative and never shadowed", () => {
 
 test("document id is not conflated with SKU, name or batch id", () => {
   // vaccineId is the document id; internalSku is the business SKU; batchId is
-  // the operator's batch reference. Three distinct values.
+  // the operator's batch reference. Three distinct values. The SKU is no
+  // longer sent at all: the server copies it from the vaccine document.
   assert.match(addStock, /vaccineId: selectedVaccine\.id/);
-  assert.match(addStock, /internalSku: selectedVaccine\.internalSku/);
+  assert.doesNotMatch(addStock, /internalSku:/);
   assert.match(addStock, /batchId: cleanedBatchId/);
   assert.doesNotMatch(addStock, /vaccineId: selectedVaccine\.internalSku/);
   assert.doesNotMatch(addStock, /internalSku: selectedVaccine\.id/);

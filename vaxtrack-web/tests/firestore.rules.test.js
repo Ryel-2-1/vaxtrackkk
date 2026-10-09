@@ -29,6 +29,7 @@ import {
   getDocs,
   query,
   where,
+  orderBy,
   serverTimestamp,
   runTransaction,
   Timestamp,
@@ -463,6 +464,10 @@ async function main() {
     await seedOrder("evCancelled", {
       createdByUid: salesRepUid, status: "cancelled", assignedRiderId: riderUid,
     });
+    await seedOrder("evFailed", {
+      createdByUid: salesRepUid, status: "delivery_failed", assignedRiderId: riderUid,
+      deliveryFailureReason: "Clinic closed",
+    });
     // Already proven: the one-shot marker is present.
     await seedOrder("evFinalized", {
       createdByUid: salesRepUid, status: "in_transit", assignedRiderId: riderUid,
@@ -598,11 +603,10 @@ async function main() {
   });
 
   await check("P3 admin writes inventory/clinics/alerts", async () => {
-    // A new stock batch is now field-validated: an INTEGER quantity, zero
-    // reserved, and the identity fields a batch cannot be ordered without.
-    // The bare `{ vaccineName: "Y" }` this used to write is exactly the shape
-    // that produced staging's hand-seeded string quantities.
-    await assertSucceeds(setDoc(doc(admin, "inventory", "invAdmin"), {
+    // New stock arrives through addStockBatchWithAllocation (batch + allocation
+    // in one server transaction), so even a well-formed admin client create is
+    // refused. The batch the later cases use is seeded as the server would.
+    const invAdminData = {
       vaccineName: "Y",
       batchId: "ADM-0001",
       manufacturingDate: "2026-08-01",
@@ -611,7 +615,11 @@ async function main() {
       quantity: 100,
       reservedQuantity: 0,
       sellingPriceCentavos: 125000,
-    }));
+    };
+    await assertFails(setDoc(doc(admin, "inventory", "invAdmin"), invAdminData));
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "inventory", "invAdmin"), invAdminData)
+    );
     await assertSucceeds(setDoc(doc(admin, "clinics", "clAdmin"), {
       name: "C",
       areaId: "seed-area",
@@ -641,6 +649,9 @@ async function main() {
       assignedAt: serverTimestamp(),
       assignedByUid: dispatcherUid,
       assignedByEmail: "d@x.com",
+      statusUpdatedAt: serverTimestamp(),
+      statusUpdatedByUid: dispatcherUid,
+      statusUpdatedByEmail: "d@x.com",
       updatedAt: "t",
     }));
   });
@@ -2250,6 +2261,9 @@ async function main() {
     assignedRiderName: "QA Rider",
     assignedAt: serverTimestamp(),
     assignedByUid: dispatcherUid,
+    statusUpdatedAt: serverTimestamp(),
+    statusUpdatedByUid: dispatcherUid,
+    statusUpdatedByEmail: "dispatcher@x.com",
     updatedAt: serverTimestamp(),
     ...over,
   });
@@ -2410,6 +2424,162 @@ async function main() {
       assignment(riderUid, { clinicLat: 1.23 })));
     // and the plain assignment on the same order still succeeds
     await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordAssignLater"), assignment(riderUid)));
+  });
+
+  // The assignment's status attribution. Without it the Assigned history event
+  // had no actor and Activity kept naming the previous writer, so it is now
+  // required — server-stamped, and naming the dispatcher who made the write.
+  await check("Nassign-audit an assignment must carry the caller's own server-stamped status audit", async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "orders", "ordAssignAudit"), {
+        orderNumber: "VT-ORD-AUDIT", status: "pending_dispatch", assignedRiderId: null,
+        createdByUid: salesRepUid, requestedDeliveryDate: FIXTURE_DELIVERY_DATE,
+      })
+    );
+    const ref = doc(dispatcher, "orders", "ordAssignAudit");
+    const { statusUpdatedAt, statusUpdatedByUid, statusUpdatedByEmail, ...withoutAudit } = assignment(riderUid);
+    void statusUpdatedAt; void statusUpdatedByUid; void statusUpdatedByEmail;
+    await assertFails(updateDoc(ref, withoutAudit));
+    await assertFails(updateDoc(ref, assignment(riderUid, { statusUpdatedByUid: adminUid })));
+    await assertFails(updateDoc(ref, assignment(riderUid, { statusUpdatedByUid: riderUid })));
+    await assertFails(updateDoc(ref, assignment(riderUid, {
+      statusUpdatedAt: Timestamp.fromDate(new Date("2026-01-01T00:00:00Z")),
+    })));
+    // The honest one succeeds — with or without an email.
+    const { statusUpdatedByEmail: _email, ...noEmail } = assignment(riderUid);
+    void _email;
+    await assertSucceeds(updateDoc(ref, noEmail));
+  });
+
+  // ---------------------------------------------------------------- allocation (version 2)
+  //
+  // Backorder-aware orders (functions/src/allocation.js). The server computes
+  // every reservation figure; a dispatcher may move an order forward only once
+  // every line is fully reserved; return/quarantine counters and return
+  // records are server-only.
+  const allocOrder = (state, over = {}) => ({
+    orderNumber: `VT-ALLOC-${state}`,
+    status: "pending_dispatch",
+    assignedRiderId: null,
+    createdByUid: salesRepUid,
+    requestedDeliveryDate: FIXTURE_DELIVERY_DATE,
+    allocationVersion: 2,
+    allocationStatus: "reserved",
+    allocationOpen: true,
+    allocationState: state,
+    backorderedProductKeys: state === "fully_reserved" ? [] : ["prodA"],
+    items: [{ inventoryId: "invA", productKey: "prodA", quantity: 10, reservedQuantity: state === "fully_reserved" ? 10 : 4, backorderedQuantity: state === "fully_reserved" ? 0 : 6 }],
+    ...over,
+  });
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const fdb = ctx.firestore();
+    await setDoc(doc(fdb, "orders", "allocAwaiting"), allocOrder("awaiting_stock", { items: [{ inventoryId: "invA", productKey: "prodA", quantity: 10, reservedQuantity: 0, backorderedQuantity: 10 }] }));
+    await setDoc(doc(fdb, "orders", "allocPartial"), allocOrder("partially_reserved"));
+    await setDoc(doc(fdb, "orders", "allocFull"), allocOrder("fully_reserved"));
+    await setDoc(doc(fdb, "orders", "allocPartialAssigned"), allocOrder("partially_reserved", { status: "assigned", assignedRiderId: riderUid }));
+    await setDoc(doc(fdb, "orders", "allocPartialLoading"), allocOrder("partially_reserved", { status: "loading", assignedRiderId: riderUid, isLoaded: true }));
+  });
+
+  await check("ALLOC1 a backordered order cannot be assigned; a fully reserved one can", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "allocAwaiting"), assignment(riderUid)));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "allocPartial"), assignment(riderUid)));
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "allocFull"), assignment(riderUid)));
+  });
+
+  await check("ALLOC2 loading and dispatch are refused for an order that is not fully reserved", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "allocPartialAssigned"), {
+      status: "loading", isLoaded: true, loadedAt: serverTimestamp(),
+      statusUpdatedAt: serverTimestamp(), statusUpdatedByUid: dispatcherUid, updatedAt: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "allocPartialLoading"), {
+      status: "in_transit", dispatchedAt: serverTimestamp(), startedAt: serverTimestamp(),
+      statusUpdatedAt: serverTimestamp(), statusUpdatedByUid: dispatcherUid, updatedAt: serverTimestamp(),
+    }));
+  });
+
+  await check("ALLOC3 no client — Admin included — can forge reservation or allocation fields", async () => {
+    const forged = [
+      { allocationState: "fully_reserved" },
+      { backorderedProductKeys: [] },
+      { allocationOpen: false },
+      { allocationPriorityKey: "0|2000-01-01|00:00|000000000000000|allocPartial" },
+      { items: [{ inventoryId: "invA", productKey: "prodA", quantity: 10, reservedQuantity: 10, backorderedQuantity: 0 }] },
+      { allocationStatus: "consumed" },
+      { failureCount: 0 },
+      { pendingReturnId: "x" },
+      { requeuedByUid: dispatcherUid },
+    ];
+    for (const db of [admin, dispatcher, salesRep, rider]) {
+      for (const data of forged) {
+        await assertFails(updateDoc(doc(db, "orders", "allocPartial"), { ...data, updatedAt: serverTimestamp() }));
+      }
+    }
+  });
+
+  await check("ALLOC4 no client moves return/quarantine counters; a correction respects them", async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "inventory", "invReturning"), {
+        vaccineId: "prodA", vaccineName: "A", batchId: "RET-1", expiryDate: "2027-12-31",
+        manufacturingDate: "2026-08-01", arrivalDate: "2026-09-01", status: "Stable",
+        quantity: 20, reservedQuantity: 5, returnPendingQuantity: 3, quarantinedQuantity: 2,
+        sellingPriceCentavos: 125000,
+      })
+    );
+    for (const db of [admin, dispatcher, salesRep, rider]) {
+      for (const data of [{ returnPendingQuantity: 0 }, { quarantinedQuantity: 0 }, { writtenOffQuantity: 1 }]) {
+        await assertFails(updateDoc(doc(db, "inventory", "invReturning"), data));
+      }
+    }
+    const correction = (quantity) => ({
+      quantity,
+      previousQuantity: 20,
+      quantityCorrectedAt: serverTimestamp(),
+      quantityCorrectedByUid: adminUid,
+      quantityCorrectionReason: "Recount",
+      updatedAt: serverTimestamp(),
+    });
+    // 5 reserved + 3 return-pending + 2 quarantined = 10 must stay on hand.
+    await assertFails(updateDoc(doc(admin, "inventory", "invReturning"), correction(9)));
+    await assertSucceeds(updateDoc(doc(admin, "inventory", "invReturning"), correction(10)));
+  });
+
+  await check("ALLOC5 return records: Admin and Dispatcher read, nobody writes", async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "inventoryReturns", "ret1"), {
+        orderId: "allocPartial", status: "pending", items: [{ inventoryId: "invReturning", quantity: 3 }],
+        inventoryIds: ["invReturning"],
+      })
+    );
+    await assertSucceeds(getDoc(doc(admin, "inventoryReturns", "ret1")));
+    await assertSucceeds(getDoc(doc(dispatcher, "inventoryReturns", "ret1")));
+    await assertFails(getDoc(doc(salesRep, "inventoryReturns", "ret1")));
+    await assertFails(getDoc(doc(rider, "inventoryReturns", "ret1")));
+    for (const db of [admin, dispatcher, salesRep, rider]) {
+      await assertFails(updateDoc(doc(db, "inventoryReturns", "ret1"), { status: "resolved", disposition: "usable" }));
+      await assertFails(setDoc(doc(db, "inventoryReturns", "forged"), { status: "pending" }));
+    }
+  });
+
+  await check("ALLOC5b allocation continuations are server-only (no client reads or writes)", async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "allocationContinuations", "prodA"), { productKey: "prodA", status: "pending", generation: 1 })
+    );
+    for (const db of [admin, dispatcher, salesRep, rider]) {
+      await assertFails(getDoc(doc(db, "allocationContinuations", "prodA")));
+      await assertFails(setDoc(doc(db, "allocationContinuations", "prodA"), { status: "done" }));
+      await assertFails(setDoc(doc(db, "allocationContinuations", "prodB"), { status: "pending", orderCursor: "0|" }));
+    }
+  });
+
+  await check("ALLOC6 a batch holding reserved, return-pending or quarantined units cannot be deleted", async () => {
+    await assertFails(deleteDoc(doc(admin, "inventory", "invReturning")));
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "inventory", "invEmpty"), {
+        vaccineId: "prodA", batchId: "EMPTY-1", quantity: 0, reservedQuantity: 0,
+        returnPendingQuantity: 0, quarantinedQuantity: 0,
+      })
+    );
+    await assertSucceeds(deleteDoc(doc(admin, "inventory", "invEmpty")));
   });
 
   // =========================================================================
@@ -2591,6 +2761,44 @@ async function main() {
     await assertFails(updateDoc(doc(rider, "orders", "lcTransit3"), complete())); // delayed
   });
 
+  // "Submit Proof & Complete Delivery" records both photos and then calls the
+  // completion callable. Recorded evidence must not open a client path to
+  // `delivered`: the callable (which consumes stock) stays the only writer.
+  await check("Nlock3b complete recorded evidence still lets NO client write delivered", async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "orders", "lcEvidenceReady"), {
+        orderNumber: "VT-ORD-EVREADY",
+        status: "in_transit",
+        createdByUid: salesRepUid,
+        assignedRiderId: riderUid,
+        requestedDeliveryDate: FIXTURE_DELIVERY_DATE,
+        proofOfDeliveryUrl: "https://storage/lcEvidenceReady/proof.jpg",
+        proofOfDeliveryPath: "proof_of_delivery/lcEvidenceReady/proof.jpg",
+        proofRecipientName: "Maria Santos",
+        proofSubmittedAt: Timestamp.fromDate(new Date("2026-10-05T09:01:53Z")),
+        proofSubmittedByUid: riderUid,
+        invoiceUrl: "https://storage/lcEvidenceReady/invoice.jpg",
+        invoicePath: "invoices/lcEvidenceReady/invoice.jpg",
+        invoiceSubmittedAt: Timestamp.fromDate(new Date("2026-10-05T09:01:56Z")),
+        invoiceSubmittedByUid: riderUid,
+      })
+    );
+    const anon = testEnv.unauthenticatedContext().firestore();
+    for (const [db, uid] of [[rider, riderUid], [dispatcher, dispatcherUid], [admin, adminUid], [salesRep, salesRepUid], [anon, null]]) {
+      await assertFails(updateDoc(doc(db, "orders", "lcEvidenceReady"), {
+        status: "delivered",
+        deliveredAt: serverTimestamp(),
+        statusUpdatedAt: serverTimestamp(),
+        statusUpdatedByUid: uid,
+        updatedAt: serverTimestamp(),
+      }));
+    }
+    // ...and the stock-consumption marker cannot be forged alongside it either.
+    await assertFails(updateDoc(doc(rider, "orders", "lcEvidenceReady"), {
+      allocationStatus: "consumed", consumedByUid: riderUid, updatedAt: serverTimestamp(),
+    }));
+  });
+
   await check("Plc8 rider location writes still need no status change", async () => {
     // Continuous tracking is unchanged by this checkpoint.
     await assertSucceeds(updateDoc(doc(rider, "orders", "lcTransit5"), {
@@ -2681,7 +2889,8 @@ async function main() {
   // Failed delivery + dispatcher recovery (workflow checkpoint 3)
   //
   // Rider:      in_transit | delayed → delivery_failed (reason required)
-  // Dispatcher: delivery_failed → assigned (approved rider) | cancelled
+  // Dispatcher: delivery_failed → pending_dispatch (requeueFailedOrder) |
+  //             cancelled — both SERVER-only; no client recovery write exists.
   // =========================================================================
 
   const failWith = (reason) => ({
@@ -2706,12 +2915,27 @@ async function main() {
 
   // ---- rider failure: allowed ----
 
-  await check("Pfd1 assigned rider reports failure from in_transit", async () => {
+  // A failure moves the reserved units to return-pending, so new Rider builds
+  // report it through reportDeliveryFailure. DURING THE ROLLOUT WINDOW
+  // (legacyRiderFailureWritesAllowed() == true) the old builds' direct write is
+  // still accepted, in exactly the old shape — the settleClientReportedFailure
+  // trigger then moves the stock. Strict mode refuses it: see "STRICT" below.
+  await check("Pfd1 (compat window) an old Rider build may still mark in_transit failed directly", async () => {
     await assertSucceeds(updateDoc(doc(rider, "orders", "fdTransit"), failWith("Clinic closed")));
   });
 
-  await check("Pfd2 assigned rider reports failure from delayed", async () => {
+  await check("Pfd2 (compat window) an old Rider build may still mark delayed failed directly", async () => {
     await assertSucceeds(updateDoc(doc(rider, "orders", "fdDelayed"), failWith("Address does not exist")));
+  });
+
+  await check("Pfd2b (compat window) the direct failure write can carry no stock or allocation field", async () => {
+    for (const extra of [
+      { failureCount: 1 }, { pendingReturnId: "x" }, { allocationState: "awaiting_stock" },
+      { allocationStatus: "returned" }, { items: [] }, { backorderedProductKeys: [] },
+      { allocationOpen: false }, { reservedQuantity: 0 },
+    ]) {
+      await assertFails(updateDoc(doc(rider, "orders", "fdTransit2"), { ...failWith("Clinic closed"), ...extra }));
+    }
   });
 
   // ---- rider failure: forbidden ----
@@ -2769,17 +2993,20 @@ async function main() {
 
   // ---- dispatcher recovery: allowed ----
 
-  await check("Pfd3 dispatcher retries a failed order with the same rider", async () => {
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "fdFailed"), recoverTo(riderUid)));
+  // A failed order holds no reservation, so it cannot go straight back to a
+  // rider: requeueFailedOrder returns it to the allocation queue and it is
+  // assignable again only once fully reserved.
+  await check("Pfd3 (now refused) a dispatcher cannot reassign a failed order directly — same rider", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "fdFailed"), recoverTo(riderUid)));
   });
 
-  await check("Pfd4 dispatcher reassigns a failed order to another approved rider", async () => {
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "fdFailed2"), recoverTo(otherRiderUid)));
+  await check("Pfd4 (now refused) a dispatcher cannot reassign a failed order directly — other rider", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "fdFailed2"), recoverTo(otherRiderUid)));
   });
 
   await check("Nlock4 a failed order cannot be cancelled directly either", async () => {
-    // Recovery (delivery_failed -> assigned) still works from the client; only
-    // the cancel half moved, because only it settles stock.
+    // Neither half of recovery is a client write any more: requeue and cancel
+    // both settle stock, so both are callables.
     await assertFails(updateDoc(doc(dispatcher, "orders", "fdFailed3"), cancelWith("Clinic will not reopen")));
   });
 
@@ -2849,8 +3076,8 @@ async function main() {
     await assertFails(updateDoc(doc(salesRep, "orders", "ordSR1"), recoverTo(riderUid)));
   });
 
-  await check("Pfd6 a recovered order still reads correctly for every role", async () => {
-    // fdFailed was recovered in Pfd3; the failure record must still be there.
+  await check("Pfd6 a failed order still reads correctly for every role", async () => {
+    // fdFailed was NOT recovered by Pfd3 (refused); it stays readable as before.
     await assertSucceeds(getDoc(doc(dispatcher, "orders", "fdFailed")));
     await assertSucceeds(getDoc(doc(admin, "orders", "fdFailed")));
     await assertSucceeds(getDoc(doc(rider, "orders", "fdFailed")));
@@ -3038,6 +3265,16 @@ async function main() {
     }
   });
 
+  // The Rider app's Proof screen offers only completable orders, and its
+  // controller re-reads the order before uploading. This is the server half:
+  // a stale screen still cannot attach evidence to a closed or failed order.
+  await check("Nev11b a FAILED delivery accepts no new evidence either", async () => {
+    await assertFails(updateDoc(doc(rider, "orders", "evFailed"), proofWrite({
+      proofOfDeliveryPath: "proof_of_delivery/evFailed/proof.jpg",
+    })));
+    await assertFails(updateDoc(doc(rider, "orders", "evFailed"), invoiceWrite("evFailed")));
+  });
+
   await check("Nev12 a rider cannot record proof on another rider's order", async () => {
     await assertFails(updateDoc(doc(rider, "orders", "evOtherRider"), proofWrite({
       proofOfDeliveryPath: "proof_of_delivery/evOtherRider/proof.jpg",
@@ -3173,7 +3410,8 @@ async function main() {
       manufacturingDate: "2026-08-01", arrivalDate: "2026-09-01",
       quantity: 10, reservedQuantity: 0, sellingPriceCentavos: 125000,
     };
-    await assertSucceeds(setDoc(doc(admin, "inventory", "invValid"), valid));
+    // Refused even when valid: the server callable validates and creates.
+    await assertFails(setDoc(doc(admin, "inventory", "invValid"), valid));
     // The exact shapes staging already contains, and the ones a migration
     // would otherwise have to clean up later.
     for (const bad of [
@@ -3278,7 +3516,7 @@ async function main() {
       manufacturingDate: "2026-08-01", arrivalDate: "2026-09-01",
       quantity: 10, reservedQuantity: 0, sellingPriceCentavos: 125000,
     };
-    await assertSucceeds(setDoc(doc(admin, "inventory", "invPriced"), valid));
+    await assertFails(setDoc(doc(admin, "inventory", "invPriced"), valid));
     // Zero is refused as firmly as text: a batch priced at ₱0.00 would ship a
     // vaccine for free, and nothing downstream would flag it.
     for (const bad of [
@@ -3357,11 +3595,13 @@ async function main() {
     }));
     // A batch that predates pricing can still be corrected on other fields —
     // the rule is guarded by presence, so it does not strand legacy stock.
-    await assertSucceeds(setDoc(doc(admin, "inventory", "invLegacyNoPrice"), {
-      vaccineName: "Legacy", batchId: "LEG-1", expiryDate: "2027-12-31",
-      manufacturingDate: "2026-08-01", arrivalDate: "2026-09-01",
-      quantity: 5, reservedQuantity: 0, sellingPriceCentavos: 100,
-    }));
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "inventory", "invLegacyNoPrice"), {
+        vaccineName: "Legacy", batchId: "LEG-1", expiryDate: "2027-12-31",
+        manufacturingDate: "2026-08-01", arrivalDate: "2026-09-01",
+        quantity: 5, reservedQuantity: 0, sellingPriceCentavos: 100,
+      })
+    );
     await assertSucceeds(updateDoc(doc(admin, "inventory", "invLegacyNoPrice"), {
       manufacturer: "Corrected",
     }));
@@ -3578,6 +3818,8 @@ async function main() {
     assignedRiderId: riderUid,
     assignedAt: serverTimestamp(),
     assignedByUid: dispatcherUid,
+    statusUpdatedAt: serverTimestamp(),
+    statusUpdatedByUid: dispatcherUid,
     updatedAt: serverTimestamp(),
   });
 
@@ -3646,14 +3888,19 @@ async function main() {
     }));
   });
 
-  await check("SD1d an admin correction to a valid date makes a legacy order dispatchable", async () => {
+  await check("SD1d a legacy order becomes dispatchable once the reschedule callable stores a valid date", async () => {
     await seedSched("sdNoneRepair", {});
     await assertFails(updateDoc(doc(dispatcher, "orders", "sdNoneRepair"), assignPayload()));
-    // Only an admin may store the date, and only a real one.
+    // No client stores the date directly any more — Admin included. The repair
+    // path is rescheduleOrderDelivery, which also writes the schedule history.
     await assertFails(updateDoc(doc(dispatcher, "orders", "sdNoneRepair"), { requestedDeliveryDate: schedToday, updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(doc(salesRep, "orders", "sdNoneRepair"), { requestedDeliveryDate: schedToday }));
     await assertFails(updateDoc(doc(admin, "orders", "sdNoneRepair"), { requestedDeliveryDate: "" }));
-    await assertSucceeds(updateDoc(doc(admin, "orders", "sdNoneRepair"), { requestedDeliveryDate: schedToday }));
+    await assertFails(updateDoc(doc(admin, "orders", "sdNoneRepair"), { requestedDeliveryDate: schedToday }));
+    // What the callable writes (Admin SDK, rules bypassed):
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      updateDoc(doc(ctx.firestore(), "orders", "sdNoneRepair"), { requestedDeliveryDate: schedToday })
+    );
     await assertSucceeds(updateDoc(doc(dispatcher, "orders", "sdNoneRepair"), assignPayload()));
   });
 
@@ -3728,7 +3975,7 @@ async function main() {
     }));
   });
 
-  await check("SD5 failed-delivery recovery is held to the schedule", async () => {
+  await check("SD5 a failed order never returns to a rider by a client write, scheduled day or not", async () => {
     const recovery = () => ({
       status: "assigned",
       assignedRiderId: riderUid,
@@ -3750,10 +3997,12 @@ async function main() {
       status: "delivery_failed",
       assignedRiderId: otherRiderUid,
     });
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "sdFailedToday"), recovery()));
+    // Recovery is now requeueFailedOrder's; the direct write is refused even
+    // when the date has been reached.
+    await assertFails(updateDoc(doc(dispatcher, "orders", "sdFailedToday"), recovery()));
   });
 
-  await check("SD6 admin full update cannot dispatch early, but can repair the date", async () => {
+  await check("SD6 admin full update cannot dispatch early, or write the date directly", async () => {
     await seedSched("sdAdmin", { requestedDeliveryDate: schedTomorrow });
     await assertFails(updateDoc(doc(admin, "orders", "sdAdmin"), {
       status: "in_transit", updatedAt: serverTimestamp(),
@@ -3767,11 +4016,15 @@ async function main() {
     await assertFails(updateDoc(doc(admin, "orders", "sdAdmin"), { requestedDeliveryDate: "2026-02-31" }));
     // ...nor erase one: an undated order would only fail closed later.
     await assertFails(updateDoc(doc(admin, "orders", "sdAdmin"), { requestedDeliveryDate: deleteField() }));
-    // ...but can correct one, which is the repair path for a malformed date.
+    // ...and no longer writes a valid one directly either: a malformed date is
+    // repaired through the rescheduleOrderDelivery callable (history included).
     await seedSched("sdAdminRepair", { requestedDeliveryDate: "2026/10/04" });
-    await assertSucceeds(updateDoc(doc(admin, "orders", "sdAdminRepair"), {
+    await assertFails(updateDoc(doc(admin, "orders", "sdAdminRepair"), {
       requestedDeliveryDate: schedToday,
     }));
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      updateDoc(doc(ctx.firestore(), "orders", "sdAdminRepair"), { requestedDeliveryDate: schedToday })
+    );
     await assertSucceeds(updateDoc(doc(dispatcher, "orders", "sdAdminRepair"), assignPayload()));
   });
 
@@ -3826,6 +4079,63 @@ async function main() {
     await assertFails(updateDoc(doc(rider, "orders", "sdAnomaly"), {
       status: "in_transit", startedAt: serverTimestamp(), ...audit(riderUid),
     }));
+  });
+
+  // ---------------------------------------------------------------- delivery calendar / reschedule
+  //
+  // The schedule fields are server-owned: only rescheduleOrderDelivery (Admin
+  // SDK) writes them, together with a scheduleEvents entry.
+  await check("SCH1 no client can write any schedule field, Admin included", async () => {
+    await seedSched("schFields", { requestedDeliveryDate: schedTomorrow });
+    const writes = [
+      { requestedDeliveryDate: schedToday },
+      { scheduledDeliveryTime: "09:30" },
+      { originalRequestedDeliveryDate: "2026-01-01" },
+      { scheduleRevision: 1 },
+      { scheduleUpdatedAt: serverTimestamp() },
+      { scheduleUpdatedByUid: adminUid },
+      { scheduleChangeReason: "moved" },
+    ];
+    for (const db of [admin, dispatcher, salesRep, rider]) {
+      for (const data of writes) {
+        await assertFails(updateDoc(doc(db, "orders", "schFields"), data));
+      }
+    }
+    // Unrelated Admin edits are unaffected.
+    await assertSucceeds(updateDoc(doc(admin, "orders", "schFields"), { deliveryInstructions: "Gate 2" }));
+  });
+
+  await check("SCH2 schedule history: Admin and Dispatcher read it, nobody writes it", async () => {
+    await seedSched("schHist", { requestedDeliveryDate: schedTomorrow, assignedRiderId: riderUid });
+    const eventPath = ["orders", "schHist", "scheduleEvents", "e1"];
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), ...eventPath), { revision: 1, fromDate: schedTomorrow, toDate: schedToday, changedByUid: adminUid })
+    );
+    await assertSucceeds(getDoc(doc(admin, ...eventPath)));
+    await assertSucceeds(getDoc(doc(dispatcher, ...eventPath)));
+    // The calendar is Admin/Dispatcher only: the owning Med Rep and the
+    // assigned Rider do not read schedule history.
+    await assertFails(getDoc(doc(salesRep, ...eventPath)));
+    await assertFails(getDoc(doc(rider, ...eventPath)));
+    for (const db of [admin, dispatcher, salesRep, rider]) {
+      await assertFails(setDoc(doc(db, "orders", "schHist", "scheduleEvents", "forged"), { revision: 9 }));
+      await assertFails(updateDoc(doc(db, ...eventPath), { toDate: "2030-01-01" }));
+      await assertFails(deleteDoc(doc(db, ...eventPath)));
+    }
+  });
+
+  await check("SCH3 the Med Rep still sees their own order's current schedule", async () => {
+    // A dedicated Med Rep: earlier cases change the shared sr1 account's role/status.
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "users", "schRep"), { role: "salesrep", status: "approved", email: "schrep@x.com" })
+    );
+    await seedSched("schOwn", { requestedDeliveryDate: schedTomorrow, createdByUid: "schRep" });
+    const rep = testEnv.authenticatedContext("schRep").firestore();
+    const snap = await assertSucceeds(getDoc(doc(rep, "orders", "schOwn")));
+    if (snap.data().requestedDeliveryDate !== schedTomorrow) throw new Error("schedule not readable");
+    // ...but not another rep's order.
+    await seedSched("schOther", { requestedDeliveryDate: schedTomorrow, createdByUid: "someoneElse" });
+    await assertFails(getDoc(doc(rep, "orders", "schOther")));
   });
 
   // ---------------- BG-001: a rejected application stays rejected ----------------
@@ -4012,6 +4322,114 @@ async function main() {
     await assertSucceeds(updateDoc(doc(admin, "orders", "ordRider1"), { deliveryInstructions: "Leave at reception" }));
   });
 
+  // The exact read the Admin Deliveries drawer makes —
+  // subscribeOrderStatusEvents (src/services/statusEventService.js):
+  //   query(collection(db, "orders", id, "statusEvents"), orderBy("at", "asc"))
+  // On two dedicated orders, so earlier cases that move ordRider1/2 around
+  // cannot change what these prove.
+  //   histA: raised by sr1, assigned to rider1
+  //   histB: raised by sr2, assigned to rider2
+  const histQuery = (db, orderId) =>
+    query(collection(db, "orders", orderId, "statusEvents"), orderBy("at", "asc"));
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const fdb = ctx.firestore();
+    await setDoc(doc(fdb, "users", "histPendingDisp"), { role: "dispatcher", status: "pending" });
+    await setDoc(doc(fdb, "users", "histDisabledAdmin"), { role: "admin", status: "disabled" });
+    // An approved rider with no connection to histA or histB at any point.
+    await setDoc(doc(fdb, "users", "histUnrelatedRider"), { role: "rider", status: "approved" });
+    for (const [orderId, owner, assignee] of [
+      ["histA", salesRepUid, riderUid],
+      ["histB", otherSalesRepUid, otherRiderUid],
+    ]) {
+      await setDoc(doc(fdb, "orders", orderId), {
+        orderNumber: `VT-${orderId}`, status: "delivered", createdByUid: owner,
+        assignedRiderId: assignee, requestedDeliveryDate: FIXTURE_DELIVERY_DATE,
+      });
+      for (const [eventId, from, to, minute] of [
+        ["e1", null, "pending_dispatch", 0],
+        ["e2", "in_transit", "delivered", 5],
+      ]) {
+        await setDoc(doc(fdb, "orders", orderId, "statusEvents", eventId), {
+          eventId, from, to, actorUid: to === "delivered" ? assignee : owner, riderId: assignee,
+          reason: null, at: Timestamp.fromDate(new Date(`2026-10-05T02:0${minute}:00Z`)),
+        });
+      }
+    }
+  });
+
+  await check("HIST5 Admin and Dispatcher read any order's history with the service's ordered query", async () => {
+    for (const db of [admin, dispatcher]) {
+      for (const orderId of ["histA", "histB"]) {
+        const snap = await assertSucceeds(getDocs(histQuery(db, orderId)));
+        if (snap.docs.map((d) => d.id).join() !== "e1,e2") throw new Error(`${orderId}: wrong order`);
+      }
+    }
+  });
+
+  await check("HIST6 the owning Med Rep and the assigned Rider read their own order's history", async () => {
+    await assertSucceeds(getDocs(histQuery(salesRep, "histA")));
+    await assertSucceeds(getDocs(histQuery(rider, "histA")));
+    await assertSucceeds(getDocs(histQuery(otherRep, "histB")));
+    await assertSucceeds(getDocs(histQuery(otherRiderDb, "histB")));
+  });
+
+  await check("HIST7 cross-order: a Med Rep or Rider cannot read another order's history", async () => {
+    await assertFails(getDocs(histQuery(salesRep, "histB")));
+    await assertFails(getDocs(histQuery(rider, "histB")));
+    await assertFails(getDocs(histQuery(otherRep, "histA")));
+    await assertFails(getDocs(histQuery(otherRiderDb, "histA")));
+    await assertFails(getDoc(doc(rider, "orders", "histB", "statusEvents", "e2")));
+    // Nor a collection-group sweep across every order's history.
+    for (const db of [salesRep, rider]) {
+      await assertFails(getDocs(collection(db, "orders", "histB", "statusEvents")));
+    }
+  });
+
+  await check("HIST8 signed-out callers and unapproved staff are refused", async () => {
+    const signedOut = testEnv.unauthenticatedContext().firestore();
+    const pendingDisp = testEnv.authenticatedContext("histPendingDisp").firestore();
+    const disabledAdmin = testEnv.authenticatedContext("histDisabledAdmin").firestore();
+    for (const db of [signedOut, pendingDisp, disabledAdmin]) {
+      await assertFails(getDocs(histQuery(db, "histA")));
+      await assertFails(getDoc(doc(db, "orders", "histA", "statusEvents", "e1")));
+    }
+  });
+
+  await check("HIST9 on reassignment the NEW rider gains the history; the previous and an unrelated rider are refused", async () => {
+    const unrelatedRider = testEnv.authenticatedContext("histUnrelatedRider").firestore();
+    // Before: rider1 is assigned; rider2 (assigned elsewhere) and the unrelated rider are not.
+    await assertSucceeds(getDocs(histQuery(rider, "histA")));
+    await assertFails(getDocs(histQuery(unrelatedRider, "histA")));
+
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      updateDoc(doc(ctx.firestore(), "orders", "histA"), { assignedRiderId: otherRiderUid })
+    );
+    // Newly assigned rider: allowed (query and single event).
+    await assertSucceeds(getDocs(histQuery(otherRiderDb, "histA")));
+    await assertSucceeds(getDoc(doc(otherRiderDb, "orders", "histA", "statusEvents", "e1")));
+    // Previously assigned rider: refused.
+    await assertFails(getDocs(histQuery(rider, "histA")));
+    await assertFails(getDoc(doc(rider, "orders", "histA", "statusEvents", "e1")));
+    // Unrelated rider: still refused.
+    await assertFails(getDocs(histQuery(unrelatedRider, "histA")));
+    await assertFails(getDoc(doc(unrelatedRider, "orders", "histA", "statusEvents", "e1")));
+
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      updateDoc(doc(ctx.firestore(), "orders", "histA"), { assignedRiderId: riderUid })
+    );
+  });
+
+  await check("HIST10 read access grants no write: every role is refused create, edit and delete", async () => {
+    const signedOut = testEnv.unauthenticatedContext().firestore();
+    for (const db of [admin, dispatcher, salesRep, rider, signedOut]) {
+      await assertFails(setDoc(doc(db, "orders", "histA", "statusEvents", "forged"), {
+        from: "in_transit", to: "delivered", actorUid: riderUid, at: serverTimestamp(),
+      }));
+      await assertFails(updateDoc(doc(db, "orders", "histA", "statusEvents", "e2"), { actorUid: dispatcherUid }));
+      await assertFails(deleteDoc(doc(db, "orders", "histA", "statusEvents", "e1")));
+    }
+  });
+
 
   // ---------------------------------------------------------------- territory
   //
@@ -4102,10 +4520,11 @@ async function main() {
     ...over,
   });
 
-  await check("MFG1 Admin creates a batch with a valid manufacturing date", async () => {
-    await assertSucceeds(setDoc(doc(admin, "inventory", "mfgValid"), newBatch()));
-    // Manufactured and received the same day is allowed.
-    await assertSucceeds(setDoc(doc(admin, "inventory", "mfgSameDay"), newBatch({ manufacturingDate: "2026-09-01" })));
+  // Batch creation (and its date validation) is addStockBatchWithAllocation's;
+  // see functions/test/inventoryWorkflow.test.js. No client creates a batch.
+  await check("MFG1 (now refused) no client creates a batch, even with valid dates", async () => {
+    await assertFails(setDoc(doc(admin, "inventory", "mfgValid"), newBatch()));
+    await assertFails(setDoc(doc(admin, "inventory", "mfgSameDay"), newBatch({ manufacturingDate: "2026-09-01" })));
   });
 
   await check("MFG2 a missing, malformed or out-of-order manufacturing date is refused", async () => {
@@ -4204,6 +4623,107 @@ async function main() {
     await assertFails(updateDoc(ref, { expiryDate: "2027-08-15", quantity: 9999 }));
     await assertSucceeds(updateDoc(ref, { expiryDate: "2027-08-15" }));
   });
+
+  // ---------------------------------------------------------------- VAT classification
+  //
+  // Vaccine products carry vatClassification ('vatable' | 'vat_exempt'); order
+  // items carry an immutable snapshot of it.
+  const vaccine = (over = {}) => ({
+    vaccineName: "VAT Vaccine", manufacturer: "Maker", vaccineType: "Influenza",
+    internalSku: "VXT-111-AAAAA", vatClassification: "vatable", ...over,
+  });
+
+  await check("VAT1 a new vaccine needs a valid classification", async () => {
+    await assertSucceeds(setDoc(doc(admin, "vaccines", "vatV1"), vaccine()));
+    await assertSucceeds(setDoc(doc(admin, "vaccines", "vatV2"), vaccine({ vatClassification: "vat_exempt" })));
+    const missing = vaccine();
+    delete missing.vatClassification;
+    await assertFails(setDoc(doc(admin, "vaccines", "vatBad"), missing));
+    for (const vatClassification of ["VAT", "zero_rated", "", null, true]) {
+      await assertFails(setDoc(doc(admin, "vaccines", "vatBad"), vaccine({ vatClassification })));
+    }
+  });
+
+  await check("VAT2 Admin classifies a legacy product with a recorded who/when", async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "vaccines", "vatLegacy"), { vaccineName: "Legacy", internalSku: "VXT-222-BBBBB" })
+    );
+    const ref = doc(admin, "vaccines", "vatLegacy");
+    // Legacy stays readable and editable on other fields.
+    await assertSucceeds(getDoc(doc(salesRep, "vaccines", "vatLegacy")));
+    await assertSucceeds(updateDoc(ref, { manufacturer: "Corrected" }));
+    // Classifying must be valid and stamped by the session.
+    await assertFails(updateDoc(ref, { vatClassification: "vatable" }));
+    await assertFails(updateDoc(ref, { vatClassification: "zero_rated", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
+    await assertFails(updateDoc(ref, { vatClassification: "vatable", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: "someoneElse" }));
+    await assertSucceeds(updateDoc(ref, { vatClassification: "vatable", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
+    // Re-classifying is allowed on the same terms; removing it is not.
+    await assertSucceeds(updateDoc(ref, { vatClassification: "vat_exempt", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
+    await assertFails(updateDoc(ref, { vatClassification: deleteField(), vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
+  });
+
+  await check("VAT3 no non-admin can create or change a vaccine classification", async () => {
+    for (const db of [dispatcher, salesRep, rider, anon]) {
+      await assertFails(setDoc(doc(db, "vaccines", "vatNonAdmin"), vaccine()));
+      await assertFails(updateDoc(doc(db, "vaccines", "vatV1"), {
+        vatClassification: "vat_exempt", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: "x",
+      }));
+    }
+  });
+
+  await check("VAT4 order items (price and VAT snapshots) cannot be rewritten by any client", async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "orders", "ordVat"), {
+        createdByUid: salesRepUid, status: "pending_dispatch", assignedRiderId: null,
+        items: [{ inventoryId: "b1", quantity: 1, unitPriceCentavos: 1000, lineTotalCentavos: 1000, vatClassification: "vatable" }],
+      })
+    );
+    const forged = [{ inventoryId: "b1", quantity: 1, unitPriceCentavos: 1000, lineTotalCentavos: 1000, vatClassification: "vat_exempt" }];
+    for (const db of [admin, dispatcher, salesRep, rider]) {
+      await assertFails(updateDoc(doc(db, "orders", "ordVat"), { items: forged }));
+    }
+    // Historical reads are unaffected, and unrelated Admin edits still work.
+    await assertSucceeds(getDoc(doc(salesRep, "orders", "ordVat")));
+    await assertSucceeds(updateDoc(doc(admin, "orders", "ordVat"), { deliveryInstructions: "Leave at reception" }));
+  });
+  // ---------------------------------------------------------------- STRICT (phase 2)
+  //
+  // The same rules with legacyRiderFailureWritesAllowed() → false: what is
+  // deployed once every active Rider runs a build that uses the callable. Only
+  // the compatibility window differs; everything else is the file above.
+  {
+    const COMPAT = "function legacyRiderFailureWritesAllowed() {\n      return true;\n    }";
+    const shipped = readFileSync("firestore.rules", "utf8").replace(/\r\n/g, "\n");
+    if (!shipped.includes(COMPAT)) throw new Error("the compatibility switch must be present and set to true");
+    if (shipped.split("legacyRiderFailureWritesAllowed()").length - 1 !== 2) throw new Error("the switch must be defined once and used once");
+    const strictRules = shipped.replace(COMPAT, COMPAT.replace("return true;", "return false;"));
+    const strictEnv = await initializeTestEnvironment({
+      projectId: `${PROJECT_ID}-strict`,
+      firestore: { rules: strictRules, host: "127.0.0.1", port: EMULATOR_PORT },
+    });
+    const strictRider = strictEnv.authenticatedContext(riderUid).firestore();
+    await strictEnv.withSecurityRulesDisabled(async (ctx) => {
+      const fdb = ctx.firestore();
+      await setDoc(doc(fdb, "users", riderUid), { role: "rider", status: "approved", fullName: "R" });
+      for (const [id, status] of [["stTransit", "in_transit"], ["stDelayed", "delayed"]]) {
+        await setDoc(doc(fdb, "orders", id), {
+          orderNumber: id, status, assignedRiderId: riderUid, createdByUid: salesRepUid,
+          requestedDeliveryDate: FIXTURE_DELIVERY_DATE,
+        });
+      }
+    });
+    await check("STRICT1 phase-2 rules refuse every direct failure write", async () => {
+      await assertFails(updateDoc(doc(strictRider, "orders", "stTransit"), failWith("Clinic closed")));
+      await assertFails(updateDoc(doc(strictRider, "orders", "stDelayed"), failWith("Clinic closed")));
+    });
+    await check("STRICT2 phase-2 rules still allow the rider's other lifecycle writes", async () => {
+      await assertSucceeds(updateDoc(doc(strictRider, "orders", "stTransit"), {
+        status: "delayed", delayReason: "Traffic", delayedAt: serverTimestamp(), ...audit(riderUid),
+      }));
+    });
+    await strictEnv.cleanup();
+  }
+
   await testEnv.cleanup();
 
   console.log(`\n==== RESULT: ${passed} passed, ${failed} failed ====`);

@@ -21,6 +21,7 @@ function completeItem(overrides = {}) {
     id: "doc-abc",
     name: "Pfizer-BioNTech",
     type: "mRNA",
+    vatLabel: "VAT Exempt",
     batch: "PFZ-2026-01",
     manufacturingRaw: "2026-06-01",
     expiryRaw: "2026-12-31",
@@ -41,6 +42,7 @@ test("column headers and order are fixed and in sync with the columns", () => {
   assert.deepEqual(INVENTORY_EXPORT_HEADERS, [
     "Vaccine name",
     "Vaccine type",
+    "VAT Classification",
     "Batch ID",
     "Manufacturing date",
     "Expiry date",
@@ -68,6 +70,7 @@ test("a complete row maps every business field, and nothing else", () => {
   const row = toInventoryExportRow(completeItem());
   assert.equal(row.name, "Pfizer-BioNTech");
   assert.equal(row.type, "mRNA");
+  assert.equal(row.vat, "VAT Exempt");
   assert.equal(row.batch, "PFZ-2026-01");
   assert.ok(row.manufactured instanceof Date);
   assert.ok(row.expiry instanceof Date);
@@ -94,6 +97,7 @@ test("a complete row maps every business field, and nothing else", () => {
     "status",
     "type",
     "unitPricePesos",
+    "vat",
   ]);
 });
 
@@ -126,9 +130,9 @@ test("missing optional fields degrade to empty text / null numbers, not zeros", 
 
 test("quantities are written as numeric cells, empties as blank cells", () => {
   const columns = buildInventoryExportColumns();
-  const onHand = columns[5];
-  const reserved = columns[6];
-  const available = columns[7];
+  const onHand = columns[INVENTORY_EXPORT_HEADERS.indexOf("On hand")];
+  const reserved = columns[INVENTORY_EXPORT_HEADERS.indexOf("Reserved")];
+  const available = columns[INVENTORY_EXPORT_HEADERS.indexOf("Available")];
   const row = toInventoryExportRow(completeItem());
 
   assert.deepEqual(onHand.cell(row), { type: Number, value: 1200 });
@@ -141,7 +145,7 @@ test("quantities are written as numeric cells, empties as blank cells", () => {
 });
 
 test("price stays numeric, comes from centavos, and carries peso formatting", () => {
-  const priceCol = buildInventoryExportColumns()[8];
+  const priceCol = buildInventoryExportColumns()[INVENTORY_EXPORT_HEADERS.indexOf("Unit price (₱)")];
   assert.equal(priceCol.header.value, "Unit price (₱)");
 
   // 125050 centavos -> 1250.50 pesos, numeric with a peso number format.
@@ -186,7 +190,7 @@ test("valid dates convert to real Dates from every supported shape", () => {
   assert.equal(iso.getUTCMonth(), 2);
 
   // In a date column this becomes a typed Date cell.
-  const expiryCol = buildInventoryExportColumns()[4];
+  const expiryCol = buildInventoryExportColumns()[INVENTORY_EXPORT_HEADERS.indexOf("Expiry date")];
   const cell = expiryCol.cell(toInventoryExportRow(completeItem()));
   assert.equal(cell.type, Date);
   assert.equal(cell.format, "mmm d, yyyy");
@@ -212,7 +216,7 @@ test("invalid or missing dates yield null and never throw", () => {
   }
 
   // The date column renders a blank cell rather than crashing.
-  const expiryCol = buildInventoryExportColumns()[4];
+  const expiryCol = buildInventoryExportColumns()[INVENTORY_EXPORT_HEADERS.indexOf("Expiry date")];
   assert.equal(expiryCol.cell(toInventoryExportRow({ expiryRaw: "" })), null);
 });
 
@@ -341,4 +345,15 @@ test("Manufacturing date exports beside Expiry, and a legacy batch exports a bla
   // A batch created before the field existed: empty cell, like any missing date.
   assert.equal(col.cell(toInventoryExportRow(completeItem({ manufacturingRaw: "" }))), null);
   assert.equal(col.cell(toInventoryExportRow(completeItem({ manufacturingRaw: undefined }))), null);
+});
+
+test("VAT Classification exports as a text column; unclassified products read Not classified", () => {
+  const idx = INVENTORY_EXPORT_HEADERS.indexOf("VAT Classification");
+  assert.ok(idx > 0, "column present");
+  const col = buildInventoryExportColumns()[idx];
+  assert.deepEqual(col.cell(toInventoryExportRow(completeItem({ vatLabel: "VAT" }))), { type: String, value: "VAT" });
+  assert.equal(toInventoryExportRow(completeItem({ vatLabel: "VAT Exempt" })).vat, "VAT Exempt");
+  for (const legacy of [undefined, "", "—"]) {
+    assert.equal(toInventoryExportRow(completeItem({ vatLabel: legacy })).vat, "Not classified", String(legacy));
+  }
 });

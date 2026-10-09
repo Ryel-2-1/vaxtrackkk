@@ -55,6 +55,9 @@ class _FakeUploader implements ProofUploader {
     if (existingError != null) throw existingError!;
     return existingUrl;
   }
+
+  @override
+  Future<String?> existingInvoiceUrl(String orderId) async => null;
 }
 
 class _SavedProof {
@@ -341,6 +344,36 @@ void main() {
 
       expect(c.hasPendingUpload, isFalse);
       expect(c.errorMessage, isNotNull);
+      // ...and a Storage 403 is reported as the refusal it is, not as a
+      // connection problem (the physical-phone staging finding).
+      expect(c.errorMessage, contains('permission denied'));
+      expect(c.errorMessage, isNot(contains('Check your connection')));
+    });
+
+    test('a network failure during the check still blames the connection',
+        () async {
+      uploader.existingError = FirebaseException(
+          plugin: 'firebase_storage', code: 'retry-limit-exceeded');
+      final c = build();
+
+      await c.recoverPendingUpload(orderId);
+
+      expect(c.hasPendingUpload, isFalse);
+      expect(c.errorMessage, contains('Check your connection'));
+    });
+
+    test('a refused proof UPLOAD is reported as permission, not connection',
+        () async {
+      uploader.uploadError =
+          FirebaseException(plugin: 'firebase_storage', code: 'unauthorized');
+      final c = build();
+
+      await c.submit(
+          orderId: orderId, recipientName: 'Maria Santos', proofPhoto: photo);
+
+      expect(writer.proofSaves, isEmpty);
+      expect(c.errorMessage, contains('permission denied'));
+      expect(c.errorMessage, isNot(contains('No connection')));
     });
 
     test('choosing a new photo discards the recovered object', () async {

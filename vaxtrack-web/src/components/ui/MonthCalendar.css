@@ -63,6 +63,37 @@
   outline-offset: 2px;
 }
 
+.mcal-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.mcal-current {
+  height: 32px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-control, 8px);
+  background: #fff;
+  color: var(--gray-700);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mcal-current:hover {
+  background: var(--green-50);
+  border-color: var(--green-600);
+  color: var(--green-800);
+}
+
+.mcal-current:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+}
+
 .mcal-weekdays {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -170,4 +201,21 @@
 .mcal-day-selected .mcal-day-count {
   background: #fff;
   color: var(--green-900);
+}
+
+/* A day holding an Urgent order: a red corner dot. The count is also spoken in
+   the button label, so the marker is never colour-only information. */
+.mcal-day-urgent-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--danger-text, #b42318);
+}
+
+.mcal-day-selected .mcal-day-urgent-dot {
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--danger-text, #b42318);
 }

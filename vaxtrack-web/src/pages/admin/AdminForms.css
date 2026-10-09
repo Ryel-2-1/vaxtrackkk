@@ -677,3 +677,87 @@
   outline: 2px solid var(--green-700);
   outline-offset: 2px;
 }
+
+/* Register New Vaccine — VAT Classification (required, no default). */
+.inventory-main .vat-choice {
+  margin: 18px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.inventory-main .vat-choice legend {
+  margin: 0 0 8px;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.inventory-main .vat-choice-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.inventory-main .vat-choice-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  margin: 0;
+  padding: 0 14px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control);
+  background: #ffffff;
+  color: var(--gray-900);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.inventory-main .vat-choice-options label.selected {
+  border-color: var(--green-700);
+  background: var(--green-50);
+  color: var(--green-800);
+}
+
+.inventory-main .vat-choice-options input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  min-height: 0 !important;
+  margin: 0;
+  accent-color: var(--green-700);
+}
+
+/* Add Stock: the server report of what the new batch did. */
+.inventory-main .stock-allocation-report {
+  margin-top: 12px;
+  border: 1px solid var(--green-200, #bbf7d0);
+  background: var(--green-50, #f0fdf4);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--gray-800, #1f2937);
+}
+.inventory-main .stock-allocation-report dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.inventory-main .stock-allocation-report dt {
+  font-size: 12px;
+  color: var(--gray-600, #4b5563);
+}
+.inventory-main .stock-allocation-report dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+  font-size: 15px;
+}
+.inventory-main .stock-allocation-report ul {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+.inventory-main .stock-allocation-report p {
+  margin: 0 0 8px;
+}

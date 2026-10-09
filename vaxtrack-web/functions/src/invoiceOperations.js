@@ -142,8 +142,11 @@ async function saveInvoiceDraftForPricedOrder({ db, FieldValue, uid, payload, no
 
     // ---- decide (throws for a legacy order — that path is the client's) ----
     const base = buildInvoiceBaseFromOrder(order);
-    const adjustments = validateAdjustments(payload?.adjustments, base.subtotalCentavos);
+    const adjustments = validateAdjustments(payload?.adjustments, base.subtotalCentavos, {
+      itemizedVat: base.itemizedVat,
+    });
     const totals = computeInvoiceTotalsCentavos({
+      items: base.items,
       subtotalCentavos: base.subtotalCentavos,
       adjustments,
     });
@@ -252,9 +255,11 @@ async function issueInvoiceForPricedOrder({ db, FieldValue, uid, payload }) {
         withholdingTaxCentavos: invoice.withholdingTaxCentavos,
         vatClassification: invoice.vatClassification,
       },
-      base.subtotalCentavos
+      base.subtotalCentavos,
+      { itemizedVat: base.itemizedVat }
     );
     const totals = computeInvoiceTotalsCentavos({
+      items: base.items,
       subtotalCentavos: base.subtotalCentavos,
       adjustments,
     });

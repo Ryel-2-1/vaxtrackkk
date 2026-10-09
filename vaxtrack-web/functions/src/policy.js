@@ -15,7 +15,10 @@ const crypto = require("node:crypto");
 const ALLOCATION_VERSION = 1;
 
 /** Reservation lifecycle. Both settled states are terminal. */
-const RESERVATION_STATUSES = Object.freeze(["reserved", "consumed", "released"]);
+// `returned`: a failed delivery moved this reservation's units to
+// return-pending (inventoryWorkflow.js). Like consumed/released it settles the
+// reservation; a requeued order starts a fresh, empty reservation.
+const RESERVATION_STATUSES = Object.freeze(["reserved", "consumed", "released", "returned"]);
 
 /** Order statuses a delivery may be completed from. */
 const DELIVERABLE_FROM = Object.freeze(["in_transit", "delayed"]);
@@ -28,6 +31,20 @@ const CANCELLABLE_FROM = Object.freeze([
 /** Bounds. maxLines caps the transaction's document reads; see operations.js. */
 const MAX_ORDER_LINES = 20;
 const MAX_LINE_QUANTITY = 1000000;
+/**
+ * The largest on-hand figure a batch may hold (the Add Stock ceiling). A batch
+ * above it — e.g. a typo of 99,999,999,999,900 — is treated as UNCONFIRMED: it
+ * is never allocated and cannot be quoted for a new order until an Admin
+ * corrects it. Settlement of reservations that already exist (deliver, cancel,
+ * return) is deliberately unaffected, so an order already holding units from
+ * such a batch can still complete.
+ */
+const MAX_STOCK_QUANTITY = 100000000;
+
+/** True for an integer on-hand figure above MAX_STOCK_QUANTITY. */
+function isUnconfirmedStockQuantity(quantity) {
+  return Number.isInteger(quantity) && quantity > MAX_STOCK_QUANTITY;
+}
 const MAX_REASON_LENGTH = 500; // identical to orderWorkflow.js / firestore.rules
 const DESTINATION_VERSION = 1;
 const HOME_ADDRESS_ID = "home";
@@ -52,6 +69,39 @@ const PRICING_VERSION = 1;
  */
 const PRICE_CURRENCY = "PHP";
 const PRICE_IS_VAT_INCLUSIVE = false;
+
+/**
+ * Product VAT classification (per order item). Set on the vaccine catalog by an
+ * Admin; copied onto each order item as an immutable snapshot at creation.
+ * Mirrors PRODUCT_VAT_CLASSIFICATIONS in src/services/vatClassification.js.
+ * Deliberately NOT the invoice-level list (which also has "zero_rated"): a
+ * product is either VAT or VAT Exempt.
+ */
+const PRODUCT_VAT_CLASSIFICATIONS = Object.freeze(["vatable", "vat_exempt"]);
+
+/** The canonical product classification, or null for anything else. */
+function readProductVatClassification(value) {
+  return PRODUCT_VAT_CLASSIFICATIONS.includes(value) ? value : null;
+}
+
+/**
+ * The classification an order line takes from its batch's vaccine product.
+ * Refuses — before any write — a batch with no linked vaccine, a missing
+ * vaccine, or a vaccine that is not classified. Never guessed, never defaulted.
+ */
+function resolveLineVatClassification({ inventoryId, batch, vaccine }) {
+  const cls = batch && typeof batch.vaccineId === "string" && batch.vaccineId
+    ? readProductVatClassification(vaccine?.vatClassification)
+    : null;
+  if (!cls) {
+    throw new PolicyError(
+      "vat-classification-required",
+      "This vaccine must be classified as VAT or VAT Exempt before ordering.",
+      { inventoryId }
+    );
+  }
+  return cls;
+}
 
 /**
  * There is NO business maximum on a unit price.
@@ -564,7 +614,14 @@ function buildOrderDestinationSnapshot({
  * DOCUMENT id, passed separately and used verbatim. A stored field named `id`
  * is never consulted, so it cannot redirect the allocation.
  */
-function evaluateBatch({ inventoryId, data, requested, expectedUnitPriceCentavos, now }) {
+/**
+ * With `allowBackorder` (orders with allocationVersion 2) the batch is only the
+ * line's QUOTE — product, price, VAT — and a shortfall is not an error: the
+ * allocation engine reserves what exists and backorders the rest. Every other
+ * check (exists, usable, unexpired, priced, price confirmed, counters sane)
+ * still applies, so a product with no orderable batch cannot be quoted.
+ */
+function evaluateBatch({ inventoryId, data, requested, expectedUnitPriceCentavos, now, allowBackorder = false }) {
   if (!data) {
     throw new PolicyError("inventory-not-found", "That batch no longer exists.", {
       inventoryId,
@@ -580,6 +637,14 @@ function evaluateBatch({ inventoryId, data, requested, expectedUnitPriceCentavos
       onHand.reason === "legacy-string"
         ? "This batch's stock figure is stored as text and needs an admin migration before it can be ordered."
         : "This batch's stock figure is not a valid number.",
+      { inventoryId, batchId: data.batchId ?? null }
+    );
+  }
+
+  if (isUnconfirmedStockQuantity(onHand.value)) {
+    throw new PolicyError(
+      "inventory-quantity-unconfirmed",
+      "This batch's stock figure is above the 100,000,000 ceiling and must be confirmed by an Admin before it can be ordered.",
       { inventoryId, batchId: data.batchId ?? null }
     );
   }
@@ -655,7 +720,18 @@ function evaluateBatch({ inventoryId, data, requested, expectedUnitPriceCentavos
     );
   }
 
-  const available = onHand.value - reserved.value;
+  // Units back from a failed delivery and quarantined units are on hand but not
+  // sellable; they are never available.
+  const returning = readReservedQuantity(data.returnPendingQuantity);
+  const quarantined = readReservedQuantity(data.quarantinedQuantity);
+  if (!returning.ok || !quarantined.ok) {
+    throw new PolicyError(
+      "inventory-invalid-reserved",
+      "This batch's return or quarantine figure is not a valid number.",
+      { inventoryId, batchId: data.batchId ?? null }
+    );
+  }
+  const available = onHand.value - reserved.value - returning.value - quarantined.value;
   if (available < 0) {
     // reservedQuantity > quantity is a broken invariant, not "no stock".
     throw new PolicyError(
@@ -664,7 +740,7 @@ function evaluateBatch({ inventoryId, data, requested, expectedUnitPriceCentavos
       { inventoryId, batchId: data.batchId ?? null }
     );
   }
-  if (requested > available) {
+  if (requested > available && !allowBackorder) {
     throw new PolicyError("insufficient-stock", "There is not enough stock in that batch.", {
       inventoryId,
       batchId: data.batchId ?? null,
@@ -762,6 +838,20 @@ function settleBatch({ inventoryId, data, quantity, mode }) {
   }
   const update = { reservedQuantity: reserved.value - quantity };
 
+  // A failed delivery: the units leave the reservation but are NOT sellable —
+  // they wait in return-pending until an admin confirms their condition.
+  if (mode === "return") {
+    const returning = readReservedQuantity(data.returnPendingQuantity);
+    if (!returning.ok) {
+      throw new PolicyError(
+        "inventory-invariant-broken",
+        "This batch's return-pending figure is not a valid number and needs admin review.",
+        { inventoryId }
+      );
+    }
+    update.returnPendingQuantity = returning.value + quantity;
+  }
+
   if (mode === "consume") {
     const onHand = readStockInteger(data.quantity);
     if (!onHand.ok || onHand.value < quantity) {
@@ -837,7 +927,9 @@ function validateReason(value, label = "reason") {
  * lifecycle and causes no inventory movement in either direction.
  */
 function isLegacyOrder(orderData) {
-  return orderData?.allocationVersion !== ALLOCATION_VERSION;
+  // 1: reserved in full at creation; 2: backorder-aware allocation
+  // (allocation.js). Both carry a reservation the server settles.
+  return orderData?.allocationVersion !== ALLOCATION_VERSION && orderData?.allocationVersion !== 2;
 }
 
 /**
@@ -968,6 +1060,9 @@ function assertOrderWithinTerritory({ territory, doctorLinks, destination }) {
 }
 
 module.exports = {
+  PRODUCT_VAT_CLASSIFICATIONS,
+  readProductVatClassification,
+  resolveLineVatClassification,
   ALLOCATION_VERSION,
   PRICING_VERSION,
   PRICE_CURRENCY,
@@ -982,6 +1077,8 @@ module.exports = {
   CANCELLABLE_FROM,
   MAX_ORDER_LINES,
   MAX_LINE_QUANTITY,
+  MAX_STOCK_QUANTITY,
+  isUnconfirmedStockQuantity,
   MAX_REASON_LENGTH,
   DESTINATION_VERSION,
   HOME_ADDRESS_ID,

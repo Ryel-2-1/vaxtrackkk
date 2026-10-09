@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, Package, X } from "lucide-react";
 import { subscribeDeliveries } from "../../services/deliveryService";
+import { MAX_CANCEL_REASON_LENGTH } from "../../services/orderService";
 import {
-  MAX_CANCEL_REASON_LENGTH,
-  reassignFailedOrder,
-} from "../../services/orderService";
-import { cancelOrderWithInventoryRelease } from "../../services/inventoryCallables";
-import { subscribeRiders } from "../../services/riderService";
+  cancelOrderWithInventoryRelease,
+  requeueFailedOrder,
+} from "../../services/inventoryCallables";
 import { requestOrderDestinationChange } from "../../services/destinationCorrectionService";
 import DestinationCorrectionDialog from "./DestinationCorrectionDialog";
 import {
@@ -47,15 +46,27 @@ function canCancel(statusKey) {
   return canTransition(ACTOR_DISPATCHER, statusKey, "cancelled").ok;
 }
 
-// Recovery is the failed-delivery path ONLY. `reassignFailedOrder` is a dedicated
-// recovery callable that accepts `delivery_failed` and rejects everything else
-// ("That order is no longer awaiting recovery."), so the button must be gated to
-// the same set. `canTransition(dispatcher, …, "assigned")` was the wrong test —
-// it is also true for `pending_dispatch` (normal assignment), which put a
-// "Retry / Reassign" button on every unassigned order and then failed at the
-// server. A pending order is assigned through the Assign Rider flow, not here.
+// Recovery is the failed-delivery path ONLY. `requeueFailedOrder` is a dedicated
+// server callable that accepts `delivery_failed` and rejects everything else
+// ("Only a failed delivery can be returned…"), so the button must be gated to the
+// same set. A failed order's stock went back to the warehouse (awaiting an
+// Admin decision), so recovery returns the order to the dispatch QUEUE: it is
+// reserved again by the allocator and assigned through Assign Rider once fully
+// reserved — never sent straight back out to a rider.
+// `canTransition(dispatcher, …, "assigned")` was the wrong gate — it is also
+// true for `pending_dispatch` (normal assignment), which put a recovery button
+// on every unassigned order and then failed at the server. A pending order is
+// assigned through the Assign Rider flow, not here.
 function canReassign(statusKey) {
   return AWAITING_DISPATCHER_STATUSES.includes(statusKey);
+}
+
+// An order placed before future-order allocation (version 1) whose stock has
+// already gone to return-pending cannot be re-reserved, so the server refuses
+// to requeue it (legacy-order-not-requeueable). The control is not offered;
+// the dispatcher is told to cancel it instead.
+function isLegacyReturned(order) {
+  return order.allocationVersion === 1 && order.allocationStatus === "returned";
 }
 
 function canCorrectDestination(order) {
@@ -205,22 +216,28 @@ function DispatcherShipments() {
     }
   };
 
-  const handleConfirmReassign = async (order, riderUid) => {
+  const handleConfirmReassign = async (order) => {
     setUpdating(order.id);
     setToast("");
     try {
-      // A dedicated recovery entry point — NOT the normal assignment service,
-      // which only ever accepts `pending_dispatch`. It re-reads the order and
-      // the rider inside its own transaction and preserves the failure record.
-      const result = await reassignFailedOrder(order.id, riderUid);
+      // Server-side: clears the assignment, keeps the failure record, and puts
+      // the order back into allocation in its original priority position.
+      const result = await requeueFailedOrder(order.id);
       closeReassignDialog();
+      const state = result?.allocationState;
       showToast(
-        `Order ${order.orderNumber || order.id} reassigned to ${result.assignedRiderName || "the selected rider"}.`,
+        `Order ${order.orderNumber || order.id} is back in the dispatch queue${
+          state === "fully_reserved"
+            ? " and fully reserved — assign a rider from the dashboard."
+            : state
+              ? " and is waiting for stock before it can be assigned."
+              : "."
+        }`,
         "success"
       );
     } catch (err) {
-      console.error("Reassign failed order error:", err);
-      showToast(err.message || "Failed to reassign order.", "error");
+      console.error("Requeue failed order error:", err?.code || err);
+      showToast(err.message || "Failed to return the order to the queue.", "error");
       throw err; // keeps the dialog open and releases its guard
     } finally {
       setUpdating("");
@@ -426,19 +443,15 @@ function DispatcherShipments() {
 }
 
 /**
- * Choose an approved rider to carry a failed delivery again.
+ * Return a failed delivery to the dispatch queue.
  *
- * The same rider may be picked (a retry) or a different one (a reassignment).
- * Only approved riders are listed, and only their document UID is ever sent —
- * employee id is display-only, exactly as on the assignment page. The service
- * re-reads and re-validates the rider regardless of what this list shows.
+ * The rider's report already sent the order's stock back to the warehouse,
+ * where it waits for an Admin to confirm its condition. So recovery cannot be
+ * "send it out again": the order rejoins allocation, is reserved again in its
+ * priority position, and is assigned through Assign Rider once fully
+ * reserved. The failure record is kept.
  */
 function ReassignFailedOrderDialog({ order, onDismiss, onConfirm }) {
-  const [riders, setRiders] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
-  const [selected, setSelected] = useState("");
-  const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const dialogRef = useRef(null);
@@ -446,26 +459,6 @@ function ReassignFailedOrderDialog({ order, onDismiss, onConfirm }) {
 
   const titleId = "reassign-order-title";
   const descId = "reassign-order-desc";
-  const errorId = "reassign-order-error";
-
-  useEffect(() => {
-    const unsubscribe = subscribeRiders(
-      (list) => {
-        setRiders(list);
-        setLoading(false);
-        setLoadError("");
-      },
-      (err) => {
-        setLoadError(
-          err?.code === "permission-denied"
-            ? "No permission to view riders."
-            : "Unable to load riders."
-        );
-        setLoading(false);
-      }
-    );
-    return unsubscribe;
-  }, []);
 
   useEffect(() => {
     firstFieldRef.current?.focus();
@@ -500,21 +493,13 @@ function ReassignFailedOrderDialog({ order, onDismiss, onConfirm }) {
     };
   }, [onDismiss]);
 
-  const approvedRiders = riders.filter((r) => r.status === "approved");
-
   const submit = async (e) => {
     e.preventDefault();
     if (submittingRef.current) return;
-    if (!selected) {
-      setError("Please choose an approved rider.");
-      firstFieldRef.current?.focus();
-      return;
-    }
     submittingRef.current = true;
     setSubmitting(true);
-    setError("");
     try {
-      await onConfirm(order, selected);
+      await onConfirm(order);
     } catch {
       submittingRef.current = false;
       setSubmitting(false);
@@ -533,11 +518,11 @@ function ReassignFailedOrderDialog({ order, onDismiss, onConfirm }) {
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="shp-dialog-head">
-          <h2 id={titleId}>Retry failed delivery</h2>
+          <h2 id={titleId}>Return failed delivery to the queue</h2>
           <button
             type="button"
             className="shp-dialog-close"
-            aria-label="Close without reassigning the order"
+            aria-label="Close without changing the order"
             onClick={onDismiss}
           >
             <X size={16} aria-hidden="true" />
@@ -546,62 +531,19 @@ function ReassignFailedOrderDialog({ order, onDismiss, onConfirm }) {
 
         <p id={descId} className="shp-dialog-desc">
           Order {order.orderNumber || order.id} for {order.clinicName || "this clinic"} failed
-          {order.deliveryFailureReason ? `: "${order.deliveryFailureReason}"` : "."} Choosing a
-          rider sends it back to Assigned, and it passes through Cargo Loading again.
+          {order.deliveryFailureReason ? `: "${order.deliveryFailureReason}"` : "."} Its stock
+          was returned to the warehouse for an Admin to check. Returning the order to the dispatch
+          queue reserves stock for it again in its original priority position; it can be assigned
+          to a rider once every item is fully reserved.
         </p>
 
         <form onSubmit={submit}>
-          <label htmlFor="reassign-rider">Rider</label>
-          {loading ? (
-            <p className="shp-muted">Loading riders...</p>
-          ) : loadError ? (
-            <p className="shp-dialog-error" role="alert">{loadError}</p>
-          ) : approvedRiders.length === 0 ? (
-            <p className="shp-dialog-error" role="alert">
-              No approved riders are available.
-            </p>
-          ) : (
-            <select
-              id="reassign-rider"
-              ref={firstFieldRef}
-              value={selected}
-              aria-describedby={error ? errorId : undefined}
-              aria-invalid={error ? "true" : undefined}
-              onChange={(e) => {
-                setSelected(e.target.value);
-                if (error) setError("");
-              }}
-            >
-              <option value="">Select an approved rider...</option>
-              {approvedRiders.map((r) => (
-                // The VALUE is the document uid — the assignment identity.
-                <option key={r.uid} value={r.uid}>
-                  {r.fullName || r.name || r.displayName || r.email}
-                  {r.uid === order.assignedRiderId ? " (same rider — retry)" : ""}
-                </option>
-              ))}
-            </select>
-          )}
-
-          <div aria-live="assertive">
-            {error && (
-              <p id={errorId} role="alert" className="shp-dialog-error">
-                {error}
-              </p>
-            )}
-          </div>
-
           <div className="shp-dialog-actions">
-            <button type="button" className="shp-act-btn" onClick={onDismiss}>
+            <button type="button" className="shp-act-btn" onClick={onDismiss} ref={firstFieldRef}>
               Keep as failed
             </button>
-            <button
-              type="submit"
-              className="shp-act-btn primary"
-              disabled={submitting || loading || approvedRiders.length === 0}
-            >
-              {submitting && <Loader2 size={12} className="spin" aria-hidden="true" />}
-              {submitting ? "Reassigning..." : "Reassign order"}
+            <button type="submit" className="shp-act-btn primary" disabled={submitting}>
+              {submitting ? "Returning…" : "Return to queue"}
             </button>
           </div>
         </form>
@@ -771,11 +713,11 @@ function CancelOrderDialog({ order, onDismiss, onConfirm }) {
 function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign, onRequestCorrection }) {
   const sKey = order.statusKey;
   const cancellable = canCancel(sKey);
-  // Recovery puts the order back into dispatch, so it waits for the scheduled
-  // day like any first assignment. The service and the rules re-check.
+  // Recovery only returns the order to the dispatch queue; the assignment that
+  // follows waits for the scheduled day and for full stock like any other.
   const schedule = dispatchEligibility(order, now);
-  const recoveryHeld = canReassign(sKey) && !schedule.eligible;
-  const reassignable = canReassign(sKey) && schedule.eligible;
+  const legacyReturned = canReassign(sKey) && isLegacyReturned(order);
+  const reassignable = canReassign(sKey) && !legacyReturned;
   const earlyDispatch = isEarlyDispatchAnomaly(order, sKey, now);
   const correctable = canCorrectDestination(order);
   const awaitingApproval = !!order.destinationChangeRequest;
@@ -830,15 +772,19 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
       </td>
       <td className="shp-td-meta">{updated}</td>
       <td>
-        {cancellable || reassignable || recoveryHeld || correctable || awaitingApproval ? (
+        {cancellable || reassignable || legacyReturned || correctable || awaitingApproval ? (
           <div className="shp-actions">
             {awaitingApproval && <span className="shp-muted">Awaiting Med Rep approval</span>}
-            {recoveryHeld && <span className="shp-muted">{schedule.message}</span>}
             {correctable && (
               <button type="button" className="shp-act-btn" disabled={updating}
                 onClick={(e) => onRequestCorrection(order, e.currentTarget)}>
                 Request change
               </button>
+            )}
+            {legacyReturned && (
+              <span className="shp-muted">
+                Placed before future orders — its stock was returned. Cancel it and place a new order.
+              </span>
             )}
             {reassignable && (
               <button
@@ -847,7 +793,7 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
                 disabled={updating}
                 onClick={(e) => onRequestReassign(order, e.currentTarget)}
               >
-                Retry / Reassign
+                Return to queue
               </button>
             )}
             {cancellable && (

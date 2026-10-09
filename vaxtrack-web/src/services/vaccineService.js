@@ -13,6 +13,7 @@ import {
 import { auth, db } from "../firebase";
 import { validateStockCorrection } from "./stockCorrection";
 import { validateStockBatchDates } from "./stockBatchDates";
+import { readVatClassification } from "./vatClassification";
 
 const VACCINES = "vaccines";
 const VACCINE_TYPES = "vaccineTypes";
@@ -37,13 +38,50 @@ export async function skuExists(sku) {
   return !snap.empty;
 }
 
-export async function addVaccine({ vaccineName, manufacturer, vaccineType, internalSku }) {
+/**
+ * Register a vaccine product. `vatClassification` is REQUIRED — exactly
+ * "vatable" or "vat_exempt", chosen by the Admin, never defaulted. It becomes
+ * the snapshot copied onto every future order item for this vaccine.
+ */
+export async function addVaccine({ vaccineName, manufacturer, vaccineType, internalSku, vatClassification }) {
+  const cls = readVatClassification(vatClassification);
+  if (!cls) {
+    throw new Error("Select VAT or VAT Exempt for this vaccine.");
+  }
   return addDoc(collection(db, VACCINES), {
     vaccineName,
     manufacturer,
     vaccineType,
     internalSku,
+    vatClassification: cls,
     createdAt: serverTimestamp(),
+  });
+}
+
+/**
+ * Admin: set or correct a vaccine product's VAT classification.
+ *
+ * Affects only FUTURE order items — each existing order item keeps the
+ * snapshot it was created with, and issued invoices are never touched. WHO and
+ * WHEN are recorded from the session, never from a parameter (the same
+ * convention as re-pricing); firestore.rules pins both.
+ */
+export async function setVaccineVatClassification(vaccineId, vatClassification) {
+  const cls = readVatClassification(vatClassification);
+  if (!cls) {
+    throw new Error("Select VAT or VAT Exempt for this vaccine.");
+  }
+  const uid = auth.currentUser?.uid;
+  if (!uid) {
+    throw new Error("Your session has expired. Please sign in again.");
+  }
+  if (typeof vaccineId !== "string" || !vaccineId || vaccineId.includes("/")) {
+    throw new Error("That vaccine could not be identified.");
+  }
+  return updateDoc(doc(db, VACCINES, vaccineId), {
+    vatClassification: cls,
+    vatClassificationSetAt: serverTimestamp(),
+    vatClassificationSetByUid: uid,
   });
 }
 
@@ -64,45 +102,46 @@ export async function batchIdExists(batchId) {
 }
 
 /**
- * Add one stock batch to inventory.
+ * Add one stock batch to inventory — through the TRUSTED server callable.
  *
- * NO STORAGE TEMPERATURE. Add Stock no longer collects one, so none is written
- * — better than storing a placeholder that would read as a real cold-chain
- * figure. Dropping the parameters here is required rather than cosmetic:
- * `addDoc` rejects `undefined` values, so leaving them in the signature would
- * break the write the moment the caller stopped passing them.
+ * Inventory documents can no longer be created by a client at all (the rules
+ * refuse every create): a new batch must, in the same transaction, be reserved
+ * for waiting future orders in priority order, and a client cannot be trusted
+ * to do that or to set its own reserved figure. So this validates exactly as
+ * before (nothing invalid leaves the page), then hands `submit` — the
+ * `addStockBatchWithAllocation` callable in the app, a fake in tests — ONLY
+ * the fields the server accepts. Catalog details (name, type, SKU) and the
+ * batch status are read server-side from the vaccine document and the expiry.
  *
- * Existing inventory documents are untouched. Every reader — Admin Inventory,
- * Sales Rep Inventory, Sales Rep Request Order — already falls back to "—" when
- * the field is absent, so legacy batches keep showing their recorded
- * temperature and new ones simply show none.
+ * NO STORAGE TEMPERATURE. Add Stock no longer collects one, so none is sent.
+ *
+ * Resolves the server's report: `{ inventoryId, batchId, status, added,
+ * allocatedToOrders, leftAvailable, allocations }`.
  */
 export async function addStockBatch({
   vaccineId,
-  vaccineName,
-  vaccineType,
   manufacturer,
-  internalSku,
   batchId,
   manufacturingDate,
   arrivalDate,
   expiryDate,
   quantity,
   sellingPriceCentavos,
-  status,
-}, { todayIso } = {}) {
-  // The batch's dates, re-checked here so nothing invalid reaches Firestore
-  // even if a caller skipped the form: manufacturing present, real, not in the
-  // future (Asia/Manila), on/before arrival and before expiry; plus the
-  // existing arrival/expiry rules. Date-only strings, never browser Dates.
+}, { todayIso, submit } = {}) {
+  if (typeof submit !== "function") {
+    throw new Error("Stock can only be added through the server.");
+  }
+  // The batch's dates, re-checked here so nothing invalid is even sent:
+  // manufacturing present, real, not in the future (Asia/Manila), on/before
+  // arrival and before expiry; plus the existing arrival/expiry rules.
+  // Date-only strings, never browser Dates. The server repeats all of it.
   // `todayIso` exists for tests; the app always uses today in Manila.
   const dates = validateStockBatchDates({ manufacturingDate, arrivalDate, expiryDate, todayIso });
   if (!dates.ok) {
     throw new Error(dates.message);
   }
-  // Refused here as well as in the rules and the callable. A price that reaches
-  // Firestore as a float, a string or a zero is a price that will eventually be
-  // read as one, and the cheapest place to stop it is before the write.
+  // A price that reaches the server as a float, a string or a zero is refused
+  // there too; the cheapest place to stop it is before the call.
   if (
     !Number.isInteger(sellingPriceCentavos) ||
     !Number.isSafeInteger(sellingPriceCentavos) ||
@@ -110,35 +149,17 @@ export async function addStockBatch({
   ) {
     throw new Error("A stock batch needs a selling price in whole centavos.");
   }
-  return addDoc(collection(db, INVENTORY), {
+  return submit({
     vaccineId,
-    vaccineName,
-    vaccineType,
-    manufacturer,
-    internalSku: internalSku || "",
     batchId,
     // Date-only 'YYYY-MM-DD' strings — the canonical, validated values.
     manufacturingDate: dates.value.manufacturingDate,
     arrivalDate: dates.value.arrivalDate,
     expiryDate: dates.value.expiryDate,
     quantity,
-    // Every batch starts with nothing reserved.
-    //
-    // Absent used to mean "treat as zero", which was fine while nothing
-    // reserved anything. Now that availability is `quantity - reservedQuantity`
-    // the field has to exist from the batch's first moment: firestore.rules
-    // requires it to be exactly 0 on create, and the callable refuses a batch
-    // whose reserved figure is present but not a non-negative integer.
-    reservedQuantity: 0,
     // The VAT-EXCLUSIVE clinic selling price for this batch, in PHP centavos.
-    // Price belongs to the BATCH rather than the vaccine because the same
-    // vaccine bought in two procurement lots can legitimately sell at two
-    // prices, and a product-level field could not express that.
     sellingPriceCentavos,
-    priceCurrency: "PHP",
-    priceIsVatInclusive: false,
-    status,
-    createdAt: serverTimestamp(),
+    ...(typeof manufacturer === "string" && manufacturer.trim() ? { manufacturer: manufacturer.trim() } : {}),
   });
 }
 
@@ -205,6 +226,8 @@ export async function correctStockQuantity({ inventoryId, newQuantity, reason })
     newQuantity,
     currentQuantity: prev.quantity,
     reservedQuantity: prev.reservedQuantity,
+    returnPendingQuantity: prev.returnPendingQuantity,
+    quarantinedQuantity: prev.quarantinedQuantity,
     reason,
   });
   if (!check.ok) {

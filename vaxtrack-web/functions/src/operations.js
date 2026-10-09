@@ -14,7 +14,6 @@
  */
 
 const {
-  ALLOCATION_VERSION,
   DESTINATION_VERSION,
   PRICING_VERSION,
   PRICE_CURRENCY,
@@ -26,6 +25,7 @@ const {
   canonicalRequestFingerprint,
   evaluateBatch,
   isLegacyOrder,
+  resolveLineVatClassification,
   territoryOf,
   assertOrderWithinTerritory,
   settleBatch,
@@ -38,9 +38,21 @@ const {
   DELIVERABLE_FROM,
   HOME_ADDRESS_ID,
 } = require("./policy");
+const { deliveryEvidenceProblem } = require("./deliveryEvidence");
+const { statusUpdatedByEmailValue } = require("./attribution");
+const { settleFailureReturn } = require("./failureReturn");
+const {
+  ALLOCATION_VERSION_BACKORDER,
+  allocationPriorityKey,
+  initialAllocationLines,
+  summarizeAllocation,
+  unitsByBatch,
+  allocateProducts,
+} = require("./allocation");
 
 const ORDERS = "orders";
 const INVENTORY = "inventory";
+const VACCINES = "vaccines";
 const RESERVATIONS = "inventoryReservations";
 const REQUEST_KEYS = "orderRequestKeys";
 const USERS = "users";
@@ -79,6 +91,45 @@ async function loadUser(db, uid) {
  * window in which an order exists without its reservation.
  */
 async function createOrderWithReservation({ db, FieldValue, uid, payload, now }) {
+  const result = await createOrderTransaction({ db, FieldValue, uid, payload, now });
+  const { productKeys, ...response } = result;
+  // Allocation runs AFTER the order commits, per product, in its own bounded
+  // transactions — so a new order competes for stock in priority order instead
+  // of jumping ahead of waiting higher-priority orders. A failure here leaves a
+  // valid, fully-backordered order; the inventory/order triggers retry it.
+  if (!response.replayed && Array.isArray(productKeys) && productKeys.length > 0) {
+    try {
+      await allocateProducts({ db, FieldValue, productKeys, now });
+    } catch (error) {
+      console.error("createOrderWithReservation: allocation deferred", { orderId: response.orderId, code: error?.code ?? null });
+    }
+  }
+  const orderSnap = await db.collection(ORDERS).doc(response.orderId).get();
+  return { ...response, allocation: allocationFromOrder(orderSnap.exists ? orderSnap.data() : null) };
+}
+
+/**
+ * The allocation block a confirmation screen shows: per line, requested /
+ * reserved / backordered, and the order's state. Null for an order that does
+ * not use backorder-aware allocation.
+ */
+function allocationFromOrder(order) {
+  if (!order || order.allocationVersion !== ALLOCATION_VERSION_BACKORDER) return null;
+  const items = Array.isArray(order.items) ? order.items : [];
+  return {
+    allocationState: order.allocationState ?? null,
+    lines: items.map((i) => ({
+      inventoryId: i.inventoryId ?? null,
+      productKey: i.productKey ?? null,
+      name: i.name ?? null,
+      quantity: i.quantity,
+      reservedQuantity: i.reservedQuantity ?? 0,
+      backorderedQuantity: i.backorderedQuantity ?? i.quantity,
+    })),
+  };
+}
+
+async function createOrderTransaction({ db, FieldValue, uid, payload, now }) {
   const userData = await loadUser(db, uid);
   requireRole(userData, "salesrep");
 
@@ -230,11 +281,38 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
         // difference in either direction refuses the checkout.
         expectedUnitPriceCentavos: line.expectedUnitPriceCentavos,
         now,
+        // A future order: the batch is the line's quote, not a promise of its
+        // shelf. A shortfall is backordered; dispatch waits for full stock.
+        allowBackorder: true,
+      });
+    });
+
+    // ---- VAT classification (per item) ----
+    // Each batch resolves to its vaccine product through `vaccineId`, and the
+    // product's Admin-set classification is read HERE, inside the transaction.
+    // A missing or unclassified product refuses the whole order before any
+    // write — no order, reservation, request key or stock change. The caller
+    // cannot send a classification at all (validateCreatePayload refuses
+    // unknown line keys), so the snapshot is always the product's own value.
+    const vaccineSnaps = new Map();
+    for (const snap of invSnaps) {
+      const vaccineId = snap.exists ? snap.data().vaccineId : null;
+      if (typeof vaccineId === "string" && vaccineId && !vaccineId.includes("/") && !vaccineSnaps.has(vaccineId)) {
+        vaccineSnaps.set(vaccineId, await tx.get(db.collection(VACCINES).doc(vaccineId)));
+      }
+    }
+    const lineVat = evaluated.map((e, index) => {
+      const batch = invSnaps[index].exists ? invSnaps[index].data() : null;
+      const vSnap = batch ? vaccineSnaps.get(batch.vaccineId) : null;
+      return resolveLineVatClassification({
+        inventoryId: e.inventoryId,
+        batch,
+        vaccine: vSnap && vSnap.exists ? vSnap.data() : null,
       });
     });
 
     const subtotalCentavos = sumLineTotalsCentavos(evaluated);
-    const orderItems = evaluated.map((e) => ({
+    const orderItems = evaluated.map((e, index) => ({
       inventoryId: e.inventoryId,
       batchId: e.batchId,
       name: e.name,
@@ -248,12 +326,19 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
       // Decimal pesos, derived. The invoice module and every invoice already
       // written speak this; centavos above stay the authoritative figure.
       unitPrice: centavosToPesos(e.unitPriceCentavos),
+      // Immutable VAT snapshot from the vaccine product at this instant. A
+      // later re-classification changes future items only.
+      vatClassification: lineVat[index],
+      // The product this line is DEMAND for. Allocation reserves any eligible
+      // batch of it (FEFO); the quoted batch above only fixes price and VAT.
+      productKey: invSnaps[index].data().vaccineId,
     }));
+    const allocationLines = initialAllocationLines(orderItems);
+    const allocationSummary = summarizeAllocation(allocationLines, { open: true });
 
     // ---- writes ----
-    evaluated.forEach((e, index) => {
-      tx.update(invRefs[index], { reservedQuantity: e.nextReservedQuantity });
-    });
+    // No stock counter changes here: the order is written fully backordered and
+    // the allocation engine reserves for it — in priority order — right after.
 
     tx.set(orderRef, {
       orderNumber,
@@ -276,7 +361,7 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
       // Always present on a new order: normalizeRequestedDeliveryDate has
       // already refused a missing or invalid one.
       requestedDeliveryDate,
-      items: orderItems,
+      items: allocationLines,
       // ---- immutable price snapshot ----
       //
       // What this clinic was quoted, at this instant, in integers. A later
@@ -291,8 +376,22 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
       subtotalCentavos,
       subtotal: centavosToPesos(subtotalCentavos),
       pricedAt: FieldValue.serverTimestamp(),
-      allocationVersion: ALLOCATION_VERSION,
+      // ---- allocation (backorder-aware; see allocation.js) ----
+      allocationVersion: ALLOCATION_VERSION_BACKORDER,
+      // The reservation document is active (possibly still empty).
       allocationStatus: "reserved",
+      allocationState: allocationSummary.allocationState,
+      allocationOpen: true,
+      backorderedProductKeys: allocationSummary.backorderedProductKeys,
+      allocationCreatedAtMillis: now.getTime(),
+      allocationPriorityKey: allocationPriorityKey(
+        {
+          priority: payload?.priority === "Urgent" ? "Urgent" : "Standard",
+          requestedDeliveryDate,
+          allocationCreatedAtMillis: now.getTime(),
+        },
+        orderRef.id
+      ),
       reservedAt: FieldValue.serverTimestamp(),
       reservedByUid: uid,
       assignedRiderId: null,
@@ -303,15 +402,13 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
       updatedAt: FieldValue.serverTimestamp(),
     });
 
+    // Empty until the allocation engine reserves: one slice per (line, batch).
     tx.set(db.collection(RESERVATIONS).doc(orderRef.id), {
       orderId: orderRef.id,
-      allocationVersion: ALLOCATION_VERSION,
+      allocationVersion: ALLOCATION_VERSION_BACKORDER,
       status: "reserved",
-      items: orderItems.map((i) => ({
-        inventoryId: i.inventoryId,
-        batchId: i.batchId,
-        quantity: i.quantity,
-      })),
+      items: [],
+      inventoryIds: [],
       createdAt: FieldValue.serverTimestamp(),
       createdByUid: uid,
     });
@@ -333,6 +430,7 @@ async function createOrderWithReservation({ db, FieldValue, uid, payload, now })
       orderId: orderRef.id,
       orderNumber,
       replayed: false,
+      productKeys: allocationSummary.backorderedProductKeys,
       destination: destination.response,
       pricing: {
         items: orderItems.map((i) => ({
@@ -412,7 +510,22 @@ function destinationFromOrder(order) {
  * is untouched — but moves no stock and gets an explicit reconciliation marker
  * rather than an invented allocation.
  */
-async function cancelOrderWithInventoryRelease({ db, FieldValue, uid, orderId, reason }) {
+async function cancelOrderWithInventoryRelease({ db, FieldValue, uid, email = null, orderId, reason, now = new Date() }) {
+  const result = await cancelOrderTransaction({ db, FieldValue, uid, email, orderId, reason });
+  const { releasedProductKeys = [], ...response } = result;
+  // Released stock goes straight to the next waiting order, by priority.
+  let reallocated = [];
+  if (releasedProductKeys.length > 0) {
+    try {
+      reallocated = await allocateProducts({ db, FieldValue, productKeys: releasedProductKeys, now });
+    } catch (error) {
+      console.error("cancelOrderWithInventoryRelease: reallocation deferred", { orderId, code: error?.code ?? null });
+    }
+  }
+  return { ...response, reallocated: reallocated.flatMap((r) => r.allocations) };
+}
+
+async function cancelOrderTransaction({ db, FieldValue, uid, email, orderId, reason }) {
   const userData = await loadUser(db, uid);
   requireRole(userData, "dispatcher");
   if (typeof orderId !== "string" || orderId.trim() === "" || orderId.includes("/")) {
@@ -435,7 +548,10 @@ async function cancelOrderWithInventoryRelease({ db, FieldValue, uid, orderId, r
     // Idempotent replay: already cancelled AND already settled means the first
     // call succeeded. Return it without releasing a second time.
     if (order.status === "cancelled") {
-      if (!reservation || reservation.status === "released") {
+      // `returned`: a failed delivery whose units were already in
+      // return-pending when it was cancelled — that cancel moved no stock, so
+      // a retry has nothing to do either.
+      if (!reservation || reservation.status === "released" || reservation.status === "returned") {
         return { orderId, status: "cancelled", released: false, replayed: true };
       }
       throw new PolicyError(
@@ -453,8 +569,38 @@ async function cancelOrderWithInventoryRelease({ db, FieldValue, uid, orderId, r
 
     const legacy = isLegacyOrder(order);
     const settlements = [];
+    const releasedProductKeys = new Set();
+    // A failed delivery whose units already went to return-pending holds no
+    // reservation: cancelling it moves no stock (the return is resolved by an
+    // admin disposition, not here).
+    let alreadyReturned = !legacy && reservation?.status === "returned";
 
-    if (!legacy) {
+    // A version-2 failed delivery whose units are STILL reserved (reported by
+    // an older Rider build; the compatibility trigger has not settled it yet)
+    // goes through the same return-pending settlement as every failure — its
+    // units came back unchecked, so they are never released straight to
+    // available. Version-1 failed orders keep their original behaviour.
+    let failureSettlement = null;
+    if (
+      !legacy &&
+      order.status === "delivery_failed" &&
+      order.allocationVersion === ALLOCATION_VERSION_BACKORDER &&
+      reservation?.status === "reserved"
+    ) {
+      failureSettlement = await settleFailureReturn(tx, {
+        db,
+        FieldValue,
+        orderId,
+        order,
+        reservationRef,
+        reservation,
+        reason: order.deliveryFailureReason ?? null,
+        reportedByUid: order.deliveryFailedByUid ?? null,
+      });
+      alreadyReturned = true;
+    }
+
+    if (!legacy && !alreadyReturned) {
       if (!reservation) {
         throw new PolicyError(
           "reservation-not-found",
@@ -469,18 +615,17 @@ async function cancelOrderWithInventoryRelease({ db, FieldValue, uid, orderId, r
             : "This order's stock was already released."
         );
       }
-      const refs = reservation.items.map((i) => db.collection(INVENTORY).doc(i.inventoryId));
+      // One counter update per batch, however many slices it holds.
+      const perBatch = [...unitsByBatch(reservation.items)];
+      const refs = perBatch.map(([inventoryId]) => db.collection(INVENTORY).doc(inventoryId));
       const snaps = [];
       for (const ref of refs) snaps.push(await tx.get(ref));
-      reservation.items.forEach((item, index) => {
+      perBatch.forEach(([inventoryId, quantity], index) => {
+        const data = snaps[index].exists ? snaps[index].data() : null;
+        if (data && typeof data.vaccineId === "string" && data.vaccineId) releasedProductKeys.add(data.vaccineId);
         settlements.push({
           ref: refs[index],
-          update: settleBatch({
-            inventoryId: item.inventoryId,
-            data: snaps[index].exists ? snaps[index].data() : null,
-            quantity: item.quantity,
-            mode: "release",
-          }),
+          update: settleBatch({ inventoryId, data, quantity, mode: "release" }),
         });
       });
     }
@@ -494,16 +639,37 @@ async function cancelOrderWithInventoryRelease({ db, FieldValue, uid, orderId, r
       cancelledAt: FieldValue.serverTimestamp(),
       statusUpdatedAt: FieldValue.serverTimestamp(),
       statusUpdatedByUid: uid,
+      // Written with the uid, so Activity never shows the previous writer
+      // (see attribution.js).
+      statusUpdatedByEmail: statusUpdatedByEmailValue(email, FieldValue),
       updatedAt: FieldValue.serverTimestamp(),
     };
     if (legacy) {
       // Explicit, non-fabricated: we are recording that this order's stock
       // effect is UNKNOWN, not asserting anything about which batch it used.
       orderUpdate.inventoryReconciliation = "legacy-unallocated";
+    } else if (alreadyReturned) {
+      orderUpdate.allocationOpen = false;
+      orderUpdate.backorderedProductKeys = [];
+      if (failureSettlement?.settled) {
+        orderUpdate.failureCount = failureSettlement.orderFields.failureCount;
+        orderUpdate.allocationStatus = "returned";
+        orderUpdate.pendingReturnId = failureSettlement.returnId;
+      }
     } else {
       orderUpdate.allocationStatus = "released";
       orderUpdate.releasedAt = FieldValue.serverTimestamp();
       orderUpdate.releasedByUid = uid;
+      if (order.allocationVersion === ALLOCATION_VERSION_BACKORDER) {
+        // Out of the queue for good; nothing reserved any more.
+        orderUpdate.allocationOpen = false;
+        orderUpdate.backorderedProductKeys = [];
+        orderUpdate.items = (Array.isArray(order.items) ? order.items : []).map((l) => ({
+          ...l,
+          reservedQuantity: 0,
+          backorderedQuantity: 0,
+        }));
+      }
       tx.update(reservationRef, {
         status: "released",
         settledAt: FieldValue.serverTimestamp(),
@@ -513,7 +679,14 @@ async function cancelOrderWithInventoryRelease({ db, FieldValue, uid, orderId, r
     }
     tx.update(orderRef, orderUpdate);
 
-    return { orderId, status: "cancelled", released: !legacy, replayed: false, legacy };
+    return {
+      orderId,
+      status: "cancelled",
+      released: !legacy && !alreadyReturned,
+      replayed: false,
+      legacy,
+      releasedProductKeys: [...releasedProductKeys],
+    };
   });
 }
 
@@ -523,7 +696,7 @@ async function cancelOrderWithInventoryRelease({ db, FieldValue, uid, orderId, r
  * Proof of delivery is deliberately NOT required here — that contract is
  * unchanged and stays deferred until the physical-phone checkpoint.
  */
-async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid, orderId }) {
+async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid, email = null, orderId }) {
   const userData = await loadUser(db, uid);
   requireRole(userData, "rider");
   if (typeof orderId !== "string" || orderId.trim() === "" || orderId.includes("/")) {
@@ -565,6 +738,12 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
       );
     }
 
+    // Both evidence photos must be RECORDED on the order (not merely present in
+    // Storage) by this rider before the delivery closes. Checked after the
+    // already-delivered replay above, so a repeated call stays idempotent.
+    const evidence = deliveryEvidenceProblem(order, orderId, uid);
+    if (evidence) throw new PolicyError(evidence.code, evidence.message);
+
     const legacy = isLegacyOrder(order);
     const settlements = [];
 
@@ -583,16 +762,30 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
             : "This order's stock was already consumed."
         );
       }
-      const refs = reservation.items.map((i) => db.collection(INVENTORY).doc(i.inventoryId));
+      if (order.allocationVersion === ALLOCATION_VERSION_BACKORDER) {
+        // Never deliver what was never fully reserved, and consume exactly the
+        // reserved slices — their total must equal what was ordered.
+        const requested = (Array.isArray(order.items) ? order.items : []).reduce((s, l) => s + (l.quantity || 0), 0);
+        const reservedTotal = [...unitsByBatch(reservation.items).values()].reduce((s, q) => s + q, 0);
+        if (order.allocationState !== "fully_reserved" || reservedTotal !== requested) {
+          throw new PolicyError(
+            "order-not-fully-reserved",
+            "This delivery's stock is not fully reserved and needs dispatcher review."
+          );
+        }
+      }
+      // One counter update per batch, however many slices it holds.
+      const perBatch = [...unitsByBatch(reservation.items)];
+      const refs = perBatch.map(([inventoryId]) => db.collection(INVENTORY).doc(inventoryId));
       const snaps = [];
       for (const ref of refs) snaps.push(await tx.get(ref));
-      reservation.items.forEach((item, index) => {
+      perBatch.forEach(([inventoryId, quantity], index) => {
         settlements.push({
           ref: refs[index],
           update: settleBatch({
-            inventoryId: item.inventoryId,
+            inventoryId,
             data: snaps[index].exists ? snaps[index].data() : null,
-            quantity: item.quantity,
+            quantity,
             mode: "consume",
           }),
         });
@@ -607,6 +800,12 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
       deliveredAt: FieldValue.serverTimestamp(),
       statusUpdatedAt: FieldValue.serverTimestamp(),
       statusUpdatedByUid: uid,
+      // The status-attribution trio is written TOGETHER. Writing only the uid
+      // left the previous writer's email (the dispatcher who dispatched it) on
+      // the order, so Admin's Activity panel showed "Updated by <dispatcher>"
+      // for a delivery the rider completed. With no email on the rider's
+      // token, the stale one is removed rather than left to mislead.
+      statusUpdatedByEmail: statusUpdatedByEmailValue(email, FieldValue),
       updatedAt: FieldValue.serverTimestamp(),
     };
     if (legacy) {
@@ -615,6 +814,11 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
       orderUpdate.allocationStatus = "consumed";
       orderUpdate.consumedAt = FieldValue.serverTimestamp();
       orderUpdate.consumedByUid = uid;
+      if (order.allocationVersion === ALLOCATION_VERSION_BACKORDER) {
+        // Delivered: out of the allocation queue for good.
+        orderUpdate.allocationOpen = false;
+        orderUpdate.backorderedProductKeys = [];
+      }
       tx.update(reservationRef, {
         status: "consumed",
         settledAt: FieldValue.serverTimestamp(),

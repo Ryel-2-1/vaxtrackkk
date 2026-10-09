@@ -1,3 +1,6 @@
+import { itemVatLabel } from "./vatClassification.js";
+import { describeAllocation } from "./backorder.js";
+
 /**
  * The Med Rep order confirmation, built ONLY from the stored order.
  *
@@ -19,6 +22,9 @@
 /** The confirmation record for a stored [order]. */
 export function buildConfirmationFromOrder(order, { replayed = false } = {}) {
   const items = Array.isArray(order?.items) ? order.items : [];
+  // Reserved / backordered as the SERVER wrote them — a future order shows
+  // exactly how much is held now and how much waits for stock.
+  const allocation = describeAllocation(order);
   return {
     verified: true,
     replayed: replayed === true,
@@ -33,7 +39,7 @@ export function buildConfirmationFromOrder(order, { replayed = false } = {}) {
     requestedDeliveryDate: order.requestedDeliveryDate ?? null,
     priority: order.priority ?? null,
     deliveryInstructions: order.deliveryInstructions ?? "",
-    items: items.map((item) => ({
+    items: items.map((item, index) => ({
       inventoryId: item?.inventoryId ?? null,
       name: item?.name ?? null,
       sku: item?.batchId ?? null,
@@ -43,7 +49,22 @@ export function buildConfirmationFromOrder(order, { replayed = false } = {}) {
       // Server-written centavos only — never a client expectation.
       unitPriceCentavos: typeof item?.unitPriceCentavos === "number" ? item.unitPriceCentavos : null,
       lineTotalCentavos: typeof item?.lineTotalCentavos === "number" ? item.lineTotalCentavos : null,
+      // The stored VAT snapshot — "Not recorded" on an order created before
+      // snapshots, never inferred from the product's current value.
+      vatLabel: itemVatLabel(item),
+      reservedQuantity: allocation.lines[index]?.reserved ?? null,
+      backorderedQuantity: allocation.lines[index]?.backordered ?? null,
     })),
+    allocation: allocation.tracked
+      ? {
+          state: allocation.state,
+          label: allocation.label,
+          fullyReserved: allocation.fullyReserved,
+          requested: allocation.requested,
+          reserved: allocation.reserved,
+          backordered: allocation.backordered,
+        }
+      : null,
     subtotalCentavos: typeof order.subtotalCentavos === "number" ? order.subtotalCentavos : null,
     priceCurrency: order.priceCurrency ?? null,
     priceIsVatInclusive: order.priceIsVatInclusive ?? null,

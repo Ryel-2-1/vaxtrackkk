@@ -331,9 +331,9 @@ service cloud.firestore {
         'stopSequence', 'stopEtaSeconds', 'stopEtaText',
         'startedAt',
         'status', 'statusUpdatedAt', 'statusUpdatedByEmail', 'statusUpdatedByUid',
-        'updatedAt',
-        // Failed-delivery recovery.
-        'previousAssignedRiderId', 'reassignedAt', 'reassignedByUid'
+        'updatedAt'
+        // No failed-delivery recovery fields: recovery is requeueFailedOrder
+        // (server). previousAssignedRiderId is written there, never by a client.
       ];
     }
     // A rider's ordinary writes: the lifecycle moves and continuous location.
@@ -508,6 +508,16 @@ service cloud.firestore {
         'allocationVersion', 'allocationStatus', 'inventoryReconciliation',
         'reservedAt', 'reservedByUid', 'consumedAt', 'consumedByUid',
         'releasedAt', 'releasedByUid',
+        // Backorder-aware allocation (functions/src/allocation.js). The lines
+        // carry each item's reserved/backordered split and the price + VAT
+        // snapshot; the queue fields decide who gets stock next. All computed
+        // by the server, never by a client — Admin included.
+        'items', 'allocationState', 'allocationOpen', 'backorderedProductKeys',
+        'allocationPriorityKey', 'allocationCreatedAtMillis', 'allocationUpdatedAt',
+        'fullyReservedAt',
+        // Failure return / requeue (functions/src/inventoryWorkflow.js).
+        'failureCount', 'pendingReturnId', 'returnDisposition', 'returnResolvedAt',
+        'requeuedAt', 'requeuedByUid',
         'pricingVersion', 'priceCurrency', 'priceIsVatInclusive',
         'subtotalCentavos', 'subtotal', 'pricedAt',
         // The callable derives this snapshot from active Doctor, relationship,
@@ -520,6 +530,11 @@ service cloud.firestore {
         'destinationLocationVerified', 'destinationSnapshotAt',
         'destinationRevision', 'destinationCorrectedAt', 'destinationCorrectedByUid',
         'destinationChangeRequest',
+        // Delivery-schedule audit, written only by the rescheduleOrderDelivery
+        // callable (functions/src/scheduleOperations.js) together with a
+        // scheduleEvents entry. No client may author or edit any of them.
+        'scheduledDeliveryTime', 'originalRequestedDeliveryDate', 'scheduleRevision',
+        'scheduleUpdatedAt', 'scheduleUpdatedByUid', 'scheduleChangeReason',
         // Stamped once by the status-history trigger (functions/src/statusEvents.js)
         // from the commit time of the first move into in_transit. It is the start
         // of the true delivery duration, so no client may author or move it.
@@ -550,7 +565,41 @@ service cloud.firestore {
     // without the matching inventory movement happening at the same instant.
     function writesServerOnlyStatus() {
       return statusChanged()
-        && (nextStatus() == 'delivered' || nextStatus() == 'cancelled');
+        && (nextStatus() == 'delivered' || nextStatus() == 'cancelled'
+            // A failed delivery moves its reserved units to return-pending, so
+            // it is reported through reportDeliveryFailure — except for the one
+            // temporary, rider-only compatibility write below.
+            || (nextStatus() == 'delivery_failed' && !legacyRiderFailureWritesAllowed())
+            // A failed order leaves delivery_failed only through
+            // requeueFailedOrder (→ pending_dispatch) or a cancel. There is no
+            // client path back to a rider: delivery_failed → assigned is gone.
+            || priorStatus() == 'delivery_failed');
+    }
+
+    // ---- TEMPORARY ROLLOUT COMPATIBILITY ----
+    //
+    // Rider builds released before reportDeliveryFailure write
+    // in_transit|delayed → delivery_failed directly. While this returns true,
+    // that ONE write stays legal for the order's assigned rider, in exactly the
+    // shape isValidFailureReport() demands (meaningful reason, server-stamped
+    // time, reporter == caller) and with nothing outside riderOrderFields() —
+    // so no counter, reservation or allocation field can ride along. The
+    // settleClientReportedFailure trigger then moves the stock exactly as the
+    // callable does.
+    //
+    // PHASE 2 of the rollout sets this to false (strict), once every active
+    // Rider runs a build that uses the callable. Remove the function, its use
+    // above and the trigger together in a later release.
+    function legacyRiderFailureWritesAllowed() {
+      return true;
+    }
+
+    // An order with backorder-aware allocation (version 2) can be assigned,
+    // loaded or dispatched only once EVERY line is fully reserved. Earlier
+    // orders were reserved in full at creation.
+    function orderIsFullyReserved() {
+      return resource.data.get('allocationVersion', 0) != 2
+        || resource.data.get('allocationState', '') == 'fully_reserved';
     }
 
     // ---------------- scheduled dispatch ----------------
@@ -602,12 +651,13 @@ service cloud.firestore {
     function scheduleGuardHolds() {
       return !entersDispatch() || scheduleAllowsDispatch(request.resource.data);
     }
-    // The schedule itself is not editable by the roles that run a delivery.
-    // Dispatcher and Rider are already confined by their hasOnly() allowlists,
-    // which exclude it; the Sales Rep branch states it explicitly. Admin may
-    // correct it — the authorized repair path for a missing or malformed
-    // legacy date — but only TO a real date: never to null, blank or garbage,
-    // and never by deleting it.
+    // The schedule is not editable by ANY client — Admin included. An Admin
+    // changes (or repairs) a delivery date only through the
+    // rescheduleOrderDelivery callable, which records who/when, preserves the
+    // Med Rep's original request and writes a scheduleEvents entry in the same
+    // transaction. A direct client write would skip that history, so it is
+    // refused. Dispatcher and Rider were already confined by their hasOnly()
+    // allowlists; the Sales Rep branch states it explicitly.
     function scheduledDateUnchanged() {
       return (scheduledDateField() in request.resource.data)
           == (scheduledDateField() in resource.data)
@@ -615,15 +665,16 @@ service cloud.firestore {
           == resource.data.get(scheduledDateField(), null);
     }
     function scheduledDateWriteIsValid() {
-      return scheduledDateUnchanged()
-        || ((scheduledDateField() in request.resource.data)
-            && isScheduledDateShape(request.resource.data[scheduledDateField()]));
+      return scheduledDateUnchanged();
     }
 
     // The guard every client order write now carries.
     function clientOrderWriteIsAllowed() {
       return !writesServerOnlyStatus()
         && !changedKeys().hasAny(serverOnlyOrderFields())
+        // Order items carry the server's price and VAT snapshots. No client —
+        // Admin included — may rewrite them after creation.
+        && !changedKeys().hasAny(['items'])
         && !changedKeys().hasAny(immutableDestinationFields())
         && scheduleGuardHolds()
         && scheduledDateWriteIsValid();
@@ -662,6 +713,20 @@ service cloud.firestore {
         && isDateOnlyString(d.get('manufacturingDate', null))
         && d.manufacturingDate <= d.arrivalDate
         && d.manufacturingDate < d.expiryDate;
+    }
+
+    function isProductVatClassification(value) {
+      return value in ['vatable', 'vat_exempt'];
+    }
+
+    function vaccineVatChangeValid() {
+      let d = request.resource.data;
+      return !changedKeys().hasAny(['vatClassification', 'vatClassificationSetAt', 'vatClassificationSetByUid'])
+        || (
+          isProductVatClassification(d.get('vatClassification', null))
+          && d.get('vatClassificationSetAt', null) == request.time
+          && d.get('vatClassificationSetByUid', null) == request.auth.uid
+        );
     }
 
     function isDateOnlyString(value) {
@@ -728,12 +793,22 @@ service cloud.firestore {
     // WHO and WHEN are pinned to the caller and the server clock, the prior value
     // is recorded honestly, and a non-empty reason is required — a correction is
     // evidence, not a silent overwrite.
+    // Stock counters only the server moves (allocation, delivery, failure
+    // return, disposition). An admin's correction may change `quantity` alone.
+    function stockCounterFields() {
+      return ['quantity', 'reservedQuantity', 'returnPendingQuantity',
+              'quarantinedQuantity', 'writtenOffQuantity'];
+    }
+
     function isValidStockCorrection() {
       let d = request.resource.data;
       let prev = resource.data;
       return d.quantity is int
         && d.quantity >= 0
+        // On hand can never drop below the units it must still account for.
         && d.quantity >= prev.get('reservedQuantity', 0)
+             + prev.get('returnPendingQuantity', 0)
+             + prev.get('quarantinedQuantity', 0)
         && d.previousQuantity == prev.quantity
         && d.quantityCorrectedAt == request.time
         && d.quantityCorrectedByUid == request.auth.uid
@@ -789,13 +864,19 @@ service cloud.firestore {
     // must be server-stamped, and the audit must name the caller. This mirrors
     // the transaction in assignRiderToOrder, so the guarantee survives a client
     // that bypasses the app entirely.
+    //
+    // The status audit is required too, as on every other transition: without
+    // it the Assigned history event had no actor and Admin's Activity panel
+    // kept naming whoever changed the status before.
     function isValidRiderAssignment() {
       return resource.data.status == 'pending_dispatch'
         && request.resource.data.status == 'assigned'
         && hasNoAssignedRider(resource.data)
         && isAssignableRiderUid(request.resource.data.assignedRiderId)
         && request.resource.data.assignedAt == request.time
-        && request.resource.data.assignedByUid == request.auth.uid;
+        && request.resource.data.assignedByUid == request.auth.uid
+        && statusAuditIsServerStamped()
+        && orderIsFullyReserved();
     }
 
     // ---------------- order lifecycle (workflow checkpoint 2) ----------------
@@ -841,7 +922,8 @@ service cloud.firestore {
         && nextStatus() == 'loading'
         && request.resource.data.isLoaded == true
         && request.resource.data.loadedAt == request.time
-        && statusAuditIsServerStamped();
+        && statusAuditIsServerStamped()
+        && orderIsFullyReserved();
     }
 
     // Ticking/unticking the loaded flag without moving the order. Permitted
@@ -902,7 +984,8 @@ service cloud.firestore {
         && nextStatus() == 'in_transit'
         && request.resource.data.dispatchedAt == request.time
         && request.resource.data.startedAt == request.time
-        && statusAuditIsServerStamped();
+        && statusAuditIsServerStamped()
+        && orderIsFullyReserved();
     }
 
     // Any non-terminal order → cancelled, with a reason. A failed delivery is
@@ -922,25 +1005,11 @@ service cloud.firestore {
         && statusAuditIsServerStamped();
     }
 
-    // delivery_failed → assigned. Recovery: the order goes back out to an
-    // approved rider (the same one, or another) and re-enters the normal path
-    // through Cargo Loading. It is never pushed straight back into transit.
-    //
-    // Deliberately separate from isValidRiderAssignment(), which only accepts
-    // `pending_dispatch` — widening that would have made a failed order look
-    // like a fresh one to the rules.
-    function isValidFailedOrderRecovery() {
-      return priorStatus() == 'delivery_failed'
-        && nextStatus() == 'assigned'
-        && isAssignableRiderUid(request.resource.data.assignedRiderId)
-        && request.resource.data.reassignedAt == request.time
-        && request.resource.data.reassignedByUid == request.auth.uid
-        && request.resource.data.assignedAt == request.time
-        && request.resource.data.assignedByUid == request.auth.uid
-        // The failure record survives the recovery untouched.
-        && !changedKeys().hasAny(failureRecordFields())
-        && statusAuditIsServerStamped();
-    }
+    // There is deliberately no client recovery rule. A failed delivery's
+    // stock has gone to return-pending, so it cannot go straight back to a
+    // rider (the old delivery_failed → assigned write): requeueFailedOrder
+    // returns it to pending_dispatch, the allocator reserves it again, and it
+    // is assigned through isValidRiderAssignment() once fully reserved.
 
     // `isValidCancellation()` is deliberately absent: cancelling releases
     // reserved stock, so it is now the callable's alone. The function is kept
@@ -951,8 +1020,7 @@ service cloud.firestore {
         || isLoadingMetadataUpdate()
         || isRouteGenerationWrite()
         || isTripOptimizationWrite()
-        || isValidDispatch()
-        || isValidFailedOrderRecovery();
+        || isValidDispatch();
     }
 
     // --- rider operations ---
@@ -1309,6 +1377,13 @@ service cloud.firestore {
             && get(/databases/$(database)/documents/orders/$(orderId)).data.assignedRiderId == request.auth.uid);
         allow write: if false;
       }
+      // Delivery-schedule history, appended by the rescheduleOrderDelivery
+      // callable through the Admin SDK. Admin and Dispatcher (the calendar
+      // roles) may read it; no client can add, edit or erase an entry.
+      match /scheduleEvents/{eventId} {
+        allow read: if isAdmin() || isDispatcher();
+        allow write: if false;
+      }
       // Admin + Dispatcher see all orders. Sales Rep sees only orders they
       // created; Rider sees only orders assigned to them.
       allow get: if isAdmin() || isDispatcher()
@@ -1363,7 +1438,6 @@ service cloud.firestore {
           // move an order to a different rider.
           && (
             isValidRiderAssignment()
-            || isValidFailedOrderRecovery()
             || !changedKeys().hasAny(assignmentIdentityFields())
           )
           // ...and the write must be one of the dispatcher's approved
@@ -1420,9 +1494,22 @@ service cloud.firestore {
     match /inventoryReservations/{orderId} {
       allow read, write: if false;
     }
+    // Units back from a failed delivery, awaiting an admin's disposition.
+    // Written only by the server (reportDeliveryFailure, the compatibility
+    // trigger, requeue/cancel settlement, confirmReturnDisposition).
+    match /inventoryReturns/{returnId} {
+      allow read: if isAdmin() || isDispatcher();
+      allow write: if false;
+    }
     // Idempotency records. A client that could read these could replay another
     // rep's checkout; a client that could write one could suppress a real order.
     match /orderRequestKeys/{keyId} {
+      allow read, write: if false;
+    }
+    // Allocation continuations (allocation.js): cursors for a run that outgrew
+    // one bounded pass. Server-only — a client that could write one could
+    // re-order or stall allocation.
+    match /allocationContinuations/{productKey} {
       allow read, write: if false;
     }
 
@@ -1441,20 +1528,37 @@ service cloud.firestore {
     // Any other client attempt to change quantity is still refused.
     match /inventory/{id} {
       allow read: if isApprovedUser();
-      allow create: if isAdmin() && isValidNewStockBatch();
+      // New stock arrives through addStockBatchWithAllocation, which creates
+      // the batch and allocates it to waiting orders in ONE transaction. A
+      // client-created batch would skip the allocation, so none is allowed.
+      allow create: if false;
       allow update: if isAdmin() && stockDatesValidIfChanged() && (
         (
-          !changedKeys().hasAny(['quantity', 'reservedQuantity'])
+          !changedKeys().hasAny(stockCounterFields())
           && stockPriceValidIfPresent()
           && stockPriceAuditValid()
         )
         || isValidStockCorrection()
       );
-      allow delete: if isAdmin();
+      // Never while units are reserved, waiting on a return or quarantined:
+      // deleting the batch would orphan the records that explain them.
+      allow delete: if isAdmin()
+        && resource.data.get('reservedQuantity', 0) == 0
+        && resource.data.get('returnPendingQuantity', 0) == 0
+        && resource.data.get('quarantinedQuantity', 0) == 0;
     }
+    // Vaccine catalog. A new product must carry a VAT classification —
+    // exactly 'vatable' or 'vat_exempt', no default. A legacy product without
+    // one stays readable and editable; classifying (or re-classifying) it must
+    // set a valid value and record WHO and WHEN from the session. Only Admin
+    // writes here. The classification is snapshotted onto order items by the
+    // order callable, so changing it never touches an existing order.
     match /vaccines/{id} {
       allow read: if isApprovedUser();
-      allow write: if isAdmin();
+      allow create: if isAdmin()
+        && isProductVatClassification(request.resource.data.get('vatClassification', null));
+      allow update: if isAdmin() && vaccineVatChangeValid();
+      allow delete: if isAdmin();
     }
     match /vaccineTypes/{id} {
       allow read: if isApprovedUser();

@@ -301,10 +301,14 @@ test("assignment re-checks the schedule inside its transaction (stale UI)", () =
     "the stored order is read, then checked, then written — all in one transaction");
 });
 
-test("failed-delivery recovery is held to the same schedule", () => {
-  const body = fnBody(orderService, "reassignFailedOrder");
-  assert.ok(body.indexOf("tx.get(orderRef)") < body.indexOf("assertScheduleReached(order)"));
-  assert.ok(body.indexOf("assertScheduleReached(order)") < body.indexOf("tx.update("));
+test("failed-delivery recovery re-enters through normal, schedule-gated assignment", () => {
+  // Recovery now only returns the order to pending_dispatch (server callable
+  // requeueFailedOrder); the client reassignment that skipped the queue is gone,
+  // so the only way back to a rider is assignRiderToOrder, checked above.
+  assert.equal(/export async function reassignFailedOrder/.test(orderService), false);
+  const body = fnBody(orderService, "assignRiderToOrder");
+  assert.ok(body.indexOf("assertScheduleReached(order)") < body.indexOf("assignmentBlockReason(order)"),
+    "the stock check runs on the same stored order, after the schedule check");
 });
 
 test("cargo loading's promotion and finalize both check the stored order", () => {
@@ -348,11 +352,10 @@ test("the rules carry the same instant and guard every client write", () => {
     /function scheduleAllowsDispatch\(d\) \{\s*\n\s*return \(scheduledDateField\(\) in d\)\s*\n\s*&& isScheduledDateShape/
   );
   assert.equal(/return !\(scheduledDateField\(\) in d\)/.test(rules), false, "no 'absent is allowed' escape");
-  // A date can be corrected only TO a real one — never erased.
-  assert.match(
-    rules,
-    /return scheduledDateUnchanged\(\)\s*\n\s*\|\| \(\(scheduledDateField\(\) in request\.resource\.data\)\s*\n\s*&& isScheduledDateShape/
-  );
+  // No client — Admin included — writes the date directly any more (so it can
+  // never be erased or set to garbage either): the only path is the
+  // rescheduleOrderDelivery callable, which also records the history.
+  assert.match(rules, /function scheduledDateWriteIsValid\(\) \{\s*\n\s*return scheduledDateUnchanged\(\);\s*\n\s*\}/);
   // Even an admin-created order must carry a real date.
   assert.match(
     rules,
@@ -390,13 +393,15 @@ test("legacy undated and invalid-dated orders appear under Needs scheduling, rea
   const table = page.slice(page.indexOf("function ReadOnlyQueue("));
   assert.equal(/handleAssignRider|onClick=/.test(table.slice(0, table.indexOf("\nfunction MonitorInfo"))), false);
   assert.match(table, /<p className="dispatcher-dash-not-yet">\{schedule\.message\}<\/p>/);
-  // ...and the schedule page names the bucket the same way.
-  assert.match(read("src/pages/dispatcher/DispatcherSchedule.jsx"), /<h3>Needs scheduling<\/h3>/);
+  // ...and the shared Delivery Calendar (the Dispatcher schedule page) names
+  // the bucket the same way.
+  assert.match(read("src/pages/dispatcher/DispatcherSchedule.jsx"), /<DeliveryCalendar role="dispatcher" \/>/);
+  assert.match(read("src/components/schedule/DeliveryCalendar.jsx"), />Unscheduled — needs scheduling<\/h2>/);
 });
 
 test("rider assignment, cargo loading and recovery disable their controls", () => {
   const assign = read("src/pages/dispatcher/DispatcherAssignRider.jsx");
-  assert.match(assign, /const canAssign = [^\n]*&& !scheduleBlocked;/);
+  assert.match(assign, /const canAssign =\s*!saving[^;]*&& !scheduleBlocked && !stockBlock;/);
   assert.match(assign, /\{schedule\.message\}/);
 
   const cargo = read("src/pages/dispatcher/DispatcherCargoLoading.jsx");
@@ -404,10 +409,12 @@ test("rider assignment, cargo loading and recovery disable their controls", () =
   assert.match(cargo, /disabled=\{saving \|\| dispatched \|\| loadBlocked\}/);
 
   const shipments = read("src/pages/dispatcher/DispatcherShipments.jsx");
-  assert.match(shipments, /const reassignable = canReassign\(sKey\) && schedule\.eligible;/);
+  // Recovery only returns the order to the queue; it is not schedule-gated
+  // itself — the assignment that follows is.
+  assert.match(shipments, /const reassignable = canReassign\(sKey\) && !legacyReturned;/);
   assert.match(shipments, /isEarlyDispatchAnomaly\(order, sKey, now\)/);
 
-  const schedule = read("src/pages/dispatcher/DispatcherSchedule.jsx");
+  const schedule = read("src/components/schedule/DeliveryCalendar.jsx");
   assert.match(schedule, /Upcoming — not dispatchable until 00:00 that day/);
   assert.match(schedule, /Early dispatch — dispatched before its scheduled date/);
 });
@@ -418,7 +425,7 @@ test("pages re-evaluate at Manila midnight rather than on a server job", () => {
     "src/pages/dispatcher/DispatcherAssignRider.jsx",
     "src/pages/dispatcher/DispatcherCargoLoading.jsx",
     "src/pages/dispatcher/DispatcherShipments.jsx",
-    "src/pages/dispatcher/DispatcherSchedule.jsx",
+    "src/components/schedule/DeliveryCalendar.jsx",
   ]) {
     assert.match(read(p), /const now = useManilaDayNow\(\);/, p);
   }

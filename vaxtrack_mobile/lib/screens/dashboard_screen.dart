@@ -5,10 +5,12 @@ import '../models/delivery.dart';
 import '../services/delivery_service.dart';
 import '../services/location_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/delivery_buckets.dart';
 import '../utils/google_maps_url.dart';
 import '../utils/route_utils.dart';
 import '../utils/sync_status.dart';
 import '../utils/trip_route.dart';
+import '../widgets/dashboard_delivery_card.dart';
 import '../widgets/sync_indicator.dart';
 import 'delivery_detail_screen.dart';
 
@@ -79,8 +81,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           final result = snapshot.data;
           final deliveries = result?.deliveries ?? [];
-          final active = deliveries.where((d) => d.isActive).toList();
-          final completed = deliveries.where((d) => d.isDelivered).toList();
+          final buckets = DeliveryBuckets(deliveries);
+          final active = buckets.active;
+          final completed = buckets.completed;
           final urgent = active.where((d) => d.isUrgent).toList();
           // Optimized multi-stop trip (dispatcher-generated). When present, the
           // active list is shown in visiting order and a route banner appears.
@@ -107,7 +110,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   child: SyncIndicator(status: syncStatus),
                 ),
                 const SizedBox(height: 10),
-                _buildStatCards(deliveries.length, completed.length, active.length),
+                _buildStatCards(buckets.total, buckets.done, buckets.remaining),
                 if (urgent.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   _buildUrgentBanner(urgent.first),
@@ -122,12 +125,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 if (active.isEmpty)
                   _emptyState('No assigned deliveries yet.')
                 else
-                  ...orderedActive.map((d) => _deliveryCard(d)),
+                  ...orderedActive.map(_deliveryCard),
                 if (completed.isNotEmpty) ...[
                   const SizedBox(height: 20),
                   _sectionTitle('Completed', '${completed.length} delivered'),
                   const SizedBox(height: 8),
-                  ...completed.map((d) => _deliveryCard(d)),
+                  ...completed.map(_deliveryCard),
                 ],
               ],
             ),
@@ -279,159 +282,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _deliveryCard(Delivery d) {
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => DeliveryDetailScreen(delivery: d)),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // Neither child of this Row was flexible, so both took their
-                  // full intrinsic width and the Row overflowed whenever the
-                  // order number plus both badges exceeded the card's 288dp of
-                  // content width — by 6.6px on a 384dp-wide device, which
-                  // clipped the trailing status badge to "In Tra".
-                  //
-                  // The order number is the only variable-length item here; the
-                  // badges are short, fixed-vocabulary labels that must stay
-                  // fully readable. Flexible (not Expanded) lets the number —
-                  // and only the number — give way, so the row is byte-identical
-                  // wherever it already fits and the badges are never clipped
-                  // where it does not. The right padding keeps the ellipsis off
-                  // the badge once the text does have to shrink.
-                  Flexible(
-                    child: Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: Text(d.orderNumber,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-                    ),
-                  ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _badge(d.priority, d.priority == 'Urgent' ? AppColors.urgentBg : AppColors.primaryLight,
-                          d.priority == 'Urgent' ? AppColors.urgent : AppColors.primary),
-                      const SizedBox(width: 6),
-                      _statusBadge(d),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(d.clinicName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
-              if (d.isOnTrip) ...[
-                const SizedBox(height: 6),
-                _tripStopChip(d),
-              ],
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Icon(Icons.location_on, size: 14, color: AppColors.textLight),
-                  const SizedBox(width: 4),
-                  Expanded(child: Text(d.clinicAddress, style: const TextStyle(fontSize: 12, color: AppColors.textLight))),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  const Icon(Icons.vaccines, size: 14, color: AppColors.textLight),
-                  const SizedBox(width: 4),
-                  // Same defect as the header row, and the same fix the address
-                  // row directly above already uses: the vaccine name is
-                  // variable-length, so without a flex child this Row overflows
-                  // on longer names. Expanded (not ellipsis) so the full name
-                  // stays readable by wrapping, matching the address row.
-                  Expanded(
-                    child: Text('${d.vaccineName} — ${d.quantity} ${d.unit}',
-                        style: const TextStyle(fontSize: 12, color: AppColors.textLight)),
-                  ),
-                ],
-              ),
-              if (d.isDelivered) ...[
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.check_circle, color: AppColors.primary, size: 16),
-                    const SizedBox(width: 6),
-                    const Text('Delivered', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        ),
+    return DashboardDeliveryCard(
+      delivery: d,
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => DeliveryDetailScreen(delivery: d)),
       ),
     );
-  }
-
-  Widget _tripStopChip(Delivery d) {
-    final total = d.tripStopCount;
-    final label = (total != null && total > 0)
-        ? 'Stop ${d.stopSequence} of $total'
-        : 'Stop ${d.stopSequence}';
-    final eta =
-        (d.stopEtaText ?? '').isNotEmpty ? ' · ETA ${d.stopEtaText}' : '';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: AppColors.infoBg,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.alt_route, size: 13, color: AppColors.info),
-          const SizedBox(width: 4),
-          Text(
-            '$label$eta',
-            style: const TextStyle(
-                fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.info),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _badge(String text, Color bg, Color fg) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
-      child: Text(text, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: fg)),
-    );
-  }
-
-  Widget _statusBadge(Delivery d) {
-    Color bg;
-    Color fg;
-    switch (d.status) {
-      case 'in_transit':
-        bg = AppColors.infoBg;
-        fg = AppColors.info;
-        break;
-      case 'delivered':
-      case 'completed':
-        bg = AppColors.primaryLight;
-        fg = AppColors.primary;
-        break;
-      case 'delayed':
-        bg = AppColors.urgentBg;
-        fg = AppColors.urgent;
-        break;
-      default:
-        bg = AppColors.warningBg;
-        fg = AppColors.warning;
-    }
-    return _badge(d.statusLabel, bg, fg);
   }
 }

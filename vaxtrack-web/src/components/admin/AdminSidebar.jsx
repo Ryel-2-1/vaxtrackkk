@@ -3,7 +3,9 @@ import { Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   Box,
+  ListOrdered,
   Truck,
+  CalendarDays,
   Users,
   Building2,
   FileText,
@@ -41,7 +43,9 @@ const ROUTE_ACTIVE = {
   "/admin/inventory": "inventory",
   "/admin/add-stock": "inventory",
   "/admin/add-vaccine": "inventory",
+  "/admin/allocation": "allocation",
   "/admin/deliveries": "deliveries",
+  "/admin/delivery-calendar": "delivery-calendar",
   "/admin/riders": "riders",
   "/admin/clinics": "clinics",
   "/admin/register-clinic": "clinics",
@@ -162,12 +166,30 @@ export function AdminSidebar({ active: activeProp, onLogout }) {
           </Link>
 
           <Link
+            className={active === "allocation" ? "active" : ""}
+            aria-current={active === "allocation" ? "page" : undefined}
+            to="/admin/allocation"
+          >
+            <ListOrdered size={16} aria-hidden="true" />
+            <span>Stock Allocation</span>
+          </Link>
+
+          <Link
             className={active === "deliveries" ? "active" : ""}
             aria-current={active === "deliveries" ? "page" : undefined}
             to="/admin/deliveries"
           >
             <Truck size={16} aria-hidden="true" />
             <span>Deliveries</span>
+          </Link>
+
+          <Link
+            className={active === "delivery-calendar" ? "active" : ""}
+            aria-current={active === "delivery-calendar" ? "page" : undefined}
+            to="/admin/delivery-calendar"
+          >
+            <CalendarDays size={16} aria-hidden="true" />
+            <span>Delivery Calendar</span>
           </Link>
 
           <Link

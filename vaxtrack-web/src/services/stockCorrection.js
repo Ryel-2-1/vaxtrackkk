@@ -34,6 +34,10 @@ export function validateStockCorrection({
   newQuantity,
   currentQuantity,
   reservedQuantity,
+  // Stock back from a failed delivery and stock in quarantine is on hand too,
+  // and the rules keep quantity >= reserved + returnPending + quarantined.
+  returnPendingQuantity,
+  quarantinedQuantity,
   reason,
 }) {
   if (!Number.isInteger(newQuantity) || newQuantity < 0) {
@@ -50,6 +54,16 @@ export function validateStockCorrection({
       message:
         `This batch has ${reserved} vial(s) reserved for open orders, so the ` +
         `on-hand quantity cannot be set below ${reserved}. Cancel those orders first.`,
+    };
+  }
+
+  const held = reserved + readReserved(returnPendingQuantity) + readReserved(quarantinedQuantity);
+  if (newQuantity < held) {
+    return {
+      ok: false,
+      message:
+        `This batch holds ${held} vial(s) that are reserved, returned awaiting a ` +
+        `decision, or quarantined, so the on-hand quantity cannot be set below ${held}.`,
     };
   }
 

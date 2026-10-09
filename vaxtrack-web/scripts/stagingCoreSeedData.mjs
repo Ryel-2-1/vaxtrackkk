@@ -205,6 +205,10 @@ export function buildSeedPlan({ today = SEED_DATE } = {}) {
         manufacturer: v.manufacturer,
         vaccineType: typeName,
         internalSku: sku,
+        // FICTIONAL demo value (every third sample product is VAT Exempt), so a
+        // seeded catalog can exercise mixed VAT orders. Not a tax ruling about
+        // any real vaccine; an Admin sets real classifications.
+        vatClassification: v.n % 3 === 0 ? "vat_exempt" : "vatable",
       },
       serverTimestampFields: ["createdAt"],
       // structural link for validation only (not written)
@@ -425,6 +429,8 @@ export function validateSeedPlan(plan) {
 
   for (const v of plan.vaccines) {
     expect(typeNames.has(v.data.vaccineType), `vaccine ${v.id} references an unknown type`);
+    expect(["vatable", "vat_exempt"].includes(v.data.vatClassification),
+      `vaccine ${v.id} needs a VAT classification (vatable or vat_exempt)`);
   }
   for (const b of plan.inventory) {
     expect(vaccineIds.has(b.data.vaccineId), `batch ${b.id} references an unknown vaccine`);

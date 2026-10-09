@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/delivery.dart';
 import '../services/delivery_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/delivery_buckets.dart';
+import '../widgets/delivery_list_card.dart';
 import 'delivery_detail_screen.dart';
 
 class DeliveriesScreen extends StatefulWidget {
@@ -59,9 +61,10 @@ class _DeliveriesScreenState extends State<DeliveriesScreen> with SingleTickerPr
             return Center(child: Text('Error loading deliveries.'));
           }
 
-          final all = snapshot.data ?? [];
-          final active = all.where((d) => d.isActive).toList();
-          final completed = all.where((d) => d.isDelivered).toList();
+          final buckets = DeliveryBuckets(snapshot.data ?? []);
+          final all = buckets.all;
+          final active = buckets.active;
+          final completed = buckets.completed;
 
           return TabBarView(
             controller: _tabController,
@@ -98,72 +101,14 @@ class _DeliveriesScreenState extends State<DeliveriesScreen> with SingleTickerPr
       itemCount: items.length,
       itemBuilder: (context, index) {
         final d = items[index];
-        return _deliveryTile(d);
+        return DeliveryListCard(
+          delivery: d,
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => DeliveryDetailScreen(delivery: d)),
+          ),
+        );
       },
-    );
-  }
-
-  Widget _deliveryTile(Delivery d) {
-    return Card(
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: d.isDelivered ? AppColors.primaryLight : (d.isUrgent ? AppColors.urgentBg : AppColors.infoBg),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(
-            d.isDelivered ? Icons.check_circle : (d.isInTransit ? Icons.local_shipping : Icons.inventory_2),
-            color: d.isDelivered ? AppColors.primary : (d.isUrgent ? AppColors.urgent : AppColors.info),
-            size: 22,
-          ),
-        ),
-        title: Text(d.orderNumber, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(d.clinicName, style: const TextStyle(fontSize: 13)),
-            const SizedBox(height: 2),
-            Text('${d.vaccineName} · ${d.quantity} ${d.unit}',
-                style: const TextStyle(fontSize: 11, color: AppColors.textLight)),
-          ],
-        ),
-        trailing: _statusChip(d),
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => DeliveryDetailScreen(delivery: d)),
-        ),
-      ),
-    );
-  }
-
-  Widget _statusChip(Delivery d) {
-    Color bg;
-    Color fg;
-    switch (d.status) {
-      case 'in_transit':
-        bg = AppColors.infoBg;
-        fg = AppColors.info;
-        break;
-      case 'delivered':
-      case 'completed':
-        bg = AppColors.primaryLight;
-        fg = AppColors.primary;
-        break;
-      case 'delayed':
-        bg = AppColors.urgentBg;
-        fg = AppColors.urgent;
-        break;
-      default:
-        bg = AppColors.warningBg;
-        fg = AppColors.warning;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
-      child: Text(d.statusLabel, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: fg)),
     );
   }
 }

@@ -1,0 +1,76 @@
+/* Admin inventory drawer: which orders and returns hold a batch's units.
+   Scoped under .inventory-page (Admin role root). */
+
+.inventory-page .inv-prov {
+  margin-top: 14px;
+  border-top: 1px solid var(--gray-200);
+  padding-top: 12px;
+  font-size: 13px;
+}
+
+.inventory-page .inv-prov h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 12px 0 6px;
+  color: var(--gray-900);
+}
+
+.inventory-page .inv-prov-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.inventory-page .inv-prov-counts dt {
+  font-size: 12px;
+  color: var(--gray-600);
+}
+
+.inventory-page .inv-prov-counts dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+}
+
+.inventory-page .inv-prov-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.inventory-page .inv-prov-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--gray-600);
+  background: var(--gray-50);
+  padding: 6px 8px;
+}
+
+.inventory-page .inv-prov-table td {
+  padding: 6px 8px;
+  border-top: 1px solid var(--gray-100);
+}
+
+.inventory-page .inv-prov-muted {
+  color: var(--gray-600);
+  margin: 6px 0 0;
+}
+
+.inventory-page .inv-prov-error {
+  color: var(--danger-text);
+  font-weight: 600;
+  margin: 8px 0 0;
+}
+
+/* Out-specifies the global `button { min-height: 46px !important }` reset. */
+.inventory-page .inv-prov .inv-prov-load {
+  min-height: 34px !important;
+  border: 1px solid var(--gray-300);
+  background: var(--gray-50);
+  color: var(--green-800);
+  border-radius: var(--radius-control);
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}

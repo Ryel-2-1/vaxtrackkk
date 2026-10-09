@@ -6,6 +6,7 @@ import {
   onSnapshot,
   runTransaction,
   serverTimestamp,
+  deleteField,
   updateDoc,
   where,
   query,
@@ -14,6 +15,7 @@ import {
 import { auth, db } from "../firebase";
 import { buildClinicLocationSnapshot } from "./orderLocation";
 import { dispatchEligibility } from "./dispatchEligibility";
+import { assignmentBlockReason } from "./backorder";
 import {
   ACTOR_DISPATCHER,
   assertTransition,
@@ -262,6 +264,22 @@ function hasAssignedRider(order) {
  * @returns {Promise<{orderId: string, riderUid: string, assignedRiderName: string|null}>}
  * @throws {AssignmentError}
  */
+/**
+ * The status-attribution trio for a dispatcher's status change: server time,
+ * the session's uid and the session's email. Written TOGETHER — stamping only
+ * the time and uid left the previous writer's email on the order, so Admin's
+ * Activity panel named the wrong person. With no email on the session the
+ * field is deleted rather than left stale. firestore.rules requires the time
+ * and uid to be server-stamped and the caller's own.
+ */
+function statusAttribution(currentUser) {
+  return {
+    statusUpdatedAt: serverTimestamp(),
+    statusUpdatedByUid: currentUser.uid,
+    statusUpdatedByEmail: currentUser.email ? currentUser.email : deleteField(),
+  };
+}
+
 export async function assignRiderToOrder(orderId, riderUid) {
   if (typeof orderId !== "string" || orderId.trim() === "") {
     throw new AssignmentError("order-id-required", "Order ID is required.");
@@ -308,6 +326,13 @@ export async function assignRiderToOrder(orderId, riderUid) {
     // checked against the order as stored now — not the queue the page drew.
     // firestore.rules refuses the same write independently.
     assertScheduleReached(order);
+    // No partial dispatch: a future order is assignable only once the server
+    // has fully reserved every line. Read from the order as stored now; the
+    // rules (orderIsFullyReserved) refuse the same write independently.
+    const stockBlock = assignmentBlockReason(order);
+    if (stockBlock) {
+      throw new AssignmentError("order-not-fully-reserved", stockBlock);
+    }
 
     const riderSnap = await tx.get(riderRef);
     if (!riderSnap.exists()) {
@@ -340,6 +365,9 @@ export async function assignRiderToOrder(orderId, riderUid) {
       assignedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       assignedByUid: currentUser.uid,
+      // Who changed the status — the Assigned history event's actor and the
+      // Activity panel's "Updated by". Previously absent from assignment.
+      ...statusAttribution(currentUser),
     };
     if (assignedRiderName) update.assignedRiderName = assignedRiderName;
     if (assignedRiderPhone) update.assignedRiderPhone = assignedRiderPhone;
@@ -372,133 +400,14 @@ export function subscribeAssignedRiderOrders(riderId, callback) {
   });
 }
 
-/**
- * Recover a failed delivery by sending it back out to an approved rider.
- *
- * A DELIBERATELY SEPARATE entry point from `assignRiderToOrder`, not a relaxed
- * mode of it. That function only ever accepts `pending_dispatch`, and widening
- * it to also accept `delivery_failed` would have meant one function with two
- * meanings and a weaker precondition — exactly the kind of drift that lets a
- * failed order be treated as a fresh one. Both remain narrow.
- *
- * The order returns to `assigned` and re-enters the normal path through Cargo
- * Loading; it is never pushed straight back into transit, because the cargo has
- * to be handled and confirmed again.
- *
- * The same rider may be chosen again (a retry) or a different approved one (a
- * reassignment). Either way the rider's display fields are read from the user
- * DOCUMENT, never from the caller.
- *
- * The failure record — reason, timestamp, and which rider reported it — is
- * deliberately left untouched. Clearing it would make a twice-attempted order
- * indistinguishable from a new one.
- *
- * @param {string} orderId
- * @param {string} riderUid the users document id / Auth UID
- * @returns {Promise<{orderId: string, riderUid: string, previousAssignedRiderId: string|null, assignedRiderName: string|null}>}
- * @throws {AssignmentError}
+/*
+ * Failed-delivery recovery used to be a client transaction here
+ * (`reassignFailedOrder`, delivery_failed → assigned). It was removed: the
+ * failed order's stock now goes to return-pending on the server, so recovery
+ * must re-enter allocation. It is the `requeueFailedOrder` callable
+ * (inventoryCallables.js), and firestore.rules refuse any client write out of
+ * delivery_failed.
  */
-export async function reassignFailedOrder(orderId, riderUid) {
-  if (typeof orderId !== "string" || orderId.trim() === "") {
-    throw new AssignmentError("order-id-required", "Order ID is required.");
-  }
-  if (typeof riderUid !== "string" || riderUid.trim() === "") {
-    throw new AssignmentError("rider-uid-required", "Please select an available rider.");
-  }
-
-  const currentUser = auth.currentUser;
-  if (!currentUser?.uid) {
-    throw new AssignmentError(
-      "not-signed-in",
-      "Your session has expired. Please sign in again."
-    );
-  }
-
-  const orderRef = doc(db, ORDERS_COLLECTION, orderId);
-  const riderRef = doc(db, USERS_COLLECTION, riderUid);
-
-  return runTransaction(db, async (tx) => {
-    const orderSnap = await tx.get(orderRef);
-    if (!orderSnap.exists()) {
-      throw new AssignmentError("order-not-found", "That order no longer exists.");
-    }
-    const order = orderSnap.data();
-
-    // Only a failed delivery may be recovered. Re-read inside the transaction,
-    // so a screen that rendered before a dispatcher already recovered — or
-    // cancelled — the order cannot act on the stale view.
-    const current = normalizeStatus(order.status);
-    if (current !== "delivery_failed") {
-      throw new AssignmentError(
-        "order-not-failed",
-        "That order is no longer awaiting recovery. Refresh the list."
-      );
-    }
-    // Belt and braces: the move itself must also be legal for a dispatcher.
-    assertTransition(ACTOR_DISPATCHER, current, "assigned");
-    // Recovery re-enters dispatch, so it is held to the same schedule.
-    assertScheduleReached(order);
-
-    const riderSnap = await tx.get(riderRef);
-    if (!riderSnap.exists()) {
-      throw new AssignmentError("rider-not-found", "That rider account no longer exists.");
-    }
-    const rider = riderSnap.data();
-    if (rider.role !== RIDER_ROLE) {
-      throw new AssignmentError("not-a-rider", "That account is not a rider.");
-    }
-    if (rider.status !== RIDER_APPROVED_STATUS) {
-      throw new AssignmentError(
-        "rider-not-approved",
-        "That rider is not approved for assignment."
-      );
-    }
-
-    const assignedRiderName = firstNonEmptyString(
-      rider.fullName,
-      rider.name,
-      rider.displayName,
-      rider.email
-    );
-    const assignedRiderPhone = firstNonEmptyString(rider.phone, rider.contactNumber);
-    const previousAssignedRiderId = firstNonEmptyString(order.assignedRiderId);
-
-    const update = {
-      status: "assigned",
-      assignedRiderId: riderUid,
-      assignedAt: serverTimestamp(),
-      assignedByUid: currentUser.uid,
-      reassignedAt: serverTimestamp(),
-      reassignedByUid: currentUser.uid,
-      statusUpdatedAt: serverTimestamp(),
-      statusUpdatedByUid: currentUser.uid,
-      updatedAt: serverTimestamp(),
-      // The order goes back through Cargo Loading, so the previous run's
-      // loaded confirmation must not carry over.
-      isLoaded: false,
-    };
-    if (previousAssignedRiderId) {
-      update.previousAssignedRiderId = previousAssignedRiderId;
-    }
-    if (assignedRiderName) update.assignedRiderName = assignedRiderName;
-    if (assignedRiderPhone) update.assignedRiderPhone = assignedRiderPhone;
-    if (currentUser.email) {
-      update.assignedByEmail = currentUser.email;
-      update.statusUpdatedByEmail = currentUser.email;
-    }
-
-    // deliveryFailureReason / deliveryFailedAt / deliveryFailedByUid are NOT in
-    // this update, so they survive untouched.
-    tx.update(orderRef, update);
-
-    return {
-      orderId,
-      riderUid,
-      previousAssignedRiderId: previousAssignedRiderId ?? null,
-      assignedRiderName,
-    };
-  });
-}
 
 /**
  * The longest cancellation reason that may be stored. Mirrored exactly by

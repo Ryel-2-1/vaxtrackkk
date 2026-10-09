@@ -13,6 +13,45 @@ export const COMPANY_NAME = "3MGS PHARMA INC.";
 export const VAT_STANDARD_RATE = 12;
 export const VAT_CLASSIFICATIONS = ["vatable", "vat_exempt", "zero_rated"];
 
+// Per-item VAT. An order created with item snapshots (every item carries
+// `vatClassification`: "vatable" | "vat_exempt") is invoiced "per_item": VAT
+// comes from the lines, the discount is split pro-rata, and the Admin's
+// invoice-level choice does not apply. Mirrors ITEMIZED_VAT and the
+// computation in functions/src/invoicePricing.js — the server is authoritative.
+export const ITEMIZED_VAT = "per_item";
+const ITEM_VAT_CLASSIFICATIONS = ["vatable", "vat_exempt"];
+const ITEM_VAT_LABELS = { vatable: "VAT", vat_exempt: "VAT Exempt" };
+
+/** An item's snapshot classification, or null when it has none. */
+export function itemVatClassification(item) {
+  return ITEM_VAT_CLASSIFICATIONS.includes(item?.vatClassification) ? item.vatClassification : null;
+}
+
+/** "VAT" / "VAT Exempt" for an invoice or order line; "Not recorded" without a snapshot. */
+export function itemVatLabelForLine(item) {
+  const cls = itemVatClassification(item);
+  return cls ? ITEM_VAT_LABELS[cls] : "Not recorded";
+}
+
+/** True when every item of an order (or invoice) carries a VAT snapshot. */
+export function hasItemizedVat(items) {
+  return Array.isArray(items) && items.length > 0 && items.every((it) => itemVatClassification(it) !== null);
+}
+
+/** Split a discount pro-rata between VATable and VAT-Exempt gross, in centavos. */
+export function allocateDiscountCentavos({ vatableGrossCentavos, vatExemptGrossCentavos, discountCentavos }) {
+  const total = vatableGrossCentavos + vatExemptGrossCentavos;
+  if (discountCentavos === 0 || total === 0) return { vatableCentavos: 0, vatExemptCentavos: 0 };
+  const d = BigInt(discountCentavos);
+  const t = BigInt(total);
+  let vatableCentavos = Number((d * BigInt(vatableGrossCentavos)) / t);
+  let vatExemptCentavos = Number((d * BigInt(vatExemptGrossCentavos)) / t);
+  const remainder = discountCentavos - vatableCentavos - vatExemptCentavos;
+  if (vatableGrossCentavos >= vatExemptGrossCentavos) vatableCentavos += remainder;
+  else vatExemptCentavos += remainder;
+  return { vatableCentavos, vatExemptCentavos };
+}
+
 export function vatClassificationLabel(classification) {
   switch (classification) {
     case "vatable":
@@ -21,9 +60,58 @@ export function vatClassificationLabel(classification) {
       return "VAT-Exempt";
     case "zero_rated":
       return "Zero-Rated";
+    case ITEMIZED_VAT:
+      return "Per item (VAT / VAT Exempt)";
     default:
       return "";
   }
+}
+
+function lineCentavos(it) {
+  const q = Number(it.quantity) || 0;
+  if (Number.isInteger(it.unitPriceCentavos)) return q * it.unitPriceCentavos;
+  return Math.round(q * (Number(it.unitPrice) || 0) * 100);
+}
+
+// Per-item totals, computed in centavos and returned in pesos — the same shape
+// computeVatExclusiveTotals returns for the invoice-level path.
+function itemizedTotals({ items, discount, otherCharges, withholdingTax }) {
+  const lines = items.map((it) => lineCentavos(it) / 100);
+  let vatableGross = 0;
+  let exemptGross = 0;
+  for (const it of items) {
+    if (itemVatClassification(it) === "vatable") vatableGross += lineCentavos(it);
+    else exemptGross += lineCentavos(it);
+  }
+  const subtotalCentavos = vatableGross + exemptGross;
+  const discCentavos = Math.min(Math.max(0, Math.round((Number(discount) || 0) * 100)), subtotalCentavos);
+  const share = allocateDiscountCentavos({ vatableGrossCentavos: vatableGross, vatExemptGrossCentavos: exemptGross, discountCentavos: discCentavos });
+  const vatableSalesC = vatableGross - share.vatableCentavos;
+  const exemptSalesC = exemptGross - share.vatExemptCentavos;
+  const netC = vatableSalesC + exemptSalesC;
+  const vatC = Math.round((vatableSalesC * VAT_STANDARD_RATE) / 100);
+  const other = Number(otherCharges) || 0;
+  const wht = Number(withholdingTax) || 0;
+  const net = netC / 100;
+  const vatAmount = vatC / 100;
+  const grandTotal = net + vatAmount + other;
+  return {
+    lines,
+    subtotal: subtotalCentavos / 100,
+    discount: Number(discount) || 0,
+    otherCharges: other,
+    withholdingTax: wht,
+    net,
+    vatClassification: ITEMIZED_VAT,
+    vatRate: vatableSalesC > 0 ? VAT_STANDARD_RATE : 0,
+    vatableSales: vatableSalesC / 100,
+    vatExemptSales: exemptSalesC / 100,
+    zeroRatedSales: 0,
+    vatAmount,
+    grandTotal,
+    totalSalesVatInclusive: net + vatAmount,
+    totalAmountDue: grandTotal - wht,
+  };
 }
 
 /**
@@ -39,6 +127,9 @@ export function computeVatExclusiveTotals({
   withholdingTax = 0,
   vatClassification = "vatable",
 } = {}) {
+  if (vatClassification === ITEMIZED_VAT && hasItemizedVat(items)) {
+    return itemizedTotals({ items, discount, otherCharges, withholdingTax });
+  }
   const lines = items.map(
     (it) => (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0)
   );
@@ -143,6 +234,10 @@ export function itemsFromOrder(order) {
       quantity: Number(it.quantity) || 0,
       unit: it.unit || order.unit || "vials",
       unitPrice: openingUnitPrice(it),
+      // Carried through so the line shows its VAT, and the totals can be
+      // computed per item. Null on items created before snapshots existed.
+      unitPriceCentavos: Number.isInteger(it.unitPriceCentavos) ? it.unitPriceCentavos : null,
+      vatClassification: itemVatClassification(it),
     }));
   }
   return [
@@ -184,7 +279,9 @@ export function buildInitialForm(order, invoice, salesRepName) {
     referenceNumber: "",
     items: itemsFromOrder(order),
     discount: 0,
-    vatClassification: "vatable",
+    // Itemized when every order item carries a VAT snapshot; otherwise the
+    // Admin's invoice-level choice, defaulting to VATable as before.
+    vatClassification: hasItemizedVat(order?.items) ? ITEMIZED_VAT : "vatable",
     otherCharges: 0,
     withholdingTax: 0,
     paymentTerms: "",
@@ -240,9 +337,10 @@ export function buildInitialForm(order, invoice, salesRepName) {
     discount: invoice.discount ?? 0,
     // New invoices carry vatClassification. Legacy drafts only had a numeric
     // taxRate: map >=12% to VATable, anything else to VAT-Exempt (0% VAT).
-    vatClassification:
-      invoice.vatClassification ??
-      (Number(invoice.taxRate) >= 12 ? "vatable" : "vat_exempt"),
+    vatClassification: hasItemizedVat(order?.items)
+      ? ITEMIZED_VAT
+      : invoice.vatClassification ??
+        (Number(invoice.taxRate) >= 12 ? "vatable" : "vat_exempt"),
     otherCharges: invoice.otherCharges ?? 0,
     withholdingTax: invoice.withholdingTax ?? 0,
     paymentTerms: invoice.paymentTerms ?? "",
@@ -345,9 +443,11 @@ export function adjustmentsFromForm(form, parseAdjustment) {
     discountCentavos: read("discount"),
     otherChargesCentavos: read("otherCharges"),
     withholdingTaxCentavos: read("withholdingTax"),
-    vatClassification: VAT_CLASSIFICATIONS.includes(form?.vatClassification)
-      ? form.vatClassification
-      : "vatable",
+    // The server ignores this for an itemized order; it is sent for parity.
+    vatClassification:
+      VAT_CLASSIFICATIONS.includes(form?.vatClassification) || form?.vatClassification === ITEMIZED_VAT
+        ? form.vatClassification
+        : "vatable",
   };
 }
 

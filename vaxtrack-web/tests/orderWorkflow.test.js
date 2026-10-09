@@ -33,8 +33,9 @@ import {
 //               loading          → in_transit, cancelled
 //               in_transit       → cancelled
 //               delayed          → cancelled
-//   Rider:      in_transit       → delayed, delivered
-//               delayed          → in_transit, delivered
+//               delivery_failed  → pending_dispatch (requeue), cancelled
+//   Rider:      in_transit       → delayed, delivered, delivery_failed
+//               delayed          → in_transit, delivered, delivery_failed
 //
 // Everything else, for every actor, is illegal.
 
@@ -45,8 +46,9 @@ const EXPECTED = {
     loading: ["in_transit", "cancelled"],
     in_transit: ["cancelled"],
     delayed: ["cancelled"],
-    // Recovery: back to assigned (through Cargo Loading again), or cancelled.
-    delivery_failed: ["assigned", "cancelled"],
+    // Recovery: back to the dispatch queue (re-reserved, then assigned as
+    // normal), or cancelled. Never straight back to a rider.
+    delivery_failed: ["pending_dispatch", "cancelled"],
     delivered: [],
     cancelled: [],
   },
@@ -173,11 +175,12 @@ test("a dispatcher can never report a failure", () => {
   }
 });
 
-test("a failed delivery recovers only to assigned or cancelled", () => {
-  assert.equal(canTransition(ACTOR_DISPATCHER, "delivery_failed", "assigned").ok, true);
+test("a failed delivery recovers only to the dispatch queue or cancelled", () => {
+  assert.equal(canTransition(ACTOR_DISPATCHER, "delivery_failed", "pending_dispatch").ok, true);
   assert.equal(canTransition(ACTOR_DISPATCHER, "delivery_failed", "cancelled").ok, true);
-  // Never straight back into the field — it re-enters through Cargo Loading.
-  for (const to of ["loading", "in_transit", "delayed", "delivered"]) {
+  // Never straight back to a rider: its stock was returned, so it must be
+  // re-reserved first (pending_dispatch → assigned once fully reserved).
+  for (const to of ["assigned", "loading", "in_transit", "delayed", "delivered"]) {
     assert.equal(
       canTransition(ACTOR_DISPATCHER, "delivery_failed", to).ok,
       false,

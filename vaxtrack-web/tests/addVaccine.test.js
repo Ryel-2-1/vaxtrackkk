@@ -161,8 +161,8 @@ test("every validation rule and message is intact", () => {
 test("the submitted payload and post-success navigation are unchanged", () => {
   assert.match(
     addVaccine,
-    /await addVaccine\(\{\s*vaccineName: vaccineName\.trim\(\),\s*manufacturer: manufacturer\.trim\(\),\s*vaccineType,\s*internalSku: internalSku\.trim\(\)\.toUpperCase\(\),\s*\}\)/,
-    "the four submitted fields must be unchanged"
+    /await addVaccine\(\{\s*vaccineName: vaccineName\.trim\(\),\s*manufacturer: manufacturer\.trim\(\),\s*vaccineType,\s*internalSku: internalSku\.trim\(\)\.toUpperCase\(\),\s*vatClassification,\s*\}\)/,
+    "the four original fields are unchanged; the required VAT classification is the only addition"
   );
   assert.match(addVaccine, /Vaccine registered successfully\./);
   assert.match(addVaccine, /navigate\("\/admin\/inventory"\)/);

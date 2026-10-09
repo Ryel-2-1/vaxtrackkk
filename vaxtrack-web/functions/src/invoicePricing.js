@@ -23,11 +23,27 @@
  * manual invoice-time pricing they have always had.
  */
 
-const { PRICING_VERSION, PRICE_CURRENCY, PRICE_IS_VAT_INCLUSIVE, PolicyError } = require("./policy");
+const {
+  PRICING_VERSION,
+  PRICE_CURRENCY,
+  PRICE_IS_VAT_INCLUSIVE,
+  PolicyError,
+  readProductVatClassification,
+} = require("./policy");
 
 /** Philippine VAT. Must stay identical to VAT_STANDARD_RATE in invoiceModel.js. */
 const VAT_STANDARD_RATE = 12;
 const VAT_CLASSIFICATIONS = Object.freeze(["vatable", "vat_exempt", "zero_rated"]);
+
+/**
+ * The invoice-level marker for an order whose EVERY item carries a VAT
+ * snapshot. Its VAT comes from those items, not from an Admin choice: VATable
+ * and VAT-Exempt sales are summed per line, an invoice discount is split
+ * between them pro-rata (see allocateDiscountCentavos), and 12% is applied to
+ * the discounted VATable sales only. Orders without item snapshots keep the
+ * Admin's invoice-level classification exactly as before.
+ */
+const ITEMIZED_VAT = "per_item";
 
 /**
  * Free-text fields an admin genuinely owns.
@@ -134,6 +150,9 @@ function buildInvoiceBaseFromOrder(order) {
       unit: typeof order.unit === "string" && order.unit ? order.unit : "vials",
       unitPriceCentavos: it.unitPriceCentavos,
       lineTotalCentavos,
+      // The order item's immutable VAT snapshot, or null on an order created
+      // before snapshots existed. Never inferred from the product's current value.
+      vatClassification: readProductVatClassification(it?.vatClassification),
       // Peso mirrors for the print template, derived — never authoritative.
       unitPrice: centavosToPesos(it.unitPriceCentavos),
       amount: centavosToPesos(lineTotalCentavos),
@@ -163,7 +182,30 @@ function buildInvoiceBaseFromOrder(order) {
         ? order.priceIsVatInclusive
         : PRICE_IS_VAT_INCLUSIVE,
     pricingVersion: PRICING_VERSION,
+    // True only when every line carries a VAT snapshot (orders created with
+    // per-item classification). Partial snapshots are not itemized.
+    itemizedVat: items.every((i) => i.vatClassification !== null),
   };
+}
+
+/**
+ * Split an invoice discount between VATable and VAT-Exempt sales in proportion
+ * to their gross amounts, in whole centavos. Each share is floored; the at
+ * most one leftover centavo goes to the LARGER share (VATable on a tie). The
+ * shares always sum to the discount exactly and never exceed their own gross.
+ * BigInt keeps discount × gross exact however large the figures are.
+ */
+function allocateDiscountCentavos({ vatableGrossCentavos, vatExemptGrossCentavos, discountCentavos }) {
+  const total = vatableGrossCentavos + vatExemptGrossCentavos;
+  if (discountCentavos === 0 || total === 0) return { vatableCentavos: 0, vatExemptCentavos: 0 };
+  const d = BigInt(discountCentavos);
+  const t = BigInt(total);
+  let vatableCentavos = Number((d * BigInt(vatableGrossCentavos)) / t);
+  let vatExemptCentavos = Number((d * BigInt(vatExemptGrossCentavos)) / t);
+  const remainder = discountCentavos - vatableCentavos - vatExemptCentavos;
+  if (vatableGrossCentavos >= vatExemptGrossCentavos) vatableCentavos += remainder;
+  else vatExemptCentavos += remainder;
+  return { vatableCentavos, vatExemptCentavos };
 }
 
 /**
@@ -174,7 +216,7 @@ function buildInvoiceBaseFromOrder(order) {
  * it does not restate what a vial cost, and the base subtotal on the stored
  * invoice stays exactly what the order said.
  */
-function validateAdjustments(raw, subtotalCentavos) {
+function validateAdjustments(raw, subtotalCentavos, { itemizedVat = false } = {}) {
   const input = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
 
   const allowed = ["discountCentavos", "otherChargesCentavos", "withholdingTaxCentavos", "vatClassification"];
@@ -211,8 +253,10 @@ function validateAdjustments(raw, subtotalCentavos) {
     );
   }
 
-  const vatClassification = input.vatClassification ?? "vatable";
-  if (!VAT_CLASSIFICATIONS.includes(vatClassification)) {
+  // An itemized order's VAT is decided by its items; whatever the caller sent
+  // for the invoice-level classification is ignored, never applied.
+  const vatClassification = itemizedVat ? ITEMIZED_VAT : (input.vatClassification ?? "vatable");
+  if (!itemizedVat && !VAT_CLASSIFICATIONS.includes(vatClassification)) {
     throw new PolicyError("invalid-adjustment", "That VAT classification is not recognised.");
   }
 
@@ -227,15 +271,48 @@ function validateAdjustments(raw, subtotalCentavos) {
  * 12% of an odd centavo figure is not itself a whole centavo — and it rounds
  * half up, stated here rather than left to whichever float path got there first.
  */
-function computeInvoiceTotalsCentavos({ subtotalCentavos, adjustments }) {
+function computeInvoiceTotalsCentavos({ subtotalCentavos, adjustments, items = [] }) {
   const { discountCentavos, otherChargesCentavos, withholdingTaxCentavos, vatClassification } =
     adjustments;
 
-  const netCentavos = Math.max(0, subtotalCentavos - discountCentavos);
-  const vatRate = vatClassification === "vatable" ? VAT_STANDARD_RATE : 0;
-  const vatableSalesCentavos = vatClassification === "vatable" ? netCentavos : 0;
-  const vatExemptSalesCentavos = vatClassification === "vat_exempt" ? netCentavos : 0;
-  const zeroRatedSalesCentavos = vatClassification === "zero_rated" ? netCentavos : 0;
+  let netCentavos;
+  let vatRate;
+  let vatableSalesCentavos;
+  let vatExemptSalesCentavos;
+  let zeroRatedSalesCentavos;
+
+  if (vatClassification === ITEMIZED_VAT) {
+    // Per-item VAT: sum each bucket from the line snapshots, then split the
+    // discount pro-rata. Every line must carry a valid snapshot.
+    let vatableGrossCentavos = 0;
+    let vatExemptGrossCentavos = 0;
+    for (const it of items) {
+      const cls = readProductVatClassification(it?.vatClassification);
+      if (!cls || !readCentavos(it?.lineTotalCentavos)) {
+        throw new PolicyError(
+          "order-snapshot-invalid",
+          "This order's VAT classifications cannot be invoiced."
+        );
+      }
+      if (cls === "vatable") vatableGrossCentavos += it.lineTotalCentavos;
+      else vatExemptGrossCentavos += it.lineTotalCentavos;
+    }
+    if (vatableGrossCentavos + vatExemptGrossCentavos !== subtotalCentavos) {
+      throw new PolicyError("order-snapshot-invalid", "This order's subtotal does not match its line items.");
+    }
+    const share = allocateDiscountCentavos({ vatableGrossCentavos, vatExemptGrossCentavos, discountCentavos });
+    vatableSalesCentavos = vatableGrossCentavos - share.vatableCentavos;
+    vatExemptSalesCentavos = vatExemptGrossCentavos - share.vatExemptCentavos;
+    zeroRatedSalesCentavos = 0;
+    netCentavos = vatableSalesCentavos + vatExemptSalesCentavos;
+    vatRate = vatableSalesCentavos > 0 ? VAT_STANDARD_RATE : 0;
+  } else {
+    netCentavos = Math.max(0, subtotalCentavos - discountCentavos);
+    vatRate = vatClassification === "vatable" ? VAT_STANDARD_RATE : 0;
+    vatableSalesCentavos = vatClassification === "vatable" ? netCentavos : 0;
+    vatExemptSalesCentavos = vatClassification === "vat_exempt" ? netCentavos : 0;
+    zeroRatedSalesCentavos = vatClassification === "zero_rated" ? netCentavos : 0;
+  }
 
   // `vatableSalesCentavos` is already 0 for the exempt and zero-rated cases, so
   // this one expression covers all three without branching on the rate.
@@ -309,7 +386,8 @@ function baseMatchesOrder(invoice, base) {
       stored?.inventoryId !== expected.inventoryId ||
       stored?.quantity !== expected.quantity ||
       stored?.unitPriceCentavos !== expected.unitPriceCentavos ||
-      stored?.lineTotalCentavos !== expected.lineTotalCentavos
+      stored?.lineTotalCentavos !== expected.lineTotalCentavos ||
+      (stored?.vatClassification ?? null) !== (expected.vatClassification ?? null)
     ) {
       return false;
     }
@@ -326,6 +404,8 @@ function baseMatchesOrder(invoice, base) {
 module.exports = {
   VAT_STANDARD_RATE,
   VAT_CLASSIFICATIONS,
+  ITEMIZED_VAT,
+  allocateDiscountCentavos,
   PRESENTATION_FIELDS,
   MAX_PRESENTATION_LENGTH,
   isServerPricedOrder,

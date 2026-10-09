@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Bell,
   CheckCircle2,
+  Clock,
   Loader2,
   Minus,
   PackageCheck,
@@ -13,6 +14,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { subscribeInventory } from "../../services/inventoryService";
+import { subscribeVaccines } from "../../services/vaccineCatalogService";
+import { applyVatToCatalogProduct } from "../../services/vatClassification";
 import { formatCentavos, readPriceCentavos } from "../../services/money";
 import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
 import {
@@ -25,6 +28,11 @@ import {
   evaluateBatchEligibility,
   reconcileCartLine,
 } from "../../services/orderEligibility";
+import {
+  FUTURE_ORDER_LABEL,
+  MAX_LINE_QUANTITY,
+  estimateBackorders,
+} from "../../services/backorder";
 
 
 
@@ -60,6 +68,9 @@ function normalizeProduct(raw, todayIso) {
 
   return {
     inventoryId: raw.id,
+    // The vaccine product this batch belongs to — the source of its VAT
+    // classification. Absent on batches created before the link existed.
+    vaccineId: typeof raw.vaccineId === "string" && raw.vaccineId ? raw.vaccineId : null,
     // The price shown on this card, and the exact figure the checkout will ask
     // the server to confirm. Carried into the cart so a price that moves while
     // the rep is deciding is caught rather than silently applied.
@@ -79,7 +90,15 @@ function normalizeProduct(raw, todayIso) {
     blockedReason: eligibility.eligible ? null : eligibility.reason,
     blockedReasonCode: eligibility.reasonCode,
     orderable: eligibility.eligible,
-    status: eligibility.eligible ? "In Stock" : eligibility.reason,
+    // A valid quote (priced, unexpired, usable) with nothing free right now:
+    // still orderable as a FUTURE order — the server backorders it and dispatch
+    // waits until every line is fully reserved.
+    backorderOnly: eligibility.eligible && eligibility.backorderOnly === true,
+    status: !eligibility.eligible
+      ? eligibility.reason
+      : eligibility.backorderOnly
+        ? FUTURE_ORDER_LABEL
+        : "In Stock",
   };
 }
 
@@ -92,6 +111,8 @@ function SalesRepRequestOrder() {
 
   const [catalog, setCatalog] = useState([]);
   const [loading, setLoading] = useState(true);
+  // The vaccine catalog, for each product's VAT classification.
+  const [vaccines, setVaccines] = useState(null);
   const [error, setError] = useState("");
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -139,9 +160,28 @@ function SalesRepRequestOrder() {
     return unsubscribe;
   }, []);
 
+
+  // One vaccine-catalog listener for the whole page (never per product).
+  useEffect(() => {
+    const unsubscribe = subscribeVaccines(
+      (docs) => setVaccines(docs),
+      () => {
+        setVaccines([]);
+        setError("Unable to load vaccine VAT classifications. Please try again later.");
+      }
+    );
+    return unsubscribe;
+  }, []);
+
+  const vaccinesById = useMemo(() => new Map((vaccines || []).map((v) => [v.id, v])), [vaccines]);
+  const products = useMemo(
+    () => catalog.map((product) => applyVatToCatalogProduct(product, vaccinesById)),
+    [catalog, vaccinesById]
+  );
+
   const filteredProducts = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
-    return catalog.filter((product) => {
+    return products.filter((product) => {
       const matchesSearch =
         product.name.toLowerCase().includes(query) ||
         product.sku.toLowerCase().includes(query) ||
@@ -152,7 +192,7 @@ function SalesRepRequestOrder() {
       const matchesStock = stockFilter === "all" || product.orderable;
       return matchesSearch && matchesStock;
     });
-  }, [catalog, searchTerm, stockFilter]);
+  }, [products, searchTerm, stockFilter]);
 
   const cartTotal = cart.reduce((total, item) => total + item.quantity, 0);
   const storageSlots = cart.length;
@@ -183,6 +223,9 @@ function SalesRepRequestOrder() {
     [cart, rawById, catalogTodayIso]
   );
 
+  const backorderEstimates = useMemo(() => estimateBackorders(cart, products), [cart, products]);
+  const cartHasBackorder = cart.some((item) => (backorderEstimates.get(item.inventoryId) || 0) > 0);
+
   const blockedCartLines = cartLines.filter((line) => !line.ok);
   const hasBlockedCartLine = blockedCartLines.length > 0;
 
@@ -190,8 +233,9 @@ function SalesRepRequestOrder() {
   // share a batchId (nothing enforces uniqueness), and keying by it would let
   // one card's quantity control another's.
   const changeQuantity = (key, direction) => {
-    const product = catalog.find((item) => item.inventoryId === key);
-    const maxQty = Math.max(product?.stock || 1, 1);
+    // Not capped by available stock any more: whatever cannot be reserved now
+    // is backordered. The only ceiling is the server's per-line maximum.
+    const maxQty = MAX_LINE_QUANTITY;
 
     setQuantities((current) => {
       const currentQty = current[key] || 1;
@@ -216,14 +260,18 @@ function SalesRepRequestOrder() {
       if (existing) {
         return current.map((item) =>
           item.inventoryId === product.inventoryId
-            ? { ...item, quantity: Math.min(item.quantity + quantity, product.stock) }
+            ? { ...item, quantity: Math.min(item.quantity + quantity, MAX_LINE_QUANTITY) }
             : item
         );
       }
       return [...current, { ...product, quantity }];
     });
 
-    setNotice(`${product.name} added to quick cart.`);
+    setNotice(
+      product.backorderOnly
+        ? `${product.name} added as a future order — it is out of stock, so dispatch waits until stock arrives and is reserved.`
+        : `${product.name} added to quick cart.`
+    );
   };
 
   const removeFromCart = (key) => {
@@ -269,7 +317,7 @@ function SalesRepRequestOrder() {
   navigate("/sales-rep/place-order");
 };
 
-  if (loading) {
+  if (loading || vaccines === null) {
     return (
       <>
         <div className="inventory-loading-state">
@@ -344,15 +392,23 @@ function SalesRepRequestOrder() {
                     <span className="product-type">{product.category}</span>
                     <span className={getStockClass(product.status)}>{product.status}</span>
                   </div>
+                  <span
+                    className={`product-vat ${product.vatClassification ? "" : "unclassified"}`}
+                    aria-label={`VAT classification: ${product.vatLabel}`}
+                  >
+                    {product.vatLabel}
+                  </span>
 
                   <h2>{product.name}</h2>
                   <p>Batch: {product.sku}</p>
 
                   <div className="product-meta">
                     <div>
-                      {/* Available is derived on-hand minus reserved. Both are
-                          shown so a rep can tell "someone else has claimed it"
-                          from "there is none". */}
+                      {/* Available is derived: on hand minus everything held
+                          (reserved for orders, returned from a failed delivery
+                          and awaiting a decision, quarantined). Both are shown
+                          so a rep can tell "someone else has claimed it" from
+                          "there is none", and the two figures add up. */}
                       <span>Available Stock</span>
                       <strong>
                         {product.available === null ? "--" : product.available.toLocaleString()}
@@ -360,7 +416,7 @@ function SalesRepRequestOrder() {
                       <small>
                         {product.available === null
                           ? "needs migration"
-                          : `of ${product.onHand ?? 0} on hand · ${product.reserved} reserved`}
+                          : `of ${product.onHand ?? 0} on hand · ${Math.max((product.onHand ?? 0) - product.available, 0)} reserved or on hold`}
                       </small>
                     </div>
 
@@ -418,7 +474,7 @@ function SalesRepRequestOrder() {
                       ) : (
                         <>
                           <ShoppingCart size={15} />
-                          Add to Order
+                          {product.backorderOnly ? "Add as future order" : "Add to Order"}
                         </>
                       )}
                     </button>
@@ -463,6 +519,11 @@ function SalesRepRequestOrder() {
                     <span>{item.quantity.toLocaleString()} {item.quantity === 1 ? "vial" : "vials"}</span>
                     {/* A specific reason in words, not conveyed by colour alone,
                         so the rep knows exactly which batch to fix. */}
+                    {item.ok && (backorderEstimates.get(item.inventoryId) || 0) > 0 && (
+                      <span className="request-v2-cart-backorder">
+                        <Clock size={12} /> About {backorderEstimates.get(item.inventoryId).toLocaleString()} may wait for stock
+                      </span>
+                    )}
                     {!item.ok && (
                       <span className="request-v2-cart-issue" role="alert">
                         <AlertTriangle size={12} /> {item.issue}
@@ -487,6 +548,15 @@ function SalesRepRequestOrder() {
     Storage Slots: <strong>{storageSlots}</strong>
   </p>
 
+  {cartHasBackorder && (
+    <p className="request-v2-cart-backorder-note">
+      Part of this order is a future order. Whatever is in stock is reserved now;
+      the rest is reserved automatically as stock arrives, in priority order.
+      The order is dispatched only once every item is fully reserved — no
+      delivery date is guaranteed until then.
+    </p>
+  )}
+
   {hasBlockedCartLine && (
     <p className="request-v2-cart-blocked-note" role="alert">
       Remove or update the highlighted {blockedCartLines.length === 1 ? "batch" : "batches"} to continue.
@@ -508,6 +578,7 @@ function SalesRepRequestOrder() {
 }
 
 function getStockClass(status) {
+  if (status === FUTURE_ORDER_LABEL) return "stock future";
   if (status === "Out of Stock") return "stock out";
   if (status === "Low Stock") return "stock low";
   return "stock";

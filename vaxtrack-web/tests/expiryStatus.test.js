@@ -183,9 +183,14 @@ test("no status is written back, and no migration was added", () => {
       assert.equal(src.includes(w), false, `${name} must not ${w}`);
     }
   }
-  // The one writer of the field is untouched: Add Stock still stamps it at
-  // creation. Nothing recomputes or backfills it.
-  assert.match(read("src/pages/admin/AddStock.jsx"), /const status = getBatchStatus\(expiryDate\);/);
+  // The one writer of the field is the server: Add Stock's callable stamps it at
+  // creation from the expiry (same ≤30 / ≤90 thresholds). Nothing recomputes
+  // or backfills it.
+  assert.match(
+    readFileSync(new URL("../functions/src/inventoryWorkflow.js", import.meta.url), "utf8"),
+    /function statusFromExpiry\(expiryIso, todayIso\)[\s\S]*?days <= 30\) return "Critical";[\s\S]*?days <= 90\) return "Warning";/
+  );
+  assert.doesNotMatch(read("src/pages/admin/AddStock.jsx"), /\bstatus:/, "the page no longer sends a status");
   assert.equal(/migrat/i.test(EXPIRY.replace(/\/\*[\s\S]*?\*\//g, "")), false);
 });
 

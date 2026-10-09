@@ -136,12 +136,23 @@ test("14 · Batch ID uniqueness is still checked before saving", () => {
 });
 
 test("15 · quantity, reservation, pricing and expiry writes are unchanged", () => {
+  // The client now only validates and SENDS; the batch is written by the
+  // addStockBatchWithAllocation callable, which owns the stored shape.
   const svc = read("src/services/vaccineService.js");
   const fn = svc.slice(svc.indexOf("export async function addStockBatch"), svc.indexOf("export async function updateStockPrice"));
-  assert.match(fn, /reservedQuantity: 0,/);
-  assert.match(fn, /sellingPriceCentavos,\s*priceCurrency: "PHP",\s*priceIsVatInclusive: false,/);
-  assert.match(fn, /quantity,\s*\/\/ Every batch starts with nothing reserved\./);
   assert.match(fn, /expiryDate: dates\.value\.expiryDate,/);
+  assert.match(fn, /quantity,/);
+  assert.match(fn, /sellingPriceCentavos,/);
+  const code = fn.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(code, /reservedQuantity/, "the client never sets a reserved figure");
+
+  const server = read("functions/src/inventoryWorkflow.js");
+  // Same stored fields as before: a fresh batch, priced VAT-exclusive in PHP…
+  assert.match(server, /sellingPriceCentavos: input\.sellingPriceCentavos,\s*priceCurrency: "PHP",\s*priceIsVatInclusive: false,/);
+  assert.match(server, /expiryDate: input\.expiryDate,\s*quantity: input\.quantity,/);
+  // …whose reserved figure is exactly what the same transaction allocated from
+  // it to waiting orders (0 when none were waiting).
+  assert.match(server, /reservedQuantity: reservedFromNew,/);
 });
 
 test("20 · order eligibility accepts an otherwise valid legacy batch with no manufacturing date", () => {

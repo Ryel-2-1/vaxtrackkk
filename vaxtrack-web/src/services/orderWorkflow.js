@@ -35,7 +35,7 @@ export const TERMINAL_STATUSES = Object.freeze(["delivered", "cancelled"]);
  * parked, waiting for someone else to act.
  *
  * `delivery_failed` is the only one: the rider has stopped, and nothing moves
- * until a dispatcher either sends it out again or cancels it. Kept separate
+ * until a dispatcher either returns it to the dispatch queue or cancels it. Kept separate
  * from TERMINAL_STATUSES so summaries can say "needs attention" rather than
  * "finished", and so nothing mistakes it for a closed order.
  */
@@ -60,10 +60,13 @@ export const DISPATCHER_TRANSITIONS = Object.freeze({
   loading: Object.freeze(["in_transit", "cancelled"]),
   in_transit: Object.freeze(["cancelled"]),
   delayed: Object.freeze(["cancelled"]),
-  // Recovery. A failed delivery goes back to `assigned` and re-enters the
-  // normal path through Cargo Loading — it is never pushed straight back into
-  // transit, because the cargo has to be handled and confirmed again.
-  delivery_failed: Object.freeze(["assigned", "cancelled"]),
+  // Recovery. A failed delivery's stock went to return-pending (an Admin
+  // confirms its condition), so it can never go straight back to a rider.
+  // The dispatcher returns it to the queue (requeueFailedOrder →
+  // pending_dispatch); the allocator reserves it again, and it is assigned
+  // through the normal pending_dispatch → assigned step once fully reserved.
+  // Both moves run on the server; there is no client recovery write.
+  delivery_failed: Object.freeze(["pending_dispatch", "cancelled"]),
   delivered: Object.freeze([]),
   cancelled: Object.freeze([]),
 });
