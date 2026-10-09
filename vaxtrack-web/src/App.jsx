@@ -33,6 +33,7 @@ const AdminDeliveryCalendar = lazy(() => import("./pages/admin/AdminDeliveryCale
 const Riders = lazy(() => import("./pages/admin/Riders"));
 const Alerts = lazy(() => import("./pages/admin/Alerts"));
 const Analytics = lazy(() => import("./pages/admin/Analytics"));
+const AiInventoryAnalytics = lazy(() => import("./pages/admin/AiInventoryAnalytics"));
 const Settings = lazy(() => import("./pages/admin/Settings"));
 const Clinics = lazy(() => import("./pages/admin/Clinics"));
 const Invoices = lazy(() => import("./pages/admin/Invoices"));
@@ -91,6 +92,7 @@ function App() {
               <Route path="/admin/riders" element={<Riders />} />
               <Route path="/admin/alerts" element={<Alerts />} />
               <Route path="/admin/analytics" element={<Analytics />} />
+              <Route path="/admin/ai-inventory-analytics" element={<AiInventoryAnalytics />} />
               <Route path="/admin/settings" element={<Settings />} />
               <Route path="/admin/clinics" element={<Clinics />} />
               <Route path="/admin/invoices" element={<Invoices />} />

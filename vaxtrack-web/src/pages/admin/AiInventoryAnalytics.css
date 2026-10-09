@@ -1,0 +1,366 @@
+/* Admin › AI Inventory Analytics. Scoped under .inventory-page (Admin role
+   root) like the other Admin pages. Meridian tokens only: green = low risk,
+   amber = medium / configuration required, red = high, gray = unknown. */
+
+.inventory-page .aia-disclaimer {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius-card);
+  background: var(--info-bg);
+  color: var(--gray-900);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.inventory-page .aia-environment {
+  margin: -6px 0 16px;
+  font-size: 13px;
+  color: var(--gray-600);
+}
+.inventory-page .aia-environment--staging {
+  padding: 8px 14px;
+  border: 1px solid var(--warning-border);
+  border-radius: 10px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.inventory-page .aia-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.inventory-page .aia-run-meta {
+  margin: 0 0 16px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.inventory-page .aia-card {
+  background: #fff;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-card);
+}
+
+.inventory-page .aia-card header h2,
+.inventory-page .aia-detail-head h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--gray-900);
+  overflow-wrap: anywhere;
+}
+
+.inventory-page .aia-card h3 {
+  margin: 18px 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.inventory-page .aia-muted {
+  color: var(--gray-600);
+  font-size: 13px;
+  margin: 0 0 10px;
+}
+
+.inventory-page .aia-error {
+  color: var(--danger-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.inventory-page .aia-state {
+  padding: 24px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  background: #fff;
+}
+
+.inventory-page .aia-empty strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 15px;
+  color: var(--gray-900);
+}
+
+/* Banners: stale (amber), insufficient (gray), saved (green). */
+.inventory-page .aia-note {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--gray-200);
+  background: var(--gray-50);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.inventory-page .aia-note--medium {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+.inventory-page .aia-note--low {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+.inventory-page .aia-note--unknown {
+  color: var(--gray-600);
+}
+
+/* Table. Full vaccine names and SKUs wrap — never truncated. */
+.inventory-page .aia-table-wrap {
+  overflow-x: auto;
+}
+.inventory-page .aia-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.inventory-page .aia-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--gray-600);
+  background: var(--gray-50);
+  padding: 8px 10px;
+  vertical-align: bottom;
+}
+.inventory-page .aia-table td {
+  padding: 8px 10px;
+  border-top: 1px solid var(--gray-100);
+  vertical-align: top;
+}
+.inventory-page .aia-main-table .aia-name {
+  min-width: 220px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.inventory-page .aia-main-table .aia-sku {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+.inventory-page .aia-selected td {
+  background: var(--green-50);
+}
+.inventory-page .aia-missing {
+  color: var(--gray-500);
+  font-style: italic;
+}
+
+/* The vaccine name opens the detail panel. Out-specifies the global
+   button min-height reset (styles.css), which would inflate a table row. */
+.inventory-page .aia-link {
+  min-height: 0 !important;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--green-700);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.inventory-page .aia-link:hover,
+.inventory-page .aia-link:focus-visible {
+  text-decoration: underline;
+}
+
+.inventory-page .aia-config-required {
+  color: var(--warning-text);
+  font-weight: 600;
+}
+
+/* Risk badges. */
+.inventory-page .aia-risk {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.inventory-page .aia-risk--high {
+  color: var(--danger-text);
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+}
+.inventory-page .aia-risk--medium {
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+}
+.inventory-page .aia-risk--low {
+  color: var(--success-text);
+  background: var(--success-bg);
+  border-color: var(--success-border);
+}
+.inventory-page .aia-risk--unknown {
+  color: var(--gray-600);
+  background: var(--gray-100);
+  border-color: var(--gray-200);
+}
+
+/* Detail panel. */
+.inventory-page .aia-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.inventory-page .aia-reason {
+  margin: 8px 0 14px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.inventory-page .aia-reason .aia-risk {
+  margin-right: 6px;
+}
+
+.inventory-page .aia-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.inventory-page .aia-history li {
+  display: grid;
+  grid-template-columns: 96px 1fr 64px;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.inventory-page .aia-history-bar {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--gray-100);
+  overflow: hidden;
+}
+.inventory-page .aia-history-bar span {
+  display: block;
+  height: 100%;
+  background: var(--green-600);
+}
+.inventory-page .aia-history-qty {
+  text-align: right;
+}
+
+.inventory-page .aia-calc,
+.inventory-page .aia-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 6px 18px;
+  margin: 0;
+}
+.inventory-page .aia-calc div,
+.inventory-page .aia-meta div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--gray-100);
+  font-size: 13px;
+}
+.inventory-page .aia-calc dt,
+.inventory-page .aia-meta dt {
+  color: var(--gray-600);
+}
+.inventory-page .aia-calc dd,
+.inventory-page .aia-meta dd {
+  margin: 0;
+  text-align: right;
+  color: var(--gray-900);
+  overflow-wrap: anywhere;
+}
+.inventory-page .aia-meta {
+  margin-top: 16px;
+}
+
+.inventory-page .aia-factors,
+.inventory-page .aia-warnings {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--gray-900);
+  overflow-wrap: anywhere;
+}
+
+/* Configuration form. */
+.inventory-page .aia-config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+.inventory-page .aia-config label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-600);
+}
+.inventory-page .aia-config input:not([type="checkbox"]),
+.inventory-page .aia-config select {
+  padding: 8px 10px;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 400;
+}
+.inventory-page .aia-config .aia-config-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.inventory-page .aia-config-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.inventory-page .aia-config-actions .aia-muted {
+  margin: 0;
+}
+
+.inventory-page .aia-btn {
+  min-height: 34px !important; /* out-specifies the global button reset */
+  padding: 6px 14px;
+  border: 1px solid var(--green-700);
+  border-radius: 8px;
+  background: var(--green-700);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.inventory-page .aia-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.inventory-page .aia-btn--ghost {
+  background: #fff;
+  color: var(--gray-600);
+  border-color: var(--gray-300);
+}
+
+@media (max-width: 640px) {
+  .inventory-page .aia-detail-head {
+    flex-direction: column;
+  }
+  .inventory-page .aia-history li {
+    grid-template-columns: 84px 1fr 48px;
+  }
+}

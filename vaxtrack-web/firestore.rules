@@ -291,6 +291,28 @@ service cloud.firestore {
       ]);
     }
 
+    // AI inventory analytics configuration (functions/src/analyticsRisk.js
+    // validateAnalyticsConfig mirrors this exactly).
+    function validAnalyticsConfig(vaccineId) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['vaccineId', 'leadTimeDays', 'safetyStockDays',
+          'safetyStockQuantity', 'enabled', 'updatedAt', 'updatedByUid'])
+        && d.keys().hasAll(['vaccineId', 'leadTimeDays', 'safetyStockDays',
+          'safetyStockQuantity', 'enabled', 'updatedAt', 'updatedByUid'])
+        && d.vaccineId == vaccineId
+        && exists(/databases/$(database)/documents/vaccines/$(vaccineId))
+        && d.leadTimeDays is int && d.leadTimeDays >= 1 && d.leadTimeDays <= 365
+        && d.enabled is bool
+        && d.updatedAt == request.time
+        && d.updatedByUid == request.auth.uid
+        && (
+          (d.safetyStockDays is int && d.safetyStockDays >= 0 && d.safetyStockDays <= 365
+            && d.safetyStockQuantity == null)
+          || (d.safetyStockQuantity is int && d.safetyStockQuantity >= 0
+            && d.safetyStockQuantity <= 100000000 && d.safetyStockDays == null)
+        );
+    }
+
     // Keys whose value changed in this write.
     function changedKeys() {
       return request.resource.data.diff(resource.data).affectedKeys();
@@ -1555,6 +1577,31 @@ service cloud.firestore {
     // a client that could write one could suppress or forge that record.
     match /orderHistoryOutbox/{orderId} {
       allow read, write: if false;
+    }
+
+    // ---------------- AI inventory analytics (advisory, Phase 1) ----------------
+    // Forecasts and run records are generated server-side only
+    // (functions/scripts/generateInventoryAnalytics.mjs, Admin SDK). No client
+    // role may create, change or delete them: a forecast someone could edit
+    // would no longer be the engine's output, and a run record is the audit
+    // trail of what was generated. Admin-only reads in Phase 1.
+    match /inventoryForecasts/{forecastId} {
+      allow get, list: if isAdmin();
+      allow write: if false;
+    }
+    match /inventoryAnalyticsRuns/{runId} {
+      allow get, list: if isAdmin();
+      allow write: if false;
+    }
+    // Per-vaccine reorder configuration, Admin-managed. Strictly validated:
+    // whole-day lead time 1–365, EXACTLY ONE of safety-stock days (0–365) or
+    // quantity (0–100,000,000), an explicit enabled flag, the document id is
+    // a real catalog vaccine, and the change is stamped with server time and
+    // the authenticated Admin's uid. Never deleted — disable it instead.
+    match /inventoryAnalyticsConfig/{vaccineId} {
+      allow get, list: if isAdmin();
+      allow create, update: if isAdmin() && validAnalyticsConfig(vaccineId);
+      allow delete: if false;
     }
 
     // ---------------- catalog data ----------------

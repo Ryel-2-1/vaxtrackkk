@@ -4935,6 +4935,112 @@ async function main() {
     await strictEnv.cleanup();
   }
 
+  // ---------------- AI inventory analytics (Phase 1) ----------------
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const f = ctx.firestore();
+    await setDoc(doc(f, "vaccines", "vacAnalytics"), { vaccineName: "Analytics Vaccine", internalSku: "ANA-001" });
+    await setDoc(doc(f, "inventoryForecasts", "vacAnalytics__all__30d"), {
+      vaccineId: "vacAnalytics", horizonDays: 30, predictedDemandQuantity: 120, advisoryOnly: true, runId: "run1",
+    });
+    await setDoc(doc(f, "inventoryAnalyticsRuns", "run1"), { runId: "run1", forecastCount: 3, advisoryOnly: true });
+    await setDoc(doc(f, "inventoryAnalyticsConfig", "vacAnalytics"), {
+      vaccineId: "vacAnalytics", leadTimeDays: 14, safetyStockDays: null, safetyStockQuantity: 20,
+      enabled: true, updatedAt: Timestamp.fromDate(new Date("2026-10-01T00:00:00Z")), updatedByUid: adminUid,
+    });
+  });
+  const analyticsConfig = (over = {}) => ({
+    vaccineId: "vacAnalytics", leadTimeDays: 21, safetyStockDays: null, safetyStockQuantity: 50,
+    enabled: true, updatedAt: serverTimestamp(), updatedByUid: adminUid, ...over,
+  });
+
+  await check("PAN1 an Admin reads forecasts, analytics runs and configuration", async () => {
+    await assertSucceeds(getDoc(doc(admin, "inventoryForecasts", "vacAnalytics__all__30d")));
+    await assertSucceeds(getDocs(collection(admin, "inventoryForecasts")));
+    await assertSucceeds(getDoc(doc(admin, "inventoryAnalyticsRuns", "run1")));
+    await assertSucceeds(getDocs(query(collection(admin, "inventoryAnalyticsRuns"), orderBy("generatedAt", "desc"), limit(1))));
+    await assertSucceeds(getDoc(doc(admin, "inventoryAnalyticsConfig", "vacAnalytics")));
+    await assertSucceeds(getDocs(collection(admin, "inventoryAnalyticsConfig")));
+  });
+
+  await check("NAN1 Med Rep, Dispatcher, Rider and anonymous cannot read any analytics collection", async () => {
+    for (const ctx of [salesRep, dispatcher, rider, anon]) {
+      await assertFails(getDoc(doc(ctx, "inventoryForecasts", "vacAnalytics__all__30d")));
+      await assertFails(getDocs(collection(ctx, "inventoryForecasts")));
+      await assertFails(getDoc(doc(ctx, "inventoryAnalyticsRuns", "run1")));
+      await assertFails(getDocs(collection(ctx, "inventoryAnalyticsRuns")));
+      await assertFails(getDoc(doc(ctx, "inventoryAnalyticsConfig", "vacAnalytics")));
+      await assertFails(getDocs(collection(ctx, "inventoryAnalyticsConfig")));
+    }
+  });
+
+  await check("NAN2 no client — not even an Admin — creates, edits or deletes forecasts or run records", async () => {
+    for (const ctx of [admin, salesRep, dispatcher, rider, anon]) {
+      await assertFails(setDoc(doc(ctx, "inventoryForecasts", "vacAnalytics__all__7d"), { vaccineId: "vacAnalytics", horizonDays: 7 }));
+      await assertFails(updateDoc(doc(ctx, "inventoryForecasts", "vacAnalytics__all__30d"), { predictedDemandQuantity: 0 }));
+      await assertFails(deleteDoc(doc(ctx, "inventoryForecasts", "vacAnalytics__all__30d")));
+      await assertFails(setDoc(doc(ctx, "inventoryAnalyticsRuns", "run2"), { runId: "run2" }));
+      await assertFails(updateDoc(doc(ctx, "inventoryAnalyticsRuns", "run1"), { forecastCount: 0 }));
+      await assertFails(deleteDoc(doc(ctx, "inventoryAnalyticsRuns", "run1")));
+    }
+  });
+
+  await check("PAN2 an Admin saves a valid configuration, stamped with server time and their own uid", async () => {
+    await assertSucceeds(setDoc(doc(admin, "inventoryAnalyticsConfig", "vacAnalytics"), analyticsConfig()));
+    await assertSucceeds(setDoc(doc(admin, "inventoryAnalyticsConfig", "vacAnalytics"),
+      analyticsConfig({ safetyStockQuantity: null, safetyStockDays: 7, enabled: false })));
+    // The boundaries themselves are allowed: 0 and exactly 100,000,000 vials.
+    await assertSucceeds(setDoc(doc(admin, "inventoryAnalyticsConfig", "vacAnalytics"),
+      analyticsConfig({ safetyStockQuantity: 0 })));
+    await assertSucceeds(setDoc(doc(admin, "inventoryAnalyticsConfig", "vacAnalytics"),
+      analyticsConfig({ safetyStockQuantity: 100000000 })));
+  });
+
+  await check("NAN3 configuration validation is enforced", async () => {
+    const ref = doc(admin, "inventoryAnalyticsConfig", "vacAnalytics");
+    for (const bad of [
+      analyticsConfig({ leadTimeDays: 0 }),
+      analyticsConfig({ leadTimeDays: 366 }),
+      analyticsConfig({ leadTimeDays: 2.5 }),
+      analyticsConfig({ leadTimeDays: "14" }),
+      analyticsConfig({ safetyStockQuantity: null }), // neither safety field
+      analyticsConfig({ safetyStockDays: 3 }), // both safety fields
+      analyticsConfig({ safetyStockQuantity: -1 }),
+      analyticsConfig({ safetyStockQuantity: 100000001 }), // above the ceiling
+      analyticsConfig({ safetyStockQuantity: 2.5 }), // decimal
+      analyticsConfig({ safetyStockQuantity: NaN }),
+      analyticsConfig({ safetyStockQuantity: Infinity }),
+      analyticsConfig({ safetyStockQuantity: "20" }),
+      analyticsConfig({ safetyStockQuantity: null, safetyStockDays: 2.5 }),
+      analyticsConfig({ safetyStockQuantity: null, safetyStockDays: NaN }),
+      analyticsConfig({ leadTimeDays: NaN }),
+      analyticsConfig({ safetyStockQuantity: null, safetyStockDays: 400 }),
+      analyticsConfig({ enabled: "yes" }),
+      analyticsConfig({ updatedByUid: "someone-else" }), // not the caller
+      analyticsConfig({ updatedAt: Timestamp.fromDate(new Date("2020-01-01T00:00:00Z")) }), // not server time
+      analyticsConfig({ vaccineId: "other" }), // id mismatch
+      analyticsConfig({ note: "x" }), // unknown field
+    ]) {
+      await assertFails(setDoc(ref, bad));
+    }
+    // Missing a required key.
+    const missing = analyticsConfig();
+    delete missing.enabled;
+    await assertFails(setDoc(ref, missing));
+    // Only for a real catalog vaccine.
+    await assertFails(setDoc(doc(admin, "inventoryAnalyticsConfig", "noSuchVaccine"), analyticsConfig({ vaccineId: "noSuchVaccine" })));
+    // Never deleted (disable it instead), and never written by another role.
+    await assertFails(deleteDoc(ref));
+    for (const ctx of [salesRep, dispatcher, rider]) {
+      await assertFails(setDoc(ref, analyticsConfig({ updatedByUid: ctx === salesRep ? salesRepUid : ctx === dispatcher ? dispatcherUid : riderUid })));
+    }
+  });
+
+  await check("NAN4 analytics changes nothing about inventory or order protections", async () => {
+    // The new collections grant no path onto stock or orders: an Admin still
+    // cannot move reserved stock directly (a real change to the counter).
+    await assertFails(updateDoc(doc(admin, "inventory", "invAdmin"), { reservedQuantity: 5 }));
+  });
+
   await testEnv.cleanup();
 
   console.log(`\n==== RESULT: ${passed} passed, ${failed} failed ====`);

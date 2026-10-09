@@ -11,6 +11,7 @@ import {
   Building2,
   FileText,
   BarChart3,
+  TrendingUp,
   AlertTriangle,
   Settings,
   LogOut,
@@ -54,6 +55,7 @@ const ROUTE_ACTIVE = {
   "/admin/clinic-success": "clinics",
   "/admin/invoices": "invoices",
   "/admin/analytics": "analytics",
+  "/admin/ai-inventory-analytics": "aiInventoryAnalytics",
   "/admin/alerts": "alerts",
   "/admin/settings": "settings",
 };
@@ -239,6 +241,15 @@ export function AdminSidebar({ active: activeProp, onLogout }) {
           >
             <BarChart3 size={16} aria-hidden="true" />
             <span>Analytics</span>
+          </Link>
+
+          <Link
+            className={active === "aiInventoryAnalytics" ? "active" : ""}
+            aria-current={active === "aiInventoryAnalytics" ? "page" : undefined}
+            to="/admin/ai-inventory-analytics"
+          >
+            <TrendingUp size={16} aria-hidden="true" />
+            <span>AI Inventory Analytics</span>
           </Link>
 
           <p className="admin-nav-group">System</p>
