@@ -90,6 +90,9 @@ const stockBatchDatesFile = join(tmp, "stockBatchDates.mjs");
 writeFileSync(stockBatchDatesFile, readFileSync(join(here, "..", "src", "services", "stockBatchDates.js"), "utf8"));
 const vatClassificationFile = join(tmp, "vatClassification.mjs");
 writeFileSync(vatClassificationFile, readFileSync(join(here, "..", "src", "services", "vatClassification.js"), "utf8"));
+// The pure `./pricingConfig` sibling (the VAT convention) is copied verbatim.
+const pricingConfigFile = join(tmp, "pricingConfig.mjs");
+writeFileSync(pricingConfigFile, readFileSync(join(here, "..", "src", "services", "pricingConfig.js"), "utf8"));
 
 const original = readFileSync(servicePath, "utf8");
 const rewritten = original
@@ -97,7 +100,8 @@ const rewritten = original
   .replace('"../firebase"', JSON.stringify(pathToFileURL(join(tmp, "firebase.mjs")).href))
   .replace('"./stockCorrection"', JSON.stringify(pathToFileURL(stockCorrectionFile).href))
   .replace('"./stockBatchDates"', JSON.stringify(pathToFileURL(stockBatchDatesFile).href))
-  .replace('"./vatClassification"', JSON.stringify(pathToFileURL(vatClassificationFile).href));
+  .replace('"./vatClassification"', JSON.stringify(pathToFileURL(vatClassificationFile).href))
+  .replace('"./pricingConfig"', JSON.stringify(pathToFileURL(pricingConfigFile).href));
 
 // If the service's imports are ever renamed, fail loudly rather than silently
 // testing an unrewritten (or unexecutable) module.
@@ -107,8 +111,9 @@ assert.ok(
     && !rewritten.includes('"../firebase"')
     && !rewritten.includes('"./stockCorrection"')
     && !rewritten.includes('"./stockBatchDates"')
-    && !rewritten.includes('"./vatClassification"'),
-  "all five service imports (firestore, firebase, stockCorrection, stockBatchDates, vatClassification) must have been redirected to the stand-ins"
+    && !rewritten.includes('"./vatClassification"')
+    && !rewritten.includes('"./pricingConfig"'),
+  "all six service imports (firestore, firebase, stockCorrection, stockBatchDates, vatClassification, pricingConfig) must have been redirected to the stand-ins"
 );
 
 const serviceFile = join(tmp, "vaccineService.mjs");
@@ -333,7 +338,8 @@ test("updateStockPrice re-prices one batch and records who and when", opts, asyn
   const w = calls.updateDoc[0].data;
   assert.equal(w.sellingPriceCentavos, 140000);
   assert.equal(w.priceCurrency, "PHP");
-  assert.equal(w.priceIsVatInclusive, false);
+  // Confirmed rule: an entered price is VAT-inclusive (pricingConfig.js).
+  assert.equal(w.priceIsVatInclusive, true);
   assert.equal(w.priceSetAt, "__SERVER_TIMESTAMP__");
   assert.equal(w.priceSetByUid, "admin1");
 });

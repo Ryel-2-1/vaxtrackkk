@@ -23,15 +23,15 @@ const NON_ELIGIBLE_STATUSES = ["cancelled", "canceled"];
 const VALID_PRIORITIES = ["Normal", "High", "Urgent"];
 const PRIORITY_RANK = { Urgent: 3, High: 2, Normal: 1 };
 
-// ---- VAT (Philippine sales invoice, VAT-EXCLUSIVE) ----
+// ---- VAT (Philippine sales invoice, VAT-INCLUSIVE prices) ----
 // The VAT helpers live in the dependency-free `invoiceModel.js` (so they are
 // unit-testable under node --test without pulling in Firebase). Re-exported
-// here so existing importers of `invoiceService` keep working unchanged.
+// here so existing importers of `invoiceService` keep working.
 export {
   VAT_STANDARD_RATE,
   VAT_CLASSIFICATIONS,
   vatClassificationLabel,
-  computeVatExclusiveTotals,
+  computeInvoiceTotals,
 } from "./invoiceModel";
 
 function toMillis(ts) {

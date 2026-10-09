@@ -43,6 +43,7 @@ const {
 } = require("./allocation");
 const { statusUpdatedByEmailValue } = require("./attribution");
 const { settleFailureReturn, failureWouldSettle } = require("./failureReturn");
+const { PRICES_INCLUDE_VAT } = require("./pricingConfig");
 const { dispositionEvent, epochOf, requeueEvent, prepareEvents, createPreparedEvents } = require("./orderHistory");
 
 const ORDERS = "orders";
@@ -167,7 +168,8 @@ async function addStockBatchWithAllocation({ db, FieldValue, uid, payload, now }
       quarantinedQuantity: 0,
       sellingPriceCentavos: input.sellingPriceCentavos,
       priceCurrency: "PHP",
-      priceIsVatInclusive: false,
+      // The entered price is VAT-inclusive (pricingConfig.js).
+      priceIsVatInclusive: PRICES_INCLUDE_VAT,
       status: input.status,
     };
 

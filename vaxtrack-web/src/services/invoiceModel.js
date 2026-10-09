@@ -6,11 +6,14 @@
 // invoiceService.js re-exports the VAT helpers; InvoiceEditor.jsx imports the
 // rest. Behaviour is identical to the Phase 5B/5C editor code it replaced.
 
+import { VAT_RATE_PERCENT, splitVatInclusiveCentavos } from "./pricingConfig.js";
+
 export const COMPANY_NAME = "3MGS PHARMA INC.";
 
-// ---- VAT (Philippine sales invoice, VAT-EXCLUSIVE) ----
-// Prices are net of VAT; 12% VAT is added on top of the VATable base only.
-export const VAT_STANDARD_RATE = 12;
+// ---- VAT (Philippine sales invoice, VAT-INCLUSIVE prices) ----
+// Confirmed rule (pricingConfig.js): prices are VAT-inclusive, so for VATable
+// sales the 12% VAT is EXTRACTED from the amount, never added on top.
+export const VAT_STANDARD_RATE = VAT_RATE_PERCENT;
 export const VAT_CLASSIFICATIONS = ["vatable", "vat_exempt", "zero_rated"];
 
 // Per-item VAT. An order created with item snapshots (every item carries
@@ -55,7 +58,7 @@ export function allocateDiscountCentavos({ vatableGrossCentavos, vatExemptGrossC
 export function vatClassificationLabel(classification) {
   switch (classification) {
     case "vatable":
-      return "VATable (12%)";
+      return `VATable (${VAT_STANDARD_RATE}%)`;
     case "vat_exempt":
       return "VAT-Exempt";
     case "zero_rated":
@@ -67,6 +70,12 @@ export function vatClassificationLabel(classification) {
   }
 }
 
+/** Decimal pesos → integer centavos (2-decimal money entered in the editor). */
+function toCentavos(pesos) {
+  const value = Number(pesos);
+  return Number.isFinite(value) ? Math.round(value * 100) : 0;
+}
+
 function lineCentavos(it) {
   const q = Number(it.quantity) || 0;
   if (Number.isInteger(it.unitPriceCentavos)) return q * it.unitPriceCentavos;
@@ -74,7 +83,7 @@ function lineCentavos(it) {
 }
 
 // Per-item totals, computed in centavos and returned in pesos — the same shape
-// computeVatExclusiveTotals returns for the invoice-level path.
+// computeInvoiceTotals returns for the invoice-level path.
 function itemizedTotals({ items, discount, otherCharges, withholdingTax }) {
   const lines = items.map((it) => lineCentavos(it) / 100);
   let vatableGross = 0;
@@ -86,41 +95,55 @@ function itemizedTotals({ items, discount, otherCharges, withholdingTax }) {
   const subtotalCentavos = vatableGross + exemptGross;
   const discCentavos = Math.min(Math.max(0, Math.round((Number(discount) || 0) * 100)), subtotalCentavos);
   const share = allocateDiscountCentavos({ vatableGrossCentavos: vatableGross, vatExemptGrossCentavos: exemptGross, discountCentavos: discCentavos });
-  const vatableSalesC = vatableGross - share.vatableCentavos;
+  // Both buckets are VAT-inclusive. VAT is EXTRACTED from the VATable bucket
+  // (once, on its aggregate) — never added on top (pricingConfig.js).
+  const vatableAfterDiscountC = vatableGross - share.vatableCentavos;
   const exemptSalesC = exemptGross - share.vatExemptCentavos;
+  const vatC = splitVatInclusiveCentavos(vatableAfterDiscountC).vatCentavos;
+  const vatableSalesC = vatableAfterDiscountC - vatC; // net of VAT
   const netC = vatableSalesC + exemptSalesC;
-  const vatC = Math.round((vatableSalesC * VAT_STANDARD_RATE) / 100);
-  const other = Number(otherCharges) || 0;
-  const wht = Number(withholdingTax) || 0;
-  const net = netC / 100;
-  const vatAmount = vatC / 100;
-  const grandTotal = net + vatAmount + other;
+  const otherC = toCentavos(otherCharges);
+  const whtC = toCentavos(withholdingTax);
+  const grandC = netC + vatC + otherC;
   return {
     lines,
     subtotal: subtotalCentavos / 100,
     discount: Number(discount) || 0,
-    otherCharges: other,
-    withholdingTax: wht,
-    net,
+    otherCharges: otherC / 100,
+    withholdingTax: whtC / 100,
+    net: netC / 100,
     vatClassification: ITEMIZED_VAT,
-    vatRate: vatableSalesC > 0 ? VAT_STANDARD_RATE : 0,
+    vatRate: vatableAfterDiscountC > 0 ? VAT_STANDARD_RATE : 0,
     vatableSales: vatableSalesC / 100,
     vatExemptSales: exemptSalesC / 100,
     zeroRatedSales: 0,
-    vatAmount,
-    grandTotal,
-    totalSalesVatInclusive: net + vatAmount,
-    totalAmountDue: grandTotal - wht,
+    vatAmount: vatC / 100,
+    grandTotal: grandC / 100,
+    totalSalesVatInclusive: (netC + vatC) / 100,
+    totalAmountDue: (grandC - whtC) / 100,
   };
 }
 
 /**
- * VAT-EXCLUSIVE invoice totals. Line amounts (and the subtotal) are net of VAT;
- * `net = max(0, subtotal - discount)` falls entirely into the selected
- * classification bucket, and 12% VAT is added on top for VATable sales only.
- * Single source of truth shared by the editor and any exporter.
+ * Invoice totals for VAT-INCLUSIVE prices. Mirrors computeInvoiceTotalsCentavos
+ * in functions/src/invoicePricing.js (which is authoritative for priced
+ * orders); used for the editor's display and the legacy manual path.
+ *
+ * Computed in integer centavos — no floating-point peso arithmetic — and
+ * returned in pesos for the template:
+ *
+ *   grossAfterDiscount = max(0, subtotal − discount)   (discount handling unchanged)
+ *   VATable:  vat = round(grossAfterDiscount × 12 ÷ 112), net = gross − vat
+ *   exempt / zero-rated:  vat = 0, net = grossAfterDiscount
+ *   grandTotal = net + vat + otherCharges = grossAfterDiscount + otherCharges
+ *
+ * VAT is never added on top: ₱1,000 VATable stays ₱1,000 (₱107.14 of it VAT).
+ *
+ * An issued invoice is never recomputed — the editor shows its STORED totals
+ * (normalizeStoredTotals), so invoices issued under the old convention stay
+ * exactly as issued.
  */
-export function computeVatExclusiveTotals({
+export function computeInvoiceTotals({
   items = [],
   discount = 0,
   otherCharges = 0,
@@ -130,49 +153,41 @@ export function computeVatExclusiveTotals({
   if (vatClassification === ITEMIZED_VAT && hasItemizedVat(items)) {
     return itemizedTotals({ items, discount, otherCharges, withholdingTax });
   }
-  const lines = items.map(
-    (it) => (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0)
+  const lineAmountsC = items.map(
+    (it) => (Number(it.quantity) || 0) * toCentavos(it.unitPrice)
   );
-  const subtotal = lines.reduce((a, b) => a + b, 0);
-  const disc = Number(discount) || 0;
-  const other = Number(otherCharges) || 0;
-  const wht = Number(withholdingTax) || 0;
-  const net = Math.max(0, subtotal - disc);
+  const subtotalC = lineAmountsC.reduce((a, b) => a + b, 0);
+  const discC = toCentavos(discount);
+  const otherC = toCentavos(otherCharges);
+  const whtC = toCentavos(withholdingTax);
+  const grossAfterDiscountC = Math.max(0, subtotalC - discC);
 
   const cls = VAT_CLASSIFICATIONS.includes(vatClassification)
     ? vatClassification
     : "vatable";
   const vatRate = cls === "vatable" ? VAT_STANDARD_RATE : 0;
-  const vatableSales = cls === "vatable" ? net : 0;
-  const vatExemptSales = cls === "vat_exempt" ? net : 0;
-  const zeroRatedSales = cls === "zero_rated" ? net : 0;
-  const vatAmount = vatableSales * (vatRate / 100);
-
-  // grandTotal is the Phase 5B value (net + VAT + other) — UNCHANGED so issued
-  // invoices, the CSV export, and the verified 800/96/896 case are untouched.
-  const grandTotal = net + vatAmount + other;
-  // Client-template presentation values. Withholding tax is the only additional
-  // deduction (discount is already inside `net`); it defaults to 0 so every
-  // pre-existing case yields totalAmountDue === grandTotal.
-  const totalSalesVatInclusive = net + vatAmount;
-  const totalAmountDue = grandTotal - wht;
+  const vatC = cls === "vatable" ? splitVatInclusiveCentavos(grossAfterDiscountC).vatCentavos : 0;
+  const netC = grossAfterDiscountC - vatC;
+  const grandC = netC + vatC + otherC;
+  const p = (c) => c / 100;
 
   return {
-    lines,
-    subtotal,
-    discount: disc,
-    otherCharges: other,
-    withholdingTax: wht,
-    net,
+    lines: lineAmountsC.map(p),
+    subtotal: p(subtotalC),
+    discount: p(discC),
+    otherCharges: p(otherC),
+    withholdingTax: p(whtC),
+    // Amount net of VAT (the template's "Amount: Net of VAT").
+    net: p(netC),
     vatClassification: cls,
     vatRate,
-    vatableSales,
-    vatExemptSales,
-    zeroRatedSales,
-    vatAmount,
-    grandTotal,
-    totalSalesVatInclusive,
-    totalAmountDue,
+    vatableSales: p(cls === "vatable" ? netC : 0),
+    vatExemptSales: p(cls === "vat_exempt" ? netC : 0),
+    zeroRatedSales: p(cls === "zero_rated" ? netC : 0),
+    vatAmount: p(vatC),
+    grandTotal: p(grandC),
+    totalSalesVatInclusive: p(netC + vatC),
+    totalAmountDue: p(grandC - whtC),
   };
 }
 
@@ -336,11 +351,11 @@ export function buildInitialForm(order, invoice, salesRepName) {
         : base.items,
     discount: invoice.discount ?? 0,
     // New invoices carry vatClassification. Legacy drafts only had a numeric
-    // taxRate: map >=12% to VATable, anything else to VAT-Exempt (0% VAT).
+    // taxRate: map >= the VAT rate to VATable, anything else to VAT-Exempt.
     vatClassification: hasItemizedVat(order?.items)
       ? ITEMIZED_VAT
       : invoice.vatClassification ??
-        (Number(invoice.taxRate) >= 12 ? "vatable" : "vat_exempt"),
+        (Number(invoice.taxRate) >= VAT_STANDARD_RATE ? "vatable" : "vat_exempt"),
     otherCharges: invoice.otherCharges ?? 0,
     withholdingTax: invoice.withholdingTax ?? 0,
     paymentTerms: invoice.paymentTerms ?? "",
@@ -474,12 +489,12 @@ export function assertConsistentInvoiceTotals(data) {
 
 /**
  * Build the Firestore invoice document from the current order + form. Pure: it
- * derives totals internally (VAT-exclusive) and NEVER emits an invoiceNumber,
+ * derives totals internally (VAT-inclusive) and NEVER emits an invoiceNumber,
  * createdAt, or create-audit fields — those are owned by the service so the
  * reserved INV-YYYY-###### number and creation trail are preserved on update.
  */
 export function serializeInvoiceDoc({ orderId, order, form }) {
-  const t = computeVatExclusiveTotals({
+  const t = computeInvoiceTotals({
     items: form.items,
     discount: form.discount,
     otherCharges: form.otherCharges,

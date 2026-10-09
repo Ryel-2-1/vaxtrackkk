@@ -50,11 +50,12 @@ test("expiry distribution is 12 stable / 1 warning / 1 critical / 1 expired", ()
   assert.equal(expired, 1);
 });
 
-test("no batch carries a temperature field, doses wording, or VAT-inclusive price", () => {
+test("no batch carries a temperature field or doses wording; prices record the VAT-inclusive convention", () => {
   const p = buildSeedPlan();
   for (const b of p.inventory) {
     assert.equal("temperature" in b.data, false);
-    assert.equal(b.data.priceIsVatInclusive, false);
+    // Confirmed rule: entered prices are VAT-inclusive (src/services/pricingConfig.js).
+    assert.equal(b.data.priceIsVatInclusive, true);
     assert.equal(b.data.unit === "doses" || /doses/i.test(JSON.stringify(b.data)), false);
     assert.equal(b.data.reservedQuantity, 0);
     assert.ok(Number.isInteger(b.data.sellingPriceCentavos) && b.data.sellingPriceCentavos > 0);

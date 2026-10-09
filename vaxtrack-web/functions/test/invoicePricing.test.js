@@ -55,8 +55,18 @@ test("base pricing comes from the order and nowhere else", async (t) => {
     assert.equal(base.items[0].lineTotalCentavos, 4 * PRICE);
     assert.equal(base.subtotalCentavos, 4 * PRICE);
     assert.equal(base.priceCurrency, "PHP");
-    assert.equal(base.priceIsVatInclusive, false);
+    // Computed under the confirmed rule (prices are VAT-inclusive), even for an
+    // order that recorded the earlier `false` — whose own flag is untouched.
+    assert.equal(base.priceIsVatInclusive, true);
     assert.equal(base.pricingVersion, 1);
+  });
+
+  await t.test("building an invoice base never mutates the order (historical flag preserved)", () => {
+    const order = pricedOrder();
+    const before = JSON.stringify(order);
+    I.buildInvoiceBaseFromOrder(order);
+    assert.equal(JSON.stringify(order), before);
+    assert.equal(order.priceIsVatInclusive, false);
   });
 
   await t.test("peso mirrors are derived, never authoritative", () => {
@@ -131,13 +141,15 @@ test("a corrupted order snapshot is refused, never invoiced", async (t) => {
 });
 
 test("adjustments are the admin's, and are separate from the base", async (t) => {
-  await t.test("all four are accepted, and default to nothing", () => {
-    assert.deepEqual(I.validateAdjustments(undefined, 500000), {
+  await t.test("all four are accepted, and the amounts default to nothing", () => {
+    assert.deepEqual(I.validateAdjustments({ vatClassification: "vatable" }, 500000), {
       discountCentavos: 0,
       otherChargesCentavos: 0,
       withholdingTaxCentavos: 0,
       vatClassification: "vatable",
     });
+    // An itemized order (every line snapshotted) is decided by its lines.
+    assert.equal(I.validateAdjustments(undefined, 500000, { itemizedVat: true }).vatClassification, I.ITEMIZED_VAT);
     assert.deepEqual(
       I.validateAdjustments(
         {
@@ -178,7 +190,7 @@ test("adjustments are the admin's, and are separate from the base", async (t) =>
       );
     }
     // Zero IS a valid adjustment — and the usual one.
-    assert.equal(I.validateAdjustments({ discountCentavos: 0 }, 500000).discountCentavos, 0);
+    assert.equal(I.validateAdjustments({ discountCentavos: 0, vatClassification: "vatable" }, 500000).discountCentavos, 0);
   });
 
   await t.test("a discount larger than the goods is refused, not clamped", () => {
@@ -187,7 +199,19 @@ test("adjustments are the admin's, and are separate from the base", async (t) =>
       codeOf(() => I.validateAdjustments({ discountCentavos: 500001 }, 500000)),
       "discount-exceeds-subtotal"
     );
-    assert.equal(I.validateAdjustments({ discountCentavos: 500000 }, 500000).discountCentavos, 500000);
+    assert.equal(I.validateAdjustments({ discountCentavos: 500000, vatClassification: "vatable" }, 500000).discountCentavos, 500000);
+  });
+
+  await t.test("an unclassified order gets no invented VAT: the classification must be chosen", () => {
+    assert.equal(codeOf(() => I.validateAdjustments(undefined, 500000)), "vat-classification-required");
+    assert.equal(codeOf(() => I.validateAdjustments({ discountCentavos: 0 }, 500000, { itemizedVat: false })), "vat-classification-required");
+  });
+
+  await t.test("the client can never supply a VAT amount or a total", () => {
+    for (const key of ["vatAmountCentavos", "grandTotalCentavos", "netCentavos", "vatableSalesCentavos",
+      "totalAmountDueCentavos", "totalSalesVatInclusiveCentavos", "vatRate", "priceIsVatInclusive"]) {
+      assert.equal(codeOf(() => I.validateAdjustments({ vatClassification: "vatable", [key]: 1 }, 500000)), "unknown-field", key);
+    }
   });
 
   await t.test("an unrecognised VAT classification is refused", () => {
@@ -198,25 +222,34 @@ test("adjustments are the admin's, and are separate from the base", async (t) =>
   });
 });
 
-test("invoice totals, in exact centavos", async (t) => {
+test("invoice totals, in exact centavos — prices are VAT-inclusive", async (t) => {
   const totals = (adjustments, subtotalCentavos = 500000) =>
     I.computeInvoiceTotalsCentavos({
       subtotalCentavos,
-      adjustments: I.validateAdjustments(adjustments, subtotalCentavos),
+      adjustments: I.validateAdjustments({ vatClassification: "vatable", ...adjustments }, subtotalCentavos),
     });
 
-  await t.test("VAT is 12% of net, and other charges sit on top", () => {
+  await t.test("₱1,000 / ₱3,000: VAT extracted, the total is unchanged — never added on top", () => {
+    const one = totals({}, 100000);
+    assert.deepEqual([one.vatableSalesCentavos, one.vatAmountCentavos, one.grandTotalCentavos], [89286, 10714, 100000]);
+    const three = totals({}, 300000);
+    assert.deepEqual([three.vatableSalesCentavos, three.vatAmountCentavos, three.grandTotalCentavos], [267857, 32143, 300000]);
+    assert.notEqual(one.grandTotalCentavos, 112000, "₱1,000 does not become ₱1,120");
+  });
+
+  await t.test("VAT is extracted from the discounted amount; other charges sit on top", () => {
     const t1 = totals({ discountCentavos: 50000, otherChargesCentavos: 10000 });
-    assert.equal(t1.netCentavos, 450000);
-    assert.equal(t1.vatAmountCentavos, 54000);
-    assert.equal(t1.grandTotalCentavos, 514000);
-    assert.equal(t1.totalSalesVatInclusiveCentavos, 504000);
+    assert.equal(t1.totalSalesVatInclusiveCentavos, 450000); // 500000 − 50000
+    assert.equal(t1.vatAmountCentavos, 48214); // round(450000 × 12 / 112)
+    assert.equal(t1.netCentavos, 401786); // net of VAT
+    assert.equal(t1.netCentavos + t1.vatAmountCentavos, 450000);
+    assert.equal(t1.grandTotalCentavos, 460000);
   });
 
   await t.test("withholding tax reduces only the amount due", () => {
     const t1 = totals({ withholdingTaxCentavos: 2500 });
-    assert.equal(t1.grandTotalCentavos, 560000);
-    assert.equal(t1.totalAmountDueCentavos, 557500);
+    assert.equal(t1.grandTotalCentavos, 500000);
+    assert.equal(t1.totalAmountDueCentavos, 497500);
   });
 
   await t.test("exempt and zero-rated carry no VAT but keep the net", () => {
@@ -231,16 +264,22 @@ test("invoice totals, in exact centavos", async (t) => {
     assert.equal(totals({ vatClassification: "zero_rated" }).zeroRatedSalesCentavos, 500000);
   });
 
-  await t.test("the VAT line is the ONE rounding, and it rounds half up", () => {
-    // 12% of 1 centavo is 0.12 of a centavo. There is no exact answer, so the
-    // rule is stated rather than left to whichever float path got there first.
-    assert.equal(totals({}, 1).vatAmountCentavos, 0); // 0.12 -> 0
-    assert.equal(totals({}, 5).vatAmountCentavos, 1); // 0.60 -> 1
-    assert.equal(totals({}, 25).vatAmountCentavos, 3); // 3.00 -> 3
-    assert.equal(totals({}, 125).vatAmountCentavos, 15); // 15.00 -> 15
+  await t.test("the VAT line is the ONE rounding (×12÷112), and it rounds half up", () => {
+    // There is no exact answer for most amounts, so the rule is stated and
+    // computed in integers rather than left to a float path.
+    assert.equal(totals({}, 0).vatAmountCentavos, 0);
+    assert.equal(totals({}, 1).vatAmountCentavos, 0); // 0.107 -> 0
+    assert.equal(totals({}, 5).vatAmountCentavos, 1); // 0.536 -> 1
+    assert.equal(totals({}, 25).vatAmountCentavos, 3); // 2.679 -> 3
+    assert.equal(totals({}, 125).vatAmountCentavos, 13); // 13.393 -> 13
     // Exactly .5 rounds up.
-    assert.equal(totals({}, 375).vatAmountCentavos, 45); // 45.0
-    assert.equal(totals({}, 1042).vatAmountCentavos, 125); // 125.04 -> 125
+    assert.equal(totals({}, 14).vatAmountCentavos, 2); // 1.5 -> 2
+    assert.equal(totals({}, 42).vatAmountCentavos, 5); // 4.5 -> 5
+    assert.equal(totals({}, 1042).vatAmountCentavos, 112); // 111.643 -> 112
+    for (const g of [1, 5, 14, 42, 1042, 99999, 123457]) {
+      const t1 = totals({}, g);
+      assert.equal(t1.netCentavos + t1.vatAmountCentavos, g, `net + VAT = gross at ${g}`);
+    }
   });
 
   await t.test("a discount equal to the subtotal leaves nothing to tax", () => {
@@ -307,7 +346,7 @@ test("a stored invoice is checked back against its order", async (t) => {
     items: JSON.parse(JSON.stringify(base.items)),
     subtotalCentavos: base.subtotalCentavos,
     priceCurrency: "PHP",
-    priceIsVatInclusive: false,
+    priceIsVatInclusive: true,
     pricingVersion: 1,
   });
 
@@ -333,7 +372,8 @@ test("a stored invoice is checked back against its order", async (t) => {
       (s) => { s.subtotalCentavos = 1; },
       (s) => { s.items[0].inventoryId = "somewhere-else"; },
       (s) => { s.priceCurrency = "USD"; },
-      (s) => { s.priceIsVatInclusive = true; },
+      // A draft saved under the earlier VAT-exclusive convention must be re-saved.
+      (s) => { s.priceIsVatInclusive = false; },
       (s) => { s.pricingVersion = 2; },
       (s) => { s.items.push({ ...s.items[0] }); },
       (s) => { s.items = []; },

@@ -416,9 +416,9 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
       // What this clinic was quoted, at this instant, in integers. A later
       // price change on the batch does not reach back into a placed order:
       // re-deriving a total from today's catalog would misreport what was
-      // actually agreed. The currency and the VAT convention are RECORDED
-      // rather than implied, so no future reader has to infer them from the
-      // fact that the invoice happens to apply 12%.
+      // actually agreed. The currency and the VAT convention (prices are
+      // VAT-inclusive — pricingConfig.js) are RECORDED rather than implied, so
+      // no future reader has to infer which convention applied.
       pricingVersion: PRICING_VERSION,
       priceCurrency: PRICE_CURRENCY,
       priceIsVatInclusive: PRICE_IS_VAT_INCLUSIVE,

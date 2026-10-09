@@ -90,7 +90,7 @@ test("cancellation: released units and withdrawn backorder, one id per order", (
 
 test("the receipt computes VAT from each line's own snapshot, and never invents one", () => {
   const fields = {
-    subtotalCentavos: 370371, priority: "Urgent", pricingVersion: 1, priceCurrency: "PHP", priceIsVatInclusive: false,
+    subtotalCentavos: 370371, priority: "Urgent", pricingVersion: 1, priceCurrency: "PHP", priceIsVatInclusive: true,
     doctorName: "Dr. A", clinicName: "Dr. A — Clinic", deliveryAddress: "1 St", requestedDeliveryDate: "2026-10-10",
   };
   const receiptFor = (lines, over = {}) => h.buildOrderReceipt({
@@ -98,8 +98,11 @@ test("the receipt computes VAT from each line's own snapshot, and never invents 
     orderFields: { ...fields, ...over }, items: lines, FieldValue,
   });
   const vatable = receiptFor([{ ...line(), chain: "T", vatClassification: "vatable" }]);
-  // 370371 × 12% = 44444.52 → 44445 (half up), the invoice's own per-item routine.
-  assert.deepEqual([vatable.vatStatus, vatable.vatAmountCentavos, vatable.finalTotalCentavos], ["vatable", 44445, 414816]);
+  // VAT-inclusive: round(370371 × 12 / 112) = 39683 is INSIDE the subtotal; the
+  // total stays 370371 (never 414816 — VAT is not added on top).
+  assert.deepEqual([vatable.vatStatus, vatable.vatAmountCentavos, vatable.finalTotalCentavos], ["vatable", 39683, 370371]);
+  assert.equal(vatable.priceIsVatInclusive, true);
+  assert.equal(vatable.lines[0].unitPriceCentavos, 123457, "the original VAT-inclusive unit price is kept");
   const exempt = receiptFor([{ ...line(), chain: "T", vatClassification: "vat_exempt" }]);
   assert.deepEqual([exempt.vatStatus, exempt.vatAmountCentavos, exempt.finalTotalCentavos], ["vat_exempt", 0, 370371]);
   // Mixed orders are allowed on this branch: VAT on the VATable line only.
@@ -107,7 +110,7 @@ test("the receipt computes VAT from each line's own snapshot, and never invents 
     { ...line(), quantity: 1, unitPriceCentavos: 100000, lineTotalCentavos: 100000, vatClassification: "vatable" },
     { ...line(), quantity: 1, unitPriceCentavos: 50000, lineTotalCentavos: 50000, vatClassification: "vat_exempt" },
   ], { subtotalCentavos: 150000 });
-  assert.deepEqual([mixed.vatStatus, mixed.vatRatePercent, mixed.vatAmountCentavos, mixed.finalTotalCentavos], ["mixed", 12, 12000, 162000]);
+  assert.deepEqual([mixed.vatStatus, mixed.vatRatePercent, mixed.vatAmountCentavos, mixed.finalTotalCentavos], ["mixed", 12, 10714, 150000]);
   const none = receiptFor([{ ...line(), chain: "T" }]);
   assert.deepEqual([none.vatStatus, none.vatAmountCentavos, none.finalTotalCentavos], ["not_classified", null, null]);
   assert.deepEqual([none.receiptKind, none.isReconstructed, none.medRepUid, none.medRepName], ["original", false, "rep1", "Rep"]);

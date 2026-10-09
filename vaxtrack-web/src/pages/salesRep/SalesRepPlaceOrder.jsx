@@ -41,6 +41,7 @@ import {
 import { manilaToday, validateRequestedDate } from "../../services/requestedDate";
 import { formatCentavos, readPriceCentavos } from "../../services/money";
 import { PRODUCT_VAT_LABELS, readVatClassification } from "../../services/vatClassification";
+import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
 
 /**
  * A server error code turned into something a rep can act on.
@@ -428,8 +429,8 @@ function SalesRepPlaceOrder() {
   );
 
   /**
-   * The cart's VAT-exclusive subtotal, in centavos — an ESTIMATE, and labelled
-   * as one on screen.
+   * The cart's subtotal, in centavos — an ESTIMATE, and labelled as one on
+   * screen. Prices are VAT-inclusive for VATable products: no VAT is added.
    *
    * The authoritative subtotal is the one the server computes from the batches
    * inside the reservation transaction and writes onto the order. This figure
@@ -938,9 +939,9 @@ function SalesRepPlaceOrder() {
               <strong>{urgent ? "Urgent" : "Standard"}</strong>
             </p>
 
-            {/* Named "estimated" and "excl. VAT" on purpose. The server writes
-                the binding figure, and the invoice adds 12% on top of it —
-                a number labelled just "Total" would be read as neither. */}
+            {/* Named "estimated" on purpose, with its VAT convention stated:
+                the server writes the binding figure, and VAT is never added on
+                top of a VAT-inclusive price. */}
             <p>
               Estimated subtotal
               <strong className="tnum">
@@ -948,8 +949,8 @@ function SalesRepPlaceOrder() {
               </strong>
             </p>
             <p className="place-v2-price-note">
-              Excludes 12% VAT, added at invoicing. Prices are confirmed against
-              the batch when the order is placed.
+              {VAT_INCLUSIVE_NOTE} Prices are confirmed against the batch when
+              the order is placed.
             </p>
 
             {mayBackorder && (

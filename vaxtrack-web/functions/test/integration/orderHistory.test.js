@@ -182,7 +182,8 @@ test("1/8. a new order gets exactly one original receipt and an initial allocati
   );
   assert.equal(rc.subtotalCentavos, 3 * PRICE);
   // From the line's own VAT snapshot, with the invoice's per-item routine.
-  assert.deepEqual([rc.vatStatus, rc.vatAmountCentavos, rc.finalTotalCentavos, rc.discountCentavos], ["vatable", 45000, 420000, null]);
+  // VAT-inclusive: round(375000 × 12 / 112) = 40179 is inside the 375000 total.
+  assert.deepEqual([rc.vatStatus, rc.vatAmountCentavos, rc.finalTotalCentavos, rc.discountCentavos], ["vatable", 40179, 375000, null]);
   assert.equal(rc.creationSource, "createOrderWithReservation");
   assert.equal(rc.generatedBy, "server");
   assert.ok(rc.createdAt.toMillis() > 0);
@@ -219,8 +220,11 @@ test("1. classified products: VAT on the receipt uses the invoice's integer roun
   await seed({ q: { quantity: 5 } }, { vatClassification: "vatable" });
   const r = await create([["q", 3]]);
   const rc = (await receiptsFor(r.orderId))[0].data();
-  // 3 × 125000 = 375000; 12 % = 45000 exactly.
-  assert.deepEqual([rc.vatStatus, rc.vatRatePercent, rc.vatAmountCentavos, rc.finalTotalCentavos], ["vatable", 12, 45000, 420000]);
+  // 3 × 125000 = 375000, VAT-inclusive: round(375000 × 12 / 112) = 40179 is
+  // INSIDE it, and the total stays 375000 (never 420000).
+  assert.deepEqual([rc.vatStatus, rc.vatRatePercent, rc.vatAmountCentavos, rc.finalTotalCentavos], ["vatable", 12, 40179, 375000]);
+  assert.equal(rc.priceIsVatInclusive, true);
+  assert.equal(rc.lines[0].unitPriceCentavos, PRICE, "the original VAT-inclusive unit price");
   assert.equal(rc.lines[0].vatClassification, "vatable");
 
   await seed({ q: { quantity: 5 } }, { vatClassification: "vat_exempt" });
@@ -786,4 +790,29 @@ test("B1. backfill: refuses production and unsafe flags; dry run writes nothing;
   }));
   assert.equal(swap?.code, "history-integrity-conflict");
   assert.equal((await db.collection(history.RECEIPTS).doc("legacyA").get()).data().isReconstructed, true, "still marked reconstructed");
+});
+
+// ---------------------------------------------------------------- VAT-inclusive rule: history is not rewritten
+
+test("V-H. an order and receipt recorded VAT-exclusive stay exactly as recorded through later events", async () => {
+  await seed({ s: { quantity: 0 } });
+  const r = await create([["s", 2]]);
+  // Turn this order and its receipt into what the earlier code recorded:
+  // VAT-exclusive convention, VAT on top. (Server-side seed of history.)
+  await db.collection("orders").doc(r.orderId).update({ priceIsVatInclusive: false });
+  const receiptRef = db.collection(history.RECEIPTS).doc(r.orderId);
+  await receiptRef.update({ priceIsVatInclusive: false, vatStatus: "vatable", vatRatePercent: 12, vatAmountCentavos: 30000, finalTotalCentavos: 280000 });
+  const receiptBefore = await receiptRef.get();
+
+  // Later stock, allocation and cancellation do not touch either record's money.
+  await addStock({ quantity: 2 });
+  await ops.cancelOrderWithInventoryRelease({ db, FieldValue, uid: DISPATCHER, orderId: r.orderId, reason: "Clinic cancelled", now: NOW });
+
+  const receiptAfter = await receiptRef.get();
+  assert.ok(receiptAfter.updateTime.isEqual(receiptBefore.updateTime), "the historical receipt is never rewritten");
+  assert.deepEqual(receiptAfter.data(), receiptBefore.data());
+  const o = await order(r.orderId);
+  assert.equal(o.priceIsVatInclusive, false, "the order's recorded convention is untouched");
+  assert.equal(o.subtotalCentavos, 2 * PRICE);
+  assert.equal(o.items[0].unitPriceCentavos, PRICE);
 });

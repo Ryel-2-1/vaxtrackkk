@@ -421,16 +421,15 @@ function SalesRepRequestOrder() {
                     </div>
 
                     <div>
-                      {/* VAT-exclusive, and labelled as such. An unlabelled
-                          price invites the reader to assume whichever
-                          convention they are used to, and the invoice adds 12%
-                          on top of this figure. */}
+                      {/* Labelled with its convention: prices are VAT-inclusive
+                          for VATable products (pricingConfig.js), so the invoice
+                          never adds VAT on top of this figure. */}
                       <span>Unit Price</span>
                       <strong>{product.priceLabel}</strong>
                       <small>
                         {product.unitPriceCentavos === null
                           ? "not priced yet"
-                          : "per vial, excl. VAT"}
+                          : "per vial · VAT-inclusive for VATable products"}
                       </small>
                     </div>
 

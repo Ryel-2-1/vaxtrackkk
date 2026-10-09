@@ -63,12 +63,15 @@ const PRICING_VERSION = 1;
  * absorbing. Centavos make every figure exact, and the only rounding in the
  * system becomes the VAT calculation the invoice already documents.
  *
- * The price stored on a batch is the VAT-EXCLUSIVE clinic selling price;
- * invoices add 12% on top. Both facts are recorded on the order itself rather
- * than inferred, so a reader never has to guess which convention applied.
+ * The price stored on a batch is the clinic selling price, and it is
+ * VAT-INCLUSIVE for VATable products (confirmed client rule; pricingConfig.js).
+ * VAT is extracted from it, never added on top. The convention is recorded on
+ * each new order and batch, so a reader never has to guess which applied.
+ * Orders and batches written before this rule keep the `false` they recorded;
+ * nothing rewrites them.
  */
 const PRICE_CURRENCY = "PHP";
-const PRICE_IS_VAT_INCLUSIVE = false;
+const PRICE_IS_VAT_INCLUSIVE = require("./pricingConfig").PRICES_INCLUDE_VAT;
 
 /**
  * Product VAT classification (per order item). Set on the vaccine catalog by an

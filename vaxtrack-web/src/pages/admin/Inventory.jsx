@@ -31,6 +31,7 @@ import {
 import KpiCard from "../../components/ui/KpiCard";
 import ReservationProvenance from "../../components/admin/ReservationProvenance";
 import { MAX_STOCK_QUANTITY } from "../../services/orderEligibility";
+import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
 import "./Inventory.css";
 
 /* `getDaysUntilExpiry` was deleted. It built its answer from LOCAL midnight
@@ -970,8 +971,8 @@ function Inventory() {
               aria-describedby="inv-price-help"
             />
             <small id="inv-price-help">
-              Price per vial charged to the clinic, excluding VAT. Applies to
-              this batch only, and only to orders placed from now on — orders
+              Price per vial charged to the clinic. {VAT_INCLUSIVE_NOTE} Applies
+              to this batch only, and only to orders placed from now on — orders
               already placed keep the price they were quoted.
             </small>
 

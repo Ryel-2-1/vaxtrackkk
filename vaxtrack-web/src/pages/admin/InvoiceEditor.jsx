@@ -25,7 +25,7 @@ import {
 import {
   adjustmentsFromForm,
   buildInitialForm,
-  computeVatExclusiveTotals,
+  computeInvoiceTotals,
   formatOrderDate,
   ITEMIZED_VAT,
   itemVatLabelForLine,
@@ -34,7 +34,9 @@ import {
   normalizeStoredTotals,
   presentationFromForm,
   serializeInvoiceDoc,
+  vatClassificationLabel,
 } from "../../services/invoiceModel";
+import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
 import {
   issueInvoiceForPricedOrder,
   messageForInvoiceError,
@@ -50,10 +52,12 @@ function formatCurrency(value) {
   })}`;
 }
 
-// VAT-exclusive totals from the live form (single source of truth in the
-// service so the editor and CSV export agree).
+// Totals from the live form — prices are VAT-inclusive, so VAT is extracted,
+// never added (single source of truth in the service so the editor and CSV
+// export agree). Display only for a priced order: the server computes and
+// stores the authoritative figures.
 function computeTotals(form) {
-  return computeVatExclusiveTotals({
+  return computeInvoiceTotals({
     items: form.items,
     discount: form.discount,
     otherCharges: form.otherCharges,
@@ -445,7 +449,8 @@ function InvoiceEditor() {
               cannot be edited here.{" "}
               {form.vatClassification === ITEMIZED_VAT
                 ? "VAT comes from each item's own classification. Discounts, other charges and withholding tax are still yours to set."
-                : "Discounts, other charges, withholding tax and the VAT classification are still yours to set."}
+                : "Discounts, other charges, withholding tax and the VAT classification are still yours to set."}{" "}
+              {VAT_INCLUSIVE_NOTE}
             </span>
           </div>
         )}
@@ -466,8 +471,8 @@ function InvoiceEditor() {
                  (snapshotted on the order). Nothing to choose here; an
                  invoice discount is split pro-rata between the two. */
               <span className="inv-vat-itemized">
-                VAT classification: <strong>Per item</strong> — VAT (12%) or VAT
-                Exempt, as recorded on each order item.
+                VAT classification: <strong>Per item</strong> — {vatClassificationLabel("vatable")} or{" "}
+                {vatClassificationLabel("vat_exempt")}, as recorded on each order item.
               </span>
             ) : (
               <label>
@@ -478,9 +483,9 @@ function InvoiceEditor() {
                   onChange={(e) => setField("vatClassification", e.target.value)}
                   aria-label="VAT classification"
                 >
-                  <option value="vatable">VATable (12%)</option>
-                  <option value="vat_exempt">VAT-Exempt</option>
-                  <option value="zero_rated">Zero-Rated</option>
+                  <option value="vatable">{vatClassificationLabel("vatable")}</option>
+                  <option value="vat_exempt">{vatClassificationLabel("vat_exempt")}</option>
+                  <option value="zero_rated">{vatClassificationLabel("zero_rated")}</option>
                 </select>
               </label>
             )}

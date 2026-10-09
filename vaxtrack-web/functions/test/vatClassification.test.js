@@ -66,18 +66,20 @@ test("a discount splits pro-rata, sums exactly, and the remainder goes to the la
 const line = (vatClassification, lineTotalCentavos) => ({ vatClassification, lineTotalCentavos });
 const adj = (over = {}) => ({ discountCentavos: 0, otherChargesCentavos: 0, withholdingTaxCentavos: 0, vatClassification: ITEMIZED_VAT, ...over });
 
-test("12% VAT applies to VATable lines only, in a mixed invoice", () => {
+test("12% VAT applies to VATable lines only, in a mixed invoice — extracted, never added", () => {
+  // Prices are VAT-inclusive (pricingConfig.js): the ₱1,000 VATable line already
+  // contains its VAT; the invoice total stays ₱1,500.
   const t = computeInvoiceTotalsCentavos({
     subtotalCentavos: 150000,
     items: [line("vatable", 100000), line("vat_exempt", 50000)],
     adjustments: adj(),
   });
-  assert.equal(t.vatableSalesCentavos, 100000);
+  assert.equal(t.vatAmountCentavos, 10714); // round(100000 × 12 / 112)
+  assert.equal(t.vatableSalesCentavos, 89286); // net of VAT
   assert.equal(t.vatExemptSalesCentavos, 50000);
   assert.equal(t.zeroRatedSalesCentavos, 0);
-  assert.equal(t.vatAmountCentavos, 12000);
-  assert.equal(t.netCentavos, 150000);
-  assert.equal(t.grandTotalCentavos, 162000);
+  assert.equal(t.netCentavos, 139286);
+  assert.equal(t.grandTotalCentavos, 150000);
   assert.equal(t.vatRate, 12);
 });
 
@@ -89,12 +91,12 @@ test("a mixed invoice with a discount: split first, VAT on the discounted VATabl
     adjustments: adj({ discountCentavos: 100, otherChargesCentavos: 500, withholdingTaxCentavos: 200 }),
   });
   // discount 100 → vatable 66.67→ floor 66 (+1 remainder, larger) = 67, exempt 33.
-  assert.equal(t.vatableSalesCentavos, 100001 - 67);
+  // VAT extracted from the VAT-inclusive 99,934: 99,934 × 12 / 112 = 10,707.2 → 10,707 (once).
+  assert.equal(t.vatAmountCentavos, 10707);
+  assert.equal(t.vatableSalesCentavos, 100001 - 67 - 10707);
   assert.equal(t.vatExemptSalesCentavos, 50000 - 33);
-  assert.equal(t.netCentavos, 150001 - 100);
-  // 12% of 99,934 = 11,992.08 → 11,992 (half-up, once).
-  assert.equal(t.vatAmountCentavos, 11992);
-  assert.equal(t.grandTotalCentavos, t.netCentavos + 11992 + 500);
+  assert.equal(t.netCentavos + t.vatAmountCentavos, 150001 - 100);
+  assert.equal(t.grandTotalCentavos, 150001 - 100 + 500);
   assert.equal(t.totalAmountDueCentavos, t.grandTotalCentavos - 200);
   for (const v of Object.values(t)) assert.ok(Number.isSafeInteger(v), "every figure is an integer");
 });
@@ -113,12 +115,13 @@ test("an itemized invoice refuses a line without a valid snapshot", () => {
   );
 });
 
-test("legacy (invoice-level) totals are exactly as before", () => {
+test("legacy (invoice-level) totals: VAT extracted from the VAT-inclusive amount", () => {
   const t = computeInvoiceTotalsCentavos({
     subtotalCentavos: 80000,
     adjustments: adj({ vatClassification: "vatable" }),
   });
-  assert.deepEqual([t.netCentavos, t.vatAmountCentavos, t.grandTotalCentavos], [80000, 9600, 89600]);
+  // Was 80,000 + 9,600 = 89,600 (VAT on top); now ₱800 stays ₱800.
+  assert.deepEqual([t.netCentavos, t.vatAmountCentavos, t.grandTotalCentavos], [71429, 8571, 80000]);
   const z = computeInvoiceTotalsCentavos({ subtotalCentavos: 80000, adjustments: adj({ vatClassification: "zero_rated" }) });
   assert.equal(z.zeroRatedSalesCentavos, 80000);
 });

@@ -77,7 +77,16 @@ async function seed(orderOver = {}) {
   });
 }
 
+// The Admin editor always sends an explicit VAT classification (VATable is
+// preselected for an unclassified order). A test that does not name one sends
+// exactly that; the server itself no longer invents one (vat-classification-required).
+const withEditorClassification = (payload) =>
+  payload && typeof payload === "object"
+    ? { ...payload, adjustments: { vatClassification: "vatable", ...(payload.adjustments ?? {}) } }
+    : payload;
 const save = (uid, payload) =>
+  ops.saveInvoiceDraftForPricedOrder({ db, FieldValue, uid, payload: withEditorClassification(payload), now: NOW });
+const saveRaw = (uid, payload) =>
   ops.saveInvoiceDraftForPricedOrder({ db, FieldValue, uid, payload, now: NOW });
 
 const issue = (uid, payload) =>
@@ -110,7 +119,10 @@ test("invoice: saving a priced draft takes its base from the order", async (t) =
     assert.equal(inv.invoicePricingSource, "order-snapshot");
     assert.equal(inv.subtotalCentavos, SUBTOTAL);
     assert.equal(inv.priceCurrency, "PHP");
-    assert.equal(inv.priceIsVatInclusive, false);
+    // Computed under the confirmed VAT-inclusive rule; the order's own recorded
+    // `false` (placed before the rule) is left untouched.
+    assert.equal(inv.priceIsVatInclusive, true);
+    assert.equal((await db.collection("orders").doc(ORDER).get()).data().priceIsVatInclusive, false);
 
     assert.equal(inv.items.length, 2);
     assert.equal(inv.items[0].unitPriceCentavos, PRICE);
@@ -118,11 +130,12 @@ test("invoice: saving a priced draft takes its base from the order", async (t) =
     assert.equal(inv.items[0].inventoryId, "inv1", "traceable to a batch");
     assert.equal(inv.items[1].unitPriceCentavos, SECOND);
 
-    // No discount: net is the subtotal, VAT is 12% on top.
-    assert.equal(inv.netCentavos, SUBTOTAL);
-    assert.equal(inv.vatAmountCentavos, 76200);
-    assert.equal(inv.grandTotalCentavos, 711200);
-    assert.equal(inv.grandTotal, 7112, "peso mirror for the print template");
+    // No discount: the subtotal is VAT-inclusive; VAT is extracted, not added.
+    assert.equal(inv.vatAmountCentavos, 68036); // round(635000 × 12 / 112)
+    assert.equal(inv.netCentavos, 566964); // net of VAT
+    assert.equal(inv.netCentavos + inv.vatAmountCentavos, SUBTOTAL);
+    assert.equal(inv.grandTotalCentavos, SUBTOTAL, "₱6,350.00 stays ₱6,350.00 — never ₱7,112.00");
+    assert.equal(inv.grandTotal, 6350, "peso mirror for the print template");
     assert.equal(inv.customerName, "Staging Health Clinic");
   });
 
@@ -176,13 +189,15 @@ test("invoice: explicit adjustments apply on top of an untouched base", async (t
     assert.equal(inv.discountCentavos, 35000);
     assert.equal(inv.otherChargesCentavos, 5000);
     assert.equal(inv.withholdingTaxCentavos, 1000);
-    assert.equal(inv.netCentavos, SUBTOTAL - 35000);
-    assert.equal(inv.vatAmountCentavos, 72000); // 12% of 600,000
-    assert.equal(inv.grandTotalCentavos, 677000);
-    assert.equal(inv.totalAmountDueCentavos, 676000);
+    // VAT extracted from the discounted, VAT-inclusive ₱6,000.00.
+    assert.equal(inv.totalSalesVatInclusiveCentavos, SUBTOTAL - 35000);
+    assert.equal(inv.vatAmountCentavos, 64286); // round(600000 × 12 / 112)
+    assert.equal(inv.netCentavos, 535714);
+    assert.equal(inv.grandTotalCentavos, 605000); // 600000 + 5000 other charges
+    assert.equal(inv.totalAmountDueCentavos, 604000);
     // Peso mirrors, for the print template.
     assert.equal(inv.discount, 350);
-    assert.equal(inv.totalAmountDue, 6760);
+    assert.equal(inv.totalAmountDue, 6040);
   });
 
   await t.test("a zero-rated classification carries no VAT", async () => {
@@ -617,13 +632,14 @@ test("invoice: a mixed per-item order is itemized — VAT on VAT lines only, dis
     const inv = await invoice(ORDER);
     assert.equal(inv.vatClassification, "per_item");
     assert.deepEqual(inv.items.map((i) => i.vatClassification), ["vatable", "vat_exempt"]);
-    // 500,000 VATable / 135,000 exempt; ₱350.00 discount → 27,560 / 7,440.
-    assert.equal(inv.vatableSalesCentavos, 500000 - 27560);
+    // 500,000 VATable / 135,000 exempt (both VAT-inclusive); ₱350.00 discount
+    // → 27,560 / 7,440. VAT is extracted from the VATable 472,440, once.
+    assert.equal(inv.vatAmountCentavos, 50619); // round(472440 × 12 / 112)
+    assert.equal(inv.vatableSalesCentavos, 500000 - 27560 - 50619); // net of VAT
     assert.equal(inv.vatExemptSalesCentavos, 135000 - 7440);
     assert.equal(inv.zeroRatedSalesCentavos, 0);
-    assert.equal(inv.netCentavos, SUBTOTAL - 35000);
-    assert.equal(inv.vatAmountCentavos, 56693); // 12% of 472,440, rounded once
-    assert.equal(inv.grandTotalCentavos, SUBTOTAL - 35000 + 56693);
+    assert.equal(inv.netCentavos + inv.vatAmountCentavos, SUBTOTAL - 35000);
+    assert.equal(inv.grandTotalCentavos, SUBTOTAL - 35000, "VAT is not added on top");
     // Unit prices are untouched.
     assert.equal(inv.items[0].unitPriceCentavos, PRICE);
   });
@@ -638,4 +654,78 @@ test("invoice: a mixed per-item order is itemized — VAT on VAT lines only, dis
     assert.equal(r.invoiceId, ORDER);
     assert.equal((await invoice(ORDER)).invoiceStatus, "issued");
   });
+});
+
+// ------------------------------------------------------------ VAT-inclusive rule
+
+test("VAT: an unclassified order gets no invented VAT — the classification must be chosen", async () => {
+  await seed();
+  // The raw callable payload, with no classification and no classified product.
+  assert.equal(await codeOf(saveRaw(ADMIN, { orderId: ORDER, presentation: PRESENTATION })), "vat-classification-required");
+  assert.equal(await invoice(ORDER), null, "nothing was written");
+  // An explicit VAT-exempt choice: zero VAT, the total is the subtotal.
+  await saveRaw(ADMIN, { orderId: ORDER, presentation: PRESENTATION, adjustments: { vatClassification: "vat_exempt" } });
+  const inv = await invoice(ORDER);
+  assert.deepEqual([inv.vatAmountCentavos, inv.vatExemptSalesCentavos, inv.grandTotalCentavos], [0, SUBTOTAL, SUBTOTAL]);
+});
+
+test("VAT: the client can never supply a VAT amount or a total", async () => {
+  await seed();
+  for (const key of ["vatAmountCentavos", "grandTotalCentavos", "netCentavos", "totalAmountDueCentavos", "vatRate"]) {
+    assert.equal(
+      await codeOf(save(ADMIN, { orderId: ORDER, presentation: PRESENTATION, adjustments: { [key]: 1 } })),
+      "unknown-field",
+      key
+    );
+  }
+  assert.equal(await invoice(ORDER), null);
+});
+
+test("VAT: an invoice issued under the earlier VAT-on-top convention is never recomputed", async () => {
+  await seed();
+  // Exactly as such an invoice was stored when it was issued (₱6,350 + 12% on top).
+  const historical = {
+    orderId: ORDER, invoiceNumber: "INV-2026-000777", invoiceStatus: "issued", pricingVersion: 1,
+    priceCurrency: "PHP", priceIsVatInclusive: false, subtotalCentavos: SUBTOTAL, vatClassification: "vatable",
+    discountCentavos: 0, otherChargesCentavos: 0, withholdingTaxCentavos: 0,
+    netCentavos: SUBTOTAL, vatAmountCentavos: 76200, grandTotalCentavos: 711200, totalAmountDueCentavos: 711200,
+    items: [],
+  };
+  await db.collection("invoices").doc(ORDER).set(historical);
+  const before = await db.collection("invoices").doc(ORDER).get();
+
+  const replay = await issue(ADMIN, { orderId: ORDER });
+  assert.equal(replay.replayed, true);
+  assert.equal(await codeOf(save(ADMIN, { orderId: ORDER, presentation: PRESENTATION })), "invoice-already-issued");
+  const after = await db.collection("invoices").doc(ORDER).get();
+  assert.ok(after.updateTime.isEqual(before.updateTime), "not rewritten");
+  assert.deepEqual(after.data(), historical, "the issued figures stand exactly as issued");
+});
+
+test("VAT: a draft saved under the earlier convention cannot be issued until it is re-saved", async () => {
+  await seed();
+  await save(ADMIN, { orderId: ORDER, presentation: PRESENTATION });
+  // Turn it into a draft as the earlier code wrote it: VAT-exclusive, VAT on top.
+  await db.collection("invoices").doc(ORDER).update({
+    priceIsVatInclusive: false, netCentavos: SUBTOTAL, vatAmountCentavos: 76200,
+    grandTotalCentavos: 711200, totalAmountDueCentavos: 711200,
+  });
+  assert.equal(await codeOf(issue(ADMIN, { orderId: ORDER })), "invoice-base-mismatch");
+  assert.equal((await invoice(ORDER)).invoiceStatus, "draft", "refused, not issued");
+  // Re-saving recomputes it under the confirmed rule; then it issues.
+  await save(ADMIN, { orderId: ORDER, presentation: PRESENTATION });
+  await issue(ADMIN, { orderId: ORDER });
+  const inv = await invoice(ORDER);
+  assert.deepEqual([inv.invoiceStatus, inv.priceIsVatInclusive, inv.vatAmountCentavos, inv.grandTotalCentavos],
+    ["issued", true, 68036, SUBTOTAL]);
+});
+
+test("VAT: a new invoice uses the order's price snapshot, not today's catalog price", async () => {
+  await seed();
+  await db.collection("inventory").doc("inv1").set({ sellingPriceCentavos: 999900, priceIsVatInclusive: true });
+  await save(ADMIN, { orderId: ORDER, presentation: PRESENTATION });
+  const inv = await invoice(ORDER);
+  assert.equal(inv.items[0].unitPriceCentavos, PRICE, "the snapshot price, not 999900");
+  assert.equal(inv.subtotalCentavos, SUBTOTAL);
+  assert.equal(inv.grandTotalCentavos, SUBTOTAL);
 });

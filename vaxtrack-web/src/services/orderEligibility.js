@@ -190,7 +190,8 @@ export function evaluateBatchEligibility(batch, todayIso) {
   }
 
   // 6. No available stock is NOT a refusal any more: the batch is a valid
-  //    QUOTE (price + VAT), and the server backorders what it cannot reserve.
+  //    QUOTE (its VAT-inclusive price), and the server backorders what it
+  //    cannot reserve.
   //    Dispatch waits until every line is fully reserved.
   return {
     eligible: true,

@@ -8,6 +8,7 @@ import {
 } from "../../services/vaccineService";
 import { addStockBatchWithAllocation } from "../../services/inventoryCallables";
 import { parsePesosToCentavos } from "../../services/money";
+import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
 import { validateStockBatchDates } from "../../services/stockBatchDates";
 import "./AdminForms.css";
 
@@ -417,12 +418,12 @@ function AddStock() {
                   onChange={(e) => setUnitPrice(e.target.value)}
                   aria-describedby="stock-unit-price-help"
                 />
-                {/* Says which convention applies. The invoice adds 12% to this
-                    figure, and an unlabelled price is read as whichever
-                    convention the reader already had in mind. */}
+                {/* Says which convention applies: the entered price is
+                    VAT-inclusive for VATable products, and VAT is never added
+                    on top of it (pricingConfig.js). */}
                 <small id="stock-unit-price-help">
-                  Price per vial charged to the clinic, excluding VAT. Applies to
-                  this batch only.
+                  Price per vial charged to the clinic. {VAT_INCLUSIVE_NOTE} Applies
+                  to this batch only.
                 </small>
               </div>
 

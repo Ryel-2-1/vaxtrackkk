@@ -379,10 +379,13 @@ test("no page writes a price onto an order or a batch counter", () => {
 test("the VAT convention is recorded on the order, not inferred", () => {
   const policy = read("functions/src/policy.js");
   const ops = read("functions/src/operations.js");
-  assert.match(policy, /PRICE_IS_VAT_INCLUSIVE\s*=\s*false/);
+  // Confirmed client rule: prices are VAT-inclusive — taken from the one
+  // pricing configuration, never restated.
+  assert.match(policy, /PRICE_IS_VAT_INCLUSIVE\s*=\s*require\("\.\/pricingConfig"\)\.PRICES_INCLUDE_VAT/);
+  assert.match(read("functions/src/pricingConfig.js"), /const PRICES_INCLUDE_VAT = true;/);
   assert.match(policy, /PRICE_CURRENCY\s*=\s*"PHP"/);
   // Both are written onto every priced order, so a reader never has to deduce
-  // the convention from the fact that the invoice happens to apply 12%.
+  // which convention applied.
   assert.match(ops, /priceCurrency:\s*PRICE_CURRENCY/);
   assert.match(ops, /priceIsVatInclusive:\s*PRICE_IS_VAT_INCLUSIVE/);
 });

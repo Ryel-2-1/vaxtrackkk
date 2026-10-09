@@ -673,7 +673,7 @@ test("pricing: the order carries a server-generated snapshot", async (t) => {
 
     assert.equal(o.pricingVersion, 1);
     assert.equal(o.priceCurrency, "PHP");
-    assert.equal(o.priceIsVatInclusive, false, "the invoice adds 12% on top of this");
+    assert.equal(o.priceIsVatInclusive, true, "confirmed rule: prices are VAT-inclusive — VAT is extracted, never added");
     assert.ok(o.pricedAt, "server timestamp written");
 
     assert.equal(o.items[0].unitPriceCentavos, PRICE);

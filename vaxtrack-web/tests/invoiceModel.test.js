@@ -2,7 +2,7 @@
 //
 // Run:  npm run test:invoices   (node --test, no framework/dependency installed)
 //
-// Covers computeVatExclusiveTotals, the Firestore serializer, the initial-form
+// Covers computeInvoiceTotals (VAT-inclusive), the Firestore serializer, the initial-form
 // builder, formatOrderDate, and the read-only/legacy normalizer. No Firebase,
 // no live writes — everything imported here is pure.
 
@@ -12,7 +12,7 @@ import {
   VAT_STANDARD_RATE,
   VAT_CLASSIFICATIONS,
   vatClassificationLabel,
-  computeVatExclusiveTotals,
+  computeInvoiceTotals,
   formatOrderDate,
   itemsFromOrder,
   buildInitialForm,
@@ -22,35 +22,41 @@ import {
   assertConsistentInvoiceTotals,
 } from "../src/services/invoiceModel.js";
 
-const approx = (actual, expected, eps = 1e-6) =>
-  assert.ok(
-    Math.abs(actual - expected) < eps,
-    `expected ${actual} ≈ ${expected}`
-  );
-
 // ---------------------------------------------------------------------------
-// computeVatExclusiveTotals
+// computeInvoiceTotals — VAT-INCLUSIVE prices (confirmed client rule)
+//
+// The entered price already contains VAT for a VATable invoice, so VAT is
+// EXTRACTED (round(gross × 12 ÷ 112), half up, integer centavos) and the total
+// stays the entered amount. These replace the earlier VAT-on-top expectations
+// (1700 → 1904, 800 → 896, 1000 → 1120), which the confirmed rule makes wrong.
 // ---------------------------------------------------------------------------
 
-test("VATable: quantity x unit price, 12% VAT on top", () => {
-  const t = computeVatExclusiveTotals({
+test("VATable: quantity x unit price; VAT is extracted, never added on top", () => {
+  const t = computeInvoiceTotals({
     items: [{ quantity: 20, unitPrice: 85 }],
     vatClassification: "vatable",
   });
-  assert.equal(t.subtotal, 1700); // 20 x 85
-  assert.equal(t.net, 1700);
+  assert.equal(t.subtotal, 1700); // 20 x 85, VAT-inclusive
   assert.equal(t.vatRate, 12);
-  assert.equal(t.vatableSales, 1700);
+  assert.equal(t.vatAmount, 182.14); // round(170000 × 12 / 112) = 18214 centavos
+  assert.equal(t.net, 1517.86); // amount net of VAT
+  assert.equal(t.vatableSales, 1517.86);
   assert.equal(t.vatExemptSales, 0);
   assert.equal(t.zeroRatedSales, 0);
-  approx(t.vatAmount, 204); // 1700 * 12%
-  approx(t.totalSalesVatInclusive, 1904); // net + VAT
-  approx(t.grandTotal, 1904);
-  approx(t.totalAmountDue, 1904);
+  assert.equal(t.totalSalesVatInclusive, 1700);
+  assert.equal(t.grandTotal, 1700, "not 1904: VAT is not added on top");
+  assert.equal(t.totalAmountDue, 1700);
+});
+
+test("₱1,000 and ₱3,000 VAT-inclusive: the client's worked examples", () => {
+  const one = computeInvoiceTotals({ items: [{ quantity: 1, unitPrice: 1000 }] });
+  assert.deepEqual([one.vatableSales, one.vatAmount, one.grandTotal], [892.86, 107.14, 1000]);
+  const three = computeInvoiceTotals({ items: [{ quantity: 3, unitPrice: 1000 }] });
+  assert.deepEqual([three.vatableSales, three.vatAmount, three.grandTotal], [2678.57, 321.43, 3000]);
 });
 
 test("VAT-Exempt: net falls in the exempt bucket, VAT = 0", () => {
-  const t = computeVatExclusiveTotals({
+  const t = computeInvoiceTotals({
     items: [{ quantity: 20, unitPrice: 85 }],
     vatClassification: "vat_exempt",
   });
@@ -64,8 +70,8 @@ test("VAT-Exempt: net falls in the exempt bucket, VAT = 0", () => {
   assert.equal(t.totalAmountDue, 1700);
 });
 
-test("Zero-Rated: net falls in the zero-rated bucket, VAT = 0", () => {
-  const t = computeVatExclusiveTotals({
+test("Zero-Rated (existing classification, unchanged): net in the zero-rated bucket, VAT = 0", () => {
+  const t = computeInvoiceTotals({
     items: [{ quantity: 20, unitPrice: 85 }],
     vatClassification: "zero_rated",
   });
@@ -77,8 +83,8 @@ test("Zero-Rated: net falls in the zero-rated bucket, VAT = 0", () => {
   assert.equal(t.grandTotal, 1700);
 });
 
-test("subtotal sums quantity x unit price across multiple line items", () => {
-  const t = computeVatExclusiveTotals({
+test("subtotal sums quantity x unit price; VAT is extracted from the aggregate once", () => {
+  const t = computeInvoiceTotals({
     items: [
       { quantity: 2, unitPrice: 100 },
       { quantity: 3, unitPrice: 50 },
@@ -86,45 +92,47 @@ test("subtotal sums quantity x unit price across multiple line items", () => {
     ],
     vatClassification: "vatable",
   });
-  assert.equal(t.subtotal, 350); // 200 + 150 + 0
-  approx(t.vatAmount, 42); // 350 * 12%
-  approx(t.grandTotal, 392);
+  assert.equal(t.subtotal, 350);
+  assert.equal(t.vatAmount, 37.5); // round(35000 × 12 / 112) = 3750
+  assert.equal(t.net, 312.5);
+  assert.equal(t.grandTotal, 350);
 });
 
-test("discount reduces the taxable net before VAT", () => {
-  const t = computeVatExclusiveTotals({
+test("discount (handling unchanged) reduces the VAT-inclusive amount before extraction", () => {
+  const t = computeInvoiceTotals({
     items: [{ quantity: 10, unitPrice: 100 }],
     discount: 200,
     vatClassification: "vatable",
   });
   assert.equal(t.subtotal, 1000);
   assert.equal(t.discount, 200);
-  assert.equal(t.net, 800); // 1000 - 200
-  approx(t.vatAmount, 96); // 800 * 12%
-  approx(t.grandTotal, 896);
+  assert.equal(t.totalSalesVatInclusive, 800); // 1000 - 200
+  assert.equal(t.vatAmount, 85.71); // round(80000 × 12 / 112) = 8571
+  assert.equal(t.net, 714.29);
+  assert.equal(t.grandTotal, 800);
 });
 
 test("withholding tax reduces ONLY totalAmountDue; grandTotal is unchanged", () => {
   const base = { items: [{ quantity: 10, unitPrice: 100 }] };
-  const without = computeVatExclusiveTotals(base);
-  const withWht = computeVatExclusiveTotals({ ...base, withholdingTax: 50 });
-  approx(without.grandTotal, 1120); // 1000 + 120
-  approx(withWht.grandTotal, 1120); // grandTotal UNCHANGED by withholding
+  const without = computeInvoiceTotals(base);
+  const withWht = computeInvoiceTotals({ ...base, withholdingTax: 50 });
+  assert.equal(without.grandTotal, 1000);
+  assert.equal(withWht.grandTotal, 1000);
   assert.equal(withWht.withholdingTax, 50);
-  approx(withWht.totalAmountDue, 1070); // grandTotal - withholding
+  assert.equal(withWht.totalAmountDue, 950);
 });
 
 test("otherCharges add to grandTotal and totalAmountDue", () => {
-  const t = computeVatExclusiveTotals({
+  const t = computeInvoiceTotals({
     items: [{ quantity: 1, unitPrice: 1000 }],
     otherCharges: 25,
   });
-  approx(t.grandTotal, 1145); // 1000 + 120 + 25
-  approx(t.totalAmountDue, 1145);
+  assert.equal(t.grandTotal, 1025); // 1000 (VAT included) + 25
+  assert.equal(t.totalAmountDue, 1025);
 });
 
 test("default/zero values: empty input yields all-zero totals, vatable", () => {
-  const t = computeVatExclusiveTotals();
+  const t = computeInvoiceTotals();
   assert.equal(t.subtotal, 0);
   assert.equal(t.net, 0);
   assert.equal(t.vatAmount, 0);
@@ -135,29 +143,27 @@ test("default/zero values: empty input yields all-zero totals, vatable", () => {
   assert.equal(t.withholdingTax, 0);
 });
 
-test("decimal precision: fractional net computes 12% VAT without pre-rounding", () => {
-  const t = computeVatExclusiveTotals({
-    items: [{ quantity: 1, unitPrice: 1517.86 }],
-  });
-  approx(t.net, 1517.86);
-  approx(t.vatAmount, 182.1432); // 1517.86 * 0.12
-  approx(t.grandTotal, 1700.0032);
-  approx(t.totalSalesVatInclusive, 1700.0032);
+test("integer centavos: no floating-point drift; net + VAT = gross exactly", () => {
+  const t = computeInvoiceTotals({ items: [{ quantity: 1, unitPrice: 1517.86 }] });
+  assert.equal(t.vatAmount, 162.63); // round(151786 × 12 / 112) = 16263
+  assert.equal(t.net, 1355.23);
+  assert.equal(Math.round(t.net * 100) + Math.round(t.vatAmount * 100), 151786);
+  assert.equal(t.grandTotal, 1517.86);
 });
 
 test("string/blank numeric inputs coerce safely (no NaN)", () => {
-  const t = computeVatExclusiveTotals({
+  const t = computeInvoiceTotals({
     items: [{ quantity: "5", unitPrice: "20" }],
     discount: "",
     withholdingTax: null,
   });
   assert.equal(t.subtotal, 100);
-  approx(t.vatAmount, 12);
+  assert.equal(t.vatAmount, 10.71); // round(10000 × 12 / 112) = 1071
   assert.equal(Number.isNaN(t.grandTotal), false);
 });
 
-test("unknown classification falls back to vatable", () => {
-  const t = computeVatExclusiveTotals({
+test("unknown classification falls back to vatable (existing editor behaviour)", () => {
+  const t = computeInvoiceTotals({
     items: [{ quantity: 1, unitPrice: 100 }],
     vatClassification: "bogus",
   });
@@ -165,17 +171,7 @@ test("unknown classification falls back to vatable", () => {
   assert.equal(t.vatRate, 12);
 });
 
-test("Phase 5B verified case (net 800 -> VAT 96 -> grandTotal 896) is preserved", () => {
-  const t = computeVatExclusiveTotals({
-    items: [{ quantity: 8, unitPrice: 100 }],
-  });
-  assert.equal(t.net, 800);
-  approx(t.vatAmount, 96);
-  approx(t.grandTotal, 896);
-  approx(t.totalAmountDue, 896); // withholding defaults to 0
-});
-
-test("VAT constants + labels", () => {
+test("VAT constants + labels come from the one pricing configuration", () => {
   assert.equal(VAT_STANDARD_RATE, 12);
   assert.deepEqual(VAT_CLASSIFICATIONS, ["vatable", "vat_exempt", "zero_rated"]);
   assert.equal(vatClassificationLabel("vatable"), "VATable (12%)");
@@ -341,7 +337,7 @@ test("normalizeStoredTotals surfaces STORED figures (legacy taxAmount -> vatAmou
     subtotal: 800,
     taxAmount: 96, // legacy name, no vatAmount / totalAmountDue / net
   };
-  const live = computeVatExclusiveTotals({ items: [] }); // all zeros
+  const live = computeInvoiceTotals({ items: [] }); // all zeros
   const t = normalizeStoredTotals(legacy, live);
   assert.equal(t.grandTotal, 896); // stored, not recomputed
   assert.equal(t.subtotal, 800);
@@ -361,20 +357,20 @@ test("normalizeStoredTotals uses new-model stored values when present", () => {
     totalSalesVatInclusive: 1904,
     totalAmountDue: 1904,
   };
-  const live = computeVatExclusiveTotals({ items: [] });
+  const live = computeInvoiceTotals({ items: [] });
   const t = normalizeStoredTotals(stored, live);
   assert.equal(t.grandTotal, 1904);
   assert.equal(t.vatableSales, 1700);
   assert.equal(t.totalAmountDue, 1904);
 });
 
-test("Phase 5B grandTotal contract: grandTotal excludes withholding, totalAmountDue includes it", () => {
-  const t = computeVatExclusiveTotals({
+test("grandTotal contract: grandTotal excludes withholding, totalAmountDue includes it", () => {
+  const t = computeInvoiceTotals({
     items: [{ quantity: 10, unitPrice: 100 }],
     withholdingTax: 100,
   });
-  approx(t.grandTotal, 1120); // net + VAT (+0 other) — withholding NOT subtracted
-  approx(t.totalAmountDue, 1020); // grandTotal - withholding
+  assert.equal(t.grandTotal, 1000); // VAT-inclusive amount (+0 other) — withholding NOT subtracted
+  assert.equal(t.totalAmountDue, 900); // grandTotal - withholding
 });
 
 // ---------------------------------------------------------------------------
@@ -479,7 +475,7 @@ test("a centavo price survives conversion without float drift", () => {
   assert.equal(items[0].unitPrice, 0.1);
   assert.equal(items[1].unitPrice, 29.99);
 
-  const totals = computeVatExclusiveTotals({
+  const totals = computeInvoiceTotals({
     items,
     discount: 0,
     withholdingTax: 0,

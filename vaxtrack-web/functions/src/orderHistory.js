@@ -352,10 +352,12 @@ function batchPhrase(batches) {
  *
  * VAT at order time: every line carries its product's VAT snapshot (taken in
  * the order's own transaction), and the amount is computed with the SAME
- * per-item integer routine the invoice uses (invoicePricing ITEMIZED_VAT). A
- * line without a snapshot is never given an invented one: the receipt then
- * records that VAT is decided at invoicing. There is no order-time discount:
- * discounts exist only on the invoice.
+ * per-item integer routine the invoice uses (invoicePricing ITEMIZED_VAT).
+ * Prices are VAT-inclusive (pricingConfig.js): the VAT is EXTRACTED from the
+ * VATable lines and the final total IS the subtotal — VAT is never added on
+ * top. A line without a snapshot is never given an invented one: the receipt
+ * then records that VAT is decided at invoicing. There is no order-time
+ * discount: discounts exist only on the invoice.
  */
 function buildOrderReceipt({
   orderId,

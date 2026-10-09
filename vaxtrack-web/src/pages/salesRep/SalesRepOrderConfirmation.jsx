@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { formatCentavos } from "../../services/money";
+import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
 import AllocationSummary from "../../components/ui/AllocationSummary";
 
 /**
@@ -24,8 +25,9 @@ import AllocationSummary from "../../components/ui/AllocationSummary";
  * real confirmation always carried a fee and a total nothing had charged, and a
  * missing record showed an entirely fictional order as placed. Those are gone:
  * a record that is missing, unreadable or unverified renders the "details
- * unavailable" state and points the rep to Order Tracking. VAT is added at
- * invoicing, so the only money shown is the server's VAT-exclusive subtotal.
+ * unavailable" state and points the rep to Order Tracking. The only money
+ * shown is the server's subtotal; prices are VAT-inclusive for VATable
+ * products, so no VAT is added to it.
  */
 function getLatestOrder() {
   try {
@@ -211,7 +213,7 @@ function SalesRepOrderConfirmation() {
             <strong>{order.priority}</strong>
           </div>
           <div className="grand-total">
-            <span>Subtotal (excl. VAT)</span>
+            <span>Subtotal</span>
             <strong>{formatCentavos(order.subtotalCentavos)}</strong>
           </div>
         </div>
@@ -224,8 +226,7 @@ function SalesRepOrderConfirmation() {
         </button>
 
         <small>
-          This confirmation is a record of order submission. VAT is added when the
-          invoice is issued.
+          This confirmation is a record of order submission. {VAT_INCLUSIVE_NOTE}
         </small>
       </section>
     </>

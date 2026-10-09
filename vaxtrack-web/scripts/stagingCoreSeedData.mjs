@@ -18,6 +18,7 @@
 import { normalizeAreaName, areaDocumentId } from "../src/services/areaModel.js";
 import { normalizeDoctorName } from "../src/services/doctorModel.js";
 import { HOME_ADDRESS_ID } from "../src/services/doctorAddressModel.js";
+import { PRICES_INCLUDE_VAT } from "../src/services/pricingConfig.js";
 
 export const SEED_PREFIX = "vtseed-core-20260924-";
 export const SEED_DATE = "2026-09-24"; // base date for expiry distribution
@@ -242,7 +243,8 @@ export function buildSeedPlan({ today = SEED_DATE } = {}) {
         reservedQuantity: 0, // rule requires exactly 0 on create
         sellingPriceCentavos: b.priceCentavos, // positive integer, PHP centavos
         priceCurrency: "PHP",
-        priceIsVatInclusive: false,
+        // Entered prices are VAT-inclusive (src/services/pricingConfig.js).
+        priceIsVatInclusive: PRICES_INCLUDE_VAT,
         status: batchStatusFromExpiry(expiryDate, today),
       },
       serverTimestampFields: ["createdAt"],
@@ -449,7 +451,7 @@ export function validateSeedPlan(plan) {
     expect(Number.isInteger(b.data.sellingPriceCentavos) && b.data.sellingPriceCentavos > 0,
       `batch ${b.id} sellingPriceCentavos must be a positive integer`);
     expect(!("temperature" in b.data), `batch ${b.id} must not carry a temperature field`);
-    expect(b.data.priceIsVatInclusive === false, `batch ${b.id} must be VAT-exclusive`);
+    expect(b.data.priceIsVatInclusive === PRICES_INCLUDE_VAT, `batch ${b.id} must record the VAT-inclusive price convention`);
   }
   for (const c of plan.clinics) {
     expect(areaIds.has(c.data.areaId), `clinic ${c.id} references an unknown area`);

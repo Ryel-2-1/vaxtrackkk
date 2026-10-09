@@ -14,6 +14,7 @@ import { auth, db } from "../firebase";
 import { validateStockCorrection } from "./stockCorrection";
 import { validateStockBatchDates } from "./stockBatchDates";
 import { readVatClassification } from "./vatClassification";
+import { PRICES_INCLUDE_VAT } from "./pricingConfig";
 
 const VACCINES = "vaccines";
 const VACCINE_TYPES = "vaccineTypes";
@@ -188,7 +189,8 @@ export async function updateStockPrice({ inventoryId, sellingPriceCentavos }) {
   return updateDoc(doc(db, INVENTORY, inventoryId), {
     sellingPriceCentavos,
     priceCurrency: "PHP",
-    priceIsVatInclusive: false,
+    // Entered prices are VAT-inclusive (pricingConfig.js).
+    priceIsVatInclusive: PRICES_INCLUDE_VAT,
     // Audit taken from the SESSION, never from a parameter. A caller-supplied
     // uid would let one admin record a re-price as another's — and the rules
     // now refuse any value that is not the authenticated caller, so passing one

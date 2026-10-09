@@ -18,6 +18,7 @@ import {
   formatDateTime,
   fulfilmentStage,
   receiptLines,
+  receiptPriceLabels,
   receiptStatus,
   sortEvents,
   sourceLabel,
@@ -66,6 +67,7 @@ function Receipt({ receipt, events, eventsLoading }) {
   const snapshot = confirmationSnapshot(events);
   const lines = receiptLines(receipt, snapshot);
   const reconstructed = receiptStatus(receipt) === "reconstructed";
+  const priceLabels = receiptPriceLabels(receipt);
   const date = receipt.requestedDeliveryDate
     ? `${receipt.requestedDeliveryDate}${receipt.requestedDeliveryTime ? ` ${receipt.requestedDeliveryTime}` : ""}`
     : "Not specified";
@@ -134,10 +136,10 @@ function Receipt({ receipt, events, eventsLoading }) {
         </table>
       </div>
       <dl className="ohx-totals">
-        <Field label="Subtotal (VAT-exclusive)">{formatCentavos(receipt.subtotalCentavos)}</Field>
+        <Field label={priceLabels.subtotalLabel}>{formatCentavos(receipt.subtotalCentavos)}</Field>
         <Field label="VAT">
           {VAT_STATUS_LABELS[receipt.vatStatus] || receipt.vatStatus || DASH}
-          {receipt.vatAmountCentavos != null && ` · ${formatCentavos(receipt.vatAmountCentavos)}`}
+          {receipt.vatAmountCentavos != null && ` · ${formatCentavos(receipt.vatAmountCentavos)}${priceLabels.vatSuffix}`}
         </Field>
         <Field label="Discount">{receipt.discountCentavos != null ? formatCentavos(receipt.discountCentavos) : "None at order time"}</Field>
         <Field label="Total">
@@ -156,6 +158,7 @@ function Receipt({ receipt, events, eventsLoading }) {
           The reservation at confirmation was recorded by the history recovery process after its own allocation pass.
         </p>
       )}
+      <p className="ohx-muted">{priceLabels.note}</p>
       <p className="ohx-meta">
         Receipt schema v{receipt.schemaVersion ?? "?"} · Source: {receipt.creationSource || DASH} · Recorded {formatDateTime(receipt.createdAt)}
       </p>
