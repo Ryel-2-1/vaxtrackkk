@@ -185,8 +185,7 @@ test("live-location, route and trip fields are passed through, never fabricated"
   // that data yields an empty/absent value and the map falls back to its honest
   // "No live location yet" state (that fallback lives in LiveDeliveryMap.jsx).
   const passThrough = {
-    lastLocation: /lastLocation: raw\.lastLocation \|\| null,/,
-    lastLocationUpdate: /lastLocationUpdate: raw\.lastLocationUpdate \|\| null,/,
+    assignedRiderId: /assignedRiderId: raw\.assignedRiderId \|\| "",/,
     clinicLat: /clinicLat: raw\.clinicLat,/,
     clinicLng: /clinicLng: raw\.clinicLng,/,
     routePolyline: /routePolyline: raw\.routePolyline \|\| "",/,
@@ -201,7 +200,9 @@ test("live-location, route and trip fields are passed through, never fabricated"
   // Still forbidden: inventing any of it. None of these fields may fall back to
   // a literal coordinate, polyline, ETA or geofence value — the only permitted
   // fallback is null / "" / absent, so nothing fake is ever shown as live data.
-  assert.equal(/lastLocation: raw\.lastLocation \|\| [^n]/.test(PAGE), false, "no invented rider location");
+  // The rider position is read from riderLocations/{assignedRiderId} by the
+  // map, never from an order-level copy.
+  assert.equal(CODE.includes("lastLocation"), false, "the order-level location copy is no longer read");
   assert.equal(/clinicLat: raw\.clinicLat \|\| /.test(PAGE), false, "no invented clinic latitude");
   assert.equal(/clinicLng: raw\.clinicLng \|\| /.test(PAGE), false, "no invented clinic longitude");
   assert.equal(/routePolyline: raw\.routePolyline \|\| "[^"]/.test(PAGE), false, "no hardcoded route");

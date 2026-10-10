@@ -51,6 +51,7 @@
 const { setGlobalOptions } = require("firebase-functions/v2");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onDocumentWritten } = require("firebase-functions/v2/firestore");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 
@@ -64,6 +65,7 @@ const inventoryWorkflow = require("./src/inventoryWorkflow");
 const allocation = require("./src/allocation");
 const failureReturn = require("./src/failureReturn");
 const orderHistoryOutbox = require("./src/orderHistoryOutbox");
+const riderTrackingOps = require("./src/riderTrackingOps");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -461,5 +463,64 @@ exports.recordOrderStatusEvent = onDocumentWritten(
       logger.error("recordOrderStatusEvent failed", { orderId, code: error?.code ?? null });
       throw error;
     }
+  }
+);
+
+// ---------------------------------------------------------------- rider tracking
+//
+// Rider live location + route deviation (src/riderTracking.js is the contract,
+// src/riderTrackingOps.js the transactions). The Rider app only REPORTS its
+// position (riderLocations/{uid}) and which order it is navigating
+// (riderNavigationSessions/{uid}); every deviation decision, alert and event is
+// made here, so a client can never forge one. All handlers are retry-safe: they
+// re-read the current documents in a transaction and replays are no-ops.
+
+exports.trackRiderLocation = onDocumentWritten(
+  { document: "riderLocations/{riderUid}", retry: true },
+  async (event) => {
+    const after = event.data?.after?.exists ? event.data.after.data() : null;
+    if (!after || after.riderUid !== event.params.riderUid) return;
+    const before = event.data?.before?.exists ? event.data.before.data() : null;
+    const result = await riderTrackingOps.processLocationWrite({
+      db,
+      FieldValue,
+      riderUid: event.params.riderUid,
+      location: after,
+      // The previous fix: continuity is judged from it, so an unchanged
+      // deviation state never has to be rewritten per sample.
+      previous: before,
+    });
+    // Ids and outcome only — never coordinates.
+    if (result.event) logger.info("route-deviation-transition", { riderUid: event.params.riderUid, event: result.event });
+  }
+);
+
+exports.trackNavigationSession = onDocumentWritten(
+  { document: "riderNavigationSessions/{riderUid}", retry: true },
+  async (event) => {
+    const after = event.data?.after?.exists ? event.data.after.data() : null;
+    await riderTrackingOps.handleSessionWrite({ db, FieldValue, riderUid: event.params.riderUid, after });
+  }
+);
+
+exports.syncRiderTrackingOnOrderWrite = onDocumentWritten(
+  { document: "orders/{orderId}", retry: true },
+  async (event) => {
+    const before = event.data?.before?.exists ? event.data.before.data() : null;
+    const after = event.data?.after?.exists ? event.data.after.data() : null;
+    await riderTrackingOps.handleOrderWrite({ db, FieldValue, orderId: event.params.orderId, before, after });
+  }
+);
+
+// Retention: precise location is never kept indefinitely (src/riderTracking.js RETENTION).
+exports.purgeRiderTrackingData = onSchedule(
+  { schedule: "every 6 hours", timeZone: "Asia/Manila" },
+  async () => {
+    const counts = await riderTrackingOps.purgeExpiredTrackingData({
+      db,
+      Timestamp: admin.firestore.Timestamp,
+      now: new Date(),
+    });
+    logger.info("rider-tracking-retention", counts);
   }
 );

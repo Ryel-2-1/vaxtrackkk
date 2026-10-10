@@ -16,6 +16,7 @@ import { auth, db } from "../firebase";
 import { buildClinicLocationSnapshot } from "./orderLocation";
 import { dispatchEligibility } from "./dispatchEligibility";
 import { assignmentBlockReason } from "./backorder";
+import { presentRouteFields } from "./orderRouteFields";
 import {
   ACTOR_DISPATCHER,
   assertTransition,
@@ -369,6 +370,10 @@ export async function assignRiderToOrder(orderId, riderUid) {
       // Activity panel's "Updated by". Previously absent from assignment.
       ...statusAttribution(currentUser),
     };
+    // A route still on the order was drawn from another rider's position (the
+    // server clears it on requeue; this is the second guard). Removed so the
+    // new rider never navigates against it; the dispatcher regenerates it.
+    for (const field of presentRouteFields(order)) update[field] = deleteField();
     if (assignedRiderName) update.assignedRiderName = assignedRiderName;
     if (assignedRiderPhone) update.assignedRiderPhone = assignedRiderPhone;
     if (currentUser.email) update.assignedByEmail = currentUser.email;

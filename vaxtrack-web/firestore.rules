@@ -318,16 +318,84 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys();
     }
 
-    // Route-deviation alert helpers (Phase 4). An alert "owned" by the caller is
-    // a route_deviation incident whose riderId is the caller's uid. A rider may
-    // only write it when they are the currently-assigned rider on that order.
-    function isOwnRouteDeviationAlert(data) {
-      return data.type == 'route_deviation' && data.riderId == request.auth.uid;
-    }
+    // Is the caller the approved rider currently assigned to this order?
+    // (Route-deviation alerts are server-owned; riders no longer write them.)
     function riderAssignedToOrder(orderId) {
       return isRider()
         && exists(/databases/$(database)/documents/orders/$(orderId))
         && get(/databases/$(database)/documents/orders/$(orderId)).data.assignedRiderId == request.auth.uid;
+    }
+
+    // ---- rider live tracking ----
+    function medRepMayViewRider(riderUid) {
+      return exists(/databases/$(database)/documents/riderLocationViewers/$(riderUid))
+        && request.auth.uid in get(/databases/$(database)/documents/riderLocationViewers/$(riderUid)).data.viewerUids;
+    }
+    function trackingIdValid(value) {
+      return value is string && value.matches('^[A-Za-z0-9_-]{8,64}$');
+    }
+    function riderLocationFields() {
+      return ['riderUid', 'latitude', 'longitude', 'accuracyMeters', 'headingDegrees',
+        'speedMps', 'capturedAt', 'updatedAt', 'trackingState', 'activeOrderId',
+        'navigationSessionId', 'source', 'schemaVersion'];
+    }
+    function validRiderLocation(riderUid) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(riderLocationFields())
+        && d.keys().hasAll(riderLocationFields())
+        && d.riderUid == riderUid
+        && d.updatedAt == request.time
+        && d.capturedAt is timestamp
+        && d.capturedAt <= request.time + duration.value(2, 'm')
+        && d.capturedAt > request.time - duration.value(1, 'h')
+        && (resource == null || d.capturedAt > resource.data.capturedAt)
+        && d.trackingState in ['active', 'paused', 'ended']
+        && d.source == 'geolocator'
+        && d.schemaVersion == 1
+        && (
+          (d.trackingState == 'ended'
+            && d.latitude == null && d.longitude == null && d.accuracyMeters == null
+            && d.headingDegrees == null && d.speedMps == null
+            && d.activeOrderId == null && d.navigationSessionId == null)
+          || (d.trackingState != 'ended'
+            && d.latitude is number && d.latitude >= -90 && d.latitude <= 90
+            && d.longitude is number && d.longitude >= -180 && d.longitude <= 180
+            && d.accuracyMeters is number && d.accuracyMeters >= 0 && d.accuracyMeters <= 10000
+            && (d.headingDegrees == null
+              || (d.headingDegrees is number && d.headingDegrees >= 0 && d.headingDegrees <= 360))
+            && (d.speedMps == null || (d.speedMps is number && d.speedMps >= 0 && d.speedMps <= 100))
+            && (d.activeOrderId == null || (d.activeOrderId is string && riderAssignedToOrder(d.activeOrderId)))
+            && (d.navigationSessionId == null || trackingIdValid(d.navigationSessionId)))
+        );
+    }
+    function navigationSessionFields() {
+      return ['riderUid', 'orderId', 'sessionId', 'state', 'startedAt', 'updatedAt', 'endedAt', 'endReason'];
+    }
+    function validNavigationSession(riderUid) {
+      let d = request.resource.data;
+      let sameSession = resource != null
+        && resource.data.sessionId == d.sessionId
+        && resource.data.orderId == d.orderId
+        && resource.data.startedAt == d.startedAt;
+      return d.keys().hasOnly(navigationSessionFields())
+        && d.keys().hasAll(navigationSessionFields())
+        && d.riderUid == riderUid
+        && d.updatedAt == request.time
+        && trackingIdValid(d.sessionId)
+        && d.orderId is string
+        && (
+          // Start (or replace) navigation for an order this rider is moving now.
+          (d.state == 'navigating'
+            && d.endedAt == null && d.endReason == null
+            && riderAssignedToOrder(d.orderId)
+            && get(/databases/$(database)/documents/orders/$(d.orderId)).data.status in ['in_transit', 'delayed']
+            && (sameSession && resource.data.state == 'navigating' || d.startedAt == request.time))
+          // End the CURRENT session (Stop, sign-out, tracking stopped).
+          || (d.state == 'ended'
+            && sameSession
+            && d.endedAt == request.time
+            && d.endReason in ['rider_stopped', 'signed_out', 'tracking_stopped'])
+        );
     }
 
     // Order fields each non-admin role is allowed to change. These mirror the
@@ -1604,6 +1672,56 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ---------------- rider live tracking (functions/src/riderTracking.js) ----------------
+    //
+    // riderLocations/{riderUid}: ONE replaceable current-location doc per rider.
+    //   * written only by that (approved) rider, for their own uid;
+    //   * strict field set and ranges; updatedAt is the server write time;
+    //   * capturedAt must be newer than the stored one (an old or out-of-order
+    //     fix — a late offline write, a second device — can never overwrite a
+    //     newer location), not in the future (2 min clock skew) and not older
+    //     than 1 hour;
+    //   * 'ended' clears the coordinates (privacy);
+    //   * activeOrderId must be an order assigned to this rider.
+    //   Read: Admin and Dispatcher (all riders); the rider (own doc); a Med Rep
+    //   ONLY for a rider listed in the server-maintained riderLocationViewers
+    //   index for that Med Rep — one get(), never an enumeration. Nobody but
+    //   Admin/Dispatcher may list.
+    match /riderLocations/{riderUid} {
+      allow get: if isAdmin() || isDispatcher()
+        || (isRider() && request.auth.uid == riderUid)
+        || (isSalesRep() && medRepMayViewRider(riderUid));
+      allow list: if isAdmin() || isDispatcher();
+      allow create, update: if isRider() && request.auth.uid == riderUid && validRiderLocation(riderUid);
+      allow delete: if false;
+    }
+
+    // riderNavigationSessions/{riderUid}: the ONE route a rider is navigating
+    // (Start Navigation). Starting needs an in_transit/delayed order assigned to
+    // the rider; a different sessionId replaces the previous route. The server
+    // ends sessions whose order completes, fails, is cancelled or reassigned.
+    match /riderNavigationSessions/{riderUid} {
+      allow get: if isAdmin() || isDispatcher() || (isRider() && request.auth.uid == riderUid);
+      allow list: if isAdmin() || isDispatcher();
+      allow create, update: if isRider() && request.auth.uid == riderUid && validNavigationSession(riderUid);
+      allow delete: if false;
+    }
+
+    // Server-owned deviation state machine and its audit trail.
+    match /riderDeviationStates/{riderUid} {
+      allow get: if isAdmin() || isDispatcher() || (isRider() && request.auth.uid == riderUid);
+      allow list: if isAdmin() || isDispatcher();
+      allow write: if false;
+    }
+    match /routeDeviationEvents/{eventId} {
+      allow get, list: if isAdmin() || isDispatcher();
+      allow write: if false;
+    }
+    // Server-maintained Med Rep visibility index — used ONLY by the rules above.
+    match /riderLocationViewers/{riderUid} {
+      allow read, write: if false;
+    }
+
     // ---------------- catalog data ----------------
     // Read by any approved user (Sales Rep needs inventory + clinics; catalog
     // pages need vaccines/types). Writes are admin-only.
@@ -1708,75 +1826,14 @@ service cloud.firestore {
     }
 
     // ---------------- alerts ----------------
-    // Admin + Dispatcher read all alerts; only Admin resolves / marks read.
-    // Phase 4: a rider may create/update ONLY their own route-deviation incident
-    // for an order they are assigned to. Identity fields (type/orderId/riderId)
-    // are immutable after creation, and a rider can never read, create, or
-    // modify another rider's alert or an alert of any other type.
+    // Admin + Dispatcher read all alerts; only Admin resolves / marks read /
+    // creates / deletes. Route-deviation alerts are SERVER-OWNED: the
+    // trackRiderLocation Cloud Function decides deviation and writes them
+    // (functions/src/riderTrackingOps.js). No rider may create, change or read
+    // one — a client can never forge or clear a deviation decision.
     match /alerts/{id} {
-      // Rider may READ their own route-deviation incident — required so the
-      // idempotent upsert transaction can read the doc before writing it.
-      // `resource == null` (a NON-EXISTENT doc) must also be allowed: the
-      // transaction's first `tx.get(ref)` runs before the deterministic doc is
-      // ever created, and denying that read fails the whole transaction (the
-      // Phase 6C2 persistence root cause). A get on a missing doc reveals only
-      // non-existence of a deterministic id the rider can already derive.
-      allow get: if isAdmin() || isDispatcher()
-        || (isRider() && (resource == null || isOwnRouteDeviationAlert(resource.data)));
-      allow list: if isAdmin() || isDispatcher();
-
-      // Admin: full create. Rider: create own route-deviation incident, only for
-      // an order they are currently assigned to. A rider-created incident must
-      // open in the exact expected shape — a critical, unread, ACTIVE
-      // route_deviation whose createdAt/firstCreatedAt are the server's write
-      // time (so a rider can never back-date it out of the Admin list).
-      allow create: if isAdmin()
-        || (
-          isRider()
-          && request.resource.data.type == 'route_deviation'
-          && request.resource.data.riderId == request.auth.uid
-          && request.resource.data.severity == 'critical'
-          && request.resource.data.status == 'active'
-          && request.resource.data.read == false
-          && request.resource.data.orderId is string
-          && request.resource.data.createdAt == request.time
-          && request.resource.data.firstCreatedAt == request.time
-          && riderAssignedToOrder(request.resource.data.orderId)
-        );
-
-      // Admin: full update (resolve / mark read). Rider: update ONLY their own
-      // route-deviation incident (refresh / reopen / mark returned). HARDENED
-      // rider transitions:
-      //  * type / orderId / riderId / firstCreatedAt are IMMUTABLE;
-      //  * severity stays 'critical';
-      //  * status may only ever be 'active' or 'resolved' (no arbitrary states);
-      //  * a resolve must carry resolutionReason == 'returned_to_route';
-      //  * createdAt may stay the same or be refreshed to now (reopen) but can
-      //    never be back-dated to an arbitrary earlier time;
-      //  * the rider must still be assigned to the order.
-      allow update: if isAdmin()
-        || (
-          isRider()
-          && isOwnRouteDeviationAlert(resource.data)
-          && riderAssignedToOrder(resource.data.orderId)
-          && request.resource.data.type == resource.data.type
-          && request.resource.data.orderId == resource.data.orderId
-          && request.resource.data.riderId == resource.data.riderId
-          && request.resource.data.firstCreatedAt == resource.data.firstCreatedAt
-          && request.resource.data.severity == 'critical'
-          && request.resource.data.status in ['active', 'resolved']
-          && (
-            request.resource.data.status != 'resolved'
-            || request.resource.data.resolutionReason == 'returned_to_route'
-          )
-          && (
-            request.resource.data.createdAt == resource.data.createdAt
-            || request.resource.data.createdAt == request.time
-          )
-        );
-
-      // Deletes remain admin-only.
-      allow delete: if isAdmin();
+      allow get, list: if isAdmin() || isDispatcher();
+      allow create, update, delete: if isAdmin();
     }
 
     // ---------------- invoices (admin only) ----------------

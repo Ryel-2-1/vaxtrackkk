@@ -904,11 +904,13 @@ async function main() {
     await assertFails(updateDoc(doc(salesRep, "orders", "ordCorrected"), { doctorAddressId: "clinic2" }));
   });
 
-  // ---- Phase 4B: rider route-deviation incident happy path ----
+  // ---- Route-deviation alerts are SERVER-OWNED (trackRiderLocation). The former
+  // rider happy path (P14–P18) must now be refused: a rider can no longer create,
+  // read, refresh, resolve or reopen a deviation alert. ----
   const riderAlertId = "route_deviation_ordRider1_rider1";
 
-  await check("P14 rider creates own route-deviation incident (assigned order)", async () => {
-    await assertSucceeds(setDoc(doc(rider, "alerts", riderAlertId), {
+  await check("P14 (now refused) rider creates own route-deviation incident (assigned order)", async () => {
+    await assertFails(setDoc(doc(rider, "alerts", riderAlertId), {
       type: "route_deviation",
       orderId: "ordRider1",
       deliveryId: "ordRider1",
@@ -934,13 +936,13 @@ async function main() {
   // BEFORE it exists. The rider `get` rule must therefore allow reading a
   // NON-EXISTENT own alert, or the transaction is denied at the read — the
   // Phase 6C2 persistence root cause (direct setDoc in P14 never hit this path).
-  await check("P14b rider can get a non-existent own route-deviation alert (tx pre-read)", async () => {
-    await assertSucceeds(getDoc(doc(rider, "alerts", "route_deviation_ordRider3_rider1")));
+  await check("P14b (now refused) rider can get a non-existent own route-deviation alert (tx pre-read)", async () => {
+    await assertFails(getDoc(doc(rider, "alerts", "route_deviation_ordRider3_rider1")));
   });
 
-  await check("P14c rider transaction get-then-create on a fresh assigned order", async () => {
+  await check("P14c (now refused) rider transaction get-then-create on a fresh assigned order", async () => {
     const ref = doc(rider, "alerts", "route_deviation_ordRider3_rider1");
-    await assertSucceeds(
+    await assertFails(
       runTransaction(rider, async (tx) => {
         await tx.get(ref); // reads the not-yet-existing doc, exactly like the app
         tx.set(ref, {
@@ -966,12 +968,12 @@ async function main() {
     );
   });
 
-  await check("P15 rider reads own route-deviation incident", async () => {
-    await assertSucceeds(getDoc(doc(rider, "alerts", riderAlertId)));
+  await check("P15 (now refused) rider reads own route-deviation incident", async () => {
+    await assertFails(getDoc(doc(rider, "alerts", riderAlertId)));
   });
 
-  await check("P16 rider refreshes own active incident (latest detection)", async () => {
-    await assertSucceeds(updateDoc(doc(rider, "alerts", riderAlertId), {
+  await check("P16 (now refused) rider refreshes own active incident (latest detection)", async () => {
+    await assertFails(updateDoc(doc(rider, "alerts", riderAlertId), {
       message: "still off route",
       distanceMeters: 1300,
       updatedAt: serverTimestamp(),
@@ -979,8 +981,8 @@ async function main() {
     }));
   });
 
-  await check("P17 rider resolves own incident with returned_to_route", async () => {
-    await assertSucceeds(updateDoc(doc(rider, "alerts", riderAlertId), {
+  await check("P17 (now refused) rider resolves own incident with returned_to_route", async () => {
+    await assertFails(updateDoc(doc(rider, "alerts", riderAlertId), {
       status: "resolved",
       resolutionReason: "returned_to_route",
       resolvedAt: serverTimestamp(),
@@ -988,8 +990,8 @@ async function main() {
     }));
   });
 
-  await check("P18 rider reopens own incident (refresh createdAt, episode +1)", async () => {
-    await assertSucceeds(updateDoc(doc(rider, "alerts", riderAlertId), {
+  await check("P18 (now refused) rider reopens own incident (refresh createdAt, episode +1)", async () => {
+    await assertFails(updateDoc(doc(rider, "alerts", riderAlertId), {
       status: "active",
       resolutionReason: null,
       episodeCount: 2,
@@ -5040,6 +5042,197 @@ async function main() {
     // cannot move reserved stock directly (a real change to the counter).
     await assertFails(updateDoc(doc(admin, "inventory", "invAdmin"), { reservedQuantity: 5 }));
   });
+
+  // ---------------- rider live tracking ----------------
+  {
+    const trkOtherRep = testEnv.authenticatedContext(otherSalesRepUid).firestore();
+    const trkOtherRider = testEnv.authenticatedContext(otherRiderUid).firestore();
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const f = ctx.firestore();
+      await setDoc(doc(f, "orders", "trkMoving"), { status: "in_transit", assignedRiderId: riderUid, createdByUid: salesRepUid, orderNumber: "VT-TRK-1" });
+      await setDoc(doc(f, "orders", "trkMoving2"), { status: "delayed", assignedRiderId: riderUid, createdByUid: salesRepUid, orderNumber: "VT-TRK-2" });
+      await setDoc(doc(f, "orders", "trkWaiting"), { status: "assigned", assignedRiderId: riderUid, createdByUid: salesRepUid, orderNumber: "VT-TRK-3" });
+      await setDoc(doc(f, "orders", "trkOtherRiders"), { status: "in_transit", assignedRiderId: otherRiderUid, createdByUid: otherSalesRepUid, orderNumber: "VT-TRK-4" });
+      await setDoc(doc(f, "orders", "trkDone"), { status: "delivered", assignedRiderId: riderUid, createdByUid: salesRepUid, orderNumber: "VT-TRK-5" });
+      // Server-maintained visibility: sr1 owns an active order on rider1.
+      await setDoc(doc(f, "riderLocationViewers", riderUid), { riderUid, viewerUids: [salesRepUid], activeOrderIds: ["trkMoving"] });
+      await setDoc(doc(f, "riderLocations", otherRiderUid), {
+        riderUid: otherRiderUid, latitude: 14.61, longitude: 121.02, accuracyMeters: 9, headingDegrees: null, speedMps: null,
+        capturedAt: Timestamp.fromMillis(Date.now() - 5000), updatedAt: Timestamp.fromMillis(Date.now() - 5000),
+        trackingState: "active", activeOrderId: null, navigationSessionId: null, source: "geolocator", schemaVersion: 1,
+      });
+      await setDoc(doc(f, "riderDeviationStates", riderUid), { riderUid, phase: "on_route", sessionState: "navigating" });
+      await setDoc(doc(f, "routeDeviationEvents", "sess_seed0001_e1_deviated"), { riderUid, type: "deviated" });
+    });
+
+    let clock = Date.now() - 60 * 1000;
+    const loc = (over = {}) => {
+      clock += 1000;
+      return {
+        riderUid, latitude: 14.6, longitude: 121.0, accuracyMeters: 8, headingDegrees: 90, speedMps: 4.2,
+        capturedAt: Timestamp.fromMillis(clock), updatedAt: serverTimestamp(), trackingState: "active",
+        activeOrderId: null, navigationSessionId: null, source: "geolocator", schemaVersion: 1, ...over,
+      };
+    };
+    const myLoc = doc(rider, "riderLocations", riderUid);
+
+    await check("PTR1 a rider writes and refreshes ONLY their own current location", async () => {
+      await assertSucceeds(setDoc(myLoc, loc()));
+      await assertSucceeds(setDoc(myLoc, loc({ latitude: 14.601, activeOrderId: "trkMoving", navigationSessionId: "sess_trk00001" })));
+      await assertSucceeds(setDoc(myLoc, loc({ headingDegrees: null, speedMps: null, trackingState: "paused" })));
+    });
+
+    await check("NTR1 a rider cannot write another rider's location or forge the rider uid", async () => {
+      await assertFails(setDoc(doc(rider, "riderLocations", otherRiderUid), loc({ riderUid: otherRiderUid })));
+      await assertFails(setDoc(myLoc, loc({ riderUid: otherRiderUid })));
+      for (const ctx of [admin, dispatcher, salesRep, anon]) {
+        await assertFails(setDoc(doc(ctx, "riderLocations", riderUid), loc()));
+      }
+    });
+
+    await check("NTR2 stale, out-of-order, future and hour-old fixes are rejected", async () => {
+      const newest = loc();
+      await assertSucceeds(setDoc(myLoc, newest));
+      await assertFails(setDoc(myLoc, { ...loc(), capturedAt: newest.capturedAt }), "same capture time (replay)");
+      await assertFails(setDoc(myLoc, { ...loc(), capturedAt: Timestamp.fromMillis(newest.capturedAt.toMillis() - 30000) }), "older than stored");
+      await assertFails(setDoc(myLoc, { ...loc(), capturedAt: Timestamp.fromMillis(Date.now() + 10 * 60 * 1000) }), "future");
+      await assertFails(setDoc(doc(trkOtherRider, "riderLocations", otherRiderUid), {
+        ...loc({ riderUid: otherRiderUid }), capturedAt: Timestamp.fromMillis(Date.now() - 2 * 60 * 60 * 1000),
+      }), "older than one hour");
+    });
+
+    await check("NTR3 invalid coordinates, fields, timestamps, sources and orders are rejected", async () => {
+      for (const bad of [
+        loc({ latitude: 91 }), loc({ longitude: -181 }), loc({ latitude: "14.6" }), loc({ accuracyMeters: -1 }),
+        loc({ accuracyMeters: null }), loc({ headingDegrees: 400 }), loc({ speedMps: -3 }), loc({ trackingState: "live" }),
+        loc({ source: "fake" }), loc({ schemaVersion: 2 }), loc({ updatedAt: Timestamp.fromMillis(Date.now()) }),
+        loc({ activeOrderId: "trkOtherRiders" }), loc({ navigationSessionId: "bad id!" }), loc({ clinicName: "X" }),
+      ]) {
+        await assertFails(setDoc(myLoc, bad));
+      }
+      const missing = loc();
+      delete missing.speedMps;
+      await assertFails(setDoc(myLoc, missing));
+    });
+
+    await check("PTR2 ending tracking clears the coordinates; an 'ended' doc may not keep them", async () => {
+      await assertFails(setDoc(myLoc, loc({ trackingState: "ended" })));
+      await assertSucceeds(setDoc(myLoc, loc({
+        trackingState: "ended", latitude: null, longitude: null, accuracyMeters: null, headingDegrees: null, speedMps: null,
+      })));
+      await assertSucceeds(setDoc(myLoc, loc())); // tracking resumes later
+    });
+
+    await check("PTR3 Admin and Dispatcher read every rider's live location", async () => {
+      for (const ctx of [admin, dispatcher]) {
+        await assertSucceeds(getDoc(doc(ctx, "riderLocations", riderUid)));
+        await assertSucceeds(getDoc(doc(ctx, "riderLocations", otherRiderUid)));
+        await assertSucceeds(getDocs(collection(ctx, "riderLocations")));
+      }
+    });
+
+    await check("PTR4 the assigned Med Rep reads only the rider on their own active order", async () => {
+      await assertSucceeds(getDoc(doc(salesRep, "riderLocations", riderUid)));
+      await assertFails(getDoc(doc(salesRep, "riderLocations", otherRiderUid)));
+    });
+
+    await check("NTR4 an unrelated Med Rep is denied, and no Med Rep can enumerate locations", async () => {
+      await assertFails(getDoc(doc(trkOtherRep, "riderLocations", riderUid)));
+      await assertFails(getDocs(collection(salesRep, "riderLocations")));
+      await assertFails(getDocs(query(collection(salesRep, "riderLocations"), where("riderUid", "==", riderUid))));
+      await assertFails(getDoc(doc(salesRep, "riderLocationViewers", riderUid)), "the index itself is not readable");
+    });
+
+    await check("NTR5 a rider cannot read other riders; anonymous reads nothing", async () => {
+      await assertSucceeds(getDoc(myLoc));
+      await assertFails(getDoc(doc(rider, "riderLocations", otherRiderUid)));
+      await assertFails(getDocs(collection(rider, "riderLocations")));
+      await assertFails(getDoc(doc(anon, "riderLocations", riderUid)));
+    });
+
+    await check("PTR5 when the Med Rep's order ends, the server index drops them and access stops", async () => {
+      await testEnv.withSecurityRulesDisabled((ctx) => deleteDoc(doc(ctx.firestore(), "riderLocationViewers", riderUid)));
+      await assertFails(getDoc(doc(salesRep, "riderLocations", riderUid)));
+      await testEnv.withSecurityRulesDisabled((ctx) =>
+        setDoc(doc(ctx.firestore(), "riderLocationViewers", riderUid), { riderUid, viewerUids: [salesRepUid], activeOrderIds: ["trkMoving"] })
+      );
+    });
+
+    await check("PTR8 two Med Reps on one rider each read it; dropping one leaves the other; dropping both ends access", async () => {
+      const setIndex = (viewerUids) => testEnv.withSecurityRulesDisabled((ctx) =>
+        setDoc(doc(ctx.firestore(), "riderLocationViewers", riderUid), { riderUid, viewerUids, activeOrderIds: ["trkMoving", "trkRep2"] })
+      );
+      await setIndex([salesRepUid, otherSalesRepUid]);
+      await assertSucceeds(getDoc(doc(salesRep, "riderLocations", riderUid)));
+      await assertSucceeds(getDoc(doc(trkOtherRep, "riderLocations", riderUid)));
+      // Rules are not filters: even with access to one rider, no broad read.
+      await assertFails(getDocs(collection(trkOtherRep, "riderLocations")));
+      // The first rep's order completed: the server index keeps only the second.
+      await setIndex([otherSalesRepUid]);
+      await assertFails(getDoc(doc(salesRep, "riderLocations", riderUid)));
+      await assertSucceeds(getDoc(doc(trkOtherRep, "riderLocations", riderUid)));
+      // The last qualifying order ended: the index is removed.
+      await testEnv.withSecurityRulesDisabled((ctx) => deleteDoc(doc(ctx.firestore(), "riderLocationViewers", riderUid)));
+      await assertFails(getDoc(doc(trkOtherRep, "riderLocations", riderUid)));
+      await setIndex([salesRepUid]); // restore for the checks below
+    });
+
+    const session = (over = {}) => ({
+      riderUid, orderId: "trkMoving", sessionId: "sess_trk00001", state: "navigating",
+      startedAt: serverTimestamp(), updatedAt: serverTimestamp(), endedAt: null, endReason: null, ...over,
+    });
+    const mySession = doc(rider, "riderNavigationSessions", riderUid);
+
+    await check("PTR6 Start Navigation, replace the route with another order, then stop", async () => {
+      await assertSucceeds(setDoc(mySession, session()));
+      const started = (await getDoc(mySession)).data().startedAt;
+      // Replacing: a NEW session id for another navigable order starts now.
+      await assertSucceeds(setDoc(mySession, session({ orderId: "trkMoving2", sessionId: "sess_trk00002" })));
+      const replaced = (await getDoc(mySession)).data().startedAt;
+      await assertSucceeds(setDoc(mySession, session({
+        orderId: "trkMoving2", sessionId: "sess_trk00002", startedAt: replaced, state: "ended", endedAt: serverTimestamp(), endReason: "rider_stopped",
+      })));
+      if (!started || !replaced) throw new Error("session start times were not recorded");
+    });
+
+    await check("NTR6 navigation only for the rider's own moving order, with honest timestamps", async () => {
+      await assertFails(setDoc(mySession, session({ orderId: "trkWaiting", sessionId: "sess_trk00003" })), "assigned, not yet in transit");
+      await assertFails(setDoc(mySession, session({ orderId: "trkDone", sessionId: "sess_trk00004" })), "delivered");
+      await assertFails(setDoc(mySession, session({ orderId: "trkOtherRiders", sessionId: "sess_trk00005" })), "another rider's order");
+      await assertFails(setDoc(mySession, session({ sessionId: "short" })));
+      await assertFails(setDoc(mySession, session({ sessionId: "sess_trk00006", startedAt: Timestamp.fromMillis(Date.now() - 3600000) })), "back-dated start");
+      await assertFails(setDoc(doc(rider, "riderNavigationSessions", otherRiderUid), session({ riderUid: otherRiderUid })));
+      await assertSucceeds(setDoc(mySession, session({ sessionId: "sess_trk00007" })));
+      const current = (await getDoc(mySession)).data();
+      await assertFails(setDoc(mySession, { ...current, state: "ended", endedAt: serverTimestamp(), updatedAt: serverTimestamp(), endReason: "completed" }), "server-only reason");
+      await assertFails(setDoc(mySession, { ...current, sessionId: "sess_trk00099", state: "ended", endedAt: serverTimestamp(), updatedAt: serverTimestamp(), endReason: "rider_stopped" }), "ending a different session");
+      for (const ctx of [admin, dispatcher, salesRep]) await assertFails(setDoc(doc(ctx, "riderNavigationSessions", riderUid), session({ sessionId: "sess_trk00008" })));
+    });
+
+    await check("NTR7 no client writes deviation decisions, events, the visibility index or route-deviation alerts", async () => {
+      for (const ctx of [rider, admin, dispatcher, salesRep]) {
+        await assertFails(setDoc(doc(ctx, "riderDeviationStates", riderUid), { phase: "on_route" }));
+        await assertFails(setDoc(doc(ctx, "routeDeviationEvents", "sess_x0000001_e1_deviated"), { type: "deviated" }));
+        await assertFails(setDoc(doc(ctx, "riderLocationViewers", riderUid), { viewerUids: [salesRepUid] }));
+      }
+      await assertFails(setDoc(doc(rider, "alerts", "route_deviation_trkMoving_rider1_sess_trk00001"), {
+        type: "route_deviation", orderId: "trkMoving", riderId: riderUid, status: "active", severity: "critical",
+        read: false, createdAt: serverTimestamp(), firstCreatedAt: serverTimestamp(),
+      }));
+      await assertFails(setDoc(doc(dispatcher, "alerts", "route_deviation_forged"), { type: "route_deviation", status: "active" }));
+    });
+
+    await check("PTR7 Admin/Dispatcher read deviation state and history; Med Rep and other riders cannot", async () => {
+      for (const ctx of [admin, dispatcher]) {
+        await assertSucceeds(getDoc(doc(ctx, "riderDeviationStates", riderUid)));
+        await assertSucceeds(getDocs(collection(ctx, "routeDeviationEvents")));
+      }
+      await assertSucceeds(getDoc(doc(rider, "riderDeviationStates", riderUid)), "own state");
+      await assertFails(getDoc(doc(trkOtherRider, "riderDeviationStates", riderUid)));
+      await assertFails(getDoc(doc(salesRep, "riderDeviationStates", riderUid)));
+      await assertFails(getDocs(collection(rider, "routeDeviationEvents")));
+    });
+  }
 
   await testEnv.cleanup();
 

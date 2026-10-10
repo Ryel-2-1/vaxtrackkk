@@ -1,6 +1,23 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Delivery location sharing while the screen is locked: Geolocator's
+         foreground service (foregroundServiceType="location", declared by the
+         plugin) with a visible notification. Started only while the app is in
+         use, so ACCESS_BACKGROUND_LOCATION is deliberately NOT requested.
+         Play Console requires a foreground-service declaration for this type. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Geolocator holds a wake lock while the rider navigates (enableWakeLock).
+         Declared here rather than relied on from another library's manifest. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- The Google Navigation SDK (dev harness dependency) merges in
+         ACCESS_BACKGROUND_LOCATION. VaxTrack never needs it: sharing runs as a
+         foreground service started while the app is in use. Removed so no build
+         asks for, or must declare to Play, background location. -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" tools:node="remove" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.INTERNET" />
     <application

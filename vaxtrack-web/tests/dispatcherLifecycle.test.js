@@ -338,3 +338,16 @@ test("no dispatcher service can perform a rider transition", async () => {
     assert.notEqual(data(store, "o1").status, "delivered");
   }
 });
+
+test("loading and dispatch keep a valid route: only a change of rider or destination clears it", async () => {
+  const route = {
+    routePolyline: "_p~iF~ps|U_ulLnnqC", routeGeneratedAt: "after-assignment", routeDestinationRevision: 0,
+    tripId: "trip-1", tripPolyline: "_p~iF~ps|U", stopSequence: 1, tripGeneratedAt: "after-assignment",
+  };
+  const store = installStore(seed({ o1: order(route) }), DISPATCHER);
+  await cargo.updateOrderLoadedState("o1", true);
+  await cargo.finalizeRiderDispatch(RIDER, ["o1"]);
+  const o = data(store, "o1");
+  assert.equal(o.status, "in_transit");
+  for (const [k, v] of Object.entries(route)) assert.equal(o[k], v, `${k} kept`);
+});

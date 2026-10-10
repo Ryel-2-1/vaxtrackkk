@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRiderLiveLocation } from "../../components/useRiderLiveLocation";
+import { deviationDisplayState, deviationText, locationLatLng, locationTimeMs } from "../../services/riderTracking";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -71,9 +73,10 @@ const GEOFENCE_RADIUS_M = 300;
 
 const ACTIVE_STATUSES = new Set(["assigned", "loading", "in_transit", "delayed"]);
 
-// A live-location fix older than this reads as stale — the rider stream is
-// throttled to ~15s, so 2 minutes without an update means it has stopped
-// (app backgrounded/closed, GPS lost, or delivery ended).
+// A live-location fix older than this reads as stale — the rider app writes at
+// least every 2 minutes while sharing (more often while navigating), so a
+// longer gap means it has stopped (GPS lost, app closed, or no connection).
+// Same threshold as FRESHNESS.freshMs in services/riderTracking.js.
 const STALE_LOCATION_MS = 2 * 60 * 1000;
 
 function isLocationStale(ts) {
@@ -340,7 +343,27 @@ function DispatcherGeofence() {
     ? chosenId
     : activeOrders[0]?.id ?? "";
 
-  const selected = activeOrders.find((o) => o.id === selectedId) || null;
+  const selectedOrder = activeOrders.find((o) => o.id === selectedId) || null;
+  // The rider's live position comes from riderLocations/{assignedRiderId}; the
+  // order document no longer carries a location copy. It is overlaid in the
+  // GeoPoint shape the map code below already reads, so that verified code is
+  // unchanged. An ended or never-reported location yields null ("No live
+  // location yet"), never a stale or invented position.
+  const live = useRiderLiveLocation(selectedOrder?.assignedRiderId, {
+    enabled: !!selectedOrder,
+    withDeviation: true,
+  });
+  const selected = useMemo(() => {
+    if (!selectedOrder) return null;
+    const ll = locationLatLng(live.location);
+    const atMs = locationTimeMs(live.location);
+    return {
+      ...selectedOrder,
+      lastLocation: ll ? { latitude: ll[0], longitude: ll[1] } : null,
+      lastLocationUpdate: ll && atMs !== null ? new Date(atMs) : null,
+    };
+  }, [selectedOrder, live.location]);
+  const routeMonitoring = deviationDisplayState(live.deviation);
 
   const routeBusy = !!selected && busyOrderId === selected.id;
   const activeRouteError =
@@ -817,11 +840,24 @@ function DispatcherGeofence() {
                                   <span className="geo3-stale"> · Stale (no recent update)</span>
                                 )}
                               </p>
+                              {routeMonitoring !== "not_navigating" && (
+                                <p className={routeMonitoring === "deviating" ? "geo3-stale" : undefined}>
+                                  Route monitoring: {deviationText(live.deviation)}
+                                </p>
+                              )}
                             </>
                           ) : (
                             <>
-                              <strong className="geo3-muted">No live location yet</strong>
-                              <p>Waiting for Rider mobile app location update.</p>
+                              <strong className="geo3-muted">
+                                {live.status === "loading" ? "Loading live location…" : "No live location yet"}
+                              </strong>
+                              <p>
+                                {live.status === "error" || live.status === "denied"
+                                  ? "The rider's location could not be loaded."
+                                  : live.location?.trackingState === "ended"
+                                    ? "The rider is not sharing location right now."
+                                    : "Waiting for Rider mobile app location update."}
+                              </p>
                             </>
                           )}
                         </div>

@@ -171,9 +171,10 @@ function normalizeOrder(raw) {
     // Current schedule (an Admin may have moved it) and the original request.
     scheduledDeliveryTime: raw.scheduledDeliveryTime || null,
     originalRequestedDeliveryDate: raw.originalRequestedDeliveryDate || null,
-    // Live-location + saved-route fields for the read-only tracking map.
-    lastLocation: raw.lastLocation || null,
-    lastLocationUpdate: raw.lastLocationUpdate || null,
+    // The rider whose live location the map may read — rules allow it only
+    // while that rider carries an active order this Med Rep owns — then the
+    // saved-route fields for the read-only tracking map.
+    assignedRiderId: raw.assignedRiderId || "",
     clinicLat: raw.clinicLat,
     clinicLng: raw.clinicLng,
     routePolyline: raw.routePolyline || "",

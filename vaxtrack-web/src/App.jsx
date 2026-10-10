@@ -29,6 +29,7 @@ const AddVaccine = lazy(() => import("./pages/admin/AddVaccine"));
 const AdminAllocation = lazy(() => import("./pages/admin/AdminAllocation"));
 const AdminOrderHistory = lazy(() => import("./pages/admin/AdminOrderHistory"));
 const Deliveries = lazy(() => import("./pages/admin/Deliveries"));
+const AdminLiveTracking = lazy(() => import("./pages/admin/AdminLiveTracking"));
 const AdminDeliveryCalendar = lazy(() => import("./pages/admin/AdminDeliveryCalendar"));
 const Riders = lazy(() => import("./pages/admin/Riders"));
 const Alerts = lazy(() => import("./pages/admin/Alerts"));
@@ -59,6 +60,7 @@ const DispatcherAssignRider = lazy(() => import("./pages/dispatcher/DispatcherAs
 const DispatcherShipments = lazy(() => import("./pages/dispatcher/DispatcherShipments"));
 const DispatcherCargoLoading = lazy(() => import("./pages/dispatcher/DispatcherCargoLoading"));
 const DispatcherGeofence = lazy(() => import("./pages/dispatcher/DispatcherGeofence"));
+const DispatcherLiveTracking = lazy(() => import("./pages/dispatcher/DispatcherLiveTracking"));
 const DispatcherSettings = lazy(() => import("./pages/dispatcher/DispatcherSettings"));
 
 function App() {
@@ -88,6 +90,7 @@ function App() {
               <Route path="/admin/allocation" element={<AdminAllocation />} />
               <Route path="/admin/order-history" element={<AdminOrderHistory />} />
               <Route path="/admin/deliveries" element={<Deliveries />} />
+              <Route path="/admin/live-tracking" element={<AdminLiveTracking />} />
               <Route path="/admin/delivery-calendar" element={<AdminDeliveryCalendar />} />
               <Route path="/admin/riders" element={<Riders />} />
               <Route path="/admin/alerts" element={<Alerts />} />
@@ -141,6 +144,7 @@ function App() {
               <Route path="/dispatcher/shipments" element={<DispatcherShipments />} />
               <Route path="/dispatcher/cargo-loading" element={<DispatcherCargoLoading />} />
               <Route path="/dispatcher/geofence" element={<DispatcherGeofence />} />
+              <Route path="/dispatcher/live-tracking" element={<DispatcherLiveTracking />} />
               <Route path="/dispatcher/settings" element={<DispatcherSettings />} />
             </Route>
           </Route>

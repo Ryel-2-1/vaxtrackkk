@@ -5,6 +5,7 @@ const {
   buildOrderDestinationSnapshot, validateDocumentId, validateReason,
 } = require("./policy");
 const { loadUser, requireRole } = require("./operations");
+const { routeFieldDeletes, TRIP_ROUTE_FIELDS } = require("./orderRouteFields");
 
 const CORRECTABLE_STATUSES = new Set([
   "pending_dispatch", "assigned", "loading", "delivery_failed",
@@ -205,6 +206,13 @@ async function reviewOrderDestinationChange({ db, FieldValue, uid, payload }) {
     const destination = await readProposedDestination(tx, db, order, addressId);
     assertProposalStillMatches(request, destination);
 
+    // The other stops of this order's trip share one trip route, drawn through
+    // the OLD location of this stop: their trip routes are stale too. (Read
+    // here, before any write.)
+    const tripSiblings = typeof order.tripId === "string" && order.tripId !== ""
+      ? (await tx.get(db.collection("orders").where("tripId", "==", order.tripId))).docs.filter((d) => d.id !== orderId)
+      : [];
+
     const nextRevision = revision + 1;
     const eventRef = orderRef.collection("destinationCorrections").doc(`revision-${nextRevision}`);
     tx.create(eventRef, {
@@ -226,16 +234,14 @@ async function reviewOrderDestinationChange({ db, FieldValue, uid, payload }) {
       destinationSnapshotAt: stamp, clinicLocationSnapshotAt: stamp,
       destinationCorrectedAt: stamp, destinationCorrectedByUid: uid,
       destinationChangeRequest: FieldValue.delete(),
-      // Keep the old route until approval; then clear it with the address.
-      routePolyline: FieldValue.delete(),
-      routeDistanceMeters: FieldValue.delete(),
-      routeDurationSeconds: FieldValue.delete(),
-      routeEtaText: FieldValue.delete(),
-      routeGeneratedAt: FieldValue.delete(),
-      routeProvider: FieldValue.delete(),
-      routeDestinationRevision: FieldValue.delete(),
+      // Keep the old route until approval; then clear it — the order's own
+      // route AND its trip place — with the address.
+      ...routeFieldDeletes(order, FieldValue),
       updatedAt: stamp,
     });
+    for (const sibling of tripSiblings) {
+      tx.update(sibling.ref, { ...routeFieldDeletes(sibling.data(), FieldValue, TRIP_ROUTE_FIELDS), updatedAt: stamp });
+    }
     return { orderId, requestId, status: "approved", revision: nextRevision, replayed: false };
   });
 }

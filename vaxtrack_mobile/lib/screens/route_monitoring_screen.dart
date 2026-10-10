@@ -1,32 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/delivery.dart';
-import '../services/route_deviation_alert_service.dart';
+import '../services/rider_tracking_service.dart';
 import '../theme/app_theme.dart';
+import '../tracking/tracking_contract.dart';
+import '../tracking/tracking_lifecycle.dart';
+import '../utils/deviation_utils.dart';
 import '../utils/map_fit.dart';
-import '../utils/route_compliance_monitor.dart';
 import '../utils/route_monitor.dart';
 import '../utils/safe_log.dart';
+import '../widgets/tracking_status_banner.dart';
 
-/// FREE in-app route-monitoring screen (no paid Google Navigation SDK, no
-/// MAPS_API_KEY, no billing, no Navigation Terms).
+/// Start / stop Navigation for one delivery on a free OpenStreetMap map.
 ///
-/// It renders the delivery on a flutter_map / OpenStreetMap map and, once the
-/// rider explicitly taps Start, drives the existing [RouteComplianceMonitor]
-/// from a foreground Geolocator stream. Confirmed deviation / return transitions
-/// are forwarded — via [RouteMonitorController] — to the existing
-/// [RouteDeviationAlertService], which writes the ONE idempotent
-/// `route_deviation_{orderId}_{riderUid}` incident. No detector, alert planner,
-/// transaction, timestamp, or id logic is re-implemented here.
+/// The Rider app only REPORTS: Start Navigation opens a navigation session
+/// (riderNavigationSessions/{uid}) through the app-wide [riderTracking]
+/// controller, which then shares location more often. Whether the rider is off
+/// route — more than 500 m from the saved route for 3 minutes — is decided on
+/// the SERVER, which also writes the alert. This screen shows the server's
+/// decision; the distance it shows next to it is for the rider's information.
 ///
-/// Foreground-only: monitoring runs solely while this screen is on top. There is
-/// no background location and no claim of monitoring while an external maps app
-/// is open.
+/// Leaving the screen does NOT stop navigation (it continues, with the
+/// foreground-service notification, until the rider taps Stop or the delivery
+/// ends). Only one delivery is navigated at a time: starting another replaces
+/// it.
 class RouteMonitoringScreen extends StatefulWidget {
   final Delivery delivery;
 
@@ -41,176 +41,90 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
 
   final _mapController = MapController();
 
-  late final RouteComplianceMonitor _monitor;
-  late final RouteMonitorEligibility _eligibility;
-  late final List<LatLng> _baseline;
-
-  RouteMonitorController? _controller;
-  RouteDeviationContext? _ctx;
-  String? _uid;
+  late final List<LatLng> _route;
+  late final String? _uid;
+  Stream<Map<String, dynamic>?>? _serverState;
+  bool _busy = false;
   bool _mapReady = false;
 
   static const LatLng _fallbackCenter = LatLng(14.5995, 120.9842);
+
+  bool get _routeAvailable => _route.length >= 2;
+
+  // The server decides whether the stored route is authoritative (current
+  // assignment and destination). While navigating, its "unavailable" verdict
+  // wins: the line and the distance are hidden, never shown as a basis for
+  // deviation.
+  bool _routeShown(DeviationDisplay display) =>
+      _routeAvailable && display != DeviationDisplay.routeUnavailable;
+
+  static const Map<String, String> _routeReasons = {
+    'missing': 'no saved route for this delivery',
+    'malformed': 'the saved route could not be read',
+    'generated_before_assignment': 'the saved route was made before this delivery was assigned to you',
+    'destination_changed': 'the destination changed after the route was saved',
+  };
 
   @override
   void initState() {
     super.initState();
     _uid = FirebaseAuth.instance.currentUser?.uid;
-    _baseline = compliancePolyline(d);
-    _eligibility = RouteMonitorEligibility.evaluate(
-      delivery: d,
-      currentUserUid: _uid,
-    );
-
-    // Reuse the existing monitor; its compliance baseline is the GENUINE stored
-    // route polyline (dispatcher-saved), never a generated one.
-    _monitor = RouteComplianceMonitor();
-    if (_baseline.length >= 2) {
-      _monitor.setInitialRoute(_baseline);
-    }
-
-    // Confirmed identity from REAL data. Null when identity is incomplete, which
-    // also keeps the controller (and Start) unavailable.
-    _ctx = buildRouteDeviationContext(delivery: d, currentUserUid: _uid);
-    final ctx = _ctx;
-    if (ctx != null) {
-      final svc = RouteDeviationAlertService();
-      _controller = RouteMonitorController(
-        monitor: _monitor,
-        sampleStreamFactory: _sampleStream,
-        onDeviation: (s, dist) => svc.recordDeviation(
-          context: ctx,
-          latitude: s.latitude,
-          longitude: s.longitude,
-          distanceMeters: dist,
-          accuracyMeters: s.accuracyMeters,
-        ),
-        onReturn: (s, dist) => svc.recordReturn(
-          context: ctx,
-          latitude: s.latitude,
-          longitude: s.longitude,
-          distanceMeters: dist,
-          accuracyMeters: s.accuracyMeters,
-        ),
-        onChange: _onControllerChange,
-        onLog: _logWrite,
-      );
-    }
-  }
-
-  // Debug-only write-lifecycle logging. Never logs keys/tokens/PII/payloads —
-  // only the event label + (on failure) the error's toString().
-  void _logWrite(String message) {
-    debugPrint('[RouteMonitor] $message');
+    // The GENUINE stored route (dispatcher-saved), never a generated one.
+    _route = compliancePolyline(d);
+    final uid = _uid;
+    if (uid != null) _serverState = FirestoreTrackingStore().deviationState(uid);
   }
 
   @override
   void dispose() {
-    // Leaving the screen stops monitoring: cancel the GPS subscription and mark
-    // the controller disposed so no late callback runs, then release the map.
-    _controller?.dispose();
     _mapController.dispose();
     super.dispose();
   }
 
-  void _onControllerChange() {
-    if (mounted) setState(() {});
-  }
+  bool get _navigatingThis => riderTracking.navigation?.orderId == d.id;
+  bool get _navigatingOther => riderTracking.navigation != null && !_navigatingThis;
 
-  // Foreground-only Geolocator stream mapped to the pure GpsSample the monitor
-  // consumes. Created ONLY when the controller subscribes (after Start).
-  Stream<GpsSample> _sampleStream() {
-    return Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.bestForNavigation,
-        distanceFilter: 10,
-      ),
-    ).map(
-      (p) => GpsSample(p.latitude, p.longitude, accuracyMeters: p.accuracy),
-    );
-  }
-
-  Future<bool> _ensurePermission() async {
-    try {
-      if (!await Geolocator.isLocationServiceEnabled()) return false;
-      var perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) {
-        perm = await Geolocator.requestPermission();
-      }
-      if (perm == LocationPermission.denied ||
-          perm == LocationPermission.deniedForever) {
-        return false;
-      }
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
+  NavigationEligibility get _eligibility => navigationEligibility(
+        order: TrackedOrder(id: d.id, status: d.status, assignedRiderId: d.assignedRiderId),
+        riderUid: _uid,
+        routeAvailable: _routeAvailable,
+      );
 
   Future<void> _start() async {
-    final c = _controller;
-    if (c == null || !_eligibility.canStart || c.isMonitoring) return;
-    final granted = await _ensurePermission();
-    if (!granted) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Location permission is required to monitor the route.',
-            ),
-          ),
-        );
-      }
-      return;
+    if (_busy) return;
+    setState(() => _busy = true);
+    final error = await riderTracking.startNavigation(d.id);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
     }
-    final ctx = _ctx;
-    if (ctx != null) {
-      // Prove which Firebase project the write targets + the deterministic doc
-      // id (opaque ids only — no keys/PII).
-      debugPrint(
-        '[RouteMonitor] start env project=${Firebase.app().options.projectId} '
-        'alertDoc=${routeDeviationAlertId(ctx.orderId, ctx.riderUid)}',
-      );
-    }
-    c.start();
   }
 
   Future<void> _stop() async {
-    await _controller?.stop();
-    if (mounted) setState(() {});
+    if (_busy) return;
+    setState(() => _busy = true);
+    await riderTracking.stopNavigation();
+    if (mounted) setState(() => _busy = false);
   }
 
+  /// The rider's own latest fix, only while navigating this delivery.
   LatLng? get _riderPoint {
-    final s = _controller?.lastSample;
-    if (s != null) return LatLng(s.latitude, s.longitude);
-    final last = d.lastLocation;
-    if (last != null) return LatLng(last.latitude, last.longitude);
-    return null;
+    final fix = riderTracking.lastFix;
+    if (!_navigatingThis || fix == null) return null;
+    return LatLng(fix.latitude, fix.longitude);
   }
 
   LatLng? get _destinationPoint =>
       d.hasClinicCoords ? LatLng(d.clinicLat!, d.clinicLng!) : null;
 
-  LatLng get _initialCenter =>
-      _riderPoint ?? _destinationPoint ?? _fallbackCenter;
-
-  Color get _stateColor {
-    final c = _controller;
-    if (c == null) return AppColors.textLight;
-    return c.isDeviated ? Colors.red : Colors.green;
-  }
-
   void _fit() {
     if (!_mapReady) return;
-    // Extent-based, not count-based — see [resolveMapFit]. A rider standing on
-    // the destination previously yielded a zero-area bounds and an infinite
-    // zoom, which threw "Infinity or NaN toInt" and blanked the map.
-    final fit =
-        resolveMapFit(<LatLng>[..._baseline, ?_riderPoint, ?_destinationPoint]);
+    // Extent-based, not count-based — see [resolveMapFit].
+    final fit = resolveMapFit(<LatLng>[..._route, ?_riderPoint, ?_destinationPoint]);
     try {
       switch (fit.kind) {
         case MapFitKind.none:
-          // Nothing to frame — keep the initial fallback camera.
           break;
         case MapFitKind.center:
           _mapController.move(fit.center!, fit.zoom!);
@@ -224,32 +138,58 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
           );
       }
     } catch (error, stack) {
-      // Best-effort, but reported — never silently swallowed.
-      logSuppressedError(
-          'RouteMonitoringScreen', 'camera fit skipped', error, stack);
+      logSuppressedError('RouteMonitoringScreen', 'camera fit skipped', error, stack);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Route Monitoring · ${d.orderNumber}')),
-      body: Column(
-        children: [
-          Expanded(child: _map()),
-          _bottomPanel(),
-        ],
+      appBar: AppBar(title: Text('Navigation · ${d.orderNumber}')),
+      body: AnimatedBuilder(
+        animation: riderTracking,
+        builder: (context, _) => StreamBuilder<Map<String, dynamic>?>(
+          stream: _serverState,
+          builder: (context, snap) {
+            final display = _navigatingThis
+                ? deviationDisplayFor(snap.data, sessionId: riderTracking.navigation?.sessionId)
+                : DeviationDisplay.notNavigating;
+            return Column(
+              children: [
+                Expanded(child: _map(display)),
+                _bottomPanel(
+                  display,
+                  serverError: snap.hasError,
+                  serverRouteReason: snap.data?['routeUnavailableReason'] as String?,
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
 
-  Widget _map() {
+  Color _riderColor(DeviationDisplay display) {
+    switch (display) {
+      case DeviationDisplay.deviating:
+        return Colors.red;
+      case DeviationDisplay.pendingDeviation:
+        return Colors.orange.shade800;
+      default:
+        return AppColors.primary;
+    }
+  }
+
+  Widget _map(DeviationDisplay display) {
+    final rider = _riderPoint;
+    final dest = _destinationPoint;
     return Stack(
       children: [
         FlutterMap(
           mapController: _mapController,
           options: MapOptions(
-            initialCenter: _initialCenter,
+            initialCenter: rider ?? dest ?? (_routeShown(display) ? _route.first : _fallbackCenter),
             initialZoom: 14,
             onMapReady: () {
               _mapReady = true;
@@ -262,17 +202,18 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
               userAgentPackageName: 'com.example.vaxtrack_mobile',
               maxZoom: 19,
             ),
-            if (_baseline.length > 1)
+            if (_routeShown(display))
               PolylineLayer(
-                polylines: [
-                  Polyline(
-                    points: _baseline,
-                    color: AppColors.primary,
-                    strokeWidth: 5,
-                  ),
-                ],
+                polylines: [Polyline(points: _route, color: AppColors.primary, strokeWidth: 5)],
               ),
-            MarkerLayer(markers: _markers()),
+            MarkerLayer(
+              markers: [
+                if (dest != null)
+                  Marker(point: dest, width: 22, height: 22, child: _dot(const Color(0xFFB45309))),
+                if (rider != null)
+                  Marker(point: rider, width: 24, height: 24, child: _dot(_riderColor(display))),
+              ],
+            ),
             RichAttributionWidget(
               attributions: [
                 TextSourceAttribution(
@@ -301,38 +242,22 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
     );
   }
 
-  List<Marker> _markers() {
-    final markers = <Marker>[];
-    final rider = _riderPoint;
-    final dest = _destinationPoint;
-    if (dest != null) {
-      markers.add(
-        Marker(
-          point: dest,
-          width: 22,
-          height: 22,
-          child: _dot(const Color(0xFFB45309)), // amber destination
+  Widget _dot(Color color) => Container(
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 3),
+          boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 4)],
         ),
       );
-    }
-    if (rider != null) {
-      markers.add(
-        Marker(point: rider, width: 24, height: 24, child: _dot(_stateColor)),
-      );
-    }
-    return markers;
-  }
 
-  Widget _dot(Color color) => Container(
-    decoration: BoxDecoration(
-      color: color,
-      shape: BoxShape.circle,
-      border: Border.all(color: Colors.white, width: 3),
-      boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 4)],
-    ),
-  );
-
-  Widget _bottomPanel() {
+  Widget _bottomPanel(DeviationDisplay display, {required bool serverError, String? serverRouteReason}) {
+    final routeNote = !_routeAvailable
+        ? 'no saved route for this delivery'
+        : display == DeviationDisplay.routeUnavailable
+            ? (_routeReasons[serverRouteReason] ?? 'the saved route cannot be used')
+            : null;
+    final eligibility = _eligibility;
     return SafeArea(
       top: false,
       child: Container(
@@ -343,16 +268,24 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _statusRow(),
-            _syncStatus(),
+            // Permission / location-off states, with their recovery actions.
+            TrackingStatusBanner(controller: riderTracking),
+            if (routeNote != null)
+              _note(Icons.alt_route, 'Route not available — $routeNote, so route deviation is not monitored. Ask dispatch to generate the route.'),
+            if (_navigatingThis) _statusRow(display),
+            if (_navigatingThis && serverError)
+              _note(Icons.error_outline, 'Route status could not be loaded. Your location is still shared.'),
+            if (_navigatingOther)
+              _note(Icons.info_outline, 'You are navigating another delivery. Starting here replaces it.'),
             const SizedBox(height: 10),
-            if (!_eligibility.canStart) _blockersBox(),
-            if (_eligibility.canStart) _controlsRow(),
+            if (!eligibility.canStart && !_navigatingThis) _blockers(eligibility.blockers),
+            if (eligibility.canStart || _navigatingThis) _controls(),
             const SizedBox(height: 8),
             const Text(
-              'Monitoring runs only while this screen is open — leaving this '
-              'screen stops it. Uses free OpenStreetMap; no Google Navigation '
-              'required. Location is not tracked in the background.',
+              'Navigation keeps running if you leave this screen or lock the phone, '
+              'with a notification, until you tap Stop or the delivery ends. '
+              'Route deviation is checked by VaxTrack (over $kDeviationOffRouteMeters m from the '
+              'route for ${kDeviationConfirmSeconds ~/ 60} minutes). Uses free OpenStreetMap.',
               style: TextStyle(fontSize: 11, color: AppColors.textLight),
             ),
           ],
@@ -361,79 +294,40 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
     );
   }
 
-  Widget _statusRow() {
-    final c = _controller;
-    final monitoring = c?.isMonitoring ?? false;
-    final deviated = c?.isDeviated ?? false;
-    final dist = c?.latestDistanceMeters;
-    final statusText = !monitoring
-        ? (c?.phase == RouteMonitorPhase.stopped
-              ? 'Monitoring stopped'
-              : 'Not monitoring')
-        : (deviated ? 'Off route' : 'On route');
-    return Row(
-      children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(
-            color: monitoring ? _stateColor : AppColors.textLight,
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            statusText,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-          ),
-        ),
-        Text(
-          dist == null ? 'Distance —' : '${dist.round()} m from route',
-          style: const TextStyle(fontSize: 12, color: AppColors.textLight),
-        ),
-      ],
-    );
-  }
-
-  // Write/sync status — deliberately SEPARATE from the detection state so the UI
-  // never implies Firestore success just because the local state changed.
-  Widget _syncStatus() {
-    final c = _controller;
-    if (c == null) return const SizedBox.shrink();
-    if (c.writeInFlight) {
-      return _syncLine(Icons.sync, 'Syncing alert…', AppColors.textLight);
-    }
-    if (c.lastWriteFailed) {
-      return _syncLine(
-        Icons.error_outline,
-        'Alert sync failed — ${c.lastError}',
-        Colors.red,
-      );
-    }
-    if (c.dispatchCount > 0) {
-      return _syncLine(Icons.cloud_done, 'Alert synced', Colors.green);
-    }
-    return const SizedBox.shrink();
-  }
-
-  Widget _syncLine(IconData icon, String text, Color color) {
+  Widget _statusRow(DeviationDisplay display) {
+    final rider = _riderPoint;
+    final distance = (rider != null && _routeShown(display)) ? distanceToPolylineMeters(rider, _route) : null;
+    final color = display == DeviationDisplay.notNavigating ? AppColors.textLight : _riderColor(display);
+    final label = display == DeviationDisplay.notNavigating
+        ? 'Navigation started — waiting for route status'
+        : kDeviationDisplayLabels[display]!;
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.only(top: 4),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 15, color: color),
+          Container(width: 12, height: 12, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
           const SizedBox(width: 8),
-          Expanded(
-            child: Text(text, style: TextStyle(fontSize: 12, color: color)),
-          ),
+          Expanded(child: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700))),
+          if (distance != null)
+            Text('${distance.round()} m from route', style: const TextStyle(fontSize: 12, color: AppColors.textLight)),
         ],
       ),
     );
   }
 
-  Widget _blockersBox() {
+  Widget _note(IconData icon, String text) => Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 15, color: AppColors.textLight),
+            const SizedBox(width: 8),
+            Expanded(child: Text(text, style: const TextStyle(fontSize: 12, color: AppColors.textDark))),
+          ],
+        ),
+      );
+
+  Widget _blockers(List<String> blockers) {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 8),
@@ -446,66 +340,32 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Monitoring unavailable',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-          ),
+          const Text('Navigation unavailable', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
           const SizedBox(height: 6),
-          ..._eligibility.blockers.map(
-            (b) => Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(
-                    Icons.info_outline,
-                    size: 14,
-                    color: AppColors.textLight,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      b,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppColors.textDark,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          ...blockers.map((b) => _note(Icons.info_outline, b)),
         ],
       ),
     );
   }
 
-  Widget _controlsRow() {
-    final monitoring = _controller?.isMonitoring ?? false;
+  Widget _controls() {
     return Row(
       children: [
         Expanded(
           child: ElevatedButton.icon(
-            onPressed: monitoring ? null : _start,
-            icon: const Icon(Icons.play_arrow),
-            label: const Text('Start Route Monitoring'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-            ),
+            onPressed: (_navigatingThis || _busy) ? null : _start,
+            icon: const Icon(Icons.navigation),
+            label: const Text('Start Navigation'),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
           ),
         ),
         const SizedBox(width: 10),
         Expanded(
           child: ElevatedButton.icon(
-            onPressed: monitoring ? _stop : null,
+            onPressed: (_navigatingThis && !_busy) ? _stop : null,
             icon: const Icon(Icons.stop),
-            label: const Text('Stop Monitoring'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.urgent,
-              foregroundColor: Colors.white,
-            ),
+            label: const Text('Stop'),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.urgent, foregroundColor: Colors.white),
           ),
         ),
       ],

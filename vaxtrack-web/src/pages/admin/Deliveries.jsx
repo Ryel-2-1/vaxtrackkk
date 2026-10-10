@@ -69,10 +69,10 @@ function normalizeDelivery(raw) {
     // invoice — unrelated to the `invoices` collection / Admin Invoices module.
     proofOfDeliveryUrl: raw.proofOfDeliveryUrl || "",
     invoiceUrl: raw.invoiceUrl || "",
-    // Live-location + saved-route fields for the read-only delivery map. The
-    // map component tolerates missing values and shows an honest fallback.
-    lastLocation: raw.lastLocation || null,
-    lastLocationUpdate: raw.lastLocationUpdate || null,
+    // The rider whose live location the map reads (riderLocations/{uid} — the
+    // order itself no longer carries a location copy), then the saved-route
+    // fields. The map tolerates missing values and shows an honest fallback.
+    assignedRiderId: raw.assignedRiderId || "",
     clinicLat: raw.clinicLat,
     clinicLng: raw.clinicLng,
     routePolyline: raw.routePolyline || "",
@@ -630,7 +630,7 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
 
           <section className="mdl-drawer-section">
             <h3>Live location</h3>
-            <LiveDeliveryMap order={delivery} tripStops={tripStops} />
+            <LiveDeliveryMap order={delivery} tripStops={tripStops} showDeviation />
           </section>
 
           <section className="mdl-drawer-section">

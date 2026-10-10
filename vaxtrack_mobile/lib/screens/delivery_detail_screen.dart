@@ -5,7 +5,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/delivery.dart';
 import '../services/delivery_service.dart';
-import '../services/location_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/completion_gate.dart';
 import '../utils/google_maps_url.dart';
@@ -30,7 +29,6 @@ class DeliveryDetailScreen extends StatefulWidget {
 
 class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
   final _deliveryService = DeliveryService();
-  final _locationService = LocationService();
   bool _updatingStatus = false;
   String? _delayReason;
   String? _failureReason;
@@ -58,18 +56,14 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
   void initState() {
     super.initState();
     _completion.addListener(_onCompletionChanged);
-    // Foreground-only live tracking runs while an in_transit delivery is open.
-    if (d.isInTransit) {
-      _startTracking();
-    }
+    // Live location is NOT owned by this screen: it follows the rider's active
+    // deliveries app-wide (riderTracking, attached by HomeScreen), so opening
+    // or leaving this screen never starts or stops it.
   }
 
   @override
   void dispose() {
-    // Leaving the screen (or the app being torn down) stops tracking — this is
-    // the documented foreground-only MVP; background tracking is out of scope.
     _statusFeedbackTimer?.cancel();
-    _locationService.stopTracking();
     _completion.removeListener(_onCompletionChanged);
     _completion.dispose();
     super.dispose();
@@ -77,25 +71,6 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
 
   void _onCompletionChanged() {
     if (mounted) setState(() {});
-  }
-
-  Future<void> _startTracking() async {
-    final riderId = FirebaseAuth.instance.currentUser?.uid;
-    if (riderId == null) return;
-    try {
-      final started = await _locationService.startTracking(riderId);
-      if (!started && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Live location unavailable — enable location to share your position.',
-            ),
-          ),
-        );
-      }
-    } catch (_) {
-      // Tracking is best-effort; never disrupt the delivery flow.
-    }
   }
 
   // Routes a target status to the matching audit-stamped service write.
@@ -126,19 +101,6 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     }
   }
 
-  // Best-effort one-shot location stamp for a transition. Never blocks or fails
-  // the status flow (continuous tracking is handled separately).
-  Future<void> _stampLocation(String orderId) async {
-    try {
-      final pos = await _locationService.getCurrentPosition();
-      if (pos != null) {
-        await _locationService.updateOrderLocation(orderId, pos);
-      }
-    } catch (_) {
-      // ignore — location is auxiliary to the status change
-    }
-  }
-
   Future<void> _updateStatus(String newStatus) async {
     // Duplicate-submission guard. The action buttons are disabled while this is
     // true, AND it is cleared ONLY when the Firestore write actually settles
@@ -146,10 +108,6 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     // is still pending offline, the same action cannot be re-submitted.
     if (_updatingStatus) return;
     setState(() => _updatingStatus = true);
-
-    // Auxiliary best-effort location stamp — fire-and-forget so it can never
-    // hang or fail the status flow.
-    unawaited(_stampLocation(d.id));
 
     // Feedback-only timeout. If the write has not been server-confirmed within
     // 6 s (e.g. offline), tell the rider it is saved and will sync. This is UI
@@ -181,22 +139,8 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
       // longer stop) — the write itself already persisted.
       if (!mounted) return;
 
-      // Tracking lifecycle only on a CONFIRMED transition:
-      // - in_transit -> begin continuous tracking.
-      // - delivered/cancelled -> stop before leaving the screen.
-      // - delivery_failed -> stop too. The rider has stopped carrying this
-      //   order and is waiting on the dispatcher, so continuing to stream
-      //   their position against it would record movement that has nothing to
-      //   do with the delivery.
-      if (newStatus == 'in_transit') {
-        await _startTracking();
-      } else if (newStatus == 'delivered' ||
-          newStatus == 'cancelled' ||
-          newStatus == 'delivery_failed') {
-        await _locationService.stopTracking();
-      }
-      if (!mounted) return;
-
+      // No tracking work here: the app-wide controller sees the new status in
+      // the rider's order stream and starts/stops sharing (and ends navigation).
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Status updated to $newStatus'),
@@ -242,8 +186,6 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
       return; // no upload, no status change
     }
 
-    // Auxiliary, best-effort location stamp — never blocks or fails completion.
-    unawaited(_stampLocation(d.id));
     final completed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(builder: (_) => ProofScreen.forDelivery(d)),
@@ -252,8 +194,6 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
 
     // ProofScreen pops `true` only after the server completed the delivery.
     if (completed == true) {
-      await _locationService.stopTracking();
-      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Delivery completed.'),
@@ -488,32 +428,16 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  // After returning from a full-screen navigation view, make sure foreground
-  // location reporting is still running for an in_transit delivery. This
-  // deliberately RESPECTS the documented "in_transit only" tracking decision —
-  // it never starts tracking for pre-transit states, and order-level writes stay
-  // gated to in_transit inside LocationService. It only re-asserts continuity so
-  // navigation can never silently leave an in_transit delivery unreported; it
-  // adds no second tracker.
-  Future<void> _ensureTrackingForInTransit() async {
-    if (!mounted) return;
-    if (d.isInTransit && !_locationService.isTracking) {
-      await _startTracking();
-    }
-  }
-
-  // Open the FREE in-app route-monitoring screen (OpenStreetMap + Geolocator).
-  // Requires the delivery to be active with clinic coordinates; the screen
-  // itself enforces the full start eligibility (auth, assignment, saved route)
-  // and Firestore rules remain the final assignment authority.
+  // Open the FREE in-app navigation screen (OpenStreetMap). Requires the
+  // delivery to be active with clinic coordinates; the screen itself enforces
+  // start eligibility (auth, assignment, in transit), and Firestore rules +
+  // the server remain the final authority.
   Future<void> _startRouteMonitoring() async {
     if (!d.isActive || !d.hasClinicCoords) return;
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => RouteMonitoringScreen(delivery: d)),
     );
-    // Back on the delivery screen — keep in_transit reporting alive.
-    await _ensureTrackingForInTransit();
   }
 
   @override
@@ -672,10 +596,10 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
               const Divider(height: 1),
               const SizedBox(height: 12),
               // SEPARATE, clearly-labelled VaxTrack compliance feature — NOT a
-              // turn-by-turn navigator. Free flutter_map + OpenStreetMap driving
-              // the existing RouteComplianceMonitor / RouteDeviationAlertService
-              // against the Dispatcher-assigned route. The screen re-checks
-              // assignment + a saved route and explains anything still missing.
+              // turn-by-turn navigator. Free flutter_map + OpenStreetMap. Start
+              // Navigation opens a navigation session; the SERVER checks the
+              // shared location against the Dispatcher-assigned route and raises
+              // any deviation alert. The screen explains anything missing.
               Row(
                 children: [
                   const Icon(
@@ -700,7 +624,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
                 child: ElevatedButton.icon(
                   onPressed: nav.canMonitorRoute ? _startRouteMonitoring : null,
                   icon: const Icon(Icons.my_location),
-                  label: const Text('Monitor assigned route'),
+                  label: const Text('Navigation & route monitoring'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.info,
                     foregroundColor: Colors.white,
@@ -710,8 +634,8 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
               const Padding(
                 padding: EdgeInsets.only(top: 6),
                 child: Text(
-                  'Checks your position against the Dispatcher-assigned route '
-                  'and flags deviations. Not turn-by-turn navigation.',
+                  'Start Navigation to have VaxTrack check your route against the '
+                  'Dispatcher-assigned one. Not turn-by-turn navigation.',
                   style: TextStyle(fontSize: 11, color: AppColors.textLight),
                 ),
               ),

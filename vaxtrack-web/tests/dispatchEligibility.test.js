@@ -431,6 +431,10 @@ test("pages re-evaluate at Manila midnight rather than on a server job", () => {
   }
   const hook = read("src/components/useManilaDayNow.js");
   assert.match(hook, /nextManilaMidnightMs\(now\)/);
-  // No scheduled Cloud Function was introduced.
-  assert.equal(/onSchedule|pubsub\.schedule/.test(read("functions/index.js")), false);
+  // No scheduled Cloud Function re-evaluates dispatch eligibility. The ONLY
+  // scheduled export is the rider-tracking retention purge, which never reads
+  // a schedule or an order's eligibility.
+  const index = read("functions/index.js");
+  assert.equal(/pubsub\.schedule/.test(index), false);
+  assert.deepEqual([...index.matchAll(/exports\.(\w+) = onSchedule\(/g)].map((m) => m[1]), ["purgeRiderTrackingData"]);
 });

@@ -173,16 +173,22 @@ test("the Flutter detail screen offers no loading or transit control", () => {
   assert.match(screen, /Awaiting dispatcher action/);
 });
 
-test("the Flutter screen stops location tracking when a delivery fails", () => {
-  const screenPath = join(here, "..", "..", "vaxtrack_mobile", "lib", "screens", "delivery_detail_screen.dart");
-  const screen = readFileSync(screenPath, "utf8");
-  // The rider has stopped carrying the order, so streaming their position
-  // against it would record movement unrelated to the delivery.
-  assert.match(
-    screen,
-    /newStatus == 'delivered' \|\|\s*\n?\s*newStatus == 'cancelled' \|\|\s*\n?\s*newStatus == 'delivery_failed'/,
-    "delivery_failed must join the stop-tracking branch"
-  );
+test("the Flutter app stops location tracking when a delivery fails", () => {
+  // Tracking is owned app-wide by the rider tracking controller, which tracks
+  // only orders in kTrackedOrderStatuses. The rider has stopped carrying a
+  // failed order, so streaming their position against it would record
+  // movement unrelated to the delivery: delivery_failed must not be tracked,
+  // and must end navigation.
+  const mobile = join(here, "..", "..", "vaxtrack_mobile", "lib");
+  const contract = readFileSync(join(mobile, "tracking", "tracking_contract.dart"), "utf8");
+  const tracked = contract.match(/const List<String> kTrackedOrderStatuses = \[([\s\S]*?)\];/);
+  assert.ok(tracked);
+  assert.deepEqual([...tracked[1].matchAll(/'([^']+)'/g)].map((m) => m[1]), ["assigned", "loading", "in_transit", "delayed"]);
+  const navigable = contract.match(/const List<String> kNavigableOrderStatuses = \[([^\]]*)\];/);
+  assert.equal(navigable[1].includes("delivery_failed"), false);
+  // The detail screen no longer runs a tracker of its own.
+  const screen = readFileSync(join(mobile, "screens", "delivery_detail_screen.dart"), "utf8");
+  assert.equal(/LocationService|startTracking|stopTracking/.test(screen), false);
 });
 
 test("awaiting-dispatcher statuses match between Dart and JavaScript", () => {

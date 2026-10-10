@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/app_user.dart';
 import '../utils/rider_registration.dart';
+import '../tracking/tracking_contract.dart';
+import 'rider_tracking_service.dart';
 
 class RegistrationError implements Exception {
   final String code;
@@ -77,7 +79,20 @@ class AuthService {
     });
   }
 
-  Future<void> signOut() => _auth.signOut();
+  /// Signing out stops location sharing FIRST — ending any navigation and
+  /// clearing the stored coordinates while the rider can still write them.
+  /// Bounded so an offline phone never blocks sign-out; the server's retention
+  /// purge removes a location that could not be cleared.
+  Future<void> signOut() async {
+    try {
+      await riderTracking
+          .shutdown(reason: kEndReasonSignedOut)
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Never let tracking cleanup stop the rider from signing out.
+    }
+    await _auth.signOut();
+  }
 
   Future<void> registerRider({
     required String fullName,

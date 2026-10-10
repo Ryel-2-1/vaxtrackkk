@@ -10,6 +10,7 @@ import {
   LogOut,
   MapPinned,
   Menu,
+  Navigation,
   Search,
   Settings,
   Truck,
@@ -57,6 +58,7 @@ const ROUTE_META = {
   "/dispatcher/shipments": { key: "shipments", title: "Shipments" },
   "/dispatcher/cargo-loading": { key: "cargo-loading", title: "Cargo Loading" },
   "/dispatcher/geofence": { key: "geofence", title: "Live Monitoring" },
+  "/dispatcher/live-tracking": { key: "live-tracking", title: "Live Tracking" },
   "/dispatcher/settings": { key: "settings", title: "Settings" },
 };
 
@@ -396,6 +398,15 @@ function DispatcherLayout() {
           >
             <MapPinned size={16} />
             <span>Geofence</span>
+          </NavLink>
+
+          <NavLink
+            to="/dispatcher/live-tracking"
+            className={active === "live-tracking" ? "active" : ""}
+            onClick={selectDestination}
+          >
+            <Navigation size={16} />
+            <span>Live Tracking</span>
           </NavLink>
 
           <NavLink

@@ -1,0 +1,254 @@
+/* Admin / Dispatcher › Live Tracking. Self-contained ("ltp-" classes), shared by
+   both roles; depends only on tokens.css and ui.css (KpiCard). */
+
+.ltp {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.ltp-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.ltp-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--gray-600);
+}
+
+.ltp-warn {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-control, 8px);
+}
+
+.ltp-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 14px;
+  align-items: start;
+}
+
+.ltp-card {
+  background: #fff;
+  border: 1px solid var(--border-card, var(--gray-200));
+  border-radius: var(--radius-card, 12px);
+  box-shadow: var(--shadow-card, none);
+  padding: 14px;
+  min-width: 0;
+}
+
+.ltp-map-card {
+  padding: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.ltp-map {
+  width: 100%;
+  height: 560px;
+  background: var(--gray-100);
+}
+
+.ltp-map-empty {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 28px;
+  z-index: 500;
+  margin: 0;
+  padding: 8px 12px;
+  background: #fff;
+  border-radius: var(--radius-control, 8px);
+  text-align: center;
+}
+
+.ltp-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.ltp-h {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.ltp-muted {
+  color: var(--gray-500);
+  font-size: 13px;
+}
+
+.ltp-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--gray-600);
+  background: #fff;
+  border: 1px solid var(--border-card, var(--gray-200));
+  border-radius: var(--radius-card, 12px);
+}
+
+.ltp-state p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.ltp-state-error strong {
+  color: var(--danger-text);
+}
+
+/* Markers and list dots — one colour per state. */
+.ltp-dot {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px var(--gray-300);
+  flex: none;
+}
+
+.ltp-marker .ltp-dot {
+  width: 22px;
+  height: 22px;
+  border-width: 3px;
+  box-shadow: var(--shadow-float);
+}
+
+.ltp-marker .ltp-dot-selected {
+  box-shadow: 0 0 0 3px var(--gray-900), var(--shadow-float);
+}
+
+.ltp-dot-fresh { background: var(--green-600); }
+.ltp-dot-stale { background: var(--warning-text); }
+.ltp-dot-offline { background: var(--gray-500); }
+.ltp-dot-deviating { background: var(--danger-text); }
+.ltp-dot-unavailable { background: var(--gray-200); }
+
+.ltp-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill, 999px);
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.ltp-badge-fresh { color: var(--success-text); background: var(--success-bg); border-color: var(--success-border); }
+.ltp-badge-stale { color: var(--warning-text); background: var(--warning-bg); border-color: var(--warning-border); }
+.ltp-badge-deviating { color: var(--danger-text); background: var(--danger-bg); border-color: var(--danger-border); }
+.ltp-badge-offline,
+.ltp-badge-unavailable { color: var(--gray-600); background: var(--gray-100); border-color: var(--gray-200); }
+
+.ltp-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.ltp-details-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ltp-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+}
+
+.ltp-row > span:first-child,
+.ltp-orders > span {
+  color: var(--gray-500);
+}
+
+.ltp-row > :last-child {
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.ltp-orders ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.ltp-orders li {
+  margin: 2px 0;
+}
+
+.ltp-nav-tag {
+  margin-left: 6px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--info-text);
+  background: var(--info-bg);
+  border-radius: var(--radius-pill, 999px);
+}
+
+.ltp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.ltp-list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--radius-control, 8px);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ltp-list-item:hover { background: var(--gray-50); }
+.ltp-list-item.active { background: var(--green-50); }
+.ltp-list-item:focus-visible { outline: 2px solid var(--green-600); outline-offset: 1px; }
+
+.ltp-list-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--gray-900);
+}
+
+@media (max-width: 1024px) {
+  .ltp-grid { grid-template-columns: minmax(0, 1fr); }
+  .ltp-map { height: 420px; }
+}
+
+@media (max-width: 640px) {
+  .ltp-map { height: 320px; }
+  .ltp-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

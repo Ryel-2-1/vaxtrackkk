@@ -6,6 +6,7 @@ import {
   ListOrdered,
   History,
   Truck,
+  MapPinned,
   CalendarDays,
   Users,
   Building2,
@@ -48,6 +49,7 @@ const ROUTE_ACTIVE = {
   "/admin/allocation": "allocation",
   "/admin/order-history": "orderHistory",
   "/admin/deliveries": "deliveries",
+  "/admin/live-tracking": "liveTracking",
   "/admin/delivery-calendar": "delivery-calendar",
   "/admin/riders": "riders",
   "/admin/clinics": "clinics",
@@ -194,6 +196,15 @@ export function AdminSidebar({ active: activeProp, onLogout }) {
           >
             <Truck size={16} aria-hidden="true" />
             <span>Deliveries</span>
+          </Link>
+
+          <Link
+            className={active === "liveTracking" ? "active" : ""}
+            aria-current={active === "liveTracking" ? "page" : undefined}
+            to="/admin/live-tracking"
+          >
+            <MapPinned size={16} aria-hidden="true" />
+            <span>Live Tracking</span>
           </Link>
 
           <Link

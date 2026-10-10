@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/delivery.dart';
 import '../services/delivery_service.dart';
-import '../services/location_service.dart';
+import '../services/rider_tracking_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/delivery_buckets.dart';
 import '../utils/google_maps_url.dart';
@@ -12,6 +12,7 @@ import '../utils/sync_status.dart';
 import '../utils/trip_route.dart';
 import '../widgets/dashboard_delivery_card.dart';
 import '../widgets/sync_indicator.dart';
+import '../widgets/tracking_status_banner.dart';
 import 'delivery_detail_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -23,22 +24,14 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final _deliveryService = DeliveryService();
-  final _locationService = LocationService();
   String? _riderId;
 
   @override
   void initState() {
     super.initState();
+    // Opening the dashboard never sends a location: sharing is driven only by
+    // the rider's active deliveries (riderTracking, attached by HomeScreen).
     _riderId = FirebaseAuth.instance.currentUser?.uid;
-    _sendLocation();
-  }
-
-  Future<void> _sendLocation() async {
-    if (_riderId == null) return;
-    final pos = await _locationService.getCurrentPosition();
-    if (pos != null) {
-      await _locationService.updateRiderLocation(_riderId!, pos);
-    }
   }
 
   // Open the whole optimized trip in Google Maps: current location → each stop
@@ -101,10 +94,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 );
 
           return RefreshIndicator(
-            onRefresh: _sendLocation,
+            onRefresh: riderTracking.retry,
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                TrackingStatusBanner(controller: riderTracking),
                 Align(
                   alignment: Alignment.centerRight,
                   child: SyncIndicator(status: syncStatus),
