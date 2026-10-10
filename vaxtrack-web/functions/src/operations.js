@@ -38,6 +38,7 @@ const {
   DELIVERABLE_FROM,
   HOME_ADDRESS_ID,
 } = require("./policy");
+const { RIDER_LOCATIONS, evaluateDeliveryGeofence } = require("./deliveryGeofence");
 const { readPriceConvention } = require("./pricingConfig");
 const { deliveryEvidenceProblem } = require("./deliveryEvidence");
 const { statusUpdatedByEmailValue } = require("./attribution");
@@ -802,13 +803,51 @@ async function cancelOrderTransaction({ db, FieldValue, uid, email, orderId, rea
   });
 }
 
+const NOT_COMPLETABLE_MESSAGE = "This delivery is no longer assigned to you or cannot be completed.";
+
+/**
+ * Preflight for "Submit Proof & Complete Delivery": is the authenticated,
+ * assigned Rider inside this order's delivery geofence right now? Called
+ * before any evidence upload, so a Rider outside the area uploads nothing.
+ *
+ * Early feedback only — markOrderDeliveredWithInventoryConsumption repeats
+ * the same decision inside its own transaction. Reads only; writes nothing.
+ * Returns { eligible, distanceM, radiusM, locationAgeSeconds, accuracyM } or
+ * throws a stable domain error (deliveryGeofence.GEOFENCE_CODES, or
+ * not-assigned-rider / invalid-status-transition / order-not-found).
+ */
+async function validateDeliveryCompletionGeofence({ db, uid, orderId, now = new Date() }) {
+  const userData = await loadUser(db, uid);
+  requireRole(userData, "rider");
+  if (typeof orderId !== "string" || orderId.trim() === "" || orderId.includes("/")) {
+    throw new PolicyError("invalid-payload", "That delivery could not be identified.");
+  }
+  const [orderSnap, locationSnap] = await Promise.all([
+    db.collection(ORDERS).doc(orderId).get(),
+    db.collection(RIDER_LOCATIONS).doc(uid).get(),
+  ]);
+  if (!orderSnap.exists) throw new PolicyError("order-not-found", "That delivery no longer exists.");
+  const order = orderSnap.data();
+  if (order.assignedRiderId !== uid) throw new PolicyError("not-assigned-rider", NOT_COMPLETABLE_MESSAGE);
+  if (!DELIVERABLE_FROM.includes(order.status)) throw new PolicyError("invalid-status-transition", NOT_COMPLETABLE_MESSAGE);
+  return evaluateDeliveryGeofence({
+    order,
+    location: locationSnap.exists ? locationSnap.data() : null,
+    uid,
+    nowMs: now.getTime(),
+  });
+}
+
 /**
  * Complete a delivery and consume its reservation exactly once.
  *
- * Proof of delivery is deliberately NOT required here — that contract is
- * unchanged and stays deferred until the physical-phone checkpoint.
+ * Requires, in this transaction: the caller is the order's current assigned
+ * Rider; the order is in transit or delayed; both evidence photos are
+ * recorded by that Rider; and the Rider's latest trusted location is inside
+ * the order's delivery geofence (deliveryGeofence.js). Any refusal writes
+ * nothing — no status, no inventory, no reservation, no history.
  */
-async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid, email = null, orderId }) {
+async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid, email = null, orderId, now = new Date() }) {
   const userData = await loadUser(db, uid);
   requireRole(userData, "rider");
   if (typeof orderId !== "string" || orderId.trim() === "" || orderId.includes("/")) {
@@ -855,6 +894,19 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
     // already-delivered replay above, so a repeated call stays idempotent.
     const evidence = deliveryEvidenceProblem(order, orderId, uid);
     if (evidence) throw new PolicyError(evidence.code, evidence.message);
+
+    // Clinic delivery geofence — the authoritative check (the app's preflight
+    // is only early feedback). The Rider's location is read IN this
+    // transaction: moving out, going stale, stopping tracking or being
+    // reassigned after the preflight still refuses here, before any write.
+    // An already-delivered replay returned above, so retries stay idempotent.
+    const locationSnap = await tx.get(db.collection(RIDER_LOCATIONS).doc(uid));
+    evaluateDeliveryGeofence({
+      order,
+      location: locationSnap.exists ? locationSnap.data() : null,
+      uid,
+      nowMs: now.getTime(),
+    });
 
     const legacy = isLegacyOrder(order);
     const settlements = [];
@@ -955,6 +1007,7 @@ module.exports = {
   createOrderWithReservation,
   cancelOrderWithInventoryRelease,
   markOrderDeliveredWithInventoryConsumption,
+  validateDeliveryCompletionGeofence,
   requireRole,
   loadUser,
   // The creation transaction alone — exactly what is committed if the callable

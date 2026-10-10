@@ -8,6 +8,7 @@ import { subscribeRiders } from "../../services/riderService";
 import { subscribeAllDeviationStates, subscribeAllRiderLocations } from "../../services/riderTrackingService";
 import {
   DEVIATION_RULES,
+  FRESHNESS,
   MARKER_LABELS,
   MARKER_STATES,
   buildFleet,
@@ -271,8 +272,9 @@ function LiveTrackingPanel() {
       </div>
 
       <p className="ltp-note">
-        Riders appear only while they have an active delivery. Fresh: updated within 2 min · Stale: 2–10 min ·
-        Offline: over 10 min or sharing stopped. Route deviation is decided by VaxTrack: more than{" "}
+        Riders appear only while they have an active delivery. Fresh: updated within {FRESHNESS.freshMs / 60000} min ·
+        Stale: {FRESHNESS.freshMs / 60000}–{FRESHNESS.offlineMs / 60000} min · Offline: over{" "}
+        {FRESHNESS.offlineMs / 60000} min or sharing stopped. Route deviation is decided by VaxTrack: more than{" "}
         {DEVIATION_RULES.offRouteMeters} m from the assigned route for {DEVIATION_RULES.confirmDeviationMs / 60000}{" "}
         minutes while the rider is navigating.
       </p>

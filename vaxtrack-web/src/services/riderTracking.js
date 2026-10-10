@@ -12,8 +12,21 @@
 /** A rider is tracked while assigned to at least one order in these statuses. */
 export const TRACKED_ORDER_STATUSES = Object.freeze(["assigned", "loading", "in_transit", "delayed"]);
 
-/** Fix age (from capture time) that separates fresh / stale / offline. */
-export const FRESHNESS = Object.freeze({ freshMs: 2 * 60 * 1000, offlineMs: 10 * 60 * 1000 });
+/**
+ * Fix age that separates fresh / stale / offline — the one display boundary
+ * every web view uses. Age is measured from the earlier of the fix's capture
+ * time and the server's write time (locationTimeMs).
+ *
+ *   fresh    age <= 3 min
+ *   stale    3 min < age <= 10 min
+ *   offline  age > 10 min, or tracking explicitly ended
+ *
+ * The Fresh window must be longer than the rider app's stationary heartbeat
+ * (one write at least every 2 min): at exactly 2 min a locked, stationary
+ * phone showed Stale before its next heartbeat could arrive. 3 min leaves a
+ * full minute for the heartbeat and its upload.
+ */
+export const FRESHNESS = Object.freeze({ freshMs: 3 * 60 * 1000, offlineMs: 10 * 60 * 1000 });
 
 /** The server's deviation rule, for display text only. */
 export const DEVIATION_RULES = Object.freeze({
@@ -102,10 +115,15 @@ export function locationTimeMs(location) {
   return times.length ? Math.min(...times) : null;
 }
 
-/** fresh | stale | offline | unavailable. Mirrors server locationFreshness. */
+/**
+ * fresh | stale | offline | unavailable, by the FRESHNESS boundaries.
+ * Explicitly stopped tracking is Offline whatever its timestamp — the app
+ * clears the coordinates when it stops, so this is checked before them.
+ * Unavailable means no usable position was ever reported.
+ */
 export function locationFreshness(location, nowMs) {
+  if (location?.trackingState === "ended") return "offline";
   if (!location || !isValidCoordinate(location.latitude, location.longitude)) return "unavailable";
-  if (location.trackingState === "ended") return "offline";
   const at = locationTimeMs(location);
   if (at === null) return "unavailable";
   const age = nowMs - at;
@@ -136,7 +154,8 @@ export function deviationText(stateDoc) {
  */
 export function riderMarkerState({ location, deviation, nowMs }) {
   const freshness = locationFreshness(location, nowMs);
-  if (freshness === "unavailable") return "unavailable";
+  // No position to show: never reported, or sharing explicitly stopped.
+  if (freshness === "unavailable" || location?.trackingState === "ended") return freshness;
   if (deviationDisplayState(deviation) === "deviating") return "deviating";
   return freshness;
 }

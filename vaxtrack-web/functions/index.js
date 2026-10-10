@@ -116,6 +116,13 @@ function toHttpsError(error, context) {
       "proof-missing": "failed-precondition",
       "invoice-missing": "failed-precondition",
       "evidence-not-yours": "failed-precondition",
+      // Clinic delivery geofence (deliveryGeofence.js): the Rider is not
+      // provably at the destination right now. Retryable once that changes.
+      "delivery-outside-geofence": "failed-precondition",
+      "rider-location-stale": "failed-precondition",
+      "rider-location-inaccurate": "failed-precondition",
+      "rider-location-unavailable": "failed-precondition",
+      "delivery-destination-invalid": "failed-precondition",
       "insufficient-stock": "failed-precondition",
       "batch-expired": "failed-precondition",
       "batch-unavailable": "failed-precondition",
@@ -247,6 +254,14 @@ exports.cancelOrderWithInventoryRelease = callable(
       reason: data.reason,
       now,
     })
+);
+
+// Rider preflight before evidence upload: inside the delivery geofence now?
+// Reads only. The completion below repeats the decision authoritatively.
+exports.validateDeliveryCompletionGeofence = callable(
+  "validateDeliveryCompletionGeofence",
+  ({ db, uid, data, now }) =>
+    operations.validateDeliveryCompletionGeofence({ db, uid, orderId: data.orderId, now })
 );
 
 exports.markOrderDeliveredWithInventoryConsumption = callable(

@@ -18,7 +18,8 @@ process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || "12
 
 const app = admin.initializeApp({ projectId: "demo-vaxtrack-allocation" }, "allocation-tests");
 const db = app.firestore();
-const { FieldValue } = admin.firestore;
+const { FieldValue, Timestamp } = admin.firestore;
+const { placeRiderAtDestination } = require("../helpers/riderAtDestination");
 
 const ops = require("../../src/operations");
 const flow = require("../../src/inventoryWorkflow");
@@ -135,6 +136,8 @@ async function recordEvidence(orderId) {
     invoiceUrl: `https://storage/${orderId}/invoice.jpg`, invoicePath: canonicalInvoicePath(orderId),
     invoiceSubmittedAt: FieldValue.serverTimestamp(), invoiceSubmittedByUid: RIDER,
   });
+  // ...and the Rider is at the clinic (delivery geofence).
+  await placeRiderAtDestination(db, Timestamp, { uid: RIDER, orderId });
 }
 
 // ---------------------------------------------------------------- 1–4

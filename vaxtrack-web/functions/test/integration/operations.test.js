@@ -21,7 +21,8 @@ const PROJECT_ID = "demo-vaxtrack-functions";
 
 admin.initializeApp({ projectId: PROJECT_ID });
 const db = admin.firestore();
-const { FieldValue } = admin.firestore;
+const { FieldValue, Timestamp } = admin.firestore;
+const { placeRiderAtDestination, VERIFIED_DESTINATION } = require("../helpers/riderAtDestination");
 
 const ops = require("../../src/operations");
 
@@ -197,8 +198,11 @@ async function recordEvidenceAs(uid, orderId) {
     invoiceSubmittedByUid: uid,
   });
 }
-const completeOnly = (uid, orderId) =>
-  ops.markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid, orderId, now: NOW });
+const completeOnly = async (uid, orderId) => {
+  // The Rider stands at the clinic with a fix as fresh as the completion's clock.
+  await placeRiderAtDestination(db, Timestamp, { uid, orderId, now: NOW });
+  return ops.markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid, orderId, now: NOW });
+};
 const deliver = async (uid, orderId) => {
   await recordEvidenceAs(uid, orderId);
   return completeOnly(uid, orderId);
@@ -800,6 +804,7 @@ test("pricing: a legacy order keeps manual invoice pricing and is never back-fil
     orderNumber: "VT-ORD-LEGACY-PRICE",
     status: "in_transit",
     assignedRiderId: RIDER,
+    ...VERIFIED_DESTINATION,
     items: [{ name: "Moderna COVID-19 Vaccine", sku: "MOD-STG-001", quantity: 5, unitPrice: 0 }],
     createdByUid: SR,
   });
@@ -1084,6 +1089,7 @@ test("legacy orders keep their lifecycle and move no stock", async (t) => {
       status,
       createdByUid: SR,
       assignedRiderId: RIDER,
+      ...VERIFIED_DESTINATION,
       // No allocationVersion, and items carry only the old ambiguous `sku`.
       items: [{ name: "Test Vaccine", sku: "TV-001", quantity: 5, unitPrice: 0 }],
     });
@@ -1125,7 +1131,7 @@ test("legacy orders keep their lifecycle and move no stock", async (t) => {
     // absence of allocationVersion is the only signal that counts.
     const ref = db.collection("orders").doc();
     await ref.set({
-      status: "in_transit", createdByUid: SR, assignedRiderId: RIDER,
+      status: "in_transit", createdByUid: SR, assignedRiderId: RIDER, ...VERIFIED_DESTINATION,
       items: [{ name: "Moderna COVID-19 Vaccine", sku: "MOD-STG-001", quantity: 5 }],
     });
     const before = await inv("good");

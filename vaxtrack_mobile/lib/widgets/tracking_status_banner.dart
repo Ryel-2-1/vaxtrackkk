@@ -33,6 +33,11 @@ class TrackingStatusBanner extends StatelessWidget {
         'You have an active delivery. Location sharing starts now that VaxTrack is open.',
   };
 
+  /// Shown while sharing: some phones (e.g. vivo) stop background apps unless
+  /// the rider allows it in the app's settings.
+  static const String backgroundActivityMessage =
+      'Keep background activity allowed for reliable location sharing.';
+
   /// Shown under the sharing state when Android notifications are off.
   static const String notificationsHiddenMessage =
       'Notifications are off for VaxTrack, so the "sharing location" notification '
@@ -56,10 +61,15 @@ class TrackingStatusBanner extends StatelessWidget {
             return _card(
               icon: Icons.my_location,
               color: AppColors.primary,
-              text: controller.notificationsAllowed ? sharing : '$sharing\n$notificationsHiddenMessage',
-              actions: controller.notificationsAllowed
-                  ? const []
-                  : [_button('Notification settings', controller.openAppSettings)],
+              text: [
+                sharing,
+                backgroundActivityMessage,
+                if (!controller.notificationsAllowed) notificationsHiddenMessage,
+              ].join('\n'),
+              // The app's system settings page: background activity / battery
+              // and notifications both live there. Nothing is changed or
+              // requested automatically.
+              actions: [_button('App settings', controller.openAppSettings)],
             );
           case TrackingStatus.waitingForApp:
             return _card(

@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'dart:ui' show AppLifecycleState;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vaxtrack_mobile/tracking/location_write_policy.dart';
 import 'package:vaxtrack_mobile/tracking/rider_tracking_controller.dart';
@@ -15,6 +17,7 @@ class FakeSource implements TrackingLocationSource {
   int requests = 0;
   final List<TrackingMode> streamsOpened = [];
   StreamController<LocationFix>? current;
+  final List<StreamController<LocationFix>> opened = [];
 
   @override
   Future<LocationAccess> checkAccess() async => access;
@@ -30,10 +33,14 @@ class FakeSource implements TrackingLocationSource {
   Stream<LocationFix> fixes(TrackingMode mode) {
     streamsOpened.add(mode);
     current = StreamController<LocationFix>();
+    opened.add(current!);
     return current!.stream;
   }
 
   bool get streaming => current != null && current!.hasListener;
+
+  /// Streams with a listener right now — there must never be more than one.
+  int get activeStreams => opened.where((c) => c.hasListener).length;
 
   @override
   Future<bool> notificationsAllowed() async => notifications;
@@ -283,6 +290,77 @@ void main() {
     expect(c.status, TrackingStatus.idle);
     // Later order snapshots are no longer followed.
     expect(orders.hasListener, isFalse);
+  });
+
+  group('locked screen / app lifecycle', () {
+    // HomeScreen maps every lifecycle state through foregroundForLifecycle.
+    Future<void> lifecycle(AppLifecycleState state) async {
+      final foreground = foregroundForLifecycle(state);
+      if (foreground != null) await c.setForeground(foreground);
+    }
+
+    test('locking the phone keeps a running session: no cancel, fixes still written', () async {
+      await emit([order('o1', 'assigned')]);
+      expect(source.activeStreams, 1);
+      for (final state in [AppLifecycleState.inactive, AppLifecycleState.hidden, AppLifecycleState.paused]) {
+        await lifecycle(state);
+        expect(source.streaming, isTrue, reason: '$state must not cancel the stream');
+      }
+      expect(c.status, TrackingStatus.tracking);
+      await sendFix(fix(0));
+      await sendFix(fix(130, lat: 14.6)); // stationary heartbeat while locked
+      expect(store.writes, hasLength(2), reason: 'the write policy keeps running while locked');
+      expect(source.streamsOpened, [TrackingMode.tracking]);
+    });
+
+    test('resuming does not create a second stream', () async {
+      await emit([order('o1', 'in_transit')]);
+      await lifecycle(AppLifecycleState.paused);
+      await lifecycle(AppLifecycleState.resumed);
+      await lifecycle(AppLifecycleState.paused);
+      await lifecycle(AppLifecycleState.resumed);
+      expect(source.streamsOpened, [TrackingMode.tracking]);
+      expect(source.activeStreams, 1);
+    });
+
+    test('a navigating session also survives locking', () async {
+      await emit([order('o1', 'in_transit')]);
+      await c.startNavigation('o1');
+      await lifecycle(AppLifecycleState.paused);
+      expect(source.streaming, isTrue);
+      expect(c.status, TrackingStatus.navigating);
+      expect(source.activeStreams, 1);
+    });
+
+    test('switching tracking <-> navigation replaces the stream: never two at once', () async {
+      await emit([order('o1', 'in_transit')]);
+      await c.startNavigation('o1');
+      expect(source.activeStreams, 1);
+      expect(source.opened.first.hasListener, isFalse, reason: 'the tracking stream was cancelled first');
+      await c.stopNavigation();
+      expect(source.activeStreams, 1);
+      expect(source.streamsOpened, [TrackingMode.tracking, TrackingMode.navigating, TrackingMode.tracking]);
+    });
+
+    test('an active order starts tracking while the app is foregrounded', () async {
+      await emit([order('o1', 'assigned')]);
+      expect(source.streamsOpened, [TrackingMode.tracking]);
+    });
+
+    test('sign-out while locked still stops the stream (releasing its service)', () async {
+      await emit([order('o1', 'in_transit')]);
+      await lifecycle(AppLifecycleState.paused);
+      await c.shutdown(reason: kEndReasonSignedOut);
+      expect(source.activeStreams, 0);
+    });
+
+    test('no active delivery: nothing is listened to, so nothing holds a wake lock', () async {
+      await emit([order('o1', 'in_transit')]);
+      await emit([order('o1', 'delivered')]);
+      expect(source.activeStreams, 0);
+      await lifecycle(AppLifecycleState.resumed);
+      expect(source.activeStreams, 0);
+    });
   });
 
   group('app in the background (Android cannot start location services there)', () {

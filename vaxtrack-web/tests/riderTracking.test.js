@@ -51,10 +51,49 @@ test("tracked and navigable statuses agree across server, rider app and web", ()
   }
 });
 
-test("freshness thresholds agree", () => {
-  assert.equal(dartConst("kFreshMs"), server.FRESHNESS.freshMs);
-  assert.equal(dartConst("kOfflineMs"), server.FRESHNESS.offlineMs);
-  assert.deepEqual({ ...web.FRESHNESS }, { ...server.FRESHNESS });
+test("freshness: Fresh <= 3 min, Offline > 10 min; the web owns the Fresh display boundary", () => {
+  assert.deepEqual({ ...web.FRESHNESS }, { freshMs: 3 * 60 * 1000, offlineMs: 10 * 60 * 1000 });
+  // The Offline boundary agrees everywhere.
+  assert.equal(dartConst("kOfflineMs"), web.FRESHNESS.offlineMs);
+  assert.equal(server.FRESHNESS.offlineMs, web.FRESHNESS.offlineMs);
+  // Fresh must outlast the rider app's stationary heartbeat, or a locked,
+  // stationary phone reads Stale before its next write can arrive.
+  const policy = read("../vaxtrack_mobile/lib/tracking/location_write_policy.dart");
+  const heartbeat = policy.match(/TrackingMode\.tracking: WriteCadence\([\s\S]*?heartbeat: Duration\(minutes: (\d+)\)/);
+  assert.ok(heartbeat, "tracking heartbeat found");
+  assert.ok(web.FRESHNESS.freshMs >= Number(heartbeat[1]) * 60 * 1000 + 60 * 1000, "at least a minute of margin over the heartbeat");
+  // The server and rider-app copies of freshMs (still 2 min) are reference
+  // mirrors with NO runtime consumer, so they cannot change what anyone sees.
+  // Align them in the next backend / app change.
+  const fnRuntime = strip(read("functions/src/riderTrackingOps.js")) + strip(read("functions/index.js"));
+  assert.equal(/locationFreshness|FRESHNESS/.test(fnRuntime), false, "no Function decides freshness");
+  for (const dart of ["services/rider_tracking_service.dart", "tracking/rider_tracking_controller.dart", "widgets/tracking_status_banner.dart", "screens/route_monitoring_screen.dart"]) {
+    assert.equal(read(`../vaxtrack_mobile/lib/${dart}`).includes("kFreshMs"), false, dart);
+  }
+});
+
+test("exact freshness boundaries (earlier of capture and server time)", () => {
+  const MIN = 60 * 1000;
+  const aged = (ageMs) => loc({ capturedAt: NOW - ageMs, updatedAt: NOW - ageMs });
+  assert.equal(web.locationFreshness(aged(3 * MIN), NOW), "fresh", "exactly 3 min");
+  assert.equal(web.locationFreshness(aged(3 * MIN + 1), NOW), "stale", "3 min + 1 ms");
+  assert.equal(web.locationFreshness(aged(10 * MIN), NOW), "stale", "exactly 10 min");
+  assert.equal(web.locationFreshness(aged(10 * MIN + 1), NOW), "offline", "10 min + 1 ms");
+  // The earlier timestamp decides: a late upload of an old fix is old.
+  assert.equal(web.locationFreshness(loc({ capturedAt: NOW - 3 * MIN - 1, updatedAt: NOW }), NOW), "stale");
+  // ...and a phone clock ahead of the server cannot make a fix look newer.
+  assert.equal(web.locationFreshness(loc({ capturedAt: NOW, updatedAt: NOW - 3 * MIN - 1 }), NOW), "stale");
+  // Explicitly stopped = Offline regardless of timestamp or coordinates.
+  const ended = { trackingState: "ended", latitude: null, longitude: null, accuracyMeters: null };
+  for (const ts of [NOW, NOW - 1000, NOW - 60 * MIN, null]) {
+    assert.equal(web.locationFreshness({ ...ended, capturedAt: ts, updatedAt: ts }, NOW), "offline", String(ts));
+  }
+  assert.equal(web.locationFreshness(loc({ trackingState: "ended" }), NOW), "offline");
+  // Offline wins over a still-open deviation state.
+  const deviating = { sessionState: "navigating", routeStatus: "available", phase: "deviating" };
+  assert.equal(web.riderMarkerState({ location: { ...ended, capturedAt: NOW, updatedAt: NOW }, deviation: deviating, nowMs: NOW }), "offline");
+  // Never reported is still Unavailable, not Offline.
+  assert.equal(web.locationFreshness(null, NOW), "unavailable");
 });
 
 test("the 500 m / 3 minute deviation rule agrees (with 400 m / 2 minute recovery)", () => {
@@ -109,25 +148,28 @@ const loc = (over = {}) => ({
   ...over,
 });
 
-test("web freshness matches the server for every case", () => {
+test("web freshness applies the server's timestamp rule (outside the 2–3 min window the copies still differ on)", () => {
+  // Cases chosen away from the Fresh boundary (web 3 min, unused server copy
+  // 2 min) and without an ended doc (the web reports it Offline, the unused
+  // server copy Unavailable); both are pinned by the exact-boundary test above.
+  const lateUpload = loc({ capturedAt: NOW - 15 * 60_000, updatedAt: NOW - 1000 });
   const cases = [
     null,
     loc(),
-    loc({ capturedAt: NOW - 3 * 60_000, updatedAt: NOW - 3 * 60_000 }),
+    loc({ capturedAt: NOW - 5 * 60_000, updatedAt: NOW - 5 * 60_000 }),
     loc({ capturedAt: NOW - 11 * 60_000, updatedAt: NOW - 11 * 60_000 }),
-    loc({ trackingState: "ended", latitude: null, longitude: null }),
     loc({ trackingState: "ended" }),
     loc({ latitude: 0, longitude: 0 }),
     loc({ capturedAt: null, updatedAt: null }),
     // Written late: captured 15 min ago, accepted just now → shown as OLD.
-    loc({ capturedAt: NOW - 15 * 60_000, updatedAt: NOW - 1000 }),
+    lateUpload,
     // Device clock ahead: capture after the server write → server time wins.
     loc({ capturedAt: NOW + 5 * 60_000, updatedAt: NOW - 5 * 60_000 }),
   ];
   for (const c of cases) {
     assert.equal(web.locationFreshness(c, NOW), server.locationFreshness(c, NOW), JSON.stringify(c));
   }
-  assert.equal(web.locationFreshness(cases[8], NOW), "offline", "a late offline write is never shown as live");
+  assert.equal(web.locationFreshness(lateUpload, NOW), "offline", "a late offline write is never shown as live");
 });
 
 test("web deviation display matches the server", () => {

@@ -76,6 +76,8 @@ class _ProofScreenState extends State<ProofScreen> {
       // Re-read the order before anything uploads: a stale screen must never
       // add evidence to, or complete, an order that has since closed.
       loader: _deliveryService,
+      // Server preflight: inside the clinic delivery area? Runs before any upload.
+      geofence: _deliveryService,
     );
     _submission.addListener(_onSubmissionChanged);
   }

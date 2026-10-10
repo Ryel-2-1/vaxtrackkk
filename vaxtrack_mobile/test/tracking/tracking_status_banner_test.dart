@@ -83,18 +83,32 @@ void main() {
 
   testWidgets('tracking shows how many deliveries are shared', (tester) async {
     await controllerWith(tester, LocationAccess.granted);
-    expect(find.text('Sharing your location for 1 active delivery.'), findsOneWidget);
+    expect(find.textContaining('Sharing your location for 1 active delivery.'), findsOneWidget);
   });
 
-  testWidgets('notifications off: says the notification is hidden and offers settings', (tester) async {
+  testWidgets('while sharing: background-activity guidance with an App settings action', (tester) async {
+    await controllerWith(tester, LocationAccess.granted);
+    expect(TrackingStatusBanner.backgroundActivityMessage,
+        'Keep background activity allowed for reliable location sharing.');
+    expect(find.textContaining(TrackingStatusBanner.backgroundActivityMessage), findsOneWidget);
+    expect(find.text('App settings'), findsOneWidget);
+  });
+
+  testWidgets('notifications off: says the notification is hidden; one App settings action', (tester) async {
     await controllerWith(tester, LocationAccess.granted, notifications: false);
     expect(find.textContaining(TrackingStatusBanner.notificationsHiddenMessage), findsOneWidget);
-    expect(find.text('Notification settings'), findsOneWidget);
+    expect(find.text('App settings'), findsOneWidget);
   });
 
   testWidgets('notifications on: no notification warning', (tester) async {
     await controllerWith(tester, LocationAccess.granted);
-    expect(find.text('Notification settings'), findsNothing);
+    expect(find.textContaining(TrackingStatusBanner.notificationsHiddenMessage), findsNothing);
+  });
+
+  testWidgets('no active delivery: no guidance at all', (tester) async {
+    await controllerWith(tester, LocationAccess.granted, orders: const []);
+    expect(find.textContaining(TrackingStatusBanner.backgroundActivityMessage), findsNothing);
+    expect(find.text('App settings'), findsNothing);
   });
 
   test('the explanation names who sees the location and when it stops', () {

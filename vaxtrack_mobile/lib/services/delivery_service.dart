@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/delivery.dart';
+import '../utils/delivery_geofence_messages.dart';
 import '../utils/order_mapping.dart';
 import '../utils/order_workflow.dart';
 import '../utils/safe_log.dart';
@@ -79,7 +80,46 @@ abstract class DeliveryCompleter {
   Future<void> markDelivered(String orderId, String currentStatus);
 }
 
-class DeliveryService implements DeliveryLoader, DeliveryCompleter {
+/// The server's delivery-geofence preflight result (display-only values; the
+/// decision itself is the server's and is repeated inside completion).
+class DeliveryGeofenceResult {
+  const DeliveryGeofenceResult({
+    required this.eligible,
+    required this.distanceM,
+    required this.radiusM,
+    required this.locationAgeSeconds,
+    required this.accuracyM,
+  });
+
+  final bool eligible;
+  final int distanceM;
+  final int radiusM;
+  final int locationAgeSeconds;
+  final int accuracyM;
+}
+
+/// "Is the assigned Rider inside this order's clinic delivery area right
+/// now?" — asked of the SERVER (validateDeliveryCompletionGeofence), which
+/// reads the order's destination and the Rider's tracked location itself.
+/// Nothing location-related is sent from the device. Throws a
+/// [WorkflowException] with the server's code when the Rider is not eligible.
+abstract class DeliveryGeofenceChecker {
+  Future<DeliveryGeofenceResult> checkDeliveryGeofence(String orderId);
+}
+
+/// A callable failure as a [WorkflowException]. Delivery-location refusals
+/// get the Rider-facing wording (utils/delivery_geofence_messages.dart);
+/// other domain refusals keep the server's sentence; without a domain code,
+/// Firebase's own code is kept (a dropped connection is not a refusal).
+WorkflowException callableFailure(FirebaseFunctionsException e, String fallback) {
+  final details = e.details;
+  final code = (details is Map) ? details['code'] as String? : null;
+  final info = (details is Map && details['info'] is Map) ? details['info'] as Map : null;
+  final located = code == null ? null : deliveryLocationMessage(code, info: info, serverMessage: e.message);
+  return WorkflowException(code ?? e.code, located ?? e.message ?? fallback);
+}
+
+class DeliveryService implements DeliveryLoader, DeliveryCompleter, DeliveryGeofenceChecker {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   /// Same region as the deployed functions and as staging Firestore. A
@@ -254,16 +294,32 @@ class DeliveryService implements DeliveryLoader, DeliveryCompleter {
           .httpsCallable('markOrderDeliveredWithInventoryConsumption')
           .call<Map<String, dynamic>>({'orderId': orderId});
     } on FirebaseFunctionsException catch (e) {
-      // The server's domain code travels in `details`; its message is already
-      // written for the rider. Anything else is reported as a service problem
-      // rather than dressed up as a delivery problem.
-      // Without a domain code, keep Firebase's own (e.g. 'unavailable'), so a
-      // dropped connection is never reported as a refusal.
-      final code = (e.details is Map) ? e.details['code'] as String? : null;
-      throw WorkflowException(
-        code ?? e.code,
-        e.message ?? 'Could not complete this delivery. Please try again.',
+      // The server's domain code travels in `details`. The completion repeats
+      // the delivery-geofence decision, so a Rider who moved out, went stale
+      // or was reassigned after the preflight gets that exact reason here.
+      throw callableFailure(e, 'Could not complete this delivery. Please try again.');
+    }
+  }
+
+  /// The server's delivery-geofence preflight. Only the order id is sent; the
+  /// server reads the destination and the Rider's tracked location itself.
+  @override
+  Future<DeliveryGeofenceResult> checkDeliveryGeofence(String orderId) async {
+    try {
+      final result = await _functions
+          .httpsCallable('validateDeliveryCompletionGeofence')
+          .call<Map<String, dynamic>>({'orderId': orderId});
+      final data = result.data;
+      int n(String key) => (data[key] as num?)?.round() ?? 0;
+      return DeliveryGeofenceResult(
+        eligible: data['eligible'] == true,
+        distanceM: n('distanceM'),
+        radiusM: n('radiusM'),
+        locationAgeSeconds: n('locationAgeSeconds'),
+        accuracyM: n('accuracyM'),
       );
+    } on FirebaseFunctionsException catch (e) {
+      throw callableFailure(e, 'Could not check your delivery location. Please try again.');
     }
   }
 

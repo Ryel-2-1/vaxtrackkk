@@ -38,6 +38,9 @@ const CALLABLE_NAMES = [
   "confirmReturnDisposition", // Admin: usable | damaged | temperature_excursion | missing
   "requeueFailedOrder", // Dispatcher: delivery_failed → pending_dispatch, re-enters allocation
   "getReservationProvenance", // Admin: read-only — which orders hold a batch's units
+  // Rider: read-only delivery-geofence preflight before evidence upload. The
+  // completion callable repeats the decision authoritatively.
+  "validateDeliveryCompletionGeofence",
 ];
 
 test("the callables are the only inventory-affecting entry points", () => {

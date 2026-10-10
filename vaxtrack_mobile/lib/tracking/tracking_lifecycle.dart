@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' show AppLifecycleState;
 
 import 'location_write_policy.dart';
 import 'tracking_contract.dart';
@@ -221,3 +222,26 @@ const Map<DeviationDisplay, String> kDeviationDisplayLabels = {
   DeviationDisplay.pendingDeviation: 'Off route — checking',
   DeviationDisplay.deviating: 'Route deviation reported',
 };
+
+/// How an app lifecycle change affects location sharing:
+///  * `true`  — foreground: re-check access and start anything that waited;
+///  * `false` — background (screen locked, app switched away): an already
+///    running stream keeps running — the foreground service carries it — and
+///    nothing new is started (Android 12+ forbids starting it from there);
+///  * `null`  — no change. `inactive` is transient (the permission dialog, the
+///    notification shade, the instant the screen locks) and `detached` is the
+///    engine going away; neither starts nor stops anything.
+/// No state ever cancels a running stream: only the delivery plan, access
+/// checks and sign-out do.
+bool? foregroundForLifecycle(AppLifecycleState state) {
+  switch (state) {
+    case AppLifecycleState.resumed:
+      return true;
+    case AppLifecycleState.paused:
+    case AppLifecycleState.hidden:
+      return false;
+    case AppLifecycleState.inactive:
+    case AppLifecycleState.detached:
+      return null;
+  }
+}

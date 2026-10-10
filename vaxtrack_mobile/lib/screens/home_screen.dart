@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../services/rider_tracking_service.dart';
 import '../tracking/tracking_contract.dart';
+import '../tracking/tracking_lifecycle.dart';
 import 'dashboard_screen.dart';
 import 'deliveries_screen.dart';
 import 'proof_screen.dart';
@@ -31,14 +32,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Back in the foreground: re-check permissions/settings and start sharing
-    // that could not start in the background. `inactive` is ignored on
-    // purpose — the system permission dialog itself makes the app inactive.
-    if (state == AppLifecycleState.resumed) {
-      riderTracking.setForeground(true);
-    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
-      riderTracking.setForeground(false);
-    }
+    // Locking the phone or switching apps never stops a running stream (see
+    // foregroundForLifecycle); returning re-checks and starts what waited.
+    final foreground = foregroundForLifecycle(state);
+    if (foreground != null) riderTracking.setForeground(foreground);
   }
 
   @override

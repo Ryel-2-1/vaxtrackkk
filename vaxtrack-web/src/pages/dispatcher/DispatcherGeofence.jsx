@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRiderLiveLocation } from "../../components/useRiderLiveLocation";
-import { deviationDisplayState, deviationText, locationLatLng, locationTimeMs } from "../../services/riderTracking";
+import { FRESHNESS, deviationDisplayState, deviationText, locationLatLng, locationTimeMs } from "../../services/riderTracking";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -73,11 +73,10 @@ const GEOFENCE_RADIUS_M = 300;
 
 const ACTIVE_STATUSES = new Set(["assigned", "loading", "in_transit", "delayed"]);
 
-// A live-location fix older than this reads as stale — the rider app writes at
-// least every 2 minutes while sharing (more often while navigating), so a
-// longer gap means it has stopped (GPS lost, app closed, or no connection).
-// Same threshold as FRESHNESS.freshMs in services/riderTracking.js.
-const STALE_LOCATION_MS = 2 * 60 * 1000;
+// A live-location fix older than this reads as stale. One boundary for every
+// web view: FRESHNESS.freshMs in services/riderTracking.js (3 min — longer than
+// the rider app's 2-minute stationary heartbeat).
+const STALE_LOCATION_MS = FRESHNESS.freshMs;
 
 function isLocationStale(ts) {
   if (!ts) return false;

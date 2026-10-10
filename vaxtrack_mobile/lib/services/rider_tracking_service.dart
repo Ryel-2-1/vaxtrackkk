@@ -71,24 +71,7 @@ class GeolocatorLocationSource implements TrackingLocationSource {
     final navigating = mode == TrackingMode.navigating;
     final LocationSettings settings;
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      settings = AndroidSettings(
-        accuracy: navigating ? LocationAccuracy.high : LocationAccuracy.medium,
-        // No distance filter: a stationary rider must still produce fixes, or
-        // the write policy's heartbeat never fires and an assigned rider who
-        // is waiting would read Stale/Offline. The interval bounds frequency
-        // and the write policy filters jitter and throttles writes.
-        distanceFilter: 0,
-        intervalDuration: Duration(seconds: navigating ? 5 : 15),
-        foregroundNotificationConfig: ForegroundNotificationConfig(
-          notificationTitle: 'VaxTrack: sharing location for delivery',
-          notificationText: navigating
-              ? 'Navigating an active delivery. Stops automatically when your deliveries end.'
-              : 'Active delivery assigned. Stops automatically when your deliveries end.',
-          notificationChannelName: 'Delivery location sharing',
-          setOngoing: true,
-          enableWakeLock: navigating,
-        ),
-      );
+      settings = androidTrackingSettings(mode);
     } else {
       settings = LocationSettings(
         accuracy: navigating ? LocationAccuracy.high : LocationAccuracy.medium,
@@ -119,6 +102,40 @@ class GeolocatorLocationSource implements TrackingLocationSource {
   Future<void> openLocationSettings() async {
     await Geolocator.openLocationSettings();
   }
+}
+
+/// The Android location request for an active delivery, in either mode.
+///
+/// Both modes run as Geolocator's foreground service (visible, ongoing
+/// notification) AND hold its partial wake lock. Without the wake lock — as
+/// general tracking had before — a locked phone suspends the CPU between
+/// location callbacks: the fix reaches the service, but the Dart write policy
+/// and the Firestore upload never run until the screen is unlocked, so a
+/// waiting rider went Stale. The wake lock is held only while this stream is
+/// listened to: cancelling it (last delivery ended, sign-out, tracking
+/// stopped, permission lost) makes Geolocator stop the service and release
+/// the lock. It keeps the CPU available; it does NOT change how often
+/// anything is written — the write policy still throttles every fix.
+AndroidSettings androidTrackingSettings(TrackingMode mode) {
+  final navigating = mode == TrackingMode.navigating;
+  return AndroidSettings(
+    accuracy: navigating ? LocationAccuracy.high : LocationAccuracy.medium,
+    // No distance filter: a stationary rider must still produce fixes, or
+    // the write policy's heartbeat never fires and an assigned rider who
+    // is waiting would read Stale/Offline. The interval bounds frequency
+    // and the write policy filters jitter and throttles writes.
+    distanceFilter: 0,
+    intervalDuration: Duration(seconds: navigating ? 5 : 15),
+    foregroundNotificationConfig: ForegroundNotificationConfig(
+      notificationTitle: 'VaxTrack: sharing location for delivery',
+      notificationText: navigating
+          ? 'Navigating an active delivery. Stops automatically when your deliveries end.'
+          : 'Active delivery assigned. Stops automatically when your deliveries end.',
+      notificationChannelName: 'Delivery location sharing',
+      setOngoing: true,
+      enableWakeLock: true,
+    ),
+  );
 }
 
 /// Android 13+ notification permission via a tiny platform channel in
