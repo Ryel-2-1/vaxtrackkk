@@ -355,7 +355,8 @@ test("vat: an unclassified product refuses the whole order before any write", as
     ghost: { quantity: 10, reservedQuantity: 0, sellingPriceCentavos: PRICE, priceIsVatInclusive: true, status: "OK", expiryDate: "2027-12-31", batchId: "GHOST-001", vaccineId: "vaccineGone" },
   });
   await db.collection("vaccines").doc("vaccineLegacy").set({ vaccineName: "Legacy" });
-  await db.collection("vaccines").doc("vaccineBad").set({ vaccineName: "Bad", vatClassification: "zero_rated" });
+  // An invoice-level marker, not a product classification (zero-rated now is one).
+  await db.collection("vaccines").doc("vaccineBad").set({ vaccineName: "Bad", vatClassification: "per_item" });
 
   const counts = async () => ({
     orders: (await db.collection("orders").get()).size,

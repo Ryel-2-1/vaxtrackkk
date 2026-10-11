@@ -195,6 +195,22 @@ export function subscribeInvoiceQueue(callback, onError) {
   };
 }
 
+/**
+ * The live invoice for one order (null while none exists). InvoiceEditor
+ * follows it so a draft saved or issued in another browser shows without a
+ * reload. Same identity rule as getInvoiceByOrderId: the document id wins.
+ */
+export function subscribeInvoice(orderId, callback, onError) {
+  return onSnapshot(
+    doc(db, INVOICES, orderId),
+    (snap) => callback(snap.exists() ? { ...snap.data(), id: snap.id } : null),
+    (error) => {
+      console.error("Invoice subscription error:", error?.code || error);
+      if (onError) onError(error);
+    }
+  );
+}
+
 export async function getInvoiceByOrderId(orderId) {
   if (!orderId) return null;
   // Invoice doc id === orderId, which structurally guarantees one invoice per

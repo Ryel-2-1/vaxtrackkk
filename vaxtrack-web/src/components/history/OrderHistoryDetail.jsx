@@ -277,10 +277,29 @@ export default function OrderHistoryDetail({ row, mode, medRepUid, onBack }) {
   const [events, setEvents] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [eventsError, setEventsError] = useState("");
+  // The order is followed live; if that listener fails the page says the
+  // summary is as listed rather than silently showing it as current.
+  const [orderError, setOrderError] = useState("");
 
   // One instance per order (the parent keys it by order id), so the loading
   // state starts true and is only ever cleared by the subscription callbacks.
-  useEffect(() => subscribeOrder(row.id, (o) => o && setOrder(o)), [row.id]);
+  useEffect(
+    () =>
+      subscribeOrder(
+        row.id,
+        (o) => {
+          if (o) setOrder(o);
+          setOrderError(o ? "" : "This order is no longer available. Showing it as it was listed.");
+        },
+        (err) =>
+          setOrderError(
+            err?.code === "permission-denied"
+              ? "You do not have permission to view this order's current status."
+              : "The current status could not be loaded. Showing the order as it was listed."
+          )
+      ),
+    [row.id]
+  );
   useEffect(() => {
     return subscribeAllocationEvents(
       row.id,
@@ -307,6 +326,7 @@ export default function OrderHistoryDetail({ row, mode, medRepUid, onBack }) {
       <h1 className="ohx-detail-title ohx-noprint">
         <span className="ohx-ref">{order.orderNumber || order.id}</span>
       </h1>
+      {orderError && <p className="ohx-error ohx-noprint" role="status">{orderError}</p>}
       {row.receipt ? <Receipt receipt={row.receipt} events={events} eventsLoading={eventsLoading} /> : <LegacyNotice />}
       <CurrentSummary order={order} events={events} />
       <Timeline events={events} loading={eventsLoading} error={eventsError} />

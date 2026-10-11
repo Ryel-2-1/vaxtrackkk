@@ -29,6 +29,7 @@ import {
   readPriceCentavos,
 } from "../../services/money";
 import KpiCard from "../../components/ui/KpiCard";
+import { friendlyErrorMessage, liveErrorMessage } from "../../services/liveDataErrors";
 import ReservationProvenance from "../../components/admin/ReservationProvenance";
 import { MAX_STOCK_QUANTITY } from "../../services/orderEligibility";
 import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
@@ -175,6 +176,9 @@ function Inventory() {
 
   const [inventory, setInventory] = useState([]);
   const [loading, setLoading] = useState(true);
+  // A failed listener is its own state, never an empty inventory.
+  const [loadError, setLoadError] = useState("");
+  const [catalogError, setCatalogError] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [expiryFilter, setExpiryFilter] = useState("all");
@@ -214,6 +218,10 @@ function Inventory() {
       // two renders of the same batch cannot disagree about what day it is.
       const today = manilaToday(Date.now());
       setInventory(raw.map((item) => normalizeInventoryItem(item, today)));
+      setLoadError("");
+      setLoading(false);
+    }, (error) => {
+      setLoadError(liveErrorMessage(error, "inventory"));
       setLoading(false);
     });
     return () => unsubscribe();
@@ -348,14 +356,26 @@ function Inventory() {
       showToast(`Stock corrected for batch ${batch}.`);
     } catch (error) {
       console.error("Correct stock error:", error);
-      setCorrectError(error.message || "Could not correct the stock. Please try again.");
+      setCorrectError(friendlyErrorMessage(error, "Could not correct the stock. Please try again."));
     } finally {
       setSavingCorrection(false);
     }
   };
 
   // One catalog listener for the page; each batch inherits its product's VAT.
-  useEffect(() => subscribeVaccines((docs) => setVaccines(docs), () => setVaccines([])), []);
+  // A failed catalog is flagged: without it every batch would read "Not
+  // classified", which would be a statement nothing checked.
+  useEffect(
+    () =>
+      subscribeVaccines(
+        (docs) => {
+          setVaccines(docs);
+          setCatalogError(false);
+        },
+        () => setCatalogError(true)
+      ),
+    []
+  );
   const vaccinesById = useMemo(() => new Map(vaccines.map((v) => [v.id, v])), [vaccines]);
   const inventoryWithVat = useMemo(
     () =>
@@ -548,7 +568,7 @@ function Inventory() {
         <section className="v2-inventory-summary-grid">
           <KpiCard
             label="Total batches"
-            value={loading ? "—" : inventory.length}
+            value={loading || loadError ? "—" : inventory.length}
             context="Across all vaccine types"
             tone="neutral"
             onClick={() => setStatusFilter("all")}
@@ -563,7 +583,7 @@ function Inventory() {
               and pricing are separate concerns, surfaced as row flags. */}
           <KpiCard
             label="Expired"
-            value={loading ? "—" : inventory.filter((i) => i.level === "expired").length}
+            value={loading || loadError ? "—" : inventory.filter((i) => i.level === "expired").length}
             context="Past expiry date — not orderable"
             tone="danger"
             attention
@@ -572,7 +592,7 @@ function Inventory() {
 
           <KpiCard
             label="Expiring within 30 days"
-            value={loading ? "—" : inventory.filter((i) => i.level === "critical").length}
+            value={loading || loadError ? "—" : inventory.filter((i) => i.level === "critical").length}
             context="By expiry date"
             tone="warning"
             onClick={() => setStatusFilter("critical")}
@@ -585,7 +605,7 @@ function Inventory() {
               promised. */}
           <KpiCard
             label="Expiring in 31–90 days"
-            value={loading ? "—" : inventory.filter((i) => i.level === "warning").length}
+            value={loading || loadError ? "—" : inventory.filter((i) => i.level === "warning").length}
             context="By expiry date"
             tone="neutral"
             onClick={() => setStatusFilter("warning")}
@@ -593,15 +613,15 @@ function Inventory() {
         </section>
 
         <section className="v2-hub-grid">
-          <StockOverviewCard groups={stockByType} loading={loading} />
+          <StockOverviewCard groups={stockByType} loading={loading} unavailable={Boolean(loadError)} />
 
-          <CriticalExpiringCard batches={criticalAndExpiring} loading={loading} />
+          <CriticalExpiringCard batches={criticalAndExpiring} loading={loading} unavailable={Boolean(loadError)} />
 
           <InventoryAlertCard
             critical={criticalCount}
             expiringSoon={expiringSoonCount}
             stable={stableCount}
-            loading={loading}
+            loading={loading || Boolean(loadError)}
           />
         </section>
 
@@ -791,7 +811,21 @@ function Inventory() {
             </div>
           )}
 
-          {!loading && filteredVaccines.length === 0 && (
+          {!loading && loadError && (
+            <div className="v2-empty-inventory" role="alert">
+              <Package size={28} />
+              <strong>Inventory unavailable</strong>
+              <p>{loadError}</p>
+            </div>
+          )}
+
+          {!loading && !loadError && catalogError && (
+            <p className="v2-catalog-notice" role="status">
+              Product VAT classifications could not be loaded, so they are not shown accurately here.
+            </p>
+          )}
+
+          {!loading && !loadError && filteredVaccines.length === 0 && (
             <div className="v2-empty-inventory">
               <Package size={28} />
               <strong>No vaccine batches found</strong>
@@ -1158,7 +1192,7 @@ function Inventory() {
   );
 }
 
-function StockOverviewCard({ groups, loading }) {
+function StockOverviewCard({ groups, loading, unavailable }) {
   return (
     <div className="v2-hub-card">
       <div className="v2-card-head">
@@ -1168,6 +1202,8 @@ function StockOverviewCard({ groups, loading }) {
 
       {loading ? (
         <p className="v2-stock-empty">Loading...</p>
+      ) : unavailable ? (
+        <p className="v2-stock-empty">Inventory could not be loaded.</p>
       ) : groups.length === 0 ? (
         <p className="v2-stock-empty">No inventory data yet. Add stock to see the overview.</p>
       ) : (
@@ -1187,7 +1223,7 @@ function StockOverviewCard({ groups, loading }) {
   );
 }
 
-function CriticalExpiringCard({ batches, loading }) {
+function CriticalExpiringCard({ batches, loading, unavailable }) {
   return (
     <div className="v2-hub-card v2-cold-card">
       <div className="v2-card-head">
@@ -1198,6 +1234,8 @@ function CriticalExpiringCard({ batches, loading }) {
       <div className="v2-cold-list">
         {loading ? (
           <div><span>Loading...</span></div>
+        ) : unavailable ? (
+          <div><span>Inventory could not be loaded.</span></div>
         ) : batches.length === 0 ? (
           <div><span>No critical or near-expiry batches</span></div>
         ) : (

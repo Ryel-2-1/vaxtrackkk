@@ -164,21 +164,28 @@ export function subscribeSalesRepOrders(uid, callback, onError) {
   );
 }
 
-export function subscribePendingDispatchOrders(callback) {
+// Live: every pending_dispatch order, re-delivered on every change (an
+// assignment here or in another browser removes the order from the next
+// snapshot). `onError` is optional; without it a failure is silent, as before.
+export function subscribePendingDispatchOrders(callback, onError) {
   const q = query(
     collection(db, ORDERS_COLLECTION),
     where("status", "==", "pending_dispatch")
   );
 
-  return onSnapshot(q, (snapshot) => {
-    // document id last — see the identity rule above
-    const orders = snapshot.docs.map((docItem) => ({
-      ...docItem.data(),
-      id: docItem.id,
-    }));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      // document id last — see the identity rule above
+      const orders = snapshot.docs.map((docItem) => ({
+        ...docItem.data(),
+        id: docItem.id,
+      }));
 
-    callback(orders);
-  });
+      callback(orders);
+    },
+    (error) => onError?.(error)
+  );
 }
 
 /**
@@ -186,10 +193,13 @@ export function subscribePendingDispatchOrders(callback) {
  * already phrased for display, so the page can surface it without translating.
  */
 export class AssignmentError extends Error {
-  constructor(code, message) {
+  // `details` is optional context for the page (e.g. the status the order was
+  // found in), never shown raw.
+  constructor(code, message, details) {
     super(message);
     this.name = "AssignmentError";
     this.code = code;
+    if (details !== undefined) this.details = details;
   }
 }
 
@@ -314,7 +324,9 @@ export async function assignRiderToOrder(orderId, riderUid) {
     if (order.status !== ASSIGNABLE_FROM_STATUS) {
       throw new AssignmentError(
         "order-not-pending",
-        "That order is no longer awaiting dispatch. Refresh the queue."
+        "That order is no longer awaiting dispatch. Refresh the queue.",
+        // Lets the page say whether it was assigned (by anyone) or cancelled.
+        { status: order.status ?? null }
       );
     }
     if (hasAssignedRider(order)) {

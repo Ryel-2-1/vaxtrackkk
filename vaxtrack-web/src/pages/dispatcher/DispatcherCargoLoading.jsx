@@ -15,7 +15,7 @@ import {
   subscribeCargoLoadingGroups,
   updateOrderLoadedState,
 } from "../../services/cargoLoadingService";
-import { getUserProfile } from "../../services/userService";
+import useOwnProfile from "../../components/profile/useOwnProfile";
 import {
   dispatchEligibility,
   SCHEDULED_DATE_NOT_REACHED,
@@ -24,6 +24,7 @@ import useManilaDayNow from "../../components/useManilaDayNow";
 import { auth } from "../../firebase";
 import StatusBadge from "../../components/ui/StatusBadge";
 import KpiCard from "../../components/ui/KpiCard";
+import { friendlyErrorMessage } from "../../services/liveDataErrors";
 import "./CargoLoading.css";
 
 // Loading-state badge shown on each rider card. Text + icon (not colour alone)
@@ -67,14 +68,17 @@ function DispatcherCargoLoading() {
   const [error, setError] = useState("");
   const now = useManilaDayNow();
 
-  const [dispatcher, setDispatcher] = useState(() => {
-    const user = auth.currentUser;
-    return {
-      uid: user?.uid || null,
-      email: user?.email || null,
-      name: user?.displayName || "",
-    };
-  });
+  // The signed-in dispatcher, for the printed loading sheet. The name comes
+  // from the LIVE own-profile listener (the same one My Profile and the
+  // sidebar use), so a rename shows on the next print without a reload; it
+  // used to be read once when the page opened.
+  const { profile: ownProfile } = useOwnProfile();
+  const authUser = auth.currentUser;
+  const dispatcher = {
+    uid: authUser?.uid || null,
+    email: authUser?.email || null,
+    name: ownProfile?.fullName || ownProfile?.name || ownProfile?.displayName || authUser?.displayName || "",
+  };
 
   const [savingOrders, setSavingOrders] = useState({}); // orderId -> true while writing
   const [finalizingRider, setFinalizingRider] = useState(null);
@@ -84,25 +88,6 @@ function DispatcherCargoLoading() {
   const [printGroup, setPrintGroup] = useState(null); // group being printed
   const [toast, setToast] = useState("");
   const [toastType, setToastType] = useState("success");
-
-  // Enrich the dispatcher name from the Firestore profile (async, so it does
-  // not count as a synchronous setState in the effect body).
-  useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) return;
-    getUserProfile(user.uid)
-      .then((profile) => {
-        if (profile) {
-          setDispatcher((prev) => ({
-            ...prev,
-            name: profile.fullName || profile.name || profile.displayName || prev.name,
-          }));
-        }
-      })
-      .catch(() => {
-        /* non-fatal: fall back to auth email */
-      });
-  }, []);
 
   // Live subscription to rider loading groups.
   useEffect(() => {
@@ -151,7 +136,7 @@ function DispatcherCargoLoading() {
       await updateOrderLoadedState(order.id, nextLoaded);
     } catch (err) {
       console.error("updateOrderLoadedState error:", err);
-      showToast(err.message || "Failed to save loaded state.", "error");
+      showToast(friendlyErrorMessage(err, "Failed to save loaded state."), "error");
     } finally {
       setSavingOrders((prev) => {
         const copy = { ...prev };
@@ -177,7 +162,7 @@ function DispatcherCargoLoading() {
       showToast(`Dispatch finalized for ${group.rider.name}.`, "success");
     } catch (err) {
       console.error("finalizeRiderDispatch error:", err);
-      showToast(err.message || "Failed to finalize dispatch.", "error");
+      showToast(friendlyErrorMessage(err, "Failed to finalize dispatch."), "error");
     } finally {
       setFinalizingRider(null);
     }

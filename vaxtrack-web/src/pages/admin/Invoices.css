@@ -1399,3 +1399,26 @@
   font-size: 13px;
   color: var(--gray-600);
 }
+
+/* Newer server data arrived while the form held unsaved edits. Amber: the
+   edits are kept, and loading the latest version is the admin's decision. */
+.inv-stale-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  color: var(--warning-text);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+.inv-stale-banner svg {
+  flex: none;
+}
+.inv-stale-banner span {
+  flex: 1 1 260px;
+}

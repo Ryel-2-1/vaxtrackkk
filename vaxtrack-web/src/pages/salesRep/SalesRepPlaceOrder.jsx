@@ -10,7 +10,7 @@ import {
   Trash2,
   Zap,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createOrderWithReservation } from "../../services/inventoryCallables";
 import {
@@ -31,6 +31,23 @@ import { auth } from "../../firebase";
 import { subscribeClinics } from "../../services/clinicService";
 import { subscribeDoctors } from "../../services/doctorService";
 import { subscribeDoctorAddresses } from "../../services/doctorAddressService";
+import { subscribeInventoryBatches } from "../../services/inventoryService";
+import { subscribeVaccinesByIds } from "../../services/vaccineCatalogService";
+import {
+  NEGOTIATED_PRICE_LABEL,
+  agreedInputFor,
+  negotiatedRequestLine,
+  priceReviewLine,
+  reviewProblems,
+  summarizeReviewVat,
+} from "../../services/negotiatedPricing";
+import {
+  acceptLiveLine,
+  cartBatchIds,
+  cartReview,
+  lineReview,
+  liveCartLines,
+} from "../../services/cartLiveStock";
 import useOwnProfile from "../../components/profile/useOwnProfile";
 import {
   NO_TERRITORY_MESSAGE,
@@ -65,16 +82,20 @@ function messageForCallableError(error) {
       const info = error.info;
       if (!info) return error.message;
       const batch = info.batchId ?? info.inventoryId;
-      return `The price of batch ${batch} changed from ${formatCentavos(
+      return `The standard price of batch ${batch} changed from ${formatCentavos(
         info.expectedUnitPriceCentavos
       )} to ${formatCentavos(
         info.currentUnitPriceCentavos
-      )} while you were ordering. Nothing was placed. Rebuild the cart from the catalog to order at the new price.`;
+      )} while you were ordering. Nothing was placed. Accept the new standard price on that line, check your agreed price, and confirm again.`;
     }
     case "batch-unpriced":
       return "One of these batches has no selling price yet. An admin needs to price it before it can be ordered.";
     case "price-not-confirmed":
       return "This cart was built before batch pricing. Please rebuild it from the catalog so the prices can be confirmed.";
+    case "adjustment-reason-required":
+      return "Give a reason for every negotiated price that differs from the standard price. Nothing was placed.";
+    case "invalid-agreed-price":
+      return "One of the agreed prices is not a valid amount. Correct it and confirm again. Nothing was placed.";
     case "inventory-migration-required":
       return "One of these batches still records its stock as text and needs an admin migration before it can be ordered.";
     case "idempotency-conflict":
@@ -203,6 +224,97 @@ function SalesRepPlaceOrder() {
 
   const [saving, setSaving] = useState(false);
   const [items, setItems] = useState(() => getInitialItems(uid));
+  // The cart's OWN batches as they are now — a listener on just those
+  // document ids, replaced when the cart's set of batches changes, never the
+  // whole inventory collection. See cartLiveStock.js: changes are shown and
+  // gate the checkout, but only the rep's explicit acceptance edits the cart.
+  const batchIdsKey = cartBatchIds(items).join("|");
+  const [liveStock, setLiveStock] = useState({ key: null, batches: null, todayIso: null, failed: false });
+  useEffect(() => {
+    if (!batchIdsKey) return undefined;
+    return subscribeInventoryBatches(
+      batchIdsKey.split("|"),
+      // Today (Manila) is read where the snapshot arrives, never in render.
+      (batches) => setLiveStock({ key: batchIdsKey, batches, todayIso: manilaToday(new Date()), failed: false }),
+      () => setLiveStock({ key: batchIdsKey, batches: null, todayIso: null, failed: true })
+    );
+  }, [batchIdsKey]);
+  const liveStatus = !batchIdsKey
+    ? "live"
+    : liveStock.key !== batchIdsKey
+      ? "loading"
+      : liveStock.failed
+        ? "failed"
+        : "live";
+  const displayItems = useMemo(
+    () => liveCartLines(items, liveStock.batches, liveStock.todayIso),
+    [items, liveStock]
+  );
+  const review = cartReview(displayItems, liveStatus);
+  const handleAcceptLine = (line) => setItems((current) => acceptLiveLine(current, line));
+
+  // ---- final price review (negotiated pricing; services/negotiatedPricing.js) ----
+  // The rep's agreed-price TEXT and reason per line, keyed by batch. A line
+  // with no entry is at its standard price. Nothing here is a total: every
+  // figure is derived from quantity × unit price in integer centavos, and the
+  // server recomputes all of it from the batch it re-reads.
+  const [negotiation, setNegotiation] = useState({});
+  // The cart's vaccine products, for the full SKU and the CURRENT VAT class
+  // the server will snapshot (only these products, never the whole catalog).
+  const vaccineIdsKey = [
+    ...new Set((liveStock.batches || []).map((b) => b.vaccineId).filter((id) => typeof id === "string" && id)),
+  ]
+    .sort()
+    .join("|");
+  const [catalog, setCatalog] = useState({ key: null, byId: new Map() });
+  useEffect(() => {
+    if (!vaccineIdsKey) return undefined;
+    return subscribeVaccinesByIds(
+      vaccineIdsKey.split("|"),
+      (docs) => setCatalog({ key: vaccineIdsKey, byId: new Map(docs.map((d) => [d.id, d])) }),
+      () => setCatalog({ key: vaccineIdsKey, byId: new Map() })
+    );
+  }, [vaccineIdsKey]);
+  const reviewLines = useMemo(() => {
+    const batchById = new Map((liveStock.batches || []).map((b) => [b.id, b]));
+    return displayItems.map((item) => {
+      const vaccine = catalog.byId.get(batchById.get(item.inventoryId)?.vaccineId);
+      const vatClassification = readVatClassification(vaccine?.vatClassification) ?? item.vatClassification ?? null;
+      const entry = negotiation[item.sku] || {};
+      return {
+        item,
+        catalogSku: typeof vaccine?.internalSku === "string" && vaccine.internalSku.trim() ? vaccine.internalSku.trim() : null,
+        vatClassification,
+        agreedText: entry.agreedInput ?? agreedInputFor(item.expectedUnitPriceCentavos),
+        reasonText: entry.reason ?? "",
+        price: priceReviewLine({
+          quantity: item.quantity,
+          expectedUnitPriceCentavos: item.expectedUnitPriceCentavos,
+          vatClassification,
+          agreedInput: entry.agreedInput,
+          adjustmentReason: entry.reason ?? "",
+        }),
+      };
+    });
+  }, [displayItems, liveStock, catalog, negotiation]);
+  const priceSummary = summarizeReviewVat(reviewLines.map((l) => l.price));
+  const pricingCheck = reviewProblems(reviewLines.map((l) => l.price));
+  const reviewBySku = new Map(reviewLines.map((l) => [l.item.sku, l]));
+  const setAgreedInput = (sku, agreedInput) =>
+    setNegotiation((current) => ({ ...current, [sku]: { ...current[sku], agreedInput } }));
+  const setAdjustmentReason = (sku, reason) =>
+    setNegotiation((current) => ({ ...current, [sku]: { ...current[sku], reason } }));
+  // Reset to standard price: the line follows the standard again, reason dropped.
+  const resetToStandard = (sku) =>
+    setNegotiation((current) => {
+      const next = { ...current };
+      delete next[sku];
+      return next;
+    });
+  /** The reconfirmation dialog is open. Nothing is sent until it is confirmed. */
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  /** Set only by the dialog's Confirm button, immediately before it submits. */
+  const reconfirmedRef = useRef(false);
 
   /** Synchronous re-entry guard — see handleFinalizeOrder. */
   const submittingRef = useRef(false);
@@ -413,38 +525,21 @@ function SalesRepPlaceOrder() {
 
   const filteredItems = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
-    return items.filter(
+    return displayItems.filter(
       (item) =>
         item.name.toLowerCase().includes(query) ||
         item.sku.toLowerCase().includes(query) ||
         item.chain.toLowerCase().includes(query)
     );
-  }, [items, searchTerm]);
+  }, [displayItems, searchTerm]);
 
   const totalQuantity = items.reduce((total, item) => total + item.quantity, 0);
   // Any line asking for more than its batch showed as available becomes (at
   // least partly) a future order. An indication only; the server decides.
-  const mayBackorder = items.some(
+  const mayBackorder = displayItems.some(
     (item) => item.availableNow !== null && item.quantity > item.availableNow
   );
 
-  /**
-   * The cart's subtotal, in centavos — an ESTIMATE, and labelled as one on
-   * screen. Prices are VAT-inclusive for VATable products: no VAT is added.
-   *
-   * The authoritative subtotal is the one the server computes from the batches
-   * inside the reservation transaction and writes onto the order. This figure
-   * exists so the rep can see what they are about to commit to; if it disagrees
-   * with the server the checkout is refused with `price-changed` rather than
-   * quietly reconciled. Null when any line has no readable price, because a
-   * partial total is a wrong total.
-   */
-  const subtotalCentavos = items.some((item) => item.expectedUnitPriceCentavos === null)
-    ? null
-    : items.reduce(
-        (total, item) => total + item.expectedUnitPriceCentavos * item.quantity,
-        0
-      );
 
   const handleQuantityChange = (sku, action) => {
     setItems((current) =>
@@ -459,6 +554,7 @@ function SalesRepPlaceOrder() {
 
   const handleRemoveItem = (sku) => {
     setItems((current) => current.filter((item) => item.sku !== sku));
+    resetToStandard(sku);
   };
 
   // Discarding a pending attempt is the ONLY way its request id is ever
@@ -488,7 +584,12 @@ function SalesRepPlaceOrder() {
     );
   };
 
+  // First call (Finalize): validate, then open the reconfirmation dialog.
+  // From the dialog (reconfirmedRef set): validate again and send. The flag is
+  // read once and cleared, so one confirmation authorises exactly one send.
   const handleFinalizeOrder = async () => {
+    const confirmed = reconfirmedRef.current;
+    reconfirmedRef.current = false;
     // Synchronous re-entry guard, BEFORE any state update or await.
     //
     // `disabled={saving}` is feedback, not concurrency control: setSaving is a
@@ -501,6 +602,28 @@ function SalesRepPlaceOrder() {
     if (items.length === 0) {
       submittingRef.current = false;
       setMessage("Add at least one order item before finalizing.");
+      return;
+    }
+
+    // Changed prices, a new shortfall, or a batch that can no longer be
+    // ordered must be reviewed first. A fast guard only: the server re-reads
+    // every batch and refuses a price that is not the current one regardless.
+    if (review.blocked) {
+      submittingRef.current = false;
+      setMessage(
+        review.checking
+          ? "Checking current prices and stock — please wait."
+          : "Review the highlighted items before finalizing: accept the current price or stock, or remove items that can no longer be ordered."
+      );
+      return;
+    }
+
+    // Every agreed price must be a valid amount and every negotiated line
+    // explained. The server refuses either problem itself; this says so first.
+    if (!pricingCheck.ok) {
+      submittingRef.current = false;
+      setConfirmOpen(false);
+      setMessage(`Check the final price review: ${pricingCheck.problems[0]}`);
       return;
     }
 
@@ -571,6 +694,15 @@ function SalesRepPlaceOrder() {
       return;
     }
 
+    // Explicit reconfirmation: the dialog shows every line, price, reason and
+    // the VAT breakdown, and nothing is sent until the rep confirms it.
+    if (!confirmed) {
+      submittingRef.current = false;
+      setMessage("");
+      setConfirmOpen(true);
+      return;
+    }
+
     // Everything the rep is submitting — including priority, instructions and
     // the requested date, which the server fingerprint ignores. It is saved
     // with the request id before the call, and a retry must match it.
@@ -580,10 +712,12 @@ function SalesRepPlaceOrder() {
       priority: urgent ? "Urgent" : "Standard",
       deliveryInstructions: instructions.trim(),
       requestedDeliveryDate: requestedCheck.value,
+      // Per line: the reviewed standard, the agreed UNIT price and (only when
+      // negotiated) its reason. No total and no VAT figure is ever sent.
       items: items.map((item) => ({
         inventoryId: item.inventoryId,
         quantity: Number(item.quantity),
-        expectedUnitPriceCentavos: item.expectedUnitPriceCentavos,
+        ...negotiatedRequestLine(item, reviewBySku.get(item.sku).price),
       })),
     };
 
@@ -652,6 +786,9 @@ function SalesRepPlaceOrder() {
       if (error?.code === "draft-changed" || error?.code === "idempotency-conflict") {
         setAttemptConflict(true);
       }
+      // Back to the review. On price-changed the live listener has already
+      // flagged the line; the rep accepts the new standard and confirms again.
+      setConfirmOpen(false);
       setMessage(messageForCallableError(error));
     } finally {
       setSaving(false);
@@ -749,6 +886,23 @@ function SalesRepPlaceOrder() {
               <span>{items.length} {items.length === 1 ? "Item" : "Items"} Selected</span>
             </div>
 
+            {review.pending.length > 0 && (
+              <p className="place-v2-live-notice" role="alert">
+                {review.pending.length === 1
+                  ? "1 item changed since it was added to your cart."
+                  : `${review.pending.length} items changed since they were added to your cart.`}{" "}
+                Review the highlighted {review.pending.length === 1 ? "item" : "items"}: accept the current price or
+                stock, or remove what can no longer be ordered. Nothing in your cart was changed, and the order
+                cannot be finalized until this is done.
+              </p>
+            )}
+            {review.unverified && (
+              <p className="place-v2-live-notice" role="status">
+                Current prices and stock could not be checked here. They will be confirmed against each batch
+                when the order is placed, and an outdated price is refused.
+              </p>
+            )}
+
             <table>
               <thead>
                 <tr>
@@ -767,6 +921,9 @@ function SalesRepPlaceOrder() {
                     <OrderRow
                       key={item.sku}
                       item={item}
+                      price={reviewBySku.get(item.sku)?.price}
+                      review={lineReview(item)}
+                      onAccept={() => handleAcceptLine(item)}
                       onDecrease={() => handleQuantityChange(item.sku, "decrease")}
                       onIncrease={() => handleQuantityChange(item.sku, "increase")}
                       onRemove={() => handleRemoveItem(item.sku)}
@@ -791,6 +948,14 @@ function SalesRepPlaceOrder() {
               </p>
             </div>
           </div>
+
+          <PriceReview
+            lines={reviewLines}
+            disabled={saving}
+            onAgreedChange={setAgreedInput}
+            onReasonChange={setAdjustmentReason}
+            onReset={resetToStandard}
+          />
         </div>
 
         <aside className="place-order-side place-v2-side">
@@ -939,15 +1104,10 @@ function SalesRepPlaceOrder() {
               <strong>{urgent ? "Urgent" : "Standard"}</strong>
             </p>
 
-            {/* Named "estimated" on purpose, with its VAT convention stated:
-                the server writes the binding figure, and VAT is never added on
-                top of a VAT-inclusive price. */}
-            <p>
-              Estimated subtotal
-              <strong className="tnum">
-                {subtotalCentavos === null ? "—" : formatCentavos(subtotalCentavos)}
-              </strong>
-            </p>
+            {/* The VAT breakdown of the AGREED prices. VAT is extracted from
+                the VAT-inclusive VATable total (12/112), never added on top;
+                the server records the binding figures. */}
+            <VatBreakdown summary={priceSummary} />
             <p className="place-v2-price-note">
               {VAT_INCLUSIVE_NOTE} Prices are confirmed against the batch when
               the order is placed.
@@ -965,7 +1125,7 @@ function SalesRepPlaceOrder() {
 
             <button
               type="button"
-              onClick={handleFinalizeOrder}
+              onClick={() => handleFinalizeOrder()}
               disabled={
                 saving ||
                 items.length === 0 ||
@@ -973,11 +1133,23 @@ function SalesRepPlaceOrder() {
                 !territory.assigned ||
                 addressesLoading ||
                 !selectedDoctor ||
-                !selectedDestination
+                !selectedDestination ||
+                review.blocked ||
+                !pricingCheck.ok
               }
             >
-              {saving ? "Saving Order..." : "Finalize Order →"}
+              {saving ? "Saving Order..." : review.checking ? "Checking prices…" : "Review & Finalize →"}
             </button>
+            {!pricingCheck.ok && (
+              <p className="place-v2-review-hint" role="status">
+                {pricingCheck.problems[0]}
+              </p>
+            )}
+            {!review.checking && review.pending.length > 0 && (
+              <p className="place-v2-review-hint" role="status">
+                Review the highlighted {review.pending.length === 1 ? "item" : "items"} to continue.
+              </p>
+            )}
 
             <small>
               By clicking finalize, you confirm this order complies with medical distribution regulations.
@@ -985,6 +1157,21 @@ function SalesRepPlaceOrder() {
           </div>
         </aside>
       </section>
+
+      {confirmOpen && (
+        <ReconfirmDialog
+          doctorName={selectedDoctor?.name ?? ""}
+          destination={selectedDestination ? `${selectedDestination.name}${selectedDestination.address ? ` — ${selectedDestination.address}` : ""}` : ""}
+          lines={reviewLines}
+          summary={priceSummary}
+          saving={saving}
+          onCancel={() => setConfirmOpen(false)}
+          onConfirm={() => {
+            reconfirmedRef.current = true;
+            handleFinalizeOrder();
+          }}
+        />
+      )}
     </>
   );
 }
@@ -999,12 +1186,35 @@ function stockText(item) {
   return `Available: ${vials(item.availableNow)}`;
 }
 
-function OrderRow({ item, onDecrease, onIncrease, onRemove }) {
+function OrderRow({ item, price, review, onAccept, onDecrease, onIncrease, onRemove }) {
   return (
-    <tr>
+    <tr className={review ? "place-v2-row-review" : undefined}>
       <td>
         <strong>{item.name}</strong>
-        {item.availableNow !== null && <small>{stockText(item)}</small>}
+        {item.batchGone ? (
+          <small className="place-v2-line-alert">This batch is no longer available. Remove it to continue.</small>
+        ) : item.liveBlockedReason ? (
+          <small className="place-v2-line-alert">{item.liveBlockedReason} Remove it to continue.</small>
+        ) : (
+          item.availableNow !== null && <small>{stockText(item)}</small>
+        )}
+        {item.live && item.priceChanged && (
+          <small className="place-v2-line-alert">
+            {item.livePriceCentavos === null
+              ? "This batch no longer has a price. Remove it to continue."
+              : `Price changed: ${formatCentavos(item.expectedUnitPriceCentavos)} in your cart, ${formatCentavos(item.livePriceCentavos)} now.`}
+          </small>
+        )}
+        {review === "accept-stock" && (
+          <small className="place-v2-line-alert">
+            Stock changed: you saw {Number(item.cartAvailable).toLocaleString()} available; part of this line would now be backordered.
+          </small>
+        )}
+        {(review === "accept-price" || review === "accept-stock") && (
+          <button type="button" className="place-v2-accept-btn" onClick={onAccept}>
+            {review === "accept-price" ? `Accept ${formatCentavos(item.livePriceCentavos)}` : "Accept current stock"}
+          </button>
+        )}
         <small className="place-v2-vat">
           {item.vatClassification ? PRODUCT_VAT_LABELS[item.vatClassification] : "VAT status confirmed when placed"}
         </small>
@@ -1022,16 +1232,16 @@ function OrderRow({ item, onDecrease, onIncrease, onRemove }) {
         </div>
       </td>
 
-      {/* Both figures come from the catalog snapshot, and the server will
-          confirm the unit price against the live batch before anything is
-          placed. A line whose price could not be read shows a dash rather than
-          a zero — zero is a price, and this is the absence of one. */}
-      <td className="tnum">{formatCentavos(item.expectedUnitPriceCentavos)}</td>
+      {/* The AGREED price (the standard unless negotiated below). A line
+          whose price could not be read shows a dash rather than a zero — zero
+          is a price, and this is the absence of one. */}
+      <td className="tnum">
+        {price?.agreedUnitPriceCentavos != null ? formatCentavos(price.agreedUnitPriceCentavos) : "—"}
+        {price?.priceAdjusted && <small className="place-v2-negotiated-tag">{NEGOTIATED_PRICE_LABEL}</small>}
+      </td>
 
       <td className="tnum">
-        {item.expectedUnitPriceCentavos === null
-          ? "—"
-          : formatCentavos(item.expectedUnitPriceCentavos * item.quantity)}
+        {price?.agreedLineTotalCentavos != null ? formatCentavos(price.agreedLineTotalCentavos) : "—"}
       </td>
 
       <td>
@@ -1040,6 +1250,245 @@ function OrderRow({ item, onDecrease, onIncrease, onRemove }) {
         </button>
       </td>
     </tr>
+  );
+}
+
+/** Signed peso amount for an adjustment ("−₱450.00" / "+₱50.00" / "₱0.00"). */
+function formatAdjustment(centavos) {
+  if (centavos === null || centavos === undefined) return "—";
+  if (centavos === 0) return "₱0.00";
+  const sign = centavos < 0 ? "−" : "+";
+  return `${sign}${formatCentavos(Math.abs(centavos))}`;
+}
+
+function vatLabelFor(cls) {
+  return cls ? PRODUCT_VAT_LABELS[cls] : "VAT status confirmed when placed";
+}
+
+/**
+ * The final price review: per line, the standard price and an editable AGREED
+ * unit price (VAT-inclusive), with totals derived in integers. There is no
+ * total input; a mixed order is negotiated line by line.
+ */
+function PriceReview({ lines, disabled, onAgreedChange, onReasonChange, onReset }) {
+  if (lines.length === 0) return null;
+  return (
+    <section className="place-v2-price-review" aria-labelledby="price-review-title">
+      <div className="place-v2-price-review-head">
+        <h2 id="price-review-title">Final price review</h2>
+        <p>
+          Confirm each line&apos;s agreed unit price. Prices are VAT-inclusive for VATable products; change
+          a price only when it has been agreed with the client, and give the reason.
+        </p>
+      </div>
+      <ul className="place-v2-price-lines">
+        {lines.map(({ item, catalogSku, vatClassification, agreedText, reasonText, price }) => {
+          const inputId = `agreed-${item.sku}`;
+          const reasonId = `reason-${item.sku}`;
+          const errorId = `agreed-error-${item.sku}`;
+          return (
+            <li key={item.sku} className={`place-v2-price-line${price.priceAdjusted ? " negotiated" : ""}`}>
+              <div className="place-v2-price-product">
+                <strong>{item.name}</strong>
+                <span className="place-v2-price-meta">
+                  {catalogSku ? <>SKU {catalogSku} · </> : null}Batch {item.sku} · Qty {item.quantity.toLocaleString()}
+                </span>
+                <span className="place-v2-price-meta">
+                  {vatLabelFor(vatClassification)}
+                  {vatClassification === "vatable" && " · VAT included"}
+                </span>
+                {price.priceAdjusted && <span className="place-v2-negotiated-tag">{NEGOTIATED_PRICE_LABEL}</span>}
+              </div>
+
+              <dl className="place-v2-price-figures">
+                <div>
+                  <dt>Standard unit price</dt>
+                  <dd className="tnum">{formatCentavos(price.standardUnitPriceCentavos)}</dd>
+                </div>
+                <div>
+                  <dt>Standard line total</dt>
+                  <dd className="tnum">{formatCentavos(price.standardLineTotalCentavos)}</dd>
+                </div>
+                <div>
+                  <dt>Agreed line total</dt>
+                  <dd className="tnum">{price.agreedLineTotalCentavos != null ? formatCentavos(price.agreedLineTotalCentavos) : "—"}</dd>
+                </div>
+                <div>
+                  <dt>Adjustment</dt>
+                  <dd className="tnum">{formatAdjustment(price.adjustmentCentavos)}</dd>
+                </div>
+              </dl>
+
+              <div className="place-v2-price-edit">
+                <label htmlFor={inputId}>
+                  Agreed unit price (VAT-inclusive) for {item.name}
+                </label>
+                <div className="place-v2-price-input">
+                  <span aria-hidden="true">₱</span>
+                  <input
+                    id={inputId}
+                    type="text"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={agreedText}
+                    disabled={disabled}
+                    aria-invalid={price.priceError ? "true" : "false"}
+                    aria-describedby={price.priceError ? errorId : undefined}
+                    onChange={(event) => onAgreedChange(item.sku, event.target.value)}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="place-v2-reset-btn"
+                  onClick={() => onReset(item.sku)}
+                  disabled={disabled || (!price.priceAdjusted && !price.priceError)}
+                  aria-label={`Reset ${item.name} to the standard price`}
+                >
+                  Reset to standard price
+                </button>
+                {price.priceError && (
+                  <p id={errorId} className="place-v2-price-error" role="alert">
+                    {price.priceError}
+                  </p>
+                )}
+              </div>
+
+              {price.priceAdjusted && (
+                <div className="place-v2-price-reason">
+                  <label htmlFor={reasonId}>Reason for the negotiated price (required)</label>
+                  <textarea
+                    id={reasonId}
+                    rows={2}
+                    maxLength={500}
+                    value={reasonText}
+                    disabled={disabled}
+                    aria-invalid={price.reasonError ? "true" : "false"}
+                    onChange={(event) => onReasonChange(item.sku, event.target.value)}
+                    placeholder="e.g. Volume agreement with the clinic"
+                  />
+                  {price.reasonError && (
+                    <p className="place-v2-price-error" role="alert">
+                      {price.reasonError}
+                    </p>
+                  )}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/** VAT breakdown of the agreed totals; every figure reconciles to the final total. */
+function VatBreakdown({ summary }) {
+  if (!summary) {
+    return (
+      <p className="place-v2-price-note" role="status">
+        The VAT breakdown appears once every line has a valid agreed price and VAT classification.
+      </p>
+    );
+  }
+  return (
+    <dl className="place-v2-vat-breakdown">
+      <div>
+        <dt>VATable sales (net of VAT)</dt>
+        <dd className="tnum">{formatCentavosOrZero(summary.vatableSalesCentavos)}</dd>
+      </div>
+      <div>
+        <dt>VAT-exempt sales</dt>
+        <dd className="tnum">{formatCentavosOrZero(summary.vatExemptSalesCentavos)}</dd>
+      </div>
+      <div>
+        <dt>Zero-rated sales</dt>
+        <dd className="tnum">{formatCentavosOrZero(summary.zeroRatedSalesCentavos)}</dd>
+      </div>
+      <div>
+        <dt>VAT (12%)</dt>
+        <dd className="tnum">{formatCentavosOrZero(summary.vatAmountCentavos)}</dd>
+      </div>
+      {summary.adjustmentCentavos !== 0 && (
+        <div>
+          <dt>Standard total</dt>
+          <dd className="tnum">{formatCentavosOrZero(summary.standardTotalCentavos)}</dd>
+        </div>
+      )}
+      <div className="place-v2-final-total">
+        <dt>Final total (VAT-inclusive)</dt>
+        <dd className="tnum">{formatCentavosOrZero(summary.totalCentavos)}</dd>
+      </div>
+    </dl>
+  );
+}
+
+/** formatCentavos shows "—" for zero (not a price); a breakdown line of ₱0.00 is real. */
+function formatCentavosOrZero(centavos) {
+  return centavos === 0 ? "₱0.00" : formatCentavos(centavos);
+}
+
+/**
+ * Explicit reconfirmation before the order is created: who and where, every
+ * line with its classification, standard vs agreed price and reason where
+ * negotiated, the VAT breakdown and the final total.
+ */
+function ReconfirmDialog({ doctorName, destination, lines, summary, saving, onCancel, onConfirm }) {
+  const focusFirst = useCallback((node) => node?.focus(), []);
+  return (
+    <div className="place-v2-confirm-backdrop">
+      <div
+        className="place-v2-confirm"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="reconfirm-title"
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && !saving) onCancel();
+        }}
+      >
+        <h2 id="reconfirm-title" tabIndex={-1} ref={focusFirst}>
+          Confirm order and prices
+        </h2>
+        <p className="place-v2-confirm-dest">
+          <strong>{doctorName}</strong>
+          <span>{destination}</span>
+        </p>
+        <ul className="place-v2-confirm-lines">
+          {lines.map(({ item, vatClassification, price }) => (
+            <li key={item.sku}>
+              <div>
+                <strong>{item.name}</strong>
+                <span>
+                  Qty {item.quantity.toLocaleString()} · {vatLabelFor(vatClassification)}
+                </span>
+              </div>
+              <div className="tnum">
+                {price.priceAdjusted ? (
+                  <>
+                    <span>
+                      {NEGOTIATED_PRICE_LABEL}: {formatCentavos(price.agreedUnitPriceCentavos)}
+                      <small> (standard {formatCentavos(price.standardUnitPriceCentavos)})</small>
+                    </span>
+                    <span className="place-v2-confirm-reason">Reason: {price.adjustmentReason}</span>
+                  </>
+                ) : (
+                  <span>{formatCentavos(price.agreedUnitPriceCentavos)} each</span>
+                )}
+                <strong>{formatCentavos(price.agreedLineTotalCentavos)}</strong>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <VatBreakdown summary={summary} />
+        <div className="place-v2-confirm-actions">
+          <button type="button" className="place-v2-add-more" onClick={onCancel} disabled={saving}>
+            Back to review
+          </button>
+          <button type="button" className="place-v2-confirm-btn" onClick={onConfirm} disabled={saving} aria-busy={saving}>
+            {saving ? "Placing order…" : "Confirm and place order"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

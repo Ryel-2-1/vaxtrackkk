@@ -18,6 +18,7 @@ import {
 } from "../../services/invoiceService";
 import { toCsv, downloadCsv } from "../../utils/csv";
 import KpiCard from "../../components/ui/KpiCard";
+import { friendlyErrorMessage } from "../../services/liveDataErrors";
 import "./Invoices.css";
 
 const PRIORITY_OPTIONS = ["Normal", "High", "Urgent"];
@@ -113,7 +114,7 @@ function Invoices() {
       });
       showToast(`Priority set to ${priority}.`, "success");
     } catch (err) {
-      showToast(err.message || "Failed to update priority.", "error");
+      showToast(friendlyErrorMessage(err, "Failed to update priority."), "error");
     } finally {
       setUpdatingPriority("");
     }

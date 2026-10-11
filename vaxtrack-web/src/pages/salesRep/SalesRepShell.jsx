@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { auth } from "../../firebase";
 import SidebarProfile from "../../components/shell/SidebarProfile";
+import OfflineNotice from "../../components/shell/OfflineNotice";
 import "./SalesRep.css";
 
 /**
@@ -314,6 +315,7 @@ function SalesRepShell() {
             <Outlet />
           </div>
         </Suspense>
+        <OfflineNotice />
       </main>
     </div>
   );

@@ -224,3 +224,69 @@ export function countByState(fleet) {
   for (const r of fleet) counts[r.state] += 1;
   return counts;
 }
+
+// ---------------------------------------------------------------- Dispatcher dashboard overview
+
+/** How many riders the dashboard overview lists before "+ N more riders". */
+export const OVERVIEW_RIDER_LIMIT = 3;
+
+/** Uids of riders carrying at least one active (tracked) order. */
+export function riderUidsOnDelivery(orders) {
+  const uids = new Set();
+  for (const o of orders || []) {
+    const uid = o?.assignedRiderId;
+    if (typeof uid === "string" && uid !== "" && isTrackedStatus(o.status ?? o.rawStatus)) uids.add(uid);
+  }
+  return uids;
+}
+
+/**
+ * Riders genuinely free to take a delivery: approved accounts not currently
+ * carrying an active order. (Not derived from live locations.)
+ */
+export function availableRiderCount(riders, orders) {
+  const busy = riderUidsOnDelivery(orders);
+  return (riders || []).filter((r) => r?.status === "approved" && !busy.has(r.uid)).length;
+}
+
+/**
+ * Which view the overview shows. Errors are never shown as an empty result,
+ * and nothing is counted while the feeds are still loading.
+ *   permission | error | loading | empty (no rider on delivery)
+ *   waiting (riders on delivery, none has a position) | live
+ */
+export function trackingOverviewState({ error, orders, locations, fleet }) {
+  if (error === "permission") return "permission";
+  if (error) return "error";
+  if (!orders || !locations) return "loading";
+  if (!fleet || fleet.length === 0) return "empty";
+  if (!fleet.some((r) => r.latLng)) return "waiting";
+  return "live";
+}
+
+/**
+ * The overview's rider rows: the first `limit` riders in fleet order (most
+ * urgent state first, then by name — buildFleet), and a "+ N more riders"
+ * label for the rest. State and label come from buildFleet / MARKER_LABELS.
+ */
+export function trackingOverviewRows(fleet, nowMs, limit = OVERVIEW_RIDER_LIMIT) {
+  const list = fleet || [];
+  const rows = list.slice(0, limit).map((r) => {
+    const count = r.orders.length;
+    return {
+      uid: r.uid,
+      name: r.name,
+      state: r.state,
+      label: MARKER_LABELS[r.state],
+      deliveryLabel: `${count} ${count === 1 ? "delivery" : "deliveries"}`,
+      orderNumbers: r.orders.map((o) => o.orderNumber).join(", "),
+      age: formatAge(r.locationAtMs, nowMs),
+    };
+  });
+  const moreCount = Math.max(0, list.length - limit);
+  return {
+    rows,
+    moreCount,
+    moreLabel: moreCount > 0 ? `+ ${moreCount} more rider${moreCount === 1 ? "" : "s"}` : null,
+  };
+}

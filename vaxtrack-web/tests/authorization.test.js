@@ -257,10 +257,20 @@ test("the guards read users/{auth.uid} and nothing else", () => {
     "src/components/DispatcherRoute.jsx",
   ]) {
     const src = read(guard);
-    assert.match(src, /getDoc\(doc\(db, "users", user\.uid\)\)/, guard);
+    // The profile is watched (onSnapshot) at users/{uid}, where uid is the one
+    // the shared watcher hands over — the AUTH user's (asserted below).
+    assert.match(src, /subscribeProfile: \(uid, onProfile, onError\) =>\s*onSnapshot\(\s*doc\(db, "users", uid\)/, guard);
     for (const forbidden of ["employeeId", "where(", "query(", "data.uid", "data().id"]) {
       assert.equal(src.includes(forbidden), false, `${guard} must not consult ${forbidden}`);
     }
+  }
+});
+
+test("the shared route watcher keys the profile on the auth user's uid", () => {
+  const src = read("src/services/liveRouteAccess.js");
+  assert.match(src, /stopProfile = subscribeProfile\(\s*user\.uid,/);
+  for (const forbidden of ["employeeId", "where(", "query(", "data.uid", "data().id"]) {
+    assert.equal(src.includes(forbidden), false, `liveRouteAccess must not consult ${forbidden}`);
   }
 });
 

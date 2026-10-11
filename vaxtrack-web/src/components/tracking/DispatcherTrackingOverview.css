@@ -1,0 +1,284 @@
+/* Dispatcher dashboard › Active delivery overview ("dto-" classes, private to
+   DispatcherTrackingOverview). Content-driven height: no fixed or minimum
+   height anywhere. Tokens only (tokens.css). */
+
+/* The main grid stretches its cards to the tallest one, which left this card
+   with a large blank area under short content. This card sizes to its
+   content instead. */
+.dispatcher-dash-main-grid > .dispatcher-dash-monitor-card.dto {
+  align-self: start;
+}
+
+.dto-body {
+  padding: 16px 20px;
+}
+
+.dto-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.dto-map-col,
+.dto-list-col {
+  min-width: 0;
+}
+
+/* The map is a preview, not a viewport-sized map. */
+.dto-map {
+  width: 100%;
+  height: 300px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  background: var(--gray-100);
+  overflow: hidden;
+}
+
+.dto-waiting {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  background: var(--gray-50);
+  color: var(--gray-600);
+}
+
+.dto-waiting strong {
+  color: var(--gray-900);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dto-waiting p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.dto-h {
+  margin: 0 0 8px;
+  color: var(--gray-900);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.dto-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.dto-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--gray-100);
+  min-width: 0;
+}
+
+.dto-row:first-child {
+  padding-top: 0;
+}
+
+.dto-row-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dto-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--gray-900);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dto-row-main .ltp-badge {
+  flex: none;
+}
+
+.dto-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin-top: 4px;
+  min-width: 0;
+  color: var(--gray-500);
+  font-size: 13px;
+}
+
+/* Long order identifiers truncate instead of widening the card. */
+.dto-orders {
+  flex: 1 1 8ch;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dto-age {
+  white-space: nowrap;
+}
+
+.dto-more {
+  margin: 8px 0 0;
+  color: var(--gray-600);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.dto-note {
+  margin: 8px 0 0;
+  color: var(--warning-text);
+  font-size: 13px;
+}
+
+.dto-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 40px;
+  margin-top: 12px;
+  padding: 0 14px;
+  border: 1px solid var(--gray-300);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--gray-900);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.dto-open:hover {
+  background: var(--gray-50);
+}
+
+.dto-open:focus-visible,
+.dto .dto-retry:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 1px;
+}
+
+/* Loading / empty / error: compact, one line where possible. */
+.dto-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0;
+  color: var(--gray-600);
+  font-size: 13px;
+}
+
+.dto-state p {
+  margin: 0;
+}
+
+.dto-state .dto-open {
+  margin-top: 0;
+}
+
+.dto-state-error {
+  color: var(--danger-text);
+}
+
+/* Out-specifies the global button min-height reset (styles.css). */
+.dto .dto-retry {
+  min-height: 36px !important;
+  padding: 0 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--gray-900);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dto-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  border-top: 1px solid var(--gray-200);
+}
+
+.dto-cell {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: center;
+  padding: 14px 18px;
+  border-right: 1px solid var(--gray-200);
+  color: var(--green-700);
+  min-width: 0;
+}
+
+.dto-cell:last-child {
+  border-right: 0;
+}
+
+.dto-cell svg {
+  grid-row: span 2;
+}
+
+.dto-cell dt {
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.dto-cell dd {
+  margin: 2px 0 0;
+  color: var(--gray-900);
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.dto-cell .dto-dd-danger {
+  color: var(--danger-text);
+}
+
+/* Narrow: map above the rider list. */
+@media (max-width: 760px) {
+  .dto-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dto-map {
+    height: 260px;
+  }
+
+  .dto-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dto-cell {
+    border-right: 0;
+    border-bottom: 1px solid var(--gray-200);
+  }
+
+  .dto-cell:last-child {
+    border-bottom: 0;
+  }
+}
+
+@media (max-width: 420px) {
+  .dto-body {
+    padding: 14px 16px;
+  }
+
+  .dto-row-main {
+    flex-wrap: wrap;
+  }
+}

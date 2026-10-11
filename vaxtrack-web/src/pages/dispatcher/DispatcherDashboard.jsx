@@ -4,39 +4,28 @@ import { subscribePendingDispatchOrders } from "../../services/orderService";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeRiders } from "../../services/riderService";
 import { subscribeActiveAlerts } from "../../services/alertService";
-import { isoDateOnly, manilaToday } from "../../services/deliveryCalendar";
+import { manilaToday } from "../../services/deliveryCalendar";
 import {
+  comparePending,
   dispatchEligibility,
   partitionPendingDispatch,
+  requestedDateMeta,
   SCHEDULED_DATE_MISSING,
 } from "../../services/dispatchEligibility";
 import useManilaDayNow from "../../components/useManilaDayNow";
 import {
   AlertTriangle,
   CalendarClock,
-  Clock3,
-  Info,
   Loader2,
-  Navigation,
   PackageCheck,
-  ShieldCheck,
   Truck,
   UserPlus,
 } from "lucide-react";
 import KpiCard from "../../components/ui/KpiCard";
+import { liveErrorMessage } from "../../services/liveDataErrors";
+import DispatcherTrackingOverview from "../../components/tracking/DispatcherTrackingOverview";
+import { availableRiderCount } from "../../services/riderTracking";
 import { assignmentBlockReason } from "../../services/backorder";
-
-// How a pending order relates to its requested delivery date, measured against
-// today (Manila). `none` = the order carries no valid date — such an order is
-// never actionable (it sits in Needs scheduling), so the live queue only ever
-// sees `overdue` and `today`.
-function requestedDateMeta(order, today) {
-  const iso = isoDateOnly(order?.requestedDeliveryDate);
-  if (!iso) return { kind: "none", iso: null };
-  if (iso < today) return { kind: "overdue", iso };
-  if (iso === today) return { kind: "today", iso };
-  return { kind: "scheduled", iso };
-}
 
 function shortDate(iso) {
   const d = new Date(`${iso}T00:00:00.000Z`);
@@ -49,24 +38,6 @@ function shortDate(iso) {
   });
 }
 
-const createdMs = (o) => o.createdAt?.toMillis?.() ?? 0;
-const isUrgentOrder = (o) => (o?.priority || "").toLowerCase() === "urgent";
-
-// Dispatch order: honour the schedule first. Dated orders come before undated;
-// among dated ones the soonest date leads (so overdue floats to the very top);
-// within a single date urgent wins; oldest-waiting breaks any remaining tie.
-// Date-only ISO strings sort correctly lexicographically, so "today" isn't
-// needed here — an earlier date is always earlier in the queue.
-function comparePending(a, b) {
-  const isoA = isoDateOnly(a?.requestedDeliveryDate);
-  const isoB = isoDateOnly(b?.requestedDeliveryDate);
-  if ((isoA !== null) !== (isoB !== null)) return isoA !== null ? -1 : 1;
-  if (isoA !== null && isoB !== null && isoA !== isoB) return isoA < isoB ? -1 : 1;
-  const urgentDelta = (isUrgentOrder(a) ? 0 : 1) - (isUrgentOrder(b) ? 0 : 1);
-  if (urgentDelta !== 0) return urgentDelta;
-  return createdMs(a) - createdMs(b);
-}
-
 function DispatcherDashboard() {
   const navigate = useNavigate();
 
@@ -76,6 +47,10 @@ function DispatcherDashboard() {
   const [activeAlerts, setActiveAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Sources whose listener failed. Their figures show "—", never a zero
+  // nothing measured. (A failed source also counts as settled, so one refused
+  // listener can no longer hold the whole page on its loading state.)
+  const [failed, setFailed] = useState({});
   const [assignNotice, setAssignNotice] = useState("");
   // Advances at each 00:00 Manila, so a scheduled order moves from Upcoming to
   // the actionable queue on its day without a reload.
@@ -89,43 +64,41 @@ function DispatcherDashboard() {
       }
     };
 
+    const fail = (source, what) => (err) => {
+      console.error("Dispatcher dashboard subscription error:", source, err?.code || err);
+      setError(liveErrorMessage(err, what));
+      setFailed((prev) => ({ ...prev, [source]: true }));
+      loaded[source] = true;
+      checkDone();
+    };
+
     const unsubPending = subscribePendingDispatchOrders((orders) => {
       setPendingOrders(orders);
       loaded.pending = true;
       checkDone();
-    });
+    }, fail("pending", "the dispatch queue"));
 
     const unsubAll = subscribeDeliveries((orders) => {
       setAllOrders(orders);
       loaded.all = true;
       checkDone();
-    }, (err) => {
-      console.error("subscribeDeliveries error:", err);
-      setError("Unable to load orders.");
-      loaded.all = true;
-      checkDone();
-    });
+    }, fail("all", "orders"));
 
     const unsubRiders = subscribeRiders((riderList) => {
       setRiders(riderList);
       loaded.riders = true;
       checkDone();
-    }, (err) => {
-      console.error("subscribeRiders error:", err);
-      loaded.riders = true;
-      checkDone();
-    });
+    }, fail("riders", "riders"));
 
     let unsubAlerts;
     try {
-      unsubAlerts = subscribeActiveAlerts(( alerts) => {
+      unsubAlerts = subscribeActiveAlerts((alerts) => {
         setActiveAlerts(alerts);
         loaded.alerts = true;
         checkDone();
-      });
-    } catch {
-      loaded.alerts = true;
-      checkDone();
+      }, fail("alerts", "alerts"));
+    } catch (err) {
+      fail("alerts", "alerts")(err);
     }
 
     return () => {
@@ -166,7 +139,8 @@ function DispatcherDashboard() {
 
   const latestAlert = activeAlerts[0];
 
-  const availableRiders = riders.filter((r) => r.status === "approved").length;
+  // Genuinely free riders: approved and not carrying an active delivery.
+  const availableRiders = useMemo(() => availableRiderCount(riders, allOrders), [riders, allOrders]);
   const activeDeliveries = allOrders.filter(
     (o) => o.statusKey === "in_transit" || o.statusKey === "assigned" || o.statusKey === "loading"
   ).length;
@@ -184,6 +158,14 @@ function DispatcherDashboard() {
   const urgentOrders = actionable.filter(
     (o) => (o.priority || "").toLowerCase() === "urgent"
   ).length;
+
+  // A figure from a failed source is unknown, not zero.
+  const shown = (sources, value) => (sources.some((s) => failed[s]) ? "—" : value);
+  const pendingShown = shown(["pending"], actionable.length);
+  const urgentShown = shown(["pending"], urgentOrders);
+  const availableShown = shown(["riders", "all"], availableRiders);
+  const activeShown = shown(["all"], activeDeliveries);
+  const delayedShown = shown(["all"], delayedDeliveries);
 
   // Schedule-aware queue: sort by requested delivery date (soonest first, so
   // overdue rises to the top), urgent within a date, undated last.
@@ -262,7 +244,7 @@ function DispatcherDashboard() {
           <section className="dispatcher-dash-alert">
             <AlertTriangle size={18} />
             <div>
-              <strong>Data Error</strong>
+              <strong>Some dashboard data could not be loaded</strong>
               <p>{error}</p>
             </div>
           </section>
@@ -271,7 +253,7 @@ function DispatcherDashboard() {
         <section className="dispatcher-dash-kpi-grid">
           <KpiCard
             label="Pending orders"
-            value={actionable.length}
+            value={pendingShown}
             context={
               [
                 "Ready for dispatch",
@@ -286,73 +268,36 @@ function DispatcherDashboard() {
 
           <KpiCard
             label="Available riders"
-            value={availableRiders}
-            context={`${riders.length} total registered`}
+            value={availableShown}
+            context={failed.riders ? "Riders unavailable" : `${riders.length} total registered`}
             tone="success"
           />
 
           <KpiCard
             label="Active deliveries"
-            value={activeDeliveries}
+            value={activeShown}
             context="Currently in transit"
             tone="info"
           />
 
           <KpiCard
             label="Urgent orders"
-            value={urgentOrders}
-            context={delayedDeliveries > 0 ? `${delayedDeliveries} delayed routes` : "No delayed routes"}
+            value={urgentShown}
+            context={failed.all ? "Delayed deliveries unavailable" : delayedDeliveries > 0 ? `${delayedDeliveries} delayed ${delayedDeliveries === 1 ? "delivery" : "deliveries"}` : "No delayed deliveries"}
             tone="danger"
             attention={urgentOrders > 0 || delayedDeliveries > 0}
           />
         </section>
 
         <section className="dispatcher-dash-main-grid">
-          <div className="dispatcher-dash-monitor-card">
-            <div className="dispatcher-dash-card-head">
-              <div>
-                <span className="card-kicker">Delivery monitoring</span>
-                <h2>Active delivery overview</h2>
-              </div>
-
-              <div className="dispatcher-dash-badges">
-                <span className="green">{activeDeliveries} active</span>
-                <span className="red">{delayedDeliveries} delayed</span>
-              </div>
-            </div>
-
-            <div className="dispatcher-dash-monitor-note">
-              <Info size={16} />
-              <div>
-                <strong>Live map view not yet active.</strong>
-                <p>
-                  Route and geofence map tracking will activate once the Rider
-                  mobile app begins sending location updates. The counts below
-                  reflect real order and status data from Firestore.
-                </p>
-              </div>
-            </div>
-
-            <div className="dispatcher-dash-monitor-footer">
-              <MonitorInfo
-                icon={<Navigation size={15} />}
-                label="Pending Orders"
-                value={`${actionable.length} awaiting`}
-              />
-
-              <MonitorInfo
-                icon={<Clock3 size={15} />}
-                label="Riders Available"
-                value={`${availableRiders} on duty`}
-              />
-
-              <MonitorInfo
-                icon={<ShieldCheck size={15} />}
-                label="Delayed Routes"
-                value={`${delayedDeliveries} delayed`}
-              />
-            </div>
-          </div>
+          <DispatcherTrackingOverview
+            orders={allOrders}
+            riders={riders}
+            activeCount={activeShown}
+            delayedCount={delayedShown}
+            pendingCount={pendingShown}
+            availableCount={availableShown}
+          />
 
           <aside className="dispatcher-dash-side-card">
             <div className="dispatcher-dash-card-head small">
@@ -365,21 +310,21 @@ function DispatcherDashboard() {
             <div className="dispatcher-dash-op-list">
               <OperationItem
                 title="Priority Dispatch"
-                value={`${urgentOrders} urgent orders`}
-                text={urgentOrders > 0 ? "Assign riders as soon as possible." : "No urgent orders right now."}
+                value={`${urgentShown} urgent orders`}
+                text={failed.pending ? "The dispatch queue could not be loaded." : urgentOrders > 0 ? "Assign riders as soon as possible." : "No urgent orders right now."}
                 danger={urgentOrders > 0}
               />
 
               <OperationItem
                 title="Rider Availability"
-                value={`${availableRiders} available`}
-                text={availableRiders >= actionable.length ? "Enough riders for current queue." : "More riders needed for pending orders."}
+                value={`${availableShown} available`}
+                text={availableShown === "—" || pendingShown === "—" ? "Rider availability could not be worked out." : availableRiders >= actionable.length ? "Enough riders for current queue." : "More riders needed for pending orders."}
               />
 
               <OperationItem
                 title="Route Condition"
-                value={`${delayedDeliveries} delayed`}
-                text={delayedDeliveries > 0 ? "Monitor geofence and traffic alerts." : "All routes running smoothly."}
+                value={`${delayedShown} delayed`}
+                text={failed.all ? "Deliveries could not be loaded." : delayedDeliveries > 0 ? "Monitor geofence and traffic alerts." : "All routes running smoothly."}
                 warning={delayedDeliveries > 0}
               />
             </div>
@@ -519,7 +464,9 @@ function DispatcherDashboard() {
                       <div className="dispatcher-empty-queue">
                         <PackageCheck size={28} />
                         <p>
-                          {upcoming.length > 0 || needsScheduling.length > 0
+                          {failed.pending
+                            ? "The dispatch queue could not be loaded. See the notice above."
+                            : upcoming.length > 0 || needsScheduling.length > 0
                             ? "Nothing to dispatch right now. Orders waiting on a date are listed below."
                             : "No pending orders. All orders have been assigned."}
                         </p>
@@ -654,18 +601,6 @@ function ReadOnlyQueue({ id, kicker, title, note, orders, now }) {
         </table>
       </div>
     </section>
-  );
-}
-
-function MonitorInfo({ icon, label, value }) {
-  return (
-    <div className="dispatcher-dash-monitor-info">
-      {icon}
-      <div>
-        <span>{label}</span>
-        <strong>{value}</strong>
-      </div>
-    </div>
   );
 }
 

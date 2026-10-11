@@ -7,19 +7,22 @@
  * function as an immutable snapshot. Changing a product later affects only
  * future order items — never an existing order or invoice.
  *
- * Stored values are exactly `vatable` or `vat_exempt`. There is no default: a
- * product without one is "Not classified" and cannot be ordered until an Admin
- * classifies it. An order item without a snapshot (created before this) is
- * "Not recorded" — it is never inferred from the product's current value.
+ * Stored values are exactly `vatable`, `vat_exempt` or `zero_rated`. There
+ * is no default: a product without one is "Not classified" and cannot be
+ * ordered until an Admin classifies it. An order item without a snapshot
+ * (created before this) is "Not recorded" — it is never inferred from the
+ * product's current value. Exempt and zero-rated both carry no VAT but are
+ * reported as separate sales lines.
  *
- * functions/src/policy.js carries the same two values for the server.
+ * functions/src/policy.js carries the same three values for the server.
  */
 
-export const PRODUCT_VAT_CLASSIFICATIONS = Object.freeze(["vatable", "vat_exempt"]);
+export const PRODUCT_VAT_CLASSIFICATIONS = Object.freeze(["vatable", "vat_exempt", "zero_rated"]);
 
 export const PRODUCT_VAT_LABELS = Object.freeze({
   vatable: "VAT",
   vat_exempt: "VAT Exempt",
+  zero_rated: "Zero-Rated",
 });
 
 export const NOT_CLASSIFIED = "Not classified";

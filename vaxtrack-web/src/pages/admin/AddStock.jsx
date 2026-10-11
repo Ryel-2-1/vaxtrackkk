@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ClipboardList, Truck } from "lucide-react";
 import {
-  getVaccines,
   batchIdExists,
   addStockBatch,
 } from "../../services/vaccineService";
 import { addStockBatchWithAllocation } from "../../services/inventoryCallables";
+import { subscribeVaccines } from "../../services/vaccineCatalogService";
+import { liveErrorMessage } from "../../services/liveDataErrors";
 import { parsePesosToCentavos } from "../../services/money";
 import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
 import { validateStockBatchDates } from "../../services/stockBatchDates";
@@ -49,21 +50,29 @@ function AddStock() {
     setMessageType(type);
   };
 
-  useEffect(() => {
-    const loadVaccines = async () => {
-      try {
-        setLoadingVaccines(true);
-        setVaccines(await getVaccines());
-      } catch (error) {
-        console.error("Load vaccines error:", error);
-        showMessage("Unable to load registered vaccines.");
-      } finally {
-        setLoadingVaccines(false);
-      }
-    };
-
-    loadVaccines();
-  }, []);
+  // Registered vaccines are LIVE (the catalog listener every page shares), so
+  // a vaccine added in another tab appears here without a reload. Newest first,
+  // as the one-time read ordered them. The typed form is never touched by a
+  // snapshot: the manufacturer is filled only when the admin picks a vaccine.
+  useEffect(
+    () =>
+      subscribeVaccines(
+        (docs) => {
+          setVaccines(
+            [...docs].sort(
+              (a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0)
+            )
+          );
+          setLoadingVaccines(false);
+        },
+        (error) => {
+          setMessage(liveErrorMessage(error, "registered vaccines"));
+          setMessageType("error");
+          setLoadingVaccines(false);
+        }
+      ),
+    []
+  );
 
   const selectedVaccine = vaccines.find(
     (item) => item.id === selectedVaccineId

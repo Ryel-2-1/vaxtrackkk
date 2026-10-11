@@ -4,6 +4,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   orderBy,
   query,
   serverTimestamp,
@@ -29,6 +30,24 @@ export async function getVaccineTypes() {
   return snap.docs.map((d) => ({ ...d.data(), id: d.id }));
 }
 
+/**
+ * Live vaccine types, by name. Add Vaccine's dropdown and its duplicate-type
+ * check read this, so a type added in another browser (or by this page) shows
+ * without a reload — the list used to be read once on open and re-read after
+ * each add. Document id LAST, as in getVaccineTypes.
+ */
+export function subscribeVaccineTypes(callback, onError) {
+  const q = query(collection(db, VACCINE_TYPES), orderBy("name", "asc"));
+  return onSnapshot(
+    q,
+    (snap) => callback(snap.docs.map((d) => ({ ...d.data(), id: d.id }))),
+    (error) => {
+      console.error("subscribeVaccineTypes error:", error?.code || error);
+      if (onError) onError(error);
+    }
+  );
+}
+
 export async function addVaccineType(name) {
   return addDoc(collection(db, VACCINE_TYPES), { name, createdAt: serverTimestamp() });
 }
@@ -47,7 +66,7 @@ export async function skuExists(sku) {
 export async function addVaccine({ vaccineName, manufacturer, vaccineType, internalSku, vatClassification }) {
   const cls = readVatClassification(vatClassification);
   if (!cls) {
-    throw new Error("Select VAT or VAT Exempt for this vaccine.");
+    throw new Error("Select VAT, VAT Exempt or Zero-Rated for this vaccine.");
   }
   return addDoc(collection(db, VACCINES), {
     vaccineName,
@@ -70,7 +89,7 @@ export async function addVaccine({ vaccineName, manufacturer, vaccineType, inter
 export async function setVaccineVatClassification(vaccineId, vatClassification) {
   const cls = readVatClassification(vatClassification);
   if (!cls) {
-    throw new Error("Select VAT or VAT Exempt for this vaccine.");
+    throw new Error("Select VAT, VAT Exempt or Zero-Rated for this vaccine.");
   }
   const uid = auth.currentUser?.uid;
   if (!uid) {

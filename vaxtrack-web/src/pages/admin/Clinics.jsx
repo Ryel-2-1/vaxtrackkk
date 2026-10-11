@@ -37,6 +37,7 @@ import { subscribeDoctorAddresses } from "../../services/doctorAddressService";
 import KpiCard from "../../components/ui/KpiCard";
 import ClinicLocationSection from "./ClinicLocationSection";
 import DoctorAddressesPanel from "./DoctorAddressesPanel";
+import { friendlyErrorMessage, liveErrorMessage } from "../../services/liveDataErrors";
 import "./Clinics.css";
 
 const STATUS_LABEL = {
@@ -327,7 +328,7 @@ function Clinics() {
       },
       (error) => {
         setLoading(false);
-        setLoadError(error.message || "Failed to load clinics.");
+        setLoadError(liveErrorMessage(error, "clinics"));
       }
     );
     return () => unsubscribe();
@@ -342,7 +343,7 @@ function Clinics() {
       },
       (error) => {
         setAreasLoading(false);
-        setAreaLoadError(error.message || "Failed to load areas.");
+        setAreaLoadError(liveErrorMessage(error, "areas"));
       }
     );
     return () => unsubscribe();
@@ -357,7 +358,7 @@ function Clinics() {
       },
       (error) => {
         setDoctorsLoading(false);
-        setDoctorLoadError(error.message || "Failed to load doctors.");
+        setDoctorLoadError(liveErrorMessage(error, "doctors"));
       }
     );
     return () => unsubscribe();
@@ -480,7 +481,7 @@ function Clinics() {
       return "";
     } catch (error) {
       console.error("Add area error:", error);
-      return error.message || "Failed to add area. Please try again.";
+      return friendlyErrorMessage(error, "Failed to add area. Please try again.");
     }
   };
 
@@ -491,7 +492,7 @@ function Clinics() {
       return "";
     } catch (error) {
       console.error("Update area error:", error);
-      return error.message || "Failed to update the area. Please try again.";
+      return friendlyErrorMessage(error, "Failed to update the area. Please try again.");
     }
   };
 
@@ -502,7 +503,7 @@ function Clinics() {
       return "";
     } catch (error) {
       console.error("Add doctor error:", error);
-      return error.message || "Failed to add doctor. Please try again.";
+      return friendlyErrorMessage(error, "Failed to add doctor. Please try again.");
     }
   };
 
@@ -515,7 +516,7 @@ function Clinics() {
       return "";
     } catch (error) {
       console.error("Update doctor error:", error);
-      return error.message || "Failed to update the doctor. Please try again.";
+      return friendlyErrorMessage(error, "Failed to update the doctor. Please try again.");
     }
   };
 
@@ -1032,7 +1033,7 @@ function ManageLocationModal({ clinic, onClose, onSave }) {
     } catch (error) {
       console.error("Update clinic location error:", error);
       setSaveError(
-        error?.message || "The location could not be saved. Please try again."
+        friendlyErrorMessage(error, "The location could not be saved. Please try again.")
       );
     } finally {
       setSaving(false);

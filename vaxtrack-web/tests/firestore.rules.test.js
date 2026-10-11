@@ -577,6 +577,34 @@ async function main() {
       status: "delivered",
       items: [{ name: "Hepatitis B", sku: "HEP-3", quantity: 5, unitPrice: 0 }],
     });
+
+    // ---- negotiated pricing (functions/src/negotiatedPricing.js) ----
+    // The Med Rep's own order with a negotiated line, assigned to the rider.
+    await seedOrder("ordNegotiated", {
+      createdByUid: salesRepUid,
+      status: "in_transit",
+      assignedRiderId: riderUid,
+      allocationVersion: 2,
+      pricingVersion: 1,
+      priceCurrency: "PHP",
+      priceIsVatInclusive: true,
+      priceAgreementVersion: 1,
+      subtotalCentavos: 330000,
+      standardSubtotalCentavos: 375000,
+      priceAdjustmentCentavos: -45000,
+      priceAdjusted: true,
+      vatSummary: { vatableGrossCentavos: 330000, vatAmountCentavos: 35357, vatableSalesCentavos: 294643, vatExemptSalesCentavos: 0, zeroRatedSalesCentavos: 0, totalCentavos: 330000, vatRatePercent: 12 },
+      items: [
+        { inventoryId: "inv1", batchId: "B-1", name: "Hep B", quantity: 3,
+          standardUnitPriceCentavos: 125000, agreedUnitPriceCentavos: 110000,
+          unitPriceCentavos: 110000, lineTotalCentavos: 330000, adjustmentCentavos: -45000,
+          priceAdjusted: true, adjustmentReason: "Volume", vatClassification: "vatable", vatRatePercent: 12 },
+      ],
+    });
+    await setDoc(doc(db, "orderPriceAdjustments", "ordNegotiated__0"), {
+      orderId: "ordNegotiated", lineIndex: 0, standardUnitPriceCentavos: 125000, agreedUnitPriceCentavos: 110000,
+      adjustmentCentavos: -45000, adjustmentReason: "Volume", medRepUid: salesRepUid, requestId: "req", createdAt: "seed",
+    });
   });
 
   const admin = testEnv.authenticatedContext(adminUid).firestore();
@@ -3521,6 +3549,50 @@ async function main() {
     }));
   });
 
+  await check("NEG1 no one edits a placed order's negotiated pricing — the Med Rep who agreed it included", async () => {
+    const attempts = [
+      { items: [{ inventoryId: "inv1", quantity: 3, unitPriceCentavos: 1, lineTotalCentavos: 3, agreedUnitPriceCentavos: 1 }] },
+      { subtotalCentavos: 1 },
+      { standardSubtotalCentavos: 1 },
+      { priceAdjustmentCentavos: 0 },
+      { priceAdjusted: false },
+      { priceAgreementVersion: 2 },
+      { vatSummary: { vatAmountCentavos: 0 } },
+    ];
+    for (const patch of attempts) {
+      for (const ctx of [salesRep, admin, dispatcher, rider]) {
+        await assertFails(updateDoc(doc(ctx, "orders", "ordNegotiated"), { ...patch, updatedAt: serverTimestamp() }), JSON.stringify(patch));
+      }
+    }
+    // The Med Rep can still read their own order, adjustment and reason included.
+    const snap = await assertSucceeds(getDoc(doc(salesRep, "orders", "ordNegotiated")));
+    if (snap.data().items[0].adjustmentReason !== "Volume") throw new Error("the Med Rep reads their own adjustment");
+  });
+
+  await check("NEG2 an admin cannot create an order carrying negotiated-pricing fields", async () => {
+    for (const field of ["priceAgreementVersion", "standardSubtotalCentavos", "priceAdjustmentCentavos", "priceAdjusted", "vatSummary"]) {
+      await assertFails(setDoc(doc(admin, "orders", "ordNegCreate"), {
+        status: "pending_dispatch", clinicDocId: "clinic1", clinicName: "Clinic One",
+        createdAt: serverTimestamp(), requestedDeliveryDate: FIXTURE_DELIVERY_DATE,
+        [field]: field === "vatSummary" ? {} : field === "priceAdjusted" ? true : 1,
+      }), field);
+    }
+  });
+
+  await check("NEG3 the pricing audit is server-only and Admin-readable only", async () => {
+    await assertSucceeds(getDoc(doc(admin, "orderPriceAdjustments", "ordNegotiated__0")));
+    await assertSucceeds(getDocs(collection(admin, "orderPriceAdjustments")));
+    for (const ctx of [salesRep, dispatcher, rider, anon]) {
+      await assertFails(getDoc(doc(ctx, "orderPriceAdjustments", "ordNegotiated__0")));
+      await assertFails(getDocs(collection(ctx, "orderPriceAdjustments")));
+    }
+    for (const ctx of [admin, salesRep, dispatcher, rider, anon]) {
+      await assertFails(setDoc(doc(ctx, "orderPriceAdjustments", "forged__0"), { orderId: "ordNegotiated", adjustmentCentavos: -1 }));
+      await assertFails(updateDoc(doc(ctx, "orderPriceAdjustments", "ordNegotiated__0"), { adjustmentReason: "rewritten" }));
+      await assertFails(deleteDoc(doc(ctx, "orderPriceAdjustments", "ordNegotiated__0")));
+    }
+  });
+
   await check("Nprice3 a new stock batch must carry a valid positive price", async () => {
     const valid = {
       vaccineName: "V", batchId: "B-PRICE", expiryDate: "2027-12-31",
@@ -4723,10 +4795,11 @@ async function main() {
   await check("VAT1 a new vaccine needs a valid classification", async () => {
     await assertSucceeds(setDoc(doc(admin, "vaccines", "vatV1"), vaccine()));
     await assertSucceeds(setDoc(doc(admin, "vaccines", "vatV2"), vaccine({ vatClassification: "vat_exempt" })));
+    await assertSucceeds(setDoc(doc(admin, "vaccines", "vatV3"), vaccine({ vatClassification: "zero_rated" })));
     const missing = vaccine();
     delete missing.vatClassification;
     await assertFails(setDoc(doc(admin, "vaccines", "vatBad"), missing));
-    for (const vatClassification of ["VAT", "zero_rated", "", null, true]) {
+    for (const vatClassification of ["VAT", "per_item", "exempt", "", null, true]) {
       await assertFails(setDoc(doc(admin, "vaccines", "vatBad"), vaccine({ vatClassification })));
     }
   });
@@ -4741,11 +4814,13 @@ async function main() {
     await assertSucceeds(updateDoc(ref, { manufacturer: "Corrected" }));
     // Classifying must be valid and stamped by the session.
     await assertFails(updateDoc(ref, { vatClassification: "vatable" }));
-    await assertFails(updateDoc(ref, { vatClassification: "zero_rated", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
+    await assertFails(updateDoc(ref, { vatClassification: "per_item", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
+    await assertFails(updateDoc(ref, { vatClassification: "zero_rated" }), "zero-rated still needs who/when");
     await assertFails(updateDoc(ref, { vatClassification: "vatable", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: "someoneElse" }));
     await assertSucceeds(updateDoc(ref, { vatClassification: "vatable", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
     // Re-classifying is allowed on the same terms; removing it is not.
     await assertSucceeds(updateDoc(ref, { vatClassification: "vat_exempt", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
+    await assertSucceeds(updateDoc(ref, { vatClassification: "zero_rated", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
     await assertFails(updateDoc(ref, { vatClassification: deleteField(), vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
   });
 

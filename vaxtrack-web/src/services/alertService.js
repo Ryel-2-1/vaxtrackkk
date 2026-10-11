@@ -23,7 +23,18 @@ import { db } from "../firebase";
 
 const ALERTS_COLLECTION = "alerts";
 
-export function subscribeActiveAlerts(callback) {
+// Both listeners take an optional `onError`. They used to have none, so a
+// refused or failed listener was silent: Admin Alerts read it as "No alerts
+// found", and the Dispatcher Dashboard — which waits for every source before
+// leaving its loading state — stayed on the spinner for good.
+function reportAlertsError(onError) {
+  return (error) => {
+    console.error("Alerts subscription error:", error?.code || error);
+    if (onError) onError(error);
+  };
+}
+
+export function subscribeActiveAlerts(callback, onError) {
   const q = query(
     collection(db, ALERTS_COLLECTION),
     where("status", "==", "active")
@@ -37,10 +48,10 @@ export function subscribeActiveAlerts(callback) {
     }));
 
     callback(alerts);
-  });
+  }, reportAlertsError(onError));
 }
 
-export function subscribeAllAlerts(callback) {
+export function subscribeAllAlerts(callback, onError) {
   const q = query(
     collection(db, ALERTS_COLLECTION),
     orderBy("createdAt", "desc")
@@ -58,7 +69,7 @@ export function subscribeAllAlerts(callback) {
     // an `id` could travel in and re-aim an admin's Resolve at someone else's
     // critical alert.
     callback(snapshot.docs.map((d) => ({ ...d.data(), id: d.id })));
-  });
+  }, reportAlertsError(onError));
 }
 
 export async function resolveAlert(alertId) {

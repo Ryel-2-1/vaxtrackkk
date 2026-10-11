@@ -169,3 +169,36 @@ export function nextManilaMidnightMs(now = new Date()) {
   const dayStart = shifted - (((shifted % 86400000) + 86400000) % 86400000);
   return dayStart + 86400000 - MANILA_OFFSET_MS;
 }
+
+// ---------------------------------------------------------------- queue order
+// Shared by the Dispatcher Dashboard queue and the Assign Rider queue.
+
+// How a pending order relates to its requested delivery date, measured against
+// today (Manila). `none` = the order carries no valid date — such an order is
+// never actionable (it sits in Needs scheduling), so the live queue only ever
+// sees `overdue` and `today`.
+export function requestedDateMeta(order, today) {
+  const iso = isoDateOnly(order?.requestedDeliveryDate);
+  if (!iso) return { kind: "none", iso: null };
+  if (iso < today) return { kind: "overdue", iso };
+  if (iso === today) return { kind: "today", iso };
+  return { kind: "scheduled", iso };
+}
+
+const createdMs = (o) => o.createdAt?.toMillis?.() ?? 0;
+const isUrgentOrder = (o) => (o?.priority || "").toLowerCase() === "urgent";
+
+// Dispatch order: honour the schedule first. Dated orders come before undated;
+// among dated ones the soonest date leads (so overdue floats to the very top);
+// within a single date urgent wins; oldest-waiting breaks any remaining tie.
+// Date-only ISO strings sort correctly lexicographically, so "today" isn't
+// needed here — an earlier date is always earlier in the queue.
+export function comparePending(a, b) {
+  const isoA = isoDateOnly(a?.requestedDeliveryDate);
+  const isoB = isoDateOnly(b?.requestedDeliveryDate);
+  if ((isoA !== null) !== (isoB !== null)) return isoA !== null ? -1 : 1;
+  if (isoA !== null && isoB !== null && isoA !== isoB) return isoA < isoB ? -1 : 1;
+  const urgentDelta = (isUrgentOrder(a) ? 0 : 1) - (isUrgentOrder(b) ? 0 : 1);
+  if (urgentDelta !== 0) return urgentDelta;
+  return createdMs(a) - createdMs(b);
+}

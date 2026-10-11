@@ -185,8 +185,11 @@ test("8. every protected route re-reads the profile and applies the resolver", (
   ]) {
     const src = readFileSync(new URL(`../src/components/${file}`, import.meta.url), "utf8");
     assert.match(src, /onAuthStateChanged\(auth,/, file);
-    assert.match(src, /getDoc\(doc\(db, "users", user\.uid\)\)/, file);
-    assert.match(src, new RegExp(`resolveAccess\\(\\{[\\s\\S]*?requiredRole: ${role.replace(".", "\\.")}`), file);
+    // Watched, not read once (services/liveRouteAccess.js puts every snapshot
+    // through resolveAccess), so a change made while the page is open applies
+    // without a refresh.
+    assert.match(src, /onSnapshot\(\s*doc\(db, "users", uid\)/, file);
+    assert.match(src, new RegExp(`watchRouteAccess\\(\\{[\\s\\S]*?requiredRole: ${role.replace(".", "\\.")}`), file);
     assert.match(src, /<Navigate to=\{redirectTo\} replace \/>/, file);
   }
   // Login shows a safe message and ends the session.

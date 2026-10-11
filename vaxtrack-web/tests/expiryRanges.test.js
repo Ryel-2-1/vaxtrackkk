@@ -58,7 +58,7 @@ test("the three bands are exclusive and cover every day", () => {
 test("Admin Inventory labels each KPI with the band it actually counts", () => {
   // The critical card covers today through day 30…
   assert.match(INV, /label="Expiring within 30 days"/);
-  assert.match(INV, /value=\{loading \? "—" : inventory\.filter\(\(i\) => i\.level === "critical"\)\.length\}/);
+  assert.match(INV, /value=\{loading \|\| loadError \? "—" : inventory\.filter\(\(i\) => i\.level === "critical"\)\.length\}/);
 
   // …and the warning card covers 31 through 90, which is what its label now
   // says. "Expiring within 90 days" read as 0–90 over a 31–90 count.
@@ -68,11 +68,11 @@ test("Admin Inventory labels each KPI with the band it actually counts", () => {
     false,
     "an inclusive-from-zero label over an exclusive count is a miscount"
   );
-  assert.match(INV, /value=\{loading \? "—" : inventory\.filter\(\(i\) => i\.level === "warning"\)\.length\}/);
+  assert.match(INV, /value=\{loading \|\| loadError \? "—" : inventory\.filter\(\(i\) => i\.level === "warning"\)\.length\}/);
 
   // Expired stays its own card, counted on its own level.
   assert.match(INV, /label="Expired"/);
-  assert.match(INV, /value=\{loading \? "—" : inventory\.filter\(\(i\) => i\.level === "expired"\)\.length\}/);
+  assert.match(INV, /value=\{loading \|\| loadError \? "—" : inventory\.filter\(\(i\) => i\.level === "expired"\)\.length\}/);
 
   // Each card filters to the single level it counts, so figure and list agree.
   for (const level of ["expired", "critical", "warning"]) {

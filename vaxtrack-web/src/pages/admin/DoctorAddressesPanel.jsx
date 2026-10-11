@@ -21,6 +21,7 @@ import {
   validateDoctorHomeAddress,
 } from "../../services/doctorAddressModel";
 import ClinicLocationSection from "./ClinicLocationSection";
+import { friendlyErrorMessage, liveErrorMessage } from "../../services/liveDataErrors";
 
 const EMPTY_CLINIC_DESTINATION = { clinicDocId: "" };
 const EMPTY_HOME_ADDRESS = {
@@ -147,7 +148,7 @@ function DoctorAddressesPanel({
       },
       (error) => {
         setLoading(false);
-        setLoadError(error.message || "Failed to load delivery destinations.");
+        setLoadError(liveErrorMessage(error, "delivery destinations"));
       }
     );
     return () => unsubscribe();
@@ -214,7 +215,7 @@ function DoctorAddressesPanel({
       console.error("Save doctor Home address error:", error);
       setHomeErrors(
         error.validationErrors || {
-          form: error.message || "Failed to save the Home address.",
+          form: friendlyErrorMessage(error, "Failed to save the Home address."),
         }
       );
     } finally {
@@ -234,7 +235,7 @@ function DoctorAddressesPanel({
     } catch (error) {
       console.error("Update doctor Home address error:", error);
       setHomeErrors({
-        form: error.message || "Failed to update the Home address.",
+        form: friendlyErrorMessage(error, "Failed to update the Home address."),
       });
     } finally {
       setUpdatingId("");
@@ -262,7 +263,7 @@ function DoctorAddressesPanel({
       console.error("Save doctor clinic destination error:", error);
       setClinicErrors(
         error.validationErrors || {
-          form: error.message || "Failed to save the clinic destination.",
+          form: friendlyErrorMessage(error, "Failed to save the clinic destination."),
         }
       );
     } finally {
@@ -289,7 +290,7 @@ function DoctorAddressesPanel({
     } catch (error) {
       console.error("Update doctor clinic destination error:", error);
       setClinicErrors({
-        form: error.message || "Failed to update the clinic destination.",
+        form: friendlyErrorMessage(error, "Failed to update the clinic destination."),
       });
     } finally {
       setUpdatingId("");
@@ -311,7 +312,7 @@ function DoctorAddressesPanel({
     } catch (error) {
       console.error("Remove legacy doctor address error:", error);
       setClinicErrors({
-        form: error.message || "Failed to remove the legacy address.",
+        form: friendlyErrorMessage(error, "Failed to remove the legacy address."),
       });
     } finally {
       setUpdatingId("");

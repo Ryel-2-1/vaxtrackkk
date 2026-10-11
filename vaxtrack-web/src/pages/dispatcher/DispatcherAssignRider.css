@@ -1,0 +1,295 @@
+/* Dispatcher › Assign Rider — live queue + assignment dialog ("arq-" classes).
+   Builds on the existing .ar-* styles in Dispatcher.css. Tokens only.
+   `!important` appears only to out-specify the global button min-height reset
+   in styles.css, as the role layers do. */
+
+.arq-card {
+  overflow: visible;
+}
+
+.arq-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.arq-search {
+  flex: 1 1 260px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control);
+  background: #ffffff;
+  color: var(--gray-500);
+}
+
+.arq-search:focus-within {
+  outline: 2px solid var(--green-600);
+  outline-offset: 1px;
+}
+
+.dispatcher-main .arq-search input {
+  min-height: 38px !important;
+  flex: 1;
+  min-width: 0;
+  border: 0 !important;
+  outline: none;
+  background: transparent !important;
+  font: inherit;
+  font-size: 14px;
+  color: var(--gray-900);
+}
+
+.arq-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.arq-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dispatcher-main .arq-filter,
+.dispatcher-main .arq-pager button {
+  min-height: 34px !important;
+  padding: 0 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-pill);
+  background: #ffffff;
+  color: var(--gray-900);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dispatcher-main .arq-filter.active {
+  border-color: var(--green-700);
+  background: var(--green-50);
+  color: var(--green-800);
+}
+
+.arq-filter:focus-visible,
+.arq-pager button:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 1px;
+}
+
+.arq-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.arq-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "main action"
+    "meta action"
+    "hold action";
+  align-items: center;
+  column-gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.arq-row:last-child {
+  border-bottom: 0;
+}
+
+.arq-row-main {
+  grid-area: main;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+
+.arq-order {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--gray-900);
+  font-size: 14px;
+}
+
+.arq-tag {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--info-bg);
+  color: var(--info-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.arq-tag.urgent,
+.arq-tag.overdue {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+.arq-row-meta {
+  grid-area: meta;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: 4px 0 0;
+  min-width: 0;
+  color: var(--gray-600);
+  font-size: 13px;
+}
+
+.arq-row-meta > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.arq-hold {
+  grid-area: hold;
+  margin: 4px 0 0;
+  color: var(--warning-text);
+  font-size: 13px;
+}
+
+.ar-btn.arq-assign {
+  grid-area: action;
+  width: auto;
+  margin: 0;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+.arq-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gray-200);
+  color: var(--gray-600);
+  font-size: 13px;
+}
+
+.arq-pager button:disabled {
+  color: var(--gray-500);
+  cursor: not-allowed;
+}
+
+/* ---------- assignment dialog ---------- */
+
+.arq-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(17, 24, 39, 0.45);
+}
+
+.arq-dialog {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  background: #ffffff;
+  box-shadow: var(--shadow-float);
+}
+
+.arq-dialog:focus {
+  outline: none;
+}
+
+.arq-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.arq-dialog-head h2 {
+  margin: 0;
+  color: var(--gray-900);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.arq-dialog-head p {
+  margin: 4px 0 0;
+  color: var(--gray-600);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.arq-dialog-sub {
+  margin: 4px 20px 0;
+  color: var(--gray-900);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.arq-riders {
+  padding: 8px 12px;
+}
+
+.arq-dialog-error {
+  margin: 12px 20px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-control);
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  font-size: 13px;
+}
+
+.arq-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 20px 20px;
+}
+
+.arq-dialog-actions .ar-btn {
+  width: auto;
+  margin: 0;
+  padding: 0 16px;
+}
+
+@media (max-width: 560px) {
+  .arq-row {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "main"
+      "meta"
+      "hold"
+      "action";
+  }
+
+  .ar-btn.arq-assign {
+    margin-top: 10px;
+    width: 100%;
+  }
+
+  .arq-dialog-actions .ar-btn {
+    flex: 1 1 auto;
+  }
+}

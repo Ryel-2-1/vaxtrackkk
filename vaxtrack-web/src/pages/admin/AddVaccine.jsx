@@ -9,12 +9,13 @@ import {
   X,
 } from "lucide-react";
 import {
-  getVaccineTypes,
+  subscribeVaccineTypes,
   addVaccineType,
   skuExists,
   addVaccine,
 } from "../../services/vaccineService";
 import { PRODUCT_VAT_CLASSIFICATIONS, PRODUCT_VAT_LABELS } from "../../services/vatClassification";
+import { liveErrorMessage } from "../../services/liveDataErrors";
 import "./AdminForms.css";
 
 function AddVaccine() {
@@ -41,43 +42,22 @@ function AddVaccine() {
     setMessageType(type);
   };
 
-  // Reload after a new type is added. Kept as-is for that caller, which awaits
-  // it so the freshly added type is in the list before it is selected.
-  const loadVaccineTypes = async () => {
-    try {
-      setVaccineTypes(await getVaccineTypes());
-    } catch (error) {
-      console.error("Load vaccine types error:", error);
-      showMessage("Unable to load vaccine types.");
-    }
-  };
-
-  // The initial load reads the same service, but the state updates sit inside
-  // the promise callbacks rather than behind an `await` in a helper. The old
-  // form called `loadVaccineTypes()` straight from the effect body, which
-  // `react-hooks/set-state-in-effect` reports: the rule follows the call into
-  // the helper and cannot see that the update happens after an await, so it
-  // reads as a synchronous setState in the effect. Wrapping the helper in
-  // useCallback does not satisfy it either — the analyzer still follows it.
-  // Settling the state in a callback is the pattern the rule documents, and it
-  // adds a real guard the previous version lacked: an unmount before the fetch
-  // resolves no longer sets state on a gone component.
-  useEffect(() => {
-    let active = true;
-    getVaccineTypes()
-      .then((types) => {
-        if (active) setVaccineTypes(types);
-      })
-      .catch((error) => {
-        console.error("Load vaccine types error:", error);
-        if (!active) return;
-        setMessage("Unable to load vaccine types.");
-        setMessageType("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  // Vaccine types are LIVE: the dropdown and the duplicate-type check follow
+  // the collection, so a type added here or in another browser appears without
+  // a reload. (The list used to be read once on open and re-read after each
+  // add.) State is set only in the listener's callbacks, and the listener is
+  // closed on unmount.
+  useEffect(
+    () =>
+      subscribeVaccineTypes(
+        (types) => setVaccineTypes(types),
+        (error) => {
+          setMessage(liveErrorMessage(error, "vaccine types"));
+          setMessageType("error");
+        }
+      ),
+    []
+  );
 
   const validateForm = async () => {
     const skuRegex = /^VXT-\d{3}-[A-Z0-9]{5}$/;
@@ -118,7 +98,7 @@ function AddVaccine() {
     }
 
     if (!PRODUCT_VAT_CLASSIFICATIONS.includes(vatClassification)) {
-      showMessage("Select VAT or VAT Exempt for this vaccine.");
+      showMessage("Select VAT, VAT Exempt or Zero-Rated for this vaccine.");
       return false;
     }
 
@@ -161,7 +141,8 @@ function AddVaccine() {
       setNewTypeName("");
       setShowAddType(false);
       showMessage("Vaccine type added successfully.", "success");
-      await loadVaccineTypes();
+      // No re-read: the live list already holds the new type (the listener
+      // sees this write as soon as it is made).
       setVaccineType(typeName);
     } catch (error) {
       console.error("Add vaccine type error:", error);

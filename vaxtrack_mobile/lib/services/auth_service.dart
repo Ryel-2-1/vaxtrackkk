@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import '../models/app_user.dart';
+import '../utils/password_reset.dart';
 import '../utils/rider_registration.dart';
 import '../tracking/tracking_contract.dart';
 import 'rider_tracking_service.dart';
@@ -47,8 +49,17 @@ class AuthService {
     return null;
   }
 
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  /// [auth] and [db] default to the app's Firebase instances. Both are
+  /// resolved lazily, on first use, so a method that needs only one of them —
+  /// password reset needs Auth alone — never touches the other.
+  AuthService({FirebaseAuth? auth, FirebaseFirestore? db})
+      : _authOverride = auth,
+        _dbOverride = db;
+
+  final FirebaseAuth? _authOverride;
+  final FirebaseFirestore? _dbOverride;
+  late final FirebaseAuth _auth = _authOverride ?? FirebaseAuth.instance;
+  late final FirebaseFirestore _db = _dbOverride ?? FirebaseFirestore.instance;
 
   User? get currentUser => _auth.currentUser;
   Stream<User?> get authStateChanges => _auth.authStateChanges();
@@ -77,6 +88,37 @@ class AuthService {
       if (!doc.exists) return null;
       return AppUser.fromFirestore(uid, doc.data()!);
     });
+  }
+
+  /// Asks Firebase Authentication to email password-reset instructions to
+  /// [email], using Firebase's standard hosted reset page.
+  ///
+  /// Only the surrounding whitespace is removed; the address is otherwise sent
+  /// exactly as typed. Nothing else happens: no Firestore read or write, no
+  /// sign-in, no custom token, and the address is never logged. Whether an
+  /// account exists is never disclosed — `user-not-found` (and
+  /// `user-disabled`) come back as [PasswordResetOutcome.sent], the same as a
+  /// real send. Every failure is mapped to a rider-facing message; Firebase's
+  /// own text is never returned.
+  Future<PasswordResetOutcome> sendPasswordReset(
+    String email, {
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    final normalized = normalizeResetEmail(email);
+    final invalid = validateResetEmail(normalized);
+    if (invalid != null) return PasswordResetOutcome.failed(invalid);
+    try {
+      await _auth.sendPasswordResetEmail(email: normalized).timeout(timeout);
+      return PasswordResetOutcome.sent;
+    } on FirebaseAuthException catch (e) {
+      return passwordResetOutcomeForCode(e.code);
+    } on TimeoutException {
+      return const PasswordResetOutcome.failed(kResetOfflineMessage);
+    } catch (e) {
+      // The error TYPE only — its text could carry the address.
+      debugPrint('AuthService: password reset failed (${e.runtimeType})');
+      return const PasswordResetOutcome.failed(kResetUnknownMessage);
+    }
   }
 
   /// Signing out stops location sharing FIRST — ending any navigation and

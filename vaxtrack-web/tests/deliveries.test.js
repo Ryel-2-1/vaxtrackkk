@@ -267,7 +267,9 @@ test("every retained action is real, and the page writes nothing", () => {
 
 test("loading, error and empty states are preserved", () => {
   assert.match(PAGE, /const \[loading, setLoading\] = useState\(true\);/);
-  assert.match(PAGE, /setLoadError\(error\.message \|\| "Failed to load deliveries\."\)/);
+  // Mapped through the shared helper — raw Firebase text never reaches the page.
+  assert.match(PAGE, /setLoadError\(liveErrorMessage\(error, "deliveries"\)\)/);
+  assert.equal(/error\.message/.test(PAGE), false);
   assert.match(PAGE, /\{loading &&/);
   assert.match(PAGE, /subscribeDeliveries\(/);
 });

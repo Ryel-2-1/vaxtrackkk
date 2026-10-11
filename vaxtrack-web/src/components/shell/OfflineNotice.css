@@ -1,0 +1,26 @@
+/* Offline indicator, shared by the three role shells. Fixed to the bottom of
+   the viewport so it covers no controls at the top and never shifts layout. */
+.vt-offline-notice {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  z-index: 1200;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: min(560px, calc(100vw - 32px));
+  padding: 10px 14px;
+  transform: translateX(-50%);
+  border: 1px solid var(--warning-border);
+  border-radius: 10px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  box-shadow: var(--shadow-float);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.vt-offline-notice svg {
+  flex: none;
+  margin-top: 2px;
+}

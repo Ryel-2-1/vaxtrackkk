@@ -7,16 +7,15 @@ import {
   historyRow,
   loadedFilterNotice,
   matchesHistoryFilters,
-  mergeHistoryPage,
 } from "../../services/orderHistory.js";
 import {
-  fetchMedReps,
-  fetchOrderHistoryPage,
   fetchOrdersByIds,
   fetchReceiptsForOrders,
   findOrderIdsByBatchId,
   findOrderIdsBySku,
   findOrdersByReference,
+  subscribeMedReps,
+  subscribeOrderHistoryWindow,
 } from "../../services/orderHistoryService";
 import OrderHistoryDetail from "./OrderHistoryDetail";
 import "./OrderHistory.css";
@@ -30,8 +29,9 @@ import "./OrderHistory.css";
  *   mode "admin"     every Med Rep's orders, with a Med Rep filter and exact
  *                    SKU / Batch ID lookups.
  *
- * Loading is bounded: one page of orders at a time, newest first, with "Load
- * older orders". The date range narrows the query itself; status, allocation,
+ * Loading is bounded: a LIVE window of the newest orders, one page at first,
+ * grown a page at a time by "Load older orders" — every loaded row stays
+ * current without a reload. The date range narrows the query itself; status, allocation,
  * priority and the text search filter the orders already loaded, and the page
  * says so. Exact reference / SKU / Batch ID lookups search the whole history.
  */
@@ -52,12 +52,14 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
   const [range, setRange] = useState({ dateFrom: "", dateTo: "" });
   const [repFilter, setRepFilter] = useState("");
   const [medReps, setMedReps] = useState([]);
+  const [medRepsError, setMedRepsError] = useState(false);
 
   // A Med Rep view needs the signed-in uid; decided during render, not in an
   // effect (react-hooks/set-state-in-effect).
   const signedOut = !isAdmin && !scopeUid;
   const [rows, setRows] = useState([]);
-  const [cursor, setCursor] = useState(null);
+  // How many of the newest orders the live window holds.
+  const [windowSize, setWindowSize] = useState(HISTORY_PAGE_SIZE);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(!signedOut);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -72,72 +74,80 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
   const [selectedId, setSelectedId] = useState(null);
   const requestSeq = useRef(0);
 
+  // Receipts are written once, in the order's own creation transaction, so
+  // each is read once per order and cached (a legacy order's absence too).
+  const receiptCache = useRef(new Map());
   const toRows = useCallback(
     async (orders) => {
-      const receipts = await fetchReceiptsForOrders(orders.map((o) => o.id), scopeUid);
-      return orders.map((o) => historyRow(o, receipts.get(o.id) ?? null));
+      const cache = receiptCache.current;
+      const keyOf = (id) => `${scopeUid ?? "*"}:${id}`;
+      const missing = orders.map((o) => o.id).filter((id) => !cache.has(keyOf(id)));
+      if (missing.length) {
+        const receipts = await fetchReceiptsForOrders(missing, scopeUid);
+        for (const id of missing) cache.set(keyOf(id), receipts.get(id) ?? null);
+      }
+      return orders.map((o) => historyRow(o, cache.get(keyOf(o.id)) ?? null));
     },
     [scopeUid]
   );
 
-  // First page for the current scope and date range. State is set only in the
-  // async callbacks; the handlers that change scope or range set `loading`.
-  // A sequence number drops a stale response that arrives after a newer one.
+  // The live window for the current scope, date range and size. State is set
+  // only in the listener's callbacks; the handlers that change scope or range
+  // set `loading`. Changing any of them replaces the listener (the cleanup
+  // closes the old one), and a sequence number drops a result from a replaced
+  // listener — or an older snapshot of this one — that resolves late.
   useEffect(() => {
     if (signedOut) return undefined;
     const seq = ++requestSeq.current;
-    fetchOrderHistoryPage({
-      medRepUid: isAdmin ? repFilter || null : scopeUid,
-      dateFrom: range.dateFrom,
-      dateTo: range.dateTo,
-    })
-      .then(async (page) => ({ page, next: await toRows(page.orders) }))
-      .then(({ page, next }) => {
-        if (seq !== requestSeq.current) return;
-        setRows(next);
-        setCursor(page.cursor);
-        setHasMore(page.hasMore);
-        setError("");
-        setLoading(false);
-      })
-      .catch((err) => {
-        if (seq !== requestSeq.current) return;
-        setRows([]);
-        setHasMore(false);
-        setError(errorMessage(err, "order history"));
-        setLoading(false);
-      });
-    return undefined;
-  }, [signedOut, isAdmin, scopeUid, repFilter, range, toRows]);
-
-  useEffect(() => {
-    if (!isAdmin) return;
-    fetchMedReps().then(setMedReps).catch(() => setMedReps([]));
-  }, [isAdmin]);
-
-  const loadMore = async () => {
-    if (!hasMore || loadingMore) return;
-    // The page belongs to the scope and range in effect now; if they change
-    // before it arrives (a new first page started), it is dropped.
-    const seq = requestSeq.current;
-    setLoadingMore(true);
-    try {
-      const page = await fetchOrderHistoryPage({
+    let snapshotSeq = 0;
+    const fail = (err) => {
+      if (seq !== requestSeq.current) return;
+      setError(errorMessage(err, "order history"));
+      setLoading(false);
+      setLoadingMore(false);
+    };
+    const unsubscribe = subscribeOrderHistoryWindow(
+      {
         medRepUid: isAdmin ? repFilter || null : scopeUid,
         dateFrom: range.dateFrom,
         dateTo: range.dateTo,
-        cursor,
-      });
-      const next = await toRows(page.orders);
-      if (seq !== requestSeq.current) return;
-      setRows((prev) => mergeHistoryPage(prev, next));
-      setCursor(page.cursor);
-      setHasMore(page.hasMore);
-    } catch (err) {
-      if (seq === requestSeq.current) setError(errorMessage(err, "older orders"));
-    } finally {
-      setLoadingMore(false);
-    }
+        size: windowSize,
+      },
+      ({ orders, hasMore: more }) => {
+        const mine = ++snapshotSeq;
+        toRows(orders)
+          .then((next) => {
+            if (seq !== requestSeq.current || mine !== snapshotSeq) return;
+            setRows(next);
+            setHasMore(more);
+            setError("");
+            setLoading(false);
+            setLoadingMore(false);
+          })
+          .catch(fail);
+      },
+      fail
+    );
+    return () => unsubscribe();
+  }, [signedOut, isAdmin, scopeUid, repFilter, range, windowSize, toRows]);
+
+  useEffect(() => {
+    if (!isAdmin) return undefined;
+    return subscribeMedReps(
+      (reps) => {
+        setMedReps(reps);
+        setMedRepsError(false);
+      },
+      () => setMedRepsError(true)
+    );
+  }, [isAdmin]);
+
+  // Grows the live window by a page; the rows already shown stay on screen
+  // until the larger window arrives.
+  const loadMore = () => {
+    if (!hasMore || loadingMore) return;
+    setLoadingMore(true);
+    setWindowSize((n) => n + HISTORY_PAGE_SIZE);
   };
 
   const runLookup = async (event) => {
@@ -180,12 +190,14 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
     if (range.dateFrom === filters.dateFrom && range.dateTo === filters.dateTo) return;
     setLookupResult(null);
     setLoading(true);
+    setWindowSize(HISTORY_PAGE_SIZE);
     setRange({ dateFrom: filters.dateFrom, dateTo: filters.dateTo });
   };
   const changeRep = (e) => {
     if (e.target.value === repFilter) return;
     setLookupResult(null);
     setLoading(true);
+    setWindowSize(HISTORY_PAGE_SIZE);
     setRepFilter(e.target.value);
   };
   const shownError = signedOut ? "You must be signed in to view your order history." : error;
@@ -289,6 +301,11 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
             <span>Med Rep</span>
             <select value={repFilter} onChange={changeRep}>
               <option value="">All Med Reps</option>
+              {medRepsError && (
+                <option value="" disabled>
+                  Med Rep list could not be loaded
+                </option>
+              )}
               {medReps.map((m) => (
                 <option key={m.uid} value={m.uid}>{m.label}</option>
               ))}

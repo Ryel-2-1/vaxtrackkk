@@ -68,6 +68,33 @@ export async function fetchOrderHistoryPage({ medRepUid = null, dateFrom = "", d
 }
 
 /**
+ * The LIVE window of the newest `size` orders, for the history list. Same
+ * query as fetchOrderHistoryPage — same scope, date range, order and indexes —
+ * without a cursor: "Load older orders" re-subscribes with a larger `size`, so
+ * every loaded row stays current (a new order appears at the top, a status or
+ * allocation change shows in its row) without a reload. A cursor page could
+ * not do that: it was a one-time read, frozen when it arrived.
+ * callback({ orders, hasMore }).
+ */
+export function subscribeOrderHistoryWindow({ medRepUid = null, dateFrom = "", dateTo = "", size = HISTORY_PAGE_SIZE } = {}, callback, onError) {
+  const parts = [];
+  if (medRepUid) parts.push(where("createdByUid", "==", medRepUid));
+  const from = manilaDayStart(dateFrom);
+  const to = manilaDayEnd(dateTo);
+  if (from) parts.push(where("createdAt", ">=", from));
+  if (to) parts.push(where("createdAt", "<", to));
+  parts.push(orderBy("createdAt", "desc"), limit(size));
+  return onSnapshot(
+    query(collection(db, ORDERS), ...parts),
+    (snap) => callback({ orders: snap.docs.map(withId), hasMore: snap.docs.length === size }),
+    (err) => {
+      console.error("Order history subscription error:", err?.code || err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+/**
  * Receipts for the given orders, as Map(orderId → receipt). Orders without a
  * receipt (legacy) are simply absent. A query, not per-id gets: a Med Rep may
  * not `get` a receipt that does not exist, so absence must come back as an
@@ -150,6 +177,21 @@ export async function fetchOrdersByIds(orderIds) {
 
 /** Admin: Med Reps, for the Med Rep filter (bounded like every query here). */
 export const MED_REP_LIMIT = 500;
+
+const medRepOption = (u) => ({ uid: u.id, label: u.name || u.fullName || u.displayName || u.email || u.id });
+
+/** Admin: the same Med Rep list, LIVE — a rep added meanwhile appears in the filter. */
+export function subscribeMedReps(callback, onError) {
+  return onSnapshot(
+    query(collection(db, "users"), where("role", "==", "salesrep"), limit(MED_REP_LIMIT)),
+    (snap) => callback(snap.docs.map(withId).map(medRepOption).sort((a, b) => a.label.localeCompare(b.label))),
+    (err) => {
+      console.error("Med Rep list subscription error:", err?.code || err);
+      if (onError) onError(err);
+    }
+  );
+}
+
 export async function fetchMedReps() {
   const snap = await getDocs(query(collection(db, "users"), where("role", "==", "salesrep"), limit(MED_REP_LIMIT)));
   return snap.docs

@@ -7,6 +7,7 @@ import {
   MAX_DESTINATION_REASON_LENGTH,
   subscribeDestinationCorrections,
 } from "../../services/destinationCorrectionService";
+import { friendlyErrorMessage } from "../../services/liveDataErrors";
 
 export default function DestinationCorrectionDialog({ order, onDismiss, onConfirm }) {
   const [addresses, setAddresses] = useState([]);
@@ -111,7 +112,7 @@ export default function DestinationCorrectionDialog({ order, onDismiss, onConfir
     try {
       await onConfirm(order, selected, cleanReason);
     } catch (failure) {
-      setError(failure.message || "Could not correct the destination.");
+      setError(friendlyErrorMessage(failure, "Could not correct the destination."));
       submittingRef.current = false;
       setSubmitting(false);
     }

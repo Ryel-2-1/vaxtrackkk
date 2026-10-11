@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -14,14 +14,16 @@ import {
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
-import { getOrderById } from "../../services/orderService";
+import { subscribeOrder } from "../../services/orderHistoryService";
 import { getUserProfile } from "../../services/userService";
 import {
   createInvoiceDraft,
-  getInvoiceByOrderId,
   issueInvoice,
+  subscribeInvoice,
   updateInvoiceDraft,
 } from "../../services/invoiceService";
+import { formSignature, reconcileLiveForm } from "../../services/liveFormSync";
+import { friendlyErrorMessage, liveErrorMessage } from "../../services/liveDataErrors";
 import {
   adjustmentsFromForm,
   buildInitialForm,
@@ -31,7 +33,9 @@ import {
   ITEMIZED_VAT,
   itemVatLabelForLine,
   isServerPricedOrder,
+  NEGOTIATED_NO_DISCOUNT_NOTE,
   nextKey,
+  orderHasNegotiatedPrice,
   normalizeStoredTotals,
   presentationFromForm,
   serializeInvoiceDoc,
@@ -87,6 +91,22 @@ function InvoiceEditor() {
   const [confirmIssue, setConfirmIssue] = useState(false);
   const [message, setMessage] = useState(null); // { type, text }
   const [reloadKey, setReloadKey] = useState(0);
+  // Newer server data arrived while this form had unsaved edits. The edits are
+  // kept; the admin loads the newer version explicitly.
+  const [stale, setStale] = useState(false);
+
+  // For the snapshot callbacks (refs, never read during render): the latest
+  // server data, whether the form holds unsaved edits, whether a save/issue
+  // from this page is in flight, and the signature the form was seeded from.
+  const liveRef = useRef({ order: undefined, invoice: undefined, repName: undefined });
+  const dirtyRef = useRef(false);
+  const busyRef = useRef(false);
+  const baselineRef = useRef(null);
+
+  const markDirty = () => {
+    dirtyRef.current = true;
+    setDirty(true);
+  };
 
   const autoPrintRef = useRef(location.state?.autoPrint === true);
 
@@ -107,62 +127,137 @@ function InvoiceEditor() {
    */
   const serverPriced = isServerPricedOrder(order);
   const baseLocked = readOnly || serverPriced;
+  // No double discount: a negotiated order is invoiced at its agreed prices,
+  // and the server refuses an invoice discount on top (discount-not-allowed-negotiated).
+  const discountLocked = readOnly || (serverPriced && orderHasNegotiatedPrice(order));
   // The recorded convention this invoice is computed and labelled under —
   // never the current configuration applied to an existing record.
   const priceConvention = invoicePriceConvention({ order, invoice });
   const priceNote = priceConventionNote(priceConvention);
 
-  // Load order + invoice on mount (and on retry via reloadKey). All setState
-  // runs after an await inside this async effect, so it never fires
-  // synchronously during render.
+  // Puts the latest server data on screen. The form follows it only while it
+  // holds no unsaved edits (services/liveFormSync.js); otherwise the edits are
+  // kept and the "newer version" notice is shown. `force` is the admin's own
+  // "Load latest", which discards the edits.
+  const applyServer = useCallback((force = false) => {
+    const live = liveRef.current;
+    if (live.order === undefined || live.invoice === undefined || live.repName === undefined) return;
+    if (live.order === null) {
+      setError("This order no longer exists.");
+      setLoading(false);
+      return;
+    }
+    if (invoicePriceConvention({ order: live.order, invoice: live.invoice }) === null) {
+      // A priced order that does not record whether its prices include
+      // VAT. The server refuses to invoice it too; nothing is guessed.
+      setError("This order does not record whether its prices include VAT, so it cannot be invoiced.");
+      setLoading(false);
+      return;
+    }
+    setOrder(live.order);
+    setInvoice(live.invoice);
+    const seeded = buildInitialForm(live.order, live.invoice, live.repName);
+    const serverKey = formSignature(seeded, {
+      status: live.invoice?.invoiceStatus ?? null,
+      number: live.invoice?.invoiceNumber ?? null,
+    });
+    const action = force
+      ? "seed"
+      : reconcileLiveForm({
+          dirty: dirtyRef.current,
+          busy: busyRef.current,
+          baselineKey: baselineRef.current,
+          serverKey,
+        });
+    if (action === "seed") {
+      setForm(seeded);
+      baselineRef.current = serverKey;
+      dirtyRef.current = false;
+      setDirty(false);
+      setStale(false);
+    } else if (action === "stale") {
+      setStale(true);
+    }
+    setError("");
+    setLoading(false);
+  }, []);
+
+  // The order and its invoice are LIVE (re-subscribed on retry via
+  // reloadKey). They used to be read once on open and re-read after each save,
+  // so a draft saved or issued in another browser stayed invisible here.
+  // State is set only in the listeners' callbacks; both close on unmount.
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const orderData = await getOrderById(orderId);
-        if (cancelled) return;
-        if (!orderData) {
-          setError("This order no longer exists.");
-          setLoading(false);
-          return;
-        }
-        const invoiceData = await getInvoiceByOrderId(orderId);
-        let repName = orderData.salesRepName || "";
-        if (!repName && orderData.createdByUid) {
-          try {
-            const profile = await getUserProfile(orderData.createdByUid);
-            repName = profile?.fullName || profile?.name || profile?.displayName || "";
-          } catch {
-            /* non-fatal */
-          }
-        }
-        if (cancelled) return;
-        if (invoicePriceConvention({ order: orderData, invoice: invoiceData }) === null) {
-          // A priced order that does not record whether its prices include
-          // VAT. The server refuses to invoice it too; nothing is guessed.
-          setError("This order does not record whether its prices include VAT, so it cannot be invoiced.");
-          setLoading(false);
-          return;
-        }
-        setOrder(orderData);
-        setInvoice(invoiceData);
-        setForm(buildInitialForm(orderData, invoiceData, repName));
-        setDirty(false);
-        setLoading(false);
-      } catch (err) {
-        if (cancelled) return;
-        if (err?.code === "permission-denied") {
-          setError("You do not have permission to open this invoice.");
-        } else {
-          setError("Unable to load the invoice.");
-        }
-        setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
+    const live = { order: undefined, invoice: undefined, repName: undefined };
+    liveRef.current = live;
+    baselineRef.current = null;
+    let active = true;
+    // The default Med Rep name for an empty field, read once per creator. A
+    // documented one-time read: it only pre-fills a blank, and the stored
+    // invoice value always wins over it.
+    const profileNames = {};
+    const repNameFor = (orderData) => {
+      if (!orderData) return "";
+      if (orderData.salesRepName) return orderData.salesRepName;
+      const uid = orderData.createdByUid;
+      if (!uid) return "";
+      if (uid in profileNames) return profileNames[uid];
+      profileNames[uid] = undefined;
+      getUserProfile(uid)
+        .then((p) => p?.fullName || p?.name || p?.displayName || "")
+        .catch(() => "")
+        .then((name) => {
+          if (!active) return;
+          profileNames[uid] = name;
+          live.repName = repNameFor(live.order);
+          applyServer();
+        });
+      return undefined;
     };
-  }, [orderId, reloadKey]);
+    const fail = (err) => {
+      if (!active) return;
+      setError(
+        err?.code === "permission-denied"
+          ? "You do not have permission to open this invoice."
+          : liveErrorMessage(err, "the invoice")
+      );
+      setLoading(false);
+    };
+    const unsubOrder = subscribeOrder(
+      orderId,
+      (orderData) => {
+        live.order = orderData;
+        live.repName = repNameFor(orderData);
+        applyServer();
+      },
+      fail
+    );
+    const unsubInvoice = subscribeInvoice(
+      orderId,
+      (invoiceData) => {
+        live.invoice = invoiceData;
+        applyServer();
+      },
+      fail
+    );
+    return () => {
+      active = false;
+      unsubOrder();
+      unsubInvoice();
+    };
+  }, [orderId, reloadKey, applyServer]);
+
+  // After this page's own save/issue: the form is clean, and the stored
+  // version replaces it as soon as the listener has it — now, if the snapshot
+  // carrying the write already arrived during the save, otherwise on arrival.
+  const settleAfterOwnWrite = (invoiceBefore) => {
+    dirtyRef.current = false;
+    setDirty(false);
+    setStale(false);
+    baselineRef.current = null;
+    if (liveRef.current.invoice !== invoiceBefore) applyServer();
+  };
+
+  const loadLatest = () => applyServer(true);
 
   const handleRetry = () => {
     setError("");
@@ -195,7 +290,7 @@ function InvoiceEditor() {
 
   const setField = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
-    setDirty(true);
+    markDirty();
   };
 
   const setItem = (key, field, value) => {
@@ -203,7 +298,7 @@ function InvoiceEditor() {
       ...prev,
       items: prev.items.map((it) => (it.key === key ? { ...it, [field]: value } : it)),
     }));
-    setDirty(true);
+    markDirty();
   };
 
   const addItem = () => {
@@ -225,12 +320,12 @@ function InvoiceEditor() {
         },
       ],
     }));
-    setDirty(true);
+    markDirty();
   };
 
   const removeItem = (key) => {
     setForm((prev) => ({ ...prev, items: prev.items.filter((it) => it.key !== key) }));
-    setDirty(true);
+    markDirty();
   };
 
   const buildInvoiceData = () =>
@@ -242,9 +337,11 @@ function InvoiceEditor() {
   };
 
   const handleSaveDraft = async () => {
-    if (saving || readOnly) return;
+    if (saving || readOnly || busyRef.current) return;
+    busyRef.current = true;
     setSaving(true);
     setMessage(null);
+    const invoiceBefore = liveRef.current.invoice;
     try {
       if (serverPriced) {
         // Presentation text and explicit adjustments only. No item, quantity,
@@ -260,23 +357,20 @@ function InvoiceEditor() {
       } else {
         await createInvoiceDraft(orderId, buildInvoiceData(), admin());
       }
-      const fresh = await getInvoiceByOrderId(orderId);
-      setInvoice(fresh);
-      // Re-seed the form from what was actually stored, so the screen shows the
-      // server's figures rather than the ones this page computed for preview.
-      if (serverPriced && fresh) {
-        setForm((prev) => ({ ...buildInitialForm(order, fresh, prev?.salesRepName || "") }));
-      }
-      setDirty(false);
+      // No re-read: the invoice listener delivers what was stored, and the
+      // form is re-seeded from it, so the screen shows the server's figures
+      // rather than the ones this page computed for preview.
+      settleAfterOwnWrite(invoiceBefore);
       setMessage({ type: "success", text: "Draft saved." });
     } catch (err) {
       setMessage({
         type: "error",
         text: serverPriced
           ? messageForInvoiceError(err)
-          : err.message || "Failed to save draft.",
+          : friendlyErrorMessage(err, "Failed to save draft."),
       });
     } finally {
+      busyRef.current = false;
       setSaving(false);
     }
   };
@@ -305,10 +399,12 @@ function InvoiceEditor() {
   };
 
   const handleIssue = async () => {
-    if (issuing) return;
+    if (issuing || busyRef.current) return;
+    busyRef.current = true;
     setIssuing(true);
     setConfirmIssue(false);
     setMessage(null);
+    const invoiceBefore = liveRef.current.invoice;
     try {
       if (serverPriced) {
         // Re-checks the stored draft against the order before locking it, so a
@@ -318,18 +414,17 @@ function InvoiceEditor() {
       } else {
         await issueInvoice(invoice.id, admin());
       }
-      const fresh = await getInvoiceByOrderId(orderId);
-      setInvoice(fresh);
-      setDirty(false);
+      settleAfterOwnWrite(invoiceBefore);
       setMessage({ type: "success", text: "Invoice issued." });
     } catch (err) {
       setMessage({
         type: "error",
         text: serverPriced
           ? messageForInvoiceError(err)
-          : err.message || "Failed to issue invoice.",
+          : friendlyErrorMessage(err, "Failed to issue invoice."),
       });
     } finally {
+      busyRef.current = false;
       setIssuing(false);
     }
   };
@@ -453,6 +548,27 @@ function InvoiceEditor() {
             <button type="button" aria-label="Dismiss" onClick={() => setMessage(null)}>
               <X size={14} />
             </button>
+          </div>
+        )}
+
+        {stale && (
+          <div className="inv-stale-banner inv-no-print" role="status">
+            <AlertTriangle size={16} />
+            <span>
+              {issued
+                ? "This invoice was issued in another session, so your unsaved edits can no longer be saved."
+                : "This invoice was changed in another session. Your unsaved edits are still here; loading the latest version discards them."}
+            </span>
+            <button type="button" className="inv-btn inv-btn-outline" onClick={loadLatest}>
+              <RotateCcw size={14} /> Load latest
+            </button>
+          </div>
+        )}
+
+        {discountLocked && !readOnly && (
+          <div className="inv-priced-banner inv-no-print" role="note">
+            <CheckCircle2 size={16} />
+            <span>{NEGOTIATED_NO_DISCOUNT_NOTE}</span>
           </div>
         )}
 
@@ -872,8 +988,8 @@ function InvoiceEditor() {
                 <NumberInput
                   value={form.discount}
                   onChange={(v) => setField("discount", v)}
-                  readOnly={readOnly}
-                  aria-label="Discount amount"
+                  readOnly={discountLocked}
+                  aria-label={discountLocked && !readOnly ? `Discount amount — ${NEGOTIATED_NO_DISCOUNT_NOTE}` : "Discount amount"}
                 />
               </div>
               <div className="sit-tt-row">

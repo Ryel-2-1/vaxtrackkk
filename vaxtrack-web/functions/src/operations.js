@@ -64,6 +64,12 @@ const {
   createPreparedReceipt,
 } = require("./orderHistory");
 const { materializeInitialHistory } = require("./orderHistoryOutbox");
+const {
+  priceOrderLine,
+  summarizeAgreement,
+  priceAdjustmentAuditRecord,
+  priceAdjustmentAuditId,
+} = require("./negotiatedPricing");
 
 const ORDERS = "orders";
 const INVENTORY = "inventory";
@@ -75,6 +81,8 @@ const DOCTORS = "doctors";
 const DOCTOR_ADDRESSES = "deliveryAddresses";
 const CLINICS = "clinics";
 const AREAS = "areas";
+/** Server-only: one immutable record per negotiated order line. */
+const PRICE_ADJUSTMENTS = "orderPriceAdjustments";
 
 /** Role/status gate. Both are read from the server-side user document. */
 function requireRole(userData, role) {
@@ -361,24 +369,41 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
       return typeof sku === "string" && sku.trim() !== "" ? sku.trim() : null;
     });
 
-    const subtotalCentavos = sumLineTotalsCentavos(evaluated);
+    // ---- negotiated pricing (negotiatedPricing.js) ----
+    // The STANDARD price is the batch's, read inside this transaction (and
+    // already proven equal to what the Med Rep reviewed — price-changed
+    // otherwise). The AGREED price is the Med Rep's, shape-checked with its
+    // reason by validateCreatePayload. Every total and the VAT breakdown are
+    // computed HERE, in integers; the caller sends none of them.
+    const pricedLines = evaluated.map((e, index) =>
+      priceOrderLine({
+        quantity: e.quantity,
+        standardUnitPriceCentavos: e.unitPriceCentavos,
+        agreedUnitPriceCentavos: items[index].agreedUnitPriceCentavos,
+        adjustmentReason: items[index].adjustmentReason,
+        vatClassification: lineVat[index],
+      })
+    );
+    const agreement = summarizeAgreement(pricedLines);
+    const subtotalCentavos = sumLineTotalsCentavos(pricedLines);
     const orderItems = evaluated.map((e, index) => ({
       inventoryId: e.inventoryId,
       batchId: e.batchId,
       name: e.name,
       chain: e.chain,
       quantity: e.quantity,
-      // Money, read from the batch INSIDE this transaction. The caller supplied
-      // no price — only the price it expected, which was checked above — so a
-      // reduced, inflated or malformed figure cannot reach this document.
-      unitPriceCentavos: e.unitPriceCentavos,
-      lineTotalCentavos: e.lineTotalCentavos,
+      // Money: the standard price from the batch and the agreed price the Med
+      // Rep negotiated, with every total derived from them in integers.
+      // `unitPriceCentavos` / `lineTotalCentavos` are the price CHARGED (the
+      // agreed one) — the fields every invoice, receipt and confirmation reads.
+      // Immutable after placement: no client can write order items.
+      ...pricedLines[index],
       // Decimal pesos, derived. The invoice module and every invoice already
       // written speak this; centavos above stay the authoritative figure.
-      unitPrice: centavosToPesos(e.unitPriceCentavos),
-      // Immutable VAT snapshot from the vaccine product at this instant. A
-      // later re-classification changes future items only.
-      vatClassification: lineVat[index],
+      unitPrice: centavosToPesos(pricedLines[index].unitPriceCentavos),
+      // Immutable VAT snapshot from the vaccine product at this instant (set by
+      // priceOrderLine from lineVat). A later re-classification changes future
+      // items only.
       // The product this line is DEMAND for. Allocation reserves any eligible
       // batch of it (FEFO); the quoted batch above only fixes price and VAT.
       productKey: invSnaps[index].data().vaccineId,
@@ -424,9 +449,18 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
       pricingVersion: PRICING_VERSION,
       priceCurrency: PRICE_CURRENCY,
       priceIsVatInclusive: PRICE_IS_VAT_INCLUSIVE,
+      // The AGREED total — what is charged and invoiced.
       subtotalCentavos,
       subtotal: centavosToPesos(subtotalCentavos),
       pricedAt: FieldValue.serverTimestamp(),
+      // ---- negotiated pricing snapshot ----
+      // The standard total at confirmation, the net adjustment (signed), whether
+      // any line was negotiated, and the VAT breakdown of the agreed total.
+      priceAgreementVersion: agreement.priceAgreementVersion,
+      standardSubtotalCentavos: agreement.standardSubtotalCentavos,
+      priceAdjustmentCentavos: agreement.priceAdjustmentCentavos,
+      priceAdjusted: agreement.priceAdjusted,
+      vatSummary: agreement.vatSummary,
       // ---- allocation (backorder-aware; see allocation.js) ----
       allocationVersion: ALLOCATION_VERSION_BACKORDER,
       // The reservation document is active (possibly still empty).
@@ -485,6 +519,25 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
     tx.set(orderRef, orderData);
     createPreparedReceipt(tx, preparedReceipt);
     createPreparedEvents(tx, { FieldValue, prepared: preparedHistory });
+    // The pricing audit: one immutable record per negotiated line, in this same
+    // transaction — so an order exists with its audit or not at all. Actor and
+    // time are the server's (the verified uid and serverTimestamp); the ids are
+    // deterministic and `create` refuses to overwrite.
+    orderItems.forEach((line, lineIndex) => {
+      if (!line.priceAdjusted) return;
+      tx.create(
+        db.collection(PRICE_ADJUSTMENTS).doc(priceAdjustmentAuditId(orderRef.id, lineIndex)),
+        priceAdjustmentAuditRecord({
+          orderId: orderRef.id,
+          orderNumber,
+          lineIndex,
+          line,
+          uid,
+          requestId,
+          FieldValue,
+        })
+      );
+    });
     // The initial-allocation outbox marker: the order's first allocation pass
     // runs after this commit, and whoever completes it records the outcome —
     // the callable below, or the materializeOrderHistory trigger if the call
@@ -531,21 +584,44 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
       productKeys: allocationSummary.backorderedProductKeys,
       destination: destination.response,
       pricing: {
-        items: orderItems.map((i) => ({
-          inventoryId: i.inventoryId,
-          batchId: i.batchId,
-          name: i.name,
-          quantity: i.quantity,
-          unitPriceCentavos: i.unitPriceCentavos,
-          lineTotalCentavos: i.lineTotalCentavos,
-        })),
+        items: orderItems.map(pricingLineView),
         subtotalCentavos,
+        standardSubtotalCentavos: agreement.standardSubtotalCentavos,
+        priceAdjustmentCentavos: agreement.priceAdjustmentCentavos,
+        priceAdjusted: agreement.priceAdjusted,
+        vatSummary: agreement.vatSummary,
         priceCurrency: PRICE_CURRENCY,
         priceIsVatInclusive: PRICE_IS_VAT_INCLUSIVE,
         pricingVersion: PRICING_VERSION,
       },
     };
   });
+}
+
+/**
+ * One priced line as the confirmation screen sees it — the same shape for a
+ * first call and a replay. An order placed before negotiated pricing reads as
+ * "agreed = standard": nothing about it is reinterpreted.
+ */
+function pricingLineView(i) {
+  const standardUnit = i.standardUnitPriceCentavos ?? i.unitPriceCentavos;
+  const standardLine = i.standardLineTotalCentavos ?? i.lineTotalCentavos;
+  return {
+    inventoryId: i.inventoryId ?? null,
+    batchId: i.batchId ?? null,
+    name: i.name ?? null,
+    quantity: i.quantity,
+    unitPriceCentavos: i.unitPriceCentavos,
+    lineTotalCentavos: i.lineTotalCentavos,
+    standardUnitPriceCentavos: standardUnit,
+    standardLineTotalCentavos: standardLine,
+    agreedUnitPriceCentavos: i.agreedUnitPriceCentavos ?? i.unitPriceCentavos,
+    agreedLineTotalCentavos: i.agreedLineTotalCentavos ?? i.lineTotalCentavos,
+    adjustmentCentavos: i.adjustmentCentavos ?? 0,
+    priceAdjusted: i.priceAdjusted === true,
+    adjustmentReason: i.adjustmentReason ?? null,
+    vatClassification: i.vatClassification ?? null,
+  };
 }
 
 /**
@@ -559,15 +635,12 @@ function pricingFromOrder(order) {
   if (!order || order.pricingVersion !== PRICING_VERSION) return null;
   const items = Array.isArray(order.items) ? order.items : [];
   return {
-    items: items.map((i) => ({
-      inventoryId: i.inventoryId ?? null,
-      batchId: i.batchId ?? null,
-      name: i.name ?? null,
-      quantity: i.quantity,
-      unitPriceCentavos: i.unitPriceCentavos,
-      lineTotalCentavos: i.lineTotalCentavos,
-    })),
+    items: items.map(pricingLineView),
     subtotalCentavos: order.subtotalCentavos,
+    standardSubtotalCentavos: order.standardSubtotalCentavos ?? order.subtotalCentavos,
+    priceAdjustmentCentavos: order.priceAdjustmentCentavos ?? 0,
+    priceAdjusted: order.priceAdjusted === true,
+    vatSummary: order.vatSummary ?? null,
     priceCurrency: order.priceCurrency ?? PRICE_CURRENCY,
     // The order's own recorded convention — a replay never re-labels it.
     priceIsVatInclusive: readPriceConvention(order.priceIsVatInclusive),

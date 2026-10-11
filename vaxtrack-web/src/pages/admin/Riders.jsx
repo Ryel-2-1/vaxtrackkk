@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { subscribeRiders, updateRiderStatus } from "../../services/riderService";
 import KpiCard from "../../components/ui/KpiCard";
+import { friendlyErrorMessage, liveErrorMessage } from "../../services/liveDataErrors";
 import "./Riders.css";
 
 const UI_STATUS_MAP = {
@@ -85,7 +86,7 @@ function Riders() {
       },
       (error) => {
         setLoading(false);
-        setLoadError(error.message || "Failed to load riders.");
+        setLoadError(liveErrorMessage(error, "riders"));
       }
     );
     return () => unsubscribe();
@@ -102,7 +103,7 @@ function Riders() {
       showToast(successMsg);
     } catch (error) {
       console.error("Update rider status error:", error);
-      showToast(`Failed to update ${rider.name}: ${error.message}`);
+      showToast(`Failed to update ${rider.name}. ${friendlyErrorMessage(error, "Please try again.")}`);
     }
   };
 

@@ -19,6 +19,7 @@ import {
   subscribeAllAlerts,
 } from "../../services/alertService";
 import KpiCard from "../../components/ui/KpiCard";
+import { friendlyErrorMessage, liveErrorMessage } from "../../services/liveDataErrors";
 
 const TYPE_MAP = {
   route_deviation: {
@@ -79,18 +80,39 @@ function normalizeAlert(raw) {
 function Alerts() {
 
   const [alerts, setAlerts] = useState([]);
+  // Loading and failure are their own states: an empty list must mean "no
+  // alerts", never "not loaded yet" or "not allowed to read".
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [severityFilter, setSeverityFilter] = useState("all");
-  const [selectedAlert, setSelectedAlert] = useState(null);
+  // The OPEN alert is looked up in the live list by id, so the dialog shows
+  // what is stored now — resolved or read in another browser included.
+  const [selectedAlertId, setSelectedAlertId] = useState(null);
+  const [resolving, setResolving] = useState(false);
+  const [resolveError, setResolveError] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [toast, setToast] = useState("");
 
   useEffect(() => {
-    const unsubscribe = subscribeAllAlerts((raw) => {
-      setAlerts(raw.map(normalizeAlert));
-    });
+    const unsubscribe = subscribeAllAlerts(
+      (raw) => {
+        setAlerts(raw.map(normalizeAlert));
+        setLoadError("");
+        setLoading(false);
+      },
+      (error) => {
+        setLoadError(liveErrorMessage(error, "alerts"));
+        setLoading(false);
+      }
+    );
     return () => unsubscribe();
   }, []);
+
+  const selectedAlert = selectedAlertId ? alerts.find((a) => a.id === selectedAlertId) ?? null : null;
+  // Deleted while open: the dialog closes and says why, instead of showing a
+  // record that no longer exists.
+  const selectedGone = Boolean(selectedAlertId) && !loading && !loadError && !selectedAlert;
 
 
   const showToast = (message) => {
@@ -136,20 +158,38 @@ function Alerts() {
     alerts.find((alert) => alert.status !== "resolved");
 
   const handleReviewAlert = (alert) => {
-    if (!alert.read) markAlertRead(alert.id);
-    setSelectedAlert({ ...alert, read: true });
+    // The read flag is cosmetic; if the write fails the live list keeps
+    // showing the alert as unread, which is the truth.
+    if (!alert.read) markAlertRead(alert.id).catch((error) => console.error("Mark read failed:", error?.code || error));
+    setResolveError("");
+    setSelectedAlertId(alert.id);
   };
 
-  const handleMarkAllRead = () => {
-    alerts.filter((a) => !a.read).forEach((a) => markAlertRead(a.id));
-    showToast("All alerts marked as read.");
+  const handleMarkAllRead = async () => {
+    const unread = alerts.filter((a) => !a.read);
+    const results = await Promise.allSettled(unread.map((a) => markAlertRead(a.id)));
+    const failed = results.filter((r) => r.status === "rejected").length;
+    showToast(failed ? `${failed} alert(s) could not be marked as read. Please try again.` : "All alerts marked as read.");
   };
 
-  const handleResolveAlert = (alertId) => {
-    resolveAlert(alertId);
-    setSelectedAlert(null);
-    showToast("Alert marked as resolved.");
+  // Closes only once the write succeeded; a second click while it is in
+  // flight is ignored.
+  const handleResolveAlert = async (alertId) => {
+    if (resolving) return;
+    setResolving(true);
+    setResolveError("");
+    try {
+      await resolveAlert(alertId);
+      setSelectedAlertId(null);
+      showToast("Alert marked as resolved.");
+    } catch (error) {
+      setResolveError(friendlyErrorMessage(error, "Could not resolve the alert. Please try again."));
+    } finally {
+      setResolving(false);
+    }
   };
+
+  const kpi = (count) => (loading || loadError ? "—" : count);
 
   const categoryCounts = {
     route: alerts.filter(
@@ -165,6 +205,14 @@ function Alerts() {
     <>
     <main className="alerts-v2-main">
         {toast && <div className="alerts-toast">{toast}</div>}
+        {selectedGone && (
+          <div className="alerts-toast" role="status">
+            That alert was removed. The list has been updated.{" "}
+            <button type="button" className="alerts-toast-dismiss" onClick={() => setSelectedAlertId(null)}>
+              Dismiss
+            </button>
+          </div>
+        )}
 
         <header className="alerts-v2-topbar">
           <div>
@@ -193,7 +241,7 @@ function Alerts() {
         <section className="alert-kpi-grid">
           <KpiCard
             label="Critical alerts"
-            value={criticalCount}
+            value={kpi(criticalCount)}
             context="Needs immediate action"
             tone="danger"
             attention
@@ -202,7 +250,7 @@ function Alerts() {
 
           <KpiCard
             label="Warnings"
-            value={warningCount}
+            value={kpi(warningCount)}
             context="Requires review"
             tone="warning"
             onClick={() => setSeverityFilter("warning")}
@@ -210,7 +258,7 @@ function Alerts() {
 
           <KpiCard
             label="Pending notices"
-            value={noticeCount}
+            value={kpi(noticeCount)}
             context="For monitoring"
             tone="info"
             onClick={() => setSeverityFilter("notice")}
@@ -218,7 +266,7 @@ function Alerts() {
 
           <KpiCard
             label="Resolved today"
-            value={resolvedCount}
+            value={kpi(resolvedCount)}
             context="Completed alerts"
             tone="success"
             onClick={() => setSeverityFilter("resolved")}
@@ -324,7 +372,22 @@ function Alerts() {
                 </div>
               ))}
 
-              {filteredAlerts.length === 0 && (
+              {loading && (
+                <div className="alerts-empty" role="status">
+                  <Bell size={28} />
+                  <strong>Loading alerts…</strong>
+                </div>
+              )}
+
+              {!loading && loadError && (
+                <div className="alerts-empty" role="alert">
+                  <AlertTriangle size={28} />
+                  <strong>Alerts unavailable</strong>
+                  <p>{loadError}</p>
+                </div>
+              )}
+
+              {!loading && !loadError && filteredAlerts.length === 0 && (
                 <div className="alerts-empty">
                   <AlertTriangle size={28} />
                   <strong>No alerts found</strong>
@@ -413,7 +476,9 @@ function Alerts() {
       {selectedAlert && (
         <AlertReviewModal
           alert={selectedAlert}
-          onClose={() => setSelectedAlert(null)}
+          resolving={resolving}
+          error={resolveError}
+          onClose={() => setSelectedAlertId(null)}
           onResolve={() => handleResolveAlert(selectedAlert.id)}
           onContact={() => showToast(`Contacting ${selectedAlert.rider}...`)}
           onRoute={() => showToast(`Opening route for ${selectedAlert.deliveryId}.`)}
@@ -440,7 +505,7 @@ function CategoryItem({ icon, title, count, type, onClick }) {
   );
 }
 
-function AlertReviewModal({ alert, onClose, onResolve, onContact, onRoute }) {
+function AlertReviewModal({ alert, resolving, error, onClose, onResolve, onContact, onRoute }) {
   return (
     <div className="alerts-modal-backdrop">
       <div className="alerts-modal">
@@ -492,10 +557,22 @@ function AlertReviewModal({ alert, onClose, onResolve, onContact, onRoute }) {
           </div>
         </div>
 
+        {error && (
+          <p className="alerts-modal-error" role="alert">
+            {error}
+          </p>
+        )}
+
         <div className="alerts-modal-actions">
           {alert.status !== "resolved" && (
-            <button type="button" className="alerts-primary-action" onClick={onResolve}>
-              Mark Resolved
+            <button
+              type="button"
+              className="alerts-primary-action"
+              onClick={onResolve}
+              disabled={resolving}
+              aria-busy={resolving}
+            >
+              {resolving ? "Resolving…" : "Mark Resolved"}
             </button>
           )}
 

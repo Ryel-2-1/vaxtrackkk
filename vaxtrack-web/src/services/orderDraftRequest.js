@@ -348,6 +348,15 @@ export function canonicalSubmission(submission) {
       quantity: Number(item?.quantity),
       expectedUnitPriceCentavos:
         typeof item?.expectedUnitPriceCentavos === "number" ? item.expectedUnitPriceCentavos : null,
+      // The negotiated price and its reason are part of the attempt: a retry
+      // under the same request id must agree on them too (absent = standard).
+      agreedUnitPriceCentavos:
+        typeof item?.agreedUnitPriceCentavos === "number"
+          ? item.agreedUnitPriceCentavos
+          : typeof item?.expectedUnitPriceCentavos === "number"
+            ? item.expectedUnitPriceCentavos
+            : null,
+      adjustmentReason: typeof item?.adjustmentReason === "string" && item.adjustmentReason.trim() ? item.adjustmentReason.trim() : null,
     }))
     .sort((a, b) => (a.inventoryId < b.inventoryId ? -1 : a.inventoryId > b.inventoryId ? 1 : 0));
   const date = submission?.requestedDeliveryDate;
@@ -384,6 +393,15 @@ export function diffSubmission(saved, current) {
     if (a.items.some((item, i) => item.quantity !== b.items[i].quantity)) changed.push("quantity");
     if (a.items.some((item, i) => item.expectedUnitPriceCentavos !== b.items[i].expectedUnitPriceCentavos)) {
       changed.push("price");
+    }
+    if (
+      a.items.some(
+        (item, i) =>
+          item.agreedUnitPriceCentavos !== b.items[i].agreedUnitPriceCentavos ||
+          item.adjustmentReason !== b.items[i].adjustmentReason
+      )
+    ) {
+      changed.push("agreed price");
     }
   }
   return changed;

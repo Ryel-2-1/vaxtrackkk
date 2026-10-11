@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import { useEffect, useMemo, useState } from "react";
 import KpiCard from "../ui/KpiCard";
 import { useNow } from "../useRiderLiveLocation";
+import FleetMap from "./FleetMap";
+import TrackingStateBadge from "./TrackingStateBadge";
+import useRiderTrackingFeeds from "./useRiderTrackingFeeds";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeRiders } from "../../services/riderService";
-import { subscribeAllDeviationStates, subscribeAllRiderLocations } from "../../services/riderTrackingService";
 import {
   DEVIATION_RULES,
   FRESHNESS,
@@ -27,110 +27,7 @@ import "./LiveTracking.css";
  * position is ever drawn that the rider app did not report.
  */
 
-const METRO_MANILA = [14.5995, 120.9842];
 const STATE_TONE = { deviating: "danger", fresh: "success", stale: "warning", offline: "neutral", unavailable: "neutral" };
-
-function markerIcon(state, selected) {
-  return L.divIcon({
-    className: "ltp-marker",
-    html: `<span class="ltp-dot ltp-dot-${state}${selected ? " ltp-dot-selected" : ""}"></span>`,
-    iconSize: [22, 22],
-    iconAnchor: [11, 11],
-  });
-}
-
-function escapeHtml(text) {
-  return String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-}
-
-/** The Leaflet canvas: one marker per rider with a position. */
-function FleetMap({ riders, selectedUid, onSelect }) {
-  const containerRef = useRef(null);
-  const mapRef = useRef(null);
-  const markersRef = useRef(new Map());
-  const fittedKeyRef = useRef("");
-
-  useEffect(() => {
-    if (!containerRef.current || mapRef.current) return undefined;
-    const map = L.map(containerRef.current).setView(METRO_MANILA, 11);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    }).addTo(map);
-    mapRef.current = map;
-    const onResize = () => map.invalidateSize();
-    window.addEventListener("resize", onResize);
-    let ro;
-    if (typeof ResizeObserver !== "undefined") {
-      ro = new ResizeObserver(onResize);
-      ro.observe(containerRef.current);
-    }
-    // invalidateSize after layout settles (setTimeout, not rAF — rAF is paused
-    // in embedded panes).
-    const timer = setTimeout(onResize, 50);
-    const markers = markersRef.current;
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener("resize", onResize);
-      ro?.disconnect();
-      map.remove();
-      mapRef.current = null;
-      markers.clear();
-      fittedKeyRef.current = "";
-    };
-  }, []);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const markers = markersRef.current;
-    const seen = new Set();
-    for (const r of riders) {
-      if (!r.latLng) continue;
-      seen.add(r.uid);
-      const icon = markerIcon(r.state, r.uid === selectedUid);
-      const tip = `${escapeHtml(r.name)} — ${escapeHtml(MARKER_LABELS[r.state])}`;
-      let m = markers.get(r.uid);
-      if (!m) {
-        m = L.marker(r.latLng, { icon, keyboard: true, title: r.name }).addTo(map);
-        m.bindTooltip(tip, { direction: "top", offset: [0, -10] });
-        markers.set(r.uid, m);
-      } else {
-        m.setLatLng(r.latLng);
-        m.setIcon(icon);
-        m.setTooltipContent(tip);
-      }
-      m.off("click");
-      m.on("click", () => onSelect(r.uid));
-      m.setZIndexOffset(r.uid === selectedUid ? 1000 : r.state === "deviating" ? 500 : 0);
-    }
-    for (const [uid, m] of markers) {
-      if (!seen.has(uid)) {
-        m.remove();
-        markers.delete(uid);
-      }
-    }
-    // Fit only when the SET of riders on the map changes, so live updates
-    // never yank the view the dispatcher is looking at.
-    const key = [...seen].sort().join(",");
-    if (key !== fittedKeyRef.current) {
-      fittedKeyRef.current = key;
-      const points = riders.filter((r) => r.latLng).map((r) => r.latLng);
-      if (points.length === 1) map.setView(points[0], 15, { animate: false });
-      else if (points.length > 1) map.fitBounds(L.latLngBounds(points).pad(0.2), { animate: false });
-    }
-  }, [riders, selectedUid, onSelect]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    const r = riders.find((x) => x.uid === selectedUid);
-    if (map && r?.latLng) map.panTo(r.latLng, { animate: true });
-    // Pan only when the selection changes, not on every position update.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedUid]);
-
-  return <div ref={containerRef} className="ltp-map" role="region" aria-label="Live rider map" />;
-}
 
 function RiderDetails({ rider, nowMs }) {
   if (!rider) {
@@ -141,7 +38,7 @@ function RiderDetails({ rider, nowMs }) {
     <div className="ltp-details">
       <div className="ltp-details-head">
         <strong>{rider.name}</strong>
-        <span className={`ltp-badge ltp-badge-${rider.state}`}>{MARKER_LABELS[rider.state]}</span>
+        <TrackingStateBadge state={rider.state} />
       </div>
       {rider.phone && (
         <p className="ltp-row">
@@ -196,27 +93,17 @@ function RiderDetails({ rider, nowMs }) {
 function LiveTrackingPanel() {
   const nowMs = useNow();
   const [orders, setOrders] = useState(null);
-  const [locations, setLocations] = useState(null);
-  const [deviations, setDeviations] = useState({});
   const [riders, setRiders] = useState({});
-  const [error, setError] = useState(null);
-  const [deviationError, setDeviationError] = useState(false);
+  const [ordersError, setOrdersError] = useState(null);
   const [filter, setFilter] = useState("all");
   const [selectedUid, setSelectedUid] = useState(null);
+  // Rider locations + server deviation state (shared with the dashboard overview).
+  const { locations, deviations, error: feedError, deviationError } = useRiderTrackingFeeds();
+  const error = ordersError || feedError;
 
   useEffect(() => {
-    const fail = (err) => setError(err?.code === "permission-denied" ? "permission" : "error");
     const unsubs = [
-      subscribeDeliveries(setOrders, fail),
-      subscribeAllRiderLocations(setLocations, fail),
-      // Deviation state enriches markers; its failure must not blank the map.
-      subscribeAllDeviationStates(
-        (d) => {
-          setDeviations(d);
-          setDeviationError(false);
-        },
-        () => setDeviationError(true),
-      ),
+      subscribeDeliveries(setOrders, (err) => setOrdersError(err?.code === "permission-denied" ? "permission" : "error")),
       subscribeRiders(
         (list) => setRiders(Object.fromEntries(list.map((r) => [r.uid, r]))),
         () => setRiders({}),

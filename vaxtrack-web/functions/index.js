@@ -146,6 +146,11 @@ function toHttpsError(error, context) {
       "invoice-already-issued": "failed-precondition",
       "invalid-invoice-status": "failed-precondition",
       "discount-exceeds-subtotal": "failed-precondition",
+      // Negotiated pricing (negotiatedPricing.js): the agreed price is the only
+      // reduction an order may carry, and a changed price must be explained.
+      "discount-not-allowed-negotiated": "failed-precondition",
+      "invalid-agreed-price": "invalid-argument",
+      "adjustment-reason-required": "invalid-argument",
       // Someone changed the stored base pricing out from under the draft.
       "invoice-base-mismatch": "aborted",
       "invoice-total-mismatch": "aborted",

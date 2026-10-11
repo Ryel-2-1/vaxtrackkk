@@ -18,6 +18,7 @@ import StatusBadge from "../../components/ui/StatusBadge";
 import KpiCard from "../../components/ui/KpiCard";
 import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 import { subscribeOrderStatusEvents } from "../../services/statusEventService";
+import { liveErrorMessage } from "../../services/liveDataErrors";
 import "./Deliveries.css";
 
 function normalizeDelivery(raw) {
@@ -124,7 +125,7 @@ function Deliveries() {
       },
       (error) => {
         setLoading(false);
-        setLoadError(error.message || "Failed to load deliveries.");
+        setLoadError(liveErrorMessage(error, "deliveries"));
       }
     );
     return () => unsubscribe();

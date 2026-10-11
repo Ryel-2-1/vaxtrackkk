@@ -3,6 +3,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import { auth } from "../../firebase";
 import { AdminSidebar } from "./AdminSidebar";
+import OfflineNotice from "../shell/OfflineNotice";
 import "./AdminLayout.css";
 
 /**
@@ -84,6 +85,8 @@ function AdminShell() {
   return (
     <div className={wrapperClassFor(location.pathname)}>
       <AdminSidebar onLogout={handleLogout} />
+      {/* Portalled to <body>: not a child of this layout. */}
+      <OfflineNotice />
 
       {/* The shared top bar (same as Sales Rep and Dispatcher). Fixed beside
           the rail, like the rail itself, so the page's own <main> remains the

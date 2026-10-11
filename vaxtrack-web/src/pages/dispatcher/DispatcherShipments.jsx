@@ -21,6 +21,7 @@ import {
   isEarlyDispatchAnomaly,
 } from "../../services/dispatchEligibility";
 import useManilaDayNow from "../../components/useManilaDayNow";
+import { friendlyErrorMessage } from "../../services/liveDataErrors";
 
 // A local status-label copy used to live here for the status-change toasts.
 // Those toasts are gone with the Delivered/Delay/Resume actions, and the
@@ -237,7 +238,7 @@ function DispatcherShipments() {
       );
     } catch (err) {
       console.error("Requeue failed order error:", err?.code || err);
-      showToast(err.message || "Failed to return the order to the queue.", "error");
+      showToast(friendlyErrorMessage(err, "Failed to return the order to the queue."), "error");
       throw err; // keeps the dialog open and releases its guard
     } finally {
       setUpdating("");
@@ -268,7 +269,7 @@ function DispatcherShipments() {
           ? "This order's stock was already settled — refresh to see its current state."
           : err?.code === "service-unavailable"
             ? "The ordering service is unavailable right now. Please try again."
-            : err.message || "Failed to cancel order.";
+            : friendlyErrorMessage(err, "Failed to cancel order.");
       showToast(message, "error");
       throw err; // lets the dialog keep itself open and release its guard
     } finally {

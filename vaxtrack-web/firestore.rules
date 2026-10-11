@@ -610,6 +610,12 @@ service cloud.firestore {
         'requeuedAt', 'requeuedByUid',
         'pricingVersion', 'priceCurrency', 'priceIsVatInclusive',
         'subtotalCentavos', 'subtotal', 'pricedAt',
+        // Negotiated pricing (functions/src/negotiatedPricing.js): the Med Rep
+        // agrees each line's price BEFORE placement and the callable records it.
+        // After placement nobody — the Med Rep who negotiated it included — may
+        // restate the standard total, the adjustment or the VAT breakdown.
+        'priceAgreementVersion', 'standardSubtotalCentavos', 'priceAdjustmentCentavos',
+        'priceAdjusted', 'vatSummary',
         // The callable derives this snapshot from active Doctor, relationship,
         // destination, and Area documents inside the reservation transaction.
         // A client may select ids, but it may never author the resulting facts.
@@ -813,8 +819,11 @@ service cloud.firestore {
         && d.manufacturingDate < d.expiryDate;
     }
 
+    // VATable (12%, VAT-inclusive prices), VAT Exempt, or Zero-Rated (VAT at
+    // 0%, reported separately). Mirrors PRODUCT_VAT_CLASSIFICATIONS on the
+    // server (functions/src/policy.js) and the web (vatClassification.js).
     function isProductVatClassification(value) {
-      return value in ['vatable', 'vat_exempt'];
+      return value in ['vatable', 'vat_exempt', 'zero_rated'];
     }
 
     function vaccineVatChangeValid() {
@@ -1645,6 +1654,16 @@ service cloud.firestore {
     // a client that could write one could suppress or forge that record.
     match /orderHistoryOutbox/{orderId} {
       allow read, write: if false;
+    }
+    // Negotiated-price audit: one immutable record per negotiated order line,
+    // created only by createOrderWithReservation in the order's own
+    // transaction (standard and agreed price, adjustment, reason, the Med Rep's
+    // uid, server time, request reference). Admin may read it. The Med Rep sees
+    // their own adjustment on the order itself; Dispatcher and Rider have no
+    // access. No client may create, edit or delete a record.
+    match /orderPriceAdjustments/{recordId} {
+      allow get, list: if isAdmin();
+      allow write: if false;
     }
 
     // ---------------- AI inventory analytics (advisory, Phase 1) ----------------

@@ -22,6 +22,7 @@ const src = (...p) => readFileSync(join(here, "..", "src", ...p), "utf8");
 const addVaccine = src("pages", "admin", "AddVaccine.jsx");
 const addStock = src("pages", "admin", "AddStock.jsx");
 const formsCss = src("pages", "admin", "AdminForms.css");
+const vaccineServiceSrc = src("services", "vaccineService.js");
 
 // ---------------------------------------------------------------------------
 // Add Type field: a real accessible name, not a placeholder
@@ -82,12 +83,13 @@ test("aria-expanded, aria-controls and the panel id still line up", () => {
   assert.match(addVaccine, /aria-label="Cancel new vaccine type"/);
 });
 
-test("adding a type still refreshes the list before selecting it", () => {
+test("adding a type selects it; the live list supplies it without a re-read", () => {
   assert.match(
     addVaccine,
-    /await addVaccineType\(typeName\);[\s\S]*?await loadVaccineTypes\(\);\s*\n\s*setVaccineType\(typeName\);/,
-    "the reload must be awaited before the new type is selected"
+    /await addVaccineType\(typeName\);[\s\S]*?setVaccineType\(typeName\);/,
+    "the new type is selected only after its write succeeded"
   );
+  assert.equal(/loadVaccineTypes|getVaccineTypes/.test(addVaccine), false, "no refetch after the write");
   assert.match(addVaccine, /This vaccine type already exists\./);
   assert.match(addVaccine, /Vaccine type name must be at least 3 characters\./);
 });
@@ -96,33 +98,22 @@ test("adding a type still refreshes the list before selecting it", () => {
 // The lint correction changed how the initial load is written, nothing else
 // ---------------------------------------------------------------------------
 
-test("the initial load still reads the same service and fills the same state", () => {
-  assert.match(addVaccine, /getVaccineTypes\(\)\s*\.then\(\(types\) => \{/);
-  assert.match(addVaccine, /setVaccineTypes\(types\)/);
-  assert.match(addVaccine, /console\.error\("Load vaccine types error:", error\)/);
-  assert.match(addVaccine, /Unable to load vaccine types\./);
-});
-
-test("state is settled in callbacks, and an unmount cancels it", () => {
-  // The rule fires when setState is reachable synchronously from the effect
-  // body; it follows a helper call and cannot see the await inside it.
-  assert.match(addVaccine, /let active = true;/);
-  assert.match(addVaccine, /if \(active\) setVaccineTypes\(types\)/);
-  assert.match(addVaccine, /return \(\) => \{\s*active = false;\s*\};/, "cleanup guard");
-  assert.doesNotMatch(
-    addVaccine,
-    /useEffect\(\(\) => \{\s*loadVaccineTypes\(\);\s*\}/,
-    "the effect must not call the helper directly again"
-  );
+test("vaccine types are a live listener that fills the same state", () => {
+  // The effect returns the listener's unsubscribe, so an unmount closes it.
+  assert.match(addVaccine, /useEffect\(\s*\(\) =>\s*subscribeVaccineTypes\(/);
+  assert.match(addVaccine, /\(types\) => setVaccineTypes\(types\)/);
+  // A failed listener says so (mapped, never raw Firebase text).
+  assert.match(addVaccine, /setMessage\(liveErrorMessage\(error, "vaccine types"\)\)/);
+  assert.match(vaccineServiceSrc, /export function subscribeVaccineTypes\(callback, onError\)/);
+  assert.match(vaccineServiceSrc, /orderBy\("name", "asc"\)\);\s*return onSnapshot\(/);
 });
 
 test("no blanket lint suppression was used", () => {
   assert.ok(!addVaccine.includes("eslint-disable"), "the fix must be real, not silenced");
 });
 
-test("the reusable loader survives for the Add Type path", () => {
-  assert.match(addVaccine, /const loadVaccineTypes = async \(\) => \{/);
-  assert.match(addVaccine, /setVaccineTypes\(await getVaccineTypes\(\)\)/);
+test("the one-time type read survives in the service for its other callers", () => {
+  assert.match(vaccineServiceSrc, /export async function getVaccineTypes\(\)/);
 });
 
 // ---------------------------------------------------------------------------

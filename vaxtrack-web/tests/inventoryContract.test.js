@@ -309,9 +309,14 @@ test("the order's stored price comes from the batch, not the payload", () => {
     false,
     "the stored price must never be read from the caller's payload"
   );
-  assert.match(ops, /unitPriceCentavos:\s*e\.unitPriceCentavos/, "taken from the evaluated batch");
-  assert.match(ops, /lineTotalCentavos:\s*e\.lineTotalCentavos/, "line total is server-computed");
-  assert.match(ops, /subtotalCentavos\s*=\s*sumLineTotalsCentavos\(evaluated\)/);
+  // The STANDARD price is the evaluated batch's; the payload contributes only
+  // the validated agreed unit price and reason (negotiatedPricing.js), and
+  // every total is computed server-side from integers.
+  assert.match(ops, /standardUnitPriceCentavos:\s*e\.unitPriceCentavos/, "standard taken from the evaluated batch");
+  assert.match(ops, /agreedUnitPriceCentavos:\s*items\[index\]\.agreedUnitPriceCentavos/, "agreed price from the validated payload");
+  assert.match(ops, /\.\.\.pricedLines\[index\]/, "line totals are server-computed");
+  assert.match(ops, /subtotalCentavos\s*=\s*sumLineTotalsCentavos\(pricedLines\)/);
+  assert.equal(/lineTotalCentavos:\s*items\[/.test(ops), false, "no total from the caller");
 });
 
 test("no page writes a price onto an order or a batch counter", () => {

@@ -13,6 +13,7 @@ import { auth } from "../../firebase";
 import KpiCard from "../../components/ui/KpiCard";
 import "./Settings.css";
 import { subscribeUsers, updateUserStatus, updateUserRole } from "../../services/userService";
+import { liveErrorMessage } from "../../services/liveDataErrors";
 import { staffActionsFor, staffStatusOf } from "../../services/staffAccount";
 import { canManageTerritory, readTerritory } from "../../services/territory";
 import MedRepTerritoryDialog from "./MedRepTerritoryDialog";
@@ -347,7 +348,17 @@ function UserManagement({ searchTerm, showToast }) {
   const [departmentFilter, setDepartmentFilter] = useState("all");
   const [branchFilter, setBranchFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
-  const [selectedStaff, setSelectedStaff] = useState(null);
+  // The open staff record is looked up in the live list by uid, so the dialog
+  // shows the account as it is now — approved or disabled by another admin
+  // included — and offers only the actions valid for that state.
+  const [selectedStaffUid, setSelectedStaffUid] = useState(null);
+  const selectedStaff = selectedStaffUid ? staff.find((p) => p.uid === selectedStaffUid) ?? null : null;
+  const setSelectedStaff = (person) => setSelectedStaffUid(person ? person.uid : null);
+  // The uid whose status change is in flight: repeated clicks send one write.
+  const [statusBusy, setStatusBusy] = useState(null);
+  // Loading and failure are their own states, never "No staff found".
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [usersError, setUsersError] = useState("");
   // Tracked by UID, not email. `normalizeUser` falls back to "—" when a user
   // has no email, so two such rows shared a key AND opened each other's action
   // menu — an admin could act on a menu belonging to a different person than
@@ -357,9 +368,17 @@ function UserManagement({ searchTerm, showToast }) {
   const [territoryTarget, setTerritoryTarget] = useState(null);
 
   useEffect(() => {
-    const unsubscribe = subscribeUsers((raw) => {
-      setStaff(raw.map(normalizeUser));
-    });
+    const unsubscribe = subscribeUsers(
+      (raw) => {
+        setStaff(raw.map(normalizeUser));
+        setUsersError("");
+        setUsersLoading(false);
+      },
+      (error) => {
+        setUsersError(liveErrorMessage(error, "staff accounts"));
+        setUsersLoading(false);
+      }
+    );
     return () => unsubscribe();
   }, []);
 
@@ -397,10 +416,14 @@ function UserManagement({ searchTerm, showToast }) {
 
   // No optimistic update: the row's status comes only from the Firestore
   // subscription, so a refused or failed change never shows a false state.
+  // Resolves true on success, so a dialog closes only once the write landed.
   const updateStatus = async (uid, firestoreStatus) => {
+    if (statusBusy) return false;
+    setStatusBusy(uid);
     try {
       await updateUserStatus(uid, firestoreStatus);
       showToast(`User status updated to ${staffStatusOf(firestoreStatus).label}.`);
+      return true;
     } catch (error) {
       // A refused transition (e.g. activating a rejected application) carries
       // a message written for the admin; anything else stays generic.
@@ -409,7 +432,9 @@ function UserManagement({ searchTerm, showToast }) {
           ? error.message
           : "Failed to update user status. Please try again."
       );
+      return false;
     } finally {
+      setStatusBusy(null);
       setActionMenuUid(null);
     }
   };
@@ -433,10 +458,11 @@ function UserManagement({ searchTerm, showToast }) {
     try {
       await updateUserRole(uid, newRole);
       showToast(`User role updated to ${ROLE_DISPLAY[newRole] || newRole}.`);
+      // Closed only on success; a failure leaves the choice open to retry.
+      setRoleChangeTarget(null);
     } catch {
       showToast("Failed to update user role. Please try again.");
     } finally {
-      setRoleChangeTarget(null);
       setActionMenuUid(null);
     }
   };
@@ -450,28 +476,28 @@ function UserManagement({ searchTerm, showToast }) {
       <section className="settings-summary-grid">
         <KpiCard
           label="Total staff"
-          value={totalStaff}
+          value={usersLoading || usersError ? "—" : totalStaff}
           context="Registered personnel"
           tone="neutral"
         />
 
         <KpiCard
           label="Active"
-          value={activeCount}
+          value={usersLoading || usersError ? "—" : activeCount}
           context="Approved accounts"
           tone="success"
         />
 
         <KpiCard
           label="Pending"
-          value={pendingCount}
+          value={usersLoading || usersError ? "—" : pendingCount}
           context="Needs approval"
           tone="warning"
         />
 
         <KpiCard
           label="Inactive"
-          value={inactiveCount}
+          value={usersLoading || usersError ? "—" : inactiveCount}
           context="Disabled accounts"
           tone="danger"
         />
@@ -669,7 +695,22 @@ function UserManagement({ searchTerm, showToast }) {
             </tbody>
           </table>
 
-          {filteredStaff.length === 0 && (
+          {usersLoading && (
+            <div className="settings-empty" role="status">
+              <Users size={24} />
+              <strong>Loading staff…</strong>
+            </div>
+          )}
+
+          {!usersLoading && usersError && (
+            <div className="settings-empty" role="alert">
+              <Users size={24} />
+              <strong>Staff unavailable</strong>
+              <p>{usersError}</p>
+            </div>
+          )}
+
+          {!usersLoading && !usersError && filteredStaff.length === 0 && (
             <div className="settings-empty">
               <Users size={24} />
               <strong>No staff found</strong>
@@ -730,22 +771,20 @@ function UserManagement({ searchTerm, showToast }) {
         <StaffDetailsModal
           person={selectedStaff}
           isSelf={selectedStaff.uid === currentAdminUid}
+          busy={statusBusy === selectedStaff.uid}
           onClose={() => setSelectedStaff(null)}
-          onApprove={() => {
-            updateStatus(selectedStaff.uid, "approved");
-            setSelectedStaff(null);
+          onApprove={async () => {
+            if (await updateStatus(selectedStaff.uid, "approved")) setSelectedStaff(null);
           }}
           onReject={() => {
             setRejectTarget(selectedStaff);
             setSelectedStaff(null);
           }}
-          onDeactivate={() => {
-            updateStatus(selectedStaff.uid, "disabled");
-            setSelectedStaff(null);
+          onDeactivate={async () => {
+            if (await updateStatus(selectedStaff.uid, "disabled")) setSelectedStaff(null);
           }}
-          onReactivate={() => {
-            updateStatus(selectedStaff.uid, "approved");
-            setSelectedStaff(null);
+          onReactivate={async () => {
+            if (await updateStatus(selectedStaff.uid, "approved")) setSelectedStaff(null);
           }}
           onChangeRole={() => {
             setSelectedStaff(null);
@@ -783,6 +822,7 @@ function UserManagement({ searchTerm, showToast }) {
 function StaffDetailsModal({
   person,
   isSelf,
+  busy,
   onClose,
   onApprove,
   onReject,
@@ -853,7 +893,7 @@ function StaffDetailsModal({
 
         <div className="settings-modal-actions">
           {actions.includes("approve") && (
-            <button type="button" className="settings-primary-action" onClick={onApprove}>
+            <button type="button" className="settings-primary-action" onClick={onApprove} disabled={busy}>
               Approve User
             </button>
           )}
@@ -869,6 +909,7 @@ function StaffDetailsModal({
               type="button"
               className="settings-danger-action"
               onClick={onDeactivate}
+              disabled={busy}
             >
               Deactivate
             </button>
@@ -879,6 +920,7 @@ function StaffDetailsModal({
               type="button"
               className="settings-primary-action"
               onClick={onReactivate}
+              disabled={busy}
             >
               Reactivate
             </button>

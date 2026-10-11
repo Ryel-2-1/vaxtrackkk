@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CalendarClock,
@@ -15,6 +15,8 @@ import { useNavigate } from "react-router-dom";
 import { formatCentavos } from "../../services/money";
 import { priceConventionNote, readPriceConvention } from "../../services/pricingConfig";
 import AllocationSummary from "../../components/ui/AllocationSummary";
+import { withLiveLifecycle } from "../../services/orderConfirmation";
+import { subscribeOrder } from "../../services/orderHistoryService";
 
 /**
  * The confirmation shows ONLY what checkout stored after re-reading the order
@@ -29,9 +31,19 @@ import AllocationSummary from "../../components/ui/AllocationSummary";
  * shown is the server's subtotal; prices are VAT-inclusive for VATable
  * products, so no VAT is added to it.
  */
-function getLatestOrder() {
+/** The confirmation record checkout stored; undefined when it cannot be read. */
+function readSavedConfirmation() {
   try {
-    const saved = JSON.parse(localStorage.getItem("latestSalesOrderDetails") || "null");
+    return JSON.parse(localStorage.getItem("latestSalesOrderDetails") || "null");
+  } catch (error) {
+    console.warn("Unable to load latest sales order:", error);
+    return undefined;
+  }
+}
+
+function getLatestOrder(saved) {
+  try {
+    if (saved === undefined) return { verified: false, replayed: false, orderNumber: null };
     if (!saved || saved.verified !== true) {
       return {
         verified: false,
@@ -40,35 +52,77 @@ function getLatestOrder() {
           saved?.orderNumber || saved?.id || localStorage.getItem("latestSalesOrderId") || null,
       };
     }
-    return {
-      verified: true,
-      replayed: saved.replayed === true,
-      orderNumber: saved.orderNumber || saved.id,
-      status: friendlyStatus(saved.status),
-      doctorName: saved.doctorName || null,
-      clinicName: saved.clinicName || saved.destinationName || "—",
-      clinicAddress: saved.clinicAddress || "",
-      requestedDeliveryDate: saved.requestedDeliveryDate || null,
-      deliveryInstructions: saved.deliveryInstructions?.trim() || "No delivery instructions provided.",
-      priority: saved.priority || "Standard",
-      items: Array.isArray(saved.items) ? saved.items : [],
-      subtotalCentavos: typeof saved.subtotalCentavos === "number" ? saved.subtotalCentavos : null,
-      // The ORDER's recorded convention (a replay can return an older order).
-      priceIsVatInclusive: readPriceConvention(saved.priceIsVatInclusive),
-      // Server-written allocation (null on a confirmation saved before it).
-      allocation: saved.allocation && typeof saved.allocation === "object" ? saved.allocation : null,
-    };
+    return toDisplay(saved);
   } catch (error) {
     console.warn("Unable to load latest sales order:", error);
     return { verified: false, replayed: false, orderNumber: null };
   }
 }
 
+/** The page's view of one verified confirmation record. */
+function toDisplay(saved) {
+  return {
+    verified: true,
+    replayed: saved.replayed === true,
+    // The order's document id — what the live listener follows.
+    orderId: typeof saved.id === "string" && saved.id ? saved.id : null,
+    orderNumber: saved.orderNumber || saved.id,
+    status: friendlyStatus(saved.status),
+    doctorName: saved.doctorName || null,
+    clinicName: saved.clinicName || saved.destinationName || "—",
+    clinicAddress: saved.clinicAddress || "",
+    requestedDeliveryDate: saved.requestedDeliveryDate || null,
+    deliveryInstructions: saved.deliveryInstructions?.trim() || "No delivery instructions provided.",
+    priority: saved.priority || "Standard",
+    items: Array.isArray(saved.items) ? saved.items : [],
+    subtotalCentavos: typeof saved.subtotalCentavos === "number" ? saved.subtotalCentavos : null,
+    // The ORDER's recorded convention (a replay can return an older order).
+    priceIsVatInclusive: readPriceConvention(saved.priceIsVatInclusive),
+    // Server-written allocation (null on a confirmation saved before it).
+    allocation: saved.allocation && typeof saved.allocation === "object" ? saved.allocation : null,
+    // Negotiated pricing and the VAT breakdown, as placed (never re-derived).
+    priceAdjusted: saved.priceAdjusted === true,
+    standardSubtotalCentavos: typeof saved.standardSubtotalCentavos === "number" ? saved.standardSubtotalCentavos : null,
+    vatSummary: saved.vatSummary && typeof saved.vatSummary === "object" ? saved.vatSummary : null,
+  };
+}
+
 function SalesRepOrderConfirmation() {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
 
-  const order = useMemo(() => getLatestOrder(), []);
+  // What checkout stored after re-reading the order the server named.
+  const savedRecord = useMemo(() => readSavedConfirmation(), []);
+  const stored = useMemo(() => getLatestOrder(savedRecord), [savedRecord]);
+  // The same order, LIVE — for its LIFECYCLE only. Status and reservation
+  // progress change after placement (assigned, backorder filled) and this page
+  // used to keep the placement-time values until a reload. The financial record
+  // — items, quantities, agreed prices, VAT, subtotal — is never taken from the
+  // live document: withLiveLifecycle copies status and allocation onto the
+  // stored record and nothing else. Only the Med Rep's own order is readable,
+  // as the rules require.
+  const [live, setLive] = useState({ id: null, doc: undefined, failed: false });
+  useEffect(() => {
+    if (!stored.verified || !stored.orderId) return undefined;
+    const id = stored.orderId;
+    return subscribeOrder(
+      id,
+      (doc) => setLive({ id, doc, failed: false }),
+      () => setLive({ id, doc: undefined, failed: true })
+    );
+  }, [stored.verified, stored.orderId]);
+  const liveCurrent = live.id === stored.orderId;
+  const order =
+    liveCurrent && live.doc && live.doc.id === stored.orderId
+      ? toDisplay(withLiveLifecycle(savedRecord, live.doc))
+      : stored;
+  const liveNote = !liveCurrent
+    ? null
+    : live.failed
+      ? "Showing the order as placed — its current status could not be loaded."
+      : live.doc === null
+        ? "This order is no longer available. Open Order Tracking for your current orders."
+        : null;
 
   const handleCopyReference = async () => {
     try {
@@ -110,6 +164,7 @@ function SalesRepOrderConfirmation() {
         {copied && <small>Copied</small>}
       </div>
       {order.verified && <span className="processing">• {order.status}</span>}
+      {liveNote && <small className="confirmation-live-note" role="status">{liveNote}</small>}
     </div>
   );
 
@@ -158,6 +213,7 @@ function SalesRepOrderConfirmation() {
             qty={`${Number(item.quantity || 0).toLocaleString()} ${
               Number(item.quantity) === 1 ? "vial" : "vials"
             }`}
+            price={item}
           />
         ))}
 
@@ -214,8 +270,28 @@ function SalesRepOrderConfirmation() {
             <span>Priority</span>
             <strong>{order.priority}</strong>
           </div>
+          {order.vatSummary && (
+            <>
+              <div>
+                <span>VATable sales (net of VAT)</span>
+                <strong>{formatAmount(order.vatSummary.vatableSalesCentavos)}</strong>
+              </div>
+              <div>
+                <span>VAT-exempt sales</span>
+                <strong>{formatAmount(order.vatSummary.vatExemptSalesCentavos)}</strong>
+              </div>
+              <div>
+                <span>Zero-rated sales</span>
+                <strong>{formatAmount(order.vatSummary.zeroRatedSalesCentavos)}</strong>
+              </div>
+              <div>
+                <span>VAT (12%)</span>
+                <strong>{formatAmount(order.vatSummary.vatAmountCentavos)}</strong>
+              </div>
+            </>
+          )}
           <div className="grand-total">
-            <span>Subtotal</span>
+            <span>{order.vatSummary ? "Final total (VAT-inclusive)" : "Subtotal"}</span>
             <strong>{formatCentavos(order.subtotalCentavos)}</strong>
           </div>
         </div>
@@ -250,16 +326,33 @@ function friendlyStatus(raw) {
   }
 }
 
-function ConfirmItem({ icon, name, sku, qty }) {
+/** A breakdown figure: ₱0.00 is a real amount here, so it is shown, not dashed. */
+function formatAmount(centavos) {
+  return centavos === 0 ? "₱0.00" : formatCentavos(centavos);
+}
+
+/**
+ * One ordered line. The agreed price is the one placed; a negotiated line also
+ * shows its standard price and reason. Read-only: placed prices cannot be edited.
+ */
+function ConfirmItem({ icon, name, sku, qty, price }) {
+  const agreed = typeof price?.unitPriceCentavos === "number" ? price.unitPriceCentavos : null;
   return (
     <div className="confirm-item">
       <span>{icon}</span>
       <div>
         <strong>{name}</strong>
         <p>{sku}</p>
+        {price?.priceAdjusted && (
+          <p className="confirm-negotiated">
+            Negotiated price {formatCentavos(agreed)} (standard {formatCentavos(price.standardUnitPriceCentavos)})
+            {price.adjustmentReason ? ` — ${price.adjustmentReason}` : ""}
+          </p>
+        )}
       </div>
       <div>
         <strong>{qty}</strong>
+        {typeof price?.lineTotalCentavos === "number" && <p className="tnum">{formatCentavos(price.lineTotalCentavos)}</p>}
       </div>
     </div>
   );

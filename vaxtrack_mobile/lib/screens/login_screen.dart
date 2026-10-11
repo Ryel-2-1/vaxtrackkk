@@ -2,9 +2,25 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/password_reset.dart';
+import 'forgot_password_screen.dart';
+
+/// Signs the rider in with Firebase Authentication. Role and status are
+/// decided afterwards by AuthGate, never here.
+typedef RiderSignIn = Future<void> Function(String email, String password);
+
+Future<void> _firebaseSignIn(String email, String password) async {
+  await FirebaseAuth.instance
+      .signInWithEmailAndPassword(email: email, password: password)
+      .timeout(const Duration(seconds: 30));
+}
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  /// [signIn] and [sendPasswordReset] default to Firebase; tests pass fakes.
+  const LoginScreen({super.key, this.signIn, this.sendPasswordReset});
+
+  final RiderSignIn? signIn;
+  final PasswordResetSender? sendPasswordReset;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -46,9 +62,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // to complete the Firebase Auth sign-in; if the user is invalid,
       // AuthGate signs them out and sets AuthService.pendingLoginMessage
       // for the next LoginScreen mount to display.
-      await FirebaseAuth.instance
-          .signInWithEmailAndPassword(email: email, password: password)
-          .timeout(const Duration(seconds: 30));
+      await (widget.signIn ?? _firebaseSignIn)(email, password);
       // If this LoginScreen was pushed as a route (e.g. after registration
       // or logout), AuthGate at the root decides where to go next — pop back
       // to it so its HomeScreen/blocked result is actually visible. No-op
@@ -86,6 +100,21 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  /// Opens "Reset password", prefilled with whatever is in the email field.
+  /// The rider returns here afterwards; nothing signs them in.
+  void _openForgotPassword() {
+    FocusScope.of(context).unfocus();
+    final send = widget.sendPasswordReset ?? (email) => AuthService().sendPasswordReset(email);
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ForgotPasswordScreen(
+          initialEmail: _emailController.text,
+          sendReset: send,
+        ),
+      ),
+    );
   }
 
   @override
@@ -130,6 +159,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 40),
                 TextField(
+                  key: const Key('loginEmailField'),
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
                   textInputAction: TextInputAction.next,
@@ -140,6 +170,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 16),
                 TextField(
+                  key: const Key('loginPasswordField'),
                   controller: _passwordController,
                   obscureText: _obscurePassword,
                   textInputAction: TextInputAction.done,
@@ -150,6 +181,26 @@ class _LoginScreenState extends State<LoginScreen> {
                     suffixIcon: IconButton(
                       icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
                       onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: TextButton(
+                    key: const Key('forgotPasswordButton'),
+                    onPressed: _loading ? null : _openForgotPassword,
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.primaryDark,
+                      minimumSize: const Size(48, 48),
+                      tapTargetSize: MaterialTapTargetSize.padded,
+                      textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                    ),
+                    child: Semantics(
+                      // Read as "Forgot password? Reset your password, button".
+                      label: 'Forgot password? Reset your password',
+                      excludeSemantics: true,
+                      child: const Text('Forgot password?', textAlign: TextAlign.end),
                     ),
                   ),
                 ),

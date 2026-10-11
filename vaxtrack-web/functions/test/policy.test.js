@@ -115,9 +115,10 @@ test("create payload shape", async (t) => {
   };
 
   await t.test("accepts a well-formed payload", () => {
+    // An absent agreed price is the reviewed standard, with no reason.
     assert.deepEqual(P.validateCreatePayload(ok), {
       ...DESTINATION_IDS,
-      items: [{ inventoryId: "inv1", quantity: 2, expectedUnitPriceCentavos: PRICE }],
+      items: [{ inventoryId: "inv1", quantity: 2, expectedUnitPriceCentavos: PRICE, agreedUnitPriceCentavos: PRICE, adjustmentReason: null }],
     });
   });
 

@@ -987,3 +987,29 @@
   border-color: var(--gray-300, #d1d5db);
   color: var(--gray-600, #4b5563);
 }
+
+/* Live-data states: the dismissable "record removed" notice and the review
+   dialog's write error. `!important` only out-specifies the global button
+   min-height reset in styles.css. */
+.alerts-toast .alerts-toast-dismiss {
+  min-height: 0 !important;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 8px;
+  background: transparent;
+  color: #ffffff;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.alerts-modal .alerts-modal-error {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--danger-border);
+  border-radius: 10px;
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  font-size: 13px;
+}

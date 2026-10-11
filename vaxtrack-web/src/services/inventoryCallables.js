@@ -115,6 +115,11 @@ export async function createOrderWithReservation({
         // it has not moved — NOT so the server can use it. `unitPrice` is
         // deliberately no longer sent at all; the callable now rejects it.
         expectedUnitPriceCentavos: item.expectedUnitPriceCentavos,
+        // The Med Rep's negotiated VAT-inclusive UNIT price, and the reason
+        // when it differs from the standard. Never a total or a VAT figure: the
+        // server computes those and refuses any it is sent.
+        ...(Number.isInteger(item.agreedUnitPriceCentavos) ? { agreedUnitPriceCentavos: item.agreedUnitPriceCentavos } : {}),
+        ...(typeof item.adjustmentReason === "string" && item.adjustmentReason ? { adjustmentReason: item.adjustmentReason } : {}),
       })),
     });
     return result.data;

@@ -77,10 +77,11 @@ const PRICE_IS_VAT_INCLUSIVE = require("./pricingConfig").PRICES_INCLUDE_VAT;
  * Product VAT classification (per order item). Set on the vaccine catalog by an
  * Admin; copied onto each order item as an immutable snapshot at creation.
  * Mirrors PRODUCT_VAT_CLASSIFICATIONS in src/services/vatClassification.js.
- * Deliberately NOT the invoice-level list (which also has "zero_rated"): a
- * product is either VAT or VAT Exempt.
+ * A product is VATable (12%, VAT-inclusive prices), VAT Exempt, or Zero-Rated
+ * (VAT at 0%). Exempt and zero-rated both carry no VAT but are reported as
+ * separate sales lines, so they are distinct values.
  */
-const PRODUCT_VAT_CLASSIFICATIONS = Object.freeze(["vatable", "vat_exempt"]);
+const PRODUCT_VAT_CLASSIFICATIONS = Object.freeze(["vatable", "vat_exempt", "zero_rated"]);
 
 /** The canonical product classification, or null for anything else. */
 function readProductVatClassification(value) {
@@ -99,7 +100,7 @@ function resolveLineVatClassification({ inventoryId, batch, vaccine }) {
   if (!cls) {
     throw new PolicyError(
       "vat-classification-required",
-      "This vaccine must be classified as VAT or VAT Exempt before ordering.",
+      "This vaccine must be classified as VAT, VAT Exempt or Zero-Rated before ordering.",
       { inventoryId }
     );
   }
@@ -267,8 +268,57 @@ function validateLineQuantity(value) {
 const ALLOWED_LINE_KEYS = Object.freeze([
   "inventoryId",
   "quantity",
+  // The batch's STANDARD price as the Med Rep reviewed it — compared with the
+  // batch inside the transaction, never used as a price.
   "expectedUnitPriceCentavos",
+  // The Med Rep's negotiated VAT-inclusive UNIT price for this line, and the
+  // reason when it differs from the standard. Optional: absent means the
+  // standard price. Totals and VAT are never accepted — the server computes them.
+  "agreedUnitPriceCentavos",
+  "adjustmentReason",
 ]);
+
+/**
+ * The agreed unit price: the same shape rule as every stored price — a whole,
+ * exactly representable number of centavos above zero (₱0.00 is never a price
+ * here, exactly as for a batch). Absent means "the standard price".
+ */
+function validateAgreedPriceCentavos(value) {
+  if (value === undefined || value === null) return { ok: true, value: null };
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    !Number.isSafeInteger(value) ||
+    value <= 0
+  ) {
+    return { ok: false, code: "invalid-agreed-price" };
+  }
+  return { ok: true, value };
+}
+
+/** Bounds shared with every other reason in the system. */
+const MAX_ADJUSTMENT_REASON_LENGTH = 500;
+
+/**
+ * The reason for a negotiated price that differs from the standard: required,
+ * whitespace-normalized, bounded. Shape only — never shown back as raw input.
+ */
+function normalizeAdjustmentReason(value) {
+  const text = typeof value === "string" ? value.normalize("NFKC").trim().replace(/\s+/g, " ") : "";
+  if (text === "") {
+    throw new PolicyError(
+      "adjustment-reason-required",
+      "Give a reason for every negotiated price that differs from the standard price."
+    );
+  }
+  if (text.length > MAX_ADJUSTMENT_REASON_LENGTH) {
+    throw new PolicyError(
+      "reason-too-long",
+      `Please keep each price reason under ${MAX_ADJUSTMENT_REASON_LENGTH} characters.`
+    );
+  }
+  return text;
+}
 
 const ALLOWED_CREATE_KEYS = Object.freeze([
   "requestId",
@@ -382,10 +432,29 @@ function validateCreatePayload(payload) {
       );
     }
 
+    const agreed = validateAgreedPriceCentavos(line.agreedUnitPriceCentavos);
+    if (!agreed.ok) {
+      throw new PolicyError(
+        agreed.code,
+        "An agreed price must be an amount greater than ₱0.00 with at most two decimal places."
+      );
+    }
+    if (line.adjustmentReason !== undefined && line.adjustmentReason !== null && typeof line.adjustmentReason !== "string") {
+      throw new PolicyError("invalid-payload", "A price reason must be text.");
+    }
+    // The agreed price defaults to the reviewed standard. A different price
+    // needs a reason; an unchanged one carries none (a reason sent with it is
+    // dropped — there is nothing to explain).
+    const agreedUnitPriceCentavos = agreed.value ?? expected.value;
+    const adjustmentReason =
+      agreedUnitPriceCentavos === expected.value ? null : normalizeAdjustmentReason(line.adjustmentReason);
+
     return {
       inventoryId,
       quantity: qty.value,
       expectedUnitPriceCentavos: expected.value,
+      agreedUnitPriceCentavos,
+      adjustmentReason,
     };
   });
 
@@ -904,6 +973,11 @@ function canonicalRequestFingerprint({ uid, doctorId, doctorAddressId, items }) 
         // Two submissions of the same batches at different prices are two
         // different orders and must not share an idempotency key.
         expectedUnitPriceCentavos: i.expectedUnitPriceCentavos ?? null,
+        // So is the negotiated price and its stated reason: the same request
+        // id resubmitted with a different agreed price is a different order.
+        // Absent (an older client) means "the standard price".
+        agreedUnitPriceCentavos: i.agreedUnitPriceCentavos ?? i.expectedUnitPriceCentavos ?? null,
+        adjustmentReason: i.adjustmentReason ?? null,
       }))
       .sort((a, b) => (a.inventoryId < b.inventoryId ? -1 : 1)),
   });
@@ -1086,6 +1160,9 @@ module.exports = {
   PRICE_IS_VAT_INCLUSIVE,
   readSellingPriceCentavos,
   validateExpectedPriceCentavos,
+  validateAgreedPriceCentavos,
+  normalizeAdjustmentReason,
+  MAX_ADJUSTMENT_REASON_LENGTH,
   sumLineTotalsCentavos,
   centavosToPesos,
   hasServerPricing,

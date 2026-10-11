@@ -27,9 +27,12 @@ test("an order line takes its vaccine's classification, never a guess", () => {
   const batch = { vaccineId: "v1" };
   assert.equal(resolveLineVatClassification({ inventoryId: "b", batch, vaccine: { vatClassification: "vatable" } }), "vatable");
   assert.equal(resolveLineVatClassification({ inventoryId: "b", batch, vaccine: { vatClassification: "vat_exempt" } }), "vat_exempt");
+  // Zero-rated is a product classification too (VAT at 0%, its own sales line).
+  assert.equal(resolveLineVatClassification({ inventoryId: "b", batch, vaccine: { vatClassification: "zero_rated" } }), "zero_rated");
   for (const [b, v] of [
     [{ vaccineId: "v1" }, { vaccineName: "legacy" }], // unclassified product
-    [{ vaccineId: "v1" }, { vatClassification: "zero_rated" }], // not a product value
+    [{ vaccineId: "v1" }, { vatClassification: "per_item" }], // an invoice marker, not a product value
+    [{ vaccineId: "v1" }, { vatClassification: "exempt" }],
     [{ vaccineId: "v1" }, { vatClassification: "VAT" }],
     [{ vaccineId: "v1" }, null], // product missing
     [{}, { vatClassification: "vatable" }], // batch not linked to a product
@@ -43,13 +46,13 @@ test("an order line takes its vaccine's classification, never a guess", () => {
 
 test("a discount splits pro-rata, sums exactly, and the remainder goes to the larger share", () => {
   // 1000 / 500 gross, ₱1.00 discount → 66.67 / 33.33 → 67 (larger) / 33.
-  assert.deepEqual(allocateDiscountCentavos({ vatableGrossCentavos: 1000, vatExemptGrossCentavos: 500, discountCentavos: 100 }), { vatableCentavos: 67, vatExemptCentavos: 33 });
+  assert.deepEqual(allocateDiscountCentavos({ vatableGrossCentavos: 1000, vatExemptGrossCentavos: 500, discountCentavos: 100 }), { vatableCentavos: 67, vatExemptCentavos: 33, zeroRatedCentavos: 0 });
   // Exempt is larger → it takes the remainder.
-  assert.deepEqual(allocateDiscountCentavos({ vatableGrossCentavos: 500, vatExemptGrossCentavos: 1000, discountCentavos: 100 }), { vatableCentavos: 33, vatExemptCentavos: 67 });
+  assert.deepEqual(allocateDiscountCentavos({ vatableGrossCentavos: 500, vatExemptGrossCentavos: 1000, discountCentavos: 100 }), { vatableCentavos: 33, vatExemptCentavos: 67, zeroRatedCentavos: 0 });
   // Tie → VATable takes it.
-  assert.deepEqual(allocateDiscountCentavos({ vatableGrossCentavos: 500, vatExemptGrossCentavos: 500, discountCentavos: 101 }), { vatableCentavos: 51, vatExemptCentavos: 50 });
+  assert.deepEqual(allocateDiscountCentavos({ vatableGrossCentavos: 500, vatExemptGrossCentavos: 500, discountCentavos: 101 }), { vatableCentavos: 51, vatExemptCentavos: 50, zeroRatedCentavos: 0 });
   // Nothing to split.
-  assert.deepEqual(allocateDiscountCentavos({ vatableGrossCentavos: 500, vatExemptGrossCentavos: 0, discountCentavos: 0 }), { vatableCentavos: 0, vatExemptCentavos: 0 });
+  assert.deepEqual(allocateDiscountCentavos({ vatableGrossCentavos: 500, vatExemptGrossCentavos: 0, discountCentavos: 0 }), { vatableCentavos: 0, vatExemptCentavos: 0, zeroRatedCentavos: 0 });
   // Huge figures stay exact (BigInt multiplication).
   const big = allocateDiscountCentavos({ vatableGrossCentavos: 4_000_000_000_000_000, vatExemptGrossCentavos: 1_000_000_000_000_000, discountCentavos: 3_000_000_000_000_003 });
   assert.equal(big.vatableCentavos + big.vatExemptCentavos, 3_000_000_000_000_003);

@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Navigate, Outlet } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "../firebase";
-import { LOGIN_PATH, ROLES, resolveAccess } from "../services/authorization";
+import { ROLES } from "../services/authorization";
+import { ACCESS_LOADING, watchRouteAccess } from "../services/liveRouteAccess";
 
 /**
  * The Admin area's gate.
@@ -16,39 +17,28 @@ import { LOGIN_PATH, ROLES, resolveAccess } from "../services/authorization";
  * field inside the document is allowed to redirect that lookup.
  */
 function AdminRoute() {
-  const [state, setState] = useState("loading");
-  const [redirectTo, setRedirectTo] = useState(LOGIN_PATH);
+  const [access, setAccess] = useState(ACCESS_LOADING);
+  const { state, redirectTo } = access;
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        setRedirectTo(LOGIN_PATH);
-        setState("redirect");
-        return;
-      }
-
-      try {
-        const snap = await getDoc(doc(db, "users", user.uid));
-        const decision = resolveAccess({
-          profile: snap.exists() ? snap.data() : null,
-          requiredRole: ROLES.ADMIN,
-        });
-
-        if (decision.allowed) {
-          setState("allowed");
-          return;
-        }
-        setRedirectTo(decision.redirectTo);
-        setState("redirect");
-      } catch {
-        // A failed profile read is not permission to continue.
-        setRedirectTo(LOGIN_PATH);
-        setState("redirect");
-      }
-    });
-
-    return () => unsubscribe();
-  }, []);
+  // The profile is WATCHED, not read once: a role or status change made while
+  // this session is open re-runs the same decision immediately, and a redirect
+  // unmounts the area (and every page listener under it). See
+  // services/liveRouteAccess.js.
+  useEffect(
+    () =>
+      watchRouteAccess({
+        subscribeAuth: (callback) => onAuthStateChanged(auth, callback),
+        subscribeProfile: (uid, onProfile, onError) =>
+          onSnapshot(
+            doc(db, "users", uid),
+            (snap) => onProfile(snap.exists() ? snap.data() : null),
+            onError
+          ),
+        requiredRole: ROLES.ADMIN,
+        onChange: setAccess,
+      }),
+    []
+  );
 
   // `null` while resolving: protected content must never paint before the
   // decision is known, not even for one frame.

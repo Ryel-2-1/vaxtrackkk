@@ -38,6 +38,7 @@ const {
   splitVatInclusiveCentavos,
   legacyVatOnTopCentavos,
 } = require("./pricingConfig");
+const { orderHasNegotiatedPrice } = require("./negotiatedPricing");
 
 /** Philippine VAT, from the one pricing configuration (pricingConfig.js). */
 const VAT_STANDARD_RATE = VAT_RATE_PERCENT;
@@ -206,27 +207,35 @@ function buildInvoiceBaseFromOrder(order) {
     // True only when every line carries a VAT snapshot (orders created with
     // per-item classification). Partial snapshots are not itemized.
     itemizedVat: items.every((i) => i.vatClassification !== null),
+    // The Med Rep negotiated at least one line's price at placement. The
+    // agreed price IS the discount, so the invoice may not add another one.
+    priceNegotiated: orderHasNegotiatedPrice(order),
   };
 }
 
 /**
- * Split an invoice discount between VATable and VAT-Exempt sales in proportion
- * to their gross amounts, in whole centavos. Each share is floored; the at
- * most one leftover centavo goes to the LARGER share (VATable on a tie). The
- * shares always sum to the discount exactly and never exceed their own gross.
- * BigInt keeps discount × gross exact however large the figures are.
+ * Split an invoice discount between VATable, VAT-Exempt and Zero-Rated sales
+ * in proportion to their gross amounts, in whole centavos. Each share is
+ * floored; the leftover centavos (at most one per bucket beyond the first) go
+ * to the LARGEST bucket — VATable, then VAT-Exempt, then Zero-Rated on a tie.
+ * With no zero-rated sales this is exactly the two-bucket split invoices have
+ * always used. The shares always sum to the discount exactly. BigInt keeps
+ * discount × gross exact however large the figures are.
  */
-function allocateDiscountCentavos({ vatableGrossCentavos, vatExemptGrossCentavos, discountCentavos }) {
-  const total = vatableGrossCentavos + vatExemptGrossCentavos;
-  if (discountCentavos === 0 || total === 0) return { vatableCentavos: 0, vatExemptCentavos: 0 };
+function allocateDiscountCentavos({ vatableGrossCentavos, vatExemptGrossCentavos, zeroRatedGrossCentavos = 0, discountCentavos }) {
+  const total = vatableGrossCentavos + vatExemptGrossCentavos + zeroRatedGrossCentavos;
+  if (discountCentavos === 0 || total === 0) return { vatableCentavos: 0, vatExemptCentavos: 0, zeroRatedCentavos: 0 };
   const d = BigInt(discountCentavos);
   const t = BigInt(total);
-  let vatableCentavos = Number((d * BigInt(vatableGrossCentavos)) / t);
-  let vatExemptCentavos = Number((d * BigInt(vatExemptGrossCentavos)) / t);
-  const remainder = discountCentavos - vatableCentavos - vatExemptCentavos;
-  if (vatableGrossCentavos >= vatExemptGrossCentavos) vatableCentavos += remainder;
-  else vatExemptCentavos += remainder;
-  return { vatableCentavos, vatExemptCentavos };
+  const shares = [vatableGrossCentavos, vatExemptGrossCentavos, zeroRatedGrossCentavos].map((g) =>
+    Number((d * BigInt(g)) / t)
+  );
+  const remainder = discountCentavos - shares[0] - shares[1] - shares[2];
+  const grosses = [vatableGrossCentavos, vatExemptGrossCentavos, zeroRatedGrossCentavos];
+  let largest = 0;
+  for (let i = 1; i < 3; i += 1) if (grosses[i] > grosses[largest]) largest = i;
+  shares[largest] += remainder;
+  return { vatableCentavos: shares[0], vatExemptCentavos: shares[1], zeroRatedCentavos: shares[2] };
 }
 
 /**
@@ -237,7 +246,7 @@ function allocateDiscountCentavos({ vatableGrossCentavos, vatExemptGrossCentavos
  * it does not restate what a vial cost, and the base subtotal on the stored
  * invoice stays exactly what the order said.
  */
-function validateAdjustments(raw, subtotalCentavos, { itemizedVat = false } = {}) {
+function validateAdjustments(raw, subtotalCentavos, { itemizedVat = false, priceNegotiated = false } = {}) {
   const input = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
 
   const allowed = ["discountCentavos", "otherChargesCentavos", "withholdingTaxCentavos", "vatClassification"];
@@ -262,6 +271,17 @@ function validateAdjustments(raw, subtotalCentavos, { itemizedVat = false } = {}
   const discountCentavos = read("discountCentavos");
   const otherChargesCentavos = read("otherChargesCentavos");
   const withholdingTaxCentavos = read("withholdingTaxCentavos");
+
+  // No double discount. An order whose price was negotiated at placement is
+  // invoiced at that agreed price; a second, invoice-level discount on top of
+  // it is refused (not clamped to zero, which would silently drop what the
+  // admin entered). Orders at their standard price keep the existing discount.
+  if (priceNegotiated && discountCentavos > 0) {
+    throw new PolicyError(
+      "discount-not-allowed-negotiated",
+      "This order's prices were negotiated when it was placed, so it cannot also carry an invoice discount."
+    );
+  }
 
   // A discount larger than the goods would invert the bill. Refused rather than
   // clamped: silently flooring it at the subtotal would charge an amount the
@@ -343,6 +363,7 @@ function computeInvoiceTotalsCentavos({ subtotalCentavos, adjustments, items = [
     // discount pro-rata. Every line must carry a valid snapshot.
     let vatableGrossCentavos = 0;
     let vatExemptGrossCentavos = 0;
+    let zeroRatedGrossCentavos = 0;
     for (const it of items) {
       const cls = readProductVatClassification(it?.vatClassification);
       if (!cls || !readCentavos(it?.lineTotalCentavos)) {
@@ -352,12 +373,13 @@ function computeInvoiceTotalsCentavos({ subtotalCentavos, adjustments, items = [
         );
       }
       if (cls === "vatable") vatableGrossCentavos += it.lineTotalCentavos;
+      else if (cls === "zero_rated") zeroRatedGrossCentavos += it.lineTotalCentavos;
       else vatExemptGrossCentavos += it.lineTotalCentavos;
     }
-    if (vatableGrossCentavos + vatExemptGrossCentavos !== subtotalCentavos) {
+    if (vatableGrossCentavos + vatExemptGrossCentavos + zeroRatedGrossCentavos !== subtotalCentavos) {
       throw new PolicyError("order-snapshot-invalid", "This order's subtotal does not match its line items.");
     }
-    const share = allocateDiscountCentavos({ vatableGrossCentavos, vatExemptGrossCentavos, discountCentavos });
+    const share = allocateDiscountCentavos({ vatableGrossCentavos, vatExemptGrossCentavos, zeroRatedGrossCentavos, discountCentavos });
     const vatableAfterDiscountCentavos = vatableGrossCentavos - share.vatableCentavos;
     if (inclusive) {
       // Both buckets are VAT-inclusive amounts. VAT is extracted from the
@@ -370,8 +392,9 @@ function computeInvoiceTotalsCentavos({ subtotalCentavos, adjustments, items = [
       vatAmountCentavos = legacyVatOnTopCentavos(vatableSalesCentavos);
     }
     vatExemptSalesCentavos = vatExemptGrossCentavos - share.vatExemptCentavos;
-    zeroRatedSalesCentavos = 0;
-    netCentavos = vatableSalesCentavos + vatExemptSalesCentavos;
+    // Zero-rated: VAT at 0%, reported as its own sales line.
+    zeroRatedSalesCentavos = zeroRatedGrossCentavos - share.zeroRatedCentavos;
+    netCentavos = vatableSalesCentavos + vatExemptSalesCentavos + zeroRatedSalesCentavos;
     vatRate = vatableAfterDiscountCentavos > 0 ? VAT_STANDARD_RATE : 0;
   } else {
     const afterDiscountCentavos = Math.max(0, subtotalCentavos - discountCentavos);

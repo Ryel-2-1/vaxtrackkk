@@ -144,6 +144,8 @@ async function saveInvoiceDraftForPricedOrder({ db, FieldValue, uid, payload, no
     const base = buildInvoiceBaseFromOrder(order);
     const adjustments = validateAdjustments(payload?.adjustments, base.subtotalCentavos, {
       itemizedVat: base.itemizedVat,
+      // A negotiated order already carries its agreed price; no second discount.
+      priceNegotiated: base.priceNegotiated,
     });
     const totals = computeInvoiceTotalsCentavos({
       items: base.items,
@@ -258,7 +260,7 @@ async function issueInvoiceForPricedOrder({ db, FieldValue, uid, payload }) {
         vatClassification: invoice.vatClassification,
       },
       base.subtotalCentavos,
-      { itemizedVat: base.itemizedVat }
+      { itemizedVat: base.itemizedVat, priceNegotiated: base.priceNegotiated }
     );
     const totals = computeInvoiceTotalsCentavos({
       items: base.items,

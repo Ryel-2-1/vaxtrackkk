@@ -368,7 +368,9 @@ test("the rules carry the same instant and guard every client write", () => {
 test("the dashboard counts and queues only actionable orders", () => {
   const page = read("src/pages/dispatcher/DispatcherDashboard.jsx");
   assert.match(page, /partitionPendingDispatch\(pendingOrders, now\)/);
-  assert.match(page, /label="Pending orders"\s*\n\s*value=\{actionable\.length\}/);
+  // Shown through "—" when the queue listener failed (never a false zero).
+  assert.match(page, /const pendingShown = shown\(\["pending"\], actionable\.length\);/);
+  assert.match(page, /label="Pending orders"\s*\n\s*value=\{pendingShown\}/);
   assert.match(page, /\[\.\.\.actionable\]\.sort\(comparePending\)/);
   assert.match(page, /const urgentOrders = actionable\.filter/);
   // No count or queue still reads the unpartitioned list.
