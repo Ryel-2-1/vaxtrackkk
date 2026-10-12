@@ -31,6 +31,7 @@ import useManilaDayNow from "../../components/useManilaDayNow";
 // mis-supply — who performed the assignment.
 import StatusBadge from "../../components/ui/StatusBadge";
 import "./DispatcherAssignRider.css";
+import { liveErrorMessage } from "../../services/liveDataErrors";
 
 function initialsOf(name) {
   return (
@@ -116,12 +117,7 @@ function DispatcherAssignRider() {
         setOrders(list);
         setOrdersError("");
       },
-      (err) =>
-        setOrdersError(
-          err?.code === "permission-denied"
-            ? "You do not have permission to view the dispatch queue."
-            : "The dispatch queue could not be loaded. Check your connection."
-        )
+      (err) => setOrdersError(liveErrorMessage(err, "the dispatch queue"))
     );
     const unsubRiders = subscribeRiders(
       (riderList) => {
@@ -130,7 +126,7 @@ function DispatcherAssignRider() {
         setRidersError("");
       },
       (err) => {
-        setRidersError(err?.code === "permission-denied" ? "No permission to view riders." : "Unable to load riders.");
+        setRidersError(liveErrorMessage(err, "riders"));
         setRidersLoading(false);
       }
     );
@@ -236,10 +232,14 @@ function DispatcherAssignRider() {
         </header>
 
         {toast && (
-          <div className={`ar-toast ${toast.type === "error" ? "error" : ""}`} role="status" aria-live="polite">
-            {toast.type === "error" ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
+          <div
+            className={`ar-toast ${toast.type === "error" ? "error" : ""}`}
+            role={toast.type === "error" ? "alert" : "status"}
+            aria-live={toast.type === "error" ? "assertive" : "polite"}
+          >
+            {toast.type === "error" ? <AlertTriangle size={16} aria-hidden="true" /> : <CheckCircle2 size={16} aria-hidden="true" />}
             <span>{toast.message}</span>
-            <button type="button" onClick={() => setToast(null)} aria-label="Dismiss">
+            <button type="button" onClick={() => setToast(null)} aria-label="Dismiss message">
               <X size={14} />
             </button>
           </div>

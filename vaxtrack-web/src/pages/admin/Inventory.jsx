@@ -29,7 +29,11 @@ import {
   readPriceCentavos,
 } from "../../services/money";
 import KpiCard from "../../components/ui/KpiCard";
-import { friendlyErrorMessage, liveErrorMessage } from "../../services/liveDataErrors";
+import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
+import { ToastRegion } from "../../components/ui/Feedback";
+import StaleEditNotice from "../../components/ui/StaleEditNotice";
+import { staleFields } from "../../services/liveFormSync";
+import { useToast } from "../../components/ui/useToast";
 import ReservationProvenance from "../../components/admin/ReservationProvenance";
 import { MAX_STOCK_QUANTITY } from "../../services/orderEligibility";
 import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
@@ -39,6 +43,17 @@ import {
   priceReconfirmationFlag,
 } from "../../services/priceReconfirmation";
 import "./Inventory.css";
+
+// What each dialog depends on, compared between the batch as opened and live.
+const PRICE_KEYS = ["priceCentavos", "priceIsVatInclusive"];
+const CORRECTION_KEYS = ["onHandValue", "reservedValue", "returnPendingValue", "quarantinedValue"];
+const CORRECTION_LABELS = {
+  onHandValue: "The on-hand quantity",
+  reservedValue: "The reserved quantity",
+  returnPendingValue: "Returned stock awaiting a decision",
+  quarantinedValue: "Quarantined stock",
+};
+const pickFields = (row, keys) => Object.fromEntries(keys.map((k) => [k, row?.[k] ?? null]));
 
 /* `getDaysUntilExpiry` was deleted. It built its answer from LOCAL midnight
    while the Expired flag beside it used Manila — two date conventions on the
@@ -184,7 +199,7 @@ function Inventory() {
   const [expiryFilter, setExpiryFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedVaccine, setSelectedVaccine] = useState(null);
-  const [toast, setToast] = useState("");
+  const { toast, showToast, dismissToast } = useToast();
   const [exporting, setExporting] = useState(false);
   // Vaccine catalog (VAT classification), and the drawer's classification edit.
   const [vaccines, setVaccines] = useState([]);
@@ -209,6 +224,23 @@ function Inventory() {
   const [correctInput, setCorrectInput] = useState("");
   const [correctReason, setCorrectReason] = useState("");
   const [correctError, setCorrectError] = useState("");
+  // Which field the correction message belongs to: "quantity" | "reason" | null.
+  const [correctErrorField, setCorrectErrorField] = useState(null);
+
+  // The price and correction dialogs keep the batch as it was when opened.
+  // The live row is compared with it on every snapshot: a change made
+  // elsewhere is flagged and blocks saving until the Admin loads it or keeps
+  // their own figure; a deleted batch blocks saving outright.
+  const pricingLive = pricing ? inventory.find((i) => i.id === pricing.id) ?? null : null;
+  const pricingGone = Boolean(pricing) && !loading && !loadError && !pricingLive;
+  const priceStale = pricingLive ? staleFields(pickFields(pricing, PRICE_KEYS), pickFields(pricingLive, PRICE_KEYS)) : [];
+  const priceBlocked = priceStale.length > 0 || pricingGone;
+  const correctingLive = correcting ? inventory.find((i) => i.id === correcting.id) ?? null : null;
+  const correctingGone = Boolean(correcting) && !loading && !loadError && !correctingLive;
+  const correctionStale = correctingLive
+    ? staleFields(pickFields(correcting, CORRECTION_KEYS), pickFields(correctingLive, CORRECTION_KEYS))
+    : [];
+  const correctionBlocked = correctionStale.length > 0 || correctingGone;
   const [savingCorrection, setSavingCorrection] = useState(false);
 
   useEffect(() => {
@@ -228,11 +260,6 @@ function Inventory() {
   }, []);
 
   const pageSize = 3;
-
-  const showToast = (message) => {
-    setToast(message);
-    setTimeout(() => setToast(""), 2200);
-  };
 
   const openPriceDialog = (item) => {
     setPricing(item);
@@ -257,7 +284,7 @@ function Inventory() {
    * order will be quoted and nothing else.
    */
   const handleSavePrice = async () => {
-    if (savingPrice || !pricing) return;
+    if (savingPrice || !pricing || priceBlocked) return;
 
     const parsed = parsePesosToCentavos(priceInput);
     if (!parsed.ok) {
@@ -269,6 +296,7 @@ function Inventory() {
             "That amount is too large to record exactly. Please check the figure.",
         }[parsed.reason] ?? "Enter an amount in pesos, e.g. 1250 or 1250.50."
       );
+      document.getElementById("inv-price-input")?.focus();
       return;
     }
 
@@ -287,11 +315,14 @@ function Inventory() {
       showToast(
         pricing.priceNeedsReconfirm
           ? `Price re-confirmed as VAT-inclusive for batch ${pricing.batch}. It can be ordered again.`
-          : `Price updated for batch ${pricing.batch}.`
+          : `Price updated for batch ${pricing.batch}.`,
+        "success"
       );
     } catch (error) {
-      console.error("Update price error:", error);
-      setPriceError("Could not save the price. Please try again.");
+      logSafeError("Update price", error);
+      setPriceError(
+        friendlyErrorMessage(error, "The price could not be saved. The previous price still applies — please try again.")
+      );
     } finally {
       setSavingPrice(false);
     }
@@ -302,6 +333,7 @@ function Inventory() {
     setCorrectInput(item.onHandValue != null ? String(item.onHandValue) : "");
     setCorrectReason("");
     setCorrectError("");
+    setCorrectErrorField(null);
     // Close the detail drawer so only the correction dialog is in front.
     setSelectedVaccine(null);
   };
@@ -311,6 +343,7 @@ function Inventory() {
     setCorrectInput("");
     setCorrectReason("");
     setCorrectError("");
+    setCorrectErrorField(null);
   };
 
   /**
@@ -322,11 +355,13 @@ function Inventory() {
    * bounded again server-side, so a stale on-screen figure cannot slip through.
    */
   const handleSaveCorrection = async () => {
-    if (savingCorrection || !correcting) return;
+    if (savingCorrection || !correcting || correctionBlocked) return;
 
     const raw = correctInput.trim();
     if (raw === "") {
       setCorrectError("Enter the corrected quantity.");
+      setCorrectErrorField("quantity");
+      document.getElementById("inv-correct-input")?.focus();
       return;
     }
 
@@ -340,11 +375,14 @@ function Inventory() {
     });
     if (!pre.ok) {
       setCorrectError(pre.message);
+      setCorrectErrorField(pre.field ?? null);
+      document.getElementById(pre.field === "reason" ? "inv-correct-reason" : "inv-correct-input")?.focus();
       return;
     }
 
     setSavingCorrection(true);
     setCorrectError("");
+    setCorrectErrorField(null);
     try {
       await correctStockQuantity({
         inventoryId: correcting.id,
@@ -353,10 +391,12 @@ function Inventory() {
       });
       const batch = correcting.batch;
       closeCorrectDialog();
-      showToast(`Stock corrected for batch ${batch}.`);
+      showToast(`Stock corrected for batch ${batch}.`, "success");
     } catch (error) {
-      console.error("Correct stock error:", error);
-      setCorrectError(friendlyErrorMessage(error, "Could not correct the stock. Please try again."));
+      logSafeError("Correct stock", error);
+      setCorrectError(
+        friendlyErrorMessage(error, "The stock could not be corrected. Nothing was changed — please try again.")
+      );
     } finally {
       setSavingCorrection(false);
     }
@@ -401,9 +441,16 @@ function Inventory() {
     try {
       await setVaccineVatClassification(drawerItem.vaccineId, vatChoice);
       setVatChoice("");
-      showToast(`${drawerItem.vaccineProductName} is now ${PRODUCT_VAT_LABELS[vatChoice]}. Future orders use it; existing orders are unchanged.`);
+      showToast(
+        `${drawerItem.vaccineProductName} is now ${PRODUCT_VAT_LABELS[vatChoice]}. Future orders use it; existing orders are unchanged.`,
+        "success"
+      );
     } catch (error) {
-      showToast(error?.message || "Could not save the VAT classification.");
+      logSafeError("Set VAT classification", error);
+      showToast(
+        friendlyErrorMessage(error, "The VAT classification could not be saved. Nothing was changed — please try again."),
+        "error"
+      );
     } finally {
       setSavingVat(false);
     }
@@ -444,11 +491,11 @@ function Inventory() {
     setExporting(true);
     try {
       const { fileName } = await downloadInventoryWorkbook(filteredVaccines);
-      showToast(`Downloaded ${filteredVaccines.length} batches to ${fileName}.`);
+      showToast(`Downloaded ${filteredVaccines.length} batches to ${fileName}.`, "success");
     } catch (error) {
       if (error instanceof EmptyInventoryExportError) return;
-      console.error("Inventory export error:", error);
-      showToast("Could not export inventory. Please try again.");
+      logSafeError("Inventory export", error);
+      showToast("The inventory download failed. Please try again.", "error");
     } finally {
       setExporting(false);
     }
@@ -563,7 +610,7 @@ function Inventory() {
         </>
       }
     >
-      {toast && <div className="v2-inventory-toast">{toast}</div>}
+      <ToastRegion toast={toast} onDismiss={dismissToast} />
 
         <section className="v2-inventory-summary-grid">
           <KpiCard
@@ -1069,7 +1116,8 @@ function Inventory() {
               placeholder="e.g. 1250.00"
               value={priceInput}
               onChange={(e) => setPriceInput(e.target.value)}
-              aria-describedby="inv-price-help"
+              aria-invalid={priceError ? "true" : undefined}
+              aria-describedby={priceError ? "inv-price-error inv-price-help" : "inv-price-help"}
             />
             <small id="inv-price-help">
               Price per vial charged to the clinic. {VAT_INCLUSIVE_NOTE} Applies
@@ -1077,9 +1125,26 @@ function Inventory() {
               already placed keep the price they were quoted.
             </small>
 
+            <StaleEditNotice
+              labels={priceStale.length > 0 ? ["The selling price"] : []}
+              gone={pricingGone}
+              what="this batch"
+              disabled={savingPrice}
+              onLoadLatest={() => {
+                setPricing(pricingLive);
+                setPriceInput(pricingLive.priceNeedsReconfirm ? "" : centavosToInputValue(pricingLive.priceCentavos));
+                setPriceError("");
+              }}
+              onKeepMine={() => setPricing(pricingLive)}
+            />
+
             {/* assertive: it reports the outcome of an action just taken. */}
             <div aria-live="assertive">
-              {priceError && <p className="inv-price-error">{priceError}</p>}
+              {priceError && (
+                <p id="inv-price-error" className="inv-price-error" role="alert">
+                  {priceError}
+                </p>
+              )}
             </div>
 
             <div className="inv-price-actions">
@@ -1095,7 +1160,7 @@ function Inventory() {
                 type="button"
                 className="inv-price-save"
                 onClick={handleSavePrice}
-                disabled={savingPrice}
+                disabled={savingPrice || priceBlocked}
               >
                 {savingPrice ? "Saving…" : reconfirm ? "Confirm VAT-inclusive price" : "Save price"}
               </button>
@@ -1145,7 +1210,10 @@ function Inventory() {
               placeholder="e.g. 120"
               value={correctInput}
               onChange={(e) => setCorrectInput(e.target.value)}
-              aria-describedby="inv-correct-help"
+              aria-invalid={correctErrorField === "quantity" ? "true" : undefined}
+              aria-describedby={
+                correctError && correctErrorField !== "reason" ? "inv-correct-error inv-correct-help" : "inv-correct-help"
+              }
             />
             <small id="inv-correct-help">
               Fixes a human error in the on-hand figure. It cannot be set below
@@ -1160,11 +1228,31 @@ function Inventory() {
               placeholder="e.g. Miscounted at intake — recount confirms 120"
               value={correctReason}
               onChange={(e) => setCorrectReason(e.target.value)}
+              aria-invalid={correctErrorField === "reason" ? "true" : undefined}
+              aria-describedby={correctErrorField === "reason" ? "inv-correct-error" : undefined}
+            />
+
+            <StaleEditNotice
+              labels={correctionStale.map((f) => CORRECTION_LABELS[f] ?? f)}
+              gone={correctingGone}
+              what="this batch"
+              disabled={savingCorrection}
+              onLoadLatest={() => {
+                setCorrecting(correctingLive);
+                setCorrectInput(correctingLive.onHandValue != null ? String(correctingLive.onHandValue) : "");
+                setCorrectError("");
+                setCorrectErrorField(null);
+              }}
+              onKeepMine={() => setCorrecting(correctingLive)}
             />
 
             {/* assertive: it reports the outcome of an action just taken. */}
             <div aria-live="assertive">
-              {correctError && <p className="inv-price-error">{correctError}</p>}
+              {correctError && (
+                <p id="inv-correct-error" className="inv-price-error" role="alert">
+                  {correctError}
+                </p>
+              )}
             </div>
 
             <div className="inv-price-actions">
@@ -1180,7 +1268,7 @@ function Inventory() {
                 type="button"
                 className="inv-price-save"
                 onClick={handleSaveCorrection}
-                disabled={savingCorrection}
+                disabled={savingCorrection || correctionBlocked}
               >
                 {savingCorrection ? "Saving…" : "Save correction"}
               </button>

@@ -38,7 +38,7 @@ const {
   splitVatInclusiveCentavos,
   legacyVatOnTopCentavos,
 } = require("./pricingConfig");
-const { orderHasNegotiatedPrice } = require("./negotiatedPricing");
+const { hasPriceAgreement, lineVat, STATUTORY_DISCOUNT_TYPES } = require("./negotiatedPricing");
 
 /** Philippine VAT, from the one pricing configuration (pricingConfig.js). */
 const VAT_STANDARD_RATE = VAT_RATE_PERCENT;
@@ -120,6 +120,8 @@ function buildInvoiceBaseFromOrder(order) {
   }
 
   let subtotalCentavos = 0;
+  let statutoryDiscountTotalCentavos = 0;
+  const agreement = hasPriceAgreement(order);
   const items = orderItems.map((it, index) => {
     const quantity = it?.quantity;
     if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity <= 0) {
@@ -149,7 +151,41 @@ function buildInvoiceBaseFromOrder(order) {
     }
     subtotalCentavos += lineTotalCentavos;
 
+    // Orders priced under the agreement model carry a statutory discount, a
+    // final charged total and a VAT figure PER LINE. Each is re-derived here
+    // and compared with what the order stored, exactly like the line total.
+    let lineLevel = {};
+    if (agreement) {
+      const discount = it?.statutoryDiscountCentavos ?? 0;
+      const type = it?.statutoryDiscountType ?? null;
+      const validDiscount =
+        readCentavos(discount) &&
+        discount <= lineTotalCentavos &&
+        (discount === 0 ? type === null : STATUTORY_DISCOUNT_TYPES.includes(type));
+      const finalLineTotalCentavos = lineTotalCentavos - (validDiscount ? discount : 0);
+      const vat = lineVat(finalLineTotalCentavos, it?.vatClassification);
+      if (
+        !validDiscount ||
+        it?.finalLineTotalCentavos !== finalLineTotalCentavos ||
+        it?.lineVatCentavos !== vat.lineVatCentavos
+      ) {
+        throw new PolicyError(
+          "order-snapshot-invalid",
+          "This order's line discounts or VAT do not match its prices.",
+          { line: index }
+        );
+      }
+      statutoryDiscountTotalCentavos += discount;
+      lineLevel = {
+        statutoryDiscountType: type,
+        statutoryDiscountCentavos: discount,
+        finalLineTotalCentavos,
+        lineVatCentavos: vat.lineVatCentavos,
+      };
+    }
+
     return {
+      ...lineLevel,
       // Identity, carried through so an invoice line is traceable to a batch.
       orderItemId: null,
       inventoryId: typeof it.inventoryId === "string" ? it.inventoryId : null,
@@ -181,6 +217,16 @@ function buildInvoiceBaseFromOrder(order) {
       "This order's subtotal does not match its line items."
     );
   }
+  if (
+    agreement &&
+    (order.statutoryDiscountTotalCentavos !== statutoryDiscountTotalCentavos ||
+      order.finalTotalCentavos !== subtotalCentavos - statutoryDiscountTotalCentavos)
+  ) {
+    throw new PolicyError(
+      "order-snapshot-invalid",
+      "This order's discount total or final total does not match its line items."
+    );
+  }
   // Every server-priced order has recorded its convention since pricing began
   // (the same commit stamped pricingVersion and priceIsVatInclusive). One
   // without it is damaged; guessing — from the current configuration or
@@ -193,10 +239,20 @@ function buildInvoiceBaseFromOrder(order) {
     );
   }
 
+  // Agreement-model orders are invoiced at what each line is CHARGED. The
+  // client's rule: the invoice shows no separate discount line. The statutory
+  // discount stays in the order and its audit record; on the invoice each
+  // line's amount is its final charged total, and every total below is built
+  // from those amounts — so the visible lines add up to the visible totals.
+  const invoiceItems = agreement ? items.map(finalChargedInvoiceLine) : items;
+  const invoiceSubtotalCentavos = agreement
+    ? subtotalCentavos - statutoryDiscountTotalCentavos
+    : subtotalCentavos;
+
   return {
-    items,
-    subtotalCentavos,
-    subtotal: centavosToPesos(subtotalCentavos),
+    items: invoiceItems,
+    subtotalCentavos: invoiceSubtotalCentavos,
+    subtotal: centavosToPesos(invoiceSubtotalCentavos),
     // Recorded on the order, carried onto the invoice rather than assumed.
     priceCurrency: typeof order.priceCurrency === "string" ? order.priceCurrency : PRICE_CURRENCY,
     // The ORDER's recorded convention, carried onto the invoice unchanged: a
@@ -207,9 +263,47 @@ function buildInvoiceBaseFromOrder(order) {
     // True only when every line carries a VAT snapshot (orders created with
     // per-item classification). Partial snapshots are not itemized.
     itemizedVat: items.every((i) => i.vatClassification !== null),
-    // The Med Rep negotiated at least one line's price at placement. The
-    // agreed price IS the discount, so the invoice may not add another one.
-    priceNegotiated: orderHasNegotiatedPrice(order),
+    // Agreement-model orders: line amounts are final charged amounts and VAT
+    // is per line, as recorded at placement. The invoice carries NO discount:
+    // `recordedDiscountCentavos` is 0, which the adjustments must match.
+    // Every other order keeps the Admin's own invoice discount (null).
+    lineLevel: agreement,
+    recordedDiscountCentavos: agreement ? 0 : null,
+    finalTotalCentavos: agreement ? invoiceSubtotalCentavos : null,
+  };
+}
+
+/**
+ * One invoice line of an agreement-model order, presented at its FINAL charged
+ * amount (`finalLineTotalCentavos`). The statutory discount is already inside
+ * that amount and is not carried onto the invoice line.
+ *
+ * The unit price shown is the final amount ÷ quantity ONLY when that divides
+ * exactly. A fixed line discount often does not; a rounded per-unit figure
+ * would then be fabricated, and unit × quantity would not equal the amount. In
+ * that case the unit price is null and the invoice shows the amount alone.
+ */
+function finalChargedInvoiceLine(line) {
+  const amount = line.finalLineTotalCentavos;
+  const exactUnit = amount % line.quantity === 0 ? amount / line.quantity : null;
+  return {
+    orderItemId: line.orderItemId,
+    inventoryId: line.inventoryId,
+    batchId: line.batchId,
+    vaccineName: line.vaccineName,
+    itemDescription: line.itemDescription,
+    expiry: line.expiry,
+    quantity: line.quantity,
+    unit: line.unit,
+    unitPriceCentavos: exactUnit,
+    lineTotalCentavos: amount,
+    // Says plainly that this amount is the net charged amount, after any
+    // statutory discount — so a reader never infers it.
+    amountIsFinalCharged: true,
+    vatClassification: line.vatClassification,
+    lineVatCentavos: line.lineVatCentavos,
+    unitPrice: exactUnit === null ? null : centavosToPesos(exactUnit),
+    amount: centavosToPesos(amount),
   };
 }
 
@@ -246,7 +340,7 @@ function allocateDiscountCentavos({ vatableGrossCentavos, vatExemptGrossCentavos
  * it does not restate what a vial cost, and the base subtotal on the stored
  * invoice stays exactly what the order said.
  */
-function validateAdjustments(raw, subtotalCentavos, { itemizedVat = false, priceNegotiated = false } = {}) {
+function validateAdjustments(raw, subtotalCentavos, { itemizedVat = false, recordedDiscountCentavos = null } = {}) {
   const input = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
 
   const allowed = ["discountCentavos", "otherChargesCentavos", "withholdingTaxCentavos", "vatClassification"];
@@ -268,20 +362,25 @@ function validateAdjustments(raw, subtotalCentavos, { itemizedVat = false, price
     return value;
   };
 
-  const discountCentavos = read("discountCentavos");
+  let discountCentavos = read("discountCentavos");
+
+  // An agreement-model order recorded its statutory discounts PER LINE when it
+  // was placed, and its invoice lines are already the final charged amounts —
+  // the invoice carries no discount of its own (recorded: 0). A caller may
+  // omit it or send that value — never change it.
+  if (recordedDiscountCentavos !== null) {
+    const sent = input.discountCentavos;
+    if (sent !== undefined && sent !== null && sent !== recordedDiscountCentavos) {
+      throw new PolicyError(
+        "discount-recorded-per-line",
+        "This order's SC/PWD discounts were recorded per line when it was placed and are already included in its line amounts. The invoice discount cannot be changed here.",
+        { recordedDiscountCentavos }
+      );
+    }
+    discountCentavos = recordedDiscountCentavos;
+  }
   const otherChargesCentavos = read("otherChargesCentavos");
   const withholdingTaxCentavos = read("withholdingTaxCentavos");
-
-  // No double discount. An order whose price was negotiated at placement is
-  // invoiced at that agreed price; a second, invoice-level discount on top of
-  // it is refused (not clamped to zero, which would silently drop what the
-  // admin entered). Orders at their standard price keep the existing discount.
-  if (priceNegotiated && discountCentavos > 0) {
-    throw new PolicyError(
-      "discount-not-allowed-negotiated",
-      "This order's prices were negotiated when it was placed, so it cannot also carry an invoice discount."
-    );
-  }
 
   // A discount larger than the goods would invert the bill. Refused rather than
   // clamped: silently flooring it at the subtotal would charge an amount the
@@ -340,7 +439,7 @@ function validateAdjustments(raw, subtotalCentavos, { itemizedVat = false, price
  * computeInvoiceTotals in src/services/invoiceModel.js, which is used for the
  * editor's display and the manual path.
  */
-function computeInvoiceTotalsCentavos({ subtotalCentavos, adjustments, items = [], priceIsVatInclusive }) {
+function computeInvoiceTotalsCentavos({ subtotalCentavos, adjustments, items = [], priceIsVatInclusive, lineLevel = false }) {
   const { discountCentavos, otherChargesCentavos, withholdingTaxCentavos, vatClassification } =
     adjustments;
   const inclusive = readPriceConvention(priceIsVatInclusive);
@@ -358,7 +457,47 @@ function computeInvoiceTotalsCentavos({ subtotalCentavos, adjustments, items = [
   let vatExemptSalesCentavos;
   let zeroRatedSalesCentavos;
 
-  if (vatClassification === ITEMIZED_VAT) {
+  if (lineLevel) {
+    // Agreement-model pricing: VAT is extracted from each line's FINAL total
+    // (12/112, half up, per line). Nothing is allocated pro-rata. A line may
+    // carry its statutory discount (an order receipt: gross − discount) or be
+    // already final (an invoice: amount charged, no discount); either way the
+    // `discountCentavos` here must be exactly the sum of the line discounts.
+    if (!inclusive || vatClassification !== ITEMIZED_VAT) {
+      throw new PolicyError("order-snapshot-invalid", "This order's per-line pricing cannot be invoiced this way.");
+    }
+    let lineDiscounts = 0;
+    let lineSubtotal = 0;
+    vatableSalesCentavos = 0;
+    vatAmountCentavos = 0;
+    vatExemptSalesCentavos = 0;
+    zeroRatedSalesCentavos = 0;
+    for (const it of items) {
+      const cls = readProductVatClassification(it?.vatClassification);
+      const gross = it?.lineTotalCentavos;
+      const discount = it?.statutoryDiscountCentavos ?? 0;
+      if (!cls || !readCentavos(gross) || !readCentavos(discount) || discount > gross) {
+        throw new PolicyError("order-snapshot-invalid", "This order's line totals cannot be invoiced.");
+      }
+      const final = gross - discount;
+      const vat = lineVat(final, cls);
+      lineSubtotal += gross;
+      lineDiscounts += discount;
+      if (cls === "vatable") {
+        vatableSalesCentavos += vat.lineNetOfVatCentavos;
+        vatAmountCentavos += vat.lineVatCentavos;
+      } else if (cls === "zero_rated") {
+        zeroRatedSalesCentavos += final;
+      } else {
+        vatExemptSalesCentavos += final;
+      }
+    }
+    if (lineSubtotal !== subtotalCentavos || lineDiscounts !== discountCentavos) {
+      throw new PolicyError("order-snapshot-invalid", "This order's discounts do not match its line items.");
+    }
+    netCentavos = vatableSalesCentavos + vatExemptSalesCentavos + zeroRatedSalesCentavos;
+    vatRate = vatAmountCentavos > 0 || vatableSalesCentavos > 0 ? VAT_STANDARD_RATE : 0;
+  } else if (vatClassification === ITEMIZED_VAT) {
     // Per-item VAT: sum each bucket from the line snapshots, then split the
     // discount pro-rata. Every line must carry a valid snapshot.
     let vatableGrossCentavos = 0;
@@ -483,7 +622,9 @@ function baseMatchesOrder(invoice, base) {
       stored?.quantity !== expected.quantity ||
       stored?.unitPriceCentavos !== expected.unitPriceCentavos ||
       stored?.lineTotalCentavos !== expected.lineTotalCentavos ||
-      (stored?.vatClassification ?? null) !== (expected.vatClassification ?? null)
+      (stored?.vatClassification ?? null) !== (expected.vatClassification ?? null) ||
+      (stored?.amountIsFinalCharged ?? false) !== (expected.amountIsFinalCharged ?? false) ||
+      (stored?.lineVatCentavos ?? null) !== (expected.lineVatCentavos ?? null)
     ) {
       return false;
     }

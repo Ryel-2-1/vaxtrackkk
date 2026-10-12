@@ -218,7 +218,8 @@ test("18 · an order without snapshots uses the invoice-level path (VAT-inclusiv
 test("1 · Register New Vaccine requires an explicit classification with no default", () => {
   const page = code("src/pages/admin/AddVaccine.jsx");
   assert.match(page, /const \[vatClassification, setVatClassification\] = useState\(""\);/);
-  assert.match(page, /if \(!PRODUCT_VAT_CLASSIFICATIONS\.includes\(vatClassification\)\) \{\s*showMessage\("Select VAT, VAT Exempt or Zero-Rated for this vaccine\."\);\s*return false;/);
+  // Refused at its own field (aria-invalid + message), nothing saved.
+  assert.match(page, /if \(!PRODUCT_VAT_CLASSIFICATIONS\.includes\(vatClassification\)\) \{\s*return failField\("vatClassification", "Select VAT, VAT Exempt or Zero-Rated for this vaccine\."\);/);
   assert.match(page, /<legend>VAT Classification<\/legend>/);
   assert.match(page, /Becomes the VAT status of every future order item/);
 });

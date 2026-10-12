@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { subscribeInventory } from "../../services/inventoryService";
 import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
+import { liveErrorMessage } from "../../services/liveDataErrors";
 
 // The derived expiry levels, in the order a rep cares about them. These are
 // labels from the shared helper, not values of the stored `status` field.
@@ -75,11 +76,7 @@ function SalesRepInventory() {
         setError("");
       },
       (err) => {
-        if (err?.code === "permission-denied") {
-          setError("You do not have permission to view inventory. Please contact your administrator.");
-        } else {
-          setError("Unable to load inventory. Please try again later.");
-        }
+        setError(liveErrorMessage(err, "inventory"));
         setLoading(false);
       }
     );

@@ -51,7 +51,10 @@ test("the placeholder and helper text are preserved", () => {
 });
 
 test("the field is described by the panel's helper text", () => {
-  assert.match(addVaccine, /aria-describedby="add-vaccine-type-help"/);
+  // The helper stays in aria-describedby; a validation message, when there is
+  // one, is added beside it by the shared field builder.
+  assert.match(addVaccine, /\{\.\.\.a11y\("newType", "add-vaccine-type-help"\)\}/);
+  assert.match(addVaccine, /\[invalid \? VACCINE_FIELD_ERROR_ID : null, hint\]\.filter\(Boolean\)\.join\(" "\)/);
   assert.match(
     addVaccine,
     /<p id="add-vaccine-type-help">/,
@@ -101,11 +104,14 @@ test("adding a type selects it; the live list supplies it without a re-read", ()
 test("vaccine types are a live listener that fills the same state", () => {
   // The effect returns the listener's unsubscribe, so an unmount closes it.
   assert.match(addVaccine, /useEffect\(\s*\(\) =>\s*subscribeVaccineTypes\(/);
-  assert.match(addVaccine, /\(types\) => setVaccineTypes\(types\)/);
+  assert.match(addVaccine, /\(types\) => \{\s*setVaccineTypes\(types\);/);
+  // Recovery clears only the load-failure message, never a validation message.
+  assert.match(addVaccine, /setMessage\(\(prev\) => \(prev && prev === loadMessageRef\.current \? "" : prev\)\);/);
   // A failed listener says so (mapped, never raw Firebase text).
   assert.match(addVaccine, /setMessage\(liveErrorMessage\(error, "vaccine types"\)\)/);
   assert.match(vaccineServiceSrc, /export function subscribeVaccineTypes\(callback, onError\)/);
-  assert.match(vaccineServiceSrc, /orderBy\("name", "asc"\)\);\s*return onSnapshot\(/);
+  // listenLive is the recovering onSnapshot (services/liveSnapshot.js).
+  assert.match(vaccineServiceSrc, /orderBy\("name", "asc"\)\);\s*return listenLive\(/);
 });
 
 test("no blanket lint suppression was used", () => {

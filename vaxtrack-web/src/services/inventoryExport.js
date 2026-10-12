@@ -1,3 +1,5 @@
+import { UserMessageError } from "./userMessageError.js";
+
 /**
  * Admin Inventory → Excel (.xlsx) export.
  *
@@ -280,7 +282,7 @@ export function inventoryExportFileName(date = new Date()) {
 }
 
 /** Raised when there is nothing to export, so no misleading empty file is made. */
-export class EmptyInventoryExportError extends Error {
+export class EmptyInventoryExportError extends UserMessageError {
   constructor(message = "There are no inventory rows to export.") {
     super(message);
     this.name = "EmptyInventoryExportError";

@@ -43,6 +43,7 @@ export function validateStockCorrection({
   if (!Number.isInteger(newQuantity) || newQuantity < 0) {
     return {
       ok: false,
+      field: "quantity",
       message: "Enter the corrected quantity as a whole number of vials (0 or more).",
     };
   }
@@ -51,6 +52,7 @@ export function validateStockCorrection({
   if (newQuantity < reserved) {
     return {
       ok: false,
+      field: "quantity",
       message:
         `This batch has ${reserved} vial(s) reserved for open orders, so the ` +
         `on-hand quantity cannot be set below ${reserved}. Cancel those orders first.`,
@@ -61,6 +63,7 @@ export function validateStockCorrection({
   if (newQuantity < held) {
     return {
       ok: false,
+      field: "quantity",
       message:
         `This batch holds ${held} vial(s) that are reserved, returned awaiting a ` +
         `decision, or quarantined, so the on-hand quantity cannot be set below ${held}.`,
@@ -69,11 +72,12 @@ export function validateStockCorrection({
 
   const cleanReason = typeof reason === "string" ? reason.trim() : "";
   if (!cleanReason) {
-    return { ok: false, message: "Give a short reason for this correction (for the audit trail)." };
+    return { ok: false, field: "reason", message: "Give a short reason for this correction (for the audit trail)." };
   }
   if (cleanReason.length > MAX_CORRECTION_REASON_LENGTH) {
     return {
       ok: false,
+      field: "reason",
       message: `The reason must be ${MAX_CORRECTION_REASON_LENGTH} characters or fewer.`,
     };
   }
@@ -81,6 +85,7 @@ export function validateStockCorrection({
   if (Number.isInteger(currentQuantity) && newQuantity === currentQuantity) {
     return {
       ok: false,
+      field: "quantity",
       message: "The corrected quantity is the same as the current quantity — nothing to change.",
     };
   }

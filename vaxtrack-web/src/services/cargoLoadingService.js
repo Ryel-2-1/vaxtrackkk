@@ -1,7 +1,6 @@
 import {
   collection,
   doc,
-  onSnapshot,
   query,
   runTransaction,
   serverTimestamp,
@@ -18,6 +17,8 @@ import {
   normalizeStatus,
   WorkflowError,
 } from "./orderWorkflow";
+import { logSafeError } from "./liveDataErrors.js";
+import { listenLive } from "./liveSnapshot.js";
 
 const ORDERS = "orders";
 const USERS = "users";
@@ -143,7 +144,7 @@ export function subscribeCargoLoadingGroups(callback, onError) {
     collection(db, USERS),
     where("role", "==", "rider")
   );
-  const unsubUsers = onSnapshot(
+  const unsubUsers = listenLive(
     ridersQuery,
     (snap) => {
       const map = {};
@@ -162,12 +163,12 @@ export function subscribeCargoLoadingGroups(callback, onError) {
       emit();
     },
     (error) => {
-      console.error("subscribeCargoLoadingGroups (users) error:", error);
+      logSafeError("subscribeCargoLoadingGroups (users)", error);
       if (onError) onError(error);
     }
   );
 
-  const unsubOrders = onSnapshot(
+  const unsubOrders = listenLive(
     collection(db, ORDERS),
     (snap) => {
       ordersRaw = snap.docs.map((d) => {
@@ -181,7 +182,7 @@ export function subscribeCargoLoadingGroups(callback, onError) {
       emit();
     },
     (error) => {
-      console.error("subscribeCargoLoadingGroups (orders) error:", error);
+      logSafeError("subscribeCargoLoadingGroups (orders)", error);
       if (onError) onError(error);
     }
   );

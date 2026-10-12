@@ -1,0 +1,291 @@
+/* ============================================================
+   Meridian feedback primitives — Notice, toast region, ConfirmDialog.
+   Shared by every role (like StatusBadge/KpiCard), so the class names
+   are m-* and nothing reaches into a role's own layout.
+
+   !important appears only where it must out-specify the global
+   `button { min-height: 46px !important }` and `input` resets in
+   styles.css, which otherwise inflate a close button or checkbox.
+   ============================================================ */
+
+.m-visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* ---------------- Notice (inline / banner) ---------------- */
+
+.m-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius-card);
+  background: var(--info-bg);
+  color: var(--gray-900);
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  box-sizing: border-box;
+}
+
+.m-notice-icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--info-text);
+}
+
+.m-notice-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.m-notice-title {
+  display: block;
+  margin-bottom: 2px;
+  font-weight: 600;
+}
+
+.m-notice-success { border-color: var(--success-border); background: var(--success-bg); }
+.m-notice-success .m-notice-icon { color: var(--success-text); }
+.m-notice-warning { border-color: var(--warning-border); background: var(--warning-bg); }
+.m-notice-warning .m-notice-icon { color: var(--warning-text); }
+.m-notice-error { border-color: var(--danger-border); background: var(--danger-bg); }
+.m-notice-error .m-notice-icon { color: var(--danger-text); }
+
+.m-notice-dismiss {
+  flex: none;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 28px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  min-width: 28px !important;
+  margin: -4px -6px -4px 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: var(--radius-control) !important;
+  background: transparent !important;
+  color: var(--gray-600) !important;
+  cursor: pointer;
+}
+
+.m-notice-dismiss:hover { background: rgba(17, 24, 39, 0.06) !important; }
+.m-notice-dismiss:focus-visible,
+.m-dialog-close:focus-visible,
+.m-btn:focus-visible {
+  outline: 2px solid var(--green-700) !important;
+  outline-offset: 2px !important;
+}
+
+/* ---------------- Toast ---------------- */
+
+.m-toast-region {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1200;
+  width: min(420px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.m-toast {
+  pointer-events: auto;
+  box-shadow: var(--shadow-float);
+  border-radius: var(--radius-card);
+  animation: m-toast-in 160ms ease-out;
+}
+
+@keyframes m-toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m-toast { animation: none; }
+}
+
+/* ---------------- Confirm dialog ---------------- */
+
+.m-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(17, 24, 39, 0.45);
+  overflow-y: auto;
+}
+
+.m-dialog {
+  width: min(480px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 20px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  background: #ffffff;
+  color: var(--gray-900);
+  box-shadow: var(--shadow-float);
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+}
+
+.m-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.m-dialog-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--gray-900);
+}
+
+.m-dialog-close {
+  flex: none;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 32px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: var(--radius-control) !important;
+  background: transparent !important;
+  color: var(--gray-600) !important;
+  cursor: pointer;
+}
+
+.m-dialog-body p {
+  margin: 10px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--gray-600);
+}
+
+.m-dialog-body .m-dialog-target {
+  color: var(--gray-900);
+}
+
+.m-dialog form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.m-dialog label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.m-dialog textarea,
+.m-dialog input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control);
+  font: inherit;
+  font-size: 14px;
+}
+
+.m-dialog textarea[aria-invalid="true"],
+.m-dialog input[aria-invalid="true"] {
+  border-color: var(--danger-text);
+}
+
+.m-dialog-error,
+.m-field-error {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-control);
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.m-field-error {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  margin-top: 4px;
+}
+
+.m-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.m-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  min-height: 40px !important;
+  padding: 0 14px !important;
+  border: 1px solid transparent !important;
+  border-radius: 10px !important;
+  font: inherit !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  line-height: 1.2 !important;
+  cursor: pointer;
+  white-space: normal;
+  text-align: center;
+}
+
+.m-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.m-btn-secondary { background: #ffffff !important; border-color: var(--gray-300) !important; color: var(--gray-900) !important; }
+.m-btn-secondary:hover:not(:disabled) { background: var(--gray-50) !important; }
+.m-btn-primary { background: var(--green-700) !important; color: #ffffff !important; }
+.m-btn-primary:hover:not(:disabled) { background: var(--green-800) !important; }
+.m-btn-danger { background: var(--danger-bg) !important; border-color: var(--danger-border) !important; color: var(--danger-text) !important; }
+.m-btn-danger:hover:not(:disabled) { border-color: var(--danger-text) !important; }
+
+.m-spin { animation: m-spin 0.9s linear infinite; }
+@keyframes m-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .m-spin { animation: none; } }
+
+@media (max-width: 480px) {
+  .m-dialog { padding: 16px; }
+  .m-dialog-actions { flex-direction: column-reverse; }
+  .m-dialog-actions .m-btn { width: 100%; }
+}
+
+/* Stale-edit notice: the record changed elsewhere while it was being edited. */
+.m-stale-text {
+  margin: 0 0 8px;
+}
+
+.m-stale-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

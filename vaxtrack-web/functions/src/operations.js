@@ -69,6 +69,8 @@ const {
   summarizeAgreement,
   priceAdjustmentAuditRecord,
   priceAdjustmentAuditId,
+  statutoryDiscountAuditRecord,
+  statutoryDiscountAuditId,
 } = require("./negotiatedPricing");
 
 const ORDERS = "orders";
@@ -83,6 +85,8 @@ const CLINICS = "clinics";
 const AREAS = "areas";
 /** Server-only: one immutable record per negotiated order line. */
 const PRICE_ADJUSTMENTS = "orderPriceAdjustments";
+/** Server-only: one immutable record per statutory-discounted order line. */
+const STATUTORY_DISCOUNTS = "orderStatutoryDiscounts";
 
 /** Role/status gate. Both are read from the server-side user document. */
 function requireRole(userData, role) {
@@ -380,7 +384,10 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
         quantity: e.quantity,
         standardUnitPriceCentavos: e.unitPriceCentavos,
         agreedUnitPriceCentavos: items[index].agreedUnitPriceCentavos,
-        adjustmentReason: items[index].adjustmentReason,
+        negotiationReason: items[index].negotiationReason,
+        statutoryDiscountType: items[index].statutoryDiscountType,
+        statutoryDiscountCentavos: items[index].statutoryDiscountCentavos,
+        eligibilityConfirmed: items[index].eligibilityConfirmed,
         vatClassification: lineVat[index],
       })
     );
@@ -456,10 +463,17 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
       // ---- negotiated pricing snapshot ----
       // The standard total at confirmation, the net adjustment (signed), whether
       // any line was negotiated, and the VAT breakdown of the agreed total.
+      // subtotalCentavos above is the NEGOTIATED subtotal (Σ quantity × agreed
+      // price), before statutory discounts; finalTotalCentavos is what the
+      // clinic is charged. The negotiated adjustment and the statutory
+      // discounts are separate figures — never one combined amount.
       priceAgreementVersion: agreement.priceAgreementVersion,
       standardSubtotalCentavos: agreement.standardSubtotalCentavos,
-      priceAdjustmentCentavos: agreement.priceAdjustmentCentavos,
-      priceAdjusted: agreement.priceAdjusted,
+      negotiatedAdjustmentTotalCentavos: agreement.negotiatedAdjustmentTotalCentavos,
+      priceNegotiated: agreement.priceNegotiated,
+      statutoryDiscountTotalCentavos: agreement.statutoryDiscountTotalCentavos,
+      statutoryDiscountApplied: agreement.statutoryDiscountApplied,
+      finalTotalCentavos: agreement.finalTotalCentavos,
       vatSummary: agreement.vatSummary,
       // ---- allocation (backorder-aware; see allocation.js) ----
       allocationVersion: ALLOCATION_VERSION_BACKORDER,
@@ -519,24 +533,26 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
     tx.set(orderRef, orderData);
     createPreparedReceipt(tx, preparedReceipt);
     createPreparedEvents(tx, { FieldValue, prepared: preparedHistory });
-    // The pricing audit: one immutable record per negotiated line, in this same
-    // transaction — so an order exists with its audit or not at all. Actor and
-    // time are the server's (the verified uid and serverTimestamp); the ids are
+    // The pricing audits, in this same transaction — so an order exists with
+    // its audit records or not at all. Two SEPARATE immutable records: one per
+    // negotiated line (orderPriceAdjustments) and one per statutory-discounted
+    // line (orderStatutoryDiscounts); a line with both has one of each. Actor
+    // and time are the server's (verified uid, serverTimestamp); the ids are
     // deterministic and `create` refuses to overwrite.
     orderItems.forEach((line, lineIndex) => {
-      if (!line.priceAdjusted) return;
-      tx.create(
-        db.collection(PRICE_ADJUSTMENTS).doc(priceAdjustmentAuditId(orderRef.id, lineIndex)),
-        priceAdjustmentAuditRecord({
-          orderId: orderRef.id,
-          orderNumber,
-          lineIndex,
-          line,
-          uid,
-          requestId,
-          FieldValue,
-        })
-      );
+      const audit = { orderId: orderRef.id, orderNumber, lineIndex, line, uid, requestId, FieldValue };
+      if (line.priceNegotiated) {
+        tx.create(
+          db.collection(PRICE_ADJUSTMENTS).doc(priceAdjustmentAuditId(orderRef.id, lineIndex)),
+          priceAdjustmentAuditRecord(audit)
+        );
+      }
+      if (line.statutoryDiscountCentavos > 0) {
+        tx.create(
+          db.collection(STATUTORY_DISCOUNTS).doc(statutoryDiscountAuditId(orderRef.id, lineIndex)),
+          statutoryDiscountAuditRecord(audit)
+        );
+      }
     });
     // The initial-allocation outbox marker: the order's first allocation pass
     // runs after this commit, and whoever completes it records the outcome —
@@ -587,8 +603,10 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
         items: orderItems.map(pricingLineView),
         subtotalCentavos,
         standardSubtotalCentavos: agreement.standardSubtotalCentavos,
-        priceAdjustmentCentavos: agreement.priceAdjustmentCentavos,
-        priceAdjusted: agreement.priceAdjusted,
+        negotiatedAdjustmentTotalCentavos: agreement.negotiatedAdjustmentTotalCentavos,
+        priceNegotiated: agreement.priceNegotiated,
+        statutoryDiscountTotalCentavos: agreement.statutoryDiscountTotalCentavos,
+        finalTotalCentavos: agreement.finalTotalCentavos,
         vatSummary: agreement.vatSummary,
         priceCurrency: PRICE_CURRENCY,
         priceIsVatInclusive: PRICE_IS_VAT_INCLUSIVE,
@@ -616,10 +634,14 @@ function pricingLineView(i) {
     standardUnitPriceCentavos: standardUnit,
     standardLineTotalCentavos: standardLine,
     agreedUnitPriceCentavos: i.agreedUnitPriceCentavos ?? i.unitPriceCentavos,
-    agreedLineTotalCentavos: i.agreedLineTotalCentavos ?? i.lineTotalCentavos,
-    adjustmentCentavos: i.adjustmentCentavos ?? 0,
-    priceAdjusted: i.priceAdjusted === true,
-    adjustmentReason: i.adjustmentReason ?? null,
+    negotiatedGrossCentavos: i.negotiatedGrossCentavos ?? i.lineTotalCentavos,
+    negotiatedAdjustmentCentavos: i.negotiatedAdjustmentCentavos ?? 0,
+    priceNegotiated: i.priceNegotiated === true,
+    negotiationReason: i.negotiationReason ?? null,
+    statutoryDiscountType: i.statutoryDiscountType ?? null,
+    statutoryDiscountCentavos: i.statutoryDiscountCentavos ?? 0,
+    finalLineTotalCentavos: i.finalLineTotalCentavos ?? i.lineTotalCentavos,
+    lineVatCentavos: i.lineVatCentavos ?? null,
     vatClassification: i.vatClassification ?? null,
   };
 }
@@ -638,8 +660,10 @@ function pricingFromOrder(order) {
     items: items.map(pricingLineView),
     subtotalCentavos: order.subtotalCentavos,
     standardSubtotalCentavos: order.standardSubtotalCentavos ?? order.subtotalCentavos,
-    priceAdjustmentCentavos: order.priceAdjustmentCentavos ?? 0,
-    priceAdjusted: order.priceAdjusted === true,
+    negotiatedAdjustmentTotalCentavos: order.negotiatedAdjustmentTotalCentavos ?? 0,
+    priceNegotiated: order.priceNegotiated === true,
+    statutoryDiscountTotalCentavos: order.statutoryDiscountTotalCentavos ?? 0,
+    finalTotalCentavos: order.finalTotalCentavos ?? order.subtotalCentavos,
     vatSummary: order.vatSummary ?? null,
     priceCurrency: order.priceCurrency ?? PRICE_CURRENCY,
     // The order's own recorded convention — a replay never re-labels it.

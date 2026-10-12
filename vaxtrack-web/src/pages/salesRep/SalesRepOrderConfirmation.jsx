@@ -16,7 +16,9 @@ import { formatCentavos } from "../../services/money";
 import { priceConventionNote, readPriceConvention } from "../../services/pricingConfig";
 import AllocationSummary from "../../components/ui/AllocationSummary";
 import { withLiveLifecycle } from "../../services/orderConfirmation";
+import { STATUTORY_DISCOUNT_LABELS } from "../../services/negotiatedPricing";
 import { subscribeOrder } from "../../services/orderHistoryService";
+import { logSafeError } from "../../services/liveDataErrors.js";
 
 /**
  * The confirmation shows ONLY what checkout stored after re-reading the order
@@ -36,7 +38,7 @@ function readSavedConfirmation() {
   try {
     return JSON.parse(localStorage.getItem("latestSalesOrderDetails") || "null");
   } catch (error) {
-    console.warn("Unable to load latest sales order:", error);
+    logSafeError("Unable to load latest sales order", error);
     return undefined;
   }
 }
@@ -54,7 +56,7 @@ function getLatestOrder(saved) {
     }
     return toDisplay(saved);
   } catch (error) {
-    console.warn("Unable to load latest sales order:", error);
+    logSafeError("Unable to load latest sales order", error);
     return { verified: false, replayed: false, orderNumber: null };
   }
 }
@@ -81,8 +83,15 @@ function toDisplay(saved) {
     // Server-written allocation (null on a confirmation saved before it).
     allocation: saved.allocation && typeof saved.allocation === "object" ? saved.allocation : null,
     // Negotiated pricing and the VAT breakdown, as placed (never re-derived).
-    priceAdjusted: saved.priceAdjusted === true,
+    priceNegotiated: saved.priceNegotiated === true,
     standardSubtotalCentavos: typeof saved.standardSubtotalCentavos === "number" ? saved.standardSubtotalCentavos : null,
+    statutoryDiscountTotalCentavos: typeof saved.statutoryDiscountTotalCentavos === "number" ? saved.statutoryDiscountTotalCentavos : 0,
+    finalTotalCentavos:
+      typeof saved.finalTotalCentavos === "number"
+        ? saved.finalTotalCentavos
+        : typeof saved.subtotalCentavos === "number"
+          ? saved.subtotalCentavos
+          : null,
     vatSummary: saved.vatSummary && typeof saved.vatSummary === "object" ? saved.vatSummary : null,
   };
 }
@@ -273,6 +282,16 @@ function SalesRepOrderConfirmation() {
           {order.vatSummary && (
             <>
               <div>
+                <span>Negotiated subtotal</span>
+                <strong>{formatAmount(order.subtotalCentavos)}</strong>
+              </div>
+              {order.statutoryDiscountTotalCentavos > 0 && (
+                <div>
+                  <span>Less: SC/PWD discounts</span>
+                  <strong>−{formatCentavos(order.statutoryDiscountTotalCentavos)}</strong>
+                </div>
+              )}
+              <div>
                 <span>VATable sales (net of VAT)</span>
                 <strong>{formatAmount(order.vatSummary.vatableSalesCentavos)}</strong>
               </div>
@@ -292,7 +311,7 @@ function SalesRepOrderConfirmation() {
           )}
           <div className="grand-total">
             <span>{order.vatSummary ? "Final total (VAT-inclusive)" : "Subtotal"}</span>
-            <strong>{formatCentavos(order.subtotalCentavos)}</strong>
+            <strong>{order.vatSummary ? formatAmount(order.finalTotalCentavos) : formatCentavos(order.subtotalCentavos)}</strong>
           </div>
         </div>
 
@@ -343,16 +362,21 @@ function ConfirmItem({ icon, name, sku, qty, price }) {
       <div>
         <strong>{name}</strong>
         <p>{sku}</p>
-        {price?.priceAdjusted && (
+        {price?.priceNegotiated && (
           <p className="confirm-negotiated">
             Negotiated price {formatCentavos(agreed)} (standard {formatCentavos(price.standardUnitPriceCentavos)})
-            {price.adjustmentReason ? ` — ${price.adjustmentReason}` : ""}
+            {price.negotiationReason ? ` — ${price.negotiationReason}` : ""}
+          </p>
+        )}
+        {price?.statutoryDiscountCentavos > 0 && (
+          <p className="confirm-negotiated">
+            {STATUTORY_DISCOUNT_LABELS[price.statutoryDiscountType] ?? "Statutory"} discount −{formatCentavos(price.statutoryDiscountCentavos)}
           </p>
         )}
       </div>
       <div>
         <strong>{qty}</strong>
-        {typeof price?.lineTotalCentavos === "number" && <p className="tnum">{formatCentavos(price.lineTotalCentavos)}</p>}
+        {typeof price?.finalLineTotalCentavos === "number" && <p className="tnum">{formatAmount(price.finalLineTotalCentavos)}</p>}
       </div>
     </div>
   );

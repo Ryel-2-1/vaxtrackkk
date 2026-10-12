@@ -1,5 +1,7 @@
-import { collection, documentId, onSnapshot, query, where } from "firebase/firestore";
+import { collection, documentId, query, where } from "firebase/firestore";
 import { db } from "../firebase";
+import { logSafeError } from "./liveDataErrors.js";
+import { listenLive } from "./liveSnapshot.js";
 
 const VACCINES = "vaccines";
 
@@ -10,11 +12,11 @@ const VACCINES = "vaccines";
  * inventory batches reference as `vaccineId`.
  */
 export function subscribeVaccines(callback, onError) {
-  return onSnapshot(
+  return listenLive(
     collection(db, VACCINES),
     (snap) => callback(snap.docs.map((d) => ({ ...d.data(), id: d.id }))),
     (error) => {
-      console.error("subscribeVaccines error:", error);
+      logSafeError("subscribeVaccines", error);
       if (onError) onError(error);
     }
   );
@@ -33,14 +35,14 @@ export function subscribeVaccinesByIds(ids, callback, onError) {
   const results = new Array(groups.length).fill(null);
   let failed = false;
   const stops = groups.map((group, index) =>
-    onSnapshot(
+    listenLive(
       query(collection(db, VACCINES), where(documentId(), "in", group)),
       (snap) => {
         results[index] = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
         if (!failed && results.every(Boolean)) callback(results.flat());
       },
       (error) => {
-        console.error("subscribeVaccinesByIds error:", error?.code || error);
+        logSafeError("subscribeVaccinesByIds", error);
         if (failed) return;
         failed = true;
         if (onError) onError(error);

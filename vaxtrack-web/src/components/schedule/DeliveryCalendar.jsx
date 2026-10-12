@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeUsers } from "../../services/userService";
+import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { ORDER_STATUSES, STATUS_LABELS } from "../../services/orderWorkflow";
 import { addMonths, manilaToday, monthOf } from "../../services/deliveryCalendar";
 import {
@@ -218,7 +219,8 @@ function RescheduleDialog({ order, todayIso, onClose, onSaved }) {
       });
       onSaved(order, result);
     } catch (err) {
-      setError(err?.message || "The schedule could not be changed. Nothing was saved.");
+      logSafeError("Reschedule delivery", err);
+      setError(friendlyErrorMessage(err, "The schedule could not be changed. Nothing was saved — please try again."));
       setSaving(false);
     }
   };
@@ -348,11 +350,7 @@ function DeliveryCalendar({ role }) {
         setError("");
       },
       (err) => {
-        setError(
-          err?.code === "permission-denied"
-            ? "You do not have permission to view the delivery calendar."
-            : "Unable to load the delivery calendar."
-        );
+        setError(liveErrorMessage(err, "the delivery calendar"));
         setLoading(false);
       }
     );

@@ -371,6 +371,11 @@ function buildOrderReceipt({
   items,
   FieldValue,
 }) {
+  // Agreement-model orders (negotiatedPricing.js) carry a statutory discount
+  // and a final total per line. Only for them are those fields copied and the
+  // totals computed per line — the minimum for the receipt to state what was
+  // actually charged; every other receipt is built exactly as before.
+  const agreement = orderFields.priceAgreementVersion === 1;
   const lines = items.map((i, lineIndex) => ({
     lineIndex,
     productKey: i.productKey,
@@ -386,7 +391,15 @@ function buildOrderReceipt({
     // and the receipt view never presents it as one.
     quotedInventoryId: i.inventoryId,
     quotedBatchId: textOrNull(i.batchId),
+    ...(agreement
+      ? {
+          statutoryDiscountType: i.statutoryDiscountType ?? null,
+          statutoryDiscountCentavos: i.statutoryDiscountCentavos ?? 0,
+          finalLineTotalCentavos: i.finalLineTotalCentavos,
+        }
+      : {}),
   }));
+  const lineDiscountCentavos = agreement ? (orderFields.statutoryDiscountTotalCentavos ?? 0) : 0;
   const subtotalCentavos = orderFields.subtotalCentavos;
   let vatStatus = "not_classified";
   let vatRatePercent = null;
@@ -396,10 +409,11 @@ function buildOrderReceipt({
   if (lines.length > 0 && !classes.has(null)) {
     const totals = computeInvoiceTotalsCentavos({
       subtotalCentavos,
-      adjustments: { discountCentavos: 0, otherChargesCentavos: 0, withholdingTaxCentavos: 0, vatClassification: ITEMIZED_VAT },
+      adjustments: { discountCentavos: lineDiscountCentavos, otherChargesCentavos: 0, withholdingTaxCentavos: 0, vatClassification: ITEMIZED_VAT },
       items: lines,
       // The convention this new order was stamped with, in the same transaction.
       priceIsVatInclusive: orderFields.priceIsVatInclusive,
+      lineLevel: agreement,
     });
     vatStatus = classes.size > 1 ? "mixed" : [...classes][0];
     vatRatePercent = classes.has("vatable") ? VAT_STANDARD_RATE : 0;
@@ -441,7 +455,10 @@ function buildOrderReceipt({
     vatStatus,
     vatRatePercent,
     vatAmountCentavos,
-    discountCentavos: null,
+    // The per-line statutory discounts' total when an agreement-model order
+    // has any (subtotal − discount = final total); null exactly as before for
+    // every receipt without one.
+    discountCentavos: agreement && lineDiscountCentavos > 0 ? lineDiscountCentavos : null,
     finalTotalCentavos,
     creationSource: "createOrderWithReservation",
     generatedBy: "server",

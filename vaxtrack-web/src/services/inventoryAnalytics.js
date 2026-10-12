@@ -199,19 +199,23 @@ const wholeIn = (text, min, max) => {
 /**
  * The configuration fields to save, validated exactly as firestore.rules and
  * functions/src/analyticsRisk.js validate them. The service adds the server
- * time and the signed-in Admin's uid. Returns { ok, value } or { ok, error }.
+ * time and the signed-in Admin's uid. Returns { ok, value } or
+ * { ok: false, error, field } — `field` names the input the error belongs to.
  */
 export function analyticsConfigPayload(vaccineId, form) {
   if (typeof vaccineId !== "string" || vaccineId === "" || vaccineId.includes("/")) {
     return { ok: false, error: "This vaccine cannot be configured." };
   }
   const leadTimeDays = wholeIn(form?.leadTimeDays, 1, MAX_LEAD_TIME_DAYS);
-  if (leadTimeDays === null) return { ok: false, error: `Lead time must be a whole number of days from 1 to ${MAX_LEAD_TIME_DAYS}.` };
+  if (leadTimeDays === null) {
+    return { ok: false, field: "leadTimeDays", error: `Lead time must be a whole number of days from 1 to ${MAX_LEAD_TIME_DAYS}.` };
+  }
   const byDays = form?.safetyMode === "days";
   const safety = wholeIn(form?.safetyValue, 0, byDays ? MAX_SAFETY_STOCK_DAYS : MAX_SAFETY_STOCK_QUANTITY);
   if (safety === null) {
     return {
       ok: false,
+      field: "safetyValue",
       error: byDays
         ? `Safety stock must be a whole number of days from 0 to ${MAX_SAFETY_STOCK_DAYS}.`
         : `Safety stock must be a whole number of vials from 0 to ${MAX_SAFETY_STOCK_QUANTITY.toLocaleString("en-PH")}.`,

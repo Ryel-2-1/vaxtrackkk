@@ -112,7 +112,10 @@ test("32 · no run, or a run with no forecasts, shows the empty state", () => {
   assert.equal(NO_FORECAST_MESSAGE, "No inventory forecast has been generated yet.");
   assert.match(page, /run === null \|\| rows\.length === 0/);
   assert.match(page, /\{NO_FORECAST_MESSAGE\}/);
-  assert.match(page, /permission-denied/);
+  // A refused read is its own state (never the empty state), decided by the
+  // shared mapper; other failures get the mapped load message.
+  assert.match(page, /liveErrorKind\(err\) === "permission" \? "permission" : liveErrorMessage\(err, "inventory analytics"\)/);
+  assert.match(page, /You do not have permission to view inventory analytics/);
   assert.match(page, /Loading inventory analytics/);
   assert.match(page, /Stale forecast/);
   assert.match(page, /Insufficient history/);

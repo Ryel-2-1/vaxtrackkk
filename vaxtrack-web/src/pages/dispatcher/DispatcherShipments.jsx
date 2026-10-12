@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, Package, X } from "lucide-react";
+import { AlertTriangle, Loader2, Package, X } from "lucide-react";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { MAX_CANCEL_REASON_LENGTH } from "../../services/orderService";
 import {
@@ -21,7 +21,10 @@ import {
   isEarlyDispatchAnomaly,
 } from "../../services/dispatchEligibility";
 import useManilaDayNow from "../../components/useManilaDayNow";
-import { friendlyErrorMessage } from "../../services/liveDataErrors";
+import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
+import { UserMessageError } from "../../services/userMessageError";
+import { ToastRegion } from "../../components/ui/Feedback";
+import { useToast } from "../../components/ui/useToast";
 
 // A local status-label copy used to live here for the status-change toasts.
 // Those toasts are gone with the Delivered/Delay/Resume actions, and the
@@ -93,8 +96,7 @@ function DispatcherShipments() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [toast, setToast] = useState("");
-  const [toastType, setToastType] = useState("success");
+  const { toast, showToast, dismissToast } = useToast();
   const [updating, setUpdating] = useState("");
   const [filterStatus, setFilterStatus] = useState("active");
   const now = useManilaDayNow();
@@ -107,11 +109,7 @@ function DispatcherShipments() {
         setError("");
       },
       (err) => {
-        if (err?.code === "permission-denied") {
-          setError("You do not have permission to view shipments.");
-        } else {
-          setError("Unable to load shipments.");
-        }
+        setError(liveErrorMessage(err, "shipments"));
         setLoading(false);
       }
     );
@@ -205,7 +203,7 @@ function DispatcherShipments() {
 
   const handleConfirmCorrection = async (order, doctorAddressId, reason) => {
     setUpdating(order.id);
-    setToast("");
+    dismissToast();
     try {
       await requestOrderDestinationChange(
         order.id, doctorAddressId, reason, order.destinationRevision ?? 0
@@ -219,7 +217,7 @@ function DispatcherShipments() {
 
   const handleConfirmReassign = async (order) => {
     setUpdating(order.id);
-    setToast("");
+    dismissToast();
     try {
       // Server-side: clears the assignment, keeps the failure record, and puts
       // the order back into allocation in its original priority position.
@@ -237,9 +235,12 @@ function DispatcherShipments() {
         "success"
       );
     } catch (err) {
-      console.error("Requeue failed order error:", err?.code || err);
-      showToast(friendlyErrorMessage(err, "Failed to return the order to the queue."), "error");
-      throw err; // keeps the dialog open and releases its guard
+      logSafeError("Requeue failed order", err);
+      // Shown INSIDE the dialog, which stays open so the Dispatcher can retry.
+      throw new UserMessageError(
+        friendlyErrorMessage(err, "The order could not be returned to the queue. It is still marked failed — please try again."),
+        { code: err?.code, cause: err }
+      );
     } finally {
       setUpdating("");
     }
@@ -247,7 +248,7 @@ function DispatcherShipments() {
 
   const handleConfirmCancel = async (order, reason) => {
     setUpdating(order.id);
-    setToast("");
+    dismissToast();
     try {
       // Cancelling releases the order's reserved stock, so it now runs on the
       // server: the callable re-reads the order and the reservation inside one
@@ -261,25 +262,20 @@ function DispatcherShipments() {
         "success"
       );
     } catch (err) {
-      console.error("Cancel order error:", err);
+      logSafeError("Cancel order", err);
       // Domain messages are already phrased for the operator; the two cases
       // below are the ones where the right next action is not obvious.
       const message =
         err?.code === "reservation-already-settled"
-          ? "This order's stock was already settled — refresh to see its current state."
+          ? "This order's stock was already settled. The page shows its current state."
           : err?.code === "service-unavailable"
-            ? "The ordering service is unavailable right now. Please try again."
-            : friendlyErrorMessage(err, "Failed to cancel order.");
-      showToast(message, "error");
-      throw err; // lets the dialog keep itself open and release its guard
+            ? "The ordering service is unavailable right now. The order was not cancelled — please try again."
+            : friendlyErrorMessage(err, "The order could not be cancelled. Nothing was changed — please try again.");
+      // Shown INSIDE the dialog, which stays open with the reason typed.
+      throw new UserMessageError(message, { code: err?.code, cause: err });
     } finally {
       setUpdating("");
     }
-  };
-
-  const showToast = (msg, type) => {
-    setToast(msg);
-    setToastType(type);
   };
 
   const totalActive =
@@ -349,15 +345,7 @@ function DispatcherShipments() {
           <KpiCard label="Delivered" value={totalDone} context="Completed" tone="success" />
         </section>
 
-        {toast && (
-          <div className={`shp-toast ${toastType === "error" ? "error" : ""}`}>
-            {toastType === "error" ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
-            <span>{toast}</span>
-            <button type="button" onClick={() => setToast("")} aria-label="Dismiss">
-              <X size={14} />
-            </button>
-          </div>
-        )}
+        <ToastRegion toast={toast} onDismiss={dismissToast} />
 
         <div className="shp-filterbar">
           <div className="shp-segmented">
@@ -380,8 +368,18 @@ function DispatcherShipments() {
               <span className="shp-empty-icon">
                 <Package size={18} />
               </span>
-              <strong>No shipments match this filter</strong>
-              <p>Try a different status filter above.</p>
+              {/* An empty collection is not a filter result: say which it is. */}
+              {orders.length === 0 ? (
+                <>
+                  <strong>No shipments yet</strong>
+                  <p>Orders appear here as soon as they are placed.</p>
+                </>
+              ) : (
+                <>
+                  <strong>No shipments match this filter</strong>
+                  <p>Try a different status filter above.</p>
+                </>
+              )}
             </div>
           ) : (
             <div className="shp-table-wrap">
@@ -454,6 +452,7 @@ function DispatcherShipments() {
  */
 function ReassignFailedOrderDialog({ order, onDismiss, onConfirm }) {
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
   const submittingRef = useRef(false);
   const dialogRef = useRef(null);
   const firstFieldRef = useRef(null);
@@ -499,9 +498,11 @@ function ReassignFailedOrderDialog({ order, onDismiss, onConfirm }) {
     if (submittingRef.current) return;
     submittingRef.current = true;
     setSubmitting(true);
+    setError("");
     try {
       await onConfirm(order);
-    } catch {
+    } catch (failure) {
+      setError(friendlyErrorMessage(failure, "The order could not be returned to the queue. Please try again."));
       submittingRef.current = false;
       setSubmitting(false);
     }
@@ -539,6 +540,11 @@ function ReassignFailedOrderDialog({ order, onDismiss, onConfirm }) {
         </p>
 
         <form onSubmit={submit}>
+          {error && (
+            <p role="alert" className="shp-dialog-error">
+              {error}
+            </p>
+          )}
           <div className="shp-dialog-actions">
             <button type="button" className="shp-act-btn" onClick={onDismiss} ref={firstFieldRef}>
               Keep as failed
@@ -635,9 +641,10 @@ function CancelOrderDialog({ order, onDismiss, onConfirm }) {
     setError("");
     try {
       await onConfirm(order, trimmed);
-    } catch {
-      // The page has already surfaced the message in its toast; keep the
-      // dialog open so the operator can retry or dismiss.
+    } catch (failure) {
+      // Shown here, in the dialog that stays open with the typed reason, so
+      // the operator can retry or dismiss — never only in a passing toast.
+      setError(friendlyErrorMessage(failure, "The order could not be cancelled. Please try again."));
       submittingRef.current = false;
       setSubmitting(false);
     }

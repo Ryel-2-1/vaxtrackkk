@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import AdminLayout from "../../components/admin/AdminLayout";
 import KpiCard from "../../components/ui/KpiCard";
+import StaleEditNotice from "../../components/ui/StaleEditNotice";
+import { useLiveDraft } from "../../components/useLiveDraft";
 import {
   subscribeAnalyticsConfigs,
   subscribeInventoryForecasts,
@@ -28,6 +30,8 @@ import {
   sortRows,
   summarize,
 } from "../../services/inventoryAnalytics";
+import { analyticsConfigPayload } from "../../services/inventoryAnalytics";
+import { friendlyErrorMessage, liveErrorKind, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import "./AiInventoryAnalytics.css";
 
 /**
@@ -68,32 +72,78 @@ function RiskBadge({ level }) {
   return <span className={`aia-risk aia-risk--${meta.tone}`}>{meta.label}</span>;
 }
 
+const CONFIG_FIELD_LABELS = {
+  leadTimeDays: "Supplier lead time",
+  safetyMode: "Safety stock unit",
+  safetyValue: "Safety stock",
+  enabled: "Reorder analysis",
+};
+
 function ConfigEditor({ vaccineId, config, onSaved }) {
-  const [form, setForm] = useState(() => configFormFrom(config));
+  // Follows the live configuration while untouched; once edited, a change
+  // saved by another Admin is flagged and blocks saving until reviewed.
+  const liveForm = useLiveDraft(configFormFrom(config));
+  const form = liveForm.draft;
+  const setForm = liveForm.setDraft;
+  const staleLabels = liveForm.stale.map((f) => CONFIG_FIELD_LABELS[f] ?? f);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [error, setError] = useState("");
-  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: key === "enabled" ? e.target.checked : e.target.value }));
+  // { field, text } for a validation problem, shown beside its input.
+  const [fieldError, setFieldError] = useState(null);
+  const set = (key) => (e) => {
+    setForm((f) => ({ ...f, [key]: key === "enabled" ? e.target.checked : e.target.value }));
+    setFieldError((fe) => (fe?.field === key ? null : fe));
+  };
+  const ids = { leadTimeDays: `aia-lead-${vaccineId}`, safetyValue: `aia-safety-${vaccineId}` };
+  const errorId = `aia-config-error-${vaccineId}`;
+  const a11y = (field) =>
+    fieldError?.field === field ? { "aria-invalid": "true", "aria-describedby": errorId } : {};
 
   const submit = async (e) => {
     e.preventDefault();
-    setSaving(true);
+    if (savingRef.current || staleLabels.length > 0) return;
     setError("");
+    // Checked before sending, so the problem is shown at its field and nothing
+    // is written. The service and the rules check again.
+    const checked = analyticsConfigPayload(vaccineId, form);
+    if (!checked.ok) {
+      setFieldError({ field: checked.field ?? null, text: checked.error });
+      if (checked.field) document.getElementById(ids[checked.field])?.focus();
+      return;
+    }
+    setFieldError(null);
+    savingRef.current = true;
+    setSaving(true);
     try {
       await saveAnalyticsConfig(vaccineId, form);
+      // Its own save becomes the baseline; the echo is not "changed elsewhere".
+      liveForm.markSaved(form);
       onSaved();
     } catch (err) {
-      setError(err?.code === "permission-denied" ? "Only an Admin can change this configuration." : err?.message || "The configuration could not be saved.");
+      logSafeError("Save analytics configuration", err);
+      setError(
+        friendlyErrorMessage(err, "The configuration could not be saved. Nothing was changed — please try again.")
+      );
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
 
   return (
-    <form className="aia-config" onSubmit={submit}>
+    <form className="aia-config" onSubmit={submit} noValidate>
       <div className="aia-config-grid">
-        <label>
+        <label htmlFor={ids.leadTimeDays}>
           Supplier lead time (days)
-          <input inputMode="numeric" value={form.leadTimeDays} onChange={set("leadTimeDays")} placeholder="e.g. 14" />
+          <input
+            id={ids.leadTimeDays}
+            inputMode="numeric"
+            value={form.leadTimeDays}
+            onChange={set("leadTimeDays")}
+            placeholder="e.g. 14"
+            {...a11y("leadTimeDays")}
+          />
         </label>
         <label>
           Safety stock as
@@ -104,16 +154,35 @@ function ConfigEditor({ vaccineId, config, onSaved }) {
         </label>
         <label>
           {form.safetyMode === "days" ? "Safety stock (days)" : "Safety stock (vials)"}
-          <input inputMode="numeric" value={form.safetyValue} onChange={set("safetyValue")} placeholder="e.g. 20" />
+          <input
+            id={ids.safetyValue}
+            inputMode="numeric"
+            value={form.safetyValue}
+            onChange={set("safetyValue")}
+            placeholder="e.g. 20"
+            {...a11y("safetyValue")}
+          />
         </label>
         <label className="aia-config-check">
           <input type="checkbox" checked={form.enabled} onChange={set("enabled")} />
           Reorder analysis enabled
         </label>
       </div>
+      {fieldError && (
+        <p id={errorId} className="aia-error" role="alert">
+          {fieldError.text}
+        </p>
+      )}
       {error && <p className="aia-error" role="alert">{error}</p>}
+      <StaleEditNotice
+        labels={staleLabels}
+        what="this configuration"
+        disabled={saving}
+        onLoadLatest={liveForm.loadLatest}
+        onKeepMine={liveForm.keepMine}
+      />
       <div className="aia-config-actions">
-        <button type="submit" className="aia-btn" disabled={saving}>
+        <button type="submit" className="aia-btn" disabled={saving || staleLabels.length > 0}>
           {saving ? "Saving…" : "Save configuration"}
         </button>
         <span className="aia-muted">Applies from the next analytics run. Lead times are never assumed.</span>
@@ -296,11 +365,17 @@ function AiInventoryAnalytics() {
   const [now] = useState(() => Date.now());
 
   useEffect(() => {
-    const fail = (err) => setError(err?.code === "permission-denied" ? "permission" : "error");
+    // Data arriving after a failure (automatic reconnect or the shell's
+    // "Try again") clears the error.
+    const recovered = (setter) => (value) => {
+      setter(value);
+      setError(null);
+    };
+    const fail = (err) => setError(liveErrorKind(err) === "permission" ? "permission" : liveErrorMessage(err, "inventory analytics"));
     const stops = [
-      subscribeLatestAnalyticsRun(setRun, fail),
-      subscribeInventoryForecasts(setForecasts, fail),
-      subscribeAnalyticsConfigs(setConfigs, fail),
+      subscribeLatestAnalyticsRun(recovered(setRun), fail),
+      subscribeInventoryForecasts(recovered(setForecasts), fail),
+      subscribeAnalyticsConfigs(recovered(setConfigs), fail),
     ];
     return () => stops.forEach((stop) => stop());
   }, []);
@@ -316,7 +391,7 @@ function AiInventoryAnalytics() {
   if (error === "permission") {
     body = <p className="aia-state aia-error" role="alert">You do not have permission to view inventory analytics. It is available to Admins only.</p>;
   } else if (error) {
-    body = <p className="aia-state aia-error" role="alert">Inventory analytics could not be loaded. Please try again.</p>;
+    body = <p className="aia-state aia-error" role="alert">{error}</p>;
   } else if (run === undefined || forecasts === null) {
     body = <p className="aia-state aia-muted">Loading inventory analytics…</p>;
   } else if (run === null || rows.length === 0) {

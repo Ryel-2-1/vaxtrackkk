@@ -8,6 +8,7 @@
 import { assignmentBlockReason } from "./backorder.js";
 import { comparePending, partitionPendingDispatch, requestedDateMeta } from "./dispatchEligibility.js";
 import { manilaToday } from "./requestedDate.js";
+import { friendlyErrorMessage } from "./liveDataErrors.js";
 
 export const QUEUE_PAGE_SIZE = 10;
 
@@ -87,16 +88,22 @@ export function assignmentErrorMessage(error) {
     case "unauthenticated":
       return { message: "You do not have permission to assign riders. Sign in again or contact an administrator.", conflict: false };
     case "unavailable":
-    case "deadline-exceeded":
     case "network-request-failed":
       return { message: "Could not reach the server. Check your connection and try again — nothing was assigned.", conflict: false };
+    case "deadline-exceeded":
+      // The request may or may not have landed: say so, and point at the live
+      // list rather than inviting a blind retry.
+      return {
+        message:
+          "The server took too long to respond, so we can't confirm whether the rider was assigned. The list updates live — check it before trying again.",
+        conflict: false,
+      };
     default:
       break;
   }
-  if (error?.name === "AssignmentError" && typeof error.message === "string" && error.message) {
-    return { message: error.message, conflict: false };
-  }
-  return { message: "Unable to assign the rider. Please try again.", conflict: false };
+  // An AssignmentError (a trusted domain error) keeps its own sentence;
+  // anything else gets a safe mapped message — never raw text.
+  return { message: friendlyErrorMessage(error, "Unable to assign the rider. Please try again."), conflict: false };
 }
 
 /**

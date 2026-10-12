@@ -146,11 +146,16 @@ function toHttpsError(error, context) {
       "invoice-already-issued": "failed-precondition",
       "invalid-invoice-status": "failed-precondition",
       "discount-exceeds-subtotal": "failed-precondition",
-      // Negotiated pricing (negotiatedPricing.js): the agreed price is the only
-      // reduction an order may carry, and a changed price must be explained.
-      "discount-not-allowed-negotiated": "failed-precondition",
+      // Negotiated pricing (negotiatedPricing.js): a changed price must be a
+      // valid amount and explained.
       "invalid-agreed-price": "invalid-argument",
-      "adjustment-reason-required": "invalid-argument",
+      "negotiation-reason-required": "invalid-argument",
+      // Statutory (SC/PWD) line discounts.
+      "invalid-statutory-discount": "invalid-argument",
+      "statutory-discount-type-required": "invalid-argument",
+      "statutory-discount-exceeds-line": "invalid-argument",
+      "eligibility-not-confirmed": "invalid-argument",
+      "discount-recorded-per-line": "failed-precondition",
       // Someone changed the stored base pricing out from under the draft.
       "invoice-base-mismatch": "aborted",
       "invoice-total-mismatch": "aborted",

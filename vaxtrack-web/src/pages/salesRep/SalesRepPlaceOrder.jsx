@@ -28,6 +28,8 @@ import {
 import { loadAuthoritativeConfirmation } from "../../services/orderConfirmation";
 import { getOrderById } from "../../services/orderService";
 import { auth } from "../../firebase";
+import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
+import { UserMessageError } from "../../services/userMessageError";
 import { subscribeClinics } from "../../services/clinicService";
 import { subscribeDoctors } from "../../services/doctorService";
 import { subscribeDoctorAddresses } from "../../services/doctorAddressService";
@@ -35,6 +37,9 @@ import { subscribeInventoryBatches } from "../../services/inventoryService";
 import { subscribeVaccinesByIds } from "../../services/vaccineCatalogService";
 import {
   NEGOTIATED_PRICE_LABEL,
+  STATUTORY_DISCOUNT_LABELS,
+  STATUTORY_DISCOUNT_TYPES,
+  ELIGIBILITY_ATTESTATION_TEXT,
   agreedInputFor,
   negotiatedRequestLine,
   priceReviewLine,
@@ -66,13 +71,16 @@ import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
  * The server already writes a user-facing sentence; this only adds the extra
  * step where the right next action is not obvious from the message alone.
  */
+const ORDER_FAILURE_MESSAGE =
+  "We couldn't place the order. Your cart and entries are still here — check your connection and try again.";
+
 function messageForCallableError(error) {
   switch (error?.code) {
     case "insufficient-stock": {
       const info = error.info;
       return info
         ? `Only ${info.available} left in batch ${info.batchId ?? info.inventoryId}. Adjust the quantity and try again.`
-        : error.message;
+        : friendlyErrorMessage(error, ORDER_FAILURE_MESSAGE);
     }
     case "batch-expired":
       return "One of these batches has expired and can no longer be ordered. Remove it and pick another.";
@@ -80,7 +88,7 @@ function messageForCallableError(error) {
       // The whole point of the check is that a rep sees the real numbers and
       // decides, so both figures are named rather than summarised as "changed".
       const info = error.info;
-      if (!info) return error.message;
+      if (!info) return friendlyErrorMessage(error, ORDER_FAILURE_MESSAGE);
       const batch = info.batchId ?? info.inventoryId;
       return `The standard price of batch ${batch} changed from ${formatCentavos(
         info.expectedUnitPriceCentavos
@@ -109,9 +117,11 @@ function messageForCallableError(error) {
     case "requested-date-required":
       return "Choose a delivery date for this order. Nothing was placed.";
     case "invalid-requested-date":
-      return error?.message || "Choose a valid delivery date, today or later.";
+      return friendlyErrorMessage(error, "Choose a valid delivery date, today or later. Nothing was placed.");
     default:
-      return error?.message || "Unable to create order. Please try again.";
+      // A domain refusal keeps the server's own sentence (a trusted domain
+      // error); anything else gets a safe mapped message — never raw text.
+      return friendlyErrorMessage(error, ORDER_FAILURE_MESSAGE);
   }
 }
 
@@ -158,7 +168,7 @@ function getInitialItems(uid) {
       }));
     }
   } catch (error) {
-    console.warn("Unable to load Med Rep cart:", error);
+    logSafeError("Load Med Rep cart", error);
   }
 
   return [];
@@ -287,12 +297,18 @@ function SalesRepPlaceOrder() {
         vatClassification,
         agreedText: entry.agreedInput ?? agreedInputFor(item.expectedUnitPriceCentavos),
         reasonText: entry.reason ?? "",
+        discountType: entry.discountType ?? "",
+        discountText: entry.discountInput ?? "",
+        eligibilityConfirmed: entry.eligibilityConfirmed === true,
         price: priceReviewLine({
           quantity: item.quantity,
           expectedUnitPriceCentavos: item.expectedUnitPriceCentavos,
           vatClassification,
           agreedInput: entry.agreedInput,
-          adjustmentReason: entry.reason ?? "",
+          negotiationReason: entry.reason ?? "",
+          discountType: entry.discountType ?? "",
+          discountInput: entry.discountInput ?? "",
+          eligibilityConfirmed: entry.eligibilityConfirmed === true,
         }),
       };
     });
@@ -302,10 +318,37 @@ function SalesRepPlaceOrder() {
   const reviewBySku = new Map(reviewLines.map((l) => [l.item.sku, l]));
   const setAgreedInput = (sku, agreedInput) =>
     setNegotiation((current) => ({ ...current, [sku]: { ...current[sku], agreedInput } }));
-  const setAdjustmentReason = (sku, reason) =>
+  const setNegotiationReason = (sku, reason) =>
     setNegotiation((current) => ({ ...current, [sku]: { ...current[sku], reason } }));
-  // Reset to standard price: the line follows the standard again, reason dropped.
+  // The line's statutory (SC/PWD) discount — its own, entered separately.
+  // Choosing "No discount" clears the amount too. Any change of category
+  // clears the eligibility attestation: it was given for the old category.
+  const setDiscountType = (sku, discountType) =>
+    setNegotiation((current) => ({
+      ...current,
+      [sku]: {
+        ...current[sku],
+        discountType,
+        eligibilityConfirmed: false,
+        ...(discountType ? {} : { discountInput: "" }),
+      },
+    }));
+  const setEligibilityConfirmed = (sku, eligibilityConfirmed) =>
+    setNegotiation((current) => ({ ...current, [sku]: { ...current[sku], eligibilityConfirmed } }));
+  const setDiscountInput = (sku, discountInput) =>
+    setNegotiation((current) => ({ ...current, [sku]: { ...current[sku], discountInput } }));
+  // Reset to standard price: the PRICE follows the standard again and its
+  // reason is dropped. A statutory discount on the line is a separate entry
+  // and is kept.
   const resetToStandard = (sku) =>
+    setNegotiation((current) => {
+      const rest = { ...(current[sku] || {}) };
+      delete rest.agreedInput;
+      delete rest.reason;
+      return { ...current, [sku]: rest };
+    });
+  // A removed line takes its price, reason and discount with it.
+  const clearLinePricing = (sku) =>
     setNegotiation((current) => {
       const next = { ...current };
       delete next[sku];
@@ -346,7 +389,13 @@ function SalesRepPlaceOrder() {
   const [selectedDestinationId, setSelectedDestinationId] = useState("");
   const [clinics, setClinics] = useState([]);
   const [clinicsLoading, setClinicsLoading] = useState(true);
-  const [destinationLoadError, setDestinationLoadError] = useState("");
+  // One entry per source, so a source that recovers clears only its own
+  // failure and never hides another's.
+  const [destinationLoadErrors, setDestinationLoadErrors] = useState({});
+  const destinationLoadError =
+    destinationLoadErrors.clinics || destinationLoadErrors.doctors || destinationLoadErrors.addresses || "";
+  const setSourceError = (source, message) =>
+    setDestinationLoadErrors((prev) => (prev[source] === message ? prev : { ...prev, [source]: message }));
   const [instructions, setInstructions] = useState(restored?.deliveryInstructions ?? "");
   // Exact 'YYYY-MM-DD' text, never parsed into a Date, so it cannot shift.
   const [requestedDate, setRequestedDate] = useState(initialCheckout.requestedDeliveryDate);
@@ -362,10 +411,11 @@ function SalesRepPlaceOrder() {
       (docs) => {
         setClinics(docs);
         setClinicsLoading(false);
+        setSourceError("clinics", "");
       },
-      () => {
+      (error) => {
         setClinicsLoading(false);
-        setDestinationLoadError("Clinic destinations could not be loaded.");
+        setSourceError("clinics", liveErrorMessage(error, "clinic destinations"));
       }
     );
 
@@ -377,10 +427,11 @@ function SalesRepPlaceOrder() {
       (docs) => {
         setDoctors(docs);
         setDoctorsLoading(false);
+        setSourceError("doctors", "");
       },
-      () => {
+      (error) => {
         setDoctorsLoading(false);
-        setDestinationLoadError("Doctors could not be loaded.");
+        setSourceError("doctors", liveErrorMessage(error, "doctors"));
       }
     );
 
@@ -400,11 +451,12 @@ function SalesRepPlaceOrder() {
         // this doctor's options once they (and the clinics they reference)
         // have loaded — see resolveRestoredDestination below.
         setAddressBook({ doctorId: selectedDoctorId, docs });
+        setSourceError("addresses", "");
       },
-      () => {
+      (error) => {
         // Loaded, with nothing usable — ends the loading state.
         setAddressBook({ doctorId: selectedDoctorId, docs: [] });
-        setDestinationLoadError("That doctor's delivery addresses could not be loaded.");
+        setSourceError("addresses", liveErrorMessage(error, "that doctor's delivery addresses"));
       }
     );
 
@@ -554,7 +606,7 @@ function SalesRepPlaceOrder() {
 
   const handleRemoveItem = (sku) => {
     setItems((current) => current.filter((item) => item.sku !== sku));
-    resetToStandard(sku);
+    clearLinePricing(sku);
   };
 
   // Discarding a pending attempt is the ONLY way its request id is ever
@@ -757,8 +809,9 @@ function SalesRepPlaceOrder() {
           if (typeof created?.orderId !== "string" || created.orderId === "") {
             // Thrown INSIDE submit so the draft survives: finalizing again
             // replays the saved order under the same id.
-            throw new Error(
-              "The order may have been saved, but the server's reply was incomplete. Finalize again to recover it."
+            throw new UserMessageError(
+              "The order may have been saved, but the server's reply was incomplete. Finalize again to recover it.",
+              { code: "reply-incomplete" }
             );
           }
           return created;
@@ -953,7 +1006,10 @@ function SalesRepPlaceOrder() {
             lines={reviewLines}
             disabled={saving}
             onAgreedChange={setAgreedInput}
-            onReasonChange={setAdjustmentReason}
+            onReasonChange={setNegotiationReason}
+            onDiscountTypeChange={setDiscountType}
+            onDiscountChange={setDiscountInput}
+            onEligibilityChange={setEligibilityConfirmed}
             onReset={resetToStandard}
           />
         </div>
@@ -1232,16 +1288,21 @@ function OrderRow({ item, price, review, onAccept, onDecrease, onIncrease, onRem
         </div>
       </td>
 
-      {/* The AGREED price (the standard unless negotiated below). A line
-          whose price could not be read shows a dash rather than a zero — zero
-          is a price, and this is the absence of one. */}
+      {/* The AGREED price (the standard unless negotiated below), and the
+          line's FINAL total after any statutory discount. A figure that could
+          not be read shows a dash rather than a zero. */}
       <td className="tnum">
         {price?.agreedUnitPriceCentavos != null ? formatCentavos(price.agreedUnitPriceCentavos) : "—"}
-        {price?.priceAdjusted && <small className="place-v2-negotiated-tag">{NEGOTIATED_PRICE_LABEL}</small>}
+        {price?.priceNegotiated && <small className="place-v2-negotiated-tag">{NEGOTIATED_PRICE_LABEL}</small>}
       </td>
 
       <td className="tnum">
-        {price?.agreedLineTotalCentavos != null ? formatCentavos(price.agreedLineTotalCentavos) : "—"}
+        {price?.finalLineTotalCentavos != null ? formatAmount(price.finalLineTotalCentavos) : "—"}
+        {price?.statutoryDiscountCentavos > 0 && (
+          <small className="place-v2-discount-tag">
+            {STATUTORY_DISCOUNT_LABELS[price.statutoryDiscountType]} −{formatCentavos(price.statutoryDiscountCentavos)}
+          </small>
+        )}
       </td>
 
       <td>
@@ -1261,16 +1322,36 @@ function formatAdjustment(centavos) {
   return `${sign}${formatCentavos(Math.abs(centavos))}`;
 }
 
+/** formatCentavos shows "—" for zero (not a price); a line or breakdown amount of ₱0.00 is real. */
+function formatAmount(centavos) {
+  return centavos === 0 ? "₱0.00" : formatCentavos(centavos);
+}
+
 function vatLabelFor(cls) {
   return cls ? PRODUCT_VAT_LABELS[cls] : "VAT status confirmed when placed";
 }
 
 /**
- * The final price review: per line, the standard price and an editable AGREED
- * unit price (VAT-inclusive), with totals derived in integers. There is no
- * total input; a mixed order is negotiated line by line.
+ * The final price review, per line: the standard price, an editable AGREED
+ * unit price (VAT-inclusive) with its reason, and — separately — an optional
+ * statutory (SC/PWD) discount for that line, by category and amount, with the
+ * Med Rep's eligibility attestation. Totals are derived in integers; there is
+ * no total input, and a discount never spreads to another line.
+ *
+ * The attestation is the Med Rep's own audited confirmation. The system does
+ * not verify eligibility and collects no ID number, card photo or other
+ * personal data of the customer.
  */
-function PriceReview({ lines, disabled, onAgreedChange, onReasonChange, onReset }) {
+function PriceReview({
+  lines,
+  disabled,
+  onAgreedChange,
+  onReasonChange,
+  onReset,
+  onDiscountTypeChange,
+  onDiscountChange,
+  onEligibilityChange,
+}) {
   if (lines.length === 0) return null;
   return (
     <section className="place-v2-price-review" aria-labelledby="price-review-title">
@@ -1278,16 +1359,23 @@ function PriceReview({ lines, disabled, onAgreedChange, onReasonChange, onReset 
         <h2 id="price-review-title">Final price review</h2>
         <p>
           Confirm each line&apos;s agreed unit price. Prices are VAT-inclusive for VATable products; change
-          a price only when it has been agreed with the client, and give the reason.
+          a price only when it has been agreed with the client, and give the reason. An SC/PWD discount is
+          entered separately for the line it applies to.
         </p>
       </div>
       <ul className="place-v2-price-lines">
-        {lines.map(({ item, catalogSku, vatClassification, agreedText, reasonText, price }) => {
+        {lines.map(({ item, catalogSku, vatClassification, agreedText, reasonText, discountType, discountText, eligibilityConfirmed, price }) => {
           const inputId = `agreed-${item.sku}`;
           const reasonId = `reason-${item.sku}`;
           const errorId = `agreed-error-${item.sku}`;
+          const discountTypeId = `discount-type-${item.sku}`;
+          const discountId = `discount-${item.sku}`;
+          const discountErrorId = `discount-error-${item.sku}`;
+          const eligibilityId = `eligibility-${item.sku}`;
+          const eligibilityErrorId = `eligibility-error-${item.sku}`;
+          const flagged = price.priceNegotiated || price.statutoryDiscountCentavos > 0;
           return (
-            <li key={item.sku} className={`place-v2-price-line${price.priceAdjusted ? " negotiated" : ""}`}>
+            <li key={item.sku} className={`place-v2-price-line${flagged ? " negotiated" : ""}`}>
               <div className="place-v2-price-product">
                 <strong>{item.name}</strong>
                 <span className="place-v2-price-meta">
@@ -1297,7 +1385,7 @@ function PriceReview({ lines, disabled, onAgreedChange, onReasonChange, onReset 
                   {vatLabelFor(vatClassification)}
                   {vatClassification === "vatable" && " · VAT included"}
                 </span>
-                {price.priceAdjusted && <span className="place-v2-negotiated-tag">{NEGOTIATED_PRICE_LABEL}</span>}
+                {price.priceNegotiated && <span className="place-v2-negotiated-tag">{NEGOTIATED_PRICE_LABEL}</span>}
               </div>
 
               <dl className="place-v2-price-figures">
@@ -1310,12 +1398,20 @@ function PriceReview({ lines, disabled, onAgreedChange, onReasonChange, onReset 
                   <dd className="tnum">{formatCentavos(price.standardLineTotalCentavos)}</dd>
                 </div>
                 <div>
-                  <dt>Agreed line total</dt>
-                  <dd className="tnum">{price.agreedLineTotalCentavos != null ? formatCentavos(price.agreedLineTotalCentavos) : "—"}</dd>
+                  <dt>Negotiated line total</dt>
+                  <dd className="tnum">{price.negotiatedGrossCentavos != null ? formatCentavos(price.negotiatedGrossCentavos) : "—"}</dd>
                 </div>
                 <div>
-                  <dt>Adjustment</dt>
-                  <dd className="tnum">{formatAdjustment(price.adjustmentCentavos)}</dd>
+                  <dt>Price adjustment</dt>
+                  <dd className="tnum">{formatAdjustment(price.negotiatedAdjustmentCentavos)}</dd>
+                </div>
+                <div>
+                  <dt>SC/PWD discount</dt>
+                  <dd className="tnum">{price.statutoryDiscountCentavos > 0 ? `−${formatCentavos(price.statutoryDiscountCentavos)}` : "None"}</dd>
+                </div>
+                <div>
+                  <dt>Final line total</dt>
+                  <dd className="tnum">{price.finalLineTotalCentavos != null ? formatAmount(price.finalLineTotalCentavos) : "—"}</dd>
                 </div>
               </dl>
 
@@ -1341,7 +1437,7 @@ function PriceReview({ lines, disabled, onAgreedChange, onReasonChange, onReset 
                   type="button"
                   className="place-v2-reset-btn"
                   onClick={() => onReset(item.sku)}
-                  disabled={disabled || (!price.priceAdjusted && !price.priceError)}
+                  disabled={disabled || (!price.priceNegotiated && !price.priceError)}
                   aria-label={`Reset ${item.name} to the standard price`}
                 >
                   Reset to standard price
@@ -1353,7 +1449,7 @@ function PriceReview({ lines, disabled, onAgreedChange, onReasonChange, onReset 
                 )}
               </div>
 
-              {price.priceAdjusted && (
+              {price.priceNegotiated && (
                 <div className="place-v2-price-reason">
                   <label htmlFor={reasonId}>Reason for the negotiated price (required)</label>
                   <textarea
@@ -1373,6 +1469,71 @@ function PriceReview({ lines, disabled, onAgreedChange, onReasonChange, onReset 
                   )}
                 </div>
               )}
+
+              <div className="place-v2-price-discount">
+                <label htmlFor={discountTypeId}>SC/PWD discount for {item.name}</label>
+                <select
+                  id={discountTypeId}
+                  value={discountType}
+                  disabled={disabled}
+                  onChange={(event) => onDiscountTypeChange(item.sku, event.target.value)}
+                >
+                  <option value="">No discount</option>
+                  {STATUTORY_DISCOUNT_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {STATUTORY_DISCOUNT_LABELS[type]}
+                    </option>
+                  ))}
+                </select>
+                {discountType && (
+                  <>
+                    <label htmlFor={discountId}>Discount amount for this line</label>
+                    <div className="place-v2-price-input">
+                      <span aria-hidden="true">₱</span>
+                      <input
+                        id={discountId}
+                        type="text"
+                        inputMode="decimal"
+                        autoComplete="off"
+                        value={discountText}
+                        disabled={disabled}
+                        aria-invalid={price.discountError ? "true" : "false"}
+                        aria-describedby={price.discountError ? discountErrorId : undefined}
+                        onChange={(event) => onDiscountChange(item.sku, event.target.value)}
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </>
+                )}
+                {price.discountError && (
+                  <p id={discountErrorId} className="place-v2-price-error" role="alert">
+                    {price.discountError}
+                  </p>
+                )}
+                {discountType && (
+                  <div className="place-v2-eligibility">
+                    <input
+                      id={eligibilityId}
+                      type="checkbox"
+                      checked={eligibilityConfirmed}
+                      disabled={disabled}
+                      aria-invalid={price.eligibilityError ? "true" : "false"}
+                      aria-describedby={price.eligibilityError ? eligibilityErrorId : undefined}
+                      onChange={(event) => onEligibilityChange(item.sku, event.target.checked)}
+                    />
+                    <label htmlFor={eligibilityId}>{ELIGIBILITY_ATTESTATION_TEXT}</label>
+                    <p className="place-v2-eligibility-note">
+                      Your confirmation is recorded with your account and the time. The system does not check
+                      eligibility itself — do not enter ID numbers or other personal details here.
+                    </p>
+                    {price.eligibilityError && (
+                      <p id={eligibilityErrorId} className="place-v2-price-error" role="alert">
+                        {price.eligibilityError}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             </li>
           );
         })}
@@ -1381,56 +1542,65 @@ function PriceReview({ lines, disabled, onAgreedChange, onReasonChange, onReset 
   );
 }
 
-/** VAT breakdown of the agreed totals; every figure reconciles to the final total. */
+/**
+ * The order's figures: negotiated subtotal, the separate statutory discounts,
+ * the VAT breakdown AFTER discounts, and the final total. They reconcile:
+ * negotiated subtotal − statutory discounts = final total = the VAT parts.
+ */
 function VatBreakdown({ summary }) {
   if (!summary) {
     return (
       <p className="place-v2-price-note" role="status">
-        The VAT breakdown appears once every line has a valid agreed price and VAT classification.
+        The totals appear once every line has a valid agreed price, discount and VAT classification.
       </p>
     );
   }
   return (
     <dl className="place-v2-vat-breakdown">
+      {summary.negotiatedAdjustmentCentavos !== 0 && (
+        <div>
+          <dt>Standard total</dt>
+          <dd className="tnum">{formatAmount(summary.standardTotalCentavos)}</dd>
+        </div>
+      )}
+      <div>
+        <dt>Negotiated subtotal</dt>
+        <dd className="tnum">{formatAmount(summary.negotiatedSubtotalCentavos)}</dd>
+      </div>
+      {summary.statutoryDiscountTotalCentavos > 0 && (
+        <div>
+          <dt>Less: SC/PWD discounts</dt>
+          <dd className="tnum">−{formatCentavos(summary.statutoryDiscountTotalCentavos)}</dd>
+        </div>
+      )}
       <div>
         <dt>VATable sales (net of VAT)</dt>
-        <dd className="tnum">{formatCentavosOrZero(summary.vatableSalesCentavos)}</dd>
+        <dd className="tnum">{formatAmount(summary.vatableSalesCentavos)}</dd>
       </div>
       <div>
         <dt>VAT-exempt sales</dt>
-        <dd className="tnum">{formatCentavosOrZero(summary.vatExemptSalesCentavos)}</dd>
+        <dd className="tnum">{formatAmount(summary.vatExemptSalesCentavos)}</dd>
       </div>
       <div>
         <dt>Zero-rated sales</dt>
-        <dd className="tnum">{formatCentavosOrZero(summary.zeroRatedSalesCentavos)}</dd>
+        <dd className="tnum">{formatAmount(summary.zeroRatedSalesCentavos)}</dd>
       </div>
       <div>
         <dt>VAT (12%)</dt>
-        <dd className="tnum">{formatCentavosOrZero(summary.vatAmountCentavos)}</dd>
+        <dd className="tnum">{formatAmount(summary.vatAmountCentavos)}</dd>
       </div>
-      {summary.adjustmentCentavos !== 0 && (
-        <div>
-          <dt>Standard total</dt>
-          <dd className="tnum">{formatCentavosOrZero(summary.standardTotalCentavos)}</dd>
-        </div>
-      )}
       <div className="place-v2-final-total">
         <dt>Final total (VAT-inclusive)</dt>
-        <dd className="tnum">{formatCentavosOrZero(summary.totalCentavos)}</dd>
+        <dd className="tnum">{formatAmount(summary.totalCentavos)}</dd>
       </div>
     </dl>
   );
 }
 
-/** formatCentavos shows "—" for zero (not a price); a breakdown line of ₱0.00 is real. */
-function formatCentavosOrZero(centavos) {
-  return centavos === 0 ? "₱0.00" : formatCentavos(centavos);
-}
-
 /**
  * Explicit reconfirmation before the order is created: who and where, every
  * line with its classification, standard vs agreed price and reason where
- * negotiated, the VAT breakdown and the final total.
+ * negotiated, any SC/PWD discount by category, the totals and the final total.
  */
 function ReconfirmDialog({ doctorName, destination, lines, summary, saving, onCancel, onConfirm }) {
   const focusFirst = useCallback((node) => node?.focus(), []);
@@ -1462,18 +1632,23 @@ function ReconfirmDialog({ doctorName, destination, lines, summary, saving, onCa
                 </span>
               </div>
               <div className="tnum">
-                {price.priceAdjusted ? (
+                {price.priceNegotiated ? (
                   <>
                     <span>
                       {NEGOTIATED_PRICE_LABEL}: {formatCentavos(price.agreedUnitPriceCentavos)}
                       <small> (standard {formatCentavos(price.standardUnitPriceCentavos)})</small>
                     </span>
-                    <span className="place-v2-confirm-reason">Reason: {price.adjustmentReason}</span>
+                    <span className="place-v2-confirm-reason">Reason: {price.negotiationReason}</span>
                   </>
                 ) : (
                   <span>{formatCentavos(price.agreedUnitPriceCentavos)} each</span>
                 )}
-                <strong>{formatCentavos(price.agreedLineTotalCentavos)}</strong>
+                {price.statutoryDiscountCentavos > 0 && (
+                  <span className="place-v2-confirm-reason">
+                    {STATUTORY_DISCOUNT_LABELS[price.statutoryDiscountType]} discount −{formatCentavos(price.statutoryDiscountCentavos)}
+                  </span>
+                )}
+                <strong>{formatAmount(price.finalLineTotalCentavos)}</strong>
               </div>
             </li>
           ))}

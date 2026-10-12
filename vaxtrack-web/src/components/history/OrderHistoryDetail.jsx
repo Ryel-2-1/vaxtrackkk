@@ -24,6 +24,7 @@ import {
   sourceLabel,
 } from "../../services/orderHistory.js";
 import { subscribeAllocationEvents, subscribeOrder } from "../../services/orderHistoryService";
+import { liveErrorKind, liveErrorMessage } from "../../services/liveDataErrors";
 
 /**
  * One order's history, in three clearly separate parts:
@@ -293,9 +294,9 @@ export default function OrderHistoryDetail({ row, mode, medRepUid, onBack }) {
         },
         (err) =>
           setOrderError(
-            err?.code === "permission-denied"
+            liveErrorKind(err) === "permission"
               ? "You do not have permission to view this order's current status."
-              : "The current status could not be loaded. Showing the order as it was listed."
+              : `${liveErrorMessage(err, "the current status")} Showing the order as it was listed.`
           )
       ),
     [row.id]
@@ -311,11 +312,7 @@ export default function OrderHistoryDetail({ row, mode, medRepUid, onBack }) {
       },
       (err) => {
         setEventsLoading(false);
-        setEventsError(
-          err?.code === "permission-denied"
-            ? "You do not have permission to view this order's allocation history."
-            : "The allocation history could not be loaded."
-        );
+        setEventsError(liveErrorMessage(err, "this order's allocation history"));
       }
     );
   }, [row.id, mode, medRepUid]);

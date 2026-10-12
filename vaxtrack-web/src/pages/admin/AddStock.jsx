@@ -7,11 +7,25 @@ import {
 } from "../../services/vaccineService";
 import { addStockBatchWithAllocation } from "../../services/inventoryCallables";
 import { subscribeVaccines } from "../../services/vaccineCatalogService";
-import { liveErrorMessage } from "../../services/liveDataErrors";
+import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { parsePesosToCentavos } from "../../services/money";
 import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
 import { validateStockBatchDates } from "../../services/stockBatchDates";
 import "./AdminForms.css";
+
+// Each validated field's input id, and the id of the one field message shown
+// at a time (validation stops at the first problem, top to bottom).
+const STOCK_FIELD_IDS = {
+  vaccine: "stock-vaccine",
+  manufacturer: "stock-manufacturer",
+  batchId: "stock-batch-id",
+  manufacturingDate: "stock-manufacturing-date",
+  arrivalDate: "stock-arrival-date",
+  expiryDate: "stock-expiry-date",
+  quantity: "stock-quantity",
+  unitPrice: "stock-unit-price",
+};
+const STOCK_FIELD_ERROR_ID = "stock-field-error";
 
 function AddStock() {
   const navigate = useNavigate();
@@ -44,10 +58,40 @@ function AddStock() {
   // submits dispatched before that resolves would both pass and both write.
   // A ref flips synchronously, so only one write is ever in flight.
   const submittingRef = useRef(false);
+  // The last load-failure message shown, so recovery clears only that one.
+  const loadMessageRef = useRef("");
 
   const showMessage = (text, type = "error") => {
     setMessage(text);
     setMessageType(type);
+  };
+
+  // The field a validation message belongs to. Shown beside that field (tied
+  // with aria-describedby, marked aria-invalid) and focused; the banner above
+  // the actions only summarises. Nothing typed is cleared.
+  const [fieldError, setFieldError] = useState(null); // { field, text } | null
+  const failField = (field, text) => {
+    setFieldError({ field, text });
+    showMessage("Check the highlighted field. Nothing was saved.");
+    const el = document.getElementById(STOCK_FIELD_IDS[field]);
+    el?.focus();
+    el?.scrollIntoView?.({ block: "center" });
+    return false;
+  };
+  const a11y = (field, hint) => {
+    const invalid = fieldError?.field === field;
+    const describedBy = [invalid ? STOCK_FIELD_ERROR_ID : null, hint].filter(Boolean).join(" ");
+    return { "aria-invalid": invalid ? "true" : undefined, "aria-describedby": describedBy || undefined };
+  };
+  const fieldMessage = (field) =>
+    fieldError?.field === field ? (
+      <small id={STOCK_FIELD_ERROR_ID} className="form-field-error">
+        {fieldError.text}
+      </small>
+    ) : null;
+  // Editing the flagged field clears its message; other fields keep theirs.
+  const clearFieldErrorFor = (event) => {
+    if (fieldError && event.target?.id === STOCK_FIELD_IDS[fieldError.field]) setFieldError(null);
   };
 
   // Registered vaccines are LIVE (the catalog listener every page shares), so
@@ -64,9 +108,13 @@ function AddStock() {
             )
           );
           setLoadingVaccines(false);
+          // A recovered listener clears ITS message — never a validation
+          // message the admin is reading.
+          setMessage((prev) => (prev && prev === loadMessageRef.current ? "" : prev));
         },
         (error) => {
           setMessage(liveErrorMessage(error, "registered vaccines"));
+          loadMessageRef.current = liveErrorMessage(error, "registered vaccines");
           setMessageType("error");
           setLoadingVaccines(false);
         }
@@ -96,30 +144,26 @@ function AddStock() {
     const quantityNumber = Number(String(quantity).trim());
 
     if (!selectedVaccine) {
-      showMessage("Please select a registered vaccine.");
-      return false;
+      return failField("vaccine", "Please select a registered vaccine.");
     }
 
     if (!selectedVaccine.vaccineName || !selectedVaccine.vaccineType) {
-      showMessage(
+      return failField(
+        "vaccine",
         "Selected vaccine is missing required details. Please check the vaccine record."
       );
-      return false;
     }
 
     if (!manufacturer.trim()) {
-      showMessage("Manufacturer is required.");
-      return false;
+      return failField("manufacturer", "Manufacturer is required.");
     }
 
     if (!cleanedBatchId) {
-      showMessage("Batch ID is required.");
-      return false;
+      return failField("batchId", "Batch ID is required.");
     }
 
     if (cleanedBatchId.length < 3) {
-      showMessage("Batch ID must be at least 3 characters.");
-      return false;
+      return failField("batchId", "Batch ID must be at least 3 characters.");
     }
 
     // Manufacturing, arrival and expiry, compared as date-only strings against
@@ -127,28 +171,23 @@ function AddStock() {
     // rules as before; the service repeats this check before writing.
     const dates = validateStockBatchDates({ manufacturingDate, arrivalDate, expiryDate });
     if (!dates.ok) {
-      showMessage(dates.message);
-      return false;
+      return failField(dates.field, dates.message);
     }
 
     if (String(quantity).trim() === "" || Number.isNaN(quantityNumber)) {
-      showMessage("Unit quantity is required.");
-      return false;
+      return failField("quantity", "Unit quantity is required.");
     }
 
     if (!Number.isInteger(quantityNumber)) {
-      showMessage("Quantity must be a whole number.");
-      return false;
+      return failField("quantity", "Quantity must be a whole number.");
     }
 
     if (quantityNumber <= 0) {
-      showMessage("Quantity must be greater than zero.");
-      return false;
+      return failField("quantity", "Quantity must be greater than zero.");
     }
 
     if (quantityNumber > 1000000) {
-      showMessage("Quantity is too large. Please check the encoded amount.");
-      return false;
+      return failField("quantity", "Quantity is too large. Please check the encoded amount.");
     }
 
     // A batch cannot enter inventory unpriced. Sales Rep ordering reads this
@@ -156,7 +195,8 @@ function AddStock() {
     // a vaccine at ₱0.00 the moment someone forgets.
     const price = parsePesosToCentavos(unitPrice);
     if (!price.ok) {
-      showMessage(
+      return failField(
+        "unitPrice",
         {
           empty: "Unit selling price is required.",
           "not-positive": "Selling price must be greater than zero.",
@@ -165,12 +205,10 @@ function AddStock() {
         }[price.reason] ??
           "Enter the selling price in pesos, e.g. 1250 or 1250.50."
       );
-      return false;
     }
 
     if (await batchIdExists(cleanedBatchId)) {
-      showMessage("This Batch ID already exists in inventory.");
-      return false;
+      return failField("batchId", "This Batch ID already exists in inventory.");
     }
 
     return true;
@@ -185,6 +223,7 @@ function AddStock() {
 
     setMessage("");
     setMessageType("error");
+    setFieldError(null);
 
     try {
       const isValid = await validateForm();
@@ -218,14 +257,21 @@ function AddStock() {
       setResult(report ?? null);
       showMessage("Stock added successfully.", "success");
     } catch (error) {
-      console.error("Add stock error:", error?.code || error);
-      // The server's own sentence for a domain refusal (duplicate batch id,
-      // a vaccine removed meanwhile, an invalid date) — generic otherwise.
-      showMessage(
-        error?.code && error.code !== "service-unavailable" && error.message
-          ? error.message
-          : "Failed to add stock. Please try again."
-      );
+      logSafeError("Add stock", error);
+      // A duplicate batch id found by the server belongs to that field. Any
+      // other domain refusal keeps the server's own sentence (a trusted
+      // domain error); everything else gets a safe, mapped message. The form
+      // keeps every value the admin typed.
+      if (error?.code === "batch-id-exists") {
+        failField("batchId", "This Batch ID already exists in inventory.");
+      } else {
+        showMessage(
+          friendlyErrorMessage(
+            error,
+            "The stock could not be added. Nothing was saved — your entries are still here; please try again."
+          )
+        );
+      }
     } finally {
       submittingRef.current = false;
       setSaving(false);
@@ -246,7 +292,7 @@ function AddStock() {
           </div>
         </header>
 
-        <form className="stock-form" onSubmit={handleSubmit}>
+        <form className="stock-form" onSubmit={handleSubmit} onInput={clearFieldErrorFor} onChange={clearFieldErrorFor} noValidate>
           {/* The decorative two-step strip at the top of this form is gone. It
               was not a real stepper — both entries were inert spans on a
               single-page form — and its second entry merely restated the
@@ -266,6 +312,7 @@ function AddStock() {
                   value={selectedVaccineId}
                   onChange={(e) => handleVaccineChange(e.target.value)}
                   disabled={loadingVaccines}
+                  {...a11y("vaccine")}
                 >
                   <option value="">
                     {loadingVaccines
@@ -280,6 +327,7 @@ function AddStock() {
                     </option>
                   ))}
                 </select>
+                {fieldMessage("vaccine")}
 
                 {/* Empty state: stock can only be added against a registered
                     vaccine, so point the admin at the one action that unblocks
@@ -307,8 +355,9 @@ function AddStock() {
                   placeholder="e.g. Pfizer-BioNTech"
                   value={manufacturer}
                   onChange={(e) => setManufacturer(e.target.value)}
-                  aria-describedby="stock-manufacturer-note"
+                  {...a11y("manufacturer", "stock-manufacturer-note")}
                 />
+                {fieldMessage("manufacturer")}
                 <small id="stock-manufacturer-note" className="input-helper">
                   Filled in from the selected vaccine when it has one on record.
                 </small>
@@ -338,7 +387,9 @@ function AddStock() {
                   placeholder="BT-2026-X90"
                   value={batchId}
                   onChange={(e) => setBatchId(e.target.value.toUpperCase())}
+                  {...a11y("batchId")}
                 />
+                {fieldMessage("batchId")}
               </div>
 
               <div>
@@ -349,7 +400,9 @@ function AddStock() {
                   required
                   value={manufacturingDate}
                   onChange={(e) => setManufacturingDate(e.target.value)}
+                  {...a11y("manufacturingDate")}
                 />
+                {fieldMessage("manufacturingDate")}
               </div>
 
               <div>
@@ -359,7 +412,9 @@ function AddStock() {
                   type="date"
                   value={arrivalDate}
                   onChange={(e) => setArrivalDate(e.target.value)}
+                  {...a11y("arrivalDate")}
                 />
+                {fieldMessage("arrivalDate")}
               </div>
 
               <div>
@@ -369,7 +424,9 @@ function AddStock() {
                   type="date"
                   value={expiryDate}
                   onChange={(e) => setExpiryDate(e.target.value)}
+                  {...a11y("expiryDate")}
                 />
+                {fieldMessage("expiryDate")}
 
                 {arrivalDate &&
                   expiryDate &&
@@ -404,6 +461,7 @@ function AddStock() {
                     placeholder="e.g. 1000"
                     value={quantity}
                     onChange={(e) => setQuantity(e.target.value)}
+                    {...a11y("quantity")}
                   />
 
                   <button
@@ -414,6 +472,7 @@ function AddStock() {
                     +
                   </button>
                 </div>
+                {fieldMessage("quantity")}
               </div>
 
               <div>
@@ -425,8 +484,9 @@ function AddStock() {
                   placeholder="e.g. 1250.00"
                   value={unitPrice}
                   onChange={(e) => setUnitPrice(e.target.value)}
-                  aria-describedby="stock-unit-price-help"
+                  {...a11y("unitPrice", "stock-unit-price-help")}
                 />
+                {fieldMessage("unitPrice")}
                 {/* Says which convention applies: the entered price is
                     VAT-inclusive for VATable products, and VAT is never added
                     on top of it (pricingConfig.js). */}

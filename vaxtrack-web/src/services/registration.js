@@ -59,22 +59,25 @@ export function validateApplication({ name, email, password, confirmPassword, ro
   const cleanName = cleanText(name);
   const cleanEmail = typeof email === "string" ? email.trim() : "";
 
-  if (!cleanName) return { ok: false, message: "Please enter your full name." };
-  if (!cleanEmail) return { ok: false, message: "Please enter your email address." };
+  // `field` names the input each message belongs to, so the page can show it
+  // there, mark it invalid and focus it.
+  if (!cleanName) return { ok: false, field: "name", message: "Please enter your full name." };
+  if (!cleanEmail) return { ok: false, field: "email", message: "Please enter your email address." };
   if (!EMAIL_SHAPE.test(cleanEmail)) {
-    return { ok: false, message: "Please enter a valid email address." };
+    return { ok: false, field: "email", message: "Please enter a valid email address." };
   }
   if (!isApplicableRole(role)) {
-    return { ok: false, message: "Please choose the position you are applying for." };
+    return { ok: false, field: "role", message: "Please choose the position you are applying for." };
   }
   if (!password || password.length < MIN_PASSWORD_LENGTH) {
     return {
       ok: false,
+      field: "password",
       message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
     };
   }
   if (password !== confirmPassword) {
-    return { ok: false, message: "Passwords do not match." };
+    return { ok: false, field: "confirmPassword", message: "Passwords do not match." };
   }
 
   return { ok: true, value: { name: cleanName, email: cleanEmail, role } };
@@ -129,5 +132,12 @@ export function mapRegistrationError(code) {
   if (code === "auth/network-request-failed") {
     return "Unable to connect. Check your internet connection and try again.";
   }
-  return "Something went wrong. Please try again.";
+  return "We couldn't submit your application. Nothing was saved — please try again.";
+}
+
+/** The form field a registration failure belongs to, by its code (or null). */
+export function registrationErrorField(code) {
+  if (code === "auth/email-already-in-use" || code === "auth/invalid-email") return "email";
+  if (code === "auth/weak-password") return "password";
+  return null;
 }

@@ -98,19 +98,36 @@ function LiveTrackingPanel() {
   const [filter, setFilter] = useState("all");
   const [selectedUid, setSelectedUid] = useState(null);
   // Rider locations + server deviation state (shared with the dashboard overview).
-  const { locations, deviations, error: feedError, deviationError } = useRiderTrackingFeeds();
+  const { locations, deviations, error: feedError, deviationError, retry: retryFeeds } = useRiderTrackingFeeds();
   const error = ordersError || feedError;
+  // Bumped by "Try again": a failed listener is closed for good, so retrying
+  // opens a new one (exactly one — the effect's cleanup closes the old).
+  const [ordersAttempt, setOrdersAttempt] = useState(0);
+  const retryTracking = () => {
+    if (ordersError) {
+      setOrdersError(null);
+      setOrders(null);
+      setOrdersAttempt((n) => n + 1);
+    }
+    if (feedError) retryFeeds();
+  };
 
   useEffect(() => {
     const unsubs = [
-      subscribeDeliveries(setOrders, (err) => setOrdersError(err?.code === "permission-denied" ? "permission" : "error")),
+      subscribeDeliveries(
+        (list) => {
+          setOrders(list);
+          setOrdersError(null); // a recovered listener clears its failure
+        },
+        (err) => setOrdersError(err?.code === "permission-denied" ? "permission" : "error")
+      ),
       subscribeRiders(
         (list) => setRiders(Object.fromEntries(list.map((r) => [r.uid, r]))),
         () => setRiders({}),
       ),
     ];
     return () => unsubs.forEach((u) => typeof u === "function" && u());
-  }, []);
+  }, [ordersAttempt]);
 
   const fleet = useMemo(
     () => (orders && locations ? buildFleet({ orders, locations, deviations, riders, nowMs }) : []),
@@ -127,8 +144,13 @@ function LiveTrackingPanel() {
         <p>
           {error === "permission"
             ? "Live rider locations are visible to Admin and Dispatcher accounts only."
-            : "Check your connection and reload the page."}
+            : "Check your connection, then try again."}
         </p>
+        {error !== "permission" && (
+          <button type="button" className="ltp-retry" onClick={retryTracking}>
+            Try again
+          </button>
+        )}
       </div>
     );
   }

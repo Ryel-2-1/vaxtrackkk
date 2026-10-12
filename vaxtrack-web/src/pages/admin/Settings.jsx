@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Building2,
   Globe,
@@ -13,7 +13,11 @@ import { auth } from "../../firebase";
 import KpiCard from "../../components/ui/KpiCard";
 import "./Settings.css";
 import { subscribeUsers, updateUserStatus, updateUserRole } from "../../services/userService";
-import { liveErrorMessage } from "../../services/liveDataErrors";
+import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
+import ConfirmDialog from "../../components/ui/ConfirmDialog";
+import { useDialogFocus } from "../../components/ui/useDialogFocus";
+import { ToastRegion } from "../../components/ui/Feedback";
+import { useToast } from "../../components/ui/useToast";
 import { staffActionsFor, staffStatusOf } from "../../services/staffAccount";
 import { canManageTerritory, readTerritory } from "../../services/territory";
 import MedRepTerritoryDialog from "./MedRepTerritoryDialog";
@@ -60,20 +64,41 @@ function normalizeUser(raw) {
 
 const pageSize = 4;
 
+/** Account status changes, each confirmed with its consequence first. */
+const ACCOUNT_ACTIONS = {
+  approve: {
+    title: "Approve this account?",
+    consequence: "They will be able to sign in to VaxTrack with the role shown.",
+    confirmLabel: "Approve account",
+    tone: "primary",
+    status: "approved",
+  },
+  deactivate: {
+    title: "Deactivate this account?",
+    consequence:
+      "They lose access to VaxTrack right away and cannot sign in until reactivated. Their records and orders are kept.",
+    confirmLabel: "Deactivate account",
+    tone: "danger",
+    status: "disabled",
+  },
+  reactivate: {
+    title: "Reactivate this account?",
+    consequence: "They will be able to sign in again with their current role.",
+    confirmLabel: "Reactivate account",
+    tone: "primary",
+    status: "approved",
+  },
+};
+
 function Settings() {
 
   const [activeTab, setActiveTab] = useState("general");
   const [searchTerm, setSearchTerm] = useState("");
-  const [toast, setToast] = useState("");
-
-  const showToast = (message) => {
-    setToast(message);
-    setTimeout(() => setToast(""), 2200);
-  };
+  const { toast, showToast, dismissToast } = useToast();
 
   return (
     <main className="settings-v3-main">
-        {toast && <div className="settings-toast">{toast}</div>}
+        <ToastRegion toast={toast} onDismiss={dismissToast} />
 
         <header className="settings-v3-header">
           <div>
@@ -365,6 +390,10 @@ function UserManagement({ searchTerm, showToast }) {
   // the row they clicked. The writes themselves already used person.uid.
   const [actionMenuUid, setActionMenuUid] = useState(null);
   const [roleChangeTarget, setRoleChangeTarget] = useState(null);
+  // One role change at a time; a failure is shown in the (still open) dialog.
+  const [roleSaving, setRoleSaving] = useState(false);
+  const [roleError, setRoleError] = useState("");
+  const roleSavingRef = useRef(false);
   const [territoryTarget, setTerritoryTarget] = useState(null);
 
   useEffect(() => {
@@ -416,53 +445,72 @@ function UserManagement({ searchTerm, showToast }) {
 
   // No optimistic update: the row's status comes only from the Firestore
   // subscription, so a refused or failed change never shows a false state.
-  // Resolves true on success, so a dialog closes only once the write landed.
+  // Every status change runs from a confirmation dialog; this rethrows on
+  // failure so that dialog stays open with the reason (a refused transition
+  // such as activating a rejected application keeps its own sentence —
+  // UserStatusError is a trusted domain error — anything else is mapped).
   const updateStatus = async (uid, firestoreStatus) => {
-    if (statusBusy) return false;
     setStatusBusy(uid);
     try {
       await updateUserStatus(uid, firestoreStatus);
-      showToast(`User status updated to ${staffStatusOf(firestoreStatus).label}.`);
-      return true;
+      showToast(`User status updated to ${staffStatusOf(firestoreStatus).label}.`, "success");
     } catch (error) {
-      // A refused transition (e.g. activating a rejected application) carries
-      // a message written for the admin; anything else stays generic.
-      showToast(
-        error?.name === "UserStatusError"
-          ? error.message
-          : "Failed to update user status. Please try again."
-      );
-      return false;
+      logSafeError("Update user status", error);
+      throw error;
     } finally {
       setStatusBusy(null);
       setActionMenuUid(null);
     }
   };
 
-  // Reject asks first: it is final in the normal workflow.
+  // Approve, deactivate and reactivate each ask first, naming the account and
+  // what changes for it. { person, action } | null.
+  const [statusChange, setStatusChange] = useState(null);
+  const requestStatusChange = (person, action) => {
+    setActionMenuUid(null);
+    setSelectedStaff(null);
+    setStatusChange({ person, action });
+  };
+  const confirmStatusChange = async () => {
+    const { person, action } = statusChange;
+    await updateStatus(person.uid, ACCOUNT_ACTIONS[action].status);
+    setStatusChange(null);
+  };
+
+  // Reject asks first: it is final in the normal workflow. The dialog closes
+  // only once the write landed.
   const [rejectTarget, setRejectTarget] = useState(null);
   const confirmReject = async () => {
     const target = rejectTarget;
-    setRejectTarget(null);
     if (target) await updateStatus(target.uid, "rejected");
+    setRejectTarget(null);
   };
 
   const currentAdminUid = auth.currentUser?.uid;
 
   const changeRole = async (uid, newRole) => {
     if (uid === currentAdminUid) {
-      showToast("You cannot change your own role.");
+      showToast("You cannot change your own role.", "warning");
       setRoleChangeTarget(null);
       return;
     }
+    if (roleSavingRef.current) return;
+    roleSavingRef.current = true;
+    setRoleSaving(true);
+    setRoleError("");
     try {
       await updateUserRole(uid, newRole);
-      showToast(`User role updated to ${ROLE_DISPLAY[newRole] || newRole}.`);
+      showToast(`User role updated to ${ROLE_DISPLAY[newRole] || newRole}.`, "success");
       // Closed only on success; a failure leaves the choice open to retry.
       setRoleChangeTarget(null);
-    } catch {
-      showToast("Failed to update user role. Please try again.");
+    } catch (error) {
+      logSafeError("Update user role", error);
+      setRoleError(
+        friendlyErrorMessage(error, "The role could not be changed. Nothing was saved — please try again.")
+      );
     } finally {
+      roleSavingRef.current = false;
+      setRoleSaving(false);
       setActionMenuUid(null);
     }
   };
@@ -636,7 +684,7 @@ function UserManagement({ searchTerm, showToast }) {
                           {actions.includes("approve") && (
                             <button
                               type="button"
-                              onClick={() => updateStatus(person.uid, "approved")}
+                              onClick={() => requestStatusChange(person, "approve")}
                             >
                               Approve
                             </button>
@@ -659,7 +707,7 @@ function UserManagement({ searchTerm, showToast }) {
                             <button
                               type="button"
                               className="danger"
-                              onClick={() => updateStatus(person.uid, "disabled")}
+                              onClick={() => requestStatusChange(person, "deactivate")}
                             >
                               Deactivate
                             </button>
@@ -668,7 +716,7 @@ function UserManagement({ searchTerm, showToast }) {
                           {actions.includes("reactivate") && (
                             <button
                               type="button"
-                              onClick={() => updateStatus(person.uid, "approved")}
+                              onClick={() => requestStatusChange(person, "reactivate")}
                             >
                               Reactivate
                             </button>
@@ -760,10 +808,29 @@ function UserManagement({ searchTerm, showToast }) {
       </section>
 
       {rejectTarget && (
-        <RejectApplicationDialog
-          person={rejectTarget}
+        <ConfirmDialog
+          title="Reject this application?"
+          target={`${rejectTarget.name} (${rejectTarget.email})`}
+          consequence="They will not be able to sign in. Normal activation will no longer be available for this account."
+          confirmLabel="Reject application"
+          busyLabel="Rejecting…"
+          failureMessage="The application could not be rejected. Nothing was changed — please try again."
           onCancel={() => setRejectTarget(null)}
           onConfirm={confirmReject}
+        />
+      )}
+
+      {statusChange && (
+        <ConfirmDialog
+          title={ACCOUNT_ACTIONS[statusChange.action].title}
+          target={`${statusChange.person.name} (${statusChange.person.email}) · ${statusChange.person.role}`}
+          consequence={ACCOUNT_ACTIONS[statusChange.action].consequence}
+          confirmLabel={ACCOUNT_ACTIONS[statusChange.action].confirmLabel}
+          busyLabel="Saving…"
+          tone={ACCOUNT_ACTIONS[statusChange.action].tone}
+          failureMessage="The account status could not be changed. Nothing was saved — please try again."
+          onCancel={() => setStatusChange(null)}
+          onConfirm={confirmStatusChange}
         />
       )}
 
@@ -773,19 +840,13 @@ function UserManagement({ searchTerm, showToast }) {
           isSelf={selectedStaff.uid === currentAdminUid}
           busy={statusBusy === selectedStaff.uid}
           onClose={() => setSelectedStaff(null)}
-          onApprove={async () => {
-            if (await updateStatus(selectedStaff.uid, "approved")) setSelectedStaff(null);
-          }}
+          onApprove={() => requestStatusChange(selectedStaff, "approve")}
           onReject={() => {
             setRejectTarget(selectedStaff);
             setSelectedStaff(null);
           }}
-          onDeactivate={async () => {
-            if (await updateStatus(selectedStaff.uid, "disabled")) setSelectedStaff(null);
-          }}
-          onReactivate={async () => {
-            if (await updateStatus(selectedStaff.uid, "approved")) setSelectedStaff(null);
-          }}
+          onDeactivate={() => requestStatusChange(selectedStaff, "deactivate")}
+          onReactivate={() => requestStatusChange(selectedStaff, "reactivate")}
           onChangeRole={() => {
             setSelectedStaff(null);
             setRoleChangeTarget(selectedStaff);
@@ -800,10 +861,11 @@ function UserManagement({ searchTerm, showToast }) {
       {territoryTarget && (
         <MedRepTerritoryDialog
           person={territoryTarget}
+          live={staff.find((p) => p.uid === territoryTarget.uid) ?? null}
           onClose={() => setTerritoryTarget(null)}
           onSaved={(message) => {
             setTerritoryTarget(null);
-            showToast(message);
+            showToast(message, "success");
           }}
         />
       )}
@@ -811,7 +873,13 @@ function UserManagement({ searchTerm, showToast }) {
       {roleChangeTarget && (
         <RoleChangeModal
           person={roleChangeTarget}
-          onClose={() => setRoleChangeTarget(null)}
+          saving={roleSaving}
+          error={roleError}
+          onClose={() => {
+            if (roleSavingRef.current) return;
+            setRoleError("");
+            setRoleChangeTarget(null);
+          }}
           onConfirm={(newRole) => changeRole(roleChangeTarget.uid, newRole)}
         />
       )}
@@ -949,68 +1017,48 @@ function StaffDetailsModal({
 
 // Reject is final in the normal workflow, so it is confirmed first. Cancel
 // closes the dialog and writes nothing.
-function RejectApplicationDialog({ person, onCancel, onConfirm }) {
+function RoleChangeModal({ person, saving = false, error = "", onClose, onConfirm }) {
+  const [newRole, setNewRole] = useState(person.rawRole || "salesrep");
+  const dialogRef = useRef(null);
+  useDialogFocus({ dialogRef, onDismiss: onClose, busy: saving });
+
   return (
     <div className="settings-modal-backdrop">
       <div
+        ref={dialogRef}
         className="settings-modal confirm-modal"
-        role="alertdialog"
+        role="dialog"
         aria-modal="true"
-        aria-labelledby="reject-confirm-title"
+        aria-labelledby="role-change-title"
       >
-        <button type="button" className="settings-modal-close" onClick={onCancel} aria-label="Close">
-          <X size={18} />
-        </button>
-
-        <div className="settings-modal-avatar warning">
-          <UserRound size={28} />
-        </div>
-
-        <h2 id="reject-confirm-title">Reject this application?</h2>
-        <p>
-          <strong>{person.name}</strong> ({person.email}) will not be able to sign in.
-          Normal activation will no longer be available for this account.
-        </p>
-
-        <div className="settings-modal-actions">
-          <button type="button" className="settings-danger-action" onClick={onConfirm}>
-            Reject application
-          </button>
-          <button type="button" className="settings-light-action" onClick={onCancel} autoFocus>
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function RoleChangeModal({ person, onClose, onConfirm }) {
-  const [newRole, setNewRole] = useState(person.rawRole || "salesrep");
-
-  return (
-    <div className="settings-modal-backdrop">
-      <div className="settings-modal confirm-modal">
-        <button type="button" className="settings-modal-close" onClick={onClose} aria-label="Close">
-          <X size={18} />
+        <button
+          type="button"
+          className="settings-modal-close"
+          onClick={onClose}
+          disabled={saving}
+          aria-label="Close without changing the role"
+        >
+          <X size={18} aria-hidden="true" />
         </button>
 
         <div className="settings-modal-avatar">
           <UserRound size={28} />
         </div>
 
-        <h2>Change Role</h2>
+        <h2 id="role-change-title">Change Role</h2>
         <p>
           Update role for <strong>{person.name}</strong> ({person.email}).
           Current role: <strong>{person.role}</strong>.
         </p>
 
         <div className="role-change-select-wrap">
-          <label>New Role</label>
+          <label htmlFor="role-change-select">New Role</label>
           <select
+            id="role-change-select"
             className="role-change-select"
             value={newRole}
             onChange={(e) => setNewRole(e.target.value)}
+            disabled={saving}
           >
             {ASSIGNABLE_ROLES.map((r) => (
               <option key={r.value} value={r.value}>
@@ -1020,17 +1068,24 @@ function RoleChangeModal({ person, onClose, onConfirm }) {
           </select>
         </div>
 
+        {error && (
+          <p className="settings-modal-error" role="alert">
+            {error}
+          </p>
+        )}
+
         <div className="settings-modal-actions">
           <button
             type="button"
             className="settings-primary-action"
-            disabled={newRole === person.rawRole}
+            disabled={saving || newRole === person.rawRole}
+            aria-busy={saving}
             onClick={() => onConfirm(newRole)}
           >
-            Confirm Role Change
+            {saving ? "Saving…" : "Confirm Role Change"}
           </button>
 
-          <button type="button" className="settings-light-action" onClick={onClose}>
+          <button type="button" className="settings-light-action" onClick={onClose} disabled={saving}>
             Cancel
           </button>
         </div>

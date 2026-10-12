@@ -16,6 +16,7 @@ import {
 import { auth, db } from "../firebase";
 import { PENDING_PATH, resolveLoginDestination } from "../services/authorization";
 import "./Login.css";
+import { logSafeError } from "../services/liveDataErrors.js";
 
 // Presentation-only refresh of the sign-in screen.
 //
@@ -53,7 +54,7 @@ function mapAuthError(code) {
   if (code === "auth/user-disabled") {
     return "This account is currently disabled. Contact your administrator for assistance.";
   }
-  return "Something went wrong. Please try again.";
+  return "We couldn't sign you in right now. Please try again in a moment.";
 }
 
 function Login() {
@@ -158,7 +159,7 @@ function Login() {
     } catch (err) {
       // Log the CODE only — never the error object, the email, or any profile
       // data, so credentials cannot leak into the console.
-      console.error("Login failed:", err?.code || "unknown");
+      logSafeError("Login failed", err);
       showError(mapAuthError(err?.code));
     } finally {
       submittingRef.current = false;

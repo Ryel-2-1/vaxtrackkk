@@ -10,7 +10,7 @@ import {
 import AdminLayout from "../../components/admin/AdminLayout";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeAllAlerts } from "../../services/alertService";
-import { liveErrorMessage } from "../../services/liveDataErrors";
+import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import KpiCard from "../../components/ui/KpiCard";
 import MedRepPerformance from "./MedRepPerformance";
 import {
@@ -205,13 +205,14 @@ function Analytics() {
     const unsubOrders = subscribeDeliveries(
       (orders) => {
         setAllOrders(orders);
+        setLoadError(""); // a recovered listener clears its failure
         // Stamped where the data arrives, not during render.
         setNowMs(Date.now());
         loaded.orders = true;
         checkDone();
       },
       (error) => {
-        console.error("Analytics orders error:", error);
+        logSafeError("Analytics orders", error);
         setLoadError(liveErrorMessage(error, "order data"));
         // The error banner renders alongside the page, so the ranges still
         // need a reference time even though no orders arrived.
@@ -237,7 +238,7 @@ function Analytics() {
         }
       );
     } catch (e) {
-      console.error("Analytics alerts error:", e);
+      logSafeError("Analytics alerts", e);
       loaded.alerts = true;
       checkDone();
     }

@@ -610,12 +610,15 @@ service cloud.firestore {
         'requeuedAt', 'requeuedByUid',
         'pricingVersion', 'priceCurrency', 'priceIsVatInclusive',
         'subtotalCentavos', 'subtotal', 'pricedAt',
-        // Negotiated pricing (functions/src/negotiatedPricing.js): the Med Rep
-        // agrees each line's price BEFORE placement and the callable records it.
-        // After placement nobody — the Med Rep who negotiated it included — may
-        // restate the standard total, the adjustment or the VAT breakdown.
-        'priceAgreementVersion', 'standardSubtotalCentavos', 'priceAdjustmentCentavos',
-        'priceAdjusted', 'vatSummary',
+        // Negotiated pricing + statutory (SC/PWD) line discounts
+        // (functions/src/negotiatedPricing.js): the Med Rep agrees each line's
+        // price and enters any line discount BEFORE placement; the callable
+        // records them. After placement nobody — the Med Rep included — may
+        // restate the standard total, the negotiated adjustment, the discounts,
+        // the final total or the VAT breakdown.
+        'priceAgreementVersion', 'standardSubtotalCentavos', 'negotiatedAdjustmentTotalCentavos',
+        'priceNegotiated', 'statutoryDiscountTotalCentavos', 'statutoryDiscountApplied',
+        'finalTotalCentavos', 'vatSummary',
         // The callable derives this snapshot from active Doctor, relationship,
         // destination, and Area documents inside the reservation transaction.
         // A client may select ids, but it may never author the resulting facts.
@@ -1662,6 +1665,16 @@ service cloud.firestore {
     // their own adjustment on the order itself; Dispatcher and Rider have no
     // access. No client may create, edit or delete a record.
     match /orderPriceAdjustments/{recordId} {
+      allow get, list: if isAdmin();
+      allow write: if false;
+    }
+    // Statutory-discount audit (SC/PWD and the other invoice categories): one
+    // immutable record per discounted order line, created only by
+    // createOrderWithReservation in the order's own transaction — category,
+    // amount, affected line, the Med Rep's uid, server time and request
+    // reference. Kept apart from the negotiated-price audit above. It holds no
+    // beneficiary identification. Admin may read it; no client may write it.
+    match /orderStatutoryDiscounts/{recordId} {
       allow get, list: if isAdmin();
       allow write: if false;
     }

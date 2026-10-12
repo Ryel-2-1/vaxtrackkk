@@ -59,7 +59,8 @@ test("delivery_failed is visible, labelled, filterable and counted", () => {
   assert.equal(mapOrderStatusLabel("delivery_failed"), "Delivery Failed");
   // It has its own KPI card — it previously had none.
   assert.match(PAGE, /label="Delivery failed"/);
-  assert.match(PAGE, /value=\{failedCount\}/);
+  // Counted — and shown as a dash, never a false zero, while loading or after a failed read.
+  assert.match(PAGE, /value=\{kpiValue\(failedCount, kpiState\)\}/);
   assert.match(PAGE, /const failedCount = countOf\("delivery_failed"\);/);
   assert.match(PAGE, /setStatusFilter\("delivery_failed"\)/);
   // And it is one of the two statuses the review banner covers.

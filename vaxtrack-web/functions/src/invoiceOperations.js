@@ -69,6 +69,13 @@ function buildInvoiceDocument({ orderId, order, base, adjustments, totals, prese
     // Says how this invoice was priced, so a reader never has to infer it from
     // the presence of a field.
     invoicePricingSource: "order-snapshot",
+    // Agreement-model orders: every line amount is the FINAL charged amount
+    // (after any SC/PWD discount, which stays on the order and its audit), the
+    // invoice shows no separate discount, and the lines add up exactly to the
+    // subtotal and the total.
+    ...(base.lineLevel
+      ? { lineAmountBasis: "final_charged", finalTotalCentavos: base.finalTotalCentavos }
+      : {}),
 
     // ---- adjustments: explicitly the admin's, and separate from the base ----
     discountCentavos: adjustments.discountCentavos,
@@ -144,8 +151,9 @@ async function saveInvoiceDraftForPricedOrder({ db, FieldValue, uid, payload, no
     const base = buildInvoiceBaseFromOrder(order);
     const adjustments = validateAdjustments(payload?.adjustments, base.subtotalCentavos, {
       itemizedVat: base.itemizedVat,
-      // A negotiated order already carries its agreed price; no second discount.
-      priceNegotiated: base.priceNegotiated,
+      // An agreement-model order's lines are already final charged amounts;
+      // its invoice carries no discount (0). Null: the Admin's own, as before.
+      recordedDiscountCentavos: base.recordedDiscountCentavos,
     });
     const totals = computeInvoiceTotalsCentavos({
       items: base.items,
@@ -153,6 +161,8 @@ async function saveInvoiceDraftForPricedOrder({ db, FieldValue, uid, payload, no
       adjustments,
       // The ORDER's recorded convention, never the current configuration.
       priceIsVatInclusive: base.priceIsVatInclusive,
+      // Per-line discounts and per-line VAT, exactly as the order recorded them.
+      lineLevel: base.lineLevel,
     });
 
     const document = buildInvoiceDocument({
@@ -260,7 +270,7 @@ async function issueInvoiceForPricedOrder({ db, FieldValue, uid, payload }) {
         vatClassification: invoice.vatClassification,
       },
       base.subtotalCentavos,
-      { itemizedVat: base.itemizedVat, priceNegotiated: base.priceNegotiated }
+      { itemizedVat: base.itemizedVat, recordedDiscountCentavos: base.recordedDiscountCentavos }
     );
     const totals = computeInvoiceTotalsCentavos({
       items: base.items,
@@ -268,6 +278,7 @@ async function issueInvoiceForPricedOrder({ db, FieldValue, uid, payload }) {
       adjustments,
       // The ORDER's recorded convention, never the current configuration.
       priceIsVatInclusive: base.priceIsVatInclusive,
+      lineLevel: base.lineLevel,
     });
     if (
       invoice.grandTotalCentavos !== totals.grandTotalCentavos ||

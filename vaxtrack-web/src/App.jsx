@@ -39,8 +39,6 @@ const Settings = lazy(() => import("./pages/admin/Settings"));
 const Clinics = lazy(() => import("./pages/admin/Clinics"));
 const Invoices = lazy(() => import("./pages/admin/Invoices"));
 const InvoiceEditor = lazy(() => import("./pages/admin/InvoiceEditor"));
-const RegisterClinic = lazy(() => import("./pages/admin/RegisterClinic"));
-const ClinicSuccess = lazy(() => import("./pages/admin/ClinicSuccess"));
 
 const SalesRepShell = lazy(() => import("./pages/salesRep/SalesRepShell"));
 const SalesRepDashboard = lazy(() => import("./pages/salesRep/SalesRepDashboard"));
@@ -100,8 +98,11 @@ function App() {
               <Route path="/admin/clinics" element={<Clinics />} />
               <Route path="/admin/invoices" element={<Invoices />} />
               <Route path="/admin/invoices/:orderId" element={<InvoiceEditor />} />
-              <Route path="/admin/register-clinic" element={<RegisterClinic />} />
-              <Route path="/admin/clinic-success" element={<ClinicSuccess />} />
+              {/* The old standalone Register Clinic page saved nothing and then
+                  showed a "registered" success page. Clinics are registered in
+                  the Clinics page's Register dialog; both old paths go there. */}
+              <Route path="/admin/register-clinic" element={<Navigate to="/admin/clinics" replace />} />
+              <Route path="/admin/clinic-success" element={<Navigate to="/admin/clinics" replace />} />
             </Route>
           </Route>
 
@@ -114,8 +115,8 @@ function App() {
           <Route path="/analytics" element={<Navigate to="/admin/analytics" replace />} />
           <Route path="/settings" element={<Navigate to="/admin/settings" replace />} />
           <Route path="/clinics" element={<Navigate to="/admin/clinics" replace />} />
-          <Route path="/register-clinic" element={<Navigate to="/admin/register-clinic" replace />} />
-          <Route path="/clinic-success" element={<Navigate to="/admin/clinic-success" replace />} />
+          <Route path="/register-clinic" element={<Navigate to="/admin/clinics" replace />} />
+          <Route path="/clinic-success" element={<Navigate to="/admin/clinics" replace />} />
 
           <Route element={<SalesRepRoute />}>
             {/* Persistent shell: the sidebar + topbar mount once and stay put;

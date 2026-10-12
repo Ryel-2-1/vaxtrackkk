@@ -205,7 +205,9 @@ test("history is read-only on the client and scoped to the Med Rep", () => {
   assert.match(view, /Load \$\{HISTORY_PAGE_SIZE\} older orders/);
   // Loading, error, empty and permission-denied states.
   assert.match(view, /Loading order history…/);
-  assert.match(view, /You do not have permission to view/);
+  // Refused reads are their own state, worded by the shared mapper (never "no orders").
+  assert.match(view, /return liveErrorMessage\(err, what\);/);
+  assert.match(read("src", "services", "liveDataErrors.js"), /You do not have permission to view \$\{what\}/);
   assert.match(view, /You have not placed any orders yet\./);
   assert.match(view, /No orders match these filters\./);
 });

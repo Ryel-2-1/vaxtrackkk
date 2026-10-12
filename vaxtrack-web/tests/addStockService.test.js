@@ -91,6 +91,20 @@ const stockBatchDatesFile = join(tmp, "stockBatchDates.mjs");
 writeFileSync(stockBatchDatesFile, readFileSync(join(here, "..", "src", "services", "stockBatchDates.js"), "utf8"));
 const vatClassificationFile = join(tmp, "vatClassification.mjs");
 writeFileSync(vatClassificationFile, readFileSync(join(here, "..", "src", "services", "vatClassification.js"), "utf8"));
+// The pure `./userMessageError.js` sibling (the trusted user-message error
+// type) is copied verbatim; its `.js` specifier resolves next to the service.
+writeFileSync(join(tmp, "userMessageError.js"), readFileSync(join(here, "..", "src", "services", "userMessageError.js"), "utf8"));
+// …and the pure `./liveDataErrors.js` (safe logging + message mapping).
+writeFileSync(join(tmp, "liveDataErrors.js"), readFileSync(join(here, "..", "src", "services", "liveDataErrors.js"), "utf8"));
+// …and the recovering-listener wrapper, its Firestore import pointed at the stand-in.
+writeFileSync(join(tmp, "liveConnection.js"), readFileSync(join(here, "..", "src", "services", "liveConnection.js"), "utf8"));
+writeFileSync(
+  join(tmp, "liveSnapshot.js"),
+  readFileSync(join(here, "..", "src", "services", "liveSnapshot.js"), "utf8").replace(
+    '"firebase/firestore"',
+    JSON.stringify(pathToFileURL(join(tmp, "firestore.mjs")).href)
+  )
+);
 // The pure `./pricingConfig` sibling (the VAT convention) is copied verbatim.
 const pricingConfigFile = join(tmp, "pricingConfig.mjs");
 writeFileSync(pricingConfigFile, readFileSync(join(here, "..", "src", "services", "pricingConfig.js"), "utf8"));

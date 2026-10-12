@@ -141,7 +141,11 @@ test("mapRegistrationError maps the codes that matter", () => {
   assert.match(mapRegistrationError("auth/weak-password"), /at least/i);
   assert.match(mapRegistrationError("auth/network-request-failed"), /connect|connection/i);
   assert.match(mapRegistrationError("auth/too-many-requests"), /too many/i);
-  assert.match(mapRegistrationError("something-else"), /went wrong/i);
+  // Specific about what failed and that nothing was saved — never vague.
+  assert.equal(
+    mapRegistrationError("something-else"),
+    "We couldn't submit your application. Nothing was saved — please try again."
+  );
 });
 
 // ============================================================ page source shape

@@ -1,13 +1,14 @@
 import {
   collection,
   doc,
-  onSnapshot,
   orderBy,
   query,
   updateDoc,
   where,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { logSafeError } from "./liveDataErrors.js";
+import { listenLive } from "./liveSnapshot.js";
 
 // Route-deviation incidents are created by the RIDER app, not here. The Flutter
 // `route_deviation_alert_service.dart` owns that write: it uses a deterministic
@@ -29,7 +30,7 @@ const ALERTS_COLLECTION = "alerts";
 // leaving its loading state — stayed on the spinner for good.
 function reportAlertsError(onError) {
   return (error) => {
-    console.error("Alerts subscription error:", error?.code || error);
+    logSafeError("Alerts subscription", error);
     if (onError) onError(error);
   };
 }
@@ -40,7 +41,7 @@ export function subscribeActiveAlerts(callback, onError) {
     where("status", "==", "active")
   );
 
-  return onSnapshot(q, (snapshot) => {
+  return listenLive(q, (snapshot) => {
     // Document id LAST so it always wins — see subscribeAllAlerts below.
     const alerts = snapshot.docs.map((docItem) => ({
       ...docItem.data(),
@@ -57,7 +58,7 @@ export function subscribeAllAlerts(callback, onError) {
     orderBy("createdAt", "desc")
   );
 
-  return onSnapshot(q, (snapshot) => {
+  return listenLive(q, (snapshot) => {
     // Document id LAST so it always wins.
     //
     // This was `{ id: d.id, ...d.data() }`, which let a stored `id` field

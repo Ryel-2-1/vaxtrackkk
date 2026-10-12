@@ -25,3 +25,35 @@ export function reconcileLiveForm({ dirty, busy, baselineKey, serverKey }) {
   if (!dirty) return "seed";
   return "stale";
 }
+
+// ------------------------------------------------------------ field level
+//
+// For small edit forms whose fields mirror stored values one-to-one (a
+// profile, a clinic location, a batch price, a configuration). `baseline` is
+// what the server held when the user started editing; `server` is what it
+// holds now; `draft` is what the user typed.
+
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+/** Fields the user has changed from the baseline. */
+export function editedFields(draft, baseline) {
+  const keys = new Set([...Object.keys(baseline || {}), ...Object.keys(draft || {})]);
+  return [...keys].filter((k) => !same(draft?.[k], baseline?.[k]));
+}
+
+/** Fields that changed on the server since editing began. */
+export function staleFields(baseline, server) {
+  if (!server) return [];
+  const keys = new Set([...Object.keys(baseline || {}), ...Object.keys(server)]);
+  return [...keys].filter((k) => !same(baseline?.[k], server[k]));
+}
+
+/**
+ * The draft with the latest server value loaded into the stale fields ONLY —
+ * every other field the user typed is kept.
+ */
+export function applyLatest(draft, server, fields) {
+  const next = { ...draft };
+  for (const f of fields) next[f] = server[f];
+  return next;
+}

@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useLiveDraft } from "../useLiveDraft";
+import StaleEditNotice from "../ui/StaleEditNotice";
 import { sendPasswordResetEmail } from "firebase/auth";
 import {
   AlertTriangle,
@@ -14,7 +16,9 @@ import {
 import { auth } from "../../firebase";
 import { updateUserProfile } from "../../services/userService";
 import {
+  PROFILE_FIELD_LABELS,
   buildProfileUpdate,
+  editableProfileFields,
   hasProfileChanges,
   readProfile,
   validateProfileEdit,
@@ -22,6 +26,8 @@ import {
 import { requestPasswordReset, resendWaitMs } from "../../services/passwordReset";
 import useOwnProfile from "./useOwnProfile";
 import "./MyProfile.css";
+import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
+import { focusFirstInvalid } from "../../services/formValidation";
 
 /**
  * "My profile" — one page for every web role (Admin, Sales Rep, Dispatcher).
@@ -34,10 +40,14 @@ import "./MyProfile.css";
  */
 export default function MyProfile() {
   const { uid, profile: raw, loading, error } = useOwnProfile();
-  // null = show the stored values; an object = the user's unsaved edits.
-  const [draft, setDraft] = useState(null);
+  // The editable fields, following the live profile while untouched; once
+  // edited, a change made in another session is flagged instead of applied.
+  const liveFields = raw ? editableProfileFields(raw) : null;
+  const live = useLiveDraft(liveFields);
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
+  // One save at a time, however fast Save is pressed.
+  const savingRef = useRef(false);
   const [notice, setNotice] = useState(null);
   const [resetSending, setResetSending] = useState(false);
   const [resetSentAt, setResetSentAt] = useState(0);
@@ -54,21 +64,20 @@ export default function MyProfile() {
     return (
       <div className="my-profile-state">
         <AlertTriangle size={28} />
-        <p>
-          {error?.code === "permission-denied"
-            ? "You do not have permission to view your profile."
-            : "Your profile could not be loaded. Please try again later."}
-        </p>
+        <p role="alert">{error ? liveErrorMessage(error, "your profile") : "Your profile could not be loaded. Please try again later."}</p>
       </div>
     );
   }
 
   const stored = readProfile(raw, { authEmail: auth.currentUser?.email ?? "" });
-  const values = draft ?? { name: stored.name, phone: stored.phone };
+  const values = live.draft;
   const changed = hasProfileChanges(raw, values);
+  // Saving stale values would silently undo a change made elsewhere.
+  const staleLabels = live.stale.map((f) => PROFILE_FIELD_LABELS[f] ?? f);
+  const blockedByStale = staleLabels.length > 0;
 
   const edit = (field) => (event) => {
-    setDraft({ ...values, [field]: event.target.value });
+    live.setField(field, event.target.value);
     setErrors((prev) => ({ ...prev, [field]: undefined }));
     setNotice(null);
   };
@@ -77,24 +86,28 @@ export default function MyProfile() {
     const check = validateProfileEdit(values);
     if (!check.ok) {
       setErrors(check.errors);
+      // Focus the first field with a problem; the typed values stay.
+      focusFirstInvalid(["name", "phone"], check.errors, (f) => document.getElementById(`my-profile-${f}`));
       return;
     }
+    if (savingRef.current || blockedByStale) return;
+    savingRef.current = true;
     setSaving(true);
     setNotice(null);
     try {
       await updateUserProfile(uid, buildProfileUpdate(raw, check.value));
-      // The live subscription now carries the saved values.
-      setDraft(null);
+      // The live subscription now carries the saved values; they are the new
+      // baseline, so their echo is not mistaken for a change made elsewhere.
+      live.markSaved({ name: check.value.name, phone: check.value.phone });
       setNotice({ tone: "success", text: "Your profile was updated." });
     } catch (err) {
+      logSafeError("Save profile", err);
       setNotice({
         tone: "error",
-        text:
-          err?.code === "permission-denied"
-            ? "You do not have permission to change these details."
-            : "Your profile could not be saved. Please try again.",
+        text: friendlyErrorMessage(err, "Your profile could not be saved. Your changes are still here — please try again."),
       });
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -103,7 +116,7 @@ export default function MyProfile() {
     const wait = resendWaitMs({ now: Date.now(), lastSentAt: resetSentAt });
     if (wait > 0) {
       setNotice({
-        tone: "error",
+        tone: "warning",
         text: `Please wait ${Math.ceil(wait / 1000)} seconds before requesting another email.`,
       });
       return;
@@ -136,8 +149,8 @@ export default function MyProfile() {
       </header>
 
       {notice && (
-        <div className={`my-profile-notice ${notice.tone}`} role="status">
-          {notice.tone === "success" ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+        <div className={`my-profile-notice ${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}>
+          {notice.tone === "success" ? <CheckCircle2 size={16} aria-hidden="true" /> : <AlertTriangle size={16} aria-hidden="true" />}
           <span>{notice.text}</span>
         </div>
       )}
@@ -158,8 +171,9 @@ export default function MyProfile() {
               value={values.name}
               onChange={edit("name")}
               aria-invalid={errors.name ? "true" : undefined}
+              aria-describedby={errors.name ? "my-profile-name-error" : undefined}
             />
-            {errors.name && <small className="my-profile-error">{errors.name}</small>}
+            {errors.name && <small id="my-profile-name-error" className="my-profile-error">{errors.name}</small>}
           </label>
 
           <label className="my-profile-field" htmlFor="my-profile-phone">
@@ -175,15 +189,24 @@ export default function MyProfile() {
               value={values.phone}
               onChange={edit("phone")}
               aria-invalid={errors.phone ? "true" : undefined}
+              aria-describedby={errors.phone ? "my-profile-phone-error" : undefined}
             />
-            {errors.phone && <small className="my-profile-error">{errors.phone}</small>}
+            {errors.phone && <small id="my-profile-phone-error" className="my-profile-error">{errors.phone}</small>}
           </label>
+
+          <StaleEditNotice
+            labels={staleLabels}
+            what="your profile"
+            disabled={saving}
+            onLoadLatest={live.loadLatest}
+            onKeepMine={live.keepMine}
+          />
 
           <button
             type="button"
             className="my-profile-save"
             onClick={handleSave}
-            disabled={saving || !changed}
+            disabled={saving || !changed || blockedByStale}
           >
             {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
             {saving ? "Saving…" : "Save changes"}

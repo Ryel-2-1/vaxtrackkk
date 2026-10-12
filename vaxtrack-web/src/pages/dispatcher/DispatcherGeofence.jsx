@@ -17,6 +17,7 @@ import {
   User,
 } from "lucide-react";
 import { subscribeDeliveries } from "../../services/deliveryService";
+import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { saveOrderRoute, saveRiderTripRoute } from "../../services/orderService";
 import {
   decodePolyline,
@@ -310,6 +311,9 @@ function DispatcherGeofence() {
   // Multi-stop trip optimization, scoped to the rider it belongs to.
   const [tripBusyRider, setTripBusyRider] = useState(null);
   const [tripError, setTripError] = useState(null); // { riderId, message } | null
+  // Synchronous guards: one routing request per click, however fast the clicks.
+  const routeInFlight = useRef(false);
+  const tripInFlight = useRef(false);
 
   useEffect(() => {
     const unsub = subscribeDeliveries(
@@ -319,11 +323,7 @@ function DispatcherGeofence() {
         setError("");
       },
       (err) => {
-        if (err?.code === "permission-denied") {
-          setError("You do not have permission to view live monitoring.");
-        } else {
-          setError("Unable to load live monitoring data.");
-        }
+        setError(liveErrorMessage(err, "live monitoring"));
         setLoading(false);
       }
     );
@@ -416,6 +416,8 @@ function DispatcherGeofence() {
     const riderLL = getLatLng(selected.lastLocation);
     const riderId = selected.assignedRiderId;
     if (!riderLL || !riderId || riderStops.length < 2) return;
+    if (tripInFlight.current) return;
+    tripInFlight.current = true;
     setTripBusyRider(riderId);
     setTripError(null);
     try {
@@ -432,14 +434,15 @@ function DispatcherGeofence() {
       // subscribeDeliveries refreshes the group's orders with the trip fields,
       // so the numbered markers + trip line + stop list redraw automatically.
     } catch (err) {
+      // RouteServiceError carries its own safe sentence; a failed save of
+      // the optimized trip goes through the shared mapper.
+      logSafeError("Optimize trip", err);
       setTripError({
         riderId,
-        message:
-          err?.message === "MISSING_KEY"
-            ? "Route optimization unavailable: API key not configured."
-            : err?.message || "Could not optimize the route.",
+        message: friendlyErrorMessage(err, "The trip could not be optimized. Nothing was saved — please try again."),
       });
     } finally {
+      tripInFlight.current = false;
       setTripBusyRider((cur) => (cur === riderId ? null : cur));
     }
   }
@@ -450,6 +453,8 @@ function DispatcherGeofence() {
     const clinicLL = getClinicLatLng(selected);
     if (!riderLL || !clinicLL) return; // button is disabled in this case anyway
     const orderId = selected.id;
+    if (routeInFlight.current) return;
+    routeInFlight.current = true;
     setBusyOrderId(orderId);
     setRouteError(null);
     try {
@@ -459,14 +464,13 @@ function DispatcherGeofence() {
       // The subscribeDeliveries snapshot refreshes `selected` with the new
       // route fields, redrawing the polyline + metrics automatically.
     } catch (err) {
+      logSafeError("Generate route", err);
       setRouteError({
         orderId,
-        message:
-          err?.message === "MISSING_KEY"
-            ? "Route ETA unavailable: API key not configured."
-            : err?.message || "Could not generate the route.",
+        message: friendlyErrorMessage(err, "The route could not be generated. Nothing was saved — please try again."),
       });
     } finally {
+      routeInFlight.current = false;
       setBusyOrderId((cur) => (cur === orderId ? null : cur));
     }
   }
@@ -485,8 +489,8 @@ function DispatcherGeofence() {
   if (error) {
     return (
       <>
-        <div className="dispatcher-loading-state">
-          <AlertTriangle size={32} />
+        <div className="dispatcher-loading-state" role="alert">
+          <AlertTriangle size={32} aria-hidden="true" />
           <p>{error}</p>
         </div>
       </>
@@ -608,7 +612,7 @@ function DispatcherGeofence() {
 
                     {!ROUTE_CONFIGURED ? (
                       <p className="geo3-live-route-missing">
-                        Route ETA unavailable: API key not configured.
+                        Route and ETA planning isn't set up for this site yet. Contact an administrator.
                       </p>
                     ) : (
                       <>
@@ -638,7 +642,7 @@ function DispatcherGeofence() {
                           </p>
                         )}
                         {activeRouteError && (
-                          <p className="geo3-live-route-error">{activeRouteError}</p>
+                          <p className="geo3-live-route-error" role="alert">{activeRouteError}</p>
                         )}
                       </>
                     )}
@@ -697,7 +701,7 @@ function DispatcherGeofence() {
 
                   {!ROUTE_CONFIGURED ? (
                     <p className="geo3-live-route-missing">
-                      Route optimization unavailable: API key not configured.
+                      Trip optimization isn't set up for this site yet. Contact an administrator.
                     </p>
                   ) : (
                     <>
@@ -727,7 +731,7 @@ function DispatcherGeofence() {
                         </p>
                       )}
                       {activeTripError && (
-                        <p className="geo3-live-route-error">{activeTripError}</p>
+                        <p className="geo3-live-route-error" role="alert">{activeTripError}</p>
                       )}
                     </>
                   )}

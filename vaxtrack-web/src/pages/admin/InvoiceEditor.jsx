@@ -23,7 +23,8 @@ import {
   updateInvoiceDraft,
 } from "../../services/invoiceService";
 import { formSignature, reconcileLiveForm } from "../../services/liveFormSync";
-import { friendlyErrorMessage, liveErrorMessage } from "../../services/liveDataErrors";
+import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
+import { UserMessageError } from "../../services/userMessageError";
 import {
   adjustmentsFromForm,
   buildInitialForm,
@@ -33,9 +34,12 @@ import {
   ITEMIZED_VAT,
   itemVatLabelForLine,
   isServerPricedOrder,
-  NEGOTIATED_NO_DISCOUNT_NOTE,
+  isLineDiscountOrder,
+  invoiceLineAmount,
+  isFinalChargedLine,
+  NON_EXACT_UNIT_PRICE_NOTE,
+  LINE_DISCOUNT_NOTE,
   nextKey,
-  orderHasNegotiatedPrice,
   normalizeStoredTotals,
   presentationFromForm,
   serializeInvoiceDoc,
@@ -48,6 +52,7 @@ import {
   saveInvoiceDraftForPricedOrder,
 } from "../../services/invoiceCallables";
 import { parseAdjustmentPesosToCentavos } from "../../services/money";
+import AppConfirmDialog from "../../components/ui/ConfirmDialog";
 import "./Invoices.css";
 
 function formatCurrency(value) {
@@ -62,7 +67,7 @@ function formatCurrency(value) {
 // top for a legacy VAT-exclusive record (single source of truth in the service
 // so the editor and CSV export agree). Display only for a priced order: the
 // server computes and stores the authoritative figures.
-function computeTotals(form, priceIsVatInclusive) {
+function computeTotals(form, priceIsVatInclusive, lineLevel = false) {
   return computeInvoiceTotals({
     items: form.items,
     discount: form.discount,
@@ -70,6 +75,8 @@ function computeTotals(form, priceIsVatInclusive) {
     withholdingTax: form.withholdingTax,
     vatClassification: form.vatClassification,
     priceIsVatInclusive,
+    // Agreement-model order: per-line SC/PWD discounts and per-line VAT.
+    lineLevel,
   });
 }
 
@@ -89,6 +96,8 @@ function InvoiceEditor() {
   const [issuing, setIssuing] = useState(false);
   const [preview, setPreview] = useState(false);
   const [confirmIssue, setConfirmIssue] = useState(false);
+  // "Leave without saving?" — an application dialog, never window.confirm.
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const [message, setMessage] = useState(null); // { type, text }
   const [reloadKey, setReloadKey] = useState(0);
   // Newer server data arrived while this form had unsaved edits. The edits are
@@ -129,7 +138,18 @@ function InvoiceEditor() {
   const baseLocked = readOnly || serverPriced;
   // No double discount: a negotiated order is invoiced at its agreed prices,
   // and the server refuses an invoice discount on top (discount-not-allowed-negotiated).
-  const discountLocked = readOnly || (serverPriced && orderHasNegotiatedPrice(order));
+  // Agreement-model orders recorded their SC/PWD discounts PER LINE at
+  // placement. Their invoice follows the client's rule: every line shows its
+  // FINAL charged amount and there is no separate discount line (the server
+  // refuses any invoice discount: discount-recorded-per-line). A negotiated
+  // price on its own locks nothing.
+  const lineLevel = serverPriced && isLineDiscountOrder(order);
+  const discountLocked = readOnly || lineLevel;
+  // Lines printed at their final charged amounts: a live agreement-model
+  // draft, or an invoice stored that way.
+  const finalChargedAmounts = lineLevel || invoice?.lineAmountBasis === "final_charged";
+  const hasNonExactUnitPrice =
+    finalChargedAmounts && (form?.items || []).some((it) => isFinalChargedLine(it) && it.unitPriceCentavos == null);
   // The recorded convention this invoice is computed and labelled under —
   // never the current configuration applied to an existing record.
   const priceConvention = invoicePriceConvention({ order, invoice });
@@ -281,12 +301,12 @@ function InvoiceEditor() {
   // vatAmount — so nothing about an already-issued invoice can shift.
   const totals = useMemo(() => {
     if (!form || priceConvention === null) return null;
-    const live = computeTotals(form, priceConvention);
+    const live = computeTotals(form, priceConvention, lineLevel);
     if (readOnly && invoice && Number.isFinite(Number(invoice.grandTotal))) {
       return normalizeStoredTotals(invoice, live);
     }
     return live;
-  }, [form, readOnly, invoice, priceConvention]);
+  }, [form, readOnly, invoice, priceConvention, lineLevel]);
 
   const setField = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -350,7 +370,7 @@ function InvoiceEditor() {
         await saveInvoiceDraftForPricedOrder({
           orderId,
           presentation: presentationFromForm(form),
-          adjustments: adjustmentsFromForm(form, parseAdjustmentPesosToCentavos),
+          adjustments: adjustmentsFromForm(form, parseAdjustmentPesosToCentavos, { recordedDiscount: lineLevel }),
         });
       } else if (invoice?.id) {
         await updateInvoiceDraft(invoice.id, buildInvoiceData(), admin());
@@ -367,7 +387,7 @@ function InvoiceEditor() {
         type: "error",
         text: serverPriced
           ? messageForInvoiceError(err)
-          : friendlyErrorMessage(err, "Failed to save draft."),
+          : friendlyErrorMessage(err, "The draft could not be saved. Your changes are still here — please try again."),
       });
     } finally {
       busyRef.current = false;
@@ -398,11 +418,13 @@ function InvoiceEditor() {
     setConfirmIssue(true);
   };
 
+  // Runs from the confirmation dialog, which stays open until the issue is
+  // confirmed by the server: a failure is shown INSIDE it (it rethrows) and
+  // the Admin can retry or cancel. Success closes it.
   const handleIssue = async () => {
     if (issuing || busyRef.current) return;
     busyRef.current = true;
     setIssuing(true);
-    setConfirmIssue(false);
     setMessage(null);
     const invoiceBefore = liveRef.current.invoice;
     try {
@@ -415,14 +437,16 @@ function InvoiceEditor() {
         await issueInvoice(invoice.id, admin());
       }
       settleAfterOwnWrite(invoiceBefore);
+      setConfirmIssue(false);
       setMessage({ type: "success", text: "Invoice issued." });
     } catch (err) {
-      setMessage({
-        type: "error",
-        text: serverPriced
+      logSafeError("Issue invoice", err);
+      throw new UserMessageError(
+        serverPriced
           ? messageForInvoiceError(err)
-          : friendlyErrorMessage(err, "Failed to issue invoice."),
-      });
+          : friendlyErrorMessage(err, "The invoice could not be issued. It is still a draft — please try again."),
+        { code: err?.code, cause: err }
+      );
     } finally {
       busyRef.current = false;
       setIssuing(false);
@@ -432,7 +456,10 @@ function InvoiceEditor() {
   const handlePrint = () => window.print();
 
   const handleBack = () => {
-    if (dirty && !window.confirm("You have unsaved changes. Leave without saving?")) return;
+    if (dirty) {
+      setConfirmLeave(true);
+      return;
+    }
     navigate("/admin/invoices");
   };
 
@@ -542,10 +569,13 @@ function InvoiceEditor() {
         </div>
 
         {message && (
-          <div className={`inv-toast inv-no-print ${message.type === "error" ? "error" : ""}`}>
-            {message.type === "error" ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
+          <div
+            className={`inv-toast inv-no-print ${message.type === "error" ? "error" : ""}`}
+            role={message.type === "error" ? "alert" : "status"}
+          >
+            {message.type === "error" ? <AlertTriangle size={16} aria-hidden="true" /> : <CheckCircle2 size={16} aria-hidden="true" />}
             <span>{message.text}</span>
-            <button type="button" aria-label="Dismiss" onClick={() => setMessage(null)}>
+            <button type="button" aria-label="Dismiss message" onClick={() => setMessage(null)}>
               <X size={14} />
             </button>
           </div>
@@ -568,7 +598,7 @@ function InvoiceEditor() {
         {discountLocked && !readOnly && (
           <div className="inv-priced-banner inv-no-print" role="note">
             <CheckCircle2 size={16} />
-            <span>{NEGOTIATED_NO_DISCOUNT_NOTE}</span>
+            <span>{LINE_DISCOUNT_NOTE}</span>
           </div>
         )}
 
@@ -822,8 +852,8 @@ function InvoiceEditor() {
                   Item Description / Nature of Service
                 </th>
                 <th>Quantity</th>
-                <th>Unit Cost / Price</th>
-                <th>Amount</th>
+                <th>{finalChargedAmounts ? "Unit Price (Net)" : "Unit Cost / Price"}</th>
+                <th>{finalChargedAmounts ? "Amount Charged (Net)" : "Amount"}</th>
                 {!readOnly && (
                   <th className="inv-no-print sit-rm-h" aria-label="Remove" />
                 )}
@@ -871,17 +901,21 @@ function InvoiceEditor() {
                     />
                   </td>
                   <td className="sit-price">
-                    <NumberInput
-                      value={it.unitPrice}
-                      onChange={(v) => setItem(it.key, "unitPrice", v)}
-                      readOnly={baseLocked}
-                      aria-label={`Item ${i + 1} unit price`}
-                    />
+                    {isFinalChargedLine(it) && it.unitPriceCentavos == null ? (
+                      // Never a rounded figure: the charged amount does not
+                      // divide exactly by the quantity.
+                      <span aria-label={`Item ${i + 1} unit price not shown`}>—</span>
+                    ) : (
+                      <NumberInput
+                        value={it.unitPrice}
+                        onChange={(v) => setItem(it.key, "unitPrice", v)}
+                        readOnly={baseLocked}
+                        aria-label={`Item ${i + 1} unit price`}
+                      />
+                    )}
                   </td>
                   <td className="sit-amt">
-                    {formatCurrency(
-                      (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0)
-                    )}
+                    {formatCurrency(invoiceLineAmount(it))}
                   </td>
                   {!baseLocked && (
                     <td className="inv-no-print">
@@ -908,6 +942,10 @@ function InvoiceEditor() {
               ))}
             </tbody>
           </table>
+
+          {hasNonExactUnitPrice && (
+            <p className="sit-net-note">{NON_EXACT_UNIT_PRICE_NOTE}</p>
+          )}
 
           {!baseLocked && (
             <button
@@ -983,15 +1021,20 @@ function InvoiceEditor() {
                 <span>Amount: Net of VAT</span>
                 <b>{formatCurrency(totals.net)}</b>
               </div>
-              <div className="sit-tt-row sit-tt-input">
-                <span>Less: Discount [SC/PWD/NAAC/MOV/SP]</span>
-                <NumberInput
-                  value={form.discount}
-                  onChange={(v) => setField("discount", v)}
-                  readOnly={discountLocked}
-                  aria-label={discountLocked && !readOnly ? `Discount amount — ${NEGOTIATED_NO_DISCOUNT_NOTE}` : "Discount amount"}
-                />
-              </div>
+              {/* Agreement-model invoices: no separate discount line — the
+                  lines are already the final charged amounts. Every other
+                  invoice keeps its discount row, labels unchanged. */}
+              {!finalChargedAmounts && (
+                <div className="sit-tt-row sit-tt-input">
+                  <span>Less: Discount [SC/PWD/NAAC/MOV/SP]</span>
+                  <NumberInput
+                    value={form.discount}
+                    onChange={(v) => setField("discount", v)}
+                    readOnly={discountLocked}
+                    aria-label="Discount amount"
+                  />
+                </div>
+              )}
               <div className="sit-tt-row">
                 <span>Add: VAT</span>
                 <b>{formatCurrency(totals.vatAmount)}</b>
@@ -1135,14 +1178,33 @@ function InvoiceEditor() {
       </main>
 
       {confirmIssue && (
-        <ConfirmDialog
+        <AppConfirmDialog
           title="Mark invoice as issued?"
-          body={`Invoice ${invoice?.invoiceNumber || ""} will be locked and can no longer be edited. Total due: ${formatCurrency(
+          target={`Invoice ${invoice?.invoiceNumber || "draft"} · ${order?.orderNumber || orderId} · Total due ${formatCurrency(
             totals.grandTotal
-          )}.`}
+          )}`}
+          consequence="It will be locked and can no longer be edited."
           confirmLabel="Confirm & Issue"
+          busyLabel="Issuing…"
+          tone="primary"
+          failureMessage="The invoice could not be issued. It is still a draft — please try again."
           onCancel={() => setConfirmIssue(false)}
           onConfirm={handleIssue}
+        />
+      )}
+
+      {confirmLeave && (
+        <AppConfirmDialog
+          title="Leave without saving?"
+          target={`Invoice ${invoice?.invoiceNumber || "draft"} for order ${order?.orderNumber || orderId}`}
+          consequence="Your unsaved changes to this invoice will be lost. The last saved draft is kept."
+          confirmLabel="Leave without saving"
+          cancelLabel="Keep editing"
+          onCancel={() => setConfirmLeave(false)}
+          onConfirm={() => {
+            setConfirmLeave(false);
+            navigate("/admin/invoices");
+          }}
         />
       )}
     </>
@@ -1192,39 +1254,6 @@ function TextArea({ value, onChange, readOnly, rows = 2, className = "", ...rest
       disabled={readOnly}
       {...rest}
     />
-  );
-}
-
-function ConfirmDialog({ title, body, confirmLabel, onCancel, onConfirm }) {
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
-
-  return (
-    <div className="inv-dialog-overlay inv-no-print" onClick={onCancel}>
-      <div
-        className="inv-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="inv-dialog-title"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 id="inv-dialog-title">{title}</h2>
-        <p>{body}</p>
-        <div className="inv-dialog-actions">
-          <button type="button" className="inv-btn inv-btn-outline" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="inv-btn inv-btn-primary" onClick={onConfirm} autoFocus>
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 

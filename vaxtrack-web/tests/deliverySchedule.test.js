@@ -261,7 +261,8 @@ test("the calendar has loading, error and empty states, and keyboard-operable co
   const page = code("src/components/schedule/DeliveryCalendar.jsx");
   assert.match(page, /<div className="dcal-state" role="status">[\s\S]*?Loading delivery calendar…/);
   assert.match(page, /<div className="dcal-state" role="alert">[\s\S]*?Could not load the delivery calendar/);
-  assert.match(page, /You do not have permission to view the delivery calendar\./);
+  // A refused read is worded by the shared mapper ("You do not have permission to view the delivery calendar. …").
+  assert.match(page, /setError\(liveErrorMessage\(err, "the delivery calendar"\)\)/);
   assert.match(page, /<strong>No orders yet<\/strong>/);
   assert.match(page, /<strong>Nothing scheduled<\/strong>/);
   assert.match(page, /No order on this day matches the current filters\./);

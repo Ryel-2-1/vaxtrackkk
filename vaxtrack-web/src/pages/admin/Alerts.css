@@ -1013,3 +1013,18 @@
   color: var(--danger-text);
   font-size: 13px;
 }
+
+
+/* Alert details: actions that are not built yet are visibly disabled, and
+   this note (their aria-describedby) says why. */
+.alerts-light-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.alerts-unavailable-note {
+  margin: 10px 0 0;
+  color: var(--gray-600);
+  font-size: 13px;
+  line-height: 1.45;
+}

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { friendlyErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { getReservationProvenance } from "../../services/inventoryCallables";
 import "./ReservationProvenance.css";
 
@@ -21,10 +22,11 @@ function ReservationProvenance({ inventoryId }) {
       const data = await getReservationProvenance(inventoryId);
       setState({ status: "ready", data, error: "" });
     } catch (error) {
+      logSafeError("Reservation provenance", error);
       setState({
         status: "error",
         data: null,
-        error: error?.message || "Reservation details could not be loaded.",
+        error: friendlyErrorMessage(error, "Reservation details could not be loaded. Please try again."),
       });
     }
   };

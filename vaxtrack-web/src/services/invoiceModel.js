@@ -12,6 +12,7 @@ import {
   readPriceConvention,
   splitVatInclusiveCentavos,
 } from "./pricingConfig.js";
+import { UserMessageError } from "./userMessageError.js";
 
 export const COMPANY_NAME = "3MGS PHARMA INC.";
 
@@ -105,6 +106,9 @@ function toCentavos(pesos) {
 }
 
 function lineCentavos(it) {
+  // A final-charged line's amount is recorded, not derived: its unit price may
+  // be absent when the amount does not divide exactly by the quantity.
+  if (isFinalChargedLine(it)) return it.lineTotalCentavos;
   const q = Number(it.quantity) || 0;
   if (Number.isInteger(it.unitPriceCentavos)) return q * it.unitPriceCentavos;
   return Math.round(q * (Number(it.unitPrice) || 0) * 100);
@@ -229,6 +233,60 @@ function itemizedTotals({ items, discount, otherCharges, withholdingTax }) {
 }
 
 /**
+ * Agreement-model order: VAT is extracted from each line's FINAL charged total
+ * (12/112, half up, per line) — nothing is allocated pro-rata. Invoice lines
+ * are already final (see finalChargedLine), so there is no discount; a line
+ * that still carries a statutory discount has it taken off that line only.
+ * Mirrors the lineLevel path of computeInvoiceTotalsCentavos in
+ * functions/src/invoicePricing.js; integer centavos throughout.
+ */
+function lineLevelTotals({ items, otherCharges, withholdingTax }) {
+  let subtotalC = 0;
+  let discountC = 0;
+  let vatableSalesC = 0;
+  let vatC = 0;
+  let exemptSalesC = 0;
+  let zeroSalesC = 0;
+  const lines = [];
+  for (const it of items) {
+    const gross = lineCentavos(it);
+    const d = Number.isInteger(it.statutoryDiscountCentavos) ? it.statutoryDiscountCentavos : 0;
+    const final = Math.max(0, gross - d);
+    subtotalC += gross;
+    discountC += d;
+    lines.push(gross / 100);
+    const cls = itemVatClassification(it);
+    if (cls === "vatable") {
+      const split = splitVatInclusiveCentavos(final);
+      vatC += split.vatCentavos;
+      vatableSalesC += split.netCentavos;
+    } else if (cls === "zero_rated") zeroSalesC += final;
+    else exemptSalesC += final;
+  }
+  const netC = vatableSalesC + exemptSalesC + zeroSalesC;
+  const otherC = toCentavos(otherCharges);
+  const whtC = toCentavos(withholdingTax);
+  const grandC = netC + vatC + otherC;
+  return {
+    lines,
+    subtotal: subtotalC / 100,
+    discount: discountC / 100,
+    otherCharges: otherC / 100,
+    withholdingTax: whtC / 100,
+    net: netC / 100,
+    vatClassification: ITEMIZED_VAT,
+    vatRate: vatC > 0 || vatableSalesC > 0 ? VAT_STANDARD_RATE : 0,
+    vatableSales: vatableSalesC / 100,
+    vatExemptSales: exemptSalesC / 100,
+    zeroRatedSales: zeroSalesC / 100,
+    vatAmount: vatC / 100,
+    grandTotal: grandC / 100,
+    totalSalesVatInclusive: (netC + vatC) / 100,
+    totalAmountDue: (grandC - whtC) / 100,
+  };
+}
+
+/**
  * Invoice totals under the record's OWN price convention. Mirrors
  * computeInvoiceTotalsCentavos in functions/src/invoicePricing.js (which is
  * authoritative for priced orders); used for the editor's display and the
@@ -261,10 +319,14 @@ export function computeInvoiceTotals({
   withholdingTax = 0,
   vatClassification = "vatable",
   priceIsVatInclusive,
+  lineLevel = false,
 } = {}) {
   const inclusive = readPriceConvention(priceIsVatInclusive);
   if (inclusive === null) {
     throw new Error("Invoice totals need the record's own price convention.");
+  }
+  if (inclusive && lineLevel) {
+    return lineLevelTotals({ items, otherCharges, withholdingTax });
   }
   if (!inclusive) {
     if (vatClassification === ITEMIZED_VAT && hasItemizedVat(items)) {
@@ -391,6 +453,8 @@ export function itemsFromOrder(order) {
       // computed per item. Null on items created before snapshots existed.
       unitPriceCentavos: Number.isInteger(it.unitPriceCentavos) ? it.unitPriceCentavos : null,
       vatClassification: itemVatClassification(it),
+      // Agreement-model lines are invoiced at their FINAL charged amount.
+      ...(Number.isInteger(it.finalLineTotalCentavos) ? finalChargedLine(it) : {}),
     }));
   }
   return [
@@ -431,6 +495,8 @@ export function buildInitialForm(order, invoice, salesRepName) {
     purchaseOrderNumber: "",
     referenceNumber: "",
     items: itemsFromOrder(order),
+    // No invoice discount by default. An agreement-model order never has one:
+    // its SC/PWD discounts are already inside its final line amounts.
     discount: 0,
     // Itemized when every order item carries a VAT snapshot; otherwise the
     // Admin's invoice-level choice, defaulting to VATable as before.
@@ -540,19 +606,55 @@ export function isServerPricedOrder(order) {
 }
 
 /**
- * The Med Rep negotiated at least one line's price when the order was placed
- * (functions/src/negotiatedPricing.js orderHasNegotiatedPrice). The agreed
- * price is then the only reduction the order carries: the invoice refuses a
- * second, invoice-level discount on top of it.
+ * An order priced under the agreement model (functions/src/negotiatedPricing.js):
+ * its SC/PWD discounts were recorded PER LINE when it was placed, with VAT per
+ * line after each discount. Its invoice follows the client's rule — no
+ * separate discount line: every line shows its FINAL charged amount, and
+ * VATable / VAT-exempt / zero-rated sales, VAT and the total are built from
+ * those amounts. The discount itself stays on the order and its audit record.
  */
-export function orderHasNegotiatedPrice(order) {
-  if (order?.priceAgreementVersion !== 1) return false;
-  if (order.priceAdjusted === true) return true;
-  return (Array.isArray(order.items) ? order.items : []).some((it) => it?.priceAdjusted === true);
+export function isLineDiscountOrder(order) {
+  return order?.priceAgreementVersion === 1;
 }
 
-export const NEGOTIATED_NO_DISCOUNT_NOTE =
-  "This order's prices were negotiated when it was placed, so it cannot also take an invoice discount.";
+/** A line presented at its final charged amount (agreement-model invoice). */
+export function isFinalChargedLine(item) {
+  return item?.amountIsFinalCharged === true && Number.isSafeInteger(item?.lineTotalCentavos);
+}
+
+/**
+ * An agreement-model order line → its invoice line at the FINAL charged amount
+ * (`finalLineTotalCentavos`). Mirrors finalChargedInvoiceLine in
+ * functions/src/invoicePricing.js.
+ *
+ * The unit price is the amount ÷ quantity ONLY when that divides exactly. A
+ * fixed line discount often does not; a rounded per-unit figure would be
+ * fabricated and unit × quantity would not equal the amount, so the unit
+ * price is then null and only the amount is shown.
+ */
+export function finalChargedLine(line) {
+  const amount = line.finalLineTotalCentavos;
+  const quantity = Number(line.quantity) || 0;
+  const exactUnit = quantity > 0 && amount % quantity === 0 ? amount / quantity : null;
+  return {
+    unitPriceCentavos: exactUnit,
+    unitPrice: exactUnit === null ? null : exactUnit / 100,
+    lineTotalCentavos: amount,
+    amountIsFinalCharged: true,
+  };
+}
+
+/** A line's amount in pesos as the invoice prints it. */
+export function invoiceLineAmount(item) {
+  if (isFinalChargedLine(item)) return item.lineTotalCentavos / 100;
+  return (Number(item?.quantity) || 0) * (Number(item?.unitPrice) || 0);
+}
+
+export const LINE_DISCOUNT_NOTE =
+  "Line amounts on this invoice are the final charged amounts, after any SC/PWD discount recorded on the order. The invoice shows no separate discount line.";
+
+export const NON_EXACT_UNIT_PRICE_NOTE =
+  "— A unit price is shown only where the charged amount divides exactly by the quantity.";
 
 /**
  * Free-text fields the admin owns on a priced invoice.
@@ -597,18 +699,20 @@ export function presentationFromForm(form) {
  * These are explicit, separate fields. None of them can restate a unit price:
  * the server applies them on top of a base it computed itself.
  */
-export function adjustmentsFromForm(form, parseAdjustment) {
+// [recordedDiscount]: an agreement-model order whose SC/PWD discounts are
+// already inside its line amounts — no discount is sent; the invoice has none.
+export function adjustmentsFromForm(form, parseAdjustment, { recordedDiscount = false } = {}) {
   const read = (key) => {
     const parsed = parseAdjustment(form?.[key]);
     if (!parsed.ok) {
-      throw new Error(
+      throw new UserMessageError(
         `${key === "discount" ? "Discount" : key === "otherCharges" ? "Other charges" : "Withholding tax"} must be a valid amount.`
       );
     }
     return parsed.value;
   };
   return {
-    discountCentavos: read("discount"),
+    ...(recordedDiscount ? {} : { discountCentavos: read("discount") }),
     otherChargesCentavos: read("otherCharges"),
     withholdingTaxCentavos: read("withholdingTax"),
     // The server ignores this for an itemized order; it is sent for parity.
@@ -633,10 +737,10 @@ export function assertConsistentInvoiceTotals(data) {
     0
   );
   if (Math.abs((Number(data?.subtotal) || 0) - sum) > 0.01) {
-    throw new Error("Invoice subtotal does not match its line items.");
+    throw new UserMessageError("Invoice subtotal does not match its line items.");
   }
   if (!(Number(data?.grandTotal) >= 0)) {
-    throw new Error("Invoice total is not valid.");
+    throw new UserMessageError("Invoice total is not valid.");
   }
 }
 

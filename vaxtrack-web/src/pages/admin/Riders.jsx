@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Bell,
   CircleHelp,
   PhoneCall,
   Search,
@@ -9,7 +8,10 @@ import {
 } from "lucide-react";
 import { subscribeRiders, updateRiderStatus } from "../../services/riderService";
 import KpiCard from "../../components/ui/KpiCard";
-import { friendlyErrorMessage, liveErrorMessage } from "../../services/liveDataErrors";
+import { kpiValue, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
+import ConfirmDialog from "../../components/ui/ConfirmDialog";
+import { ToastRegion } from "../../components/ui/Feedback";
+import { useToast } from "../../components/ui/useToast";
 import "./Riders.css";
 
 const UI_STATUS_MAP = {
@@ -67,6 +69,52 @@ function normalizeRider(raw) {
   };
 }
 
+/**
+ * What each rider status change means, said in the confirmation before it is
+ * made. Account status decides whether the rider app lets them in.
+ */
+const STATUS_ACTIONS = {
+  approve: {
+    title: "Approve rider application?",
+    consequence:
+      "They will be able to sign in to the VaxTrack rider app and can be assigned deliveries.",
+    confirmLabel: "Approve rider",
+    busyLabel: "Approving…",
+    tone: "primary",
+    status: "approved",
+    done: (name) => `${name} has been approved.`,
+  },
+  reactivate: {
+    title: "Set rider available?",
+    consequence: "They can sign in to the rider app again and can be assigned new deliveries.",
+    confirmLabel: "Set available",
+    busyLabel: "Saving…",
+    tone: "primary",
+    status: "approved",
+    done: (name) => `${name} set to standby.`,
+  },
+  offDuty: {
+    title: "Mark rider off duty?",
+    consequence:
+      "They won't be able to use the rider app or receive new assignments until set available again. Orders already assigned to them stay assigned — reassign them from Assign Rider if needed.",
+    confirmLabel: "Mark off duty",
+    busyLabel: "Saving…",
+    tone: "danger",
+    status: "disabled",
+    done: (name) => `${name} marked as off duty.`,
+  },
+  reject: {
+    title: "Reject rider application?",
+    consequence:
+      "The application will be declined and they won't be able to sign in. This is final in the normal workflow.",
+    confirmLabel: "Reject application",
+    busyLabel: "Rejecting…",
+    tone: "danger",
+    status: "rejected",
+    done: (name) => `${name} has been rejected.`,
+  },
+};
+
 function Riders() {
 
   const [riders, setRiders] = useState([]);
@@ -75,7 +123,9 @@ function Riders() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedRider, setSelectedRider] = useState(null);
-  const [toast, setToast] = useState("");
+  const { toast, showToast, dismissToast } = useToast();
+  // The status change awaiting confirmation: { rider, action } | null.
+  const [pendingChange, setPendingChange] = useState(null);
 
   useEffect(() => {
     const unsubscribe = subscribeRiders(
@@ -92,20 +142,28 @@ function Riders() {
     return () => unsubscribe();
   }, []);
 
-  const showToast = (message) => {
-    setToast(message);
-    setTimeout(() => setToast(""), 2200);
+  // A status change is asked first, in a dialog that names the rider and the
+  // consequence. The write runs from that dialog: one request however often
+  // Confirm is pressed, success only after the write, and on failure the
+  // dialog stays open with the reason.
+  const requestStatusChange = (rider, action) => {
+    setSelectedRider(null);
+    setPendingChange({ rider, action });
   };
-
-  const handleStatusChange = async (rider, newStatus, successMsg) => {
+  const confirmStatusChange = async () => {
+    const { rider, action } = pendingChange;
+    const meta = STATUS_ACTIONS[action];
     try {
-      await updateRiderStatus(rider.uid, newStatus);
-      showToast(successMsg);
+      await updateRiderStatus(rider.uid, meta.status);
     } catch (error) {
-      console.error("Update rider status error:", error);
-      showToast(`Failed to update ${rider.name}. ${friendlyErrorMessage(error, "Please try again.")}`);
+      logSafeError("Update rider status", error);
+      throw error;
     }
+    setPendingChange(null);
+    showToast(meta.done(rider.name), "success");
   };
+  const pendingMeta = pendingChange ? STATUS_ACTIONS[pendingChange.action] : null;
+  const kpiState = { loading, error: loadError };
 
   const filteredRiders = useMemo(() => {
     return riders.filter((rider) => {
@@ -124,7 +182,7 @@ function Riders() {
   return (
     <>
     <main className="riders-v2-page">
-        {toast && <div className="riders-toast">{toast}</div>}
+        <ToastRegion toast={toast} onDismiss={dismissToast} />
 
         <header className="riders-v2-header">
           <div>
@@ -151,17 +209,9 @@ function Riders() {
             <button
               type="button"
               className="riders-icon-btn"
-              onClick={() => showToast("No new rider notifications.")}
-            >
-              <Bell size={15} />
-              <span></span>
-            </button>
-
-            <button
-              type="button"
-              className="riders-icon-btn"
+              aria-label="How to view a rider's details"
               onClick={() =>
-                showToast("Tip: Click any rider row or map marker for details.")
+                showToast("Tip: select any rider row to view their details and account actions.", "info")
               }
             >
               <CircleHelp size={15} />
@@ -172,7 +222,7 @@ function Riders() {
         <section className="riders-summary-grid">
           <KpiCard
             label="Total riders"
-            value={riders.length}
+            value={kpiValue(riders.length, kpiState)}
             context="Registered rider accounts"
             tone="neutral"
             onClick={() => setStatusFilter("all")}
@@ -180,7 +230,7 @@ function Riders() {
 
           <KpiCard
             label="Standby"
-            value={standbyCount}
+            value={kpiValue(standbyCount, kpiState)}
             context="Available for assignment"
             tone="success"
             onClick={() => setStatusFilter("standby")}
@@ -188,7 +238,7 @@ function Riders() {
 
           <KpiCard
             label="Off duty / pending"
-            value={offDutyCount}
+            value={kpiValue(offDutyCount, kpiState)}
             context="Not currently available"
             tone="warning"
             onClick={() => setStatusFilter("offduty")}
@@ -199,7 +249,6 @@ function Riders() {
             value="—"
             context="Delivery data not yet available"
             tone="neutral"
-            onClick={() => showToast("Delivery performance data not yet available.")}
           />
         </section>
 
@@ -333,23 +382,26 @@ function Riders() {
         <RiderDetailsModal
           rider={selectedRider}
           onClose={() => setSelectedRider(null)}
-          onContact={() => showToast(`Contacting ${selectedRider.name}...`)}
-          onRoute={() => showToast(`Opening route for ${selectedRider.name}.`)}
-          onOffDuty={() => {
-            const rider = selectedRider;
-            setSelectedRider(null);
-            handleStatusChange(rider, "disabled", `${rider.name} marked as off duty.`);
-          }}
-          onReactivate={() => {
-            const rider = selectedRider;
-            setSelectedRider(null);
-            handleStatusChange(rider, "approved", `${rider.name} set to standby.`);
-          }}
-          onReject={() => {
-            const rider = selectedRider;
-            setSelectedRider(null);
-            handleStatusChange(rider, "rejected", `${rider.name} has been rejected.`);
-          }}
+          onOffDuty={() => requestStatusChange(selectedRider, "offDuty")}
+          onApprove={() => requestStatusChange(selectedRider, "approve")}
+          onReactivate={() => requestStatusChange(selectedRider, "reactivate")}
+          onReject={() => requestStatusChange(selectedRider, "reject")}
+        />
+      )}
+
+      {pendingChange && pendingMeta && (
+        <ConfirmDialog
+          title={pendingMeta.title}
+          target={`${pendingChange.rider.name}${
+            pendingChange.rider.displayId ? ` · ${pendingChange.rider.displayId}` : ""
+          }`}
+          consequence={pendingMeta.consequence}
+          confirmLabel={pendingMeta.confirmLabel}
+          busyLabel={pendingMeta.busyLabel}
+          tone={pendingMeta.tone}
+          failureMessage={`${pendingChange.rider.name}'s status could not be changed. Nothing was saved — please try again.`}
+          onConfirm={confirmStatusChange}
+          onCancel={() => setPendingChange(null)}
         />
       )}
 
@@ -360,9 +412,8 @@ function Riders() {
 function RiderDetailsModal({
   rider,
   onClose,
-  onContact,
-  onRoute,
   onOffDuty,
+  onApprove,
   onReactivate,
   onReject,
 }) {
@@ -425,10 +476,13 @@ function RiderDetailsModal({
         </div>
 
         <div className="riders-modal-actions">
+          {/* Not built yet. Shown disabled, with the reason, rather than
+              clickable with a toast that implies something happened. */}
           <button
             type="button"
-            className="riders-primary-action"
-            onClick={onRoute}
+            className="riders-light-action"
+            disabled
+            aria-describedby="rider-unavailable-actions"
           >
             View Route
           </button>
@@ -436,9 +490,10 @@ function RiderDetailsModal({
           <button
             type="button"
             className="riders-light-action"
-            onClick={onContact}
+            disabled
+            aria-describedby="rider-unavailable-actions"
           >
-            <PhoneCall size={15} />
+            <PhoneCall size={15} aria-hidden="true" />
             Contact Rider
           </button>
 
@@ -456,7 +511,7 @@ function RiderDetailsModal({
             <button
               type="button"
               className="riders-primary-action"
-              onClick={onReactivate}
+              onClick={onApprove}
             >
               Approve
             </button>
@@ -482,6 +537,10 @@ function RiderDetailsModal({
             </button>
           )}
         </div>
+        <p id="rider-unavailable-actions" className="riders-unavailable-note">
+          Viewing a rider's route and calling them from VaxTrack aren't available yet. Use Live Tracking
+          for positions and the rider's registered phone number to call.
+        </p>
       </div>
     </div>
   );

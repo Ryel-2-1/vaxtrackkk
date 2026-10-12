@@ -19,6 +19,7 @@ import {
 } from "../../services/orderHistoryService";
 import OrderHistoryDetail from "./OrderHistoryDetail";
 import "./OrderHistory.css";
+import { liveErrorMessage } from "../../services/liveDataErrors";
 
 /**
  * Order Receipt History + Stock Allocation History, shared by the Med Rep and
@@ -38,9 +39,10 @@ import "./OrderHistory.css";
 
 const EMPTY_FILTERS = { search: "", dateFrom: "", dateTo: "", stage: "", allocationState: "", priority: "" };
 
+// One mapping for every failure: permission, offline, signed-out and a
+// missing index each read differently, and none is shown as "no orders".
 function errorMessage(err, what) {
-  if (err?.code === "permission-denied") return `You do not have permission to view ${what}.`;
-  return `${what[0].toUpperCase()}${what.slice(1)} could not be loaded. Please try again.`;
+  return liveErrorMessage(err, what);
 }
 
 export default function OrderHistoryView({ mode, medRepUid = null }) {

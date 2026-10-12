@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 
 import { createServiceLoader, createStore, installStore } from "./serviceHarness.js";
 import { friendlyErrorMessage, isFirebaseError, liveErrorKind, liveErrorMessage } from "../src/services/liveDataErrors.js";
+import { UserMessageError } from "../src/services/userMessageError.js";
 import { ACCESS_LOADING, accessAfterProfileError, accessFromProfile, watchRouteAccess } from "../src/services/liveRouteAccess.js";
 import { formSignature, reconcileLiveForm } from "../src/services/liveFormSync.js";
 import { acceptLiveLine, cartBatchIds, cartReview, lineReview, liveCartLines } from "../src/services/cartLiveStock.js";
@@ -44,8 +45,14 @@ const fbError = (code, message = `raw firebase text for ${code}`) => {
 
 test("errors: permission denied is never phrased as an empty result", () => {
   const msg = liveErrorMessage(fbError("permission-denied"), "orders");
-  assert.equal(msg, "You do not have permission to view orders.");
-  assert.doesNotMatch(msg, /no orders|nothing|empty/i);
+  // Says what is refused and what to do next (approved wording, 2026-10-11).
+  assert.equal(
+    msg,
+    "You do not have permission to view orders. Contact an administrator if you believe this is incorrect."
+  );
+  assert.match(msg, /^You do not have permission to view orders\./);
+  assert.doesNotMatch(msg, /no orders|nothing|empty|no records|not found/i);
+  assert.doesNotMatch(msg, /raw firebase text|permission-denied/);
 });
 
 test("errors: each failure kind has its own message and never leaks Firebase text", () => {
@@ -75,19 +82,28 @@ test("errors: each failure kind has its own message and never leaks Firebase tex
 });
 
 test("errors: write failures keep the app's own wording and replace Firebase's", () => {
-  class AssignmentError extends Error {
+  class AssignmentError extends UserMessageError {
     constructor(code, message) { super(message); this.name = "AssignmentError"; this.code = code; }
   }
-  // A domain error whose code happens to share a Firebase word keeps its message.
+  // A trusted domain error whose code happens to share a Firebase word keeps its message.
   assert.equal(friendlyErrorMessage(new AssignmentError("not-found", "That rider is gone."), "x"), "That rider is gone.");
   assert.equal(isFirebaseError(new AssignmentError("permission-denied", "…")), false);
-  // Plain validation errors keep theirs.
-  assert.equal(friendlyErrorMessage(new Error("Batch ID already exists."), "x"), "Batch ID already exists.");
-  // Firebase's never surface.
-  assert.equal(friendlyErrorMessage(fbError("permission-denied"), "x"), "You do not have permission to make this change.");
+  // The app's own validation errors keep theirs — they are UserMessageErrors.
+  assert.equal(friendlyErrorMessage(new UserMessageError("Batch ID already exists."), "x"), "Batch ID already exists.");
+  // A PLAIN Error is never trusted, however harmless its text looks.
+  assert.equal(friendlyErrorMessage(new Error("Batch ID already exists."), "Fallback."), "Fallback.");
+  // Firebase's never surface; the permission message is actionable.
+  assert.equal(
+    friendlyErrorMessage(fbError("permission-denied"), "x"),
+    "You do not have permission to perform this action. Contact an administrator if you believe this is incorrect."
+  );
+  assert.doesNotMatch(friendlyErrorMessage(fbError("permission-denied"), "x"), /raw firebase text/);
   assert.equal(friendlyErrorMessage(fbError("internal"), "Failed to save."), "Failed to save.");
   assert.equal(friendlyErrorMessage({ code: "functions/internal", message: "INTERNAL" }, "Failed."), "Failed.");
-  assert.equal(friendlyErrorMessage({ code: "unavailable", message: "Failed to get document because the client is offline." }, "x"), "Could not reach the server. Check your connection and try again.");
+  assert.equal(
+    friendlyErrorMessage({ code: "unavailable", message: "Failed to get document because the client is offline." }, "x"),
+    "We couldn't reach the server, so nothing was saved. Check your connection and try again."
+  );
   assert.equal(friendlyErrorMessage(null, "Fallback."), "Fallback.");
 });
 
@@ -821,13 +837,22 @@ test("a failed source shows its figures as unavailable, never as zero", () => {
 test("dialogs follow the live record and close only on success", () => {
   const alerts = strip(read("src/pages/admin/Alerts.jsx"));
   assert.match(alerts, /const selectedAlert = selectedAlertId \? alerts\.find\(\(a\) => a\.id === selectedAlertId\) \?\? null : null;/);
-  assert.match(alerts, /await resolveAlert\(alertId\);\s*setSelectedAlertId\(null\);/);
-  assert.match(alerts, /if \(resolving\) return;/, "a second click while resolving is ignored");
+  // Resolving runs from the shared confirmation: a failure rethrows (the
+  // dialog stays open with the reason) and the dialogs close only after the
+  // awaited write. The shared dialog ignores a second press while running.
+  assert.match(
+    alerts,
+    /await resolveAlert\(alertId\);\s*\} catch \(error\) \{\s*logSafeError\("Resolve alert", error\);\s*throw error;\s*\}\s*setConfirmResolveId\(null\);\s*setSelectedAlertId\(null\);/
+  );
+  assert.match(alerts, /onConfirm=\{handleResolveAlert\}/);
+  const dialog = strip(read("src/components/ui/ConfirmDialog.jsx"));
+  assert.match(dialog, /if \(flight\.current\.busy\) return;/, "a second press while running is ignored");
   const settings = strip(read("src/pages/admin/Settings.jsx"));
   assert.match(settings, /const selectedStaff = selectedStaffUid \? staff\.find\(\(p\) => p\.uid === selectedStaffUid\) \?\? null : null;/);
-  assert.match(settings, /if \(await updateStatus\(selectedStaff\.uid, "approved"\)\) setSelectedStaff\(null\);/);
-  assert.match(settings, /if \(statusBusy\) return false;/);
-  assert.match(settings, /setRoleChangeTarget\(null\);\s*\} catch \{/, "the role dialog closes on success only");
+  // Status changes: confirmed first, closed only once the write landed.
+  assert.match(settings, /onApprove=\{\(\) => requestStatusChange\(selectedStaff, "approve"\)\}/);
+  assert.match(settings, /await updateStatus\(person\.uid, ACCOUNT_ACTIONS\[action\]\.status\);\s*setStatusChange\(null\);/);
+  assert.match(settings, /setRoleChangeTarget\(null\);\s*\} catch \(error\) \{/, "the role dialog closes on success only");
 });
 
 test("load errors never show raw Firebase text", () => {

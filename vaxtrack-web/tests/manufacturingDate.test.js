@@ -132,7 +132,7 @@ test("12/13 · the export carries the column and leaves legacy values blank", ()
 
 test("14 · Batch ID uniqueness is still checked before saving", () => {
   const addStock = read("src/pages/admin/AddStock.jsx");
-  assert.match(addStock, /if \(await batchIdExists\(cleanedBatchId\)\) \{\s*showMessage\("This Batch ID already exists in inventory\."\);/);
+  assert.match(addStock, /if \(await batchIdExists\(cleanedBatchId\)\) \{\s*return failField\("batchId", "This Batch ID already exists in inventory\."\);/);
 });
 
 test("15 · quantity, reservation, pricing and expiry writes are unchanged", () => {

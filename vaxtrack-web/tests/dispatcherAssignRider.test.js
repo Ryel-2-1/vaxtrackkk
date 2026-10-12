@@ -100,7 +100,8 @@ test("permission and network failures never show raw Firebase text", async () =>
     [{ code: "permission-denied", message: "Missing or insufficient permissions." }, /do not have permission to assign riders/],
     [{ code: "firestore/permission-denied", message: "FirebaseError: [code=permission-denied]" }, /do not have permission/],
     [{ code: "unavailable", message: "Failed to get document because the client is offline." }, /Could not reach the server.*nothing was assigned/],
-    [{ code: "deadline-exceeded", message: "x" }, /Could not reach the server/],
+    // A timeout is "outcome unknown", never "nothing was assigned".
+    [{ code: "deadline-exceeded", message: "x" }, /can't confirm whether the rider was assigned/],
     [new Error("FirebaseError: internal assertion 0x88"), /^Unable to assign the rider\. Please try again\.$/],
   ];
   for (const [error, expected] of cases) {

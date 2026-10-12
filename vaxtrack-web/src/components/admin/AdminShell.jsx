@@ -32,8 +32,6 @@ const WRAPPER_CLASS = {
   "/admin/delivery-calendar": "inventory-page adl-root",
   "/admin/live-tracking": "inventory-page adl-root",
   "/admin/clinics": "inventory-page clinics-shell",
-  "/admin/register-clinic": "inventory-page clinics-shell register-clinic-shell",
-  "/admin/clinic-success": "inventory-page clinics-shell clinic-success-shell",
 };
 
 function wrapperClassFor(pathname) {
@@ -60,8 +58,6 @@ const ROUTE_TITLE = {
   "/admin/settings": "Settings",
   "/admin/clinics": "Clinics",
   "/admin/invoices": "Invoices",
-  "/admin/register-clinic": "Register Clinic",
-  "/admin/clinic-success": "Clinics",
 };
 
 function adminTitleFor(pathname) {

@@ -253,7 +253,11 @@ test("success navigates back to Admin Inventory; Cancel writes nothing", () => {
 test("loading, empty, error and success states all exist", () => {
   assert.match(addStock, /Loading vaccines\.\.\./);
   assert.match(addStock, /No vaccines are registered yet/);
-  assert.match(addStock, /Failed to add stock/);
+  // A failed save says nothing was saved and keeps the entries, through the
+  // shared mapper (never the raw error text).
+  assert.match(addStock, /The stock could not be added\. Nothing was saved/);
+  assert.match(addStock, /friendlyErrorMessage\(\s*error,/);
+  assert.doesNotMatch(addStock, /error\.message/);
   assert.match(addStock, /setMessage\(liveErrorMessage\(error, "registered vaccines"\)\)/);
   assert.match(addStock, /saving \? "Adding\.\.\." : "\+ Add Stock"/);
 });

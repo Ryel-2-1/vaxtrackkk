@@ -591,19 +591,28 @@ async function main() {
       priceAgreementVersion: 1,
       subtotalCentavos: 330000,
       standardSubtotalCentavos: 375000,
-      priceAdjustmentCentavos: -45000,
-      priceAdjusted: true,
-      vatSummary: { vatableGrossCentavos: 330000, vatAmountCentavos: 35357, vatableSalesCentavos: 294643, vatExemptSalesCentavos: 0, zeroRatedSalesCentavos: 0, totalCentavos: 330000, vatRatePercent: 12 },
+      negotiatedAdjustmentTotalCentavos: -45000,
+      priceNegotiated: true,
+      statutoryDiscountTotalCentavos: 33000,
+      statutoryDiscountApplied: true,
+      finalTotalCentavos: 297000,
+      vatSummary: { vatableGrossCentavos: 297000, vatAmountCentavos: 31821, vatableSalesCentavos: 265179, vatExemptSalesCentavos: 0, zeroRatedSalesCentavos: 0, totalCentavos: 297000, vatRatePercent: 12 },
       items: [
         { inventoryId: "inv1", batchId: "B-1", name: "Hep B", quantity: 3,
           standardUnitPriceCentavos: 125000, agreedUnitPriceCentavos: 110000,
-          unitPriceCentavos: 110000, lineTotalCentavos: 330000, adjustmentCentavos: -45000,
-          priceAdjusted: true, adjustmentReason: "Volume", vatClassification: "vatable", vatRatePercent: 12 },
+          unitPriceCentavos: 110000, lineTotalCentavos: 330000, negotiatedGrossCentavos: 330000,
+          negotiatedAdjustmentCentavos: -45000, priceNegotiated: true, negotiationReason: "Volume",
+          statutoryDiscountType: "pwd", statutoryDiscountCentavos: 33000, finalLineTotalCentavos: 297000,
+          lineVatCentavos: 31821, vatClassification: "vatable", vatRatePercent: 12 },
       ],
     });
     await setDoc(doc(db, "orderPriceAdjustments", "ordNegotiated__0"), {
       orderId: "ordNegotiated", lineIndex: 0, standardUnitPriceCentavos: 125000, agreedUnitPriceCentavos: 110000,
-      adjustmentCentavos: -45000, adjustmentReason: "Volume", medRepUid: salesRepUid, requestId: "req", createdAt: "seed",
+      negotiatedAdjustmentCentavos: -45000, negotiationReason: "Volume", medRepUid: salesRepUid, requestId: "req", createdAt: "seed",
+    });
+    await setDoc(doc(db, "orderStatutoryDiscounts", "ordNegotiated__0"), {
+      orderId: "ordNegotiated", lineIndex: 0, discountType: "pwd", discountCentavos: 33000,
+      medRepUid: salesRepUid, requestId: "req", createdAt: "seed",
     });
   });
 
@@ -3552,10 +3561,14 @@ async function main() {
   await check("NEG1 no one edits a placed order's negotiated pricing — the Med Rep who agreed it included", async () => {
     const attempts = [
       { items: [{ inventoryId: "inv1", quantity: 3, unitPriceCentavos: 1, lineTotalCentavos: 3, agreedUnitPriceCentavos: 1 }] },
+      { items: [{ inventoryId: "inv1", quantity: 3, statutoryDiscountCentavos: 0, finalLineTotalCentavos: 330000 }] },
       { subtotalCentavos: 1 },
       { standardSubtotalCentavos: 1 },
-      { priceAdjustmentCentavos: 0 },
-      { priceAdjusted: false },
+      { negotiatedAdjustmentTotalCentavos: 0 },
+      { priceNegotiated: false },
+      { statutoryDiscountTotalCentavos: 0 },
+      { statutoryDiscountApplied: false },
+      { finalTotalCentavos: 1 },
       { priceAgreementVersion: 2 },
       { vatSummary: { vatAmountCentavos: 0 } },
     ];
@@ -3566,15 +3579,19 @@ async function main() {
     }
     // The Med Rep can still read their own order, adjustment and reason included.
     const snap = await assertSucceeds(getDoc(doc(salesRep, "orders", "ordNegotiated")));
-    if (snap.data().items[0].adjustmentReason !== "Volume") throw new Error("the Med Rep reads their own adjustment");
+    if (snap.data().items[0].negotiationReason !== "Volume") throw new Error("the Med Rep reads their own adjustment");
+    if (snap.data().items[0].statutoryDiscountCentavos !== 33000) throw new Error("…and their own line discount");
   });
 
   await check("NEG2 an admin cannot create an order carrying negotiated-pricing fields", async () => {
-    for (const field of ["priceAgreementVersion", "standardSubtotalCentavos", "priceAdjustmentCentavos", "priceAdjusted", "vatSummary"]) {
+    for (const field of [
+      "priceAgreementVersion", "standardSubtotalCentavos", "negotiatedAdjustmentTotalCentavos", "priceNegotiated",
+      "statutoryDiscountTotalCentavos", "statutoryDiscountApplied", "finalTotalCentavos", "vatSummary",
+    ]) {
       await assertFails(setDoc(doc(admin, "orders", "ordNegCreate"), {
         status: "pending_dispatch", clinicDocId: "clinic1", clinicName: "Clinic One",
         createdAt: serverTimestamp(), requestedDeliveryDate: FIXTURE_DELIVERY_DATE,
-        [field]: field === "vatSummary" ? {} : field === "priceAdjusted" ? true : 1,
+        [field]: field === "vatSummary" ? {} : ["priceNegotiated", "statutoryDiscountApplied"].includes(field) ? true : 1,
       }), field);
     }
   });
@@ -3590,6 +3607,20 @@ async function main() {
       await assertFails(setDoc(doc(ctx, "orderPriceAdjustments", "forged__0"), { orderId: "ordNegotiated", adjustmentCentavos: -1 }));
       await assertFails(updateDoc(doc(ctx, "orderPriceAdjustments", "ordNegotiated__0"), { adjustmentReason: "rewritten" }));
       await assertFails(deleteDoc(doc(ctx, "orderPriceAdjustments", "ordNegotiated__0")));
+    }
+  });
+
+  await check("NEG4 the statutory-discount audit is separate, server-only and Admin-readable only", async () => {
+    await assertSucceeds(getDoc(doc(admin, "orderStatutoryDiscounts", "ordNegotiated__0")));
+    await assertSucceeds(getDocs(collection(admin, "orderStatutoryDiscounts")));
+    for (const ctx of [salesRep, dispatcher, rider, anon]) {
+      await assertFails(getDoc(doc(ctx, "orderStatutoryDiscounts", "ordNegotiated__0")));
+      await assertFails(getDocs(collection(ctx, "orderStatutoryDiscounts")));
+    }
+    for (const ctx of [admin, salesRep, dispatcher, rider, anon]) {
+      await assertFails(setDoc(doc(ctx, "orderStatutoryDiscounts", "forged__0"), { orderId: "ordNegotiated", discountCentavos: 1 }));
+      await assertFails(updateDoc(doc(ctx, "orderStatutoryDiscounts", "ordNegotiated__0"), { discountCentavos: 1 }));
+      await assertFails(deleteDoc(doc(ctx, "orderStatutoryDiscounts", "ordNegotiated__0")));
     }
   });
 

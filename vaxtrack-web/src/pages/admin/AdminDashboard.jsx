@@ -10,7 +10,7 @@ import { subscribeInventory } from "../../services/inventoryService";
 import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
 import { ORDER_STATUSES } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
-import { liveErrorMessage } from "../../services/liveDataErrors";
+import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 
 // Small shimmer placeholder used while the first snapshots load, so sections
 // don't flash their empty state before real data arrives.
@@ -89,6 +89,7 @@ function AdminDashboard() {
   // Which sources failed. A failed source shows "—" / "unavailable", never a
   // zero or an "All clear" that nothing measured.
   const [failed, setFailed] = useState({});
+  const anyFailed = Object.values(failed).some(Boolean);
 
   useEffect(() => {
     let loaded = { deliveries: false, alerts: false, riders: false, inventory: false };
@@ -99,8 +100,14 @@ function AdminDashboard() {
       }
     };
 
+    // A listener that recovers (automatic reconnect, or the shell's "Try
+    // again") clears its own failure; the banner shows only while some source
+    // is still failing.
+    const recover = (source) =>
+      setFailed((prev) => (prev[source] ? { ...prev, [source]: false } : prev));
+
     const failSource = (source, what) => (error) => {
-      console.error("Dashboard subscription error:", source, error?.code || error);
+      logSafeError(`Dashboard subscription (${source})`, error);
       setLoadError(liveErrorMessage(error, what));
       setFailed((prev) => ({ ...prev, [source]: true }));
       loaded[source] = true;
@@ -133,6 +140,7 @@ function AdminDashboard() {
           }))
         );
         loaded.deliveries = true;
+        recover("deliveries");
         checkAllLoaded();
       },
       failSource("deliveries", "orders")
@@ -148,6 +156,7 @@ function AdminDashboard() {
             .map(normalizeAlert)
         );
         loaded.alerts = true;
+        recover("alerts");
         checkAllLoaded();
       }, failSource("alerts", "alerts"));
     } catch (e) {
@@ -158,6 +167,7 @@ function AdminDashboard() {
       (riders) => {
         setRiderCount(riders.length);
         loaded.riders = true;
+        recover("riders");
         checkAllLoaded();
       },
       failSource("riders", "riders")
@@ -177,6 +187,7 @@ function AdminDashboard() {
           }).length
         );
         loaded.inventory = true;
+        recover("inventory");
         checkAllLoaded();
       }, failSource("inventory", "inventory"));
     } catch (e) {
@@ -219,7 +230,7 @@ function AdminDashboard() {
       title="Dashboard"
       description="Live overview of deliveries, alerts, riders, and stock."
     >
-      {loadError && (
+      {anyFailed && loadError && (
         <div className="adx-banner" role="alert">
           <AlertTriangle size={16} aria-hidden="true" />
           <div>

@@ -53,8 +53,6 @@ const ROUTE_ACTIVE = {
   "/admin/delivery-calendar": "delivery-calendar",
   "/admin/riders": "riders",
   "/admin/clinics": "clinics",
-  "/admin/register-clinic": "clinics",
-  "/admin/clinic-success": "clinics",
   "/admin/invoices": "invoices",
   "/admin/analytics": "analytics",
   "/admin/ai-inventory-analytics": "aiInventoryAnalytics",

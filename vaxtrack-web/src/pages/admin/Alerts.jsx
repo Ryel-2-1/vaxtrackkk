@@ -1,5 +1,5 @@
 import "./Alerts.css";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Bell,
@@ -19,7 +19,11 @@ import {
   subscribeAllAlerts,
 } from "../../services/alertService";
 import KpiCard from "../../components/ui/KpiCard";
-import { friendlyErrorMessage, liveErrorMessage } from "../../services/liveDataErrors";
+import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
+import ConfirmDialog from "../../components/ui/ConfirmDialog";
+import { useDialogFocus } from "../../components/ui/useDialogFocus";
+import { ToastRegion } from "../../components/ui/Feedback";
+import { useToast } from "../../components/ui/useToast";
 
 const TYPE_MAP = {
   route_deviation: {
@@ -89,10 +93,12 @@ function Alerts() {
   // The OPEN alert is looked up in the live list by id, so the dialog shows
   // what is stored now — resolved or read in another browser included.
   const [selectedAlertId, setSelectedAlertId] = useState(null);
-  const [resolving, setResolving] = useState(false);
-  const [resolveError, setResolveError] = useState("");
+  // "Mark resolved" is confirmed first; the write runs from that dialog.
+  const [confirmResolveId, setConfirmResolveId] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [toast, setToast] = useState("");
+  const { toast, showToast, dismissToast } = useToast();
+  const [markingAll, setMarkingAll] = useState(false);
+  const markingAllRef = useRef(false);
 
   useEffect(() => {
     const unsubscribe = subscribeAllAlerts(
@@ -114,11 +120,6 @@ function Alerts() {
   // record that no longer exists.
   const selectedGone = Boolean(selectedAlertId) && !loading && !loadError && !selectedAlert;
 
-
-  const showToast = (message) => {
-    setToast(message);
-    setTimeout(() => setToast(""), 2200);
-  };
 
   const filteredAlerts = useMemo(() => {
     return alerts.filter((alert) => {
@@ -160,33 +161,52 @@ function Alerts() {
   const handleReviewAlert = (alert) => {
     // The read flag is cosmetic; if the write fails the live list keeps
     // showing the alert as unread, which is the truth.
-    if (!alert.read) markAlertRead(alert.id).catch((error) => console.error("Mark read failed:", error?.code || error));
-    setResolveError("");
+    if (!alert.read) markAlertRead(alert.id).catch((error) => logSafeError("Mark alert read", error));
     setSelectedAlertId(alert.id);
   };
 
   const handleMarkAllRead = async () => {
+    if (markingAllRef.current) return;
     const unread = alerts.filter((a) => !a.read);
-    const results = await Promise.allSettled(unread.map((a) => markAlertRead(a.id)));
-    const failed = results.filter((r) => r.status === "rejected").length;
-    showToast(failed ? `${failed} alert(s) could not be marked as read. Please try again.` : "All alerts marked as read.");
+    if (unread.length === 0) {
+      showToast("There are no unread alerts.", "info");
+      return;
+    }
+    markingAllRef.current = true;
+    setMarkingAll(true);
+    try {
+      const results = await Promise.allSettled(unread.map((a) => markAlertRead(a.id)));
+      const failed = results.filter((r) => r.status === "rejected").length;
+      if (failed === 0) {
+        showToast(`${unread.length} ${unread.length === 1 ? "alert" : "alerts"} marked as read.`, "success");
+      } else if (failed === unread.length) {
+        showToast("No alerts could be marked as read. Check your connection and try again.", "error");
+      } else {
+        showToast(
+          `${unread.length - failed} of ${unread.length} alerts were marked as read. The other ${failed} could not be updated — try again.`,
+          "warning"
+        );
+      }
+    } finally {
+      markingAllRef.current = false;
+      setMarkingAll(false);
+    }
   };
 
-  // Closes only once the write succeeded; a second click while it is in
-  // flight is ignored.
-  const handleResolveAlert = async (alertId) => {
-    if (resolving) return;
-    setResolving(true);
-    setResolveError("");
+  // Runs from the confirmation. Closes only once the write succeeded (the
+  // dialog ignores repeated presses); on failure it rethrows, so the dialog
+  // stays open with the reason.
+  const handleResolveAlert = async () => {
+    const alertId = confirmResolveId;
     try {
       await resolveAlert(alertId);
-      setSelectedAlertId(null);
-      showToast("Alert marked as resolved.");
     } catch (error) {
-      setResolveError(friendlyErrorMessage(error, "Could not resolve the alert. Please try again."));
-    } finally {
-      setResolving(false);
+      logSafeError("Resolve alert", error);
+      throw error;
     }
+    setConfirmResolveId(null);
+    setSelectedAlertId(null);
+    showToast("Alert marked as resolved.", "success");
   };
 
   const kpi = (count) => (loading || loadError ? "—" : count);
@@ -204,7 +224,7 @@ function Alerts() {
   return (
     <>
     <main className="alerts-v2-main">
-        {toast && <div className="alerts-toast">{toast}</div>}
+        <ToastRegion toast={toast} onDismiss={dismissToast} />
         {selectedGone && (
           <div className="alerts-toast" role="status">
             That alert was removed. The list has been updated.{" "}
@@ -222,7 +242,13 @@ function Alerts() {
           </div>
 
           <div className="alerts-v2-actions">
-            <button type="button" className="alerts-outline-btn" onClick={handleMarkAllRead}>
+            <button
+              type="button"
+              className="alerts-outline-btn"
+              onClick={handleMarkAllRead}
+              disabled={markingAll}
+              aria-busy={markingAll}
+            >
               <CheckCircle2 size={16} />
               Mark All Read
             </button>
@@ -476,12 +502,22 @@ function Alerts() {
       {selectedAlert && (
         <AlertReviewModal
           alert={selectedAlert}
-          resolving={resolving}
-          error={resolveError}
           onClose={() => setSelectedAlertId(null)}
-          onResolve={() => handleResolveAlert(selectedAlert.id)}
-          onContact={() => showToast(`Contacting ${selectedAlert.rider}...`)}
-          onRoute={() => showToast(`Opening route for ${selectedAlert.deliveryId}.`)}
+          onResolve={() => setConfirmResolveId(selectedAlert.id)}
+        />
+      )}
+
+      {confirmResolveId && selectedAlert && (
+        <ConfirmDialog
+          title="Mark alert as resolved?"
+          target={`${selectedAlert.type} · ${selectedAlert.deliveryId || selectedAlert.source || selectedAlert.id}`}
+          consequence="It moves to the resolved list and stops counting as an open alert. Resolved alerts cannot be reopened from VaxTrack."
+          confirmLabel="Mark resolved"
+          busyLabel="Resolving…"
+          tone="primary"
+          failureMessage="The alert could not be resolved. It is still open — please try again."
+          onConfirm={handleResolveAlert}
+          onCancel={() => setConfirmResolveId(null)}
         />
       )}
 
@@ -505,19 +541,27 @@ function CategoryItem({ icon, title, count, type, onClick }) {
   );
 }
 
-function AlertReviewModal({ alert, resolving, error, onClose, onResolve, onContact, onRoute }) {
+function AlertReviewModal({ alert, onClose, onResolve }) {
+  const dialogRef = useRef(null);
+  useDialogFocus({ dialogRef, onDismiss: onClose });
   return (
     <div className="alerts-modal-backdrop">
-      <div className="alerts-modal">
-        <button type="button" className="alerts-modal-close" onClick={onClose} aria-label="Close">
-          <X size={18} />
+      <div
+        ref={dialogRef}
+        className="alerts-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="alert-review-title"
+      >
+        <button type="button" className="alerts-modal-close" onClick={onClose} aria-label="Close alert details">
+          <X size={18} aria-hidden="true" />
         </button>
 
         <div className={`alerts-modal-icon ${getAlertClass(alert)}`}>
           {getAlertIcon(alert.iconKey)}
         </div>
 
-        <h2>{alert.type}</h2>
+        <h2 id="alert-review-title">{alert.type}</h2>
         <p>{alert.message}</p>
 
         <div className="alerts-modal-grid">
@@ -557,32 +601,24 @@ function AlertReviewModal({ alert, resolving, error, onClose, onResolve, onConta
           </div>
         </div>
 
-        {error && (
-          <p className="alerts-modal-error" role="alert">
-            {error}
-          </p>
-        )}
+
 
         <div className="alerts-modal-actions">
           {alert.status !== "resolved" && (
-            <button
-              type="button"
-              className="alerts-primary-action"
-              onClick={onResolve}
-              disabled={resolving}
-              aria-busy={resolving}
-            >
-              {resolving ? "Resolving…" : "Mark Resolved"}
+            <button type="button" className="alerts-primary-action" onClick={onResolve}>
+              Mark Resolved
             </button>
           )}
 
-          <button type="button" className="alerts-light-action" onClick={onContact}>
-            <PhoneCall size={15} />
+          {/* Not built yet. Shown disabled, with the reason, rather than
+              clickable with a toast that implies something happened. */}
+          <button type="button" className="alerts-light-action" disabled aria-describedby="alert-unavailable-actions">
+            <PhoneCall size={15} aria-hidden="true" />
             Contact Rider
           </button>
 
-          <button type="button" className="alerts-light-action" onClick={onRoute}>
-            <MapPin size={15} />
+          <button type="button" className="alerts-light-action" disabled aria-describedby="alert-unavailable-actions">
+            <MapPin size={15} aria-hidden="true" />
             View Route
           </button>
 
@@ -590,6 +626,10 @@ function AlertReviewModal({ alert, resolving, error, onClose, onResolve, onConta
             Close
           </button>
         </div>
+        <p id="alert-unavailable-actions" className="alerts-unavailable-note">
+          Calling a rider and viewing their route from an alert aren't available yet. Use Live Tracking
+          for positions and the rider's registered phone number to call.
+        </p>
       </div>
     </div>
   );

@@ -1,3 +1,5 @@
+import { UserMessageError } from "./userMessageError.js";
+
 /**
  * The order delivery lifecycle — the single source of truth for which status
  * change each actor may perform.
@@ -113,7 +115,7 @@ export const STATUS_LABELS = Object.freeze({
 });
 
 /** A rejected transition. `code` is stable; `message` is written for display. */
-export class WorkflowError extends Error {
+export class WorkflowError extends UserMessageError {
   constructor(code, message) {
     super(message);
     this.name = "WorkflowError";

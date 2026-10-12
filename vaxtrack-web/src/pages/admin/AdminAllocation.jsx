@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import AdminLayout from "../../components/admin/AdminLayout";
 import KpiCard from "../../components/ui/KpiCard";
+import ConfirmDialog from "../../components/ui/ConfirmDialog";
+import { kpiValue, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { subscribeBackorderQueue, subscribePendingReturns } from "../../services/allocationService";
 import { confirmReturnDisposition } from "../../services/inventoryCallables";
 import { describeAllocation } from "../../services/backorder";
@@ -59,6 +61,8 @@ function AdminAllocation() {
   const [busyId, setBusyId] = useState(null);
   const [outcome, setOutcome] = useState(null);
   const [actionError, setActionError] = useState("");
+  // The disposition awaiting confirmation: { ret, disposition } | null.
+  const [pending, setPending] = useState(null);
 
   useEffect(() => {
     const unsubQueue = subscribeBackorderQueue(
@@ -69,11 +73,7 @@ function AdminAllocation() {
       },
       (err) => {
         setQueueLoading(false);
-        setQueueError(
-          err?.code === "permission-denied"
-            ? "You do not have permission to view the backorder queue."
-            : "The backorder queue could not be loaded."
-        );
+        setQueueError(liveErrorMessage(err, "the backorder queue"));
       }
     );
     const unsubReturns = subscribePendingReturns(
@@ -84,11 +84,7 @@ function AdminAllocation() {
       },
       (err) => {
         setReturnsLoading(false);
-        setReturnsError(
-          err?.code === "permission-denied"
-            ? "You do not have permission to view returns."
-            : "Pending returns could not be loaded."
-        );
+        setReturnsError(liveErrorMessage(err, "pending returns"));
       }
     );
     return () => {
@@ -97,17 +93,19 @@ function AdminAllocation() {
     };
   }, []);
 
-  const decide = async (ret, disposition) => {
+  // Choosing a disposition only opens the confirmation; nothing is written
+  // until the Admin confirms it there.
+  const decide = (ret, disposition) => {
     if (busyId) return;
-    const choice = DISPOSITIONS.find((d) => d.value === disposition);
-    const ok = window.confirm(
-      `Confirm "${choice.label}" for ${ret.totalQuantity ?? "these"} returned vial(s) from ${
-        ret.orderNumber || ret.orderId
-      }?\n\nThey will be ${DISPOSITION_EFFECT[disposition]}. This cannot be changed afterwards.`
-    );
-    if (!ok) return;
-    setBusyId(ret.id);
     setActionError("");
+    setPending({ ret, disposition });
+  };
+
+  // Runs from the confirmation dialog. On failure it rethrows, so the dialog
+  // stays open with the error inside it and the typed notes are untouched.
+  const runDisposition = async () => {
+    const { ret, disposition } = pending;
+    setBusyId(ret.id);
     setOutcome(null);
     try {
       const result = await confirmReturnDisposition(ret.id, disposition, notes[ret.id] || "");
@@ -117,12 +115,16 @@ function AdminAllocation() {
         reallocated: Array.isArray(result?.reallocated) ? result.reallocated : [],
         replayed: result?.replayed === true,
       });
+      setPending(null);
     } catch (error) {
-      setActionError(error?.message || "The return could not be confirmed. Please try again.");
+      logSafeError("Confirm return disposition", error);
+      throw error;
     } finally {
       setBusyId(null);
     }
   };
+  const pendingChoice = pending ? DISPOSITIONS.find((d) => d.value === pending.disposition) : null;
+  const kpiState = { loading: queueLoading, error: queueError };
 
   const awaiting = queue.filter((o) => o.allocationState === "awaiting_stock").length;
   const partial = queue.filter((o) => o.allocationState === "partially_reserved").length;
@@ -139,12 +141,17 @@ function AdminAllocation() {
       }
     >
       <section className="alloc-kpis" aria-label="Allocation summary">
-        <KpiCard label="Awaiting stock" value={awaiting} context="nothing reserved yet" tone="warning" />
-        <KpiCard label="Partially reserved" value={partial} context="some items held" tone="info" />
-        <KpiCard label="Vials short" value={shortUnits.toLocaleString()} context="across waiting orders" tone="warning" />
+        <KpiCard label="Awaiting stock" value={kpiValue(awaiting, kpiState)} context="nothing reserved yet" tone="warning" />
+        <KpiCard label="Partially reserved" value={kpiValue(partial, kpiState)} context="some items held" tone="info" />
+        <KpiCard
+          label="Vials short"
+          value={kpiValue(shortUnits.toLocaleString(), kpiState)}
+          context="across waiting orders"
+          tone="warning"
+        />
         <KpiCard
           label="Returns to confirm"
-          value={returns.length}
+          value={kpiValue(returns.length, { loading: returnsLoading, error: returnsError })}
           context={`${returnUnits.toLocaleString()} vials held aside`}
           tone={returns.length ? "danger" : "neutral"}
           attention={returns.length > 0}
@@ -176,6 +183,23 @@ function AdminAllocation() {
         <p className="alloc-error" role="alert">
           {actionError}
         </p>
+      )}
+
+      {pending && pendingChoice && (
+        <ConfirmDialog
+          title={`Record "${pendingChoice.label}"?`}
+          target={`${(Number(pending.ret.totalQuantity) || 0).toLocaleString()} returned vials from ${
+            pending.ret.orderNumber || pending.ret.orderId
+          }`}
+          consequence={`They will be ${DISPOSITION_EFFECT[pending.disposition]}. This cannot be changed afterwards.`}
+          confirmLabel={`Record ${pendingChoice.label.toLowerCase()}`}
+          busyLabel="Recording…"
+          cancelLabel="Go back"
+          tone={pendingChoice.tone === "danger" ? "danger" : "primary"}
+          failureMessage="The return could not be recorded. Nothing was changed — please try again."
+          onConfirm={runDisposition}
+          onCancel={() => setPending(null)}
+        />
       )}
 
       <section className="alloc-card" aria-labelledby="alloc-returns-heading">

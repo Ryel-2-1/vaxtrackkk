@@ -4,7 +4,6 @@ import {
   documentId,
   getDocs,
   limit,
-  onSnapshot,
   orderBy,
   query,
   startAfter,
@@ -12,6 +11,8 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { HISTORY_PAGE_SIZE, manilaDayEnd, manilaDayStart } from "./orderHistory.js";
+import { logSafeError } from "./liveDataErrors.js";
+import { listenLive } from "./liveSnapshot.js";
 
 /**
  * Read-only queries for Order Receipt History and Stock Allocation History.
@@ -84,11 +85,11 @@ export function subscribeOrderHistoryWindow({ medRepUid = null, dateFrom = "", d
   if (from) parts.push(where("createdAt", ">=", from));
   if (to) parts.push(where("createdAt", "<", to));
   parts.push(orderBy("createdAt", "desc"), limit(size));
-  return onSnapshot(
+  return listenLive(
     query(collection(db, ORDERS), ...parts),
     (snap) => callback({ orders: snap.docs.map(withId), hasMore: snap.docs.length === size }),
     (err) => {
-      console.error("Order history subscription error:", err?.code || err);
+      logSafeError("Order history subscription", err);
       if (onError) onError(err);
     }
   );
@@ -117,11 +118,11 @@ export function subscribeAllocationEvents(orderId, medRepUid, callback, onError)
   const parts = [];
   if (medRepUid) parts.push(where("medRepUid", "==", medRepUid));
   parts.push(where("orderId", "==", orderId), orderBy("createdAt", "asc"), limit(500));
-  return onSnapshot(
+  return listenLive(
     query(collection(db, EVENTS), ...parts),
     (snap) => callback(snap.docs.map(withId)),
     (err) => {
-      console.error("Allocation history subscription error:", err?.code || err);
+      logSafeError("Allocation history subscription", err);
       if (onError) onError(err);
     }
   );
@@ -129,11 +130,11 @@ export function subscribeAllocationEvents(orderId, medRepUid, callback, onError)
 
 /** The live order document, for the Current Fulfillment Summary. */
 export function subscribeOrder(orderId, callback, onError) {
-  return onSnapshot(
+  return listenLive(
     doc(db, ORDERS, orderId),
     (snap) => callback(snap.exists() ? withId(snap) : null),
     (err) => {
-      console.error("Order subscription error:", err?.code || err);
+      logSafeError("Order subscription", err);
       if (onError) onError(err);
     }
   );
@@ -182,11 +183,11 @@ const medRepOption = (u) => ({ uid: u.id, label: u.name || u.fullName || u.displ
 
 /** Admin: the same Med Rep list, LIVE — a rep added meanwhile appears in the filter. */
 export function subscribeMedReps(callback, onError) {
-  return onSnapshot(
+  return listenLive(
     query(collection(db, "users"), where("role", "==", "salesrep"), limit(MED_REP_LIMIT)),
     (snap) => callback(snap.docs.map(withId).map(medRepOption).sort((a, b) => a.label.localeCompare(b.label))),
     (err) => {
-      console.error("Med Rep list subscription error:", err?.code || err);
+      logSafeError("Med Rep list subscription", err);
       if (onError) onError(err);
     }
   );

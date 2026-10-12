@@ -22,7 +22,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import KpiCard from "../../components/ui/KpiCard";
-import { liveErrorMessage } from "../../services/liveDataErrors";
+import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import DispatcherTrackingOverview from "../../components/tracking/DispatcherTrackingOverview";
 import { availableRiderCount } from "../../services/riderTracking";
 import { assignmentBlockReason } from "../../services/backorder";
@@ -51,6 +51,7 @@ function DispatcherDashboard() {
   // nothing measured. (A failed source also counts as settled, so one refused
   // listener can no longer hold the whole page on its loading state.)
   const [failed, setFailed] = useState({});
+  const anyFailed = Object.values(failed).some(Boolean);
   const [assignNotice, setAssignNotice] = useState("");
   // Advances at each 00:00 Manila, so a scheduled order moves from Upcoming to
   // the actionable queue on its day without a reload.
@@ -64,8 +65,12 @@ function DispatcherDashboard() {
       }
     };
 
+    // A listener that recovers clears its own failure (see AdminDashboard).
+    const recover = (source) =>
+      setFailed((prev) => (prev[source] ? { ...prev, [source]: false } : prev));
+
     const fail = (source, what) => (err) => {
-      console.error("Dispatcher dashboard subscription error:", source, err?.code || err);
+      logSafeError(`Dispatcher dashboard subscription (${source})`, err);
       setError(liveErrorMessage(err, what));
       setFailed((prev) => ({ ...prev, [source]: true }));
       loaded[source] = true;
@@ -75,18 +80,21 @@ function DispatcherDashboard() {
     const unsubPending = subscribePendingDispatchOrders((orders) => {
       setPendingOrders(orders);
       loaded.pending = true;
+      recover("pending");
       checkDone();
     }, fail("pending", "the dispatch queue"));
 
     const unsubAll = subscribeDeliveries((orders) => {
       setAllOrders(orders);
       loaded.all = true;
+      recover("all");
       checkDone();
     }, fail("all", "orders"));
 
     const unsubRiders = subscribeRiders((riderList) => {
       setRiders(riderList);
       loaded.riders = true;
+      recover("riders");
       checkDone();
     }, fail("riders", "riders"));
 
@@ -95,6 +103,7 @@ function DispatcherDashboard() {
       unsubAlerts = subscribeActiveAlerts((alerts) => {
         setActiveAlerts(alerts);
         loaded.alerts = true;
+        recover("alerts");
         checkDone();
       }, fail("alerts", "alerts"));
     } catch (err) {
@@ -240,7 +249,7 @@ function DispatcherDashboard() {
           </section>
         )}
 
-        {error && (
+        {anyFailed && error && (
           <section className="dispatcher-dash-alert">
             <AlertTriangle size={18} />
             <div>

@@ -59,14 +59,23 @@ export function buildConfirmationFromOrder(order, { replayed = false } = {}) {
       // Negotiated pricing, as the server recorded it. An order placed before
       // negotiated pricing reads as "at its standard price" — nothing is inferred.
       standardUnitPriceCentavos: centsOrNull(item?.standardUnitPriceCentavos) ?? centsOrNull(item?.unitPriceCentavos),
-      priceAdjusted: item?.priceAdjusted === true,
-      adjustmentCentavos: Number.isSafeInteger(item?.adjustmentCentavos) ? item.adjustmentCentavos : 0,
-      adjustmentReason: typeof item?.adjustmentReason === "string" ? item.adjustmentReason : null,
+      priceNegotiated: item?.priceNegotiated === true,
+      negotiatedAdjustmentCentavos: Number.isSafeInteger(item?.negotiatedAdjustmentCentavos) ? item.negotiatedAdjustmentCentavos : 0,
+      negotiationReason: typeof item?.negotiationReason === "string" ? item.negotiationReason : null,
+      // The line's statutory (SC/PWD) discount — separate from the negotiation —
+      // and what the line is charged after it.
+      statutoryDiscountType: typeof item?.statutoryDiscountType === "string" ? item.statutoryDiscountType : null,
+      statutoryDiscountCentavos: Number.isSafeInteger(item?.statutoryDiscountCentavos) ? item.statutoryDiscountCentavos : 0,
+      finalLineTotalCentavos: centsOrNull(item?.finalLineTotalCentavos) ?? centsOrNull(item?.lineTotalCentavos),
     })),
     // Order-level negotiated pricing and the VAT breakdown of the agreed total.
     standardSubtotalCentavos: centsOrNull(order.standardSubtotalCentavos),
-    priceAdjustmentCentavos: Number.isSafeInteger(order.priceAdjustmentCentavos) ? order.priceAdjustmentCentavos : 0,
-    priceAdjusted: order.priceAdjusted === true,
+    negotiatedAdjustmentTotalCentavos: Number.isSafeInteger(order.negotiatedAdjustmentTotalCentavos) ? order.negotiatedAdjustmentTotalCentavos : 0,
+    priceNegotiated: order.priceNegotiated === true,
+    statutoryDiscountTotalCentavos: Number.isSafeInteger(order.statutoryDiscountTotalCentavos) ? order.statutoryDiscountTotalCentavos : 0,
+    // What the clinic is charged. An order placed before line discounts has
+    // no separate final total: its subtotal is the amount charged.
+    finalTotalCentavos: centsOrNull(order.finalTotalCentavos) ?? centsOrNull(order.subtotalCentavos),
     vatSummary: order.vatSummary && typeof order.vatSummary === "object" ? order.vatSummary : null,
     allocation: allocation.tracked
       ? {

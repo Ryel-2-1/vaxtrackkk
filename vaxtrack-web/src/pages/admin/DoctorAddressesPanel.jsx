@@ -21,7 +21,8 @@ import {
   validateDoctorHomeAddress,
 } from "../../services/doctorAddressModel";
 import ClinicLocationSection from "./ClinicLocationSection";
-import { friendlyErrorMessage, liveErrorMessage } from "../../services/liveDataErrors";
+import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
+import ConfirmDialog from "../../components/ui/ConfirmDialog";
 
 const EMPTY_CLINIC_DESTINATION = { clinicDocId: "" };
 const EMPTY_HOME_ADDRESS = {
@@ -212,7 +213,7 @@ function DoctorAddressesPanel({
       onToast(homeAddress ? "Home address updated." : "Home address added.");
       closeHomeEditor();
     } catch (error) {
-      console.error("Save doctor Home address error:", error);
+      logSafeError("Save doctor Home address", error);
       setHomeErrors(
         error.validationErrors || {
           form: friendlyErrorMessage(error, "Failed to save the Home address."),
@@ -233,7 +234,7 @@ function DoctorAddressesPanel({
         `Home address is now ${homeAddress.active ? "inactive" : "active"}.`
       );
     } catch (error) {
-      console.error("Update doctor Home address error:", error);
+      logSafeError("Update doctor Home address", error);
       setHomeErrors({
         form: friendlyErrorMessage(error, "Failed to update the Home address."),
       });
@@ -260,7 +261,7 @@ function DoctorAddressesPanel({
       setClinicDraft(EMPTY_CLINIC_DESTINATION);
       setTimeout(() => clinicSelectRef.current?.focus(), 0);
     } catch (error) {
-      console.error("Save doctor clinic destination error:", error);
+      logSafeError("Save doctor clinic destination", error);
       setClinicErrors(
         error.validationErrors || {
           form: friendlyErrorMessage(error, "Failed to save the clinic destination."),
@@ -288,7 +289,7 @@ function DoctorAddressesPanel({
         }.`
       );
     } catch (error) {
-      console.error("Update doctor clinic destination error:", error);
+      logSafeError("Update doctor clinic destination", error);
       setClinicErrors({
         form: friendlyErrorMessage(error, "Failed to update the clinic destination."),
       });
@@ -297,23 +298,24 @@ function DoctorAddressesPanel({
     }
   };
 
-  const handleRemoveLegacy = async (address) => {
+  // Removing asks first, in an application dialog that names the address and
+  // says it cannot be undone. A failure keeps that dialog open with the error.
+  const [removeTarget, setRemoveTarget] = useState(null);
+  const handleRemoveLegacy = (address) => {
     if (busy || address.legacyIndependentAddress !== true) return;
-    const confirmed = window.confirm(
-      "Remove this legacy standalone address? This cannot be undone."
-    );
-    if (!confirmed) return;
-
-    setUpdatingId(address.id);
     setClinicErrors({});
+    setRemoveTarget(address);
+  };
+  const confirmRemoveLegacy = async () => {
+    const address = removeTarget;
+    setUpdatingId(address.id);
     try {
       await removeLegacyDoctorAddress(doctor.id, address.id);
+      setRemoveTarget(null);
       onToast("Legacy standalone address removed.");
     } catch (error) {
-      console.error("Remove legacy doctor address error:", error);
-      setClinicErrors({
-        form: friendlyErrorMessage(error, "Failed to remove the legacy address."),
-      });
+      logSafeError("Remove legacy doctor address", error);
+      throw error;
     } finally {
       setUpdatingId("");
     }
@@ -760,6 +762,22 @@ function DoctorAddressesPanel({
             </div>
           </section>
         </>
+      )}
+
+      {removeTarget && (
+        <ConfirmDialog
+          title="Remove legacy address?"
+          target={`${removeTarget.label || "Legacy standalone address"} — ${
+            removeTarget.addressLine || "standalone address"
+          } (${doctor.name || "this doctor"})`}
+          consequence="This retired standalone record will be deleted. This cannot be undone. Orders already placed keep the address they were placed with."
+          confirmLabel="Remove address"
+          busyLabel="Removing…"
+          cancelLabel="Keep address"
+          failureMessage="The legacy address could not be removed. Nothing was changed — please try again."
+          onConfirm={confirmRemoveLegacy}
+          onCancel={() => setRemoveTarget(null)}
+        />
       )}
     </div>
   );

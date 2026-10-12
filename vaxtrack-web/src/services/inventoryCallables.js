@@ -1,5 +1,6 @@
 import { getFunctions, httpsCallable } from "firebase/functions";
 import app from "../firebase";
+import { UserMessageError } from "./userMessageError.js";
 
 /**
  * Client side of the trusted inventory boundary.
@@ -49,7 +50,7 @@ export { newRequestId } from "./orderDraftRequest";
  * UI branches on; `message` is the sentence the server wrote for the user.
  * Parsing prose to decide behaviour is what this avoids.
  */
-export class InventoryCallableError extends Error {
+export class InventoryCallableError extends UserMessageError {
   constructor(code, message, info) {
     super(message);
     this.name = "InventoryCallableError";
@@ -115,11 +116,21 @@ export async function createOrderWithReservation({
         // it has not moved — NOT so the server can use it. `unitPrice` is
         // deliberately no longer sent at all; the callable now rejects it.
         expectedUnitPriceCentavos: item.expectedUnitPriceCentavos,
-        // The Med Rep's negotiated VAT-inclusive UNIT price, and the reason
-        // when it differs from the standard. Never a total or a VAT figure: the
-        // server computes those and refuses any it is sent.
+        // The Med Rep's negotiated VAT-inclusive UNIT price, the reason when it
+        // differs from the standard, and this line's statutory (SC/PWD)
+        // discount — category, amount and the Med Rep's eligibility
+        // attestation (which the server requires to be exactly `true`). Never
+        // a total or a VAT figure: the server computes those and refuses any
+        // it is sent.
         ...(Number.isInteger(item.agreedUnitPriceCentavos) ? { agreedUnitPriceCentavos: item.agreedUnitPriceCentavos } : {}),
-        ...(typeof item.adjustmentReason === "string" && item.adjustmentReason ? { adjustmentReason: item.adjustmentReason } : {}),
+        ...(typeof item.negotiationReason === "string" && item.negotiationReason ? { negotiationReason: item.negotiationReason } : {}),
+        ...(Number.isInteger(item.statutoryDiscountCentavos) && item.statutoryDiscountCentavos > 0
+          ? {
+              statutoryDiscountType: item.statutoryDiscountType,
+              statutoryDiscountCentavos: item.statutoryDiscountCentavos,
+              eligibilityConfirmed: item.eligibilityConfirmed === true,
+            }
+          : {}),
       })),
     });
     return result.data;

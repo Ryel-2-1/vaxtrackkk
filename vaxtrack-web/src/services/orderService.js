@@ -3,7 +3,6 @@ import {
   collection,
   doc,
   getDoc,
-  onSnapshot,
   runTransaction,
   serverTimestamp,
   deleteField,
@@ -25,6 +24,9 @@ import {
   validateReason,
   WorkflowError,
 } from "./orderWorkflow";
+import { UserMessageError } from "./userMessageError.js";
+import { logSafeError } from "./liveDataErrors.js";
+import { listenLive } from "./liveSnapshot.js";
 
 const ORDERS_COLLECTION = "orders";
 const USERS_COLLECTION = "users";
@@ -61,13 +63,13 @@ export async function getOrderById(orderId) {
  */
 export async function createSalesRepOrder(orderData = {}) {
   if (!orderData.clinicName) {
-    throw new Error("Clinic name is required.");
+    throw new UserMessageError("Clinic name is required.");
   }
   if (!orderData.vaccineName) {
-    throw new Error("Vaccine name is required.");
+    throw new UserMessageError("Vaccine name is required.");
   }
   if (!orderData.quantity || orderData.quantity <= 0) {
-    throw new Error("Quantity must be greater than zero.");
+    throw new UserMessageError("Quantity must be greater than zero.");
   }
 
   const orderNumber = orderData.orderNumber || `VT-ORD-${Date.now()}`;
@@ -144,7 +146,7 @@ export function subscribeSalesRepOrders(uid, callback, onError) {
     where("createdByUid", "==", uid)
   );
 
-  return onSnapshot(
+  return listenLive(
     q,
     (snapshot) => {
       const orders = snapshot.docs
@@ -158,7 +160,7 @@ export function subscribeSalesRepOrders(uid, callback, onError) {
       callback(orders);
     },
     (error) => {
-      console.error("subscribeSalesRepOrders error:", error);
+      logSafeError("subscribeSalesRepOrders", error);
       if (onError) onError(error);
     }
   );
@@ -173,7 +175,7 @@ export function subscribePendingDispatchOrders(callback, onError) {
     where("status", "==", "pending_dispatch")
   );
 
-  return onSnapshot(
+  return listenLive(
     q,
     (snapshot) => {
       // document id last — see the identity rule above
@@ -192,7 +194,7 @@ export function subscribePendingDispatchOrders(callback, onError) {
  * A rejected assignment. `code` is stable and machine-readable; `message` is
  * already phrased for display, so the page can surface it without translating.
  */
-export class AssignmentError extends Error {
+export class AssignmentError extends UserMessageError {
   // `details` is optional context for the page (e.g. the status the order was
   // found in), never shown raw.
   constructor(code, message, details) {
@@ -402,7 +404,7 @@ export function subscribeAssignedRiderOrders(riderId, callback) {
     where("assignedRiderId", "==", riderId)
   );
 
-  return onSnapshot(q, (snapshot) => {
+  return listenLive(q, (snapshot) => {
     const orders = snapshot.docs
       // document id last — see the identity rule above
       .map((docItem) => ({
@@ -521,7 +523,7 @@ export async function saveOrderRoute(orderId, route, destinationRevision = 0) {
   if (!orderId) throw new Error("Order ID is required.");
   if (!route?.polyline) throw new Error("Route polyline is required.");
   if (!Number.isSafeInteger(destinationRevision) || destinationRevision < 0) {
-    throw new Error("Refresh the destination before generating a route.");
+    throw new UserMessageError("Refresh the destination before generating a route.");
   }
 
   const orderRef = doc(db, ORDERS_COLLECTION, orderId);

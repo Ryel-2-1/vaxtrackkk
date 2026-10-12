@@ -2,7 +2,6 @@ import {
   collection,
   doc,
   getDoc,
-  onSnapshot,
   runTransaction,
   serverTimestamp,
   updateDoc,
@@ -10,6 +9,9 @@ import {
 import { db } from "../firebase";
 import { getOrderStatusValue, normalizeStatusKey } from "./deliveryService";
 import { assertConsistentInvoiceTotals } from "./invoiceModel";
+import { UserMessageError } from "./userMessageError.js";
+import { logSafeError } from "./liveDataErrors.js";
+import { listenLive } from "./liveSnapshot.js";
 
 const ORDERS = "orders";
 const INVOICES = "invoices";
@@ -156,11 +158,11 @@ export function subscribeInvoiceQueue(callback, onError) {
   };
 
   const handleError = (label) => (error) => {
-    console.error(`subscribeInvoiceQueue (${label}) error:`, error);
+    logSafeError(`subscribeInvoiceQueue (${label})`, error);
     if (onError) onError(error);
   };
 
-  const unsubOrders = onSnapshot(
+  const unsubOrders = listenLive(
     collection(db, ORDERS),
     (snap) => {
       // Document id last: this order id becomes the invoice document id (one
@@ -173,7 +175,7 @@ export function subscribeInvoiceQueue(callback, onError) {
     handleError("orders")
   );
 
-  const unsubInvoices = onSnapshot(
+  const unsubInvoices = listenLive(
     collection(db, INVOICES),
     (snap) => {
       invoicesByOrder = {};
@@ -201,11 +203,11 @@ export function subscribeInvoiceQueue(callback, onError) {
  * reload. Same identity rule as getInvoiceByOrderId: the document id wins.
  */
 export function subscribeInvoice(orderId, callback, onError) {
-  return onSnapshot(
+  return listenLive(
     doc(db, INVOICES, orderId),
     (snap) => callback(snap.exists() ? { ...snap.data(), id: snap.id } : null),
     (error) => {
-      console.error("Invoice subscription error:", error?.code || error);
+      logSafeError("Invoice subscription", error);
       if (onError) onError(error);
     }
   );
@@ -246,7 +248,7 @@ export async function createInvoiceDraft(orderId, invoiceData, adminUser) {
     // All reads must happen before any writes in a transaction.
     const invSnap = await tx.get(invRef);
     if (invSnap.exists()) {
-      throw new Error("An invoice already exists for this order.");
+      throw new UserMessageError("An invoice already exists for this order.");
     }
 
     const counterSnap = await tx.get(counterRef);
@@ -283,9 +285,9 @@ export async function updateInvoiceDraft(invoiceId, invoiceData, adminUser) {
 
   const invRef = doc(db, INVOICES, invoiceId);
   const snap = await getDoc(invRef);
-  if (!snap.exists()) throw new Error("Invoice draft not found.");
+  if (!snap.exists()) throw new UserMessageError("Invoice draft not found.");
   if (snap.data().invoiceStatus === "issued") {
-    throw new Error("Issued invoices cannot be edited.");
+    throw new UserMessageError("Issued invoices cannot be edited.");
   }
   assertConsistentInvoiceTotals(invoiceData);
 
@@ -337,22 +339,22 @@ export async function issueInvoice(invoiceId, adminUser) {
 
   return runTransaction(db, async (tx) => {
     const snap = await tx.get(invRef);
-    if (!snap.exists()) throw new Error("Invoice not found.");
+    if (!snap.exists()) throw new UserMessageError("Invoice not found.");
 
     const data = snap.data();
     if (data.invoiceStatus === "issued") {
-      throw new Error("This invoice has already been issued.");
+      throw new UserMessageError("This invoice has already been issued.");
     }
 
     const items = Array.isArray(data.items) ? data.items : [];
     if (items.length === 0) {
-      throw new Error("Add at least one invoice item before issuing.");
+      throw new UserMessageError("Add at least one invoice item before issuing.");
     }
     const invalidLine = items.some(
       (it) => !(Number(it.quantity) > 0) || Number(it.unitPrice) < 0
     );
     if (invalidLine) {
-      throw new Error("Every item needs a quantity greater than zero and a valid price.");
+      throw new UserMessageError("Every item needs a quantity greater than zero and a valid price.");
     }
     // The stored totals must still match the stored line items (nothing was
     // tampered between the last draft save and issuance).

@@ -18,7 +18,7 @@ import StatusBadge from "../../components/ui/StatusBadge";
 import KpiCard from "../../components/ui/KpiCard";
 import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 import { subscribeOrderStatusEvents } from "../../services/statusEventService";
-import { liveErrorMessage } from "../../services/liveDataErrors";
+import { kpiValue, liveErrorMessage } from "../../services/liveDataErrors";
 import "./Deliveries.css";
 
 function normalizeDelivery(raw) {
@@ -154,6 +154,8 @@ function Deliveries() {
   // no count at all — now has its own.
   const countOf = (key) => deliveryList.filter((d) => d.statusType === key).length;
   const inTransitCount = countOf("in_transit");
+  // A dash while loading or after a failed read — never a false zero.
+  const kpiState = { loading, error: loadError };
   const delayedCount = countOf("delayed");
   const failedCount = countOf("delivery_failed");
   const preparingCount =
@@ -316,7 +318,7 @@ function Deliveries() {
         <section className="deliveries-summary-grid">
           <KpiCard
             label="Total deliveries"
-            value={deliveryList.length}
+            value={kpiValue(deliveryList.length, kpiState)}
             context="All orders"
             tone="neutral"
             onClick={() => setStatusFilter("all")}
@@ -327,7 +329,7 @@ function Deliveries() {
               one status it names. */}
           <KpiCard
             label="In transit"
-            value={inTransitCount}
+            value={kpiValue(inTransitCount, kpiState)}
             context="On route"
             tone="info"
             onClick={() => setStatusFilter("in_transit")}
@@ -337,7 +339,7 @@ function Deliveries() {
               the figure and put closed orders behind a "Needs review" label. */}
           <KpiCard
             label="Delayed"
-            value={delayedCount}
+            value={kpiValue(delayedCount, kpiState)}
             context="Still open"
             tone="danger"
             attention={delayedCount > 0}
@@ -348,7 +350,7 @@ function Deliveries() {
               failed delivery was in the total and in the filter, and in no card. */}
           <KpiCard
             label="Delivery failed"
-            value={failedCount}
+            value={kpiValue(failedCount, kpiState)}
             context="Rider stopped"
             tone="danger"
             attention={failedCount > 0}
@@ -357,7 +359,7 @@ function Deliveries() {
 
           <KpiCard
             label="Preparing"
-            value={preparingCount}
+            value={kpiValue(preparingCount, kpiState)}
             context="Pending, assigned or loading"
             tone="warning"
             onClick={() => setStatusFilter("pending_dispatch")}

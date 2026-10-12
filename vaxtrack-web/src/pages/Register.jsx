@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   createUserWithEmailAndPassword,
@@ -22,9 +22,19 @@ import {
   APPLICABLE_ROLES,
   buildApplicationProfile,
   mapRegistrationError,
+  registrationErrorField,
   validateApplication,
 } from "../services/registration";
 import "./Auth.css";
+
+// Each validated field's input id (the message is #register-error).
+const REGISTER_FIELD_IDS = {
+  name: "register-name",
+  email: "register-email",
+  role: "register-role",
+  password: "register-password",
+  confirmPassword: "register-confirm-password",
+};
 
 // Applying for access creates the visitor's OWN login and a pending profile.
 // Every decision (validation, the pending shape, that admin can never be
@@ -43,14 +53,34 @@ function Register() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  // The field the message belongs to (name | email | role | password |
+  // confirmPassword), or null for a form-level failure.
+  const [errorField, setErrorField] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+
+  const fail = (message, field = null) => {
+    setError(message);
+    setErrorField(field);
+    if (field) document.getElementById(REGISTER_FIELD_IDS[field])?.focus();
+  };
+  const a11y = (field) =>
+    errorField === field ? { "aria-invalid": "true", "aria-describedby": "register-error" } : {};
+  const edited = (field) => {
+    if (errorField === field) {
+      setError("");
+      setErrorField(null);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     // Block duplicate submissions: the guard, not the disabled button, is the
     // real barrier against a double-click or Enter-while-pending.
     if (submitting) return;
+    if (submittingRef.current) return;
     setError("");
+    setErrorField(null);
 
     const check = validateApplication({
       name: fullName,
@@ -60,10 +90,11 @@ function Register() {
       role,
     });
     if (!check.ok) {
-      setError(check.message);
+      fail(check.message, check.field ?? null);
       return;
     }
 
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const credential = await createUserWithEmailAndPassword(
@@ -99,8 +130,11 @@ function Register() {
       await signOut(auth);
       navigate("/pending");
     } catch (err) {
-      setError(mapRegistrationError(err?.code));
+      // Mapped from the code only — never Firebase's own text. Every value
+      // typed stays in the form.
+      fail(mapRegistrationError(err?.code), registrationErrorField(err?.code));
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -113,43 +147,54 @@ function Register() {
           <p>Apply for Access</p>
         </div>
 
-        <form className="auth-form" onSubmit={handleSubmit}>
+        <form className="auth-form" onSubmit={handleSubmit} noValidate>
           <h2 className="forgot-title">Create your account</h2>
           <p className="forgot-subtitle">
             Apply for a position. An administrator will review your request and
             approve, decline, or adjust it before you can sign in.
           </p>
 
-          <label>Full Name</label>
+          <label htmlFor={REGISTER_FIELD_IDS.name}>Full Name</label>
           <div className="auth-input">
-            <User size={16} />
+            <User size={16} aria-hidden="true" />
             <input
+              id={REGISTER_FIELD_IDS.name}
               type="text"
               placeholder="Juan Dela Cruz"
               value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
+              onChange={(e) => {
+                setFullName(e.target.value);
+                edited("name");
+              }}
+              {...a11y("name")}
               disabled={submitting}
               autoComplete="name"
             />
           </div>
 
-          <label>Email Address</label>
+          <label htmlFor={REGISTER_FIELD_IDS.email}>Email Address</label>
           <div className="auth-input">
-            <Mail size={16} />
+            <Mail size={16} aria-hidden="true" />
             <input
+              id={REGISTER_FIELD_IDS.email}
               type="email"
               placeholder="you@example.com"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                edited("email");
+              }}
+              {...a11y("email")}
               disabled={submitting}
               autoComplete="email"
             />
           </div>
 
-          <label>Phone Number (optional)</label>
+          <label htmlFor="register-phone">Phone Number (optional)</label>
           <div className="auth-input">
-            <Phone size={16} />
+            <Phone size={16} aria-hidden="true" />
             <input
+              id="register-phone"
               type="tel"
               placeholder="0917 000 0000"
               value={phone}
@@ -159,13 +204,18 @@ function Register() {
             />
           </div>
 
-          <label>Position</label>
+          <label htmlFor={REGISTER_FIELD_IDS.role}>Position</label>
           <div className="auth-input">
-            <Briefcase size={16} />
+            <Briefcase size={16} aria-hidden="true" />
             <select
+              id={REGISTER_FIELD_IDS.role}
               value={role}
-              onChange={(e) => setRole(e.target.value)}
+              onChange={(e) => {
+                setRole(e.target.value);
+                edited("role");
+              }}
               disabled={submitting}
+              {...a11y("role")}
             >
               {APPLICABLE_ROLES.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -175,14 +225,19 @@ function Register() {
             </select>
           </div>
 
-          <label>Password</label>
+          <label htmlFor={REGISTER_FIELD_IDS.password}>Password</label>
           <div className="auth-input">
-            <Lock size={16} />
+            <Lock size={16} aria-hidden="true" />
             <input
+              id={REGISTER_FIELD_IDS.password}
               type={showPassword ? "text" : "password"}
               placeholder="At least 8 characters"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                edited("password");
+              }}
+              {...a11y("password")}
               disabled={submitting}
               autoComplete="new-password"
             />
@@ -196,20 +251,29 @@ function Register() {
             </button>
           </div>
 
-          <label>Confirm Password</label>
+          <label htmlFor={REGISTER_FIELD_IDS.confirmPassword}>Confirm Password</label>
           <div className="auth-input">
-            <Lock size={16} />
+            <Lock size={16} aria-hidden="true" />
             <input
+              id={REGISTER_FIELD_IDS.confirmPassword}
               type={showPassword ? "text" : "password"}
               placeholder="Re-enter your password"
               value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
+              onChange={(e) => {
+                setConfirmPassword(e.target.value);
+                edited("confirmPassword");
+              }}
+              {...a11y("confirmPassword")}
               disabled={submitting}
               autoComplete="new-password"
             />
           </div>
 
-          {error && <div className="auth-error">{error}</div>}
+          {error && (
+            <div id="register-error" className="auth-error" role="alert">
+              {error}
+            </div>
+          )}
 
           <button className="primary-auth-btn" type="submit" disabled={submitting}>
             {submitting ? "Submitting…" : "Submit Application"}

@@ -1,3 +1,5 @@
+import { UserMessageError } from "./userMessageError.js";
+
 /**
  * The Med Rep order draft: a user-scoped cart, and the request ID + submission
  * snapshot of the checkout attempt made from it.
@@ -44,7 +46,7 @@ export const UNAUTHENTICATED_MESSAGE =
 export const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 
 /** A refused draft operation. `code` is stable; `message` is shown as-is. */
-export class OrderDraftError extends Error {
+export class OrderDraftError extends UserMessageError {
   constructor(code, message, details) {
     super(message);
     this.name = "OrderDraftError";
@@ -356,7 +358,11 @@ export function canonicalSubmission(submission) {
           : typeof item?.expectedUnitPriceCentavos === "number"
             ? item.expectedUnitPriceCentavos
             : null,
-      adjustmentReason: typeof item?.adjustmentReason === "string" && item.adjustmentReason.trim() ? item.adjustmentReason.trim() : null,
+      negotiationReason: typeof item?.negotiationReason === "string" && item.negotiationReason.trim() ? item.negotiationReason.trim() : null,
+      // The line's statutory discount is part of the attempt too.
+      statutoryDiscountType: typeof item?.statutoryDiscountType === "string" ? item.statutoryDiscountType : null,
+      statutoryDiscountCentavos: Number.isInteger(item?.statutoryDiscountCentavos) ? item.statutoryDiscountCentavos : 0,
+      eligibilityConfirmed: item?.eligibilityConfirmed === true,
     }))
     .sort((a, b) => (a.inventoryId < b.inventoryId ? -1 : a.inventoryId > b.inventoryId ? 1 : 0));
   const date = submission?.requestedDeliveryDate;
@@ -398,10 +404,20 @@ export function diffSubmission(saved, current) {
       a.items.some(
         (item, i) =>
           item.agreedUnitPriceCentavos !== b.items[i].agreedUnitPriceCentavos ||
-          item.adjustmentReason !== b.items[i].adjustmentReason
+          item.negotiationReason !== b.items[i].negotiationReason
       )
     ) {
       changed.push("agreed price");
+    }
+    if (
+      a.items.some(
+        (item, i) =>
+          item.statutoryDiscountType !== b.items[i].statutoryDiscountType ||
+          item.statutoryDiscountCentavos !== b.items[i].statutoryDiscountCentavos ||
+          item.eligibilityConfirmed !== b.items[i].eligibilityConfirmed
+      )
+    ) {
+      changed.push("statutory discount");
     }
   }
   return changed;

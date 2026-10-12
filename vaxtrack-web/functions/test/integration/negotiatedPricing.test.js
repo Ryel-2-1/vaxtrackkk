@@ -1,13 +1,14 @@
 "use strict";
 
 /**
- * Negotiated (agreed) order pricing against a REAL Firestore (emulator).
+ * Negotiated pricing + statutory (SC/PWD) line discounts against a REAL
+ * Firestore (emulator).
  *
  * What only real transactions can prove: the order, receipt, history, outbox,
- * reservation, request key and pricing audit commit together or not at all; a
- * standard price that moves under an open checkout refuses the whole order;
- * a retried request replays rather than re-pricing; and an agreed price
- * survives backorder allocation and later catalog changes.
+ * reservation, request key and BOTH audit records commit together or not at
+ * all; a standard price that moves under an open checkout refuses the whole
+ * order; a retried request replays rather than re-pricing; and agreed prices
+ * and discounts survive backorder allocation and later catalog changes.
  *
  * Run:  npm run test:emulator   (in functions/)
  */
@@ -39,14 +40,19 @@ const NOW = new Date("2026-10-11T02:00:00.000Z");
 const DELIVERY_DATE = "2026-10-15";
 
 const STD = { vat: 125000, exempt: 45000, zero: 30000 };
+const vatOf = (c) => splitVatInclusiveCentavos(c).vatCentavos;
 
 let seq = 0;
 const rid = () => `neg${String(++seq).padStart(4, "0")}${"y".repeat(20)}`;
 
 const COLLECTIONS = [
   "users", "doctors", "clinics", "areas", "vaccines", "inventory", "orders", "inventoryReservations",
-  "orderRequestKeys", "orderReceipts", "orderHistoryOutbox", "inventoryAllocationEvents", "orderPriceAdjustments",
-  "invoices", "counters",
+  "orderRequestKeys", "orderReceipts", "orderHistoryOutbox", "inventoryAllocationEvents",
+  "orderPriceAdjustments", "orderStatutoryDiscounts", "invoices", "counters",
+];
+const WRITTEN_BY_ORDER = [
+  "orders", "inventoryReservations", "orderRequestKeys", "orderReceipts", "orderHistoryOutbox",
+  "inventoryAllocationEvents", "orderPriceAdjustments", "orderStatutoryDiscounts",
 ];
 
 async function wipe() {
@@ -86,20 +92,16 @@ async function seed() {
   await db.collection("inventory").doc("zero").set(batch("vZero", STD.zero, 100, "EXP-001"));
 }
 
-const line = (inventoryId, quantity, over = {}) => ({
-  inventoryId,
-  quantity,
-  expectedUnitPriceCentavos: STD[inventoryId],
-  ...over,
-});
+const line = (inventoryId, quantity, over = {}) => ({ inventoryId, quantity, expectedUnitPriceCentavos: STD[inventoryId], ...over });
+// A discounted line, with the Med Rep's eligibility attestation ticked.
+const sc = (centavos) => ({ statutoryDiscountType: "senior_citizen", statutoryDiscountCentavos: centavos, eligibilityConfirmed: true });
+const pwd = (centavos) => ({ statutoryDiscountType: "pwd", statutoryDiscountCentavos: centavos, eligibilityConfirmed: true });
 
+const payloadOf = (items, over = {}) => ({
+  requestId: rid(), doctorId: DOCTOR, doctorAddressId: CLINIC, requestedDeliveryDate: DELIVERY_DATE, items, ...over,
+});
 const create = (uid, items, over = {}) =>
-  ops.createOrderWithReservation({
-    db, FieldValue, uid, now: NOW,
-    payload: {
-      requestId: rid(), doctorId: DOCTOR, doctorAddressId: CLINIC, requestedDeliveryDate: DELIVERY_DATE, items, ...over,
-    },
-  });
+  ops.createOrderWithReservation({ db, FieldValue, uid, now: NOW, payload: payloadOf(items, over) });
 
 const codeOf = async (p) => {
   try {
@@ -111,119 +113,188 @@ const codeOf = async (p) => {
 };
 const order = async (id) => (await db.collection("orders").doc(id).get()).data();
 const size = async (c) => (await db.collection(c).get()).size;
-const audits = async () => (await db.collection("orderPriceAdjustments").get()).docs.map((d) => ({ id: d.id, ...d.data() }));
+const docs = async (c) => (await db.collection(c).get()).docs.map((d) => ({ id: d.id, ...d.data() }));
 
 async function assertNothingWritten(label) {
-  for (const c of ["orders", "inventoryReservations", "orderRequestKeys", "orderReceipts", "orderHistoryOutbox", "inventoryAllocationEvents", "orderPriceAdjustments"]) {
-    assert.equal(await size(c), 0, `${label}: no ${c}`);
-  }
+  for (const c of WRITTEN_BY_ORDER) assert.equal(await size(c), 0, `${label}: no ${c}`);
   for (const id of ["vat", "exempt", "zero"]) {
-    const b = (await db.collection("inventory").doc(id).get()).data();
-    assert.equal(b.reservedQuantity, 0, `${label}: ${id} untouched`);
-    assert.equal(b.sellingPriceCentavos, b.sellingPriceCentavos, "standard price never written");
+    assert.equal((await db.collection("inventory").doc(id).get()).data().reservedQuantity, 0, `${label}: ${id} untouched`);
+  }
+}
+
+/** The order reconciles: negotiated subtotal − discounts = final = VAT parts. */
+function assertReconciles(o) {
+  const sum = (k) => o.items.reduce((s, i) => s + i[k], 0);
+  assert.equal(o.subtotalCentavos, sum("negotiatedGrossCentavos"));
+  assert.equal(o.statutoryDiscountTotalCentavos, sum("statutoryDiscountCentavos"));
+  assert.equal(o.finalTotalCentavos, sum("finalLineTotalCentavos"));
+  assert.equal(o.subtotalCentavos - o.statutoryDiscountTotalCentavos, o.finalTotalCentavos);
+  const v = o.vatSummary;
+  assert.equal(v.vatableSalesCentavos + v.vatAmountCentavos + v.vatExemptSalesCentavos + v.zeroRatedSalesCentavos, o.finalTotalCentavos);
+  assert.equal(v.vatAmountCentavos, sum("lineVatCentavos"));
+  for (const i of o.items) {
+    assert.equal(i.lineTotalCentavos, i.quantity * i.unitPriceCentavos, "lineTotal stays quantity × unit");
+    assert.equal(i.finalLineTotalCentavos, i.negotiatedGrossCentavos - i.statutoryDiscountCentavos);
+    assert.equal(i.lineVatCentavos, i.vatClassification === "vatable" ? vatOf(i.finalLineTotalCentavos) : 0);
   }
 }
 
 // ---------------------------------------------------------------- happy paths
 
-test("a standard-price order records agreed = standard, no adjustment and no audit", async () => {
+test("standard price, no discount: no adjustment, no discount, no audits", async () => {
   await seed();
   const r = await create(SR, [line("vat", 2)]);
   const o = await order(r.orderId);
   const it = o.items[0];
-  assert.equal(it.standardUnitPriceCentavos, STD.vat);
   assert.equal(it.agreedUnitPriceCentavos, STD.vat);
-  assert.equal(it.unitPriceCentavos, STD.vat);
-  assert.equal(it.lineTotalCentavos, 2 * STD.vat);
-  assert.equal(it.adjustmentCentavos, 0);
-  assert.equal(it.priceAdjusted, false);
-  assert.equal(it.adjustmentReason, null);
-  assert.equal(it.vatRatePercent, 12);
-  assert.equal(o.priceAgreementVersion, 1);
-  assert.equal(o.priceAdjusted, false);
-  assert.equal(o.subtotalCentavos, 2 * STD.vat);
-  assert.equal(o.standardSubtotalCentavos, 2 * STD.vat);
-  assert.equal(o.vatSummary.vatAmountCentavos, splitVatInclusiveCentavos(2 * STD.vat).vatCentavos);
-  assert.deepEqual(await audits(), []);
-  assert.equal(r.pricing.priceAdjusted, false);
+  assert.equal(it.priceNegotiated, false);
+  assert.equal(it.statutoryDiscountCentavos, 0);
+  assert.equal(it.statutoryDiscountType, null);
+  assert.equal(o.finalTotalCentavos, 2 * STD.vat);
+  assertReconciles(o);
+  assert.equal(await size("orderPriceAdjustments"), 0);
+  assert.equal(await size("orderStatutoryDiscounts"), 0);
 });
 
-test("a lower negotiated price is the charged price; standard, adjustment, reason and audit are recorded", async () => {
+test("negotiated price only: recorded with its own audit", async () => {
   await seed();
   const requestId = rid();
   const r = await ops.createOrderWithReservation({
     db, FieldValue, uid: SR, now: NOW,
-    payload: {
-      requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, requestedDeliveryDate: DELIVERY_DATE,
-      items: [line("vat", 3, { agreedUnitPriceCentavos: 110050, adjustmentReason: "  Volume  order for clinic " })],
-    },
+    payload: payloadOf([line("vat", 3, { agreedUnitPriceCentavos: 110050, negotiationReason: "  Volume  order " })], { requestId }),
   });
   const o = await order(r.orderId);
   const it = o.items[0];
-  assert.equal(it.unitPriceCentavos, 110050, "invoices and receipts read the agreed price");
-  assert.equal(it.lineTotalCentavos, 330150);
-  assert.equal(it.standardLineTotalCentavos, 375000);
-  assert.equal(it.adjustmentCentavos, -44850);
-  assert.equal(it.adjustmentReason, "Volume order for clinic");
-  assert.equal(o.subtotalCentavos, 330150);
-  assert.equal(o.priceAdjustmentCentavos, -44850);
-  assert.equal(o.priceAdjusted, true);
-
-  const [audit] = await audits();
+  assert.equal(it.unitPriceCentavos, 110050);
+  assert.equal(it.negotiatedGrossCentavos, 330150);
+  assert.equal(it.negotiatedAdjustmentCentavos, -44850);
+  assert.equal(it.negotiationReason, "Volume order");
+  assert.equal(it.statutoryDiscountCentavos, 0);
+  assert.equal(o.priceNegotiated, true);
+  assert.equal(o.statutoryDiscountApplied, false);
+  assertReconciles(o);
+  const [audit] = await docs("orderPriceAdjustments");
   assert.equal(audit.id, `${r.orderId}__0`);
-  assert.equal(audit.medRepUid, SR, "the verified caller, never payload data");
+  assert.equal(audit.medRepUid, SR);
   assert.equal(audit.requestId, requestId);
-  assert.ok(audit.createdAt instanceof Timestamp, "server time");
-  assert.equal(audit.standardUnitPriceCentavos, STD.vat);
-  assert.equal(audit.agreedUnitPriceCentavos, 110050);
-  assert.equal(audit.adjustmentCentavos, -44850);
-  assert.equal(audit.adjustmentReason, "Volume order for clinic");
-
-  // The receipt — written in the same transaction — carries the agreed price.
-  const receipt = (await db.collection("orderReceipts").doc(r.orderId).get()).data();
-  assert.equal(receipt.lines[0].unitPriceCentavos, 110050);
-  assert.equal(receipt.finalTotalCentavos, 330150);
-  // The standard price on the batch is never changed by a negotiation.
+  assert.ok(audit.createdAt instanceof Timestamp);
+  assert.equal(await size("orderStatutoryDiscounts"), 0);
+  // The batch's standard price is never changed by a negotiation.
   assert.equal((await db.collection("inventory").doc("vat").get()).data().sellingPriceCentavos, STD.vat);
 });
 
-test("a higher negotiated price is allowed with a reason", async () => {
+test("SC/PWD discount only: VAT extracted after the line discount, with its own audit", async () => {
   await seed();
-  const r = await create(SR, [line("vat", 1, { agreedUnitPriceCentavos: 130000, adjustmentReason: "Rush delivery" })]);
+  const r = await create(SR, [line("vat", 2, sc(50000))]);
   const o = await order(r.orderId);
-  assert.equal(o.items[0].adjustmentCentavos, 5000);
-  assert.equal(o.subtotalCentavos, 130000);
+  const it = o.items[0];
+  assert.equal(it.priceNegotiated, false);
+  assert.equal(it.negotiatedGrossCentavos, 250000);
+  assert.equal(it.statutoryDiscountCentavos, 50000);
+  assert.equal(it.statutoryDiscountType, "senior_citizen");
+  assert.equal(it.finalLineTotalCentavos, 200000);
+  assert.equal(it.lineVatCentavos, vatOf(200000));
+  assert.equal(o.subtotalCentavos, 250000);
+  assert.equal(o.statutoryDiscountTotalCentavos, 50000);
+  assert.equal(o.finalTotalCentavos, 200000);
+  assertReconciles(o);
+  assert.equal(await size("orderPriceAdjustments"), 0, "no negotiation, no price audit");
+  const [audit] = await docs("orderStatutoryDiscounts");
+  assert.equal(audit.id, `${r.orderId}__0`);
+  assert.equal(audit.discountType, "senior_citizen");
+  assert.equal(audit.discountCentavos, 50000);
+  assert.equal(audit.medRepUid, SR);
+  assert.ok(audit.createdAt instanceof Timestamp);
+  // The Med Rep's eligibility attestation: confirmed, by the verified caller,
+  // at server time — recorded as an attestation, not a verification.
+  assert.equal(audit.eligibilityConfirmed, true);
+  assert.equal(audit.eligibilityVerificationMethod, "med_rep_attestation");
+  assert.equal(audit.eligibilityAttestationText, "I confirm that I verified the customer’s eligibility for this statutory discount.");
+  assert.equal(audit.eligibilityConfirmedByUid, SR);
+  assert.ok(audit.eligibilityConfirmedAt instanceof Timestamp);
+  // No identification of the customer is stored anywhere.
+  for (const key of Object.keys(audit).filter((k) => k !== "name")) {
+    assert.doesNotMatch(key, /id(Number|No)|idCard|photo|image|beneficiary|birth|address/i, key);
+  }
+  assert.equal(it.eligibilityConfirmed, true);
 });
 
-test("a mixed VATable / exempt / zero-rated order reconciles exactly", async () => {
+test("both on the same line: two separate figures, two separate audit records", async () => {
+  await seed();
+  const r = await create(SR, [line("vat", 3, { agreedUnitPriceCentavos: 110000, negotiationReason: "Volume", ...pwd(33000) })]);
+  const o = await order(r.orderId);
+  const it = o.items[0];
+  assert.equal(it.negotiatedAdjustmentCentavos, -45000);
+  assert.equal(it.statutoryDiscountCentavos, 33000);
+  assert.equal(it.finalLineTotalCentavos, 297000);
+  assertReconciles(o);
+  const price = await docs("orderPriceAdjustments");
+  const disc = await docs("orderStatutoryDiscounts");
+  assert.equal(price.length, 1);
+  assert.equal(disc.length, 1);
+  assert.equal("discountCentavos" in price[0], false);
+  assert.equal("negotiatedAdjustmentCentavos" in disc[0], false);
+});
+
+test("mixed classes with discounts on selected lines only — no proportional allocation", async () => {
   await seed();
   const r = await create(SR, [
-    line("vat", 3, { agreedUnitPriceCentavos: 119999, adjustmentReason: "Promo" }),
+    line("vat", 3, { agreedUnitPriceCentavos: 119999, negotiationReason: "Promo", ...sc(1) }),
     line("exempt", 2),
-    line("zero", 5, { agreedUnitPriceCentavos: 29999, adjustmentReason: "Loyalty" }),
+    line("zero", 5, pwd(10000)),
   ]);
   const o = await order(r.orderId);
-  const v = o.vatSummary;
-  assert.equal(v.vatableGrossCentavos, 3 * 119999);
-  assert.equal(v.vatAmountCentavos, splitVatInclusiveCentavos(3 * 119999).vatCentavos);
-  assert.equal(v.vatExemptSalesCentavos, 2 * STD.exempt);
-  assert.equal(v.zeroRatedSalesCentavos, 5 * 29999);
-  assert.equal(v.vatableSalesCentavos + v.vatAmountCentavos + v.vatExemptSalesCentavos + v.zeroRatedSalesCentavos, o.subtotalCentavos);
-  assert.deepEqual(o.items.map((i) => i.vatClassification), ["vatable", "vat_exempt", "zero_rated"]);
-  assert.deepEqual(o.items.map((i) => i.vatRatePercent), [12, 0, 0]);
-  assert.equal((await audits()).length, 2, "one audit per negotiated line");
+  assertReconciles(o);
+  assert.deepEqual(o.items.map((i) => i.statutoryDiscountCentavos), [1, 0, 10000]);
+  assert.equal(o.items[1].finalLineTotalCentavos, 2 * STD.exempt, "an undiscounted line is untouched");
+  assert.equal(o.vatSummary.vatAmountCentavos, vatOf(3 * 119999 - 1));
+  assert.equal(o.vatSummary.vatExemptSalesCentavos, 2 * STD.exempt);
+  assert.equal(o.vatSummary.zeroRatedSalesCentavos, 5 * STD.zero - 10000);
+  assert.equal(await size("orderStatutoryDiscounts"), 2);
+  assert.equal(await size("orderPriceAdjustments"), 1);
+});
+
+test("a discount equal to the line's negotiated gross is allowed; one centavo more is refused", async () => {
+  await seed();
+  const r = await create(SR, [line("vat", 1, pwd(STD.vat)), line("exempt", 1)]);
+  const o = await order(r.orderId);
+  assert.equal(o.items[0].finalLineTotalCentavos, 0);
+  assert.equal(o.items[0].lineVatCentavos, 0);
+  assertReconciles(o);
+
+  await seed();
+  assert.equal(await codeOf(create(SR, [line("vat", 1, pwd(STD.vat + 1))])), "statutory-discount-exceeds-line");
+  assert.equal(
+    await codeOf(create(SR, [line("vat", 2, { agreedUnitPriceCentavos: 100000, negotiationReason: "x", ...pwd(200001) })])),
+    "statutory-discount-exceeds-line",
+    "bounded by the NEGOTIATED gross"
+  );
+  await assertNothingWritten("over the boundary");
 });
 
 // ---------------------------------------------------------------- refusals leave nothing
 
 test("refusals leave no order, reservation, key, receipt, history or audit", async (t) => {
   const cases = [
-    ["a client total", [line("vat", 1, { lineTotalCentavos: 1 })], "unknown-field"],
-    ["a client agreed total", [line("vat", 1, { agreedLineTotalCentavos: 1 })], "unknown-field"],
+    ["a client line total", [line("vat", 1, { lineTotalCentavos: 1 })], "unknown-field"],
+    ["a client final line total", [line("vat", 1, { finalLineTotalCentavos: 1 })], "unknown-field"],
+    ["a client line VAT", [line("vat", 1, { lineVatCentavos: 1 })], "unknown-field"],
     ["a client VAT classification", [line("vat", 1, { vatClassification: "vat_exempt" })], "unknown-field"],
-    ["a missing reason", [line("vat", 1, { agreedUnitPriceCentavos: 100000 })], "adjustment-reason-required"],
-    ["a zero agreed price", [line("vat", 1, { agreedUnitPriceCentavos: 0, adjustmentReason: "free" })], "invalid-agreed-price"],
-    ["a fractional agreed price", [line("vat", 1, { agreedUnitPriceCentavos: 100000.5, adjustmentReason: "x" })], "invalid-agreed-price"],
+    ["a beneficiary ID", [line("vat", 1, { ...sc(100), seniorCitizenId: "1234" })], "unknown-field"],
+    ["a missing reason", [line("vat", 1, { agreedUnitPriceCentavos: 100000 })], "negotiation-reason-required"],
+    ["a zero agreed price", [line("vat", 1, { agreedUnitPriceCentavos: 0, negotiationReason: "free" })], "invalid-agreed-price"],
+    ["a discount without a category", [line("vat", 1, { statutoryDiscountCentavos: 500 })], "statutory-discount-type-required"],
+    ["an unknown category", [line("vat", 1, { statutoryDiscountType: "employee", statutoryDiscountCentavos: 500 })], "invalid-statutory-discount"],
+    ["an unconfirmed category (NAAC)", [line("vat", 1, { ...pwd(500), statutoryDiscountType: "naac" })], "invalid-statutory-discount"],
+    ["an unconfirmed category (Solo Parent)", [line("vat", 1, { ...pwd(500), statutoryDiscountType: "solo_parent" })], "invalid-statutory-discount"],
+    ["an unconfirmed category (Medal of Valor)", [line("vat", 1, { ...pwd(500), statutoryDiscountType: "medal_of_valor" })], "invalid-statutory-discount"],
+    ["a discount without the attestation", [line("vat", 1, { statutoryDiscountType: "pwd", statutoryDiscountCentavos: 500 })], "eligibility-not-confirmed"],
+    ["an attestation of false", [line("vat", 1, { ...pwd(500), eligibilityConfirmed: false })], "eligibility-not-confirmed"],
+    ["an attestation of \"true\"", [line("vat", 1, { ...pwd(500), eligibilityConfirmed: "true" })], "eligibility-not-confirmed"],
+    ["an attestation of 1", [line("vat", 1, { ...pwd(500), eligibilityConfirmed: 1 })], "eligibility-not-confirmed"],
+    ["one unconfirmed line among confirmed ones", [line("vat", 1, pwd(500)), line("exempt", 1, { ...sc(500), eligibilityConfirmed: null })], "eligibility-not-confirmed"],
+    ["a fractional discount", [line("vat", 1, pwd(10.5))], "invalid-statutory-discount"],
+    ["a negative discount", [line("vat", 1, pwd(-100))], "invalid-statutory-discount"],
   ];
   for (const [label, items, code] of cases) {
     await t.test(label, async () => {
@@ -232,43 +303,38 @@ test("refusals leave no order, reservation, key, receipt, history or audit", asy
       await assertNothingWritten(label);
     });
   }
-  await t.test("a client order total", async () => {
+  await t.test("client order totals", async () => {
     await seed();
-    assert.equal(await codeOf(create(SR, [line("vat", 1)], { subtotalCentavos: 1 })), "unknown-field");
-    await assertNothingWritten("order total");
+    for (const field of ["subtotalCentavos", "finalTotalCentavos", "statutoryDiscountTotalCentavos", "vatSummary"]) {
+      assert.equal(await codeOf(create(SR, [line("vat", 1)], { [field]: 1 })), "unknown-field", field);
+    }
+    await assertNothingWritten("order totals");
   });
 });
 
 test("a standard price changed after review refuses the whole order atomically", async () => {
   await seed();
-  // The Med Rep reviewed ₱1,250.00 and negotiated ₱1,100.00 on it…
   await db.collection("inventory").doc("vat").update({ sellingPriceCentavos: 135000 });
-  const items = [
-    line("exempt", 1),
-    line("vat", 2, { agreedUnitPriceCentavos: 110000, adjustmentReason: "Volume" }),
-  ];
   let error;
   try {
-    await create(SR, items);
+    await create(SR, [line("exempt", 1), line("vat", 2, { agreedUnitPriceCentavos: 110000, negotiationReason: "Volume", ...sc(1000) })]);
   } catch (e) {
     error = e;
   }
   assert.equal(error.code, "price-changed");
-  // Only what the rep may already read: the batch and its current standard price.
   assert.deepEqual(Object.keys(error.details).sort(), ["batchId", "currentUnitPriceCentavos", "expectedUnitPriceCentavos", "inventoryId"]);
-  assert.equal(error.details.currentUnitPriceCentavos, 135000);
   await assertNothingWritten("stale standard price");
 
-  // Reviewed again at the new standard, the agreed price goes through unchanged.
-  const r = await create(SR, [line("vat", 2, { expectedUnitPriceCentavos: 135000, agreedUnitPriceCentavos: 110000, adjustmentReason: "Volume" })]);
+  const r = await create(SR, [line("vat", 2, { expectedUnitPriceCentavos: 135000, agreedUnitPriceCentavos: 110000, negotiationReason: "Volume", ...sc(1000) })]);
   const o = await order(r.orderId);
   assert.equal(o.items[0].standardUnitPriceCentavos, 135000);
   assert.equal(o.items[0].agreedUnitPriceCentavos, 110000);
+  assert.equal(o.items[0].statutoryDiscountCentavos, 1000);
 });
 
-test("only an approved Med Rep can place an order with negotiated prices", async () => {
+test("only an approved Med Rep can place an order", async () => {
   await seed();
-  const items = [line("vat", 1, { agreedUnitPriceCentavos: 100000, adjustmentReason: "Deal" })];
+  const items = [line("vat", 1, { agreedUnitPriceCentavos: 100000, negotiationReason: "Deal", ...sc(500) })];
   for (const uid of [DISPATCHER, RIDER, ADMIN, SR_PENDING, "nobody"]) {
     assert.ok(["wrong-role", "not-approved", "profile-missing"].includes(await codeOf(create(uid, items))), uid);
   }
@@ -277,74 +343,83 @@ test("only an approved Med Rep can place an order with negotiated prices", async
 
 // ---------------------------------------------------------------- idempotency + immutability
 
-test("a repeated request replays the original agreed prices; a different price under the same id is refused", async () => {
+test("a repeated request replays the original prices and discounts; a changed discount under the same id is refused", async () => {
   await seed();
-  const requestId = rid();
-  const payload = {
-    requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, requestedDeliveryDate: DELIVERY_DATE,
-    items: [line("vat", 2, { agreedUnitPriceCentavos: 115000, adjustmentReason: "Contract" })],
-  };
+  const payload = payloadOf([line("vat", 2, { agreedUnitPriceCentavos: 115000, negotiationReason: "Contract", ...sc(23000) })]);
   const first = await ops.createOrderWithReservation({ db, FieldValue, uid: SR, now: NOW, payload });
   const [a, b] = await Promise.all([
     ops.createOrderWithReservation({ db, FieldValue, uid: SR, now: NOW, payload }),
     ops.createOrderWithReservation({ db, FieldValue, uid: SR, now: NOW, payload }),
   ]);
-  assert.equal(a.orderId, first.orderId);
-  assert.equal(b.orderId, first.orderId);
-  assert.equal(a.replayed, true);
-  assert.equal(a.pricing.items[0].agreedUnitPriceCentavos, 115000);
-  assert.equal(a.pricing.items[0].standardUnitPriceCentavos, STD.vat);
+  for (const replay of [a, b]) {
+    assert.equal(replay.orderId, first.orderId);
+    assert.equal(replay.replayed, true);
+    assert.equal(replay.pricing.items[0].agreedUnitPriceCentavos, 115000);
+    assert.equal(replay.pricing.items[0].statutoryDiscountCentavos, 23000);
+    assert.equal(replay.pricing.finalTotalCentavos, 230000 - 23000);
+  }
   assert.equal(await size("orders"), 1);
-  assert.equal((await audits()).length, 1, "the audit is written once");
+  assert.equal(await size("orderPriceAdjustments"), 1);
+  assert.equal(await size("orderStatutoryDiscounts"), 1);
 
-  const changed = { ...payload, items: [line("vat", 2, { agreedUnitPriceCentavos: 105000, adjustmentReason: "Contract" })] };
+  const changed = { ...payload, items: [line("vat", 2, { agreedUnitPriceCentavos: 115000, negotiationReason: "Contract", ...sc(23001) })] };
   assert.equal(await codeOf(ops.createOrderWithReservation({ db, FieldValue, uid: SR, now: NOW, payload: changed })), "idempotency-conflict");
-  assert.equal((await order(first.orderId)).items[0].agreedUnitPriceCentavos, 115000);
+  assert.equal((await order(first.orderId)).items[0].statutoryDiscountCentavos, 23000);
 });
 
-test("another Med Rep's request never touches a placed order's pricing", async () => {
+test("another Med Rep's request never touches a placed order", async () => {
   await seed();
   const requestId = rid();
   const mk = (uid, agreed) => ops.createOrderWithReservation({
     db, FieldValue, uid, now: NOW,
-    payload: {
-      requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, requestedDeliveryDate: DELIVERY_DATE,
-      items: [line("vat", 1, { agreedUnitPriceCentavos: agreed, adjustmentReason: "Deal" })],
-    },
+    payload: payloadOf([line("vat", 1, { agreedUnitPriceCentavos: agreed, negotiationReason: "Deal" })], { requestId }),
   });
   const mine = await mk(SR, 120000);
   const theirs = await mk(SR2, 90000);
-  assert.notEqual(theirs.orderId, mine.orderId, "the request key is scoped to its caller");
+  assert.notEqual(theirs.orderId, mine.orderId);
   assert.equal((await order(mine.orderId)).items[0].agreedUnitPriceCentavos, 120000);
 });
 
-test("backordered stock is allocated later at the agreed price, whatever the catalog says then", async () => {
+test("backordered stock is allocated later at the agreed price and discount", async () => {
   await seed();
   await db.collection("inventory").doc("vat").update({ quantity: 2 });
-  const r = await create(SR, [line("vat", 5, { agreedUnitPriceCentavos: 100000, adjustmentReason: "Long-term contract" })]);
+  const r = await create(SR, [line("vat", 5, { agreedUnitPriceCentavos: 100000, negotiationReason: "Long-term contract", ...sc(50000) })]);
   let o = await order(r.orderId);
   assert.equal(o.items[0].reservedQuantity, 2);
   assert.equal(o.items[0].backorderedQuantity, 3);
 
-  // Stock arrives and the batch is re-priced; the waiting order is filled…
   await db.collection("inventory").doc("vat").update({ quantity: 50, sellingPriceCentavos: 150000 });
   await allocateProducts({ db, FieldValue, productKeys: ["vVat"], now: NOW });
   o = await order(r.orderId);
   assert.equal(o.items[0].reservedQuantity, 5);
-  // …at the price agreed when it was placed.
-  assert.equal(o.items[0].unitPriceCentavos, 100000);
   assert.equal(o.items[0].agreedUnitPriceCentavos, 100000);
-  assert.equal(o.items[0].standardUnitPriceCentavos, STD.vat);
-  assert.equal(o.subtotalCentavos, 500000);
+  assert.equal(o.items[0].statutoryDiscountCentavos, 50000);
+  assert.equal(o.items[0].finalLineTotalCentavos, 450000);
+  assert.equal(o.finalTotalCentavos, 450000);
+  assertReconciles(o);
 });
 
 test("a re-classified vaccine never changes a placed order's VAT", async () => {
   await seed();
-  const r = await create(SR, [line("vat", 1)]);
+  const r = await create(SR, [line("vat", 1, pwd(5000))]);
   await db.collection("vaccines").doc("vVat").update({ vatClassification: "zero_rated" });
   const o = await order(r.orderId);
   assert.equal(o.items[0].vatClassification, "vatable");
-  assert.equal(o.vatSummary.vatAmountCentavos, splitVatInclusiveCentavos(STD.vat).vatCentavos);
+  assert.equal(o.vatSummary.vatAmountCentavos, vatOf(STD.vat - 5000));
+});
+
+test("the receipt states what was charged", async () => {
+  await seed();
+  const r = await create(SR, [line("vat", 2, { agreedUnitPriceCentavos: 110000, negotiationReason: "Volume", ...pwd(22000) }), line("zero", 1)]);
+  const o = await order(r.orderId);
+  const receipt = (await db.collection("orderReceipts").doc(r.orderId).get()).data();
+  assert.equal(receipt.subtotalCentavos, o.subtotalCentavos);
+  assert.equal(receipt.discountCentavos, 22000);
+  assert.equal(receipt.finalTotalCentavos, o.finalTotalCentavos);
+  assert.equal(receipt.vatAmountCentavos, o.vatSummary.vatAmountCentavos);
+  assert.equal(receipt.lines[0].unitPriceCentavos, 110000);
+  assert.equal(receipt.lines[0].statutoryDiscountCentavos, 22000);
+  assert.equal(receipt.lines[0].finalLineTotalCentavos, 198000);
 });
 
 // ---------------------------------------------------------------- invoices
@@ -352,35 +427,75 @@ test("a re-classified vaccine never changes a placed order's VAT", async () => {
 const save = (uid, payload) => invoices.saveInvoiceDraftForPricedOrder({ db, FieldValue, uid, payload, now: NOW });
 const issue = (uid, payload) => invoices.issueInvoiceForPricedOrder({ db, FieldValue, uid, payload, now: NOW });
 
-test("the invoice bills the agreed snapshot and refuses a second discount on a negotiated order", async () => {
+test("the invoice bills final charged amounts with no discount line, and adds up exactly", async () => {
   await seed();
   const r = await create(SR, [
-    line("vat", 2, { agreedUnitPriceCentavos: 110000, adjustmentReason: "Volume" }),
-    line("zero", 1),
+    // 2 × ₱1,100.00 − ₱220.01 = ₱1,979.99 — does not divide by 2.
+    line("vat", 2, { agreedUnitPriceCentavos: 110000, negotiationReason: "Volume", ...sc(22001) }),
+    line("exempt", 1),
+    line("zero", 1, pwd(3000)),
   ]);
+  const o = await order(r.orderId);
   await db.collection("inventory").doc("vat").update({ sellingPriceCentavos: 999900 });
 
-  assert.equal(
-    await codeOf(save(ADMIN, { orderId: r.orderId, presentation: {}, adjustments: { discountCentavos: 100 } })),
-    "discount-not-allowed-negotiated"
-  );
-  await save(ADMIN, { orderId: r.orderId, presentation: {}, adjustments: { discountCentavos: 0 } });
+  // The invoice carries no discount of its own: the SC/PWD discounts are
+  // already inside the line amounts. Any invoice discount is refused —
+  // including one equal to the recorded per-line total.
+  for (const discountCentavos of [100, o.statutoryDiscountTotalCentavos]) {
+    assert.equal(
+      await codeOf(save(ADMIN, { orderId: r.orderId, presentation: {}, adjustments: { discountCentavos } })),
+      "discount-recorded-per-line",
+      String(discountCentavos)
+    );
+  }
+  await save(ADMIN, { orderId: r.orderId, presentation: {}, adjustments: {} });
   const inv = (await db.collection("invoices").doc(r.orderId).get()).data();
-  assert.equal(inv.items[0].unitPriceCentavos, 110000, "agreed, not the standard or today's catalog price");
-  assert.equal(inv.subtotalCentavos, 220000 + STD.zero);
+
+  // Line amounts are the order's FINAL charged line totals.
+  inv.items.forEach((it, i) => {
+    assert.equal(it.lineTotalCentavos, o.items[i].finalLineTotalCentavos, `line ${i}`);
+    assert.equal(it.amountIsFinalCharged, true);
+    assert.equal("statutoryDiscountCentavos" in it, false, "no discount on the invoice line");
+  });
+  assert.equal(inv.items[0].lineTotalCentavos, 197999);
+  assert.equal(inv.items[0].unitPriceCentavos, null, "no fabricated rounded unit price");
+  assert.equal(inv.items[1].unitPriceCentavos, STD.exempt);
+  assert.equal(inv.items[2].unitPriceCentavos, STD.zero - 3000);
+  assert.equal(inv.lineAmountBasis, "final_charged");
+  assert.equal("discountSource" in inv, false);
   assert.equal(inv.discountCentavos, 0);
-  assert.equal(inv.zeroRatedSalesCentavos ?? inv.zeroRatedSales * 100, STD.zero);
+
+  // The visible invoice adds up: Σ line amounts = subtotal = VAT breakdown = total.
+  const sum = inv.items.reduce((s, it) => s + it.lineTotalCentavos, 0);
+  assert.equal(inv.subtotalCentavos, sum);
+  assert.equal(inv.totalSalesVatInclusiveCentavos, sum);
+  assert.equal(inv.vatableSalesCentavos + inv.vatAmountCentavos + inv.vatExemptSalesCentavos + inv.zeroRatedSalesCentavos, sum);
+  assert.equal(inv.grandTotalCentavos, sum);
+  assert.equal(inv.grandTotalCentavos, o.finalTotalCentavos);
+  assert.equal(inv.finalTotalCentavos, o.finalTotalCentavos);
+  // VAT on the final charged amounts, as the order recorded.
+  assert.equal(inv.vatAmountCentavos, o.vatSummary.vatAmountCentavos);
+  assert.equal(inv.vatableSalesCentavos, o.vatSummary.vatableSalesCentavos);
+  assert.equal(inv.vatExemptSalesCentavos, STD.exempt);
+  assert.equal(inv.zeroRatedSalesCentavos, STD.zero - 3000);
+
+  // The discount stays internal: on the order and its audit.
+  assert.equal(o.items[0].statutoryDiscountCentavos, 22001);
+  assert.equal((await docs("orderStatutoryDiscounts")).length, 2);
+
   await issue(ADMIN, { orderId: r.orderId });
   assert.equal((await db.collection("invoices").doc(r.orderId).get()).data().invoiceStatus, "issued");
 });
 
-test("a standard-price order keeps the existing invoice discount; a legacy priced order stays invoiceable", async () => {
+test("a negotiated order without line discounts saves its invoice; legacy priced orders keep the admin discount", async () => {
   await seed();
-  const r = await create(SR, [line("vat", 1)]);
-  await save(ADMIN, { orderId: r.orderId, presentation: {}, adjustments: { discountCentavos: 500 } });
-  assert.equal((await db.collection("invoices").doc(r.orderId).get()).data().discountCentavos, 500);
+  const r = await create(SR, [line("vat", 1, { agreedUnitPriceCentavos: 100000, negotiationReason: "Deal" })]);
+  // Negotiation alone does not block the invoice: it saves with no discount.
+  await save(ADMIN, { orderId: r.orderId, presentation: {}, adjustments: { discountCentavos: 0 } });
+  const inv = (await db.collection("invoices").doc(r.orderId).get()).data();
+  assert.equal(inv.discountCentavos, 0);
+  assert.equal(inv.grandTotalCentavos, 100000);
 
-  // An order priced before negotiated pricing: no agreement fields at all.
   await db.collection("orders").doc("legacyPriced").set({
     orderNumber: "VT-OLD", status: "delivered", pricingVersion: 1, priceCurrency: "PHP", priceIsVatInclusive: true,
     subtotalCentavos: 2 * STD.vat, createdByUid: SR, unit: "vials",
@@ -388,6 +503,10 @@ test("a standard-price order keeps the existing invoice discount; a legacy price
   });
   await save(ADMIN, { orderId: "legacyPriced", presentation: {}, adjustments: { discountCentavos: 1000 } });
   const legacy = (await db.collection("invoices").doc("legacyPriced").get()).data();
-  assert.equal(legacy.items[0].unitPriceCentavos, STD.vat);
   assert.equal(legacy.discountCentavos, 1000);
+  assert.equal(legacy.items[0].unitPriceCentavos, STD.vat);
+  assert.equal(legacy.items[0].lineTotalCentavos, 2 * STD.vat);
+  assert.equal("amountIsFinalCharged" in legacy.items[0], false);
+  assert.equal("lineAmountBasis" in legacy, false);
+  assert.equal(legacy.grandTotalCentavos, 2 * STD.vat - 1000);
 });

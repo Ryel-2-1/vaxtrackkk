@@ -27,6 +27,7 @@ import { auth } from "../../firebase";
 import KpiCard from "../../components/ui/KpiCard";
 import MonthCalendar from "../../components/ui/MonthCalendar";
 import StatusBadge from "../../components/ui/StatusBadge";
+import { kpiValue, liveErrorMessage } from "../../services/liveDataErrors";
 
 // The key the planner leaves for the checkout page to pick up, so a day chosen
 // here pre-fills the order's requested delivery date. Read once and cleared by
@@ -154,11 +155,7 @@ function SalesRepDashboard() {
         setOrdersError("");
       },
       (err) => {
-        if (err?.code === "permission-denied") {
-          setOrdersError("Permission denied.");
-        } else {
-          setOrdersError("Unable to load orders.");
-        }
+        setOrdersError(liveErrorMessage(err, "your orders"));
         setOrdersLoading(false);
       }
     );
@@ -174,11 +171,7 @@ function SalesRepDashboard() {
         setInvError("");
       },
       (err) => {
-        if (err?.code === "permission-denied") {
-          setInvError("Permission denied.");
-        } else {
-          setInvError("Unable to load inventory.");
-        }
+        setInvError(liveErrorMessage(err, "inventory"));
         setInvLoading(false);
       }
     );
@@ -285,25 +278,25 @@ function SalesRepDashboard() {
         <section className="srd-kpis">
           <KpiCard
             label="Total orders"
-            value={metrics.total.toLocaleString()}
+            value={kpiValue(metrics.total.toLocaleString(), { error: ordersError })}
             context={`${metrics.delivered} delivered`}
             tone="neutral"
           />
           <KpiCard
             label="Pending dispatch"
-            value={metrics.pending.toLocaleString()}
+            value={kpiValue(metrics.pending.toLocaleString(), { error: ordersError })}
             context="Awaiting dispatch"
             tone="neutral"
           />
           <KpiCard
             label="Delivered"
-            value={metrics.delivered.toLocaleString()}
+            value={kpiValue(metrics.delivered.toLocaleString(), { error: ordersError })}
             context="Completed orders"
             tone="success"
           />
           <KpiCard
             label="In transit"
-            value={metrics.inTransit.toLocaleString()}
+            value={kpiValue(metrics.inTransit.toLocaleString(), { error: ordersError })}
             context="Active shipments"
             tone="info"
           />

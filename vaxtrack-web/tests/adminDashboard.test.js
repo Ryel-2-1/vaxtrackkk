@@ -175,7 +175,10 @@ test("absent data renders a neutral state, never a filled-in one", () => {
   // handling rather than rendering zeros over missing data.
   assert.match(SRC, /No orders yet/);
   assert.match(SRC, /No active alerts right now/);
-  assert.match(SRC, /\{loadError && \(/);
+  // The banner shows while any source is still failing; a source that
+  // recovers (automatic reconnect or "Try again") clears its own failure.
+  assert.match(SRC, /\{anyFailed && loadError && \(/);
+  assert.match(SRC, /const recover = \(source\) =>\s*setFailed\(\(prev\) => \(prev\[source\] \? \{ \.\.\.prev, \[source\]: false \} : prev\)\);/);
   assert.match(SRC, /role="alert"/);
   assert.match(SRC, /loading \?/);
 });

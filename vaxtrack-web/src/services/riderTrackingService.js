@@ -1,6 +1,7 @@
-import { collection, doc, onSnapshot } from "firebase/firestore";
+import { collection, doc } from "firebase/firestore";
 import { db } from "../firebase";
 import { TRACKING_COLLECTIONS } from "./riderTracking";
+import { listenLive } from "./liveSnapshot.js";
 
 // Read-only subscriptions to rider live tracking. Rules decide who may read:
 //   riderLocations        — Admin/Dispatcher list + get; a Med Rep may GET one
@@ -17,7 +18,7 @@ function keyed(snap) {
 
 /** Every rider's current location, keyed by rider uid (Admin / Dispatcher). */
 export function subscribeAllRiderLocations(onData, onError) {
-  return onSnapshot(
+  return listenLive(
     collection(db, TRACKING_COLLECTIONS.LOCATIONS),
     (snap) => onData(keyed(snap)),
     (error) => onError?.(error),
@@ -26,7 +27,7 @@ export function subscribeAllRiderLocations(onData, onError) {
 
 /** Every rider's server deviation state, keyed by rider uid (Admin / Dispatcher). */
 export function subscribeAllDeviationStates(onData, onError) {
-  return onSnapshot(
+  return listenLive(
     collection(db, TRACKING_COLLECTIONS.DEVIATION_STATES),
     (snap) => onData(keyed(snap)),
     (error) => onError?.(error),
@@ -35,7 +36,7 @@ export function subscribeAllDeviationStates(onData, onError) {
 
 /** One rider's current location (null when the rider has never reported). */
 export function subscribeRiderLocation(riderUid, onData, onError) {
-  return onSnapshot(
+  return listenLive(
     doc(db, TRACKING_COLLECTIONS.LOCATIONS, riderUid),
     (snap) => onData(snap.exists() ? { ...snap.data(), id: snap.id } : null),
     (error) => onError?.(error),
@@ -44,7 +45,7 @@ export function subscribeRiderLocation(riderUid, onData, onError) {
 
 /** One rider's server deviation state (Admin / Dispatcher only). */
 export function subscribeRiderDeviationState(riderUid, onData, onError) {
-  return onSnapshot(
+  return listenLive(
     doc(db, TRACKING_COLLECTIONS.DEVIATION_STATES, riderUid),
     (snap) => onData(snap.exists() ? { ...snap.data(), id: snap.id } : null),
     (error) => onError?.(error),

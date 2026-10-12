@@ -1,10 +1,12 @@
-import { collection, documentId, onSnapshot, query, where } from "firebase/firestore";
+import { collection, documentId, query, where } from "firebase/firestore";
 import { db } from "../firebase";
+import { logSafeError } from "./liveDataErrors.js";
+import { listenLive } from "./liveSnapshot.js";
 
 const INVENTORY_COLLECTION = "inventory";
 
 export function subscribeInventory(callback, onError) {
-  return onSnapshot(
+  return listenLive(
     collection(db, INVENTORY_COLLECTION),
     (snapshot) => {
       const batches = snapshot.docs
@@ -26,7 +28,7 @@ export function subscribeInventory(callback, onError) {
       callback(batches);
     },
     (err) => {
-      console.error("Inventory subscription error:", err);
+      logSafeError("Inventory subscription", err);
       if (onError) onError(err);
     }
   );
@@ -50,7 +52,7 @@ export function subscribeInventoryBatches(ids, callback, onError) {
   const results = new Array(groups.length).fill(null);
   let failed = false;
   const unsubscribes = groups.map((group, index) =>
-    onSnapshot(
+    listenLive(
       query(collection(db, INVENTORY_COLLECTION), where(documentId(), "in", group)),
       (snapshot) => {
         // Document id LAST so it always wins (see subscribeInventory).
@@ -58,7 +60,7 @@ export function subscribeInventoryBatches(ids, callback, onError) {
         if (!failed && results.every(Boolean)) callback(results.flat());
       },
       (err) => {
-        console.error("Inventory batch subscription error:", err?.code || err);
+        logSafeError("Inventory batch subscription", err);
         if (failed) return;
         failed = true;
         if (onError) onError(err);

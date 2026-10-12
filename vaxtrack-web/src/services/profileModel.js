@@ -145,3 +145,12 @@ export function buildProfileUpdate(raw, value) {
   if (typeof doc.contactNumber === "string") update.contactNumber = value.phone;
   return update;
 }
+
+/** The fields My Profile edits, as stored now — what a live draft follows. */
+export function editableProfileFields(raw) {
+  const p = readProfile(raw);
+  return { name: p.name, phone: p.phone };
+}
+
+/** Readable names for the edited fields (stale-edit notices). */
+export const PROFILE_FIELD_LABELS = Object.freeze({ name: "Full name", phone: "Phone number" });

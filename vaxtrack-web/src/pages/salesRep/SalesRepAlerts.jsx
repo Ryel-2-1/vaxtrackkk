@@ -14,6 +14,7 @@ import {
   getOrderStatusValue,
 } from "../../services/deliveryService";
 import { auth } from "../../firebase";
+import { liveErrorMessage } from "../../services/liveDataErrors";
 
 function deriveAlertFromOrder(order) {
   const rawStatus = getOrderStatusValue(order);
@@ -156,11 +157,7 @@ function SalesRepAlerts() {
         setError("");
       },
       (err) => {
-        if (err?.code === "permission-denied") {
-          setError("You do not have permission to view alerts. Please contact your administrator.");
-        } else {
-          setError("Unable to load alerts. Please try again later.");
-        }
+        setError(liveErrorMessage(err, "alerts"));
         setLoading(false);
       }
     );

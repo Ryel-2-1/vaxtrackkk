@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, MapPinned, X } from "lucide-react";
+import StaleEditNotice from "../../components/ui/StaleEditNotice";
+import { useLiveDraft } from "../../components/useLiveDraft";
 import { subscribeAreas } from "../../services/areaService";
 import { subscribeClinics } from "../../services/clinicService";
-import { subscribeDeliveries } from "../../services/deliveryService";
-import { updateMedRepTerritory } from "../../services/userService";
+import { subscribeSalesRepOrders } from "../../services/orderService";
+import { TerritoryAssignmentError, updateMedRepTerritory } from "../../services/userService";
+import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import {
   clinicsOutsideAreas,
   openOrdersLosingTerritory,
@@ -23,15 +26,32 @@ import {
  * Removing an assignment never rewrites an order. When open orders already use
  * a destination the new territory drops, the Admin is warned and must confirm.
  */
-export default function MedRepTerritoryDialog({ person, onClose, onSaved }) {
-  const initial = useMemo(() => readTerritory(person.territorySource), [person.territorySource]);
+const TERRITORY_FIELD_LABELS = { areaIds: "The assigned areas", clinicIds: "The assigned clinics" };
+
+/**
+ * `person` is the Med Rep as opened; `live` is the same account from the live
+ * staff list (null if it is gone). The selection follows `live` while
+ * untouched; once edited, a territory saved by another Admin is flagged and
+ * saving waits for the Admin to load it or keep their own.
+ */
+export default function MedRepTerritoryDialog({ person, live, onClose, onSaved }) {
+  // The territory as stored NOW (falls back to the opened copy only before the
+  // live row is known).
+  const initial = readTerritory((live ?? person).territorySource);
+  const liveDraft = useLiveDraft(live ? { areaIds: initial.areaIds, clinicIds: initial.clinicIds } : null);
+  const areaIds = liveDraft.draft.areaIds ?? initial.areaIds;
+  const clinicIdsState = liveDraft.draft.clinicIds ?? initial.clinicIds;
+  const setAreaIds = (next) => liveDraft.setDraft((prev) => ({ ...prev, areaIds: next }));
+  const setClinicIds = (next) => liveDraft.setDraft((prev) => ({ ...prev, clinicIds: next }));
+  const staleLabels = liveDraft.stale.map((f) => TERRITORY_FIELD_LABELS[f] ?? f);
   const [areas, setAreas] = useState([]);
   const [clinics, setClinics] = useState([]);
   const [orders, setOrders] = useState([]);
+  // The open-order check could not run (listener failed). Saving is still
+  // allowed, but only after the Admin is told the check is missing.
+  const [ordersUnavailable, setOrdersUnavailable] = useState(false);
   const [loading, setLoading] = useState({ areas: true, clinics: true });
   const [loadError, setLoadError] = useState("");
-  const [areaIds, setAreaIds] = useState(initial.areaIds);
-  const [clinicIdsState, setClinicIds] = useState(initial.clinicIds);
   const [notice, setNotice] = useState("");
   const [errors, setErrors] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -43,30 +63,48 @@ export default function MedRepTerritoryDialog({ person, onClose, onSaved }) {
       (docs) => {
         setAreas(docs);
         setLoading((l) => ({ ...l, areas: false }));
+        setLoadError(""); // a recovered listener clears its failure
       },
-      () => {
+      (error) => {
         setLoading((l) => ({ ...l, areas: false }));
-        setLoadError("Areas could not be loaded.");
+        setLoadError(liveErrorMessage(error, "areas"));
       }
     );
     const unsubClinics = subscribeClinics(
       (docs) => {
         setClinics(docs);
         setLoading((l) => ({ ...l, clinics: false }));
+        setLoadError("");
       },
-      () => {
+      (error) => {
         setLoading((l) => ({ ...l, clinics: false }));
-        setLoadError("Clinics could not be loaded.");
+        setLoadError(liveErrorMessage(error, "clinics"));
       }
     );
-    // Only to warn about open orders; a failure here never blocks saving.
-    const unsubOrders = subscribeDeliveries((docs) => setOrders(docs), () => setOrders([]));
     return () => {
       unsubAreas();
       unsubClinics();
-      unsubOrders();
     };
   }, []);
+
+  // Only THIS Med Rep's orders, live — enough to warn about open orders that
+  // would fall outside the new territory. A failure never blocks saving, but
+  // it is never mistaken for "no affected orders" either.
+  useEffect(
+    () =>
+      subscribeSalesRepOrders(
+        person.uid,
+        (docs) => {
+          setOrders(docs);
+          setOrdersUnavailable(false);
+        },
+        () => {
+          setOrders([]);
+          setOrdersUnavailable(true);
+        }
+      ),
+    [person.uid]
+  );
 
   const busy = loading.areas || loading.clinics;
   const areaById = useMemo(() => new Map(areas.map((a) => [a.id, a])), [areas]);
@@ -119,7 +157,14 @@ export default function MedRepTerritoryDialog({ person, onClose, onSaved }) {
       await updateMedRepTerritory(person.uid, { areaIds: existingAreaIds, clinicIds: uniqueIds(clinicIds) });
       onSaved(`Territory saved for ${person.name}.`);
     } catch (error) {
-      setErrors(error?.messages ?? [error?.message || "The territory could not be saved."]);
+      logSafeError("Save Med Rep territory", error);
+      // A TerritoryAssignmentError lists each problem (written for the
+      // Admin); anything else is mapped to one safe sentence.
+      setErrors(
+        error instanceof TerritoryAssignmentError && Array.isArray(error.messages)
+          ? error.messages
+          : [friendlyErrorMessage(error, "The territory could not be saved. Nothing was changed — please try again.")]
+      );
       setConfirmingOrders(null);
     } finally {
       savingRef.current = false;
@@ -128,9 +173,9 @@ export default function MedRepTerritoryDialog({ person, onClose, onSaved }) {
   };
 
   const handleSave = () => {
-    if (savingRef.current) return;
+    if (savingRef.current || staleLabels.length > 0 || liveDraft.gone) return;
     const affected = openOrdersLosingTerritory(orders, person.uid, { areaIds: existingAreaIds, clinicIds });
-    if (affected.length > 0 && !confirmingOrders) {
+    if ((affected.length > 0 || ordersUnavailable) && !confirmingOrders) {
       setConfirmingOrders(affected);
       return;
     }
@@ -251,7 +296,21 @@ export default function MedRepTerritoryDialog({ person, onClose, onSaved }) {
           </div>
         )}
 
-        {confirmingOrders && (
+        {confirmingOrders && confirmingOrders.length === 0 && ordersUnavailable && (
+          <div className="territory-warning" role="alert">
+            <AlertTriangle size={16} aria-hidden="true" />
+            <div>
+              <strong>Open orders could not be checked right now.</strong>
+              <p>
+                We can't tell whether any of this Med Rep's open orders use a destination outside the
+                new territory. Existing orders will not be changed or cancelled; only new orders follow
+                the new territory.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {confirmingOrders && confirmingOrders.length > 0 && (
           <div className="territory-warning" role="alert">
             <AlertTriangle size={16} aria-hidden="true" />
             <div>
@@ -267,6 +326,21 @@ export default function MedRepTerritoryDialog({ person, onClose, onSaved }) {
           </div>
         )}
 
+        <StaleEditNotice
+          labels={staleLabels}
+          gone={liveDraft.gone}
+          what="this Med Rep's territory"
+          disabled={saving}
+          onLoadLatest={() => {
+            liveDraft.loadLatest();
+            setConfirmingOrders(null);
+          }}
+          onKeepMine={() => {
+            liveDraft.keepMine();
+            setConfirmingOrders(null);
+          }}
+        />
+
         {errors.length > 0 && (
           <ul className="territory-error" role="alert">
             {errors.map((e) => (
@@ -280,7 +354,7 @@ export default function MedRepTerritoryDialog({ person, onClose, onSaved }) {
             type="button"
             className="settings-primary-action"
             onClick={handleSave}
-            disabled={busy || Boolean(loadError) || saving || unchanged}
+            disabled={busy || Boolean(loadError) || saving || unchanged || staleLabels.length > 0 || liveDraft.gone}
           >
             {saving ? "Saving…" : confirmingOrders ? "Save anyway" : "Save territory"}
           </button>

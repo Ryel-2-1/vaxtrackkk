@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Bell,
   Building2,
   ChevronLeft,
   ChevronRight,
   CircleHelp,
   Edit,
-  Grid3X3,
+  LayoutGrid,
+  List,
   MapPin,
   Plus,
   Search,
@@ -35,9 +35,23 @@ import {
 } from "../../services/doctorService";
 import { subscribeDoctorAddresses } from "../../services/doctorAddressService";
 import KpiCard from "../../components/ui/KpiCard";
+import { Notice, ToastRegion } from "../../components/ui/Feedback";
+import StaleEditNotice from "../../components/ui/StaleEditNotice";
+import { useLiveDraft } from "../../components/useLiveDraft";
+import { useToast } from "../../components/ui/useToast";
+import { errorIdFor, fieldA11y, focusFirstInvalid, hasErrors } from "../../services/formValidation";
 import ClinicLocationSection from "./ClinicLocationSection";
 import DoctorAddressesPanel from "./DoctorAddressesPanel";
-import { friendlyErrorMessage, liveErrorMessage } from "../../services/liveDataErrors";
+import { friendlyErrorMessage, kpiValue, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
+import {
+  CLINIC_VIEWS,
+  clinicCardFields,
+  clinicViewAnnouncement,
+  paginateClinics,
+  readClinicView,
+  selectVisibleClinics,
+  writeClinicView,
+} from "../../services/clinicsView";
 import "./Clinics.css";
 
 const STATUS_LABEL = {
@@ -75,7 +89,8 @@ function normalizeClinic(raw) {
     name: raw.name || "—",
     location: raw.location || "—",
     areaId: raw.areaId || "",
-    area: raw.area || "Unassigned",
+    // Missing values read "—" in both views — never a made-up default.
+    area: raw.area || "—",
     contact: contactStr || "—",
     phone: raw.phone || "—",
     email: raw.email || "—",
@@ -83,7 +98,7 @@ function normalizeClinic(raw) {
     status,
     statusLabel: STATUS_LABEL[status],
     note: STATUS_NOTE[status],
-    lastDelivery: raw.lastDelivery || "No delivery yet",
+    lastDelivery: raw.lastDelivery || "—",
     initials,
     contactTone: raw.contactTone || "blue",
     // Canonical coordinates (top-level `latitude`/`longitude` numbers), read
@@ -101,7 +116,26 @@ function normalizeClinic(raw) {
   };
 }
 
-const pageSize = 3;
+// Register-clinic validation: required fields, the order they appear on
+// screen (to focus the first problem) and each input's id.
+const CLINIC_REQUIRED_FIELDS = [
+  ["name", "Enter the clinic or hospital name."],
+  ["contact", "Enter the contact person."],
+  ["phone", "Enter a phone number."],
+  ["location", "Enter the clinic address."],
+];
+const CLINIC_FIELD_ORDER = ["name", "contact", "phone", "email", "location", "areaId", "latitude", "longitude", "geofenceRadiusM"];
+const CLINIC_FIELD_IDS = {
+  name: "new-clinic-name",
+  contact: "new-clinic-contact",
+  phone: "new-clinic-phone",
+  email: "new-clinic-email",
+  location: "new-clinic-location",
+  areaId: "new-clinic-area",
+  latitude: "new-clinic-lat",
+  longitude: "new-clinic-lng",
+  geofenceRadiusM: "new-clinic-radius",
+};
 
 const EMPTY_CLINIC = {
   name: "",
@@ -159,7 +193,7 @@ function useLinkedDoctorsForClinic(
           loading: settledDoctorIds.size < doctors.length,
           error:
             failedDoctorIds.size > 0
-              ? "Some doctor links could not be loaded. Refresh and try again."
+              ? "Some doctor links could not be loaded. Close and reopen this clinic to try again."
               : "",
         },
       });
@@ -216,6 +250,13 @@ function Clinics() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
+  // List / Grid: a per-browser UI preference (services/clinicsView.js). It
+  // only changes the markup; the clinics shown come from the same live list.
+  const [view, setView] = useState(() => readClinicView());
+  const [viewAnnouncement, setViewAnnouncement] = useState("");
+  // Bumped by Retry: a failed listener is closed for good, so retrying opens
+  // a new one rather than only clearing the message.
+  const [retryKey, setRetryKey] = useState(0);
   const [selectedClinic, setSelectedClinic] = useState(null);
   const [showNewClinicModal, setShowNewClinicModal] = useState(false);
   const [showAreasModal, setShowAreasModal] = useState(false);
@@ -226,7 +267,8 @@ function Clinics() {
   const [doctors, setDoctors] = useState([]);
   const [doctorsLoading, setDoctorsLoading] = useState(true);
   const [doctorLoadError, setDoctorLoadError] = useState("");
-  const [toast, setToast] = useState("");
+  const { toast, showToast, dismissToast } = useToast();
+  const creatingRef = useRef(false);
   const [newClinic, setNewClinic] = useState(EMPTY_CLINIC);
   const [newClinicErrors, setNewClinicErrors] = useState({});
   // The clinic whose location is being managed, plus the element to restore
@@ -315,10 +357,12 @@ function Clinics() {
     // subscribeClinics remains the source of truth — no local clinic list
     // mutation here; the snapshot re-renders the row.
     await updateClinicLocation(clinic.firestoreId, draft);
-    showToast(`Location saved for ${clinic.name}.`);
+    showToast(`Location saved for ${clinic.name}.`, "success");
     closeManageLocation();
   };
 
+  // The ONE clinics listener. It depends on retryKey only — changing the view,
+  // search, filter or page never opens another one.
   useEffect(() => {
     const unsubscribe = subscribeClinics(
       (raw) => {
@@ -332,7 +376,22 @@ function Clinics() {
       }
     );
     return () => unsubscribe();
-  }, []);
+  }, [retryKey]);
+
+  const retryClinics = () => {
+    setLoadError("");
+    setLoading(true);
+    setRetryKey((k) => k + 1);
+  };
+
+  // Switching views keeps search, filter, page, the selected clinic and the
+  // scroll position; it is announced politely, never with a toast.
+  const changeView = (next) => {
+    if (!CLINIC_VIEWS.includes(next) || next === view) return;
+    setView(next);
+    writeClinicView(next);
+    setViewAnnouncement(clinicViewAnnouncement(next));
+  };
 
   useEffect(() => {
     const unsubscribe = subscribeAreas(
@@ -364,30 +423,16 @@ function Clinics() {
     return () => unsubscribe();
   }, []);
 
-  const showToast = (message) => {
-    setToast(message);
-    setTimeout(() => setToast(""), 2200);
-  };
-
-  const filteredClinics = useMemo(() => {
-    return clinics.filter((clinic) => {
-      const searchValue =
-        `${clinic.name} ${clinic.id} ${clinic.location} ${clinic.contact} ${clinic.phone} ${clinic.note} ${clinic.statusLabel}`.toLowerCase();
-      const matchesSearch = searchValue.includes(searchTerm.toLowerCase());
-      const matchesStatus =
-        statusFilter === "all" || clinic.status === statusFilter;
-      return matchesSearch && matchesStatus;
-    });
-  }, [clinics, searchTerm, statusFilter]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredClinics.length / pageSize));
-  const paginatedClinics = filteredClinics.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
+  // One collection for both views: same search, same filter, same order,
+  // same page. Only the markup below differs between List and Grid.
+  const filteredClinics = useMemo(
+    () => selectVisibleClinics(clinics, { searchTerm, statusFilter }),
+    [clinics, searchTerm, statusFilter]
   );
-  const startItem =
-    filteredClinics.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
-  const endItem = Math.min(currentPage * pageSize, filteredClinics.length);
+  const paging = paginateClinics(filteredClinics, currentPage);
+  const { totalPages, startItem, endItem } = paging;
+  const pageNow = paging.page;
+  const paginatedClinics = paging.items;
   const activeCount = clinics.filter((c) => c.status === "active").length;
   const pendingCount = clinics.filter((c) => c.status === "pending").length;
   const overdueCount = clinics.filter((c) => c.status === "overdue").length;
@@ -399,28 +444,23 @@ function Clinics() {
 
   const handleCreateClinic = async (e) => {
     e.preventDefault();
+    if (creatingRef.current) return;
 
     if (areasLoading) {
-      showToast("Areas are still loading. Please wait.");
+      setNewClinicErrors({ form: "Areas are still loading. Wait a moment, then register the clinic." });
       return;
     }
     const selectedArea = areas.find(
       (area) => area.id === newClinic.areaId && area.active === true
     );
-    if (!selectedArea) {
-      showToast("Select an active area for this clinic.");
-      return;
-    }
 
-    if (
-      !newClinic.name.trim() ||
-      !newClinic.location.trim() ||
-      !newClinic.contact.trim() ||
-      !newClinic.phone.trim()
-    ) {
-      showToast("Please complete the required clinic fields.");
-      return;
+    // Every problem at once, each beside its own field; focus goes to the
+    // first one. Nothing typed is cleared.
+    const fieldErrors = {};
+    for (const [key, message] of CLINIC_REQUIRED_FIELDS) {
+      if (!String(newClinic[key] ?? "").trim()) fieldErrors[key] = message;
     }
+    if (!selectedArea) fieldErrors.areaId = "Select an active area for this clinic.";
 
     // Location stays optional, but a PARTIAL or out-of-range entry is caught
     // here so the admin is told, rather than the coordinates being dropped.
@@ -429,18 +469,22 @@ function Clinics() {
       String(newClinic.longitude).trim() !== "";
     if (enteredLocation) {
       const check = validateClinicLocation(newClinic);
-      if (!check.ok) {
-        setNewClinicErrors(check.errors);
-        showToast("Check the clinic location before saving.");
-        return;
-      }
+      if (!check.ok) Object.assign(fieldErrors, check.errors);
+    }
+    if (hasErrors(fieldErrors)) {
+      setNewClinicErrors({ ...fieldErrors, form: "Check the highlighted fields. Nothing was saved." });
+      focusFirstInvalid(CLINIC_FIELD_ORDER, fieldErrors, (key) => document.getElementById(CLINIC_FIELD_IDS[key]));
+      return;
     }
     setNewClinicErrors({});
 
+    creatingRef.current = true;
     setSaving(true);
     try {
       if (await clinicNameExists(newClinic.name)) {
-        showToast("A clinic with this name already exists.");
+        const duplicate = { name: "A clinic with this name already exists. Use a different name." };
+        setNewClinicErrors({ ...duplicate, form: "Nothing was saved." });
+        focusFirstInvalid(CLINIC_FIELD_ORDER, duplicate, (key) => document.getElementById(CLINIC_FIELD_IDS[key]));
         return;
       }
 
@@ -465,11 +509,18 @@ function Clinics() {
       // registration also resets the draft and hands focus back to the opener.
       closeNewClinic();
       setCurrentPage(1);
-      showToast(`${newClinic.name.trim()} has been registered.`);
+      showToast(`${newClinic.name.trim()} has been registered.`, "success");
     } catch (error) {
-      console.error("Add clinic error:", error);
-      showToast("Failed to register clinic. Please try again.");
+      logSafeError("Register clinic", error);
+      // The dialog stays open with everything the admin typed.
+      setNewClinicErrors({
+        form: friendlyErrorMessage(
+          error,
+          "The clinic could not be registered. Your entries are still here — please try again."
+        ),
+      });
     } finally {
+      creatingRef.current = false;
       setSaving(false);
     }
   };
@@ -477,10 +528,10 @@ function Clinics() {
   const handleAddArea = async (name) => {
     try {
       await addArea(name);
-      showToast("Area added.");
+      showToast("Area added.", "success");
       return "";
     } catch (error) {
-      console.error("Add area error:", error);
+      logSafeError("Add area", error);
       return friendlyErrorMessage(error, "Failed to add area. Please try again.");
     }
   };
@@ -488,10 +539,10 @@ function Clinics() {
   const handleAreaStatus = async (area) => {
     try {
       await setAreaActive(area.id, !area.active);
-      showToast(`${area.name} is now ${area.active ? "inactive" : "active"}.`);
+      showToast(`${area.name} is now ${area.active ? "inactive" : "active"}.`, "success");
       return "";
     } catch (error) {
-      console.error("Update area error:", error);
+      logSafeError("Update area", error);
       return friendlyErrorMessage(error, "Failed to update the area. Please try again.");
     }
   };
@@ -499,10 +550,10 @@ function Clinics() {
   const handleAddDoctor = async ({ name, areaId }) => {
     try {
       await addDoctor({ name, areaId });
-      showToast("Doctor added.");
+      showToast("Doctor added.", "success");
       return "";
     } catch (error) {
-      console.error("Add doctor error:", error);
+      logSafeError("Add doctor", error);
       return friendlyErrorMessage(error, "Failed to add doctor. Please try again.");
     }
   };
@@ -511,11 +562,12 @@ function Clinics() {
     try {
       await setDoctorActive(doctor.id, !doctor.active);
       showToast(
-        `${doctor.name} is now ${doctor.active ? "inactive" : "active"}.`
+        `${doctor.name} is now ${doctor.active ? "inactive" : "active"}.`,
+        "success"
       );
       return "";
     } catch (error) {
-      console.error("Update doctor error:", error);
+      logSafeError("Update doctor", error);
       return friendlyErrorMessage(error, "Failed to update the doctor. Please try again.");
     }
   };
@@ -523,7 +575,7 @@ function Clinics() {
   return (
     <>
     <main className="clinics-v2-main">
-        {toast && <div className="clinics-toast">{toast}</div>}
+        <ToastRegion toast={toast} onDismiss={dismissToast} />
 
         <header className="clinics-v2-topbar">
           <div>
@@ -546,17 +598,9 @@ function Clinics() {
             <button
               type="button"
               className="clinics-icon-btn"
-              onClick={() => showToast("No new clinic notifications.")}
-            >
-              <Bell size={15} />
-              <span></span>
-            </button>
-
-            <button
-              type="button"
-              className="clinics-icon-btn"
+              aria-label="How to view a clinic's details"
               onClick={() =>
-                showToast("Tip: Click any clinic row to view details.")
+                showToast("Tip: select any clinic row to view its details, doctors and location.", "info")
               }
             >
               <CircleHelp size={15} />
@@ -594,28 +638,28 @@ function Clinics() {
         <section className="clinics-summary-grid">
           <KpiCard
             label="Total clinics"
-            value={clinics.length}
+            value={kpiValue(clinics.length, { loading, error: loadError })}
             context="Affiliated facilities"
             tone="neutral"
             onClick={() => handleStatusFilter("all")}
           />
           <KpiCard
             label="Active clinics"
-            value={activeCount}
+            value={kpiValue(activeCount, { loading, error: loadError })}
             context="Ready for deliveries"
             tone="success"
             onClick={() => handleStatusFilter("active")}
           />
           <KpiCard
             label="Pending resupply"
-            value={pendingCount}
+            value={kpiValue(pendingCount, { loading, error: loadError })}
             context="Needs stock review"
             tone="warning"
             onClick={() => handleStatusFilter("pending")}
           />
           <KpiCard
             label="Overdue delivery"
-            value={overdueCount}
+            value={kpiValue(overdueCount, { loading, error: loadError })}
             context="Requires follow-up"
             tone="danger"
             attention
@@ -655,16 +699,35 @@ function Clinics() {
             </button>
           </div>
 
-          <button
-            type="button"
-            className="clinics-view-btn"
-            onClick={() => showToast("Grid view can be added later.")}
-          >
-            <Grid3X3 size={15} />
-          </button>
+          {/* Two real views of the same clinics. Visible labels, aria-pressed
+              for the selected one, native buttons for keyboard use. */}
+          <div className="clinics-view-toggle" role="group" aria-label="Clinic display view">
+            <button
+              type="button"
+              aria-pressed={view === "list"}
+              className={view === "list" ? "active" : ""}
+              onClick={() => changeView("list")}
+            >
+              <List size={15} aria-hidden="true" />
+              List
+            </button>
+            <button
+              type="button"
+              aria-pressed={view === "grid"}
+              className={view === "grid" ? "active" : ""}
+              onClick={() => changeView("grid")}
+            >
+              <LayoutGrid size={15} aria-hidden="true" />
+              Grid
+            </button>
+          </div>
+          <p className="m-visually-hidden" aria-live="polite">
+            {viewAnnouncement}
+          </p>
         </section>
 
-        <section className="clinics-v2-table-card">
+        <section className={`clinics-v2-table-card${view === "grid" ? " is-grid" : ""}`}>
+          {view === "list" ? (
           <table className="clinics-v2-table">
             <thead>
               <tr>
@@ -770,19 +833,34 @@ function Clinics() {
               ))}
             </tbody>
           </table>
+          ) : (
+            <ul className="clinics-grid" aria-label="Clinics">
+              {paginatedClinics.map((clinic) => (
+                <ClinicCard
+                  key={clinic.id}
+                  clinic={clinic}
+                  onDetails={() => setSelectedClinic(clinic)}
+                  onManageLocation={(trigger) => openManageLocation(clinic, trigger)}
+                />
+              ))}
+            </ul>
+          )}
 
           {loading && (
-            <div className="clinics-empty">
-              <Building2 size={28} />
+            <div className="clinics-empty" role="status">
+              <Building2 size={28} aria-hidden="true" />
               <strong>Loading clinics...</strong>
             </div>
           )}
 
           {!loading && loadError && (
-            <div className="clinics-empty">
-              <Building2 size={28} />
-              <strong>Could not load clinics</strong>
-              <p>{loadError}</p>
+            <div className="clinics-load-error">
+              <Notice tone="error" title="Could not load clinics">
+                {loadError}
+              </Notice>
+              <button type="button" className="clinics-v2-secondary-btn" onClick={retryClinics}>
+                Try again
+              </button>
             </div>
           )}
 
@@ -802,6 +880,8 @@ function Clinics() {
             </div>
           )}
 
+          {/* No "Showing 0 of 0" while loading or after a failed read. */}
+          {!loading && !loadError && (
           <div className="clinics-v2-pagination">
             <p>
               Showing {startItem} to {endItem} of {filteredClinics.length}{" "}
@@ -811,12 +891,11 @@ function Clinics() {
             <div>
               <button
                 type="button"
-                disabled={currentPage === 1}
-                onClick={() =>
-                  setCurrentPage((prev) => Math.max(prev - 1, 1))
-                }
+                disabled={pageNow === 1}
+                aria-label="Previous page"
+                onClick={() => setCurrentPage(Math.max(pageNow - 1, 1))}
               >
-                <ChevronLeft size={14} />
+                <ChevronLeft size={14} aria-hidden="true" />
               </button>
 
               {Array.from({ length: totalPages }, (_, i) => i + 1).map(
@@ -824,7 +903,8 @@ function Clinics() {
                   <button
                     key={page}
                     type="button"
-                    className={currentPage === page ? "active" : ""}
+                    className={pageNow === page ? "active" : ""}
+                    aria-current={pageNow === page ? "page" : undefined}
                     onClick={() => setCurrentPage(page)}
                   >
                     {page}
@@ -834,15 +914,15 @@ function Clinics() {
 
               <button
                 type="button"
-                disabled={currentPage === totalPages}
-                onClick={() =>
-                  setCurrentPage((prev) => Math.min(prev + 1, totalPages))
-                }
+                disabled={pageNow === totalPages}
+                aria-label="Next page"
+                onClick={() => setCurrentPage(Math.min(pageNow + 1, totalPages))}
               >
-                <ChevronRight size={14} />
+                <ChevronRight size={14} aria-hidden="true" />
               </button>
             </div>
           </div>
+          )}
         </section>
       </main>
 
@@ -855,7 +935,6 @@ function Clinics() {
             linkedDoctorsError: linkedDoctors.error,
           }}
           onClose={() => setSelectedClinic(null)}
-          onEdit={() => showToast(`Editing ${selectedClinic.name}.`)}
         />
       )}
 
@@ -867,6 +946,9 @@ function Clinics() {
           areasLoading={areasLoading}
           areaLoadError={areaLoadError}
           errors={newClinicErrors}
+          onFieldEdit={(key) =>
+            setNewClinicErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev))
+          }
           onClose={closeNewClinic}
           onSubmit={handleCreateClinic}
           saving={saving}
@@ -905,11 +987,89 @@ function Clinics() {
       {managedClinic && (
         <ManageLocationModal
           clinic={managedClinic}
+          live={clinics.find((c) => c.firestoreId === managedClinic.firestoreId) ?? null}
           onClose={closeManageLocation}
           onSave={handleSaveLocation}
         />
       )}
     </>
+  );
+}
+
+/**
+ * One clinic in Grid view. It shows the same values the List row shows (plus
+ * the stored email) and offers the same actions — Details and Manage
+ * location. A missing value reads "—". Clicking the card body opens Details,
+ * as clicking a List row does; the buttons are the keyboard path.
+ */
+function ClinicCard({ clinic, onDetails, onManageLocation }) {
+  const card = clinicCardFields(clinic);
+  const headingId = `clinic-card-${clinic.firestoreId || clinic.id}`;
+  return (
+    <li className={`clinic-card clinic-card-${clinic.status}`}>
+      <article aria-labelledby={headingId} onClick={onDetails}>
+        <header className="clinic-card-head">
+          <div className="clinic-icon" aria-hidden="true">
+            <Building2 size={17} />
+          </div>
+          <div className="clinic-card-title">
+            <h3 id={headingId}>{card.name}</h3>
+            <small>ID: {card.clinicId}</small>
+          </div>
+          <span className={`clinic-status-pill ${clinic.status}`}>{card.statusLabel}</span>
+        </header>
+
+        <dl className="clinic-card-fields">
+          <div>
+            <dt>Contact person</dt>
+            <dd>{card.contact}</dd>
+          </div>
+          <div>
+            <dt>Phone</dt>
+            <dd>{card.phone}</dd>
+          </div>
+          <div>
+            <dt>Email</dt>
+            <dd>{card.email}</dd>
+          </div>
+          <div>
+            <dt>Location</dt>
+            <dd>{card.location}</dd>
+          </div>
+          <div>
+            <dt>Area</dt>
+            <dd>{card.area}</dd>
+          </div>
+          <div>
+            <dt>Last delivery</dt>
+            <dd>{card.lastDelivery}</dd>
+          </div>
+        </dl>
+
+        <p className="clinic-card-meta">
+          <span className={`clinic-geo-chip ${card.locationVerified ? "verified" : "missing"}`}>
+            <MapPin size={11} aria-hidden="true" />
+            {card.locationVerified ? "Location verified" : "Needs location"}
+          </span>
+          <span className={clinic.status === "overdue" ? "clinic-card-note danger" : "clinic-card-note"}>
+            {card.note}
+          </span>
+        </p>
+
+        <div className="clinic-row-actions clinic-card-actions" onClick={(e) => e.stopPropagation()}>
+          <button type="button" onClick={onDetails} aria-label={`Details for ${card.name}`}>
+            Details
+          </button>
+          <button
+            type="button"
+            onClick={(e) => onManageLocation(e.currentTarget)}
+            aria-label={`Manage location for ${card.name}`}
+          >
+            Manage location
+          </button>
+        </div>
+      </article>
+    </li>
   );
 }
 
@@ -921,28 +1081,44 @@ function Clinics() {
  * `updateClinicLocation`, which writes only the location fields — clinic name,
  * contact, status and notes are untouched, and no new clinic can be created.
  */
-function ManageLocationModal({ clinic, onClose, onSave }) {
-  const initial = useMemo(
-    () => ({
-      latitude:
-        clinic.locationInfo.latitude === null
-          ? ""
-          : String(clinic.locationInfo.latitude),
-      longitude:
-        clinic.locationInfo.longitude === null
-          ? ""
-          : String(clinic.locationInfo.longitude),
-      // Seed from the RAW stored radius when there is one, so a corrupt value
-      // is visible and rejected rather than silently shown as the default.
-      geofenceRadiusM: String(
-        clinic.locationInfo.geofenceRadiusMStored ??
-          clinic.locationInfo.geofenceRadiusM
-      ),
-    }),
-    [clinic]
-  );
+/** The editable location fields of a clinic as stored now. */
+function locationFields(clinic) {
+  return {
+    latitude:
+      clinic.locationInfo.latitude === null
+        ? ""
+        : String(clinic.locationInfo.latitude),
+    longitude:
+      clinic.locationInfo.longitude === null
+        ? ""
+        : String(clinic.locationInfo.longitude),
+    // Seed from the RAW stored radius when there is one, so a corrupt value
+    // is visible and rejected rather than silently shown as the default.
+    geofenceRadiusM: String(
+      clinic.locationInfo.geofenceRadiusMStored ??
+        clinic.locationInfo.geofenceRadiusM
+    ),
+  };
+}
 
-  const [draft, setDraft] = useState(initial);
+const LOCATION_FIELD_LABELS = {
+  latitude: "Latitude",
+  longitude: "Longitude",
+  geofenceRadiusM: "Geofence radius",
+};
+
+/**
+ * `clinic` is the clinic as opened; `live` is the same clinic from the live
+ * list (null once it is deleted). The form follows `live` while untouched;
+ * once edited, a location saved elsewhere is flagged and saving is blocked
+ * until the Admin loads it or keeps their own.
+ */
+function ManageLocationModal({ clinic, live, onClose, onSave }) {
+  const liveDraft = useLiveDraft(live ? locationFields(live) : null);
+  const draft = liveDraft.draft;
+  const staleLabels = liveDraft.stale.map((f) => LOCATION_FIELD_LABELS[f] ?? f);
+  const blocked = staleLabels.length > 0 || liveDraft.gone;
+  const savingRef = useRef(false);
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -950,10 +1126,7 @@ function ManageLocationModal({ clinic, onClose, onSave }) {
   const dialogRef = useRef(null);
   const headingId = `manage-location-${clinic.firestoreId}`;
 
-  const isDirty =
-    draft.latitude !== initial.latitude ||
-    draft.longitude !== initial.longitude ||
-    draft.geofenceRadiusM !== initial.geofenceRadiusM;
+  const isDirty = liveDraft.dirty;
 
   const requestClose = useCallback(() => {
     if (saving) return; // never abandon an in-flight write
@@ -1014,28 +1187,31 @@ function ManageLocationModal({ clinic, onClose, onSave }) {
   }, []);
 
   const patchDraft = (patch) => {
-    setDraft((prev) => ({ ...prev, ...patch }));
+    liveDraft.setDraft((prev) => ({ ...prev, ...patch }));
     setSaveError("");
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (savingRef.current || blocked) return;
     const check = validateClinicLocation(draft);
     if (!check.ok) {
       setErrors(check.errors);
       return;
     }
     setErrors({});
+    savingRef.current = true;
     setSaving(true);
     setSaveError("");
     try {
       await onSave(clinic, draft);
     } catch (error) {
-      console.error("Update clinic location error:", error);
+      logSafeError("Update clinic location", error);
       setSaveError(
-        friendlyErrorMessage(error, "The location could not be saved. Please try again.")
+        friendlyErrorMessage(error, "The location could not be saved. Your entries are still here — please try again.")
       );
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -1093,6 +1269,15 @@ function ManageLocationModal({ clinic, onClose, onSave }) {
             idPrefix={`manage-${clinic.firestoreId}`}
           />
 
+          <StaleEditNotice
+            labels={staleLabels}
+            gone={liveDraft.gone}
+            what="this clinic's location"
+            disabled={saving}
+            onLoadLatest={liveDraft.loadLatest}
+            onKeepMine={liveDraft.keepMine}
+          />
+
           {saveError && (
             <p className="clinic-loc-save-error" role="alert">
               {saveError}
@@ -1126,7 +1311,7 @@ function ManageLocationModal({ clinic, onClose, onSave }) {
           <button
             type="submit"
             className="clinics-primary-action"
-            disabled={saving}
+            disabled={saving || blocked}
           >
             {saving ? "Saving..." : "Save location"}
           </button>
@@ -1144,7 +1329,7 @@ function ManageLocationModal({ clinic, onClose, onSave }) {
   );
 }
 
-function ClinicDetailsModal({ clinic, onClose, onEdit }) {
+function ClinicDetailsModal({ clinic, onClose }) {
   const linkedDoctors = clinic.linkedDoctors || [];
   const linkedDoctorsLoading = clinic.linkedDoctorsLoading === true;
   const linkedDoctorsError = clinic.linkedDoctorsError || "";
@@ -1246,12 +1431,15 @@ function ClinicDetailsModal({ clinic, onClose, onEdit }) {
             Rider delivery. The former delivery-draft action here only showed a
             toast and drafted nothing, so it was removed rather than replaced. */}
         <div className="clinics-modal-actions">
+          {/* Not built yet. Shown disabled, with the reason, rather than
+              clickable with a toast that implies something happened. */}
           <button
             type="button"
             className="clinics-light-action"
-            onClick={onEdit}
+            disabled
+            aria-describedby="clinic-edit-unavailable"
           >
-            <Edit size={15} />
+            <Edit size={15} aria-hidden="true" />
             Edit Clinic
           </button>
           <button
@@ -1262,6 +1450,9 @@ function ClinicDetailsModal({ clinic, onClose, onEdit }) {
             Close
           </button>
         </div>
+        <p id="clinic-edit-unavailable" className="clinics-unavailable-note">
+          Editing clinic details isn't available yet. Use Manage location to change where deliveries go.
+        </p>
       </div>
     </div>
   );
@@ -1730,11 +1921,17 @@ function NewClinicModal({
   areasLoading,
   areaLoadError,
   errors = {},
+  onFieldEdit = () => {},
   onClose,
   onSubmit,
   saving,
 }) {
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  // An edited field's message clears as the admin fixes it; the others stay.
+  const editField = (key, value) => {
+    setNewClinic((prev) => ({ ...prev, [key]: value }));
+    onFieldEdit(key);
+  };
   const dialogRef = useRef(null);
   const headingId = "new-clinic-heading";
 
@@ -1849,80 +2046,80 @@ function NewClinicModal({
             The action row stays OUTSIDE this element so it remains pinned. */}
         <div className="clinics-modal-body">
           <div className="clinics-form-grid">
-            <label>
+            <label htmlFor={CLINIC_FIELD_IDS.name}>
               Clinic Name
               <input
+                id={CLINIC_FIELD_IDS.name}
                 type="text"
                 placeholder="Enter clinic or hospital name"
                 value={newClinic.name}
-                onChange={(e) =>
-                  setNewClinic((prev) => ({ ...prev, name: e.target.value }))
-                }
+                onChange={(e) => editField("name", e.target.value)}
                 disabled={saving}
+                {...fieldA11y("new-clinic", "name", errors)}
               />
+              <FieldError form="new-clinic" field="name" errors={errors} />
             </label>
 
-            <label>
+            <label htmlFor={CLINIC_FIELD_IDS.contact}>
               Contact Person
               <input
+                id={CLINIC_FIELD_IDS.contact}
                 type="text"
                 placeholder="Dr. Maria Santos"
                 value={newClinic.contact}
-                onChange={(e) =>
-                  setNewClinic((prev) => ({
-                    ...prev,
-                    contact: e.target.value,
-                  }))
-                }
+                onChange={(e) => editField("contact", e.target.value)}
                 disabled={saving}
+                {...fieldA11y("new-clinic", "contact", errors)}
               />
+              <FieldError form="new-clinic" field="contact" errors={errors} />
             </label>
 
-            <label>
+            <label htmlFor={CLINIC_FIELD_IDS.phone}>
               Phone Number
               <input
+                id={CLINIC_FIELD_IDS.phone}
                 type="text"
                 placeholder="0917-000-0000"
                 value={newClinic.phone}
-                onChange={(e) =>
-                  setNewClinic((prev) => ({ ...prev, phone: e.target.value }))
-                }
+                onChange={(e) => editField("phone", e.target.value)}
                 disabled={saving}
+                {...fieldA11y("new-clinic", "phone", errors)}
               />
+              <FieldError form="new-clinic" field="phone" errors={errors} />
             </label>
 
-            <label>
-              Email
+            <label htmlFor={CLINIC_FIELD_IDS.email}>
+              Email (optional)
               <input
+                id={CLINIC_FIELD_IDS.email}
                 type="email"
                 placeholder="clinic@email.com"
                 value={newClinic.email}
-                onChange={(e) =>
-                  setNewClinic((prev) => ({ ...prev, email: e.target.value }))
-                }
+                onChange={(e) => editField("email", e.target.value)}
                 disabled={saving}
+                {...fieldA11y("new-clinic", "email", errors)}
               />
+              <FieldError form="new-clinic" field="email" errors={errors} />
             </label>
 
-            <label>
+            <label htmlFor={CLINIC_FIELD_IDS.location}>
               Location
               <input
+                id={CLINIC_FIELD_IDS.location}
                 type="text"
                 placeholder="Street, City"
                 value={newClinic.location}
-                onChange={(e) =>
-                  setNewClinic((prev) => ({
-                    ...prev,
-                    location: e.target.value,
-                  }))
-                }
+                onChange={(e) => editField("location", e.target.value)}
                 disabled={saving}
+                {...fieldA11y("new-clinic", "location", errors)}
               />
+              <FieldError form="new-clinic" field="location" errors={errors} />
             </label>
 
-            <label>
+            <label htmlFor={CLINIC_FIELD_IDS.areaId}>
               Area
               <select
+                id={CLINIC_FIELD_IDS.areaId}
                 value={newClinic.areaId}
                 onChange={(e) => {
                   const selected = areas.find(
@@ -1933,9 +2130,11 @@ function NewClinicModal({
                     areaId: selected?.id || "",
                     area: selected?.name || "",
                   }));
+                  onFieldEdit("areaId");
                 }}
                 disabled={saving || areasLoading}
                 required
+                {...fieldA11y("new-clinic", "areaId", errors)}
               >
                 <option value="">
                   {areasLoading ? "Loading areas..." : "Select an active area"}
@@ -1948,8 +2147,9 @@ function NewClinicModal({
                     </option>
                   ))}
               </select>
+              <FieldError form="new-clinic" field="areaId" errors={errors} />
               {!areasLoading && areaLoadError && (
-                <small className="clinics-field-error">{areaLoadError}</small>
+                <small className="clinics-field-error" role="alert">{areaLoadError}</small>
               )}
               {!areasLoading && !areaLoadError && areas.every((area) => !area.active) && (
                 <small className="clinics-field-note">
@@ -2007,6 +2207,12 @@ function NewClinicModal({
             the scroll area could sit far off-screen — the same class of
             unreachable-control bug the viewport fix addressed. Pinned above the
             actions, it is always visible. role="alert" announces it. */}
+        {errors.form && (
+          <Notice tone="error" className="clinics-form-notice">
+            {errors.form}
+          </Notice>
+        )}
+
         {confirmingDiscard && (
           <div className="clinic-loc-discard" role="alert">
             <p>Discard this clinic registration?</p>
@@ -2049,6 +2255,16 @@ function NewClinicModal({
         </div>
       </form>
     </div>
+  );
+}
+
+/** One field's validation message, tied to its input by id. */
+function FieldError({ form, field, errors }) {
+  if (!errors?.[field]) return null;
+  return (
+    <small id={errorIdFor(form, field)} className="clinics-field-error">
+      {errors[field]}
+    </small>
   );
 }
 
