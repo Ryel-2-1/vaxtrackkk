@@ -33,10 +33,16 @@ const T0 = Date.parse("2026-10-10T02:00:00Z");
 // to the trigger exactly as Firestore delivers it.
 let prevLoc = null;
 let retryPrev = null;
+// The session the rider app is navigating: its fixes carry this tag, exactly
+// as RiderTrackingController writes them (navigationSessionId + activeOrderId).
+let navSession = null;
+let navOrder = null;
 
 async function wipe() {
   prevLoc = null;
   retryPrev = null;
+  navSession = null;
+  navOrder = null;
   for (const c of [...Object.values(C)]) {
     const snap = await db.collection(c).get();
     await Promise.all(snap.docs.map((d) => d.ref.delete()));
@@ -65,19 +71,26 @@ async function seedOrder(id, over = {}) {
 }
 
 /** Start navigation exactly as the rider app writes it, then run the session trigger. */
-async function startSession(sessionId, orderId) {
-  const data = { riderUid: RIDER, orderId, sessionId, state: "navigating", startedAt: Timestamp.fromMillis(T0 - 1000), updatedAt: Timestamp.fromMillis(T0 - 1000), endedAt: null, endReason: null };
+async function startSession(sessionId, orderId, startedMs = T0 - 1000) {
+  const data = { riderUid: RIDER, orderId, sessionId, state: "navigating", startedAt: Timestamp.fromMillis(startedMs), updatedAt: Timestamp.fromMillis(startedMs), endedAt: null, endReason: null };
   await db.collection(C.SESSIONS).doc(RIDER).set(data);
+  navSession = sessionId;
+  navOrder = orderId;
   return ops.handleSessionWrite({ db, FieldValue, riderUid: RIDER, after: data });
 }
 
 /**
  * A riderLocations doc as written by the rider, then the location trigger with
  * the previous version. `retry` re-delivers the last write (at-least-once).
+ * Fixes are tagged with the navigated session unless `untagged` (ordinary
+ * tracking) or `session` names another one; `ended` is the sign-out write.
  */
-function locate(point, seconds, accuracyMeters = 10, { retry = false } = {}) {
+function locate(point, seconds, accuracyMeters = 10, { retry = false, untagged = false, session = navSession, ended = false } = {}) {
   const at = Timestamp.fromMillis(T0 + seconds * 1000);
-  const location = { riderUid: RIDER, latitude: point.lat, longitude: point.lng, accuracyMeters, capturedAt: at, updatedAt: at, trackingState: "active" };
+  const tag = untagged || ended ? { navigationSessionId: null, activeOrderId: null } : { navigationSessionId: session, activeOrderId: session === navSession ? navOrder : "otherOrder" };
+  const location = ended
+    ? { riderUid: RIDER, latitude: null, longitude: null, accuracyMeters: null, capturedAt: at, updatedAt: at, trackingState: "ended", ...tag }
+    : { riderUid: RIDER, latitude: point.lat, longitude: point.lng, accuracyMeters, capturedAt: at, updatedAt: at, trackingState: "active", ...tag };
   const previous = retry ? retryPrev : prevLoc;
   if (!retry) {
     retryPrev = prevLoc;
@@ -408,8 +421,134 @@ test("a replaced session's late fixes cannot alter the new session's state", asy
   const freshTime = await stateUpdateTime();
   assert.deepEqual([fresh.sessionId, fresh.pendingOffSinceMs], ["sess_new00001", null]);
   // A fix captured under the OLD session, delivered late.
-  const late = await locate(north(800), 90);
-  assert.deepEqual([late.ignored, late.wrote], ["before_session", false]);
+  const late = await locate(north(800), 90, 10, { session: "sess_old00001" });
+  assert.deepEqual([late.evaluated, late.reason], [false, "before_session"]);
   assert.ok((await stateUpdateTime()).isEqual(freshTime));
   assert.equal((await get(C.STATES, RIDER)).pendingOffSinceMs, null);
+});
+
+// ---------------------------------------------------------------- staging QA 2026-10-14: session lifecycle + timer
+
+test("A-F1: a session left behind is never evaluated by ordinary fixes — it is ended as abandoned, no alert", async () => {
+  await wipe();
+  // The staging shape: a DELAYED order whose navigation session was never ended.
+  await seedOrder("o1", { status: "delayed" });
+  await startSession("sess_leftover1", "o1");
+  const created = await stateUpdateTime();
+  const far = north(1650);
+
+  // Inside the start-up grace an untagged fix is merely ignored — no write.
+  const early = await locate(far, 30, 10, { untagged: true });
+  assert.deepEqual([early.evaluated, early.reason], [false, "untagged_fix"]);
+  assert.ok((await stateUpdateTime()).isEqual(created));
+
+  // Ordinary tracking past the grace: the app is not navigating it. Ended, not measured.
+  const ordinary = await locate(far, 137, 10, { untagged: true });
+  assert.deepEqual([ordinary.evaluated, ordinary.reason, ordinary.ended], [false, "abandoned", true]);
+  const session = await get(C.SESSIONS, RIDER);
+  assert.deepEqual([session.state, session.endReason], ["ended", "abandoned"]);
+  assert.ok(session.endedAt instanceof Timestamp);
+  const state = await get(C.STATES, RIDER);
+  assert.deepEqual([state.sessionState, state.endReason, state.pendingOffSinceMs, state.openAlertId], ["ended", "abandoned", null, null]);
+
+  // Hours of further ordinary tracking: nothing is ever evaluated or alerted.
+  await feed(far, [259, 381, 503, 3600]);
+  assert.equal((await all(C.ALERTS)).length, 0, "no false route-deviation alert");
+  assert.equal((await all(C.EVENTS)).length, 0);
+});
+
+test("abandoning a session that WAS deviating resolves its open alert exactly once (retry-safe)", async () => {
+  await wipe();
+  await seedOrder("o1");
+  await startSession("sess_wasdev01", "o1");
+  await feed(north(800), [0, 30, 60, 90, 120, 150, 180]);
+  const alertId = T.deviationAlertId({ orderId: "o1", riderUid: RIDER, sessionId: "sess_wasdev01" });
+  assert.equal((await get(C.ALERTS, alertId)).status, "active");
+
+  const ended = await locate(north(800), 400, 10, { untagged: true });
+  assert.equal(ended.reason, "abandoned");
+  const alert = await get(C.ALERTS, alertId);
+  assert.deepEqual([alert.status, alert.resolutionReason], ["resolved", "abandoned"]);
+  assert.ok((await all(C.EVENTS)).some((e) => e.id === "sess_wasdev01_e1_session_closed"));
+
+  // The session trigger re-fires for the ended doc, and the location trigger is retried: no change.
+  const times = [await updateTimes(C.ALERTS), await updateTimes(C.EVENTS), await updateTimes(C.STATES)];
+  await ops.handleSessionWrite({ db, FieldValue, riderUid: RIDER, after: await get(C.SESSIONS, RIDER) });
+  const retried = await locate(north(800), 400, 10, { untagged: true, retry: true });
+  assert.equal(retried.reason, "not_navigating");
+  assert.deepEqual([await updateTimes(C.ALERTS), await updateTimes(C.EVENTS), await updateTimes(C.STATES)], times);
+});
+
+test("sign-out (sharing ended) ends the session and resolves its alert", async () => {
+  await wipe();
+  await seedOrder("o1");
+  await startSession("sess_signout1", "o1");
+  await feed(north(800), [0, 30, 60, 90, 120, 150, 180]);
+  const r = await locate(null, 200, 10, { ended: true });
+  assert.deepEqual([r.reason, r.ended], ["tracking_stopped", true]);
+  assert.deepEqual([(await get(C.SESSIONS, RIDER)).endReason, (await get(C.STATES, RIDER)).sessionState], ["tracking_stopped", "ended"]);
+  const alert = await get(C.ALERTS, T.deviationAlertId({ orderId: "o1", riderUid: RIDER, sessionId: "sess_signout1" }));
+  assert.deepEqual([alert.status, alert.resolutionReason], ["resolved", "tracking_stopped"]);
+});
+
+test("a DELAYED order keeps being monitored only through tagged fixes, and the rider's Stop ends it", async () => {
+  await wipe();
+  await seedOrder("o1", { status: "delayed" });
+  await startSession("sess_delayed1", "o1");
+  const results = await feed(north(800), [0, 30, 60, 90, 120, 150, 180]);
+  assert.equal(results.at(-1).event, "deviated", "delayed is still navigable — tagged fixes are evaluated");
+  // Stop Navigation (rider_stopped), as the app writes it for a delayed order.
+  const session = await get(C.SESSIONS, RIDER);
+  const stopped = { ...session, state: "ended", endReason: "rider_stopped", endedAt: Timestamp.fromMillis(T0 + 200000), updatedAt: Timestamp.fromMillis(T0 + 200000) };
+  await db.collection(C.SESSIONS).doc(RIDER).set(stopped);
+  await ops.handleSessionWrite({ db, FieldValue, riderUid: RIDER, after: stopped });
+  const alert = await get(C.ALERTS, T.deviationAlertId({ orderId: "o1", riderUid: RIDER, sessionId: "sess_delayed1" }));
+  assert.deepEqual([alert.status, alert.resolutionReason], ["resolved", "rider_stopped"]);
+  assert.equal((await locate(north(900), 300)).reason, "not_navigating");
+});
+
+test("DEV-2: a continuously deviating navigating rider alerts once at 3:00 — the anchor never restarts", async () => {
+  await wipe();
+  await seedOrder("o1");
+  await startSession("sess_dev2a001", "o1");
+  const far = north(800);
+  const results = await feed(far, [0, 30, 60, 90, 120, 150, 179]);
+  assert.ok(results.every((r) => r.event === null));
+  assert.equal((await all(C.ALERTS)).length, 0, "2:59 — no alert");
+  assert.equal((await get(C.STATES, RIDER)).pendingOffSinceMs, T0, "the FIRST off-route fix stays the anchor");
+  assert.equal((await locate(far, 180)).event, "deviated");
+  await feed(far, [210, 240, 270]);
+  const alerts = await all(C.ALERTS);
+  assert.equal(alerts.length, 1, "exactly one");
+  assert.equal(alerts[0].deviatingSinceMs, T0);
+});
+
+test("an untagged fix in the start-up grace is never evaluated and never counts as the session's previous fix", async () => {
+  await wipe();
+  await seedOrder("o1");
+  await startSession("sess_mixed001", "o1");
+  const far = north(800);
+  await locate(far, 0);
+  // An untagged write slipping in during the start-up grace changes nothing...
+  assert.equal((await locate(north(50), 20, 10, { untagged: true })).reason, "untagged_fix");
+  // ...and it is not the "previous fix" of the session for continuity: the next tagged fix after it is a gap.
+  await locate(far, 30);
+  assert.equal((await get(C.STATES, RIDER)).pendingOffSinceMs, T0 + 30000, "continuity needs a fix of the same session");
+});
+
+test("a stale fix (written > 60 s after capture) and a session of another rider never count", async () => {
+  await wipe();
+  await seedOrder("o1");
+  await startSession("sess_stalefx1", "o1");
+  const at = (s) => Timestamp.fromMillis(T0 + s * 1000);
+  const stale = await ops.processLocationWrite({
+    db, FieldValue, riderUid: RIDER, previous: null,
+    location: { riderUid: RIDER, latitude: north(800).lat, longitude: north(800).lng, accuracyMeters: 5, capturedAt: at(100), updatedAt: at(161), trackingState: "active", navigationSessionId: "sess_stalefx1", activeOrderId: "o1" },
+  });
+  assert.equal(stale.reason, "stale_fix");
+  assert.equal((await get(C.STATES, RIDER)).pendingOffSinceMs, null);
+
+  // A session document that does not belong to the rider whose location moved.
+  await db.collection(C.SESSIONS).doc(RIDER).update({ riderUid: "someoneElse" });
+  assert.equal((await locate(north(800), 200)).reason, "not_navigating");
 });

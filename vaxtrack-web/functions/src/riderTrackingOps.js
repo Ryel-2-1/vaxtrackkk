@@ -119,29 +119,22 @@ function newState({ riderUid, session, route }) {
 }
 
 /**
- * Capture time of the rider's previous reported fix — the prior version of the
- * location document, delivered with the trigger — for the continuity check.
- * Null when there was none or tracking had ended (that is a gap).
- */
-function previousSampleAtMs(previous) {
-  if (!previous || previous.trackingState !== "active") return null;
-  if (!T.isValidCoordinate(previous.latitude, previous.longitude)) return null;
-  const captured = T.millisOf(previous.capturedAt);
-  const updated = T.millisOf(previous.updatedAt);
-  if (captured === null) return null;
-  return updated !== null ? Math.min(captured, updated) : captured;
-}
-
-/**
  * A rider's riderLocations doc was written: advance the deviation state of the
  * active navigation session (if any). Returns a summary for logging.
  *
- * Writes happen only on a meaningful change: a new or replaced session or
- * route, a route becoming (un)available, or a deviation transition (a timer
- * starting, stopping or restarting after a gap, a phase change). An ordinary
- * sample that changes nothing performs reads only.
+ * Only a fix the app TAGGED with the current session is evaluated
+ * (T.navigationFixDecision). An untagged fix after the start-up grace, or
+ * sharing ended, means the app is not navigating that session any more: the
+ * session is ENDED here (resolving any open alert) — it is never measured
+ * against its route, however old it is.
  *
- * `previous` is the location document before this write (continuity).
+ * Writes happen only on a meaningful change: a new or replaced session or
+ * route, a route becoming (un)available, a deviation transition (a timer
+ * starting, stopping or restarting after a gap, a phase change), or ending an
+ * abandoned session. An ordinary sample that changes nothing performs reads only.
+ *
+ * `previous` is the location document before this write (continuity: only a
+ * previous fix of the same session counts).
  */
 async function processLocationWrite({ db, FieldValue, riderUid, location, previous = null }) {
   const sessionRef = db.collection(C.SESSIONS).doc(riderUid);
@@ -162,8 +155,26 @@ async function processLocationWrite({ db, FieldValue, riderUid, location, previo
     if (currentAt !== null && thisAt !== null && currentAt > thisAt) {
       return { evaluated: false, reason: "superseded" };
     }
+    const decision = T.navigationFixDecision({ session, location });
+    if (decision.action === "ignore") return { evaluated: false, reason: decision.reason };
+
     const stateSnap = await tx.get(stateRef);
     let state = stateSnap.exists ? stateSnap.data() : null;
+
+    if (decision.action === "end") {
+      // The app stopped navigating this session without ending it (process
+      // killed, reinstalled, signed out offline) or stopped sharing. End it and
+      // close its server state; an open alert is resolved, never left behind.
+      const own = Boolean(state) && state.sessionId === session.sessionId && state.sessionState === "navigating";
+      const leftover = Boolean(state) && !own && state.sessionState === "navigating";
+      const closeInputs = own || leftover ? await readCloseInputs(tx, db, state) : null;
+      tx.update(sessionRef, { state: "ended", endReason: decision.reason, endedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+      if (closeInputs) {
+        closeStateWrites({ tx, db, FieldValue, stateRef, state, reason: own ? decision.reason : "replaced", ...closeInputs });
+      }
+      return { evaluated: false, reason: decision.reason, ended: true };
+    }
+
     const orderSnap = await tx.get(db.collection(C.ORDERS).doc(session.orderId));
     const order = orderSnap.exists ? orderSnap.data() : null;
     const route = T.routeForOrder(order);
@@ -217,7 +228,7 @@ async function processLocationWrite({ db, FieldValue, riderUid, location, previo
       state,
       sample: parsed.sample,
       route: route.points,
-      previousSampleAtMs: previousSampleAtMs(previous),
+      previousSampleAtMs: T.previousSessionSampleAtMs(previous, session.sessionId),
       notBeforeMs: T.millisOf(session.startedAt),
     });
     if (result.changed) {

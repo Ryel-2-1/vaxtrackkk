@@ -30,9 +30,21 @@
  *   nearest SEGMENT of the stored polyline — continuously for ≥ 3 minutes.
  *   Exactly 500 m is on route. Recovery (hysteresis) needs < 400 m continuously
  *   for ≥ 2 minutes. Samples with no/poor accuracy (> 100 m), invalid
- *   coordinates, or a capture time not newer than the last evaluated one are
- *   ignored. A gap > 2 minutes between accepted samples breaks continuity, so
+ *   coordinates, or a time not newer than the last evaluated one are ignored.
+ *   A gap > 2 minutes between the session's fixes breaks continuity, so
  *   "3 minutes" is never inferred across missing data. No route → no deviation.
+ *
+ * WHICH FIXES ARE EVALUATED (navigationFixDecision)
+ *   Only a fix the Rider app TAGGED with the current session (its
+ *   navigationSessionId and order). Ordinary tracking fixes are untagged and
+ *   are never measured against a route: an untagged fix means the app is not
+ *   navigating, so a session it left behind (app killed, reinstalled, signed
+ *   out offline) is ended as abandoned instead of being evaluated.
+ *
+ * TIME
+ *   Elapsed time is the SERVER write time of each fix (riderLocations.updatedAt,
+ *   pinned to request.time by firestore.rules). The device's capture time only
+ *   filters out a fix delivered late (offline queue): its position is not "now".
  */
 
 const TRACKED_ORDER_STATUSES = Object.freeze(["assigned", "loading", "in_transit", "delayed"]);
@@ -45,7 +57,17 @@ const DEVIATION_RULES = Object.freeze({
   confirmReturnMs: 2 * 60 * 1000,
   maxAccuracyMeters: 100,
   maxSampleGapMs: 2 * 60 * 1000,
+  /** A fix written more than this after it was captured is not a deviation sample. */
+  maxFixAgeMs: 60 * 1000,
 });
+
+/**
+ * Navigation-session lifecycle on the server. An untagged (ordinary) fix
+ * written this long after the session started proves the app is no longer
+ * navigating it: the session is ended as abandoned. The grace covers the
+ * instant between Start Navigation and the app tagging its next fix.
+ */
+const SESSION_RULES = Object.freeze({ untaggedGraceMs: 60 * 1000 });
 
 /** Display freshness, from the fix's capture time (never newer than the server write). */
 const FRESHNESS = Object.freeze({ freshMs: 2 * 60 * 1000, offlineMs: 10 * 60 * 1000 });
@@ -232,21 +254,74 @@ function millisOf(value) {
   return null;
 }
 
-/** A riderLocations document as a deviation sample, or { ok: false, reason }. */
-function sampleFromLocation(location) {
+/**
+ * A riderLocations document as a deviation sample, or { ok: false, reason }.
+ * The sample's time (`atMs`) is the SERVER write time: a device clock can never
+ * stretch or shrink the 3 minutes. A fix written long after its capture (an
+ * offline queue flushing) is refused — that position is not the rider's now.
+ */
+function sampleFromLocation(location, rules = DEVIATION_RULES) {
   if (!location || location.trackingState !== "active") return { ok: false, reason: "not_tracking" };
   const lat = location.latitude;
   const lng = location.longitude;
   if (!isValidCoordinate(lat, lng)) return { ok: false, reason: "invalid_coordinates" };
   const accuracy = location.accuracyMeters;
   if (typeof accuracy !== "number" || !Number.isFinite(accuracy) || accuracy < 0) return { ok: false, reason: "no_accuracy" };
-  if (accuracy > DEVIATION_RULES.maxAccuracyMeters) return { ok: false, reason: "poor_accuracy" };
+  if (accuracy > rules.maxAccuracyMeters) return { ok: false, reason: "poor_accuracy" };
   const captured = millisOf(location.capturedAt);
   const updated = millisOf(location.updatedAt);
   if (captured === null) return { ok: false, reason: "no_capture_time" };
-  // Never trust a device clock ahead of the server: clamp to the write time.
-  const at = updated !== null ? Math.min(captured, updated) : captured;
-  return { ok: true, sample: { lat, lng, accuracyMeters: accuracy, capturedAtMs: at } };
+  if (updated === null) return { ok: false, reason: "no_server_time" };
+  if (updated - captured > rules.maxFixAgeMs) return { ok: false, reason: "stale_fix" };
+  return { ok: true, sample: { lat, lng, accuracyMeters: accuracy, atMs: updated } };
+}
+
+/**
+ * What a location write means for the rider's CURRENT navigation session:
+ *   { action: "evaluate" }               a fix the app tagged with this session
+ *                                        and its order — measure it;
+ *   { action: "end", reason }            the app is not navigating it any more:
+ *                                        "tracking_stopped" (sharing ended) or
+ *                                        "abandoned" (untagged fixes after the
+ *                                        grace) — close it, never evaluate it;
+ *   { action: "ignore", reason }         anything else (a fix for another
+ *                                        session, the start-up grace, a write
+ *                                        before the session).
+ * Every time compared is server time (updatedAt / startedAt).
+ */
+function navigationFixDecision({ session, location, rules = SESSION_RULES }) {
+  const startedMs = millisOf(session?.startedAt);
+  const writtenMs = millisOf(location?.updatedAt);
+  if (!session || !location) return { action: "ignore", reason: "no_session" };
+  if (startedMs !== null && writtenMs !== null && writtenMs <= startedMs) {
+    return { action: "ignore", reason: "before_session" };
+  }
+  if (location.trackingState === "ended") return { action: "end", reason: "tracking_stopped" };
+  if (location.trackingState !== "active") return { action: "ignore", reason: "not_tracking" };
+  const tag = location.navigationSessionId ?? null;
+  if (tag === null) {
+    // Untagged: ordinary tracking. Never evaluated against the route.
+    if (startedMs !== null && writtenMs !== null && writtenMs - startedMs >= rules.untaggedGraceMs) {
+      return { action: "end", reason: "abandoned" };
+    }
+    return { action: "ignore", reason: "untagged_fix" };
+  }
+  if (tag !== session.sessionId) return { action: "ignore", reason: "other_session" };
+  if ((location.activeOrderId ?? null) !== session.orderId) return { action: "ignore", reason: "other_order" };
+  return { action: "evaluate", reason: null };
+}
+
+/**
+ * Server time of the rider's previous fix (the location document's prior
+ * version) for the continuity check — only when it was a fix of THE SAME
+ * navigation session. Anything else (ordinary tracking, another session,
+ * sharing ended, no server time) is a gap: the timer starts afresh.
+ */
+function previousSessionSampleAtMs(previous, sessionId) {
+  if (!previous || previous.trackingState !== "active") return null;
+  if ((previous.navigationSessionId ?? null) !== sessionId || sessionId == null) return null;
+  if (!isValidCoordinate(previous.latitude, previous.longitude)) return null;
+  return millisOf(previous.updatedAt);
 }
 
 /**
@@ -296,10 +371,12 @@ const TRANSITION_KEYS = Object.freeze(["phase", "pendingOffSinceMs", "pendingRet
 /**
  * Advance the deviation state machine by ONE location sample.
  *
- *  * `previousSampleAtMs` — capture time of the rider's PREVIOUS reported fix
- *    (the location document's prior version), or null when there was none or
- *    tracking had ended. A running timer survives only if that previous fix is
- *    at most `maxSampleGapMs` older: 3 minutes is never inferred across a gap.
+ *  * `sample.atMs` — the server write time of this fix (sampleFromLocation).
+ *  * `previousSampleAtMs` — server time of the rider's PREVIOUS fix of the same
+ *    session (previousSessionSampleAtMs), or null. A running timer survives
+ *    only if that previous fix is at most `maxSampleGapMs` older: 3 minutes is
+ *    never inferred across a gap. The first qualifying off-route fix anchors
+ *    `pendingOffSinceMs`; later ones keep that anchor.
  *  * `notBeforeMs` — samples at or before this (the session start) are ignored.
  *
  * Returns { state, changed, event, ignored }. `changed` is true only for a
@@ -315,8 +392,8 @@ function evaluateDeviation({ state, sample, route, previousSampleAtMs = null, no
   if (typeof sample.accuracyMeters !== "number" || !(sample.accuracyMeters >= 0) || sample.accuracyMeters > rules.maxAccuracyMeters) {
     return unchanged("poor_accuracy");
   }
-  if (!Number.isFinite(sample.capturedAtMs)) return unchanged("no_capture_time");
-  const t = sample.capturedAtMs;
+  if (!Number.isFinite(sample.atMs)) return unchanged("no_server_time");
+  const t = sample.atMs;
   if (Number.isFinite(notBeforeMs) && t <= notBeforeMs) return unchanged("before_session");
   if (Number.isFinite(s.lastTransitionAtMs) && t <= s.lastTransitionAtMs) return unchanged("out_of_order");
 
@@ -519,6 +596,7 @@ module.exports = {
   TRACKED_ORDER_STATUSES,
   NAVIGABLE_STATUSES,
   DEVIATION_RULES,
+  SESSION_RULES,
   FRESHNESS,
   TRACKING_STATES,
   SESSION_STATES,
@@ -535,6 +613,8 @@ module.exports = {
   routeForOrder,
   millisOf,
   sampleFromLocation,
+  navigationFixDecision,
+  previousSessionSampleAtMs,
   locationFreshness,
   initialDeviationState,
   TRANSITION_KEYS,

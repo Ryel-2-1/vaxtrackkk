@@ -17,7 +17,7 @@ const M_PER_DEG_LAT = 6371008.8 * (Math.PI / 180);
 const north = (meters, lng = 121.0025) => ({ lat: 14.6 + meters / M_PER_DEG_LAT, lng });
 
 const T0 = Date.parse("2026-10-10T02:00:00Z");
-const sample = (point, secondsAfter, accuracyMeters = 10) => ({ ...point, accuracyMeters, capturedAtMs: T0 + secondsAfter * 1000 });
+const sample = (point, secondsAfter, accuracyMeters = 10) => ({ ...point, accuracyMeters, atMs: T0 + secondsAfter * 1000 });
 /**
  * Feed samples in order, each with the PREVIOUS sample's time as the rider's
  * previous fix (what the trigger gets from the location document's prior
@@ -35,8 +35,8 @@ function run(samples, { state = null, route = ROUTE, rules, prev = null } = {}) 
     s = r.state;
     if (r.event) events.push(r.event);
     if (r.ignored) ignored.push(r.ignored);
-    if (r.changed) writes.push(smp.capturedAtMs);
-    previousSampleAtMs = smp.capturedAtMs;
+    if (r.changed) writes.push(smp.atMs);
+    previousSampleAtMs = smp.atMs;
   }
   return { state: s, events, ignored, writes };
 }
@@ -165,7 +165,7 @@ test("poor-accuracy or invalid readings are ignored and never trigger or reset",
   // A single inaccurate far-away reading on its own triggers nothing.
   const one = run([sample(north(5000), 0, 500), sample(north(5000), 300, 500)]);
   assert.deepEqual([one.events.length, one.state.pendingOffSinceMs], [0, null]);
-  assert.deepEqual(run([{ ...north(800), capturedAtMs: T0 }]).ignored, ["poor_accuracy"], "no accuracy = unusable");
+  assert.deepEqual(run([{ ...north(800), atMs: T0 }]).ignored, ["poor_accuracy"], "no accuracy = unusable");
 });
 
 test("stale and out-of-order samples are rejected; replays are no-ops", () => {
@@ -207,7 +207,7 @@ test("a sample from a location document clamps a future device clock to the serv
     trackingState: "active", latitude: 14.6, longitude: 121, accuracyMeters: 8,
     capturedAt: { toMillis: () => T0 + 60000 }, updatedAt: { toMillis: () => T0 },
   };
-  assert.equal(T.sampleFromLocation(loc).sample.capturedAtMs, T0);
+  assert.equal(T.sampleFromLocation(loc).sample.atMs, T0);
   assert.equal(T.sampleFromLocation({ ...loc, trackingState: "ended" }).reason, "not_tracking");
   assert.equal(T.sampleFromLocation({ ...loc, latitude: 0, longitude: 0 }).reason, "invalid_coordinates");
 });
@@ -403,7 +403,82 @@ test("retrying any transition sample is idempotent: no change, no event", () => 
       assert.deepEqual([replay.changed, replay.event, replay.ignored], [false, null, "out_of_order"]);
     }
     state = first.state;
-    prev = smp.capturedAtMs;
+    prev = smp.atMs;
   }
   assert.equal(state.phase, "on_route");
+});
+
+// ---------------------------------------------------------------- session lifecycle + server time (staging QA 2026-10-14)
+
+const ts = (ms) => ({ toMillis: () => ms });
+const SESSION = { sessionId: "sessCurrent01", orderId: "orderNav", riderUid: "rider1", state: "navigating", startedAt: ts(T0) };
+const fix = (over = {}) => ({
+  trackingState: "active", latitude: 14.6, longitude: 121.0025, accuracyMeters: 8,
+  capturedAt: ts(T0 + 30000), updatedAt: ts(T0 + 30000),
+  navigationSessionId: "sessCurrent01", activeOrderId: "orderNav",
+  ...over,
+});
+
+test("deviation time is the SERVER write time; a late-delivered fix is refused", () => {
+  const ahead = fix({ capturedAt: ts(T0 + 90000), updatedAt: ts(T0 + 30000) });
+  assert.equal(T.sampleFromLocation(ahead).sample.atMs, T0 + 30000, "a device clock ahead never moves the time");
+  const behind = fix({ capturedAt: ts(T0 - 50000), updatedAt: ts(T0 + 10000) });
+  assert.equal(T.sampleFromLocation(behind).sample.atMs, T0 + 10000, "60 s old is still current");
+  assert.equal(T.sampleFromLocation(fix({ capturedAt: ts(T0 - 50001), updatedAt: ts(T0 + 10000) })).reason, "stale_fix");
+  assert.equal(T.sampleFromLocation(fix({ updatedAt: null })).reason, "no_server_time");
+  assert.equal(T.DEVIATION_RULES.maxFixAgeMs, 60000);
+});
+
+test("A-F1: only a fix tagged with the CURRENT session and order is ever evaluated", () => {
+  const d = (over) => T.navigationFixDecision({ session: SESSION, location: fix(over) });
+  assert.deepEqual(d({}), { action: "evaluate", reason: null });
+  // Ordinary tracking (untagged): never measured against the route.
+  assert.deepEqual(d({ navigationSessionId: null, activeOrderId: null, updatedAt: ts(T0 + 59999) }), { action: "ignore", reason: "untagged_fix" });
+  // ...and once past the start-up grace it proves the app is not navigating it.
+  assert.deepEqual(d({ navigationSessionId: null, activeOrderId: null, updatedAt: ts(T0 + 60000) }), { action: "end", reason: "abandoned" });
+  // The 2026-10-10 session evaluated by 2026-10-14 ordinary fixes: ended instead.
+  const fourDaysLater = T0 + 4 * 24 * 3600 * 1000;
+  assert.deepEqual(d({ navigationSessionId: null, activeOrderId: null, capturedAt: ts(fourDaysLater), updatedAt: ts(fourDaysLater) }), { action: "end", reason: "abandoned" });
+  assert.deepEqual(d({ navigationSessionId: "sessOther0001" }), { action: "ignore", reason: "other_session" });
+  assert.deepEqual(d({ activeOrderId: "otherOrder" }), { action: "ignore", reason: "other_order" });
+  assert.deepEqual(d({ trackingState: "ended", latitude: null, longitude: null, navigationSessionId: null, activeOrderId: null }), { action: "end", reason: "tracking_stopped" });
+  assert.deepEqual(d({ updatedAt: ts(T0) }), { action: "ignore", reason: "before_session" }, "a write at or before the start");
+  assert.equal(T.SESSION_RULES.untaggedGraceMs, 60000);
+});
+
+test("continuity counts only a previous fix of the SAME session, by server time", () => {
+  assert.equal(T.previousSessionSampleAtMs(fix(), "sessCurrent01"), T0 + 30000);
+  assert.equal(T.previousSessionSampleAtMs(fix({ navigationSessionId: null }), "sessCurrent01"), null, "ordinary fix = gap");
+  assert.equal(T.previousSessionSampleAtMs(fix({ navigationSessionId: "sessOther0001" }), "sessCurrent01"), null);
+  assert.equal(T.previousSessionSampleAtMs(fix({ trackingState: "ended" }), "sessCurrent01"), null);
+  assert.equal(T.previousSessionSampleAtMs(null, "sessCurrent01"), null);
+});
+
+test("DEV-2: 30-second navigation fixes keep the FIRST anchor; no alert at 2:59, exactly one at 3:00", () => {
+  const far = north(800);
+  const seconds = [0, 30, 60, 90, 120, 150, 179];
+  const before = run(seconds.map((s) => sample(far, s)));
+  assert.deepEqual([before.events.length, before.state.pendingOffSinceMs], [0, at(0)], "2:59 — pending, anchor unchanged");
+  const atThree = run([sample(far, 180)], { state: before.state, prev: at(179) });
+  assert.deepEqual(atThree.events.map((e) => [e.type, e.sinceMs, e.atMs]), [["deviated", at(0), at(180)]]);
+  const later = run([sample(far, 210), sample(far, 240)], { state: atThree.state, prev: at(180) });
+  assert.equal(later.events.length, 0, "still exactly one");
+});
+
+test("DEV-2 root cause: the 2-minute ordinary heartbeat restarted the timer — such fixes are no longer evaluated", () => {
+  // What staging recorded: ordinary fixes ~2 min 2–7 s apart, each > maxSampleGapMs.
+  const far = north(1600);
+  const ordinary = run([sample(far, 0), sample(far, 137), sample(far, 259), sample(far, 381)]);
+  assert.deepEqual(ordinary.writes, [at(0), at(137), at(259), at(381)], "every fix restarted the anchor");
+  assert.equal(ordinary.events.length, 0, "...so the alert could never fire this way");
+  // Those fixes were untagged: the server no longer feeds them to the timer at all.
+  assert.equal(T.navigationFixDecision({ session: SESSION, location: fix({ navigationSessionId: null, activeOrderId: null, updatedAt: ts(T0 + 30000) }) }).action, "ignore");
+});
+
+test("an invalid or poor-accuracy fix neither anchors, advances nor confirms a deviation", () => {
+  const far = north(800);
+  const r = run([sample(north(5000), 0, 150), sample(north(5000), 30, 150), sample(far, 60), sample({ lat: 999, lng: 0 }, 90), sample(far, 120)]);
+  assert.equal(r.state.pendingOffSinceMs, at(60), "anchored by the first QUALIFYING fix only");
+  const late = run([sample(north(5000), 240, 150)], { state: r.state, prev: at(120) });
+  assert.deepEqual([late.events.length, late.ignored], [0, ["poor_accuracy"]], "a poor fix past 3:00 does not confirm");
 });
