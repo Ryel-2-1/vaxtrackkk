@@ -7,6 +7,7 @@ const admin = require("firebase-admin");
 const { buildOrderDestinationSnapshot } = require("../../src/policy");
 const { requestOrderDestinationChange, reviewOrderDestinationChange } =
   require("../../src/destinationOperations");
+const { ALL_ROUTE_FIELDS, TRIP_ROUTE_FIELDS } = require("../../src/orderRouteFields");
 
 process.env.FIRESTORE_EMULATOR_HOST =
   process.env.FIRESTORE_EMULATOR_HOST || "127.0.0.1:8181";
@@ -94,6 +95,30 @@ test("request leaves the destination intact; owner approval updates address, rou
   assert.equal(audit.previous.doctorAddressId, CLINIC);
   assert.equal(audit.current.doctorAddressId, "home");
   assert.equal((await review(id, created.requestId, "approve")).replayed, true);
+});
+
+test("approval invalidates the order's own route, its trip place, and the trip route of its other stops", async () => {
+  const id = "destination-trip";
+  const sibling = "destination-trip-sibling";
+  const unrelated = "destination-other-trip";
+  await seed(id);
+  const trip = { tripId: "trip-A", tripStopCount: 2, tripPolyline: "old-trip", tripDistanceMeters: 5000,
+    tripDurationSeconds: 900, tripGeneratedAt: FieldValue.serverTimestamp(), stopEtaSeconds: 300, stopEtaText: "2:00 PM" };
+  await db.collection("orders").doc(id).update({ ...trip, stopSequence: 1, routeGeneratedAt: FieldValue.serverTimestamp(),
+    routeDistanceMeters: 900, routeDurationSeconds: 120, routeEtaText: "1:00 PM" });
+  await db.collection("orders").doc(sibling).set({ ...trip, stopSequence: 2, status: "assigned",
+    routePolyline: "sibling-own-route", createdByUid: OTHER });
+  await db.collection("orders").doc(unrelated).set({ ...trip, tripId: "trip-B", stopSequence: 1, status: "assigned", createdByUid: OTHER });
+
+  const created = await request(id);
+  await review(id, created.requestId, "approve");
+
+  const after = await orderData(id);
+  for (const k of ALL_ROUTE_FIELDS) assert.equal(k in after, false, `${k} cleared on the corrected order`);
+  const sib = await orderData(sibling);
+  for (const k of TRIP_ROUTE_FIELDS) assert.equal(k in sib, false, `${k} cleared on the trip sibling`);
+  assert.equal(sib.routePolyline, "sibling-own-route", "a sibling's own route still leads to its own unchanged destination");
+  assert.equal((await orderData(unrelated)).tripPolyline, "old-trip", "another trip is untouched");
 });
 
 test("rejection closes a request without changing the destination or route", async () => {

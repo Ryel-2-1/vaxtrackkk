@@ -6,6 +6,7 @@ import '../models/delivery.dart';
 import '../services/delivery_service.dart';
 import '../services/image_upload_service.dart';
 import '../services/proof_service.dart';
+import '../utils/delivery_geofence_messages.dart';
 import '../utils/evidence_errors.dart';
 import '../utils/order_workflow.dart';
 import '../utils/proof_eligibility.dart';
@@ -21,6 +22,7 @@ enum ProofPhase {
   savingDetails,
   submitted,
   // "Submit Proof & Complete Delivery" (submitAndComplete):
+  checkingLocation,
   uploadingProof,
   uploadingInvoice,
   completing,
@@ -35,10 +37,12 @@ class ProofSubmissionController extends ChangeNotifier {
     required ProofMetadataWriter writer,
     DeliveryCompleter? completer,
     DeliveryLoader? loader,
+    DeliveryGeofenceChecker? geofence,
   })  : _uploader = uploader,
         _writer = writer,
         _completer = completer,
-        _loader = loader;
+        _loader = loader,
+        _geofence = geofence;
 
   final ProofUploader _uploader;
   final ProofMetadataWriter _writer;
@@ -46,6 +50,16 @@ class ProofSubmissionController extends ChangeNotifier {
   /// The trusted, server-side completion (markOrderDeliveredWithInventoryConsumption).
   /// Required by [submitAndComplete] only.
   final DeliveryCompleter? _completer;
+
+  /// The server's clinic delivery-geofence preflight. Required by
+  /// [submitAndComplete]: it runs before ANY upload, so a Rider who is not
+  /// provably at the clinic uploads and records nothing.
+  final DeliveryGeofenceChecker? _geofence;
+
+  /// Shown under a location refusal when both photos are already recorded:
+  /// only the completion is retried — nothing uploads again.
+  static const String evidenceKeptMessage =
+      'Your photos are already saved. Only the completion will be retried.';
 
   /// Shown when both photos are recorded but the completion call failed. The
   /// order is still NOT delivered; retrying runs only the completion.
@@ -117,6 +131,7 @@ class ProofSubmissionController extends ChangeNotifier {
   /// during this window rather than abandoning a half-finished submission.
   bool get isCommitting =>
       _phase == ProofPhase.preparing ||
+      _phase == ProofPhase.checkingLocation ||
       _phase == ProofPhase.uploadingPhoto ||
       _phase == ProofPhase.uploadingProof ||
       _phase == ProofPhase.uploadingInvoice ||
@@ -166,6 +181,8 @@ class ProofSubmissionController extends ChangeNotifier {
         return 'Uploading photo…';
       case ProofPhase.savingDetails:
         return 'Saving proof details…';
+      case ProofPhase.checkingLocation:
+        return 'Checking delivery location…';
       case ProofPhase.uploadingProof:
         return 'Uploading proof photo (1 of 2)…';
       case ProofPhase.uploadingInvoice:
@@ -250,6 +267,8 @@ class ProofSubmissionController extends ChangeNotifier {
   ///
   /// In order, each step only if still needed, so a retry resumes where the
   /// last attempt stopped and reuses every upload it already made:
+  ///   0. ask the SERVER whether the Rider is inside the clinic delivery area
+  ///      now (nothing uploads otherwise; the photos stay selected);
   ///   1. check both photos are available (nothing uploads otherwise);
   ///   2. upload the proof photo, then the invoice photo;
   ///   3. record the proof, then the invoice (the rules' one-shot submissions);
@@ -282,6 +301,10 @@ class ProofSubmissionController extends ChangeNotifier {
       final completer = _completer;
       if (completer == null) {
         throw StateError('submitAndComplete needs a DeliveryCompleter');
+      }
+      final geofence = _geofence;
+      if (geofence == null) {
+        throw StateError('submitAndComplete needs a DeliveryGeofenceChecker');
       }
       _errorMessage = null;
       _noticeMessage = null;
@@ -322,6 +345,21 @@ class ProofSubmissionController extends ChangeNotifier {
         currentStatus = fresh.status;
       }
 
+      // 0. Clinic delivery geofence, decided by the server from the order's
+      // destination and the Rider's tracked location. Before ANY upload: a
+      // refusal uploads nothing, records nothing, completes nothing, and the
+      // chosen photos stay selected for the retry. (The completion repeats
+      // this decision; this is the early answer.) It never completes by
+      // itself later — the Rider presses the button again.
+      _setPhase(ProofPhase.checkingLocation);
+      try {
+        await geofence.checkDeliveryGeofence(orderId);
+      } catch (e) {
+        _fail(_locationFailure(e));
+        if (_completionPending) _completionFailureDetail = evidenceKeptMessage;
+        return false;
+      }
+
       if (!_completionPending) {
         final recorded = await _recordEvidence(
           orderId: orderId,
@@ -342,6 +380,14 @@ class ProofSubmissionController extends ChangeNotifier {
         // order is NOT delivered — say exactly that, and keep the retry to the
         // completion alone.
         _completionPending = true;
+        if (e is WorkflowException && isDeliveryLocationRefusal(e.code)) {
+          // The server's final geofence check refused (the Rider moved out,
+          // went stale, stopped sharing or was reassigned after the
+          // preflight): show that reason, not a generic completion failure.
+          _fail(e.message);
+          _completionFailureDetail = evidenceKeptMessage;
+          return false;
+        }
         _completionFailureDetail = _completionFailureReason(e);
         _fail(completionPendingMessage);
         return false;
@@ -441,6 +487,15 @@ class ProofSubmissionController extends ChangeNotifier {
       _fail(_friendlyFailure(e));
       return false;
     }
+  }
+
+  /// The Rider-facing reason the location preflight refused (or failed).
+  String _locationFailure(Object error) {
+    if (error is WorkflowException && isDeliveryLocationRefusal(error.code)) return error.message;
+    if (classifyEvidenceError(error) == EvidenceErrorKind.network) {
+      return 'No connection. Your photos are kept — try again once you are back online.';
+    }
+    return 'Could not check your delivery location. Your photos are kept — please try again.';
   }
 
   /// A rider-facing reason for a failed completion call.

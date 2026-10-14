@@ -76,6 +76,14 @@ List<String> ids(Iterable<Delivery> ds) => ds.map((d) => d.id).toList();
 
 // ------------------------------------------------------------ fakes
 
+/// The server geofence preflight, always eligible here: these tests are about
+/// evidence and completion. test/delivery_geofence_test.dart covers refusals.
+class _InsideClinic implements DeliveryGeofenceChecker {
+  @override
+  Future<DeliveryGeofenceResult> checkDeliveryGeofence(String orderId) async =>
+      const DeliveryGeofenceResult(eligible: true, distanceM: 12, radiusM: 300, locationAgeSeconds: 20, accuracyM: 8);
+}
+
 class _Log {
   final List<String> calls = [];
 }
@@ -295,6 +303,7 @@ void main() {
         writer: _Writer(log),
         completer: completer,
         loader: loader,
+        geofence: _InsideClinic(),
       );
     });
 
@@ -375,7 +384,7 @@ void main() {
 
     test('14. repeated taps make one fetch, one of each upload and one completion call', () async {
       final up = _Uploader(log)..gate = Completer<void>();
-      c = ProofSubmissionController(uploader: up, writer: _Writer(log), completer: completer, loader: loader);
+      c = ProofSubmissionController(uploader: up, writer: _Writer(log), completer: completer, loader: loader, geofence: _InsideClinic());
       final taps = List.generate(5, (_) => submit());
       up.gate!.complete();
       final results = await Future.wait(taps);

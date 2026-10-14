@@ -1,5 +1,7 @@
-import { collection, onSnapshot, orderBy, query, where } from "firebase/firestore";
+import { collection, orderBy, query, where } from "firebase/firestore";
 import { db } from "../firebase";
+import { logSafeError } from "./liveDataErrors.js";
+import { listenLive } from "./liveSnapshot.js";
 
 /**
  * Read-only views of the allocation workflow (Admin).
@@ -23,11 +25,11 @@ export function subscribeBackorderQueue(callback, onError) {
     where("allocationState", "in", WAITING_STATES),
     orderBy("allocationPriorityKey", "asc")
   );
-  return onSnapshot(
+  return listenLive(
     q,
     (snapshot) => callback(snapshot.docs.map((d) => ({ ...d.data(), id: d.id }))),
     (err) => {
-      console.error("Backorder queue subscription error:", err?.code || err);
+      logSafeError("Backorder queue subscription", err);
       if (onError) onError(err);
     }
   );
@@ -43,11 +45,11 @@ export function subscribePendingReturns(callback, onError) {
     where("status", "==", "pending"),
     orderBy("reportedAt", "asc")
   );
-  return onSnapshot(
+  return listenLive(
     q,
     (snapshot) => callback(snapshot.docs.map((d) => ({ ...d.data(), id: d.id }))),
     (err) => {
-      console.error("Pending returns subscription error:", err?.code || err);
+      logSafeError("Pending returns subscription", err);
       if (onError) onError(err);
     }
   );

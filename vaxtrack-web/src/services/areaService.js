@@ -2,18 +2,20 @@ import {
   collection,
   doc,
   getDoc,
-  onSnapshot,
   runTransaction,
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { validateAreaName } from "./areaModel";
+import { UserMessageError } from "./userMessageError.js";
+import { logSafeError } from "./liveDataErrors.js";
+import { listenLive } from "./liveSnapshot.js";
 
 const AREAS = "areas";
 
 export function subscribeAreas(callback, onError) {
-  return onSnapshot(
+  return listenLive(
     collection(db, AREAS),
     (snapshot) => {
       const areas = snapshot.docs
@@ -29,7 +31,7 @@ export function subscribeAreas(callback, onError) {
       callback(areas);
     },
     (error) => {
-      console.error("subscribeAreas error:", error);
+      logSafeError("subscribeAreas", error);
       if (onError) onError(error);
     }
   );
@@ -37,7 +39,7 @@ export function subscribeAreas(callback, onError) {
 
 export async function addArea(name) {
   const check = validateAreaName(name);
-  if (!check.ok) throw new Error(check.error);
+  if (!check.ok) throw new UserMessageError(check.error);
 
   const { key, name: displayName, nameNormalized } = check.value;
   const ref = doc(db, AREAS, key);
@@ -66,16 +68,16 @@ export async function addArea(name) {
 export async function setAreaActive(areaId, active) {
   const id = typeof areaId === "string" ? areaId.trim() : "";
   if (!id || id.includes("/")) {
-    throw new Error("That area could not be identified.");
+    throw new UserMessageError("That area could not be identified.");
   }
   if (typeof active !== "boolean") {
-    throw new Error("Area status must be active or inactive.");
+    throw new UserMessageError("Area status must be active or inactive.");
   }
 
   const ref = doc(db, AREAS, id);
   const snapshot = await getDoc(ref);
   if (!snapshot.exists()) {
-    throw new Error("That area no longer exists.");
+    throw new UserMessageError("That area no longer exists.");
   }
 
   await updateDoc(ref, {

@@ -28,6 +28,9 @@ function ForgotPassword() {
   const [submitting, setSubmitting] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const timerRef = useRef(null);
+  // Synchronous in-flight guard: `submitting` is state and can lag a fast
+  // second press; this cannot.
+  const inFlightRef = useRef(false);
 
   useEffect(() => () => clearInterval(timerRef.current), []);
 
@@ -53,6 +56,8 @@ function ForgotPassword() {
   // duplicate submission (double-click, Enter-while-pending, a stale click).
   const submit = async (address) => {
     if (submitting) return;
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     setError("");
     setSubmitting(true);
     try {
@@ -65,10 +70,13 @@ function ForgotPassword() {
         setStep("sent");
         startCooldown();
       } else {
-        // "invalid" (local) or "error" (infrastructure): stay put and explain.
+        // "invalid" (local) or "error" (infrastructure): stay put, explain
+        // at the email field, and keep what was typed.
         setError(outcome.message);
+        document.getElementById("forgot-email")?.focus();
       }
     } finally {
+      inFlightRef.current = false;
       setSubmitting(false);
     }
   };
@@ -92,27 +100,37 @@ function ForgotPassword() {
             <p>Forgot Password</p>
           </div>
 
-          <form className="auth-form" onSubmit={handleRequestSubmit}>
+          <form className="auth-form" onSubmit={handleRequestSubmit} noValidate>
             <h2 className="forgot-title">Reset Password</h2>
             <p className="forgot-subtitle">
               Enter your registered email and we will send you a password reset
               link.
             </p>
 
-            <label>Email Address</label>
+            <label htmlFor="forgot-email">Email Address</label>
             <div className="auth-input">
-              <Mail size={16} />
+              <Mail size={16} aria-hidden="true" />
               <input
+                id="forgot-email"
                 type="email"
                 placeholder="you@example.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (error) setError("");
+                }}
+                aria-invalid={error ? "true" : undefined}
+                aria-describedby={error ? "forgot-error" : undefined}
                 disabled={submitting}
                 autoComplete="email"
               />
             </div>
 
-            {error && <div className="auth-error">{error}</div>}
+            {error && (
+              <div id="forgot-error" className="auth-error" role="alert">
+                {error}
+              </div>
+            )}
 
             <button
               className="primary-auth-btn"
@@ -141,7 +159,11 @@ function ForgotPassword() {
 
           <p>{notice}</p>
 
-          {error && <div className="auth-error">{error}</div>}
+          {error && (
+            <div className="auth-error" role="alert">
+              {error}
+            </div>
+          )}
 
           <button
             type="button"

@@ -8,14 +8,13 @@ import {
   Printer,
   RotateCcw,
   Truck,
-  X,
 } from "lucide-react";
 import {
   finalizeRiderDispatch,
   subscribeCargoLoadingGroups,
   updateOrderLoadedState,
 } from "../../services/cargoLoadingService";
-import { getUserProfile } from "../../services/userService";
+import useOwnProfile from "../../components/profile/useOwnProfile";
 import {
   dispatchEligibility,
   SCHEDULED_DATE_NOT_REACHED,
@@ -24,6 +23,10 @@ import useManilaDayNow from "../../components/useManilaDayNow";
 import { auth } from "../../firebase";
 import StatusBadge from "../../components/ui/StatusBadge";
 import KpiCard from "../../components/ui/KpiCard";
+import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
+import ConfirmDialog from "../../components/ui/ConfirmDialog";
+import { ToastRegion } from "../../components/ui/Feedback";
+import { useToast } from "../../components/ui/useToast";
 import "./CargoLoading.css";
 
 // Loading-state badge shown on each rider card. Text + icon (not colour alone)
@@ -67,14 +70,17 @@ function DispatcherCargoLoading() {
   const [error, setError] = useState("");
   const now = useManilaDayNow();
 
-  const [dispatcher, setDispatcher] = useState(() => {
-    const user = auth.currentUser;
-    return {
-      uid: user?.uid || null,
-      email: user?.email || null,
-      name: user?.displayName || "",
-    };
-  });
+  // The signed-in dispatcher, for the printed loading sheet. The name comes
+  // from the LIVE own-profile listener (the same one My Profile and the
+  // sidebar use), so a rename shows on the next print without a reload; it
+  // used to be read once when the page opened.
+  const { profile: ownProfile } = useOwnProfile();
+  const authUser = auth.currentUser;
+  const dispatcher = {
+    uid: authUser?.uid || null,
+    email: authUser?.email || null,
+    name: ownProfile?.fullName || ownProfile?.name || ownProfile?.displayName || authUser?.displayName || "",
+  };
 
   const [savingOrders, setSavingOrders] = useState({}); // orderId -> true while writing
   const [finalizingRider, setFinalizingRider] = useState(null);
@@ -82,27 +88,7 @@ function DispatcherCargoLoading() {
 
   const [confirmGroup, setConfirmGroup] = useState(null); // group awaiting finalize confirmation
   const [printGroup, setPrintGroup] = useState(null); // group being printed
-  const [toast, setToast] = useState("");
-  const [toastType, setToastType] = useState("success");
-
-  // Enrich the dispatcher name from the Firestore profile (async, so it does
-  // not count as a synchronous setState in the effect body).
-  useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) return;
-    getUserProfile(user.uid)
-      .then((profile) => {
-        if (profile) {
-          setDispatcher((prev) => ({
-            ...prev,
-            name: profile.fullName || profile.name || profile.displayName || prev.name,
-          }));
-        }
-      })
-      .catch(() => {
-        /* non-fatal: fall back to auth email */
-      });
-  }, []);
+  const { toast, showToast, dismissToast } = useToast();
 
   // Live subscription to rider loading groups.
   useEffect(() => {
@@ -113,11 +99,7 @@ function DispatcherCargoLoading() {
         setError("");
       },
       (err) => {
-        if (err?.code === "permission-denied") {
-          setError("You do not have permission to view cargo loading.");
-        } else {
-          setError("Unable to load cargo loading data.");
-        }
+        setError(liveErrorMessage(err, "cargo loading"));
         setLoading(false);
       }
     );
@@ -134,11 +116,6 @@ function DispatcherCargoLoading() {
     return { riders, ordersToLoad, loaded, ready };
   }, [groups, dispatchedRiders]);
 
-  const showToast = (msg, type = "success") => {
-    setToast(msg);
-    setToastType(type);
-  };
-
   const handleToggleLoaded = async (order, nextLoaded) => {
     if (savingOrders[order.id]) return; // block duplicate writes
     setSavingOrders((prev) => ({ ...prev, [order.id]: true }));
@@ -150,8 +127,11 @@ function DispatcherCargoLoading() {
       // now comes from the session inside the service.
       await updateOrderLoadedState(order.id, nextLoaded);
     } catch (err) {
-      console.error("updateOrderLoadedState error:", err);
-      showToast(err.message || "Failed to save loaded state.", "error");
+      logSafeError("Update loaded state", err);
+      showToast(
+        friendlyErrorMessage(err, "The loaded check could not be saved. The order is unchanged — please try again."),
+        "error"
+      );
     } finally {
       setSavingOrders((prev) => {
         const copy = { ...prev };
@@ -161,10 +141,12 @@ function DispatcherCargoLoading() {
     }
   };
 
+  // Runs from the confirmation dialog, which stays open until the server
+  // confirms: on failure it rethrows, so the dialog shows the reason and the
+  // Dispatcher can retry or cancel. Success closes it.
   const handleFinalize = async (group) => {
     if (!group || finalizingRider) return;
     setFinalizingRider(group.riderId);
-    setConfirmGroup(null);
     try {
       // Every order is re-read and validated inside the service's transaction;
       // the whole dispatch fails if any one of them is no longer eligible.
@@ -174,10 +156,11 @@ function DispatcherCargoLoading() {
       );
       // Show the "Dispatched" state briefly; the snapshot then removes the group.
       setDispatchedRiders((prev) => ({ ...prev, [group.riderId]: true }));
+      setConfirmGroup(null);
       showToast(`Dispatch finalized for ${group.rider.name}.`, "success");
     } catch (err) {
-      console.error("finalizeRiderDispatch error:", err);
-      showToast(err.message || "Failed to finalize dispatch.", "error");
+      logSafeError("Finalize dispatch", err);
+      throw err;
     } finally {
       setFinalizingRider(null);
     }
@@ -265,23 +248,7 @@ function DispatcherCargoLoading() {
           />
         </section>
 
-        {toast && (
-          <div className={`cl-toast ${toastType === "error" ? "error" : ""}`}>
-            {toastType === "error" ? (
-              <AlertTriangle size={16} />
-            ) : (
-              <CheckCircle2 size={16} />
-            )}
-            <span>{toast}</span>
-            <button
-              type="button"
-              aria-label="Dismiss notification"
-              onClick={() => setToast("")}
-            >
-              <X size={14} />
-            </button>
-          </div>
-        )}
+        <ToastRegion toast={toast} onDismiss={dismissToast} />
 
         {groups.length === 0 ? (
           <div className="cl-empty">
@@ -323,8 +290,18 @@ function DispatcherCargoLoading() {
       </div>
 
       {confirmGroup && (
-        <ConfirmDispatchDialog
-          group={confirmGroup}
+        <ConfirmDialog
+          title="Finalize dispatch?"
+          target={`${confirmGroup.rider.name}${confirmGroup.rider.plate ? ` · ${confirmGroup.rider.plate}` : ""} · ${
+            confirmGroup.totalOrders
+          } order${confirmGroup.totalOrders === 1 ? "" : "s"}`}
+          consequence={`All ${confirmGroup.totalOrders} order${
+            confirmGroup.totalOrders === 1 ? "" : "s"
+          } for this rider will be marked In Transit. This cannot be undone here.`}
+          confirmLabel="Confirm dispatch"
+          busyLabel="Dispatching…"
+          tone="primary"
+          failureMessage="The dispatch could not be finalized. No order was moved — please try again."
           onCancel={() => setConfirmGroup(null)}
           onConfirm={() => handleFinalize(confirmGroup)}
         />
@@ -508,44 +485,6 @@ function RiderCard({
         </button>
       </div>
     </section>
-  );
-}
-
-function ConfirmDispatchDialog({ group, onCancel, onConfirm }) {
-  // Close the dialog with the Escape key for keyboard accessibility.
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
-
-  return (
-    <div className="cl-dialog-overlay" onClick={onCancel}>
-      <div
-        className="cl-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="cl-dialog-title"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 id="cl-dialog-title">Finalize dispatch?</h2>
-        <p>
-          This will mark all {group.totalOrders} order
-          {group.totalOrders === 1 ? "" : "s"} for <strong>{group.rider.name}</strong> as{" "}
-          <strong>In Transit</strong>. This action cannot be undone here.
-        </p>
-        <div className="cl-dialog-actions">
-          <button type="button" className="cl-btn cl-btn-outline" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="cl-btn cl-btn-primary" onClick={onConfirm} autoFocus>
-            <Truck size={14} /> Confirm dispatch
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 

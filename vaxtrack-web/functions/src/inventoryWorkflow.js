@@ -42,6 +42,7 @@ const {
   unitsByBatch,
 } = require("./allocation");
 const { statusUpdatedByEmailValue } = require("./attribution");
+const { routeFieldDeletes } = require("./orderRouteFields");
 const { settleFailureReturn, failureWouldSettle } = require("./failureReturn");
 const { PRICES_INCLUDE_VAT } = require("./pricingConfig");
 const { dispositionEvent, epochOf, requeueEvent, prepareEvents, createPreparedEvents } = require("./orderHistory");
@@ -484,6 +485,9 @@ async function requeueFailedOrder({ db, FieldValue, uid, email = null, payload, 
       assignedRiderName: null,
       assignedRiderPhone: null,
       isLoaded: false,
+      // The saved route/trip started at the previous rider's position: it is
+      // stale for whoever is assigned next. The dispatcher regenerates it.
+      ...routeFieldDeletes(order, FieldValue),
       statusUpdatedAt: FieldValue.serverTimestamp(),
       statusUpdatedByUid: uid,
       statusUpdatedByEmail: statusUpdatedByEmailValue(email, FieldValue),

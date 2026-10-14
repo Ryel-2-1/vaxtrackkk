@@ -6,11 +6,13 @@ import {
   ListOrdered,
   History,
   Truck,
+  MapPinned,
   CalendarDays,
   Users,
   Building2,
   FileText,
   BarChart3,
+  TrendingUp,
   AlertTriangle,
   Settings,
   LogOut,
@@ -47,13 +49,13 @@ const ROUTE_ACTIVE = {
   "/admin/allocation": "allocation",
   "/admin/order-history": "orderHistory",
   "/admin/deliveries": "deliveries",
+  "/admin/live-tracking": "liveTracking",
   "/admin/delivery-calendar": "delivery-calendar",
   "/admin/riders": "riders",
   "/admin/clinics": "clinics",
-  "/admin/register-clinic": "clinics",
-  "/admin/clinic-success": "clinics",
   "/admin/invoices": "invoices",
   "/admin/analytics": "analytics",
+  "/admin/ai-inventory-analytics": "aiInventoryAnalytics",
   "/admin/alerts": "alerts",
   "/admin/settings": "settings",
 };
@@ -195,6 +197,15 @@ export function AdminSidebar({ active: activeProp, onLogout }) {
           </Link>
 
           <Link
+            className={active === "liveTracking" ? "active" : ""}
+            aria-current={active === "liveTracking" ? "page" : undefined}
+            to="/admin/live-tracking"
+          >
+            <MapPinned size={16} aria-hidden="true" />
+            <span>Live Tracking</span>
+          </Link>
+
+          <Link
             className={active === "delivery-calendar" ? "active" : ""}
             aria-current={active === "delivery-calendar" ? "page" : undefined}
             to="/admin/delivery-calendar"
@@ -239,6 +250,15 @@ export function AdminSidebar({ active: activeProp, onLogout }) {
           >
             <BarChart3 size={16} aria-hidden="true" />
             <span>Analytics</span>
+          </Link>
+
+          <Link
+            className={active === "aiInventoryAnalytics" ? "active" : ""}
+            aria-current={active === "aiInventoryAnalytics" ? "page" : undefined}
+            to="/admin/ai-inventory-analytics"
+          >
+            <TrendingUp size={16} aria-hidden="true" />
+            <span>AI Inventory Analytics</span>
           </Link>
 
           <p className="admin-nav-group">System</p>

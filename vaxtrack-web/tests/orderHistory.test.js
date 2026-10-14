@@ -205,7 +205,9 @@ test("history is read-only on the client and scoped to the Med Rep", () => {
   assert.match(view, /Load \$\{HISTORY_PAGE_SIZE\} older orders/);
   // Loading, error, empty and permission-denied states.
   assert.match(view, /Loading order history…/);
-  assert.match(view, /You do not have permission to view/);
+  // Refused reads are their own state, worded by the shared mapper (never "no orders").
+  assert.match(view, /return liveErrorMessage\(err, what\);/);
+  assert.match(read("src", "services", "liveDataErrors.js"), /You do not have permission to view \$\{what\}/);
   assert.match(view, /You have not placed any orders yet\./);
   assert.match(view, /No orders match these filters\./);
 });
@@ -277,9 +279,17 @@ test("paging: loading older orders never duplicates, and stays stable when new o
   assert.match(service, /orderBy\("createdAt", "desc"\)/);
   assert.match(service, /if \(cursor\) parts\.push\(startAfter\(cursor\)\)/);
   assert.doesNotMatch(service, /offset\(/);
+  // The list itself is a LIVE window over the same query: "Load older
+  // orders" grows its size, so rows are replaced as a whole by each snapshot
+  // (no merge, so no duplicate) and a new order simply arrives at the top.
   const view = read("src", "components", "history", "OrderHistoryView.jsx");
-  assert.match(view, /setRows\(\(prev\) => mergeHistoryPage\(prev, next\)\)/);
-  assert.match(view, /if \(seq !== requestSeq\.current\) return;\s*setRows\(\(prev\) => mergeHistoryPage/, "a page for an old scope is dropped");
+  assert.match(service, /export function subscribeOrderHistoryWindow\(/);
+  const windowFn = service.slice(service.indexOf("export function subscribeOrderHistoryWindow"), service.indexOf("export async function fetchReceiptsForOrders"));
+  assert.match(windowFn, /parts\.push\(orderBy\("createdAt", "desc"\), limit\(size\)\);/);
+  assert.match(windowFn, /hasMore: snap\.docs\.length === size/);
+  assert.match(view, /setWindowSize\(\(n\) => n \+ HISTORY_PAGE_SIZE\);/);
+  assert.match(view, /if \(seq !== requestSeq\.current \|\| mine !== snapshotSeq\) return;\s*setRows\(next\);/, "a result for an old scope or an older snapshot is dropped");
+  assert.match(view, /return \(\) => unsubscribe\(\);\s*\n\s*\}, \[signedOut, isAdmin, scopeUid, repFilter, range, windowSize, toRows\]\);/, "a scope, range or size change replaces the listener");
 });
 
 test("the loaded-records limitation is stated whenever a filter applies to loaded records", () => {
@@ -319,7 +329,8 @@ test("every query is bounded; Med Rep queries always carry the ownership restric
   // A Med Rep view passes its uid to every query helper.
   const view = read("src", "components", "history", "OrderHistoryView.jsx");
   assert.match(view, /medRepUid: isAdmin \? repFilter \|\| null : scopeUid/);
-  assert.match(view, /fetchReceiptsForOrders\(orders\.map\(\(o\) => o\.id\), scopeUid\)/);
+  assert.match(view, /fetchReceiptsForOrders\(missing, scopeUid\)/);
+  assert.match(view, /medRepUid: isAdmin \? repFilter \|\| null : scopeUid,\s*\n\s*dateFrom: range\.dateFrom,\s*\n\s*dateTo: range\.dateTo,\s*\n\s*size: windowSize,/);
   const detail = read("src", "components", "history", "OrderHistoryDetail.jsx");
   assert.match(detail, /mode === "admin" \? null : medRepUid/);
 });

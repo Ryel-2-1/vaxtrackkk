@@ -11,7 +11,6 @@ import {
   Search,
   Share2,
   Truck,
-  X,
 } from "lucide-react";
 import { subscribeSalesRepOrders } from "../../services/orderService";
 import {
@@ -25,6 +24,10 @@ import {
   subscribeDestinationCorrections,
 } from "../../services/destinationCorrectionService";
 import StatusBadge from "../../components/ui/StatusBadge";
+import ConfirmDialog from "../../components/ui/ConfirmDialog";
+import { ToastRegion } from "../../components/ui/Feedback";
+import { useToast } from "../../components/ui/useToast";
+import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 import AllocationSummary from "../../components/ui/AllocationSummary";
 import { describeAllocation } from "../../services/backorder";
@@ -171,9 +174,10 @@ function normalizeOrder(raw) {
     // Current schedule (an Admin may have moved it) and the original request.
     scheduledDeliveryTime: raw.scheduledDeliveryTime || null,
     originalRequestedDeliveryDate: raw.originalRequestedDeliveryDate || null,
-    // Live-location + saved-route fields for the read-only tracking map.
-    lastLocation: raw.lastLocation || null,
-    lastLocationUpdate: raw.lastLocationUpdate || null,
+    // The rider whose live location the map may read — rules allow it only
+    // while that rider carries an active order this Med Rep owns — then the
+    // saved-route fields for the read-only tracking map.
+    assignedRiderId: raw.assignedRiderId || "",
     clinicLat: raw.clinicLat,
     clinicLng: raw.clinicLng,
     routePolyline: raw.routePolyline || "",
@@ -215,8 +219,9 @@ function SalesRepOrderTracking() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedOrderId, setSelectedOrderId] = useState("");
-  const [message, setMessage] = useState("");
-  const [reviewError, setReviewError] = useState("");
+  const { toast, showToast, dismissToast } = useToast();
+  // The destination decision awaiting confirmation: "approve" | "reject" | null.
+  const [pendingDecision, setPendingDecision] = useState(null);
   const [reviewing, setReviewing] = useState(false);
   const reviewingRef = useRef(false);
   const [corrections, setCorrections] = useState([]);
@@ -244,11 +249,7 @@ function SalesRepOrderTracking() {
         }
       },
       (err) => {
-        if (err?.code === "permission-denied") {
-          setError("You do not have permission to view orders. Please contact your administrator.");
-        } else {
-          setError("Unable to load orders. Please try again later.");
-        }
+        setError(liveErrorMessage(err, "your orders"));
         setLoading(false);
       }
     );
@@ -267,19 +268,28 @@ function SalesRepOrderTracking() {
     );
   }, [selectedOrderId]);
 
-  const handleDestinationDecision = async (decision) => {
+  // Runs from the confirmation dialog. One request at a time; success only
+  // after the server confirms; on failure it rethrows so the dialog stays
+  // open with the reason (the server's own sentence for a domain refusal,
+  // otherwise a safe mapped message).
+  const handleDestinationDecision = async () => {
+    const decision = pendingDecision;
     const requestId = selectedOrder?.changeRequest?.id;
-    if (!requestId || reviewingRef.current) return;
+    if (!requestId || !decision || reviewingRef.current) return;
     reviewingRef.current = true;
     setReviewing(true);
-    setReviewError("");
     try {
       await reviewOrderDestinationChange(selectedOrder.id, requestId, decision);
-      setMessage(decision === "approve"
-        ? "Destination approved. The order now uses the new address."
-        : "Destination request rejected. The original address remains in place.");
+      setPendingDecision(null);
+      showToast(
+        decision === "approve"
+          ? "Destination approved. The order now uses the new address."
+          : "Destination request rejected. The original address remains in place.",
+        "success"
+      );
     } catch (failure) {
-      setReviewError(failure.message || "Could not review the destination request.");
+      logSafeError("Review destination change", failure);
+      throw failure;
     } finally {
       reviewingRef.current = false;
       setReviewing(false);
@@ -310,13 +320,13 @@ function SalesRepOrderTracking() {
     setActiveTab(tab);
     setStatusFilter("all");
     setSearchTerm("");
-    setMessage("");
+    dismissToast();
   };
 
   const selectOrder = (id) => {
     setCorrections([]);
     setCorrectionsError("");
-    setReviewError("");
+    setPendingDecision(null);
     setSelectedOrderId(id);
   };
 
@@ -327,9 +337,13 @@ function SalesRepOrderTracking() {
 
     try {
       await navigator.clipboard.writeText(text);
-      setMessage("Tracking details copied to clipboard.");
+      showToast("Tracking details copied to the clipboard.", "success");
     } catch {
-      setMessage("Tracking details ready to share.");
+      // Nothing was copied — never report it as ready.
+      showToast(
+        `The tracking details couldn't be copied. Copy them manually: ${text}`,
+        "warning"
+      );
     }
   };
 
@@ -347,8 +361,8 @@ function SalesRepOrderTracking() {
   if (error) {
     return (
       <>
-        <div className="inventory-loading-state">
-          <AlertTriangle size={32} />
+        <div className="inventory-loading-state" role="alert">
+          <AlertTriangle size={32} aria-hidden="true" />
           <p>{error}</p>
         </div>
       </>
@@ -374,15 +388,7 @@ function SalesRepOrderTracking() {
           </div>
         </div>
 
-        {message && (
-          <div className="tracking-v2-message">
-            <ClipboardCheck size={16} />
-            <span>{message}</span>
-            <button type="button" onClick={() => setMessage("")}>
-              <X size={14} />
-            </button>
-          </div>
-        )}
+        <ToastRegion toast={toast} onDismiss={dismissToast} />
 
         <section className="tracking-layout tracking-v2-layout">
           <div className="tracking-left">
@@ -515,19 +521,42 @@ function SalesRepOrderTracking() {
                       <dt>Reason</dt>
                       <dd>{selectedOrder.changeRequest.reason}</dd>
                     </dl>
-                    {reviewError && <p className="tracking-destination-error" role="alert">{reviewError}</p>}
                     {!(["pending_dispatch", "assigned", "loading", "delivery_failed"].includes(selectedOrder.statusKey)) &&
                       <p>This delivery has moved past the approval window. Reject this request and contact Dispatcher.</p>}
                     <div className="tracking-destination-actions">
                       <button type="button" className="approve" disabled={reviewing ||
                         !["pending_dispatch", "assigned", "loading", "delivery_failed"].includes(selectedOrder.statusKey)}
-                        onClick={() => handleDestinationDecision("approve")}>
+                        onClick={() => setPendingDecision("approve")}>
                         {reviewing ? "Reviewing..." : "Approve new destination"}
                       </button>
                       <button type="button" className="reject" disabled={reviewing}
-                        onClick={() => handleDestinationDecision("reject")}>Reject request</button>
+                        onClick={() => setPendingDecision("reject")}>Reject request</button>
                     </div>
                   </section>
+                )}
+
+                {pendingDecision && selectedOrder.changeRequest && (
+                  <ConfirmDialog
+                    title={pendingDecision === "approve" ? "Approve the new destination?" : "Reject the destination request?"}
+                    target={`Order ${selectedOrder.orderNumber} · ${
+                      pendingDecision === "approve"
+                        ? `new: ${selectedOrder.changeRequest.proposed?.displayName || "Unknown"} — ${
+                            selectedOrder.changeRequest.proposed?.address || "Unknown"
+                          }`
+                        : `keeps: ${selectedOrder.destination} — ${selectedOrder.city}`
+                    }`}
+                    consequence={
+                      pendingDecision === "approve"
+                        ? "The order will be delivered to the new address. The Dispatcher and rider see the change right away."
+                        : "The order keeps its current address and the Dispatcher's request is closed."
+                    }
+                    confirmLabel={pendingDecision === "approve" ? "Approve destination" : "Reject request"}
+                    busyLabel="Saving…"
+                    tone={pendingDecision === "approve" ? "primary" : "danger"}
+                    failureMessage="The destination request could not be reviewed. Nothing was changed — please try again."
+                    onConfirm={handleDestinationDecision}
+                    onCancel={() => setPendingDecision(null)}
+                  />
                 )}
 
                 <div className="tracking-v2-info-box">

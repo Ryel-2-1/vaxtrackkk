@@ -8,11 +8,24 @@ import {
   formatDuration,
   formatEta,
 } from "../services/routeService";
+import {
+  MARKER_LABELS,
+  deviationDisplayState,
+  deviationText,
+  formatAge,
+  isTrackedStatus,
+  locationLatLng,
+  locationTimeMs,
+  riderMarkerState,
+} from "../services/riderTracking";
+import { useNow, useRiderLiveLocation } from "./useRiderLiveLocation";
 import "./LiveDeliveryMap.css";
 
 /**
  * Read-only live delivery map, shared by Admin (Deliveries drawer) and Sales Rep
- * (Order Tracking). It shows the rider's last reported position, and — when the
+ * (Order Tracking). It shows the rider's last reported position (read from
+ * riderLocations/{assignedRiderId} while the order is active, labelled
+ * Fresh / Stale / Offline), and — when the
  * order carries clinic coordinates — the destination marker, the 300 m geofence
  * circle, and the dispatcher-generated route. It NEVER writes: no route
  * generation, no status changes. Route generation stays a Dispatcher action; the
@@ -25,7 +38,6 @@ import "./LiveDeliveryMap.css";
  */
 
 const GEOFENCE_RADIUS_M = 300;
-const STALE_LOCATION_MS = 2 * 60 * 1000;
 // Stable empty stops list — a fresh `[]` each render would re-run the map effect
 // (its deps include `stops`) on every render.
 const NO_STOPS = Object.freeze([]);
@@ -53,42 +65,6 @@ function numberedClinicIcon(n) {
     iconSize: [22, 22],
     iconAnchor: [11, 11],
   });
-}
-
-function isLocationStale(ts) {
-  if (!ts) return false;
-  const d = ts.toDate ? ts.toDate() : new Date(ts);
-  if (isNaN(d.getTime())) return false;
-  return Date.now() - d.getTime() > STALE_LOCATION_MS;
-}
-
-function formatRelativeTime(ts) {
-  if (!ts) return null;
-  const d = ts.toDate ? ts.toDate() : new Date(ts);
-  if (isNaN(d.getTime())) return null;
-  const diffMin = Math.floor((Date.now() - d.getTime()) / 60000);
-  if (diffMin < 1) return "Just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function formatCoords(geoPoint) {
-  if (!geoPoint) return null;
-  const lat = geoPoint.latitude ?? geoPoint._lat;
-  const lng = geoPoint.longitude ?? geoPoint._long;
-  if (typeof lat !== "number" || typeof lng !== "number") return null;
-  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-}
-
-// Handles both Firestore GeoPoint shapes (latitude/longitude and _lat/_long).
-function getLatLng(geoPoint) {
-  if (!geoPoint) return null;
-  const lat = geoPoint.latitude ?? geoPoint._lat;
-  const lng = geoPoint.longitude ?? geoPoint._long;
-  if (typeof lat !== "number" || typeof lng !== "number") return null;
-  return [lat, lng];
 }
 
 function getClinicLatLng(order) {
@@ -284,33 +260,60 @@ function MapCanvas({ lat, lng, clinicLat, clinicLng, routePolyline, stopLabel, s
 
 /**
  * @param {object} props
- * @param {object} props.order  a delivery/order with lastLocation, optional
- *   clinicLat/clinicLng, and optional saved route/trip fields.
+ * @param {object} props.order  a delivery/order with statusKey, assignedRiderId,
+ *   optional clinicLat/clinicLng, and optional saved route/trip fields.
  * @param {{lat:number,lng:number,label:number}[]} [props.tripStops]  every stop
  *   in the trip, numbered by visiting order — for callers that can read the
  *   whole group (Admin). Omitted for Sales Rep, who only sees their own stop.
+ * @param {boolean} [props.showDeviation]  also read the server's route-deviation
+ *   state (Admin/Dispatcher only — a Med Rep is never sent it).
  */
-function LiveDeliveryMap({ order, tripStops = NO_STOPS }) {
-  const riderLL = getLatLng(order?.lastLocation);
+function LiveDeliveryMap({ order, tripStops = NO_STOPS, showDeviation = false }) {
+  // The rider's position is read from riderLocations/{assignedRiderId}, and
+  // only while the order is still being delivered.
+  const tracked = isTrackedStatus(order?.statusKey ?? order?.rawStatus ?? order?.status);
+  const live = useRiderLiveLocation(order?.assignedRiderId, { enabled: tracked, withDeviation: showDeviation });
+  const nowMs = useNow();
+  const riderLL = locationLatLng(live.location);
   const clinicLL = getClinicLatLng(order);
 
-  // No rider fix yet — honest fallback, never a fake position.
+  // No position — an honest state, never a fake marker.
   if (!riderLL) {
+    let title = "No live location yet";
+    let detail = `Waiting for the rider app to share its position${clinicLL ? "." : ", and this clinic has no coordinates yet."}`;
+    if (!order?.assignedRiderId) {
+      title = "No rider assigned yet";
+      detail = "The rider's location appears here once a rider is delivering this order.";
+    } else if (!tracked) {
+      title = "Location unavailable";
+      detail = "Live location is shown only while the delivery is active.";
+    } else if (live.status === "loading") {
+      title = "Loading rider location…";
+      detail = "";
+    } else if (live.status === "denied") {
+      title = "Location unavailable";
+      detail = "The rider's location is visible only while they are delivering this order.";
+    } else if (live.status === "error") {
+      title = "Location unavailable";
+      detail = "The rider's location could not be loaded. Check your connection and reopen this order.";
+    } else if (live.location?.trackingState === "ended") {
+      title = "Rider offline";
+      detail = "The rider is not sharing location right now.";
+    }
     return (
-      <div className="ldm-fallback">
+      <div className="ldm-fallback" role="status">
         <MapPin size={20} />
-        <strong>No live location yet</strong>
-        <p>
-          Waiting for the rider app to send a GPS update
-          {clinicLL ? "." : ", and this clinic has no coordinates yet."}
-        </p>
+        <strong>{title}</strong>
+        {detail && <p>{detail}</p>}
       </div>
     );
   }
 
-  const stale = isLocationStale(order?.lastLocationUpdate);
-  const coords = formatCoords(order?.lastLocation);
-  const rel = formatRelativeTime(order?.lastLocationUpdate);
+  const markerState = riderMarkerState({ location: live.location, deviation: live.deviation, nowMs });
+  const deviation = deviationDisplayState(live.deviation);
+  const coords = `${riderLL[0].toFixed(5)}, ${riderLL[1].toFixed(5)}`;
+  const rel = formatAge(locationTimeMs(live.location), nowMs);
+  const accuracy = Number.isFinite(live.location?.accuracyMeters) ? Math.round(live.location.accuracyMeters) : null;
 
   let geofence = null;
   if (clinicLL) {
@@ -348,10 +351,17 @@ function LiveDeliveryMap({ order, tripStops = NO_STOPS }) {
 
       <div className="ldm-info">
         <div className="ldm-row">
-          <span className="ldm-coords tnum">{coords || "—"}</span>
+          <span className={`ldm-state ldm-state-${markerState}`}>{MARKER_LABELS[markerState]}</span>
+          <span className="ldm-coords tnum">{coords}</span>
+          {accuracy !== null && <span className="ldm-muted tnum">±{accuracy} m</span>}
           {rel && <span className="ldm-muted">Updated {rel}</span>}
-          {stale && <span className="ldm-stale">· Stale (no recent update)</span>}
         </div>
+
+        {showDeviation && deviation !== "not_navigating" && (
+          <div className={`ldm-deviation ldm-deviation-${deviation}`}>
+            Route monitoring: {deviationText(live.deviation)}
+          </div>
+        )}
 
         {geofence && (
           <div className={`ldm-geofence ${geofence.inside ? "in" : "out"}`}>

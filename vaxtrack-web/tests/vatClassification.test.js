@@ -34,11 +34,12 @@ const server = require("../functions/src/invoicePricing.js");
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const code = (p) => read(p).replace(/\{\/\*[\s\S]*?\*\/\}/g, "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-test("2/3/4 · only vatable and vat_exempt are classifications", () => {
-  assert.deepEqual([...PRODUCT_VAT_CLASSIFICATIONS], ["vatable", "vat_exempt"]);
+test("2/3/4 · only vatable, vat_exempt and zero_rated are classifications", () => {
+  assert.deepEqual([...PRODUCT_VAT_CLASSIFICATIONS], ["vatable", "vat_exempt", "zero_rated"]);
   assert.equal(readVatClassification("vatable"), "vatable");
   assert.equal(readVatClassification("vat_exempt"), "vat_exempt");
-  for (const bad of [undefined, null, "", "VAT", "zero_rated", "exempt", true]) {
+  assert.equal(readVatClassification("zero_rated"), "zero_rated");
+  for (const bad of [undefined, null, "", "VAT", "per_item", "exempt", true]) {
     assert.equal(readVatClassification(bad), null, String(bad));
   }
 });
@@ -82,7 +83,12 @@ test("7 · an unclassified or unlinked product is visible but cannot be ordered"
 
 test("10 · the Med Rep never sends a VAT field; the server snapshots the product's value", () => {
   const checkout = code("src/pages/salesRep/SalesRepPlaceOrder.jsx");
-  assert.match(checkout, /items: items\.map\(\(item\) => \(\{\s*inventoryId: item\.inventoryId,\s*quantity: Number\(item\.quantity\),\s*expectedUnitPriceCentavos: item\.expectedUnitPriceCentavos,\s*\}\)\)/);
+  // Per line: identity, quantity and the negotiated-pricing fields only —
+  // the reviewed standard, the agreed unit price and a reason. No VAT field.
+  assert.match(checkout, /items: items\.map\(\(item\) => \(\{\s*inventoryId: item\.inventoryId,\s*quantity: Number\(item\.quantity\),\s*\.\.\.negotiatedRequestLine\(item, reviewBySku\.get\(item\.sku\)\.price\),\s*\}\)\)/);
+  const line = read("src/services/negotiatedPricing.js");
+  const fn = line.slice(line.indexOf("export function negotiatedRequestLine"));
+  assert.equal(/vat/i.test(fn), false, "the request line carries no VAT field");
   const ops = read("functions/src/operations.js");
   assert.match(ops, /vatClassification: lineVat\[index\],/);
   assert.match(ops, /resolveLineVatClassification\(\{/);
@@ -116,7 +122,7 @@ test("12/14 · an invoice for a mixed order is itemized and labels every line", 
   const form = buildInitialForm(order, null, "");
   assert.equal(form.vatClassification, ITEMIZED_VAT);
   assert.deepEqual(itemsFromOrder(order).map(itemVatLabelForLine), ["VAT", "VAT Exempt"]);
-  assert.equal(vatClassificationLabel(ITEMIZED_VAT), "Per item (VAT / VAT Exempt)");
+  assert.equal(vatClassificationLabel(ITEMIZED_VAT), "Per item (VAT / VAT Exempt / Zero-Rated)");
   // A legacy order keeps the Admin's invoice-level choice (default VATable).
   assert.equal(buildInitialForm({ items: [{ name: "x", quantity: 1, unitPrice: 5 }] }, null, "").vatClassification, "vatable");
 
@@ -212,7 +218,8 @@ test("18 · an order without snapshots uses the invoice-level path (VAT-inclusiv
 test("1 · Register New Vaccine requires an explicit classification with no default", () => {
   const page = code("src/pages/admin/AddVaccine.jsx");
   assert.match(page, /const \[vatClassification, setVatClassification\] = useState\(""\);/);
-  assert.match(page, /if \(!PRODUCT_VAT_CLASSIFICATIONS\.includes\(vatClassification\)\) \{\s*showMessage\("Select VAT or VAT Exempt for this vaccine\."\);\s*return false;/);
+  // Refused at its own field (aria-invalid + message), nothing saved.
+  assert.match(page, /if \(!PRODUCT_VAT_CLASSIFICATIONS\.includes\(vatClassification\)\) \{\s*return failField\("vatClassification", "Select VAT, VAT Exempt or Zero-Rated for this vaccine\."\);/);
   assert.match(page, /<legend>VAT Classification<\/legend>/);
   assert.match(page, /Becomes the VAT status of every future order item/);
 });

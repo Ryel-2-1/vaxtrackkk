@@ -119,7 +119,8 @@ test("CSS still shared with the rider details modal is kept", () => {
 
 test("riders still come from the Firestore subscription", () => {
   assert.match(ridersPage, /subscribeRiders\(/);
-  assert.match(riderService, /onSnapshot\(/);
+  // A live listener: listenLive is onSnapshot that recovers from transient failures.
+  assert.match(riderService, /listenLive\(/);
   assert.match(riderService, /where\("role", "==", "rider"\)/);
 
   // onSnapshot stays the only source of list state.

@@ -1213,3 +1213,18 @@
   color: var(--danger-text);
   font-size: 13px;
 }
+
+
+/* Change Role: a failed save is shown inside the dialog, which stays open. */
+.settings-modal-error {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-control);
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+  overflow-wrap: anywhere;
+}

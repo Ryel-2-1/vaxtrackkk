@@ -1296,3 +1296,14 @@
   line-height: 1.45;
   color: var(--gray-600);
 }
+
+/* The product catalog failed to load: VAT labels are not trustworthy. */
+.v2-catalog-notice {
+  margin: 12px 16px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--warning-border);
+  border-radius: 10px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 13px;
+}

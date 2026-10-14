@@ -23,6 +23,10 @@ import {
 } from "lucide-react";
 import "../styles/tokens.css";
 import "./StyleGuide.css";
+import ConfirmDialog from "../components/ui/ConfirmDialog";
+import { Notice, ToastRegion } from "../components/ui/Feedback";
+import { useToast } from "../components/ui/useToast";
+import { UserMessageError } from "../services/userMessageError";
 
 const NAV_ITEMS = [
   { label: "Dashboard", icon: LayoutDashboard, active: true },
@@ -128,6 +132,68 @@ function Section({ title, desc, children }) {
       {desc && <p className="sg-section-desc">{desc}</p>}
       {children}
     </section>
+  );
+}
+
+/**
+ * The shared feedback primitives, live: the four notice tones, the toast
+ * region and the confirmation dialog (whose demo confirm FAILS on purpose, to
+ * show that the dialog stays open with the reason). Local only — no writes.
+ */
+function FeedbackDemo() {
+  const { toast, showToast, dismissToast } = useToast();
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <Section
+      title="Feedback messages"
+      desc="Success is green, warning amber, error red, information neutral. Errors use role=alert; the rest are announced politely. Toasts never replace an inline error."
+    >
+      <div className="sg-feedback-stack">
+        <Notice tone="success">Order VT-ORD-1001 was placed.</Notice>
+        <Notice tone="warning" title="Action required">
+          The standard price of batch HEP-001 changed. Review it and confirm again.
+        </Notice>
+        <Notice tone="error">
+          We couldn't place the order. Your cart and entries are still here — check your connection and try again.
+        </Notice>
+        <Notice tone="info">No orders are waiting for a rider.</Notice>
+        <div className="sg-feedback-actions">
+          <button type="button" className="m-btn m-btn-secondary" onClick={() => showToast("Draft saved.", "success")}>
+            Show success toast
+          </button>
+          <button
+            type="button"
+            className="m-btn m-btn-secondary"
+            onClick={() => showToast("The draft could not be saved. Your changes are still here — please try again.", "error")}
+          >
+            Show error toast
+          </button>
+          <button type="button" className="m-btn m-btn-danger" onClick={() => setConfirming(true)}>
+            Open confirmation
+          </button>
+        </div>
+      </div>
+      <ToastRegion toast={toast} onDismiss={dismissToast} />
+      {confirming && (
+        <ConfirmDialog
+          title="Cancel order?"
+          target="Order VT-ORD-1001 · Sample Clinic"
+          consequence="The order will be cancelled and its reserved stock released. This cannot be undone."
+          confirmLabel="Cancel order"
+          busyLabel="Cancelling…"
+          cancelLabel="Keep order"
+          onCancel={() => setConfirming(false)}
+          onConfirm={() =>
+            new Promise((_resolve, reject) =>
+              setTimeout(
+                () => reject(new UserMessageError("Demo: the server refused this change. Nothing was changed.")),
+                400
+              )
+            )
+          }
+        />
+      )}
+    </Section>
   );
 }
 
@@ -603,6 +669,8 @@ function StyleGuide() {
               </div>
             </div>
           </Section>
+
+          <FeedbackDemo />
         </main>
       </div>
     </div>

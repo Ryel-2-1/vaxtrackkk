@@ -294,8 +294,10 @@ test("changing the checkout doctor clears its addresses and destination without 
   // 5. The subscription callback no longer applies a restored destination.
   //    Restoration is verified against the loaded options instead — its
   //    behaviour is proven in tests/checkoutDraftRestore.test.js, not here.
-  const callback = /setAddressBook\(\{ doctorId: selectedDoctorId, docs \}\);\s*\n\s*\},/.exec(checkout);
-  assert.ok(callback, "the success callback only records the snapshot");
+  // (It also clears its own load error, so a listener that recovers after a
+  // failure stops showing "could not be loaded".)
+  const callback = /setAddressBook\(\{ doctorId: selectedDoctorId, docs \}\);\s*\n\s*setSourceError\("addresses", ""\);\s*\n\s*\},/.exec(checkout);
+  assert.ok(callback, "the success callback only records the snapshot and clears its own error");
   assert.doesNotMatch(checkout, /pendingDestinationRef/);
 
   // 6. Fixed, not silenced.

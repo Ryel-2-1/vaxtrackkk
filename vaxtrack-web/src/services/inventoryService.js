@@ -1,10 +1,12 @@
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, documentId, query, where } from "firebase/firestore";
 import { db } from "../firebase";
+import { logSafeError } from "./liveDataErrors.js";
+import { listenLive } from "./liveSnapshot.js";
 
 const INVENTORY_COLLECTION = "inventory";
 
 export function subscribeInventory(callback, onError) {
-  return onSnapshot(
+  return listenLive(
     collection(db, INVENTORY_COLLECTION),
     (snapshot) => {
       const batches = snapshot.docs
@@ -26,8 +28,44 @@ export function subscribeInventory(callback, onError) {
       callback(batches);
     },
     (err) => {
-      console.error("Inventory subscription error:", err);
+      logSafeError("Inventory subscription", err);
       if (onError) onError(err);
     }
   );
+}
+
+// Firestore's limit on the values of one `in` filter.
+export const BATCH_IN_LIMIT = 30;
+
+/**
+ * LIVE view of just the named inventory batches — a Med Rep's cart, not the
+ * whole collection. Ids are de-duplicated and queried by document id in
+ * groups of BATCH_IN_LIMIT; `callback(batches)` fires once every group has
+ * reported, and again on any change. A batch that no longer exists is simply
+ * absent. One failing group reports through `onError` once.
+ * Returns a single unsubscribe for every group.
+ */
+export function subscribeInventoryBatches(ids, callback, onError) {
+  const unique = [...new Set((ids || []).filter((id) => typeof id === "string" && id))];
+  const groups = [];
+  for (let i = 0; i < unique.length; i += BATCH_IN_LIMIT) groups.push(unique.slice(i, i + BATCH_IN_LIMIT));
+  const results = new Array(groups.length).fill(null);
+  let failed = false;
+  const unsubscribes = groups.map((group, index) =>
+    listenLive(
+      query(collection(db, INVENTORY_COLLECTION), where(documentId(), "in", group)),
+      (snapshot) => {
+        // Document id LAST so it always wins (see subscribeInventory).
+        results[index] = snapshot.docs.map((d) => ({ ...d.data(), id: d.id }));
+        if (!failed && results.every(Boolean)) callback(results.flat());
+      },
+      (err) => {
+        logSafeError("Inventory batch subscription", err);
+        if (failed) return;
+        failed = true;
+        if (onError) onError(err);
+      }
+    )
+  );
+  return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
 }

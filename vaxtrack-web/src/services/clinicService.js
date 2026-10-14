@@ -4,7 +4,6 @@ import {
   doc,
   getDoc,
   getDocs,
-  onSnapshot,
   query,
   serverTimestamp,
   updateDoc,
@@ -12,6 +11,9 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { validateClinicLocation } from "./clinicLocation";
+import { UserMessageError } from "./userMessageError.js";
+import { logSafeError } from "./liveDataErrors.js";
+import { listenLive } from "./liveSnapshot.js";
 
 const CLINICS = "clinics";
 
@@ -47,7 +49,7 @@ function hasCoordinateInput(latitude, longitude) {
 }
 
 export function subscribeClinics(callback, onError) {
-  return onSnapshot(
+  return listenLive(
     collection(db, CLINICS),
     (snap) => {
       const docs = snap.docs
@@ -65,7 +67,7 @@ export function subscribeClinics(callback, onError) {
       callback(docs);
     },
     (error) => {
-      console.error("subscribeClinics error:", error);
+      logSafeError("subscribeClinics", error);
       if (onError) onError(error);
     }
   );
@@ -95,7 +97,7 @@ export async function addClinic({
   const stableAreaId = typeof areaId === "string" ? areaId.trim() : "";
   const areaName = typeof area === "string" ? area.trim() : "";
   if (!stableAreaId || stableAreaId.includes("/") || !areaName) {
-    throw new Error("Select an active area for this clinic.");
+    throw new UserMessageError("Select an active area for this clinic.");
   }
 
   const clinic = {
@@ -127,7 +129,7 @@ export async function addClinic({
       longitude,
       geofenceRadiusM,
     });
-    if (!ok) throw new Error(formatLocationErrors(errors));
+    if (!ok) throw new UserMessageError(formatLocationErrors(errors));
 
     clinic.latitude = value.latitude;
     clinic.longitude = value.longitude;
@@ -160,18 +162,18 @@ export async function addClinic({
 export async function updateClinicLocation(clinicId, input = {}) {
   const id = typeof clinicId === "string" ? clinicId.trim() : "";
   if (!id) {
-    throw new Error("A clinic reference is required to save a location.");
+    throw new UserMessageError("A clinic reference is required to save a location.");
   }
 
   const { ok, errors, value } = validateClinicLocation(input);
-  if (!ok) throw new Error(formatLocationErrors(errors));
+  if (!ok) throw new UserMessageError(formatLocationErrors(errors));
 
   const ref = doc(db, CLINICS, id);
   const snapshot = await getDoc(ref);
   if (!snapshot.exists()) {
     // Guard against updateDoc-style upserts and stale rows: never create a
     // clinic from a location save.
-    throw new Error("That clinic no longer exists. The location was not saved.");
+    throw new UserMessageError("That clinic no longer exists. The location was not saved.");
   }
 
   await updateDoc(ref, {

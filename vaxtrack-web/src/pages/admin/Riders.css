@@ -974,3 +974,18 @@
     max-width: 100% !important;
   }
 }
+
+
+/* Rider details: actions that are not built yet are visibly disabled, and
+   this note (their aria-describedby) says why. */
+.riders-light-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.riders-unavailable-note {
+  margin: 10px 0 0;
+  color: var(--gray-600);
+  font-size: 13px;
+  line-height: 1.45;
+}

@@ -3,7 +3,6 @@ import {
   collection,
   doc,
   getDoc,
-  onSnapshot,
   runTransaction,
   serverTimestamp,
   deleteField,
@@ -16,6 +15,7 @@ import { auth, db } from "../firebase";
 import { buildClinicLocationSnapshot } from "./orderLocation";
 import { dispatchEligibility } from "./dispatchEligibility";
 import { assignmentBlockReason } from "./backorder";
+import { presentRouteFields } from "./orderRouteFields";
 import {
   ACTOR_DISPATCHER,
   assertTransition,
@@ -24,6 +24,9 @@ import {
   validateReason,
   WorkflowError,
 } from "./orderWorkflow";
+import { UserMessageError } from "./userMessageError.js";
+import { logSafeError } from "./liveDataErrors.js";
+import { listenLive } from "./liveSnapshot.js";
 
 const ORDERS_COLLECTION = "orders";
 const USERS_COLLECTION = "users";
@@ -60,13 +63,13 @@ export async function getOrderById(orderId) {
  */
 export async function createSalesRepOrder(orderData = {}) {
   if (!orderData.clinicName) {
-    throw new Error("Clinic name is required.");
+    throw new UserMessageError("Clinic name is required.");
   }
   if (!orderData.vaccineName) {
-    throw new Error("Vaccine name is required.");
+    throw new UserMessageError("Vaccine name is required.");
   }
   if (!orderData.quantity || orderData.quantity <= 0) {
-    throw new Error("Quantity must be greater than zero.");
+    throw new UserMessageError("Quantity must be greater than zero.");
   }
 
   const orderNumber = orderData.orderNumber || `VT-ORD-${Date.now()}`;
@@ -143,7 +146,7 @@ export function subscribeSalesRepOrders(uid, callback, onError) {
     where("createdByUid", "==", uid)
   );
 
-  return onSnapshot(
+  return listenLive(
     q,
     (snapshot) => {
       const orders = snapshot.docs
@@ -157,38 +160,48 @@ export function subscribeSalesRepOrders(uid, callback, onError) {
       callback(orders);
     },
     (error) => {
-      console.error("subscribeSalesRepOrders error:", error);
+      logSafeError("subscribeSalesRepOrders", error);
       if (onError) onError(error);
     }
   );
 }
 
-export function subscribePendingDispatchOrders(callback) {
+// Live: every pending_dispatch order, re-delivered on every change (an
+// assignment here or in another browser removes the order from the next
+// snapshot). `onError` is optional; without it a failure is silent, as before.
+export function subscribePendingDispatchOrders(callback, onError) {
   const q = query(
     collection(db, ORDERS_COLLECTION),
     where("status", "==", "pending_dispatch")
   );
 
-  return onSnapshot(q, (snapshot) => {
-    // document id last — see the identity rule above
-    const orders = snapshot.docs.map((docItem) => ({
-      ...docItem.data(),
-      id: docItem.id,
-    }));
+  return listenLive(
+    q,
+    (snapshot) => {
+      // document id last — see the identity rule above
+      const orders = snapshot.docs.map((docItem) => ({
+        ...docItem.data(),
+        id: docItem.id,
+      }));
 
-    callback(orders);
-  });
+      callback(orders);
+    },
+    (error) => onError?.(error)
+  );
 }
 
 /**
  * A rejected assignment. `code` is stable and machine-readable; `message` is
  * already phrased for display, so the page can surface it without translating.
  */
-export class AssignmentError extends Error {
-  constructor(code, message) {
+export class AssignmentError extends UserMessageError {
+  // `details` is optional context for the page (e.g. the status the order was
+  // found in), never shown raw.
+  constructor(code, message, details) {
     super(message);
     this.name = "AssignmentError";
     this.code = code;
+    if (details !== undefined) this.details = details;
   }
 }
 
@@ -313,7 +326,9 @@ export async function assignRiderToOrder(orderId, riderUid) {
     if (order.status !== ASSIGNABLE_FROM_STATUS) {
       throw new AssignmentError(
         "order-not-pending",
-        "That order is no longer awaiting dispatch. Refresh the queue."
+        "That order is no longer awaiting dispatch. Refresh the queue.",
+        // Lets the page say whether it was assigned (by anyone) or cancelled.
+        { status: order.status ?? null }
       );
     }
     if (hasAssignedRider(order)) {
@@ -369,6 +384,10 @@ export async function assignRiderToOrder(orderId, riderUid) {
       // Activity panel's "Updated by". Previously absent from assignment.
       ...statusAttribution(currentUser),
     };
+    // A route still on the order was drawn from another rider's position (the
+    // server clears it on requeue; this is the second guard). Removed so the
+    // new rider never navigates against it; the dispatcher regenerates it.
+    for (const field of presentRouteFields(order)) update[field] = deleteField();
     if (assignedRiderName) update.assignedRiderName = assignedRiderName;
     if (assignedRiderPhone) update.assignedRiderPhone = assignedRiderPhone;
     if (currentUser.email) update.assignedByEmail = currentUser.email;
@@ -385,7 +404,7 @@ export function subscribeAssignedRiderOrders(riderId, callback) {
     where("assignedRiderId", "==", riderId)
   );
 
-  return onSnapshot(q, (snapshot) => {
+  return listenLive(q, (snapshot) => {
     const orders = snapshot.docs
       // document id last — see the identity rule above
       .map((docItem) => ({
@@ -504,7 +523,7 @@ export async function saveOrderRoute(orderId, route, destinationRevision = 0) {
   if (!orderId) throw new Error("Order ID is required.");
   if (!route?.polyline) throw new Error("Route polyline is required.");
   if (!Number.isSafeInteger(destinationRevision) || destinationRevision < 0) {
-    throw new Error("Refresh the destination before generating a route.");
+    throw new UserMessageError("Refresh the destination before generating a route.");
   }
 
   const orderRef = doc(db, ORDERS_COLLECTION, orderId);

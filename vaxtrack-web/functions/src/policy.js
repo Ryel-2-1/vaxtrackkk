@@ -77,10 +77,11 @@ const PRICE_IS_VAT_INCLUSIVE = require("./pricingConfig").PRICES_INCLUDE_VAT;
  * Product VAT classification (per order item). Set on the vaccine catalog by an
  * Admin; copied onto each order item as an immutable snapshot at creation.
  * Mirrors PRODUCT_VAT_CLASSIFICATIONS in src/services/vatClassification.js.
- * Deliberately NOT the invoice-level list (which also has "zero_rated"): a
- * product is either VAT or VAT Exempt.
+ * A product is VATable (12%, VAT-inclusive prices), VAT Exempt, or Zero-Rated
+ * (VAT at 0%). Exempt and zero-rated both carry no VAT but are reported as
+ * separate sales lines, so they are distinct values.
  */
-const PRODUCT_VAT_CLASSIFICATIONS = Object.freeze(["vatable", "vat_exempt"]);
+const PRODUCT_VAT_CLASSIFICATIONS = Object.freeze(["vatable", "vat_exempt", "zero_rated"]);
 
 /** The canonical product classification, or null for anything else. */
 function readProductVatClassification(value) {
@@ -99,7 +100,7 @@ function resolveLineVatClassification({ inventoryId, batch, vaccine }) {
   if (!cls) {
     throw new PolicyError(
       "vat-classification-required",
-      "This vaccine must be classified as VAT or VAT Exempt before ordering.",
+      "This vaccine must be classified as VAT, VAT Exempt or Zero-Rated before ordering.",
       { inventoryId }
     );
   }
@@ -267,8 +268,128 @@ function validateLineQuantity(value) {
 const ALLOWED_LINE_KEYS = Object.freeze([
   "inventoryId",
   "quantity",
+  // The batch's STANDARD price as the Med Rep reviewed it — compared with the
+  // batch inside the transaction, never used as a price.
   "expectedUnitPriceCentavos",
+  // The Med Rep's negotiated VAT-inclusive UNIT price for this line, and the
+  // reason when it differs from the standard. Optional: absent means the
+  // standard price. Totals and VAT are never accepted — the server computes them.
+  "agreedUnitPriceCentavos",
+  "negotiationReason",
+  // A fixed statutory (SC/PWD) discount for THIS line: its category and its
+  // amount in whole centavos. Both or neither. Applied to the line's
+  // negotiated gross; never distributed. A discounted line also carries the
+  // Med Rep's eligibility attestation, which must be exactly `true`.
+  "statutoryDiscountType",
+  "statutoryDiscountCentavos",
+  "eligibilityConfirmed",
 ]);
+
+/**
+ * The statutory discount categories confirmed by the client for the per-line
+ * workflow: Senior Citizen and PWD only. (Older invoices may print other
+ * statutory labels; those are not offered or accepted for new orders.)
+ * Only the category is recorded — no ID number, card photo, name or other
+ * personal data of the beneficiary.
+ * Mirrors STATUTORY_DISCOUNT_TYPES in src/services/negotiatedPricing.js.
+ */
+const STATUTORY_DISCOUNT_TYPES = Object.freeze(["senior_citizen", "pwd"]);
+
+/**
+ * What the Med Rep confirms for every discounted line. It is an audited
+ * ATTESTATION by the Med Rep — the system does not verify eligibility itself.
+ */
+const ELIGIBILITY_ATTESTATION_TEXT =
+  "I confirm that I verified the customer’s eligibility for this statutory discount.";
+
+/**
+ * A line's statutory discount, by shape: absent (no discount), or a valid
+ * category with a whole, positive, exactly representable number of centavos
+ * that does not exceed the line's negotiated gross. Equal to it is allowed —
+ * the same rule as the invoice discount, which may equal but never exceed the
+ * goods it reduces. Returns { type, centavos } (null / 0 when absent).
+ */
+function validateStatutoryDiscount({ type, centavos, negotiatedGrossCentavos, eligibilityConfirmed }) {
+  const hasType = type !== undefined && type !== null;
+  const hasAmount = centavos !== undefined && centavos !== null;
+  if (!hasType && !hasAmount) return { type: null, centavos: 0, eligibilityConfirmed: false };
+  if (!hasType) {
+    throw new PolicyError(
+      "statutory-discount-type-required",
+      "Choose the discount category (Senior Citizen or PWD) for every discounted line."
+    );
+  }
+  if (!STATUTORY_DISCOUNT_TYPES.includes(type)) {
+    throw new PolicyError("invalid-statutory-discount", "That discount category is not recognised.");
+  }
+  if (
+    typeof centavos !== "number" ||
+    !Number.isInteger(centavos) ||
+    !Number.isSafeInteger(centavos) ||
+    centavos <= 0
+  ) {
+    throw new PolicyError(
+      "invalid-statutory-discount",
+      "A discount must be an amount greater than ₱0.00 with at most two decimal places."
+    );
+  }
+  if (Number.isSafeInteger(negotiatedGrossCentavos) && centavos > negotiatedGrossCentavos) {
+    throw new PolicyError(
+      "statutory-discount-exceeds-line",
+      "A line's discount cannot be larger than that line's total."
+    );
+  }
+  // The Med Rep's attestation — exactly `true`, never truthy text or 1.
+  if (eligibilityConfirmed !== true) {
+    throw new PolicyError(
+      "eligibility-not-confirmed",
+      "Confirm that you verified the customer's eligibility for each statutory discount."
+    );
+  }
+  return { type, centavos, eligibilityConfirmed: true };
+}
+
+/**
+ * The agreed unit price: the same shape rule as every stored price — a whole,
+ * exactly representable number of centavos above zero (₱0.00 is never a price
+ * here, exactly as for a batch). Absent means "the standard price".
+ */
+function validateAgreedPriceCentavos(value) {
+  if (value === undefined || value === null) return { ok: true, value: null };
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    !Number.isSafeInteger(value) ||
+    value <= 0
+  ) {
+    return { ok: false, code: "invalid-agreed-price" };
+  }
+  return { ok: true, value };
+}
+
+/** Bounds shared with every other reason in the system. */
+const MAX_ADJUSTMENT_REASON_LENGTH = 500;
+
+/**
+ * The reason for a negotiated price that differs from the standard: required,
+ * whitespace-normalized, bounded. Shape only — never shown back as raw input.
+ */
+function normalizeNegotiationReason(value) {
+  const text = typeof value === "string" ? value.normalize("NFKC").trim().replace(/\s+/g, " ") : "";
+  if (text === "") {
+    throw new PolicyError(
+      "negotiation-reason-required",
+      "Give a reason for every negotiated price that differs from the standard price."
+    );
+  }
+  if (text.length > MAX_ADJUSTMENT_REASON_LENGTH) {
+    throw new PolicyError(
+      "reason-too-long",
+      `Please keep each price reason under ${MAX_ADJUSTMENT_REASON_LENGTH} characters.`
+    );
+  }
+  return text;
+}
 
 const ALLOWED_CREATE_KEYS = Object.freeze([
   "requestId",
@@ -382,10 +503,40 @@ function validateCreatePayload(payload) {
       );
     }
 
+    const agreed = validateAgreedPriceCentavos(line.agreedUnitPriceCentavos);
+    if (!agreed.ok) {
+      throw new PolicyError(
+        agreed.code,
+        "An agreed price must be an amount greater than ₱0.00 with at most two decimal places."
+      );
+    }
+    if (line.negotiationReason !== undefined && line.negotiationReason !== null && typeof line.negotiationReason !== "string") {
+      throw new PolicyError("invalid-payload", "A price reason must be text.");
+    }
+    // The agreed price defaults to the reviewed standard. A different price
+    // needs a reason; an unchanged one carries none (a reason sent with it is
+    // dropped — there is nothing to explain).
+    const agreedUnitPriceCentavos = agreed.value ?? expected.value;
+    const negotiationReason =
+      agreedUnitPriceCentavos === expected.value ? null : normalizeNegotiationReason(line.negotiationReason);
+    // The statutory discount is checked against THIS line's negotiated gross
+    // (quantity × agreed price), which is known from the request alone.
+    const discount = validateStatutoryDiscount({
+      type: line.statutoryDiscountType,
+      centavos: line.statutoryDiscountCentavos,
+      negotiatedGrossCentavos: qty.value * agreedUnitPriceCentavos,
+      eligibilityConfirmed: line.eligibilityConfirmed,
+    });
+
     return {
       inventoryId,
       quantity: qty.value,
       expectedUnitPriceCentavos: expected.value,
+      agreedUnitPriceCentavos,
+      negotiationReason,
+      statutoryDiscountType: discount.type,
+      statutoryDiscountCentavos: discount.centavos,
+      eligibilityConfirmed: discount.eligibilityConfirmed,
     };
   });
 
@@ -904,6 +1055,15 @@ function canonicalRequestFingerprint({ uid, doctorId, doctorAddressId, items }) 
         // Two submissions of the same batches at different prices are two
         // different orders and must not share an idempotency key.
         expectedUnitPriceCentavos: i.expectedUnitPriceCentavos ?? null,
+        // So is the negotiated price and its stated reason: the same request
+        // id resubmitted with a different agreed price is a different order.
+        // Absent (an older client) means "the standard price".
+        agreedUnitPriceCentavos: i.agreedUnitPriceCentavos ?? i.expectedUnitPriceCentavos ?? null,
+        negotiationReason: i.negotiationReason ?? null,
+        // And the line's statutory discount (category and amount): the same
+        // request id with a different discount is a different order.
+        statutoryDiscountType: i.statutoryDiscountType ?? null,
+        statutoryDiscountCentavos: i.statutoryDiscountCentavos ?? 0,
       }))
       .sort((a, b) => (a.inventoryId < b.inventoryId ? -1 : 1)),
   });
@@ -1086,11 +1246,19 @@ module.exports = {
   PRICE_IS_VAT_INCLUSIVE,
   readSellingPriceCentavos,
   validateExpectedPriceCentavos,
+  validateAgreedPriceCentavos,
+  normalizeNegotiationReason,
+  MAX_ADJUSTMENT_REASON_LENGTH,
+  STATUTORY_DISCOUNT_TYPES,
+  ELIGIBILITY_ATTESTATION_TEXT,
+  validateStatutoryDiscount,
   sumLineTotalsCentavos,
   centavosToPesos,
   hasServerPricing,
   RESERVATION_STATUSES,
   DELIVERABLE_FROM,
+  MIN_GEOFENCE_RADIUS_M,
+  MAX_GEOFENCE_RADIUS_M,
   CANCELLABLE_FROM,
   MAX_ORDER_LINES,
   MAX_LINE_QUANTITY,

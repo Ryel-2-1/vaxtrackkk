@@ -156,7 +156,10 @@ test("the correction reports success only after an awaited write, and blocks dou
 
   assert.match(
     src,
-    /onClick=\{handleSaveCorrection\}[\s\S]*?disabled=\{savingCorrection\}/,
-    "the save button must be disabled while saving"
+    /onClick=\{handleSaveCorrection\}[\s\S]*?disabled=\{savingCorrection \|\| correctionBlocked\}/,
+    "the save button must be disabled while saving, and while the batch changed elsewhere"
   );
+  // Stock changed elsewhere while the dialog was open: flagged, and saving
+  // waits for the Admin to load the new figures or keep their own.
+  assert.match(body, /if \(savingCorrection \|\| !correcting \|\| correctionBlocked\) return;/);
 });

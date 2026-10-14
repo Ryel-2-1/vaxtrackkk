@@ -395,3 +395,32 @@ test("assignment touches only assignment fields", async () => {
     assert.ok(allowed.includes(key), `unexpected field written: ${key}`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Stale route data (rider live tracking)
+// ---------------------------------------------------------------------------
+
+const STALE_ROUTE = {
+  routePolyline: "_p~iF~ps|U_ulLnnqC", routeDistanceMeters: 900, routeDurationSeconds: 120,
+  routeEtaText: "1:00 PM", routeGeneratedAt: "earlier", routeProvider: "openrouteservice",
+  routeDestinationRevision: 0,
+  tripId: "trip-old", tripStopCount: 2, tripPolyline: "_p~iF~ps|U", tripDistanceMeters: 2000,
+  tripDurationSeconds: 300, tripGeneratedAt: "earlier", stopSequence: 1, stopEtaSeconds: 60, stopEtaText: "1:01 PM",
+};
+
+test("assigning a rider removes every route field left from a previous rider", async () => {
+  const store = installStore(seed({ order: pendingOrder({ ...STALE_ROUTE, previousAssignedRiderId: "OldRider" }) }), DISPATCHER);
+  await assignRiderToOrder(ORDER_ID, RIDER_UID);
+  const order = orderIn(store);
+  for (const field of Object.keys(STALE_ROUTE)) {
+    assert.equal(field in order, false, `${field} must not survive reassignment`);
+  }
+  assert.equal(order.assignedRiderId, RIDER_UID);
+});
+
+test("an order without a route gains no route keys on assignment", async () => {
+  const store = installStore(seed(), DISPATCHER);
+  await assignRiderToOrder(ORDER_ID, RIDER_UID);
+  const order = orderIn(store);
+  assert.equal(Object.keys(order).some((k) => /^(route|trip|stop)[A-Z]/.test(k)), false);
+});

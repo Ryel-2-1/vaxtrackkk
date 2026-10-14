@@ -1,0 +1,55 @@
+/* Offline indicator, shared by the three role shells. Fixed to the bottom of
+   the viewport so it covers no controls at the top and never shifts layout. */
+.vt-offline-notice {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  z-index: 1200;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: min(560px, calc(100vw - 32px));
+  padding: 10px 14px;
+  transform: translateX(-50%);
+  border: 1px solid var(--warning-border);
+  border-radius: 10px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  box-shadow: var(--shadow-float);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.vt-offline-notice svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+
+/* "Try again" after live updates stopped — re-opens the failed listeners.
+   min-height out-specifies the global 46px button reset in styles.css. */
+.vt-offline-notice span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.vt-offline-retry {
+  flex: none;
+  align-self: center;
+  min-height: 32px !important;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--warning-border);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--warning-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.vt-offline-retry:focus-visible {
+  outline: 2px solid var(--green-700);
+  outline-offset: 2px;
+}

@@ -12,6 +12,7 @@ import {
   readPriceConvention,
   splitVatInclusiveCentavos,
 } from "./pricingConfig.js";
+import { UserMessageError } from "./userMessageError.js";
 
 export const COMPANY_NAME = "3MGS PHARMA INC.";
 
@@ -30,8 +31,8 @@ export const VAT_CLASSIFICATIONS = ["vatable", "vat_exempt", "zero_rated"];
 // invoice-level choice does not apply. Mirrors ITEMIZED_VAT and the
 // computation in functions/src/invoicePricing.js — the server is authoritative.
 export const ITEMIZED_VAT = "per_item";
-const ITEM_VAT_CLASSIFICATIONS = ["vatable", "vat_exempt"];
-const ITEM_VAT_LABELS = { vatable: "VAT", vat_exempt: "VAT Exempt" };
+const ITEM_VAT_CLASSIFICATIONS = ["vatable", "vat_exempt", "zero_rated"];
+const ITEM_VAT_LABELS = { vatable: "VAT", vat_exempt: "VAT Exempt", zero_rated: "Zero-Rated" };
 
 /** An item's snapshot classification, or null when it has none. */
 export function itemVatClassification(item) {
@@ -49,18 +50,38 @@ export function hasItemizedVat(items) {
   return Array.isArray(items) && items.length > 0 && items.every((it) => itemVatClassification(it) !== null);
 }
 
-/** Split a discount pro-rata between VATable and VAT-Exempt gross, in centavos. */
-export function allocateDiscountCentavos({ vatableGrossCentavos, vatExemptGrossCentavos, discountCentavos }) {
-  const total = vatableGrossCentavos + vatExemptGrossCentavos;
-  if (discountCentavos === 0 || total === 0) return { vatableCentavos: 0, vatExemptCentavos: 0 };
+/**
+ * Split a discount pro-rata between VATable, VAT-Exempt and Zero-Rated gross,
+ * in centavos — floored shares, leftover to the largest bucket (VATable, then
+ * Exempt, then Zero-Rated on a tie). Identical to the two-bucket split when
+ * there are no zero-rated sales. Mirrors functions/src/invoicePricing.js.
+ */
+export function allocateDiscountCentavos({ vatableGrossCentavos, vatExemptGrossCentavos, zeroRatedGrossCentavos = 0, discountCentavos }) {
+  const total = vatableGrossCentavos + vatExemptGrossCentavos + zeroRatedGrossCentavos;
+  if (discountCentavos === 0 || total === 0) return { vatableCentavos: 0, vatExemptCentavos: 0, zeroRatedCentavos: 0 };
   const d = BigInt(discountCentavos);
   const t = BigInt(total);
-  let vatableCentavos = Number((d * BigInt(vatableGrossCentavos)) / t);
-  let vatExemptCentavos = Number((d * BigInt(vatExemptGrossCentavos)) / t);
-  const remainder = discountCentavos - vatableCentavos - vatExemptCentavos;
-  if (vatableGrossCentavos >= vatExemptGrossCentavos) vatableCentavos += remainder;
-  else vatExemptCentavos += remainder;
-  return { vatableCentavos, vatExemptCentavos };
+  const grosses = [vatableGrossCentavos, vatExemptGrossCentavos, zeroRatedGrossCentavos];
+  const shares = grosses.map((g) => Number((d * BigInt(g)) / t));
+  const remainder = discountCentavos - shares[0] - shares[1] - shares[2];
+  let largest = 0;
+  for (let i = 1; i < 3; i += 1) if (grosses[i] > grosses[largest]) largest = i;
+  shares[largest] += remainder;
+  return { vatableCentavos: shares[0], vatExemptCentavos: shares[1], zeroRatedCentavos: shares[2] };
+}
+
+/** VATable / VAT-Exempt / Zero-Rated gross of [items], in centavos. */
+function itemGrossBuckets(items) {
+  let vatable = 0;
+  let exempt = 0;
+  let zero = 0;
+  for (const it of items) {
+    const cls = itemVatClassification(it);
+    if (cls === "vatable") vatable += lineCentavos(it);
+    else if (cls === "zero_rated") zero += lineCentavos(it);
+    else exempt += lineCentavos(it);
+  }
+  return { vatable, exempt, zero };
 }
 
 export function vatClassificationLabel(classification) {
@@ -72,7 +93,7 @@ export function vatClassificationLabel(classification) {
     case "zero_rated":
       return "Zero-Rated";
     case ITEMIZED_VAT:
-      return "Per item (VAT / VAT Exempt)";
+      return "Per item (VAT / VAT Exempt / Zero-Rated)";
     default:
       return "";
   }
@@ -85,6 +106,9 @@ function toCentavos(pesos) {
 }
 
 function lineCentavos(it) {
+  // A final-charged line's amount is recorded, not derived: its unit price may
+  // be absent when the amount does not divide exactly by the quantity.
+  if (isFinalChargedLine(it)) return it.lineTotalCentavos;
   const q = Number(it.quantity) || 0;
   if (Number.isInteger(it.unitPriceCentavos)) return q * it.unitPriceCentavos;
   return Math.round(q * (Number(it.unitPrice) || 0) * 100);
@@ -94,18 +118,14 @@ function lineCentavos(it) {
 // invoices were made with, kept verbatim so they never change meaning.
 function legacyItemizedTotals({ items, discount, otherCharges, withholdingTax }) {
   const lines = items.map((it) => lineCentavos(it) / 100);
-  let vatableGross = 0;
-  let exemptGross = 0;
-  for (const it of items) {
-    if (itemVatClassification(it) === "vatable") vatableGross += lineCentavos(it);
-    else exemptGross += lineCentavos(it);
-  }
-  const subtotalCentavos = vatableGross + exemptGross;
+  const { vatable: vatableGross, exempt: exemptGross, zero: zeroGross } = itemGrossBuckets(items);
+  const subtotalCentavos = vatableGross + exemptGross + zeroGross;
   const discCentavos = Math.min(Math.max(0, Math.round((Number(discount) || 0) * 100)), subtotalCentavos);
-  const share = allocateDiscountCentavos({ vatableGrossCentavos: vatableGross, vatExemptGrossCentavos: exemptGross, discountCentavos: discCentavos });
+  const share = allocateDiscountCentavos({ vatableGrossCentavos: vatableGross, vatExemptGrossCentavos: exemptGross, zeroRatedGrossCentavos: zeroGross, discountCentavos: discCentavos });
   const vatableSalesC = vatableGross - share.vatableCentavos;
   const exemptSalesC = exemptGross - share.vatExemptCentavos;
-  const netC = vatableSalesC + exemptSalesC;
+  const zeroSalesC = zeroGross - share.zeroRatedCentavos;
+  const netC = vatableSalesC + exemptSalesC + zeroSalesC;
   const vatC = Math.round((vatableSalesC * VAT_STANDARD_RATE) / 100);
   const other = Number(otherCharges) || 0;
   const wht = Number(withholdingTax) || 0;
@@ -123,7 +143,7 @@ function legacyItemizedTotals({ items, discount, otherCharges, withholdingTax })
     vatRate: vatableSalesC > 0 ? VAT_STANDARD_RATE : 0,
     vatableSales: vatableSalesC / 100,
     vatExemptSales: exemptSalesC / 100,
-    zeroRatedSales: 0,
+    zeroRatedSales: zeroSalesC / 100,
     vatAmount,
     grandTotal,
     totalSalesVatInclusive: net + vatAmount,
@@ -178,22 +198,18 @@ function legacyExclusiveTotals({ items, discount, otherCharges, withholdingTax, 
 // computeInvoiceTotals returns for the invoice-level path.
 function itemizedTotals({ items, discount, otherCharges, withholdingTax }) {
   const lines = items.map((it) => lineCentavos(it) / 100);
-  let vatableGross = 0;
-  let exemptGross = 0;
-  for (const it of items) {
-    if (itemVatClassification(it) === "vatable") vatableGross += lineCentavos(it);
-    else exemptGross += lineCentavos(it);
-  }
-  const subtotalCentavos = vatableGross + exemptGross;
+  const { vatable: vatableGross, exempt: exemptGross, zero: zeroGross } = itemGrossBuckets(items);
+  const subtotalCentavos = vatableGross + exemptGross + zeroGross;
   const discCentavos = Math.min(Math.max(0, Math.round((Number(discount) || 0) * 100)), subtotalCentavos);
-  const share = allocateDiscountCentavos({ vatableGrossCentavos: vatableGross, vatExemptGrossCentavos: exemptGross, discountCentavos: discCentavos });
+  const share = allocateDiscountCentavos({ vatableGrossCentavos: vatableGross, vatExemptGrossCentavos: exemptGross, zeroRatedGrossCentavos: zeroGross, discountCentavos: discCentavos });
   // Both buckets are VAT-inclusive. VAT is EXTRACTED from the VATable bucket
   // (once, on its aggregate) — never added on top (pricingConfig.js).
   const vatableAfterDiscountC = vatableGross - share.vatableCentavos;
   const exemptSalesC = exemptGross - share.vatExemptCentavos;
+  const zeroSalesC = zeroGross - share.zeroRatedCentavos;
   const vatC = splitVatInclusiveCentavos(vatableAfterDiscountC).vatCentavos;
   const vatableSalesC = vatableAfterDiscountC - vatC; // net of VAT
-  const netC = vatableSalesC + exemptSalesC;
+  const netC = vatableSalesC + exemptSalesC + zeroSalesC;
   const otherC = toCentavos(otherCharges);
   const whtC = toCentavos(withholdingTax);
   const grandC = netC + vatC + otherC;
@@ -208,7 +224,61 @@ function itemizedTotals({ items, discount, otherCharges, withholdingTax }) {
     vatRate: vatableAfterDiscountC > 0 ? VAT_STANDARD_RATE : 0,
     vatableSales: vatableSalesC / 100,
     vatExemptSales: exemptSalesC / 100,
-    zeroRatedSales: 0,
+    zeroRatedSales: zeroSalesC / 100,
+    vatAmount: vatC / 100,
+    grandTotal: grandC / 100,
+    totalSalesVatInclusive: (netC + vatC) / 100,
+    totalAmountDue: (grandC - whtC) / 100,
+  };
+}
+
+/**
+ * Agreement-model order: VAT is extracted from each line's FINAL charged total
+ * (12/112, half up, per line) — nothing is allocated pro-rata. Invoice lines
+ * are already final (see finalChargedLine), so there is no discount; a line
+ * that still carries a statutory discount has it taken off that line only.
+ * Mirrors the lineLevel path of computeInvoiceTotalsCentavos in
+ * functions/src/invoicePricing.js; integer centavos throughout.
+ */
+function lineLevelTotals({ items, otherCharges, withholdingTax }) {
+  let subtotalC = 0;
+  let discountC = 0;
+  let vatableSalesC = 0;
+  let vatC = 0;
+  let exemptSalesC = 0;
+  let zeroSalesC = 0;
+  const lines = [];
+  for (const it of items) {
+    const gross = lineCentavos(it);
+    const d = Number.isInteger(it.statutoryDiscountCentavos) ? it.statutoryDiscountCentavos : 0;
+    const final = Math.max(0, gross - d);
+    subtotalC += gross;
+    discountC += d;
+    lines.push(gross / 100);
+    const cls = itemVatClassification(it);
+    if (cls === "vatable") {
+      const split = splitVatInclusiveCentavos(final);
+      vatC += split.vatCentavos;
+      vatableSalesC += split.netCentavos;
+    } else if (cls === "zero_rated") zeroSalesC += final;
+    else exemptSalesC += final;
+  }
+  const netC = vatableSalesC + exemptSalesC + zeroSalesC;
+  const otherC = toCentavos(otherCharges);
+  const whtC = toCentavos(withholdingTax);
+  const grandC = netC + vatC + otherC;
+  return {
+    lines,
+    subtotal: subtotalC / 100,
+    discount: discountC / 100,
+    otherCharges: otherC / 100,
+    withholdingTax: whtC / 100,
+    net: netC / 100,
+    vatClassification: ITEMIZED_VAT,
+    vatRate: vatC > 0 || vatableSalesC > 0 ? VAT_STANDARD_RATE : 0,
+    vatableSales: vatableSalesC / 100,
+    vatExemptSales: exemptSalesC / 100,
+    zeroRatedSales: zeroSalesC / 100,
     vatAmount: vatC / 100,
     grandTotal: grandC / 100,
     totalSalesVatInclusive: (netC + vatC) / 100,
@@ -249,10 +319,14 @@ export function computeInvoiceTotals({
   withholdingTax = 0,
   vatClassification = "vatable",
   priceIsVatInclusive,
+  lineLevel = false,
 } = {}) {
   const inclusive = readPriceConvention(priceIsVatInclusive);
   if (inclusive === null) {
     throw new Error("Invoice totals need the record's own price convention.");
+  }
+  if (inclusive && lineLevel) {
+    return lineLevelTotals({ items, otherCharges, withholdingTax });
   }
   if (!inclusive) {
     if (vatClassification === ITEMIZED_VAT && hasItemizedVat(items)) {
@@ -379,6 +453,8 @@ export function itemsFromOrder(order) {
       // computed per item. Null on items created before snapshots existed.
       unitPriceCentavos: Number.isInteger(it.unitPriceCentavos) ? it.unitPriceCentavos : null,
       vatClassification: itemVatClassification(it),
+      // Agreement-model lines are invoiced at their FINAL charged amount.
+      ...(Number.isInteger(it.finalLineTotalCentavos) ? finalChargedLine(it) : {}),
     }));
   }
   return [
@@ -419,6 +495,8 @@ export function buildInitialForm(order, invoice, salesRepName) {
     purchaseOrderNumber: "",
     referenceNumber: "",
     items: itemsFromOrder(order),
+    // No invoice discount by default. An agreement-model order never has one:
+    // its SC/PWD discounts are already inside its final line amounts.
     discount: 0,
     // Itemized when every order item carries a VAT snapshot; otherwise the
     // Admin's invoice-level choice, defaulting to VATable as before.
@@ -528,6 +606,57 @@ export function isServerPricedOrder(order) {
 }
 
 /**
+ * An order priced under the agreement model (functions/src/negotiatedPricing.js):
+ * its SC/PWD discounts were recorded PER LINE when it was placed, with VAT per
+ * line after each discount. Its invoice follows the client's rule — no
+ * separate discount line: every line shows its FINAL charged amount, and
+ * VATable / VAT-exempt / zero-rated sales, VAT and the total are built from
+ * those amounts. The discount itself stays on the order and its audit record.
+ */
+export function isLineDiscountOrder(order) {
+  return order?.priceAgreementVersion === 1;
+}
+
+/** A line presented at its final charged amount (agreement-model invoice). */
+export function isFinalChargedLine(item) {
+  return item?.amountIsFinalCharged === true && Number.isSafeInteger(item?.lineTotalCentavos);
+}
+
+/**
+ * An agreement-model order line → its invoice line at the FINAL charged amount
+ * (`finalLineTotalCentavos`). Mirrors finalChargedInvoiceLine in
+ * functions/src/invoicePricing.js.
+ *
+ * The unit price is the amount ÷ quantity ONLY when that divides exactly. A
+ * fixed line discount often does not; a rounded per-unit figure would be
+ * fabricated and unit × quantity would not equal the amount, so the unit
+ * price is then null and only the amount is shown.
+ */
+export function finalChargedLine(line) {
+  const amount = line.finalLineTotalCentavos;
+  const quantity = Number(line.quantity) || 0;
+  const exactUnit = quantity > 0 && amount % quantity === 0 ? amount / quantity : null;
+  return {
+    unitPriceCentavos: exactUnit,
+    unitPrice: exactUnit === null ? null : exactUnit / 100,
+    lineTotalCentavos: amount,
+    amountIsFinalCharged: true,
+  };
+}
+
+/** A line's amount in pesos as the invoice prints it. */
+export function invoiceLineAmount(item) {
+  if (isFinalChargedLine(item)) return item.lineTotalCentavos / 100;
+  return (Number(item?.quantity) || 0) * (Number(item?.unitPrice) || 0);
+}
+
+export const LINE_DISCOUNT_NOTE =
+  "Line amounts on this invoice are the final charged amounts, after any SC/PWD discount recorded on the order. The invoice shows no separate discount line.";
+
+export const NON_EXACT_UNIT_PRICE_NOTE =
+  "— A unit price is shown only where the charged amount divides exactly by the quantity.";
+
+/**
  * Free-text fields the admin owns on a priced invoice.
  *
  * Must stay identical to PRESENTATION_FIELDS in
@@ -570,18 +699,20 @@ export function presentationFromForm(form) {
  * These are explicit, separate fields. None of them can restate a unit price:
  * the server applies them on top of a base it computed itself.
  */
-export function adjustmentsFromForm(form, parseAdjustment) {
+// [recordedDiscount]: an agreement-model order whose SC/PWD discounts are
+// already inside its line amounts — no discount is sent; the invoice has none.
+export function adjustmentsFromForm(form, parseAdjustment, { recordedDiscount = false } = {}) {
   const read = (key) => {
     const parsed = parseAdjustment(form?.[key]);
     if (!parsed.ok) {
-      throw new Error(
+      throw new UserMessageError(
         `${key === "discount" ? "Discount" : key === "otherCharges" ? "Other charges" : "Withholding tax"} must be a valid amount.`
       );
     }
     return parsed.value;
   };
   return {
-    discountCentavos: read("discount"),
+    ...(recordedDiscount ? {} : { discountCentavos: read("discount") }),
     otherChargesCentavos: read("otherCharges"),
     withholdingTaxCentavos: read("withholdingTax"),
     // The server ignores this for an itemized order; it is sent for parity.
@@ -606,10 +737,10 @@ export function assertConsistentInvoiceTotals(data) {
     0
   );
   if (Math.abs((Number(data?.subtotal) || 0) - sum) > 0.01) {
-    throw new Error("Invoice subtotal does not match its line items.");
+    throw new UserMessageError("Invoice subtotal does not match its line items.");
   }
   if (!(Number(data?.grandTotal) >= 0)) {
-    throw new Error("Invoice total is not valid.");
+    throw new UserMessageError("Invoice total is not valid.");
   }
 }
 

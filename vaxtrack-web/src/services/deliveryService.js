@@ -1,6 +1,8 @@
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection } from "firebase/firestore";
 import { db } from "../firebase";
 import { ORDER_STATUSES, STATUS_LABELS } from "./orderWorkflow";
+import { logSafeError } from "./liveDataErrors.js";
+import { listenLive } from "./liveSnapshot.js";
 
 const ORDERS = "orders";
 
@@ -113,7 +115,7 @@ export const mapOrderStatusType = (statusKey) =>
   resolveStatusKey(statusKey) ?? UNKNOWN_STATUS_KEY;
 
 export function subscribeDeliveries(callback, onError) {
-  return onSnapshot(
+  return listenLive(
     collection(db, ORDERS),
     (snap) => {
       const orders = snap.docs
@@ -142,7 +144,7 @@ export function subscribeDeliveries(callback, onError) {
       callback(orders);
     },
     (error) => {
-      console.error("subscribeDeliveries error:", error);
+      logSafeError("subscribeDeliveries", error);
       if (onError) onError(error);
     }
   );

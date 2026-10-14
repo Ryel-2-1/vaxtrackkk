@@ -4300,71 +4300,6 @@
   color: var(--danger-text);
 }
 
-/* Honest "no live map yet" note (replaces the former fake fleet map) */
-.dispatcher-dash-monitor-note {
-  margin: 18px 20px;
-  padding: 14px 16px;
-  border: 1px solid var(--info-border);
-  background: var(--info-bg);
-  border-radius: var(--radius-card);
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.dispatcher-dash-monitor-note svg {
-  color: var(--info-text);
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-
-.dispatcher-dash-monitor-note strong {
-  display: block;
-  color: var(--gray-900);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.dispatcher-dash-monitor-note p {
-  margin: 4px 0 0;
-  color: var(--gray-600);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.dispatcher-dash-monitor-footer {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-top: 1px solid var(--gray-200);
-}
-
-.dispatcher-dash-monitor-info {
-  padding: 15px 18px;
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  border-right: 1px solid var(--gray-200);
-  color: var(--green-700);
-}
-
-.dispatcher-dash-monitor-info:last-child {
-  border-right: 0;
-}
-
-.dispatcher-dash-monitor-info span {
-  display: block;
-  color: var(--gray-500);
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: none;
-}
-
-.dispatcher-dash-monitor-info strong {
-  display: block;
-  color: #0f172a;
-  font-size: 12px;
-  margin-top: 3px;
-}
 
 .dispatcher-dash-side-card {
   padding-bottom: 18px;
@@ -4616,19 +4551,6 @@
     grid-template-columns: 1fr;
   }
 
-  .dispatcher-dash-map {
-    height: 330px;
-  }
-
-  .dispatcher-dash-monitor-footer {
-    grid-template-columns: 1fr;
-  }
-
-  .dispatcher-dash-monitor-info {
-    border-right: 0;
-    border-bottom: 1px solid #e5edf7;
-  }
-
   .dispatcher-dash-table-head {
     flex-direction: column;
   }
@@ -4719,10 +4641,6 @@
   width: 100% !important;
 }
 
-.dispatcher-dash-map {
-  height: 400px !important;
-}
-
 .dispatcher-dash-table-card {
   margin-top: 20px !important;
 }
@@ -4797,10 +4715,6 @@
     grid-template-columns: minmax(0, 1fr) 380px !important;
   }
 
-  .dispatcher-dash-map {
-    height: 430px !important;
-  }
-
   .geo2-main-grid {
     grid-template-columns: minmax(0, 1fr) 400px !important;
   }
@@ -4856,10 +4770,6 @@
 
   .dispatcher-dash-kpi-grid {
     grid-template-columns: 1fr !important;
-  }
-
-  .dispatcher-dash-map {
-    height: 330px !important;
   }
 }
 .dispatcher-page,

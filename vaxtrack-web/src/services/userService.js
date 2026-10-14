@@ -2,7 +2,6 @@ import {
   collection,
   doc,
   getDoc,
-  onSnapshot,
   runTransaction,
   serverTimestamp,
   updateDoc,
@@ -11,6 +10,9 @@ import { auth, db } from "../firebase";
 import { canChangeStaffStatus, statusChangeRefusal } from "./staffAccount";
 import { SELF_EDITABLE_FIELDS } from "./profileModel";
 import { validateTerritoryAssignment } from "./territory";
+import { UserMessageError } from "./userMessageError.js";
+import { logSafeError } from "./liveDataErrors.js";
+import { listenLive } from "./liveSnapshot.js";
 
 const USERS_COLLECTION = "users";
 
@@ -18,7 +20,7 @@ const VALID_STATUSES = ["approved", "pending", "pending_approval", "rejected", "
 const VALID_ROLES = ["admin", "dispatcher", "salesrep", "rider"];
 
 export function subscribeUsers(callback, onError) {
-  return onSnapshot(collection(db, USERS_COLLECTION), (snapshot) => {
+  return listenLive(collection(db, USERS_COLLECTION), (snapshot) => {
     const users = snapshot.docs
       // Document id LAST so it always wins.
       //
@@ -35,13 +37,13 @@ export function subscribeUsers(callback, onError) {
     callback(users);
   }, (error) => {
     // Optional: existing callers pass no handler and keep their behaviour.
-    console.error("subscribeUsers error:", error);
+    logSafeError("subscribeUsers", error);
     if (onError) onError(error);
   });
 }
 
 /** A refused status change. `code` is stable; `message` is written for the admin. */
-export class UserStatusError extends Error {
+export class UserStatusError extends UserMessageError {
   constructor(code, message) {
     super(message);
     this.name = "UserStatusError";
@@ -99,7 +101,7 @@ export async function getUserProfile(uid) {
  * last, so it always wins) or null when it does not exist.
  */
 export function subscribeOwnProfile(uid, onData, onError) {
-  return onSnapshot(
+  return listenLive(
     doc(db, USERS_COLLECTION, uid),
     (snap) => onData(snap.exists() ? { ...snap.data(), id: snap.id } : null),
     (error) => {
@@ -129,7 +131,7 @@ export async function updateUserProfile(uid, profileData) {
 }
 
 /** A territory change that was refused, with every reason found. */
-export class TerritoryAssignmentError extends Error {
+export class TerritoryAssignmentError extends UserMessageError {
   constructor(messages) {
     super(messages.join(" "));
     this.name = "TerritoryAssignmentError";

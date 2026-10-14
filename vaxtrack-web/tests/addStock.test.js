@@ -110,7 +110,9 @@ test("the real sections and batch fields are preserved", () => {
 // ---------------------------------------------------------------------------
 
 test("registered vaccines come from Firestore, not hard-coded options", () => {
-  assert.match(addStock, /getVaccines\(\)/);
+  // Live: the shared catalog listener, not a one-time read.
+  assert.match(addStock, /subscribeVaccines\(/);
+  assert.equal(/getVaccines\(/.test(addStock), false);
   assert.match(
     addStock,
     /vaccines\.map\(\(vaccine\) => \([\s\S]*?value=\{vaccine\.id\}/,
@@ -251,8 +253,12 @@ test("success navigates back to Admin Inventory; Cancel writes nothing", () => {
 test("loading, empty, error and success states all exist", () => {
   assert.match(addStock, /Loading vaccines\.\.\./);
   assert.match(addStock, /No vaccines are registered yet/);
-  assert.match(addStock, /Failed to add stock/);
-  assert.match(addStock, /Unable to load registered vaccines/);
+  // A failed save says nothing was saved and keeps the entries, through the
+  // shared mapper (never the raw error text).
+  assert.match(addStock, /The stock could not be added\. Nothing was saved/);
+  assert.match(addStock, /friendlyErrorMessage\(\s*error,/);
+  assert.doesNotMatch(addStock, /error\.message/);
+  assert.match(addStock, /setMessage\(liveErrorMessage\(error, "registered vaccines"\)\)/);
   assert.match(addStock, /saving \? "Adding\.\.\." : "\+ Add Stock"/);
 });
 

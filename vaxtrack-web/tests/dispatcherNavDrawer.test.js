@@ -440,9 +440,10 @@ test("both viewport signals are watched", () => {
 
 test("no navigation destination, active state or action was dropped", () => {
   // The authoritative dispatcher destination set. `/dispatcher/schedule` was
-  // added with the committed Schedule feature, so the set is now seven — the
-  // count below is DERIVED from this list, never a bare magic number, so adding
-  // or removing a real destination updates every assertion in one place.
+  // added with the committed Schedule feature and `/dispatcher/live-tracking`
+  // with rider live tracking, so the set is now eight — the count below is
+  // DERIVED from this list, never a bare magic number, so adding or removing a
+  // real destination updates every assertion in one place.
   const DESTINATIONS = [
     "/dispatcher",
     "/dispatcher/schedule",
@@ -450,6 +451,7 @@ test("no navigation destination, active state or action was dropped", () => {
     "/dispatcher/shipments",
     "/dispatcher/cargo-loading",
     "/dispatcher/geofence",
+    "/dispatcher/live-tracking",
     "/dispatcher/settings",
   ];
 

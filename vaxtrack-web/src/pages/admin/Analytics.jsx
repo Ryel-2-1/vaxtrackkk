@@ -10,6 +10,7 @@ import {
 import AdminLayout from "../../components/admin/AdminLayout";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeAllAlerts } from "../../services/alertService";
+import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import KpiCard from "../../components/ui/KpiCard";
 import MedRepPerformance from "./MedRepPerformance";
 import {
@@ -204,14 +205,15 @@ function Analytics() {
     const unsubOrders = subscribeDeliveries(
       (orders) => {
         setAllOrders(orders);
+        setLoadError(""); // a recovered listener clears its failure
         // Stamped where the data arrives, not during render.
         setNowMs(Date.now());
         loaded.orders = true;
         checkDone();
       },
       (error) => {
-        console.error("Analytics orders error:", error);
-        setLoadError(error.message || "Failed to load order data.");
+        logSafeError("Analytics orders", error);
+        setLoadError(liveErrorMessage(error, "order data"));
         // The error banner renders alongside the page, so the ranges still
         // need a reference time even though no orders arrived.
         setNowMs(Date.now());
@@ -222,13 +224,21 @@ function Analytics() {
 
     let unsubAlerts = () => {};
     try {
-      unsubAlerts = subscribeAllAlerts((alerts) => {
-        setAlertCount(alerts.filter((a) => a.status !== "resolved").length);
-        loaded.alerts = true;
-        checkDone();
-      });
+      unsubAlerts = subscribeAllAlerts(
+        (alerts) => {
+          setAlertCount(alerts.filter((a) => a.status !== "resolved").length);
+          loaded.alerts = true;
+          checkDone();
+        },
+        // null = unavailable: shown as "—", never as zero alerts.
+        () => {
+          setAlertCount(null);
+          loaded.alerts = true;
+          checkDone();
+        }
+      );
     } catch (e) {
-      console.error("Analytics alerts error:", e);
+      logSafeError("Analytics alerts", e);
       loaded.alerts = true;
       checkDone();
     }
@@ -474,7 +484,7 @@ function Analytics() {
 
           <KpiCard
             label="Active alerts"
-            value={alertCount}
+            value={alertCount ?? "—"}
             context={`${delayedCount} delayed order${delayedCount !== 1 ? "s" : ""}`}
             tone="danger"
             attention={alertCount > 0 || delayedCount > 0}
@@ -488,7 +498,7 @@ function Analytics() {
                   // whatever the counts were, including when both were zero.
                   // Nothing computed it, so it is the same invented advice the
                   // heatmap and the insight card carried.
-                  ["Unresolved alerts", alertCount],
+                  ["Unresolved alerts", alertCount ?? "Unavailable"],
                   ["Delayed orders", delayedCount],
                 ],
               })
@@ -559,7 +569,9 @@ function Analytics() {
             <div>
               <h2>Current exceptions</h2>
               <p>
-                {delayedCount > 0 || alertCount > 0
+                {alertCount === null
+                  ? `${delayedCount} delayed order${delayedCount !== 1 ? "s" : ""} in the selected range. Alerts could not be loaded.`
+                  : delayedCount > 0 || alertCount > 0
                   ? `${delayedCount} delayed order${delayedCount !== 1 ? "s" : ""} and ${alertCount} active alert${alertCount !== 1 ? "s" : ""} in the selected range.`
                   : "No delayed orders and no active alerts in the selected range."}
               </p>
@@ -573,7 +585,7 @@ function Analytics() {
                       "Counted directly from orders and alerts. No recommendation is derived — nothing in the system analyses cause or capacity.",
                     rows: [
                       ["Delayed orders", delayedCount],
-                      ["Active alerts", alertCount],
+                      ["Active alerts", alertCount ?? "Unavailable"],
                       ["Range", rangeLabel],
                     ],
                   })

@@ -33,6 +33,7 @@ import {
   MAX_LINE_QUANTITY,
   estimateBackorders,
 } from "../../services/backorder";
+import { liveErrorMessage } from "../../services/liveDataErrors";
 
 
 
@@ -148,11 +149,7 @@ function SalesRepRequestOrder() {
         setError("");
       },
       (err) => {
-        if (err?.code === "permission-denied") {
-          setError("You do not have permission to view inventory. Please contact your administrator.");
-        } else {
-          setError("Unable to load inventory. Please try again later.");
-        }
+        setError(liveErrorMessage(err, "inventory"));
         setLoading(false);
       }
     );
@@ -165,9 +162,9 @@ function SalesRepRequestOrder() {
   useEffect(() => {
     const unsubscribe = subscribeVaccines(
       (docs) => setVaccines(docs),
-      () => {
+      (err) => {
         setVaccines([]);
-        setError("Unable to load vaccine VAT classifications. Please try again later.");
+        setError(liveErrorMessage(err, "vaccine VAT classifications"));
       }
     );
     return unsubscribe;

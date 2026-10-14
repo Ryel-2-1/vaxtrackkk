@@ -1,12 +1,13 @@
 import {
   collection,
   doc,
-  onSnapshot,
   query,
   updateDoc,
   where,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { logSafeError } from "./liveDataErrors.js";
+import { listenLive } from "./liveSnapshot.js";
 
 const VALID_STATUSES = ["approved", "pending", "disabled", "rejected"];
 
@@ -26,7 +27,7 @@ export function subscribeRiders(callback, onError) {
     collection(db, "users"),
     where("role", "==", "rider")
   );
-  return onSnapshot(
+  return listenLive(
     ridersQuery,
     (snap) => {
       const getName = (r) =>
@@ -41,7 +42,7 @@ export function subscribeRiders(callback, onError) {
       callback(riders);
     },
     (error) => {
-      console.error("subscribeRiders error:", error);
+      logSafeError("subscribeRiders", error);
       if (onError) onError(error);
     }
   );

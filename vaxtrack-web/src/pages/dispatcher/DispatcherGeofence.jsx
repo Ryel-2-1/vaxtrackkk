@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRiderLiveLocation } from "../../components/useRiderLiveLocation";
+import { FRESHNESS, deviationDisplayState, deviationText, locationLatLng, locationTimeMs } from "../../services/riderTracking";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -15,6 +17,7 @@ import {
   User,
 } from "lucide-react";
 import { subscribeDeliveries } from "../../services/deliveryService";
+import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { saveOrderRoute, saveRiderTripRoute } from "../../services/orderService";
 import {
   decodePolyline,
@@ -71,10 +74,10 @@ const GEOFENCE_RADIUS_M = 300;
 
 const ACTIVE_STATUSES = new Set(["assigned", "loading", "in_transit", "delayed"]);
 
-// A live-location fix older than this reads as stale — the rider stream is
-// throttled to ~15s, so 2 minutes without an update means it has stopped
-// (app backgrounded/closed, GPS lost, or delivery ended).
-const STALE_LOCATION_MS = 2 * 60 * 1000;
+// A live-location fix older than this reads as stale. One boundary for every
+// web view: FRESHNESS.freshMs in services/riderTracking.js (3 min — longer than
+// the rider app's 2-minute stationary heartbeat).
+const STALE_LOCATION_MS = FRESHNESS.freshMs;
 
 function isLocationStale(ts) {
   if (!ts) return false;
@@ -308,6 +311,9 @@ function DispatcherGeofence() {
   // Multi-stop trip optimization, scoped to the rider it belongs to.
   const [tripBusyRider, setTripBusyRider] = useState(null);
   const [tripError, setTripError] = useState(null); // { riderId, message } | null
+  // Synchronous guards: one routing request per click, however fast the clicks.
+  const routeInFlight = useRef(false);
+  const tripInFlight = useRef(false);
 
   useEffect(() => {
     const unsub = subscribeDeliveries(
@@ -317,11 +323,7 @@ function DispatcherGeofence() {
         setError("");
       },
       (err) => {
-        if (err?.code === "permission-denied") {
-          setError("You do not have permission to view live monitoring.");
-        } else {
-          setError("Unable to load live monitoring data.");
-        }
+        setError(liveErrorMessage(err, "live monitoring"));
         setLoading(false);
       }
     );
@@ -340,7 +342,27 @@ function DispatcherGeofence() {
     ? chosenId
     : activeOrders[0]?.id ?? "";
 
-  const selected = activeOrders.find((o) => o.id === selectedId) || null;
+  const selectedOrder = activeOrders.find((o) => o.id === selectedId) || null;
+  // The rider's live position comes from riderLocations/{assignedRiderId}; the
+  // order document no longer carries a location copy. It is overlaid in the
+  // GeoPoint shape the map code below already reads, so that verified code is
+  // unchanged. An ended or never-reported location yields null ("No live
+  // location yet"), never a stale or invented position.
+  const live = useRiderLiveLocation(selectedOrder?.assignedRiderId, {
+    enabled: !!selectedOrder,
+    withDeviation: true,
+  });
+  const selected = useMemo(() => {
+    if (!selectedOrder) return null;
+    const ll = locationLatLng(live.location);
+    const atMs = locationTimeMs(live.location);
+    return {
+      ...selectedOrder,
+      lastLocation: ll ? { latitude: ll[0], longitude: ll[1] } : null,
+      lastLocationUpdate: ll && atMs !== null ? new Date(atMs) : null,
+    };
+  }, [selectedOrder, live.location]);
+  const routeMonitoring = deviationDisplayState(live.deviation);
 
   const routeBusy = !!selected && busyOrderId === selected.id;
   const activeRouteError =
@@ -394,6 +416,8 @@ function DispatcherGeofence() {
     const riderLL = getLatLng(selected.lastLocation);
     const riderId = selected.assignedRiderId;
     if (!riderLL || !riderId || riderStops.length < 2) return;
+    if (tripInFlight.current) return;
+    tripInFlight.current = true;
     setTripBusyRider(riderId);
     setTripError(null);
     try {
@@ -410,14 +434,15 @@ function DispatcherGeofence() {
       // subscribeDeliveries refreshes the group's orders with the trip fields,
       // so the numbered markers + trip line + stop list redraw automatically.
     } catch (err) {
+      // RouteServiceError carries its own safe sentence; a failed save of
+      // the optimized trip goes through the shared mapper.
+      logSafeError("Optimize trip", err);
       setTripError({
         riderId,
-        message:
-          err?.message === "MISSING_KEY"
-            ? "Route optimization unavailable: API key not configured."
-            : err?.message || "Could not optimize the route.",
+        message: friendlyErrorMessage(err, "The trip could not be optimized. Nothing was saved — please try again."),
       });
     } finally {
+      tripInFlight.current = false;
       setTripBusyRider((cur) => (cur === riderId ? null : cur));
     }
   }
@@ -428,6 +453,8 @@ function DispatcherGeofence() {
     const clinicLL = getClinicLatLng(selected);
     if (!riderLL || !clinicLL) return; // button is disabled in this case anyway
     const orderId = selected.id;
+    if (routeInFlight.current) return;
+    routeInFlight.current = true;
     setBusyOrderId(orderId);
     setRouteError(null);
     try {
@@ -437,14 +464,13 @@ function DispatcherGeofence() {
       // The subscribeDeliveries snapshot refreshes `selected` with the new
       // route fields, redrawing the polyline + metrics automatically.
     } catch (err) {
+      logSafeError("Generate route", err);
       setRouteError({
         orderId,
-        message:
-          err?.message === "MISSING_KEY"
-            ? "Route ETA unavailable: API key not configured."
-            : err?.message || "Could not generate the route.",
+        message: friendlyErrorMessage(err, "The route could not be generated. Nothing was saved — please try again."),
       });
     } finally {
+      routeInFlight.current = false;
       setBusyOrderId((cur) => (cur === orderId ? null : cur));
     }
   }
@@ -463,8 +489,8 @@ function DispatcherGeofence() {
   if (error) {
     return (
       <>
-        <div className="dispatcher-loading-state">
-          <AlertTriangle size={32} />
+        <div className="dispatcher-loading-state" role="alert">
+          <AlertTriangle size={32} aria-hidden="true" />
           <p>{error}</p>
         </div>
       </>
@@ -586,7 +612,7 @@ function DispatcherGeofence() {
 
                     {!ROUTE_CONFIGURED ? (
                       <p className="geo3-live-route-missing">
-                        Route ETA unavailable: API key not configured.
+                        Route and ETA planning isn't set up for this site yet. Contact an administrator.
                       </p>
                     ) : (
                       <>
@@ -616,7 +642,7 @@ function DispatcherGeofence() {
                           </p>
                         )}
                         {activeRouteError && (
-                          <p className="geo3-live-route-error">{activeRouteError}</p>
+                          <p className="geo3-live-route-error" role="alert">{activeRouteError}</p>
                         )}
                       </>
                     )}
@@ -675,7 +701,7 @@ function DispatcherGeofence() {
 
                   {!ROUTE_CONFIGURED ? (
                     <p className="geo3-live-route-missing">
-                      Route optimization unavailable: API key not configured.
+                      Trip optimization isn't set up for this site yet. Contact an administrator.
                     </p>
                   ) : (
                     <>
@@ -705,7 +731,7 @@ function DispatcherGeofence() {
                         </p>
                       )}
                       {activeTripError && (
-                        <p className="geo3-live-route-error">{activeTripError}</p>
+                        <p className="geo3-live-route-error" role="alert">{activeTripError}</p>
                       )}
                     </>
                   )}
@@ -817,11 +843,24 @@ function DispatcherGeofence() {
                                   <span className="geo3-stale"> · Stale (no recent update)</span>
                                 )}
                               </p>
+                              {routeMonitoring !== "not_navigating" && (
+                                <p className={routeMonitoring === "deviating" ? "geo3-stale" : undefined}>
+                                  Route monitoring: {deviationText(live.deviation)}
+                                </p>
+                              )}
                             </>
                           ) : (
                             <>
-                              <strong className="geo3-muted">No live location yet</strong>
-                              <p>Waiting for Rider mobile app location update.</p>
+                              <strong className="geo3-muted">
+                                {live.status === "loading" ? "Loading live location…" : "No live location yet"}
+                              </strong>
+                              <p>
+                                {live.status === "error" || live.status === "denied"
+                                  ? "The rider's location could not be loaded."
+                                  : live.location?.trackingState === "ended"
+                                    ? "The rider is not sharing location right now."
+                                    : "Waiting for Rider mobile app location update."}
+                              </p>
                             </>
                           )}
                         </div>

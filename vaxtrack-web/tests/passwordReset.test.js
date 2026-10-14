@@ -112,7 +112,9 @@ test("infrastructure failures surface as actionable, existence-neutral errors", 
     send: stubSend({ fail: authError("auth/internal-error") }).send,
   });
   assert.equal(unknown.kind, "error");
-  assert.match(unknown.message, /went wrong/i);
+  // Specific about what failed, never vague, never Firebase's own text.
+  assert.equal(unknown.message, "We couldn't send the reset email right now. Please try again in a moment.");
+  assert.doesNotMatch(unknown.message, /internal-error|went wrong/i);
 });
 
 test("mapResetError never returns text that could reveal account existence", () => {

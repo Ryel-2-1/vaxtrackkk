@@ -1,6 +1,7 @@
 import { getFunctions, httpsCallable } from "firebase/functions";
 import app from "../firebase";
 import { InventoryCallableError } from "./inventoryCallables";
+import { friendlyErrorMessage } from "./liveDataErrors";
 
 /**
  * Client side of the invoice pricing boundary.
@@ -78,7 +79,7 @@ export async function issueInvoiceForPricedOrder(orderId) {
 export function messageForInvoiceError(error) {
   switch (error?.code) {
     case "order-not-priced":
-      return "This order has no server price snapshot, so it is invoiced manually. Reload the page.";
+      return "This order has no server price snapshot, so it is invoiced manually. Open it again from the invoice queue.";
     case "invoice-already-issued":
       return "This invoice has already been issued and can no longer be edited.";
     case "invoice-base-mismatch":
@@ -90,6 +91,6 @@ export function messageForInvoiceError(error) {
     case "order-snapshot-invalid":
       return "This order's recorded prices are inconsistent and need admin review before invoicing.";
     default:
-      return error?.message || "Unable to save the invoice. Please try again.";
+      return friendlyErrorMessage(error, "The invoice could not be saved. Your changes are still here — please try again.");
   }
 }

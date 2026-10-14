@@ -24,7 +24,8 @@ process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || "12
 
 const app = admin.initializeApp({ projectId: "demo-vaxtrack-alloc-hardening" }, "alloc-hardening-tests");
 const db = app.firestore();
-const { FieldValue } = admin.firestore;
+const { FieldValue, Timestamp } = admin.firestore;
+const { placeRiderAtDestination } = require("../helpers/riderAtDestination");
 
 const ops = require("../../src/operations");
 const flow = require("../../src/inventoryWorkflow");
@@ -451,6 +452,7 @@ test("I4. delivered: reserved and on hand each drop exactly once", async () => {
     invoiceUrl: `https://storage/${o.orderId}/invoice.jpg`, invoicePath: canonicalInvoicePath(o.orderId),
     invoiceSubmittedAt: FieldValue.serverTimestamp(), invoiceSubmittedByUid: RIDER,
   });
+  await placeRiderAtDestination(db, Timestamp, { uid: RIDER, orderId: o.orderId });
   await ops.markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid: RIDER, orderId: o.orderId });
   const once = await counters("s");
   assert.deepEqual(once, { onHand: 6, reserved: 0, returnPending: 0, quarantined: 0, available: 6 });

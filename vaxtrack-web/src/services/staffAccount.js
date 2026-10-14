@@ -94,7 +94,7 @@ export function statusChangeRefusal(fromRaw) {
   }
   return {
     code: STATUS_CHANGE_NOT_ALLOWED_CODE,
-    message: "That status change is not allowed for this account. Refresh and try again.",
+    message: "That status change is not allowed for this account's current status. The list shows its current status.",
   };
 }
 

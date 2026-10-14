@@ -45,8 +45,9 @@ test("the obsolete handler and its toast text are gone", () => {
 });
 
 test("no delivery-draft storage operation remains on the page", () => {
-  // For the record: this page never had one. There is no localStorage or
-  // sessionStorage usage here at all, and none was added in its place.
+  // For the record: this page never had one. The page itself still touches no
+  // storage; the only stored value is the List/Grid UI preference, kept in
+  // services/clinicsView.js (see tests/clinicsView.test.js).
   assert.ok(
     !clinicsPage.includes("localStorage"),
     "the page must not use localStorage"
@@ -68,9 +69,14 @@ test("the details modal no longer takes a delivery callback", () => {
 
   assert.match(
     modal,
-    /^function ClinicDetailsModal\(\{ clinic, onClose, onEdit \}\)/,
-    "the onCreateDelivery prop must be removed from the signature"
+    /^function ClinicDetailsModal\(\{ clinic, onClose \}\)/,
+    "the onCreateDelivery (and toast-only onEdit) props must be removed from the signature"
   );
+  // Editing is not built: the button is visibly disabled and explains why,
+  // instead of being clickable with a toast.
+  assert.match(modal, /disabled\s+aria-describedby="clinic-edit-unavailable"/);
+  assert.match(modal, /id="clinic-edit-unavailable"/);
+  assert.ok(!modal.includes("onEdit"));
   assert.ok(!modal.includes("Create Delivery"));
   assert.ok(!modal.includes("onCreateDelivery"));
 });
@@ -113,7 +119,9 @@ test("search, filters and pagination remain", () => {
 
 test("the Firestore subscription is the only source of clinic state", () => {
   assert.match(clinicsPage, /subscribeClinics\(/);
-  assert.match(clinicService, /onSnapshot\(/);
+  // A live listener: listenLive is onSnapshot that recovers from transient failures.
+  assert.match(clinicService, /listenLive\(/);
+  assert.match(src("services", "liveSnapshot.js"), /onSnapshot\(ref, next, error\)/);
 
   const calls = clinicsPage.match(/setClinics\(/g) ?? [];
   assert.equal(calls.length, 1, "setClinics must be called exactly once");

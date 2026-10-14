@@ -15,6 +15,9 @@ import { validateStockCorrection } from "./stockCorrection";
 import { validateStockBatchDates } from "./stockBatchDates";
 import { readVatClassification } from "./vatClassification";
 import { PRICES_INCLUDE_VAT } from "./pricingConfig";
+import { UserMessageError } from "./userMessageError.js";
+import { logSafeError } from "./liveDataErrors.js";
+import { listenLive } from "./liveSnapshot.js";
 
 const VACCINES = "vaccines";
 const VACCINE_TYPES = "vaccineTypes";
@@ -27,6 +30,24 @@ export async function getVaccineTypes() {
   // by this value, and two types carrying the same stored `id` would collapse
   // into a single option.
   return snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+}
+
+/**
+ * Live vaccine types, by name. Add Vaccine's dropdown and its duplicate-type
+ * check read this, so a type added in another browser (or by this page) shows
+ * without a reload — the list used to be read once on open and re-read after
+ * each add. Document id LAST, as in getVaccineTypes.
+ */
+export function subscribeVaccineTypes(callback, onError) {
+  const q = query(collection(db, VACCINE_TYPES), orderBy("name", "asc"));
+  return listenLive(
+    q,
+    (snap) => callback(snap.docs.map((d) => ({ ...d.data(), id: d.id }))),
+    (error) => {
+      logSafeError("subscribeVaccineTypes", error);
+      if (onError) onError(error);
+    }
+  );
 }
 
 export async function addVaccineType(name) {
@@ -47,7 +68,7 @@ export async function skuExists(sku) {
 export async function addVaccine({ vaccineName, manufacturer, vaccineType, internalSku, vatClassification }) {
   const cls = readVatClassification(vatClassification);
   if (!cls) {
-    throw new Error("Select VAT or VAT Exempt for this vaccine.");
+    throw new UserMessageError("Select VAT, VAT Exempt or Zero-Rated for this vaccine.");
   }
   return addDoc(collection(db, VACCINES), {
     vaccineName,
@@ -70,14 +91,14 @@ export async function addVaccine({ vaccineName, manufacturer, vaccineType, inter
 export async function setVaccineVatClassification(vaccineId, vatClassification) {
   const cls = readVatClassification(vatClassification);
   if (!cls) {
-    throw new Error("Select VAT or VAT Exempt for this vaccine.");
+    throw new UserMessageError("Select VAT, VAT Exempt or Zero-Rated for this vaccine.");
   }
   const uid = auth.currentUser?.uid;
   if (!uid) {
-    throw new Error("Your session has expired. Please sign in again.");
+    throw new UserMessageError("Your session has expired. Please sign in again.");
   }
   if (typeof vaccineId !== "string" || !vaccineId || vaccineId.includes("/")) {
-    throw new Error("That vaccine could not be identified.");
+    throw new UserMessageError("That vaccine could not be identified.");
   }
   return updateDoc(doc(db, VACCINES, vaccineId), {
     vatClassification: cls,
@@ -130,7 +151,7 @@ export async function addStockBatch({
   sellingPriceCentavos,
 }, { todayIso, submit } = {}) {
   if (typeof submit !== "function") {
-    throw new Error("Stock can only be added through the server.");
+    throw new UserMessageError("Stock can only be added through the server.");
   }
   // The batch's dates, re-checked here so nothing invalid is even sent:
   // manufacturing present, real, not in the future (Asia/Manila), on/before
@@ -139,7 +160,7 @@ export async function addStockBatch({
   // `todayIso` exists for tests; the app always uses today in Manila.
   const dates = validateStockBatchDates({ manufacturingDate, arrivalDate, expiryDate, todayIso });
   if (!dates.ok) {
-    throw new Error(dates.message);
+    throw new UserMessageError(dates.message);
   }
   // A price that reaches the server as a float, a string or a zero is refused
   // there too; the cheapest place to stop it is before the call.
@@ -148,7 +169,7 @@ export async function addStockBatch({
     !Number.isSafeInteger(sellingPriceCentavos) ||
     sellingPriceCentavos <= 0
   ) {
-    throw new Error("A stock batch needs a selling price in whole centavos.");
+    throw new UserMessageError("A stock batch needs a selling price in whole centavos.");
   }
   return submit({
     vaccineId,
@@ -178,14 +199,14 @@ export async function addStockBatch({
  */
 export async function updateStockPrice({ inventoryId, sellingPriceCentavos }) {
   if (typeof inventoryId !== "string" || inventoryId.trim() === "") {
-    throw new Error("A batch is required to set a price.");
+    throw new UserMessageError("A batch is required to set a price.");
   }
   if (
     !Number.isInteger(sellingPriceCentavos) ||
     !Number.isSafeInteger(sellingPriceCentavos) ||
     sellingPriceCentavos <= 0
   ) {
-    throw new Error("A selling price must be a whole number of centavos above zero.");
+    throw new UserMessageError("A selling price must be a whole number of centavos above zero.");
   }
   return updateDoc(doc(db, INVENTORY, inventoryId), {
     sellingPriceCentavos,
@@ -215,13 +236,13 @@ export async function updateStockPrice({ inventoryId, sellingPriceCentavos }) {
  */
 export async function correctStockQuantity({ inventoryId, newQuantity, reason }) {
   if (typeof inventoryId !== "string" || inventoryId.trim() === "") {
-    throw new Error("A batch is required to correct its stock.");
+    throw new UserMessageError("A batch is required to correct its stock.");
   }
 
   const ref = doc(db, INVENTORY, inventoryId);
   const snap = await getDoc(ref);
   if (!snap.exists()) {
-    throw new Error("That batch no longer exists.");
+    throw new UserMessageError("That batch no longer exists.");
   }
   const prev = snap.data();
 
@@ -234,7 +255,7 @@ export async function correctStockQuantity({ inventoryId, newQuantity, reason })
     reason,
   });
   if (!check.ok) {
-    throw new Error(check.message);
+    throw new UserMessageError(check.message);
   }
 
   return updateDoc(ref, {

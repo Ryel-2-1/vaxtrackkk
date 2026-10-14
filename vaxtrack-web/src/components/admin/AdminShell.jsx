@@ -3,6 +3,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import { auth } from "../../firebase";
 import { AdminSidebar } from "./AdminSidebar";
+import OfflineNotice from "../shell/OfflineNotice";
 import "./AdminLayout.css";
 
 /**
@@ -27,10 +28,10 @@ const WRAPPER_CLASS = {
   "/admin/allocation": "inventory-page adl-root",
   "/admin/order-history": "inventory-page adl-root",
   "/admin/analytics": "inventory-page adl-root",
+  "/admin/ai-inventory-analytics": "inventory-page adl-root",
   "/admin/delivery-calendar": "inventory-page adl-root",
+  "/admin/live-tracking": "inventory-page adl-root",
   "/admin/clinics": "inventory-page clinics-shell",
-  "/admin/register-clinic": "inventory-page clinics-shell register-clinic-shell",
-  "/admin/clinic-success": "inventory-page clinics-shell clinic-success-shell",
 };
 
 function wrapperClassFor(pathname) {
@@ -48,15 +49,15 @@ const ROUTE_TITLE = {
   "/admin/allocation": "Stock Allocation",
   "/admin/order-history": "Order History",
   "/admin/deliveries": "Deliveries",
+  "/admin/live-tracking": "Live Tracking",
   "/admin/delivery-calendar": "Delivery Calendar",
   "/admin/riders": "Riders",
   "/admin/alerts": "Alerts",
   "/admin/analytics": "Analytics",
+  "/admin/ai-inventory-analytics": "AI Inventory Analytics",
   "/admin/settings": "Settings",
   "/admin/clinics": "Clinics",
   "/admin/invoices": "Invoices",
-  "/admin/register-clinic": "Register Clinic",
-  "/admin/clinic-success": "Clinics",
 };
 
 function adminTitleFor(pathname) {
@@ -80,6 +81,8 @@ function AdminShell() {
   return (
     <div className={wrapperClassFor(location.pathname)}>
       <AdminSidebar onLogout={handleLogout} />
+      {/* Portalled to <body>: not a child of this layout. */}
+      <OfflineNotice />
 
       {/* The shared top bar (same as Sales Rep and Dispatcher). Fixed beside
           the rail, like the rail itself, so the page's own <main> remains the

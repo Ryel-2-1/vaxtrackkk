@@ -10,6 +10,7 @@ import { subscribeInventory } from "../../services/inventoryService";
 import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
 import { ORDER_STATUSES } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
+import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 
 // Small shimmer placeholder used while the first snapshots load, so sections
 // don't flash their empty state before real data arrives.
@@ -85,6 +86,10 @@ function AdminDashboard() {
   const [recentAlerts, setRecentAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  // Which sources failed. A failed source shows "—" / "unavailable", never a
+  // zero or an "All clear" that nothing measured.
+  const [failed, setFailed] = useState({});
+  const anyFailed = Object.values(failed).some(Boolean);
 
   useEffect(() => {
     let loaded = { deliveries: false, alerts: false, riders: false, inventory: false };
@@ -95,10 +100,18 @@ function AdminDashboard() {
       }
     };
 
-    const handleError = (error) => {
-      console.error("Dashboard subscription error:", error);
-      setLoadError(error.message || "Failed to load dashboard data.");
-      setLoading(false);
+    // A listener that recovers (automatic reconnect, or the shell's "Try
+    // again") clears its own failure; the banner shows only while some source
+    // is still failing.
+    const recover = (source) =>
+      setFailed((prev) => (prev[source] ? { ...prev, [source]: false } : prev));
+
+    const failSource = (source, what) => (error) => {
+      logSafeError(`Dashboard subscription (${source})`, error);
+      setLoadError(liveErrorMessage(error, what));
+      setFailed((prev) => ({ ...prev, [source]: true }));
+      loaded[source] = true;
+      checkAllLoaded();
     };
 
     const unsubDeliveries = subscribeDeliveries(
@@ -127,9 +140,10 @@ function AdminDashboard() {
           }))
         );
         loaded.deliveries = true;
+        recover("deliveries");
         checkAllLoaded();
       },
-      handleError
+      failSource("deliveries", "orders")
     );
 
     let unsubAlerts = () => {};
@@ -142,21 +156,21 @@ function AdminDashboard() {
             .map(normalizeAlert)
         );
         loaded.alerts = true;
+        recover("alerts");
         checkAllLoaded();
-      });
+      }, failSource("alerts", "alerts"));
     } catch (e) {
-      console.error("Dashboard alerts subscription error:", e);
-      loaded.alerts = true;
-      checkAllLoaded();
+      failSource("alerts", "alerts")(e);
     }
 
     const unsubRiders = subscribeRiders(
       (riders) => {
         setRiderCount(riders.length);
         loaded.riders = true;
+        recover("riders");
         checkAllLoaded();
       },
-      handleError
+      failSource("riders", "riders")
     );
 
     let unsubInventory = () => {};
@@ -173,12 +187,11 @@ function AdminDashboard() {
           }).length
         );
         loaded.inventory = true;
+        recover("inventory");
         checkAllLoaded();
-      });
+      }, failSource("inventory", "inventory"));
     } catch (e) {
-      console.error("Dashboard inventory subscription error:", e);
-      loaded.inventory = true;
-      checkAllLoaded();
+      failSource("inventory", "inventory")(e);
     }
 
     return () => {
@@ -193,22 +206,22 @@ function AdminDashboard() {
   const activeCount = deliveryCount;
 
   const ledgerCells = [
-    { label: "Total orders", value: deliveryCount, note: "All deliveries", to: "/admin/deliveries", tone: "" },
+    { label: "Total orders", source: "deliveries", value: deliveryCount, note: "All deliveries", to: "/admin/deliveries", tone: "" },
     // Was "Delayed / missing". Nothing here is missing: the figure is delayed
     // plus cancelled orders, and a cancelled order is one somebody closed on
     // purpose. The system does have a status for a delivery that stopped —
     // `delivery_failed` — and calling cancelled orders "missing" both named the
     // wrong thing and implied that status was covered when it was not.
-    { label: "Delayed / cancelled", value: delayedCount, note: delayedCount > 0 ? "Needs review" : "None flagged", to: "/admin/deliveries", tone: delayedCount > 0 ? " is-exception" : "" },
+    { label: "Delayed / cancelled", source: "deliveries", value: delayedCount, note: delayedCount > 0 ? "Needs review" : "None flagged", to: "/admin/deliveries", tone: delayedCount > 0 ? " is-exception" : "" },
     // Counts batches that are expired or within 30 days of expiring, worked out
     // from each batch's expiry date. It used to count the stored `status`,
     // which Add Stock stamps once at creation and nothing recomputes — so a
     // batch that had since expired still counted as healthy stock. The label
     // says what is measured; quantity and reserved figures are separate
     // concerns and are not folded into it.
-    { label: "Expiring or expired stock", value: criticalCount, note: criticalCount > 0 ? "Within 30 days or past expiry" : "None within 30 days", to: "/admin/inventory", tone: criticalCount > 0 ? " is-attention" : "" },
-    { label: "Registered riders", value: riderCount, note: "On the platform", to: "/admin/riders", tone: "" },
-  ];
+    { label: "Expiring or expired stock", source: "inventory", value: criticalCount, note: criticalCount > 0 ? "Within 30 days or past expiry" : "None within 30 days", to: "/admin/inventory", tone: criticalCount > 0 ? " is-attention" : "" },
+    { label: "Registered riders", source: "riders", value: riderCount, note: "On the platform", to: "/admin/riders", tone: "" },
+  ].map((c) => (failed[c.source] ? { ...c, value: "—", note: "Unavailable", tone: "" } : c));
 
   return (
     <AdminLayout
@@ -217,7 +230,7 @@ function AdminDashboard() {
       title="Dashboard"
       description="Live overview of deliveries, alerts, riders, and stock."
     >
-      {loadError && (
+      {anyFailed && loadError && (
         <div className="adx-banner" role="alert">
           <AlertTriangle size={16} aria-hidden="true" />
           <div>
@@ -273,6 +286,14 @@ function AdminDashboard() {
                   <Skel w="24px" h={14} />
                 </div>
               ))}
+            </div>
+          ) : failed.deliveries ? (
+            <div className="adx-empty">
+              <span className="adx-empty-icon">
+                <AlertTriangle size={18} aria-hidden="true" />
+              </span>
+              <strong>Orders unavailable</strong>
+              <p>See the notice above.</p>
             </div>
           ) : breakdownRows.length === 0 ? (
             <div className="adx-empty">
@@ -332,6 +353,14 @@ function AdminDashboard() {
                 </div>
               ))}
             </div>
+          ) : failed.alerts ? (
+            <div className="adx-empty">
+              <span className="adx-empty-icon">
+                <AlertTriangle size={18} aria-hidden="true" />
+              </span>
+              <strong>Alerts unavailable</strong>
+              <p>See the notice above.</p>
+            </div>
           ) : recentAlerts.length === 0 ? (
             <div className="adx-empty compact">
               <span className="adx-empty-icon success">
@@ -390,6 +419,14 @@ function AdminDashboard() {
                 <Skel w="60px" h={14} />
               </div>
             ))}
+          </div>
+        ) : failed.deliveries ? (
+          <div className="adx-empty">
+            <span className="adx-empty-icon">
+              <AlertTriangle size={18} aria-hidden="true" />
+            </span>
+            <strong>Orders unavailable</strong>
+            <p>See the notice above.</p>
           </div>
         ) : recentOrders.length === 0 ? (
           <div className="adx-empty">

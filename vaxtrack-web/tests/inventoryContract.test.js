@@ -38,6 +38,9 @@ const CALLABLE_NAMES = [
   "confirmReturnDisposition", // Admin: usable | damaged | temperature_excursion | missing
   "requeueFailedOrder", // Dispatcher: delivery_failed → pending_dispatch, re-enters allocation
   "getReservationProvenance", // Admin: read-only — which orders hold a batch's units
+  // Rider: read-only delivery-geofence preflight before evidence upload. The
+  // completion callable repeats the decision authoritatively.
+  "validateDeliveryCompletionGeofence",
 ];
 
 test("the callables are the only inventory-affecting entry points", () => {
@@ -80,12 +83,19 @@ test("the callables are the only inventory-affecting entry points", () => {
     "continueAllocation",
     "settleClientReportedFailure",
     "materializeOrderHistory",
+    // Rider live tracking: route-deviation state, alerts, Med Rep visibility
+    // and retention. They never name inventory and never write an order
+    // (checked below).
+    "trackRiderLocation",
+    "trackNavigationSession",
+    "syncRiderTrackingOnOrderWrite",
+    "purgeRiderTrackingData",
   ];
   const exported = [...index.matchAll(/^exports\.(\w+)\s*=/gm)].map((m) => m[1]);
   assert.deepEqual(
     exported.sort(),
     [...CALLABLE_NAMES, ...NON_CALLABLE_EXPORTS].sort(),
-    "exactly these callables, plus the six triggers"
+    "exactly these callables, plus the ten triggers / scheduled jobs"
   );
   assert.match(index, /exports\.materializeOrderHistory = onDocumentWritten\(\s*\{ document: "orderHistoryOutbox\/\{orderId\}", retry: true \}/);
   const outboxModule = read("functions/src/orderHistoryOutbox.js").replace(/^\s*(\*|\/\/).*$/gm, "");
@@ -118,6 +128,13 @@ test("the callables are the only inventory-affecting entry points", () => {
     // version check and the one key it writes.
     ["ALLOCATION_VERSION_BACKORDER", "allocation", "allocationPriorityKey", "allocationVersion"]
   );
+  // Rider tracking cannot move stock or the lifecycle: neither module names
+  // inventory, and it only ever READS orders.
+  for (const file of ["functions/src/riderTracking.js", "functions/src/riderTrackingOps.js"]) {
+    const code = read(file).replace(/^\s*(\*|\/\/).*$/gm, "");
+    assert.equal(/inventory|reservedQuantity|RESERVATIONS|allocation/i.test(code), false, file);
+    assert.equal(/(tx|batch)\.(set|update|delete)\(\s*(db\.collection\(C\.ORDERS\)|orderRef)/.test(code), false, `${file} never writes an order`);
+  }
   assert.match(index, /exports\.recordOrderStatusEvent = onDocumentWritten\(/);
   const history = read("functions/src/statusEvents.js").replace(/^\s*(\*|\/\/).*$/gm, "");
   assert.equal(/inventory|reservedQuantity|RESERVATIONS|allocation/i.test(history), false);
@@ -292,9 +309,14 @@ test("the order's stored price comes from the batch, not the payload", () => {
     false,
     "the stored price must never be read from the caller's payload"
   );
-  assert.match(ops, /unitPriceCentavos:\s*e\.unitPriceCentavos/, "taken from the evaluated batch");
-  assert.match(ops, /lineTotalCentavos:\s*e\.lineTotalCentavos/, "line total is server-computed");
-  assert.match(ops, /subtotalCentavos\s*=\s*sumLineTotalsCentavos\(evaluated\)/);
+  // The STANDARD price is the evaluated batch's; the payload contributes only
+  // the validated agreed unit price and reason (negotiatedPricing.js), and
+  // every total is computed server-side from integers.
+  assert.match(ops, /standardUnitPriceCentavos:\s*e\.unitPriceCentavos/, "standard taken from the evaluated batch");
+  assert.match(ops, /agreedUnitPriceCentavos:\s*items\[index\]\.agreedUnitPriceCentavos/, "agreed price from the validated payload");
+  assert.match(ops, /\.\.\.pricedLines\[index\]/, "line totals are server-computed");
+  assert.match(ops, /subtotalCentavos\s*=\s*sumLineTotalsCentavos\(pricedLines\)/);
+  assert.equal(/lineTotalCentavos:\s*items\[/.test(ops), false, "no total from the caller");
 });
 
 test("no page writes a price onto an order or a batch counter", () => {

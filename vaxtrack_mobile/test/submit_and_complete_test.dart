@@ -107,6 +107,14 @@ class _Completer implements DeliveryCompleter {
   }
 }
 
+/// The server geofence preflight, always eligible here: these tests are about
+/// evidence and completion. test/delivery_geofence_test.dart covers refusals.
+class _InsideClinic implements DeliveryGeofenceChecker {
+  @override
+  Future<DeliveryGeofenceResult> checkDeliveryGeofence(String orderId) async =>
+      const DeliveryGeofenceResult(eligible: true, distanceM: 12, radiusM: 300, locationAgeSeconds: 20, accuracyM: 8);
+}
+
 void main() {
   late _Log log;
   late _Uploader uploader;
@@ -119,7 +127,7 @@ void main() {
     uploader = _Uploader(log);
     writer = _Writer(log);
     completer = _Completer(log);
-    c = ProofSubmissionController(uploader: uploader, writer: writer, completer: completer);
+    c = ProofSubmissionController(uploader: uploader, writer: writer, completer: completer, geofence: _InsideClinic());
   });
 
   Future<bool> run({
@@ -167,6 +175,7 @@ void main() {
       await run();
       expect(seen, [
         'Preparing proof…',
+        'Checking delivery location…',
         'Uploading proof photo (1 of 2)…',
         'Uploading invoice photo (2 of 2)…',
         'Saving proof details…',
@@ -232,11 +241,14 @@ void main() {
     });
 
     test('4. a server refusal is shown as its own reason under the pending message', () async {
-      completer.results.add(const WorkflowException(
-          'not-assigned-rider', 'This delivery is not assigned to you.'));
+      // (Location / assignment refusals have their own path: see
+      // test/delivery_geofence_test.dart.)
+      completer.results.add(const WorkflowException('order-not-fully-reserved',
+          "This delivery's stock is not fully reserved and needs dispatcher review."));
       expect(await run(), isFalse);
       expect(c.errorMessage, ProofSubmissionController.completionPendingMessage);
-      expect(c.completionFailureDetail, 'This delivery is not assigned to you.');
+      expect(c.completionFailureDetail,
+          "This delivery's stock is not fully reserved and needs dispatcher review.");
     });
 
     test('5. earlier-session evidence already recorded: completion only, no new photos', () async {

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { auth } from "../../firebase";
 import SidebarProfile from "../../components/shell/SidebarProfile";
+import OfflineNotice from "../../components/shell/OfflineNotice";
 import "./SalesRep.css";
 
 /**
@@ -73,8 +74,19 @@ function SalesRepShell() {
   ).length;
 
   useEffect(() => {
-    localStorage.setItem("salesrepReadNotifications", JSON.stringify(readNotifications));
+    // A per-browser convenience only; private browsing may refuse it.
+    try {
+      localStorage.setItem("salesrepReadNotifications", JSON.stringify(readNotifications));
+    } catch {
+      // nothing to do — the list simply is not remembered
+    }
   }, [readNotifications]);
+
+  // Logging out is one request at a time; a failure is shown beside the
+  // button (never a browser alert) and the Med Rep stays signed in.
+  const [logoutError, setLogoutError] = useState("");
+  const [loggingOut, setLoggingOut] = useState(false);
+  const logoutRef = useRef(false);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -94,11 +106,18 @@ function SalesRepShell() {
   }, [location.pathname]);
 
   const handleLogout = async () => {
+    if (logoutRef.current) return;
+    logoutRef.current = true;
+    setLoggingOut(true);
+    setLogoutError("");
     try {
       await signOut(auth);
       navigate("/");
     } catch {
-      window.alert("Unable to log out right now. Please try again.");
+      setLogoutError("You're still signed in — we couldn't log you out. Check your connection and try again.");
+    } finally {
+      logoutRef.current = false;
+      setLoggingOut(false);
     }
   };
 
@@ -199,10 +218,22 @@ function SalesRepShell() {
           </Link>
         </nav>
 
-        <button type="button" className="salesrep-logout" onClick={handleLogout}>
-          <LogOut size={17} />
-          <span>Logout</span>
+        <button
+          type="button"
+          className="salesrep-logout"
+          onClick={handleLogout}
+          disabled={loggingOut}
+          aria-busy={loggingOut}
+          aria-describedby={logoutError ? "salesrep-logout-error" : undefined}
+        >
+          <LogOut size={17} aria-hidden="true" />
+          <span>{loggingOut ? "Logging out…" : "Logout"}</span>
         </button>
+        {logoutError && (
+          <p id="salesrep-logout-error" className="salesrep-logout-error" role="alert">
+            {logoutError}
+          </p>
+        )}
       </aside>
 
       <main className="salesrep-main">
@@ -314,6 +345,7 @@ function SalesRepShell() {
             <Outlet />
           </div>
         </Suspense>
+        <OfflineNotice />
       </main>
     </div>
   );

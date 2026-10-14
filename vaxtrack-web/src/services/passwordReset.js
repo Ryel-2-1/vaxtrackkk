@@ -65,7 +65,7 @@ export function mapResetError(code) {
   if (code === "auth/network-request-failed") {
     return "Unable to connect. Check your internet connection and try again.";
   }
-  return "Something went wrong. Please try again.";
+  return "We couldn't send the reset email right now. Please try again in a moment.";
 }
 
 /**

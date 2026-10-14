@@ -59,7 +59,8 @@ test("delivery_failed is visible, labelled, filterable and counted", () => {
   assert.equal(mapOrderStatusLabel("delivery_failed"), "Delivery Failed");
   // It has its own KPI card — it previously had none.
   assert.match(PAGE, /label="Delivery failed"/);
-  assert.match(PAGE, /value=\{failedCount\}/);
+  // Counted — and shown as a dash, never a false zero, while loading or after a failed read.
+  assert.match(PAGE, /value=\{kpiValue\(failedCount, kpiState\)\}/);
   assert.match(PAGE, /const failedCount = countOf\("delivery_failed"\);/);
   assert.match(PAGE, /setStatusFilter\("delivery_failed"\)/);
   // And it is one of the two statuses the review banner covers.
@@ -185,8 +186,7 @@ test("live-location, route and trip fields are passed through, never fabricated"
   // that data yields an empty/absent value and the map falls back to its honest
   // "No live location yet" state (that fallback lives in LiveDeliveryMap.jsx).
   const passThrough = {
-    lastLocation: /lastLocation: raw\.lastLocation \|\| null,/,
-    lastLocationUpdate: /lastLocationUpdate: raw\.lastLocationUpdate \|\| null,/,
+    assignedRiderId: /assignedRiderId: raw\.assignedRiderId \|\| "",/,
     clinicLat: /clinicLat: raw\.clinicLat,/,
     clinicLng: /clinicLng: raw\.clinicLng,/,
     routePolyline: /routePolyline: raw\.routePolyline \|\| "",/,
@@ -201,7 +201,9 @@ test("live-location, route and trip fields are passed through, never fabricated"
   // Still forbidden: inventing any of it. None of these fields may fall back to
   // a literal coordinate, polyline, ETA or geofence value — the only permitted
   // fallback is null / "" / absent, so nothing fake is ever shown as live data.
-  assert.equal(/lastLocation: raw\.lastLocation \|\| [^n]/.test(PAGE), false, "no invented rider location");
+  // The rider position is read from riderLocations/{assignedRiderId} by the
+  // map, never from an order-level copy.
+  assert.equal(CODE.includes("lastLocation"), false, "the order-level location copy is no longer read");
   assert.equal(/clinicLat: raw\.clinicLat \|\| /.test(PAGE), false, "no invented clinic latitude");
   assert.equal(/clinicLng: raw\.clinicLng \|\| /.test(PAGE), false, "no invented clinic longitude");
   assert.equal(/routePolyline: raw\.routePolyline \|\| "[^"]/.test(PAGE), false, "no hardcoded route");
@@ -266,7 +268,9 @@ test("every retained action is real, and the page writes nothing", () => {
 
 test("loading, error and empty states are preserved", () => {
   assert.match(PAGE, /const \[loading, setLoading\] = useState\(true\);/);
-  assert.match(PAGE, /setLoadError\(error\.message \|\| "Failed to load deliveries\."\)/);
+  // Mapped through the shared helper — raw Firebase text never reaches the page.
+  assert.match(PAGE, /setLoadError\(liveErrorMessage\(error, "deliveries"\)\)/);
+  assert.equal(/error\.message/.test(PAGE), false);
   assert.match(PAGE, /\{loading &&/);
   assert.match(PAGE, /subscribeDeliveries\(/);
 });

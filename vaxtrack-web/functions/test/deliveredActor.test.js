@@ -124,6 +124,11 @@ const UNTOUCHABLE = {
   clinicDocId: "clinic1",
   clinicLat: 14.3,
   clinicLng: 121.1,
+  // The authoritative destination snapshot the delivery geofence reads.
+  destinationLat: 14.3,
+  destinationLng: 121.1,
+  destinationGeofenceRadiusM: 300,
+  destinationLocationVerified: true,
 };
 
 // Loading, assigned to the rider; the next step is the dispatcher's dispatch.
@@ -136,6 +141,12 @@ const loading = (over = {}) => ({
   ...over,
 });
 
+/** A fresh, accurate, active location exactly at the destination. */
+const atClinic = () => ({
+  riderUid: RIDER, trackingState: "active", latitude: 14.3, longitude: 121.1, accuracyMeters: 8,
+  capturedAt: new Date(), updatedAt: new Date(),
+});
+
 function fixture() {
   return fakeDb({
     [`users/${RIDER}`]: { role: "rider", status: "approved", email: RIDER_EMAIL },
@@ -146,6 +157,8 @@ function fixture() {
     "orders/reserved": loading({ allocationVersion: ALLOCATION_VERSION }),
     "inventoryReservations/reserved": { status: "reserved", items: [{ inventoryId: "inv1", quantity: 2 }] },
     "inventory/inv1": { quantity: 10, reservedQuantity: 2, sellingPriceCentavos: 125000 },
+    // The Rider is at the clinic with a fresh, accurate fix (deliveryGeofence.js).
+    [`riderLocations/${RIDER}`]: atClinic(),
   });
 }
 

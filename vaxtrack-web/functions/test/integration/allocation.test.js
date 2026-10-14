@@ -18,10 +18,13 @@ process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || "12
 
 const app = admin.initializeApp({ projectId: "demo-vaxtrack-allocation" }, "allocation-tests");
 const db = app.firestore();
-const { FieldValue } = admin.firestore;
+const { FieldValue, Timestamp } = admin.firestore;
+const { placeRiderAtDestination } = require("../helpers/riderAtDestination");
 
 const ops = require("../../src/operations");
 const flow = require("../../src/inventoryWorkflow");
+const { ALL_ROUTE_FIELDS } = require("../../src/orderRouteFields");
+const { routeForOrder } = require("../../src/riderTracking");
 const { canonicalProofPath, canonicalInvoicePath } = require("../../src/deliveryEvidence");
 
 const NOW = new Date("2026-10-05T02:00:00.000Z");
@@ -133,6 +136,8 @@ async function recordEvidence(orderId) {
     invoiceUrl: `https://storage/${orderId}/invoice.jpg`, invoicePath: canonicalInvoicePath(orderId),
     invoiceSubmittedAt: FieldValue.serverTimestamp(), invoiceSubmittedByUid: RIDER,
   });
+  // ...and the Rider is at the clinic (delivery geofence).
+  await placeRiderAtDestination(db, Timestamp, { uid: RIDER, orderId });
 }
 
 // ---------------------------------------------------------------- 1–4
@@ -288,6 +293,10 @@ test("13–15. failure → return-pending; dispositions; requeue", async (t) => 
   });
 
   await t.test("requeue: the failed order rejoins the queue and is filled when stock exists", async () => {
+    // The failed rider's saved route + trip place must not follow the order to
+    // the next rider (they start at the previous rider's position).
+    const staleRoute = Object.fromEntries(ALL_ROUTE_FIELDS.map((k) => [k, k === "stopSequence" ? 1 : "stale"]));
+    await db.collection("orders").doc(failed.orderId).update(staleRoute);
     const r = await flow.requeueFailedOrder({ db, FieldValue, uid: DISPATCHER, now: NOW, payload: { orderId: failed.orderId } });
     assert.equal(r.status, "pending_dispatch");
     const o = await order(failed.orderId);
@@ -295,6 +304,8 @@ test("13–15. failure → return-pending; dispositions; requeue", async (t) => 
     assert.equal(o.deliveryFailureReason, "Clinic closed", "the failure record stays");
     assert.equal(o.allocationOpen, true);
     assert.deepEqual(await lineOf(failed.orderId), [2, 2], "the 2 free units go to it");
+    for (const k of ALL_ROUTE_FIELDS) assert.equal(k in o, false, `${k} cleared on requeue`);
+    assert.equal(routeForOrder(o).available, false, "no usable old route");
   });
 });
 

@@ -38,6 +38,7 @@ const {
   DELIVERABLE_FROM,
   HOME_ADDRESS_ID,
 } = require("./policy");
+const { RIDER_LOCATIONS, evaluateDeliveryGeofence } = require("./deliveryGeofence");
 const { readPriceConvention } = require("./pricingConfig");
 const { deliveryEvidenceProblem } = require("./deliveryEvidence");
 const { statusUpdatedByEmailValue } = require("./attribution");
@@ -63,6 +64,14 @@ const {
   createPreparedReceipt,
 } = require("./orderHistory");
 const { materializeInitialHistory } = require("./orderHistoryOutbox");
+const {
+  priceOrderLine,
+  summarizeAgreement,
+  priceAdjustmentAuditRecord,
+  priceAdjustmentAuditId,
+  statutoryDiscountAuditRecord,
+  statutoryDiscountAuditId,
+} = require("./negotiatedPricing");
 
 const ORDERS = "orders";
 const INVENTORY = "inventory";
@@ -74,6 +83,10 @@ const DOCTORS = "doctors";
 const DOCTOR_ADDRESSES = "deliveryAddresses";
 const CLINICS = "clinics";
 const AREAS = "areas";
+/** Server-only: one immutable record per negotiated order line. */
+const PRICE_ADJUSTMENTS = "orderPriceAdjustments";
+/** Server-only: one immutable record per statutory-discounted order line. */
+const STATUTORY_DISCOUNTS = "orderStatutoryDiscounts";
 
 /** Role/status gate. Both are read from the server-side user document. */
 function requireRole(userData, role) {
@@ -360,24 +373,44 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
       return typeof sku === "string" && sku.trim() !== "" ? sku.trim() : null;
     });
 
-    const subtotalCentavos = sumLineTotalsCentavos(evaluated);
+    // ---- negotiated pricing (negotiatedPricing.js) ----
+    // The STANDARD price is the batch's, read inside this transaction (and
+    // already proven equal to what the Med Rep reviewed — price-changed
+    // otherwise). The AGREED price is the Med Rep's, shape-checked with its
+    // reason by validateCreatePayload. Every total and the VAT breakdown are
+    // computed HERE, in integers; the caller sends none of them.
+    const pricedLines = evaluated.map((e, index) =>
+      priceOrderLine({
+        quantity: e.quantity,
+        standardUnitPriceCentavos: e.unitPriceCentavos,
+        agreedUnitPriceCentavos: items[index].agreedUnitPriceCentavos,
+        negotiationReason: items[index].negotiationReason,
+        statutoryDiscountType: items[index].statutoryDiscountType,
+        statutoryDiscountCentavos: items[index].statutoryDiscountCentavos,
+        eligibilityConfirmed: items[index].eligibilityConfirmed,
+        vatClassification: lineVat[index],
+      })
+    );
+    const agreement = summarizeAgreement(pricedLines);
+    const subtotalCentavos = sumLineTotalsCentavos(pricedLines);
     const orderItems = evaluated.map((e, index) => ({
       inventoryId: e.inventoryId,
       batchId: e.batchId,
       name: e.name,
       chain: e.chain,
       quantity: e.quantity,
-      // Money, read from the batch INSIDE this transaction. The caller supplied
-      // no price — only the price it expected, which was checked above — so a
-      // reduced, inflated or malformed figure cannot reach this document.
-      unitPriceCentavos: e.unitPriceCentavos,
-      lineTotalCentavos: e.lineTotalCentavos,
+      // Money: the standard price from the batch and the agreed price the Med
+      // Rep negotiated, with every total derived from them in integers.
+      // `unitPriceCentavos` / `lineTotalCentavos` are the price CHARGED (the
+      // agreed one) — the fields every invoice, receipt and confirmation reads.
+      // Immutable after placement: no client can write order items.
+      ...pricedLines[index],
       // Decimal pesos, derived. The invoice module and every invoice already
       // written speak this; centavos above stay the authoritative figure.
-      unitPrice: centavosToPesos(e.unitPriceCentavos),
-      // Immutable VAT snapshot from the vaccine product at this instant. A
-      // later re-classification changes future items only.
-      vatClassification: lineVat[index],
+      unitPrice: centavosToPesos(pricedLines[index].unitPriceCentavos),
+      // Immutable VAT snapshot from the vaccine product at this instant (set by
+      // priceOrderLine from lineVat). A later re-classification changes future
+      // items only.
       // The product this line is DEMAND for. Allocation reserves any eligible
       // batch of it (FEFO); the quoted batch above only fixes price and VAT.
       productKey: invSnaps[index].data().vaccineId,
@@ -423,9 +456,25 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
       pricingVersion: PRICING_VERSION,
       priceCurrency: PRICE_CURRENCY,
       priceIsVatInclusive: PRICE_IS_VAT_INCLUSIVE,
+      // The AGREED total — what is charged and invoiced.
       subtotalCentavos,
       subtotal: centavosToPesos(subtotalCentavos),
       pricedAt: FieldValue.serverTimestamp(),
+      // ---- negotiated pricing snapshot ----
+      // The standard total at confirmation, the net adjustment (signed), whether
+      // any line was negotiated, and the VAT breakdown of the agreed total.
+      // subtotalCentavos above is the NEGOTIATED subtotal (Σ quantity × agreed
+      // price), before statutory discounts; finalTotalCentavos is what the
+      // clinic is charged. The negotiated adjustment and the statutory
+      // discounts are separate figures — never one combined amount.
+      priceAgreementVersion: agreement.priceAgreementVersion,
+      standardSubtotalCentavos: agreement.standardSubtotalCentavos,
+      negotiatedAdjustmentTotalCentavos: agreement.negotiatedAdjustmentTotalCentavos,
+      priceNegotiated: agreement.priceNegotiated,
+      statutoryDiscountTotalCentavos: agreement.statutoryDiscountTotalCentavos,
+      statutoryDiscountApplied: agreement.statutoryDiscountApplied,
+      finalTotalCentavos: agreement.finalTotalCentavos,
+      vatSummary: agreement.vatSummary,
       // ---- allocation (backorder-aware; see allocation.js) ----
       allocationVersion: ALLOCATION_VERSION_BACKORDER,
       // The reservation document is active (possibly still empty).
@@ -484,6 +533,27 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
     tx.set(orderRef, orderData);
     createPreparedReceipt(tx, preparedReceipt);
     createPreparedEvents(tx, { FieldValue, prepared: preparedHistory });
+    // The pricing audits, in this same transaction — so an order exists with
+    // its audit records or not at all. Two SEPARATE immutable records: one per
+    // negotiated line (orderPriceAdjustments) and one per statutory-discounted
+    // line (orderStatutoryDiscounts); a line with both has one of each. Actor
+    // and time are the server's (verified uid, serverTimestamp); the ids are
+    // deterministic and `create` refuses to overwrite.
+    orderItems.forEach((line, lineIndex) => {
+      const audit = { orderId: orderRef.id, orderNumber, lineIndex, line, uid, requestId, FieldValue };
+      if (line.priceNegotiated) {
+        tx.create(
+          db.collection(PRICE_ADJUSTMENTS).doc(priceAdjustmentAuditId(orderRef.id, lineIndex)),
+          priceAdjustmentAuditRecord(audit)
+        );
+      }
+      if (line.statutoryDiscountCentavos > 0) {
+        tx.create(
+          db.collection(STATUTORY_DISCOUNTS).doc(statutoryDiscountAuditId(orderRef.id, lineIndex)),
+          statutoryDiscountAuditRecord(audit)
+        );
+      }
+    });
     // The initial-allocation outbox marker: the order's first allocation pass
     // runs after this commit, and whoever completes it records the outcome —
     // the callable below, or the materializeOrderHistory trigger if the call
@@ -530,21 +600,50 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
       productKeys: allocationSummary.backorderedProductKeys,
       destination: destination.response,
       pricing: {
-        items: orderItems.map((i) => ({
-          inventoryId: i.inventoryId,
-          batchId: i.batchId,
-          name: i.name,
-          quantity: i.quantity,
-          unitPriceCentavos: i.unitPriceCentavos,
-          lineTotalCentavos: i.lineTotalCentavos,
-        })),
+        items: orderItems.map(pricingLineView),
         subtotalCentavos,
+        standardSubtotalCentavos: agreement.standardSubtotalCentavos,
+        negotiatedAdjustmentTotalCentavos: agreement.negotiatedAdjustmentTotalCentavos,
+        priceNegotiated: agreement.priceNegotiated,
+        statutoryDiscountTotalCentavos: agreement.statutoryDiscountTotalCentavos,
+        finalTotalCentavos: agreement.finalTotalCentavos,
+        vatSummary: agreement.vatSummary,
         priceCurrency: PRICE_CURRENCY,
         priceIsVatInclusive: PRICE_IS_VAT_INCLUSIVE,
         pricingVersion: PRICING_VERSION,
       },
     };
   });
+}
+
+/**
+ * One priced line as the confirmation screen sees it — the same shape for a
+ * first call and a replay. An order placed before negotiated pricing reads as
+ * "agreed = standard": nothing about it is reinterpreted.
+ */
+function pricingLineView(i) {
+  const standardUnit = i.standardUnitPriceCentavos ?? i.unitPriceCentavos;
+  const standardLine = i.standardLineTotalCentavos ?? i.lineTotalCentavos;
+  return {
+    inventoryId: i.inventoryId ?? null,
+    batchId: i.batchId ?? null,
+    name: i.name ?? null,
+    quantity: i.quantity,
+    unitPriceCentavos: i.unitPriceCentavos,
+    lineTotalCentavos: i.lineTotalCentavos,
+    standardUnitPriceCentavos: standardUnit,
+    standardLineTotalCentavos: standardLine,
+    agreedUnitPriceCentavos: i.agreedUnitPriceCentavos ?? i.unitPriceCentavos,
+    negotiatedGrossCentavos: i.negotiatedGrossCentavos ?? i.lineTotalCentavos,
+    negotiatedAdjustmentCentavos: i.negotiatedAdjustmentCentavos ?? 0,
+    priceNegotiated: i.priceNegotiated === true,
+    negotiationReason: i.negotiationReason ?? null,
+    statutoryDiscountType: i.statutoryDiscountType ?? null,
+    statutoryDiscountCentavos: i.statutoryDiscountCentavos ?? 0,
+    finalLineTotalCentavos: i.finalLineTotalCentavos ?? i.lineTotalCentavos,
+    lineVatCentavos: i.lineVatCentavos ?? null,
+    vatClassification: i.vatClassification ?? null,
+  };
 }
 
 /**
@@ -558,15 +657,14 @@ function pricingFromOrder(order) {
   if (!order || order.pricingVersion !== PRICING_VERSION) return null;
   const items = Array.isArray(order.items) ? order.items : [];
   return {
-    items: items.map((i) => ({
-      inventoryId: i.inventoryId ?? null,
-      batchId: i.batchId ?? null,
-      name: i.name ?? null,
-      quantity: i.quantity,
-      unitPriceCentavos: i.unitPriceCentavos,
-      lineTotalCentavos: i.lineTotalCentavos,
-    })),
+    items: items.map(pricingLineView),
     subtotalCentavos: order.subtotalCentavos,
+    standardSubtotalCentavos: order.standardSubtotalCentavos ?? order.subtotalCentavos,
+    negotiatedAdjustmentTotalCentavos: order.negotiatedAdjustmentTotalCentavos ?? 0,
+    priceNegotiated: order.priceNegotiated === true,
+    statutoryDiscountTotalCentavos: order.statutoryDiscountTotalCentavos ?? 0,
+    finalTotalCentavos: order.finalTotalCentavos ?? order.subtotalCentavos,
+    vatSummary: order.vatSummary ?? null,
     priceCurrency: order.priceCurrency ?? PRICE_CURRENCY,
     // The order's own recorded convention — a replay never re-labels it.
     priceIsVatInclusive: readPriceConvention(order.priceIsVatInclusive),
@@ -802,13 +900,51 @@ async function cancelOrderTransaction({ db, FieldValue, uid, email, orderId, rea
   });
 }
 
+const NOT_COMPLETABLE_MESSAGE = "This delivery is no longer assigned to you or cannot be completed.";
+
+/**
+ * Preflight for "Submit Proof & Complete Delivery": is the authenticated,
+ * assigned Rider inside this order's delivery geofence right now? Called
+ * before any evidence upload, so a Rider outside the area uploads nothing.
+ *
+ * Early feedback only — markOrderDeliveredWithInventoryConsumption repeats
+ * the same decision inside its own transaction. Reads only; writes nothing.
+ * Returns { eligible, distanceM, radiusM, locationAgeSeconds, accuracyM } or
+ * throws a stable domain error (deliveryGeofence.GEOFENCE_CODES, or
+ * not-assigned-rider / invalid-status-transition / order-not-found).
+ */
+async function validateDeliveryCompletionGeofence({ db, uid, orderId, now = new Date() }) {
+  const userData = await loadUser(db, uid);
+  requireRole(userData, "rider");
+  if (typeof orderId !== "string" || orderId.trim() === "" || orderId.includes("/")) {
+    throw new PolicyError("invalid-payload", "That delivery could not be identified.");
+  }
+  const [orderSnap, locationSnap] = await Promise.all([
+    db.collection(ORDERS).doc(orderId).get(),
+    db.collection(RIDER_LOCATIONS).doc(uid).get(),
+  ]);
+  if (!orderSnap.exists) throw new PolicyError("order-not-found", "That delivery no longer exists.");
+  const order = orderSnap.data();
+  if (order.assignedRiderId !== uid) throw new PolicyError("not-assigned-rider", NOT_COMPLETABLE_MESSAGE);
+  if (!DELIVERABLE_FROM.includes(order.status)) throw new PolicyError("invalid-status-transition", NOT_COMPLETABLE_MESSAGE);
+  return evaluateDeliveryGeofence({
+    order,
+    location: locationSnap.exists ? locationSnap.data() : null,
+    uid,
+    nowMs: now.getTime(),
+  });
+}
+
 /**
  * Complete a delivery and consume its reservation exactly once.
  *
- * Proof of delivery is deliberately NOT required here — that contract is
- * unchanged and stays deferred until the physical-phone checkpoint.
+ * Requires, in this transaction: the caller is the order's current assigned
+ * Rider; the order is in transit or delayed; both evidence photos are
+ * recorded by that Rider; and the Rider's latest trusted location is inside
+ * the order's delivery geofence (deliveryGeofence.js). Any refusal writes
+ * nothing — no status, no inventory, no reservation, no history.
  */
-async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid, email = null, orderId }) {
+async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid, email = null, orderId, now = new Date() }) {
   const userData = await loadUser(db, uid);
   requireRole(userData, "rider");
   if (typeof orderId !== "string" || orderId.trim() === "" || orderId.includes("/")) {
@@ -855,6 +991,19 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
     // already-delivered replay above, so a repeated call stays idempotent.
     const evidence = deliveryEvidenceProblem(order, orderId, uid);
     if (evidence) throw new PolicyError(evidence.code, evidence.message);
+
+    // Clinic delivery geofence — the authoritative check (the app's preflight
+    // is only early feedback). The Rider's location is read IN this
+    // transaction: moving out, going stale, stopping tracking or being
+    // reassigned after the preflight still refuses here, before any write.
+    // An already-delivered replay returned above, so retries stay idempotent.
+    const locationSnap = await tx.get(db.collection(RIDER_LOCATIONS).doc(uid));
+    evaluateDeliveryGeofence({
+      order,
+      location: locationSnap.exists ? locationSnap.data() : null,
+      uid,
+      nowMs: now.getTime(),
+    });
 
     const legacy = isLegacyOrder(order);
     const settlements = [];
@@ -955,6 +1104,7 @@ module.exports = {
   createOrderWithReservation,
   cancelOrderWithInventoryRelease,
   markOrderDeliveredWithInventoryConsumption,
+  validateDeliveryCompletionGeofence,
   requireRole,
   loadUser,
   // The creation transaction alone — exactly what is committed if the callable

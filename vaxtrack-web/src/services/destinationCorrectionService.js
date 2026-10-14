@@ -1,6 +1,8 @@
-import { collection, limit, onSnapshot, orderBy, query } from "firebase/firestore";
+import { collection, limit, orderBy, query } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import app, { db } from "../firebase";
+import { UserMessageError } from "./userMessageError.js";
+import { listenLive } from "./liveSnapshot.js";
 
 export const MAX_DESTINATION_REASON_LENGTH = 500;
 
@@ -10,16 +12,17 @@ async function callDestinationFunction(name, payload) {
     const result = await callable(payload);
     return result.data;
   } catch (error) {
+    // A domain refusal carries the server's stable code and its sentence for
+    // the operator; anything else (network, an unexpected server failure) is
+    // replaced with a safe sentence — its own text never reaches the screen.
     if (typeof error?.details?.code === "string") {
-      const failure = new Error(error.message, { cause: error });
-      failure.code = error.details.code;
-      throw failure;
+      throw new UserMessageError(error.message, { code: error.details.code, cause: error });
     }
-    throw new Error(
+    throw new UserMessageError(
       error?.code === "functions/unauthenticated"
         ? "Your session has expired. Please sign in again."
-        : "Destination review is unavailable. Please try again.",
-      { cause: error }
+        : "Destination review is unavailable right now. Nothing was changed — please try again.",
+      { code: error?.code === "functions/unauthenticated" ? "unauthenticated" : "service-unavailable", cause: error }
     );
   }
 }
@@ -42,7 +45,7 @@ export function subscribeDestinationCorrections(orderId, onData, onError) {
     orderBy("revision", "desc"),
     limit(10)
   );
-  return onSnapshot(history, (snapshot) => {
+  return listenLive(history, (snapshot) => {
     onData(snapshot.docs.map((item) => ({ ...item.data(), id: item.id })));
   }, onError);
 }

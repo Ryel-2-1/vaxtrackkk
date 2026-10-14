@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
-  CheckCircle2,
   Download,
   FileText,
   Loader2,
@@ -18,6 +17,9 @@ import {
 } from "../../services/invoiceService";
 import { toCsv, downloadCsv } from "../../utils/csv";
 import KpiCard from "../../components/ui/KpiCard";
+import { friendlyErrorMessage, kpiValue, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
+import { ToastRegion } from "../../components/ui/Feedback";
+import { useToast } from "../../components/ui/useToast";
 import "./Invoices.css";
 
 const PRIORITY_OPTIONS = ["Normal", "High", "Urgent"];
@@ -67,9 +69,11 @@ function Invoices() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [toast, setToast] = useState("");
-  const [toastType, setToastType] = useState("success");
+  const { toast, showToast, dismissToast } = useToast();
   const [updatingPriority, setUpdatingPriority] = useState("");
+  // Bumped by Retry: a listener that failed is closed for good, so retrying
+  // means opening a new one, not just clearing the message.
+  const [retryKey, setRetryKey] = useState(0);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -85,25 +89,16 @@ function Invoices() {
         setError("");
       },
       (err) => {
-        if (err?.code === "permission-denied") {
-          setError("You do not have permission to view invoices.");
-        } else {
-          setError("Unable to load the invoice queue.");
-        }
+        setError(liveErrorMessage(err, "the invoice queue"));
         setLoading(false);
       }
     );
     return unsub;
-  }, []);
+  }, [retryKey]);
 
-
-  const showToast = (msg, type = "success") => {
-    setToast(msg);
-    setToastType(type);
-    window.setTimeout(() => setToast(""), 2600);
-  };
 
   const handlePriorityChange = async (orderId, priority) => {
+    if (updatingPriority) return;
     setUpdatingPriority(orderId);
     try {
       const user = auth.currentUser;
@@ -113,7 +108,11 @@ function Invoices() {
       });
       showToast(`Priority set to ${priority}.`, "success");
     } catch (err) {
-      showToast(err.message || "Failed to update priority.", "error");
+      logSafeError("Update invoice priority", err);
+      showToast(
+        friendlyErrorMessage(err, "The priority could not be changed. Nothing was saved — please try again."),
+        "error"
+      );
     } finally {
       setUpdatingPriority("");
     }
@@ -202,18 +201,14 @@ function Invoices() {
       toCsv(headers, rows)
     );
     showToast(
-      `Exported ${filtered.length} row${filtered.length !== 1 ? "s" : ""} to CSV.`
+      `Exported ${filtered.length} row${filtered.length !== 1 ? "s" : ""} to CSV.`,
+      "success"
     );
   };
 
   return (
     <main className="inv-page">
-        {toast && (
-          <div className={`inv-toast ${toastType === "error" ? "error" : ""}`}>
-            {toastType === "error" ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
-            <span>{toast}</span>
-          </div>
-        )}
+        <ToastRegion toast={toast} onDismiss={dismissToast} />
 
         <header className="inv-header">
           <div>
@@ -224,23 +219,23 @@ function Invoices() {
         <section className="inv-summary-grid">
           <KpiCard
             label="Pending invoices"
-            value={summary.pending}
+            value={kpiValue(summary.pending, { loading, error })}
             tone="neutral"
           />
           <KpiCard
             label="High priority"
-            value={summary.highPriority}
+            value={kpiValue(summary.highPriority, { loading, error })}
             tone="danger"
             attention={summary.highPriority > 0}
           />
           <KpiCard
             label="Issued today"
-            value={summary.issuedToday}
+            value={kpiValue(summary.issuedToday, { loading, error })}
             tone="success"
           />
           <KpiCard
             label="Total issued"
-            value={summary.totalIssued}
+            value={kpiValue(summary.totalIssued, { loading, error })}
             tone="neutral"
           />
         </section>
@@ -382,8 +377,8 @@ function Invoices() {
             )}
 
             {!loading && error && (
-              <div className="inv-state">
-                <AlertTriangle size={28} />
+              <div className="inv-state" role="alert">
+                <AlertTriangle size={28} aria-hidden="true" />
                 <p>{error}</p>
                 <button
                   type="button"
@@ -391,6 +386,7 @@ function Invoices() {
                   onClick={() => {
                     setError("");
                     setLoading(true);
+                    setRetryKey((k) => k + 1);
                   }}
                 >
                   <RotateCcw size={14} /> Retry

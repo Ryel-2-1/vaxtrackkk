@@ -185,8 +185,11 @@ test("8. every protected route re-reads the profile and applies the resolver", (
   ]) {
     const src = readFileSync(new URL(`../src/components/${file}`, import.meta.url), "utf8");
     assert.match(src, /onAuthStateChanged\(auth,/, file);
-    assert.match(src, /getDoc\(doc\(db, "users", user\.uid\)\)/, file);
-    assert.match(src, new RegExp(`resolveAccess\\(\\{[\\s\\S]*?requiredRole: ${role.replace(".", "\\.")}`), file);
+    // Watched, not read once (services/liveRouteAccess.js puts every snapshot
+    // through resolveAccess), so a change made while the page is open applies
+    // without a refresh.
+    assert.match(src, /onSnapshot\(\s*doc\(db, "users", uid\)/, file);
+    assert.match(src, new RegExp(`watchRouteAccess\\(\\{[\\s\\S]*?requiredRole: ${role.replace(".", "\\.")}`), file);
     assert.match(src, /<Navigate to=\{redirectTo\} replace \/>/, file);
   }
   // Login shows a safe message and ends the session.
@@ -223,7 +226,13 @@ test("12. Reject is confirmed first, and cancelling writes nothing", () => {
 test("11. no optimistic status: rows change only from the Firestore subscription", () => {
   const handler = /const updateStatus = async \(uid, firestoreStatus\) => \{([\s\S]*?)\n {2}\};/.exec(page)[1];
   assert.equal(/setStaff\(/.test(handler), false, "the status handler never edits rows locally");
-  assert.match(handler, /error\?\.name === "UserStatusError"/);
+  // A failure is logged safely and rethrown, so the confirmation dialog stays
+  // open and shows the reason through the shared mapper: a refused transition
+  // keeps its own sentence (UserStatusError is a trusted domain error).
+  assert.match(handler, /logSafeError\("Update user status", error\);\s*throw error;/);
+  assert.equal(/error\.message/.test(handler), false, "no raw message is shown");
+  const userService = readFileSync(new URL("../src/services/userService.js", import.meta.url), "utf8");
+  assert.match(userService, /export class UserStatusError extends UserMessageError/);
 });
 
 test("the Rejected badge is red, distinct from the grey Inactive one", () => {

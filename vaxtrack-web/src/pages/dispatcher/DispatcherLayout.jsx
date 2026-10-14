@@ -10,6 +10,7 @@ import {
   LogOut,
   MapPinned,
   Menu,
+  Navigation,
   Search,
   Settings,
   Truck,
@@ -19,6 +20,7 @@ import {
 import { auth } from "../../firebase";
 import { subscribeActiveAlerts } from "../../services/alertService";
 import SidebarProfile from "../../components/shell/SidebarProfile";
+import OfflineNotice from "../../components/shell/OfflineNotice";
 import {
   DRAWER_MEDIA_QUERY,
   nextNavState,
@@ -57,6 +59,7 @@ const ROUTE_META = {
   "/dispatcher/shipments": { key: "shipments", title: "Shipments" },
   "/dispatcher/cargo-loading": { key: "cargo-loading", title: "Cargo Loading" },
   "/dispatcher/geofence": { key: "geofence", title: "Live Monitoring" },
+  "/dispatcher/live-tracking": { key: "live-tracking", title: "Live Tracking" },
   "/dispatcher/settings": { key: "settings", title: "Settings" },
 };
 
@@ -99,6 +102,8 @@ function DispatcherLayout() {
   // No demo/sample data is seeded here — notifications start empty until wired
   // to real Firestore alerts.
   const [notifications, setNotifications] = useState([]);
+  // A failed feed is said as such — "No notifications." would be a false all-clear.
+  const [notificationsError, setNotificationsError] = useState(false);
 
   const unreadCount = useMemo(
     () => notifications.filter((notification) => !notification.read).length,
@@ -110,9 +115,13 @@ function DispatcherLayout() {
   useEffect(() => {
     let unsubscribe = () => {};
     try {
-      unsubscribe = subscribeActiveAlerts((alerts) => {
-        setNotifications(Array.isArray(alerts) ? alerts : []);
-      });
+      unsubscribe = subscribeActiveAlerts(
+        (alerts) => {
+          setNotifications(Array.isArray(alerts) ? alerts : []);
+          setNotificationsError(false);
+        },
+        () => setNotificationsError(true)
+      );
     } catch {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setNotifications([]);
@@ -399,6 +408,15 @@ function DispatcherLayout() {
           </NavLink>
 
           <NavLink
+            to="/dispatcher/live-tracking"
+            className={active === "live-tracking" ? "active" : ""}
+            onClick={selectDestination}
+          >
+            <Navigation size={16} />
+            <span>Live Tracking</span>
+          </NavLink>
+
+          <NavLink
             to="/dispatcher/settings"
             className={active === "settings" ? "active" : ""}
             onClick={selectDestination}
@@ -460,7 +478,21 @@ function DispatcherLayout() {
                 </div>
 
                 <div className="dispatcher-notification-list">
-                  {notifications.length === 0 && (
+                  {notificationsError && (
+                    <p
+                      role="alert"
+                      style={{
+                        padding: "18px 16px",
+                        margin: 0,
+                        fontSize: 13,
+                        color: "#b42318",
+                        textAlign: "center",
+                      }}
+                    >
+                      Notifications could not be loaded.
+                    </p>
+                  )}
+                  {!notificationsError && notifications.length === 0 && (
                     <p
                       style={{
                         padding: "18px 16px",
@@ -519,6 +551,7 @@ function DispatcherLayout() {
             <Outlet />
           </div>
         </Suspense>
+        <OfflineNotice />
       </main>
     </div>
   );

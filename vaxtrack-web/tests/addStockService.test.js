@@ -63,6 +63,7 @@ export const orderBy = (...a) => ({ orderBy: a });
 export const serverTimestamp = () => "__SERVER_TIMESTAMP__";
 export const doc = (_db, name, id) => { s.doc.push({ name, id }); return { __doc: name + "/" + id }; };
 export const updateDoc = (ref, data) => { s.updateDoc.push({ ref, data }); return Promise.resolve(); };
+export const onSnapshot = () => () => {};
 `
 );
 // `auth` is stubbed because updateStockPrice now reads the signed-in uid
@@ -90,6 +91,20 @@ const stockBatchDatesFile = join(tmp, "stockBatchDates.mjs");
 writeFileSync(stockBatchDatesFile, readFileSync(join(here, "..", "src", "services", "stockBatchDates.js"), "utf8"));
 const vatClassificationFile = join(tmp, "vatClassification.mjs");
 writeFileSync(vatClassificationFile, readFileSync(join(here, "..", "src", "services", "vatClassification.js"), "utf8"));
+// The pure `./userMessageError.js` sibling (the trusted user-message error
+// type) is copied verbatim; its `.js` specifier resolves next to the service.
+writeFileSync(join(tmp, "userMessageError.js"), readFileSync(join(here, "..", "src", "services", "userMessageError.js"), "utf8"));
+// …and the pure `./liveDataErrors.js` (safe logging + message mapping).
+writeFileSync(join(tmp, "liveDataErrors.js"), readFileSync(join(here, "..", "src", "services", "liveDataErrors.js"), "utf8"));
+// …and the recovering-listener wrapper, its Firestore import pointed at the stand-in.
+writeFileSync(join(tmp, "liveConnection.js"), readFileSync(join(here, "..", "src", "services", "liveConnection.js"), "utf8"));
+writeFileSync(
+  join(tmp, "liveSnapshot.js"),
+  readFileSync(join(here, "..", "src", "services", "liveSnapshot.js"), "utf8").replace(
+    '"firebase/firestore"',
+    JSON.stringify(pathToFileURL(join(tmp, "firestore.mjs")).href)
+  )
+);
 // The pure `./pricingConfig` sibling (the VAT convention) is copied verbatim.
 const pricingConfigFile = join(tmp, "pricingConfig.mjs");
 writeFileSync(pricingConfigFile, readFileSync(join(here, "..", "src", "services", "pricingConfig.js"), "utf8"));
@@ -460,13 +475,13 @@ test("a manufacturing date on or after the expiry date is refused", opts, async 
 
 const VACCINE = { vaccineName: "Sample Vaccine", manufacturer: "Maker", vaccineType: "Influenza", internalSku: "VXT-123-ABCDE" };
 
-test("registering a vaccine requires vatable or vat_exempt, and writes nothing otherwise", opts, async () => {
-  for (const vatClassification of [undefined, "", "VAT", "zero_rated", null]) {
+test("registering a vaccine requires vatable, vat_exempt or zero_rated, and writes nothing otherwise", opts, async () => {
+  for (const vatClassification of [undefined, "", "VAT", "per_item", "exempt", null]) {
     const { mod, calls } = await loadService();
-    await assert.rejects(() => mod.addVaccine({ ...VACCINE, vatClassification }), { message: "Select VAT or VAT Exempt for this vaccine." });
+    await assert.rejects(() => mod.addVaccine({ ...VACCINE, vatClassification }), { message: "Select VAT, VAT Exempt or Zero-Rated for this vaccine." });
     assert.equal(calls.addDoc.length, 0, String(vatClassification));
   }
-  for (const vatClassification of ["vatable", "vat_exempt"]) {
+  for (const vatClassification of ["vatable", "vat_exempt", "zero_rated"]) {
     const { mod, calls } = await loadService();
     await mod.addVaccine({ ...VACCINE, vatClassification });
     assert.equal(calls.addDoc.length, 1);
@@ -490,7 +505,7 @@ test("classifying an existing product records the value, when, and who (from the
 
 test("an invalid classification or a missing session writes nothing", opts, async () => {
   const { mod, calls } = await loadService();
-  await assert.rejects(() => mod.setVaccineVatClassification("v1", "zero_rated"));
+  await assert.rejects(() => mod.setVaccineVatClassification("v1", "per_item"));
   await assert.rejects(() => mod.setVaccineVatClassification("bad/id", "vatable"));
   calls.currentUser = null;
   await assert.rejects(() => mod.setVaccineVatClassification("v1", "vatable"), { message: "Your session has expired. Please sign in again." });

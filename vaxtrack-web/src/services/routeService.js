@@ -14,6 +14,8 @@
 // `?.` so the module can be imported under Node's test runner (where
 // import.meta.env is undefined); in the Vite browser build import.meta.env is a
 // real object, so this reads the key exactly as before.
+import { UserMessageError } from "./userMessageError.js";
+
 const ORS_KEY = import.meta.env?.VITE_OPENROUTESERVICE_API_KEY;
 
 // Base directions endpoint (JSON) returns routes[0].geometry as an ENCODED
@@ -21,6 +23,39 @@ const ORS_KEY = import.meta.env?.VITE_OPENROUTESERVICE_API_KEY;
 const ORS_URL = "https://api.openrouteservice.org/v2/directions/driving-car";
 
 export const ROUTE_PROVIDER = "openrouteservice";
+
+/**
+ * A routing failure, with a stable code and a sentence fit to show. The
+ * provider's own error text and HTTP status are never put in the message —
+ * they describe the request, not what the dispatcher should do.
+ *   "route-not-configured" | "route-unreachable" | "route-provider-error" |
+ *   "route-rate-limited" | "route-not-found" | "route-too-few-stops"
+ */
+export class RouteServiceError extends UserMessageError {
+  constructor(code, message) {
+    super(message);
+    this.name = "RouteServiceError";
+    this.code = code;
+  }
+}
+
+const ROUTE_MESSAGES = Object.freeze({
+  "route-not-configured": "Route planning isn't set up for this site yet. Contact an administrator.",
+  "route-unreachable": "We couldn't reach the routing service. Nothing was saved — check your connection and try again.",
+  "route-provider-error": "The routing service couldn't plan this route right now. Nothing was saved — try again in a moment.",
+  "route-rate-limited": "The routing service is busy. Nothing was saved — wait a minute and try again.",
+  "route-not-found": "No drivable route was found between the rider and the destination.",
+  "route-too-few-stops": "Optimizing a trip needs at least two stops with locations.",
+});
+
+function routeError(code) {
+  return new RouteServiceError(code, ROUTE_MESSAGES[code]);
+}
+
+/** The failure for a non-OK provider response: 429 is "busy", anything else is generic. */
+function providerFailure(res) {
+  return routeError(res.status === 429 ? "route-rate-limited" : "route-provider-error");
+}
 
 // True only when a non-empty key is configured. Drives the safe missing-key UI.
 export function isRouteServiceConfigured() {
@@ -30,10 +65,11 @@ export function isRouteServiceConfigured() {
 // Fetch a driving route from rider -> clinic.
 // Inputs are [lat, lng]; ORS expects [lng, lat] order.
 // Returns { polyline (encoded string), distanceMeters, durationSeconds }.
-// Throws Error("MISSING_KEY") when no key, or a friendly Error on API failure.
+// Throws RouteServiceError (route-not-configured when no key; otherwise a
+// coded, friendly failure).
 export async function fetchRoute(riderLatLng, clinicLatLng) {
   if (!isRouteServiceConfigured()) {
-    throw new Error("MISSING_KEY");
+    throw routeError("route-not-configured");
   }
   const [rLat, rLng] = riderLatLng;
   const [cLat, cLng] = clinicLatLng;
@@ -50,26 +86,16 @@ export async function fetchRoute(riderLatLng, clinicLatLng) {
       body: JSON.stringify({ coordinates: [[rLng, rLat], [cLng, cLat]] }),
     });
   } catch {
-    // Network / CSP / offline — surface a friendly message, don't leak internals.
-    throw new Error("Could not reach the routing service. Check your connection.");
+    // Network / CSP / offline — a friendly message, no internals.
+    throw routeError("route-unreachable");
   }
 
-  if (!res.ok) {
-    let msg = `Routing service error (${res.status}).`;
-    try {
-      const e = await res.json();
-      const detail = e?.error?.message || e?.error;
-      if (detail) msg = String(detail);
-    } catch {
-      /* non-JSON error body — keep the status message */
-    }
-    throw new Error(msg);
-  }
+  if (!res.ok) throw providerFailure(res);
 
   const data = await res.json();
   const route = data?.routes?.[0];
   if (!route || !route.geometry || !route.summary) {
-    throw new Error("No drivable route found between the rider and the destination.");
+    throw routeError("route-not-found");
   }
   return {
     polyline: route.geometry, // encoded polyline (precision 5)
@@ -174,19 +200,9 @@ async function postOrs(url, body) {
       body: JSON.stringify(body),
     });
   } catch {
-    throw new Error("Could not reach the routing service. Check your connection.");
+    throw routeError("route-unreachable");
   }
-  if (!res.ok) {
-    let msg = `Routing service error (${res.status}).`;
-    try {
-      const e = await res.json();
-      const detail = e?.error?.message || e?.error;
-      if (detail) msg = String(detail);
-    } catch {
-      /* non-JSON error body — keep the status message */
-    }
-    throw new Error(msg);
-  }
+  if (!res.ok) throw providerFailure(res);
   return res.json();
 }
 
@@ -231,9 +247,9 @@ export function cumulativeLegSeconds(segments) {
  * }>}  stops in optimized order (sequence starts at 1) with cumulative ETA.
  */
 export async function optimizeTrip(startLatLng, stops) {
-  if (!isRouteServiceConfigured()) throw new Error("MISSING_KEY");
+  if (!isRouteServiceConfigured()) throw routeError("route-not-configured");
   if (!Array.isArray(stops) || stops.length < 2) {
-    throw new Error("Multi-stop optimization needs at least two stops.");
+    throw routeError("route-too-few-stops");
   }
 
   // Vroom job ids must be positive integers; map them back to order ids.
@@ -251,7 +267,7 @@ export async function optimizeTrip(startLatLng, stops) {
   const optRes = await postOrs(ORS_OPTIMIZATION_URL, { jobs, vehicles });
   const orderJobIds = parseOptimizedJobOrder(optRes);
   if (orderJobIds.length !== stops.length) {
-    throw new Error("Could not optimize a route through all stops.");
+    throw routeError("route-not-found");
   }
   const orderedStops = orderJobIds.map((jid) =>
     stops.find((s) => s.orderId === jobIdToOrderId.get(jid))
@@ -265,7 +281,7 @@ export async function optimizeTrip(startLatLng, stops) {
   const dirRes = await postOrs(ORS_URL, { coordinates });
   const route = dirRes?.routes?.[0];
   if (!route?.geometry || !route?.summary) {
-    throw new Error("No drivable route found through the stops.");
+    throw routeError("route-not-found");
   }
   const legEtas = cumulativeLegSeconds(route.segments);
 

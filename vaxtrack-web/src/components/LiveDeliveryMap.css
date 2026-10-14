@@ -92,12 +92,6 @@
   color: var(--gray-500);
 }
 
-.ldm-stale {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--danger-text);
-}
-
 .ldm-geofence {
   font-size: 12px;
   font-weight: 600;
@@ -159,4 +153,30 @@
   margin: 0;
   font-size: 13px;
   max-width: 320px;
+}
+
+/* Location state (Fresh / Stale / Offline / Route Deviating) and the server's
+   route-monitoring line (Admin only). */
+.ldm-state {
+  padding: 1px 8px;
+  border-radius: var(--radius-pill, 999px);
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.ldm-state-fresh { color: var(--success-text); background: var(--success-bg); border-color: var(--success-border); }
+.ldm-state-stale { color: var(--warning-text); background: var(--warning-bg); border-color: var(--warning-border); }
+.ldm-state-deviating { color: var(--danger-text); background: var(--danger-bg); border-color: var(--danger-border); }
+.ldm-state-offline { color: var(--gray-600); background: var(--gray-100); border-color: var(--gray-200); }
+
+.ldm-deviation {
+  font-size: 13px;
+  color: var(--gray-600);
+}
+
+.ldm-deviation-deviating,
+.ldm-deviation-pending_deviation {
+  color: var(--danger-text);
+  font-weight: 600;
 }

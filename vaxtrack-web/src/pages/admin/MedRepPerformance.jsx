@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2, Trophy } from "lucide-react";
 import KpiCard from "../../components/ui/KpiCard";
 import { subscribeUsers } from "../../services/userService";
+import { liveErrorMessage } from "../../services/liveDataErrors";
 import { subscribeAreas } from "../../services/areaService";
 import {
   DEFAULT_PERFORMANCE_RANGE,
@@ -43,9 +44,10 @@ export default function MedRepPerformance({ orders, ordersLoading, ordersError, 
       (docs) => {
         setUsers(docs);
         setUsersLoading(false);
+        setUsersError(""); // a recovered listener clears its failure
       },
       (error) => {
-        setUsersError(error?.message || "Med Rep accounts could not be loaded.");
+        setUsersError(liveErrorMessage(error, "Med Rep accounts"));
         setUsersLoading(false);
       }
     );
@@ -110,7 +112,7 @@ export default function MedRepPerformance({ orders, ordersLoading, ordersError, 
         </p>
       ) : error ? (
         <p className="mrp-state mrp-error" role="alert">
-          Med Rep performance could not be loaded: {error}
+          {error}
         </p>
       ) : (
         <>

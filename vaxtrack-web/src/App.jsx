@@ -29,16 +29,16 @@ const AddVaccine = lazy(() => import("./pages/admin/AddVaccine"));
 const AdminAllocation = lazy(() => import("./pages/admin/AdminAllocation"));
 const AdminOrderHistory = lazy(() => import("./pages/admin/AdminOrderHistory"));
 const Deliveries = lazy(() => import("./pages/admin/Deliveries"));
+const AdminLiveTracking = lazy(() => import("./pages/admin/AdminLiveTracking"));
 const AdminDeliveryCalendar = lazy(() => import("./pages/admin/AdminDeliveryCalendar"));
 const Riders = lazy(() => import("./pages/admin/Riders"));
 const Alerts = lazy(() => import("./pages/admin/Alerts"));
 const Analytics = lazy(() => import("./pages/admin/Analytics"));
+const AiInventoryAnalytics = lazy(() => import("./pages/admin/AiInventoryAnalytics"));
 const Settings = lazy(() => import("./pages/admin/Settings"));
 const Clinics = lazy(() => import("./pages/admin/Clinics"));
 const Invoices = lazy(() => import("./pages/admin/Invoices"));
 const InvoiceEditor = lazy(() => import("./pages/admin/InvoiceEditor"));
-const RegisterClinic = lazy(() => import("./pages/admin/RegisterClinic"));
-const ClinicSuccess = lazy(() => import("./pages/admin/ClinicSuccess"));
 
 const SalesRepShell = lazy(() => import("./pages/salesRep/SalesRepShell"));
 const SalesRepDashboard = lazy(() => import("./pages/salesRep/SalesRepDashboard"));
@@ -58,6 +58,7 @@ const DispatcherAssignRider = lazy(() => import("./pages/dispatcher/DispatcherAs
 const DispatcherShipments = lazy(() => import("./pages/dispatcher/DispatcherShipments"));
 const DispatcherCargoLoading = lazy(() => import("./pages/dispatcher/DispatcherCargoLoading"));
 const DispatcherGeofence = lazy(() => import("./pages/dispatcher/DispatcherGeofence"));
+const DispatcherLiveTracking = lazy(() => import("./pages/dispatcher/DispatcherLiveTracking"));
 const DispatcherSettings = lazy(() => import("./pages/dispatcher/DispatcherSettings"));
 
 function App() {
@@ -87,16 +88,21 @@ function App() {
               <Route path="/admin/allocation" element={<AdminAllocation />} />
               <Route path="/admin/order-history" element={<AdminOrderHistory />} />
               <Route path="/admin/deliveries" element={<Deliveries />} />
+              <Route path="/admin/live-tracking" element={<AdminLiveTracking />} />
               <Route path="/admin/delivery-calendar" element={<AdminDeliveryCalendar />} />
               <Route path="/admin/riders" element={<Riders />} />
               <Route path="/admin/alerts" element={<Alerts />} />
               <Route path="/admin/analytics" element={<Analytics />} />
+              <Route path="/admin/ai-inventory-analytics" element={<AiInventoryAnalytics />} />
               <Route path="/admin/settings" element={<Settings />} />
               <Route path="/admin/clinics" element={<Clinics />} />
               <Route path="/admin/invoices" element={<Invoices />} />
               <Route path="/admin/invoices/:orderId" element={<InvoiceEditor />} />
-              <Route path="/admin/register-clinic" element={<RegisterClinic />} />
-              <Route path="/admin/clinic-success" element={<ClinicSuccess />} />
+              {/* The old standalone Register Clinic page saved nothing and then
+                  showed a "registered" success page. Clinics are registered in
+                  the Clinics page's Register dialog; both old paths go there. */}
+              <Route path="/admin/register-clinic" element={<Navigate to="/admin/clinics" replace />} />
+              <Route path="/admin/clinic-success" element={<Navigate to="/admin/clinics" replace />} />
             </Route>
           </Route>
 
@@ -109,8 +115,8 @@ function App() {
           <Route path="/analytics" element={<Navigate to="/admin/analytics" replace />} />
           <Route path="/settings" element={<Navigate to="/admin/settings" replace />} />
           <Route path="/clinics" element={<Navigate to="/admin/clinics" replace />} />
-          <Route path="/register-clinic" element={<Navigate to="/admin/register-clinic" replace />} />
-          <Route path="/clinic-success" element={<Navigate to="/admin/clinic-success" replace />} />
+          <Route path="/register-clinic" element={<Navigate to="/admin/clinics" replace />} />
+          <Route path="/clinic-success" element={<Navigate to="/admin/clinics" replace />} />
 
           <Route element={<SalesRepRoute />}>
             {/* Persistent shell: the sidebar + topbar mount once and stay put;
@@ -139,6 +145,7 @@ function App() {
               <Route path="/dispatcher/shipments" element={<DispatcherShipments />} />
               <Route path="/dispatcher/cargo-loading" element={<DispatcherCargoLoading />} />
               <Route path="/dispatcher/geofence" element={<DispatcherGeofence />} />
+              <Route path="/dispatcher/live-tracking" element={<DispatcherLiveTracking />} />
               <Route path="/dispatcher/settings" element={<DispatcherSettings />} />
             </Route>
           </Route>

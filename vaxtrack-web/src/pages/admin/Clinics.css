@@ -2727,3 +2727,219 @@
     height: 180px;
   }
 }
+
+
+/* Clinic details: Edit is not built yet, so it is visibly disabled and this
+   note (its aria-describedby) says why. Register-form summary spacing. */
+.clinics-light-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.clinics-unavailable-note {
+  margin: 10px 0 0;
+  color: var(--gray-600);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.clinics-register-modal .clinics-form-notice {
+  margin: 0 0 10px;
+}
+
+
+/* ------------------------------------------------------------
+   List / Grid view toggle and Grid view.
+   Both views render the same clinics; only the markup differs.
+   No fixed card widths: columns come from the space available,
+   down to a single column at narrow widths and at 200% zoom.
+   ------------------------------------------------------------ */
+
+.clinics-view-toggle {
+  display: inline-flex;
+  flex: none;
+  gap: 0;
+  padding: 3px;
+  border: 1px solid var(--gray-300);
+  border-radius: 999px;
+  background: #ffffff;
+}
+
+.clinics-view-toggle button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  min-height: 32px !important; /* out-specifies the global 46px button reset */
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--gray-600);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.clinics-view-toggle button:hover {
+  color: var(--gray-900);
+}
+
+.clinics-view-toggle button.active,
+.clinics-view-toggle button[aria-pressed="true"] {
+  background: var(--green-700);
+  color: #ffffff;
+}
+
+.clinics-view-toggle button:focus-visible {
+  outline: 2px solid var(--green-700);
+  outline-offset: 2px;
+}
+
+.clinics-load-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 18px;
+}
+
+.clinics-v2-table-card.is-grid {
+  overflow: visible;
+}
+
+.clinics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 16px;
+  list-style: none;
+}
+
+.clinic-card {
+  min-width: 0;
+}
+
+.clinic-card article {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  padding: 14px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  background: #ffffff;
+  cursor: pointer;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+}
+
+.clinic-card article:hover {
+  border-color: var(--gray-300);
+  background: var(--green-50);
+}
+
+.clinic-card-overdue article {
+  box-shadow: inset 4px 0 0 #ef4444;
+}
+
+.clinic-card-pending article {
+  box-shadow: inset 4px 0 0 #f59e0b;
+}
+
+.clinic-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.clinic-card-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.clinic-card-title h3 {
+  margin: 0;
+  color: var(--gray-900);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.clinic-card-title small {
+  display: block;
+  margin-top: 2px;
+  color: var(--gray-500);
+  font-size: 12px;
+}
+
+.clinic-card-head .clinic-status-pill {
+  flex: none;
+  white-space: normal;
+  text-align: center;
+}
+
+.clinic-card-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.clinic-card-fields div {
+  min-width: 0;
+}
+
+.clinic-card-fields dt {
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.clinic-card-fields dd {
+  margin: 2px 0 0;
+  color: var(--gray-900);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.clinic-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0;
+}
+
+.clinic-card-meta .clinic-geo-chip {
+  margin-top: 0;
+}
+
+.clinic-card-note {
+  color: var(--gray-600);
+  font-size: 12px;
+}
+
+.clinic-card-note.danger {
+  color: var(--danger-text);
+}
+
+.clinic-card-actions {
+  margin-top: auto;
+}
+
+@media (max-width: 480px) {
+  .clinics-grid {
+    padding: 12px;
+  }
+
+  .clinic-card-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .clinics-view-toggle {
+    align-self: flex-start;
+  }
+}
