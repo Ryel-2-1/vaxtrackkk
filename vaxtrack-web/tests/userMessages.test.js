@@ -450,8 +450,10 @@ test("dialog keyboard: Escape closes unless busy; Tab wraps inside", () => {
   assert.equal(nextFocusIndex({ count: 0, current: -1, shift: false }), -1);
   const hook = strip(read("src/components/ui/useDialogFocus.js"));
   assert.match(hook, /window\.addEventListener\("keydown", onKeyDown, true\)/, "handled before document-level modals");
-  assert.match(hook, /if \(openDialogs\[openDialogs\.length - 1\] !== token\) return;/, "only the top-most dialog reacts");
-  assert.match(hook, /opener\.focus\(\)/, "focus returns to the opener");
+  // Stack behaviour itself is exercised in tests/inventoryBatchDialog.test.js.
+  assert.match(hook, /export const isTopDialog = \(token\) => openDialogs\[openDialogs\.length - 1\] === token;/);
+  assert.match(hook, /if \(!isTopDialog\(token\)\) return;/, "only the top-most dialog reacts");
+  assert.match(hook, /focusQuietly\(opener\)/, "focus returns to the opener");
 });
 
 test("errors are alerts, everything else is polite; toasts stay long enough and errors persist", () => {

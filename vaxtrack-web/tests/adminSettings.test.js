@@ -179,7 +179,7 @@ test("genuine batch actions and information remain", () => {
     "the price toast must follow the write"
   );
   // The drawer still shows the batch's real details.
-  for (const field of ["Location", "Manufacturer", "selectedVaccine.batch"]) {
+  for (const field of ["Location", "Manufacturer", "drawerItem.batch"]) {
     assert.ok(src.includes(field), `${field} must still be shown`);
   }
 });

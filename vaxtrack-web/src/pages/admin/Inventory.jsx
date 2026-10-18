@@ -35,7 +35,7 @@ import StaleEditNotice from "../../components/ui/StaleEditNotice";
 import { staleFields } from "../../services/liveFormSync";
 import { useToast } from "../../components/ui/useToast";
 import ReservationProvenance from "../../components/admin/ReservationProvenance";
-import InventoryBatchDialog from "./InventoryBatchDialog";
+import InventoryBatchDialog, { InventoryStackedDialog } from "./InventoryBatchDialog";
 import { MAX_STOCK_QUANTITY } from "../../services/orderEligibility";
 import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
 import {
@@ -335,8 +335,9 @@ function Inventory() {
     setCorrectReason("");
     setCorrectError("");
     setCorrectErrorField(null);
-    // Close the detail drawer so only the correction dialog is in front.
-    setSelectedVaccine(null);
+    // Opened from the batch details, it stacks ABOVE them (both are portaled
+    // to the viewport and share one dialog stack): Escape or Cancel returns to
+    // the batch, with its figures read from the live row.
   };
 
   const closeCorrectDialog = () => {
@@ -926,12 +927,13 @@ function Inventory() {
           </div>
         </section>
 
-      {selectedVaccine && (
+      {drawerItem && (
         <InventoryBatchDialog
-          badge={selectedVaccine.status}
-          badgeTone={selectedVaccine.level}
-          title={selectedVaccine.name}
-          description={`${selectedVaccine.type} vaccine batch details.`}
+          resetKey={drawerItem.id}
+          badge={drawerItem.status}
+          badgeTone={drawerItem.level}
+          title={drawerItem.name}
+          description={`${drawerItem.type} vaccine batch details.`}
           onClose={() => setSelectedVaccine(null)}
           footer={
             <div className="v2-modal-actions">
@@ -946,7 +948,7 @@ function Inventory() {
               <button
                 type="button"
                 className="inv-price-cancel"
-                onClick={() => openCorrectDialog(selectedVaccine)}
+                onClick={() => openCorrectDialog(drawerItem)}
               >
                 Correct stock
               </button>
@@ -969,40 +971,40 @@ function Inventory() {
             <div className="v2-modal-detail-grid">
               <div>
                 <span>Batch ID</span>
-                <strong>{selectedVaccine.batch}</strong>
+                <strong>{drawerItem.batch}</strong>
               </div>
 
               <div>
                 <span>On hand (not yet delivered) / Reserved / Available</span>
                 <strong>
-                  {selectedVaccine.onHand} / {selectedVaccine.reserved} /{" "}
-                  {selectedVaccine.available}
+                  {drawerItem.onHand} / {drawerItem.reserved} /{" "}
+                  {drawerItem.available}
                 </strong>
-                {selectedVaccine.flags.length > 0 && (
+                {drawerItem.flags.length > 0 && (
                   <small className="inv-flag-list">
-                    {selectedVaccine.flags.join(" · ")}
+                    {drawerItem.flags.join(" · ")}
                   </small>
                 )}
               </div>
 
               <div>
                 <span>Manufacturing Date</span>
-                <strong>{selectedVaccine.manufacturing}</strong>
+                <strong>{drawerItem.manufacturing}</strong>
               </div>
 
               <div>
                 <span>Expiry Date</span>
-                <strong>{selectedVaccine.expiry}</strong>
+                <strong>{drawerItem.expiry}</strong>
               </div>
 
               <div>
                 <span>Location</span>
-                <strong>{selectedVaccine.location}</strong>
+                <strong>{drawerItem.location}</strong>
               </div>
 
               <div>
                 <span>Manufacturer</span>
-                <strong>{selectedVaccine.manufacturer}</strong>
+                <strong>{drawerItem.manufacturer}</strong>
               </div>
 
               <div className="inv-vat-field">
@@ -1040,7 +1042,7 @@ function Inventory() {
 
             {/* "2 reserved" is always inspectable: which orders hold it,
                 and whether those add up to the batch's counter. */}
-            <ReservationProvenance key={selectedVaccine.id} inventoryId={selectedVaccine.id} />
+            <ReservationProvenance key={drawerItem.id} inventoryId={drawerItem.id} />
         </InventoryBatchDialog>
       )}
 
@@ -1160,14 +1162,12 @@ function Inventory() {
       )}
 
       {correcting && (
-        <div className="v2-inventory-modal-backdrop" onClick={closeCorrectDialog}>
-          <div
-            className="v2-inventory-modal inv-price-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="inv-correct-title"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <InventoryStackedDialog
+          labelledBy="inv-correct-title"
+          onClose={closeCorrectDialog}
+          busy={savingCorrection}
+          className="inv-price-modal"
+        >
             <button
               type="button"
               className="v2-inventory-modal-close"
@@ -1263,8 +1263,7 @@ function Inventory() {
                 {savingCorrection ? "Saving…" : "Save correction"}
               </button>
             </div>
-          </div>
-        </div>
+        </InventoryStackedDialog>
       )}
     </AdminLayout>
   );

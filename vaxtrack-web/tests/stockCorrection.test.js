@@ -129,7 +129,7 @@ test("the page wires a Correct stock control through the real service", () => {
     "must import correctStockQuantity"
   );
   assert.match(src, /Correct stock/, "the drawer must offer a Correct stock control");
-  assert.match(src, /onClick=\{\(\) => openCorrectDialog\(selectedVaccine\)\}/, "wired to the dialog");
+  assert.match(src, /onClick=\{\(\) => openCorrectDialog\(drawerItem\)\}/, "wired to the dialog");
   // Still no direct Firestore access from the page.
   assert.equal(
     /from ["']firebase\/firestore["']/.test(src),

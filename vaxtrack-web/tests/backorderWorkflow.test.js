@@ -235,7 +235,7 @@ test("Admin provenance shows held units by order and reports a mismatch", () => 
   assert.match(prov, /d\.reconciled === false/);
   assert.match(prov, /Returned, awaiting decision/);
   assert.match(prov, /Quarantined/);
-  assert.match(read("src/pages/admin/Inventory.jsx"), /<ReservationProvenance key=\{selectedVaccine\.id\} inventoryId=\{selectedVaccine\.id\} \/>/);
+  assert.match(read("src/pages/admin/Inventory.jsx"), /<ReservationProvenance key=\{drawerItem\.id\} inventoryId=\{drawerItem\.id\} \/>/);
 });
 
 test("Admin inventory availability excludes return-pending and quarantined units", () => {

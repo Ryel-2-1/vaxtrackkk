@@ -748,6 +748,17 @@
   flex-direction: column;
   padding: 0;
   overflow: hidden;
+  /* Sized from the viewport alone (the dialog is portaled to <body>, see
+     DialogLayer.jsx): 16px clear of every screen edge, centred by the
+     backdrop's grid, independent of the page's height or scroll position. */
+  width: min(760px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  margin: 0;
+}
+.v2-inventory-modal-backdrop.inv-batch-backdrop {
+  padding: 16px;
 }
 .inv-batch-head {
   position: relative;
@@ -761,6 +772,13 @@
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   padding: 0 28px 20px;
+}
+/* Long order numbers (VT-ORD-<13 digits>-<code>) may wrap, so the
+   reservation tables fit a phone-width dialog instead of forcing a
+   horizontal scrollbar. */
+.inv-batch-body .inv-prov-table th,
+.inv-batch-body .inv-prov-table td {
+  overflow-wrap: anywhere;
 }
 .inv-batch-body:focus-visible {
   outline: 2px solid var(--green-600);
@@ -1172,7 +1190,9 @@
 }
 
 .inv-price-modal {
-  max-width: 440px;
+  /* Never wider than the screen: a bare 440px overrode the base
+     max-width: 100% and hung off both edges of a phone. */
+  max-width: min(440px, 100%);
 }
 .inv-price-batch {
   display: flex;
