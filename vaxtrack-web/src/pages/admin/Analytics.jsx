@@ -1,5 +1,5 @@
 import "./Analytics.css";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   Building2,
@@ -8,6 +8,8 @@ import {
   X,
 } from "lucide-react";
 import AdminLayout from "../../components/admin/AdminLayout";
+import AdminDialogLayer from "../../components/admin/AdminDialogLayer";
+import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeAllAlerts } from "../../services/alertService";
 import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
@@ -706,10 +708,23 @@ function CardHeader({ title, onClick }) {
   );
 }
 
+// Portaled to the viewport (AdminDialogLayer): rendered inside the page's
+// <main> it was centred in the whole long page and opened off-screen once the
+// page was scrolled. The shared hook locks and restores the page scroll and
+// gives Escape, the focus trap and focus return.
 function AnalyticsModal({ modal, onClose }) {
+  const dialogRef = useRef(null);
+  useDialogFocus({ dialogRef, onDismiss: onClose });
   return (
+    <AdminDialogLayer>
     <div className="analytics-modal-backdrop">
-      <div className="analytics-modal">
+      <div
+        ref={dialogRef}
+        className="analytics-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="analytics-modal-title"
+      >
         <button type="button" className="analytics-modal-close" onClick={onClose} aria-label="Close">
           <X size={18} />
         </button>
@@ -718,7 +733,7 @@ function AnalyticsModal({ modal, onClose }) {
           <Activity size={24} />
         </div>
 
-        <h2>{modal.title}</h2>
+        <h2 id="analytics-modal-title">{modal.title}</h2>
         <p>{modal.description}</p>
 
         <div className="analytics-modal-grid">
@@ -737,6 +752,7 @@ function AnalyticsModal({ modal, onClose }) {
         </div>
       </div>
     </div>
+    </AdminDialogLayer>
   );
 }
 

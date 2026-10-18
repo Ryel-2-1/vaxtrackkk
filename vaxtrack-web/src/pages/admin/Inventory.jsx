@@ -35,7 +35,7 @@ import StaleEditNotice from "../../components/ui/StaleEditNotice";
 import { staleFields } from "../../services/liveFormSync";
 import { useToast } from "../../components/ui/useToast";
 import ReservationProvenance from "../../components/admin/ReservationProvenance";
-import InventoryBatchDialog, { InventoryStackedDialog } from "./InventoryBatchDialog";
+import InventoryBatchDialog, { InventoryDialog } from "./InventoryBatchDialog";
 import { MAX_STOCK_QUANTITY } from "../../services/orderEligibility";
 import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
 import {
@@ -1047,14 +1047,12 @@ function Inventory() {
       )}
 
       {pricing && (
-        <div className="v2-inventory-modal-backdrop" onClick={closePriceDialog}>
-          <div
-            className="v2-inventory-modal inv-price-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="inv-price-title"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <InventoryDialog
+          labelledBy="inv-price-title"
+          onClose={closePriceDialog}
+          busy={savingPrice}
+          className="inv-price-modal"
+        >
             <button
               type="button"
               className="v2-inventory-modal-close"
@@ -1157,12 +1155,11 @@ function Inventory() {
                 {savingPrice ? "Saving…" : reconfirm ? "Confirm VAT-inclusive price" : "Save price"}
               </button>
             </div>
-          </div>
-        </div>
+        </InventoryDialog>
       )}
 
       {correcting && (
-        <InventoryStackedDialog
+        <InventoryDialog
           labelledBy="inv-correct-title"
           onClose={closeCorrectDialog}
           busy={savingCorrection}
@@ -1263,7 +1260,7 @@ function Inventory() {
                 {savingCorrection ? "Saving…" : "Save correction"}
               </button>
             </div>
-        </InventoryStackedDialog>
+        </InventoryDialog>
       )}
     </AdminLayout>
   );

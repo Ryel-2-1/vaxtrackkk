@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, MapPinned, X } from "lucide-react";
 import StaleEditNotice from "../../components/ui/StaleEditNotice";
+import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import { useLiveDraft } from "../../components/useLiveDraft";
 import { subscribeAreas } from "../../services/areaService";
 import { subscribeClinics } from "../../services/clinicService";
@@ -57,6 +58,14 @@ export default function MedRepTerritoryDialog({ person, live, onClose, onSaved }
   const [saving, setSaving] = useState(false);
   const [confirmingOrders, setConfirmingOrders] = useState(null);
   const savingRef = useRef(false);
+  // Escape does what Cancel does: back out of the open-orders confirmation
+  // first, otherwise close. Never while a save is running.
+  const dialogRef = useRef(null);
+  useDialogFocus({
+    dialogRef,
+    onDismiss: confirmingOrders ? () => setConfirmingOrders(null) : onClose,
+    busy: saving,
+  });
 
   useEffect(() => {
     const unsubAreas = subscribeAreas(
@@ -190,6 +199,7 @@ export default function MedRepTerritoryDialog({ person, live, onClose, onSaved }
   return (
     <div className="settings-modal-backdrop">
       <div
+        ref={dialogRef}
         className="settings-modal territory-modal"
         role="dialog"
         aria-modal="true"

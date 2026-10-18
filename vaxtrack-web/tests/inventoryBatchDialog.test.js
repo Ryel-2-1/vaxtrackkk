@@ -42,7 +42,7 @@ const HOOK = read("src/components/ui/useDialogFocus.js");
 // ------------------------------------------------------------ behaviour: page lock + dialog stack
 
 /** A stub page scrolled to `y`, recording every scrollTo. */
-function installPage({ x = 0, y = 2018, bodyOverflow = "", rootOverflow = "" } = {}) {
+function installPage({ x = 0, y = 2018, bodyOverflow = "", rootOverflow = "", rootGutter = "" } = {}) {
   const scrollCalls = [];
   const win = {
     scrollX: x,
@@ -55,7 +55,7 @@ function installPage({ x = 0, y = 2018, bodyOverflow = "", rootOverflow = "" } =
   };
   const doc = {
     body: { style: { overflow: bodyOverflow } },
-    documentElement: { style: { overflow: rootOverflow } },
+    documentElement: { style: { overflow: rootOverflow, scrollbarGutter: rootGutter } },
   };
   globalThis.window = win;
   globalThis.document = doc;
@@ -215,7 +215,7 @@ test("dialog semantics, close button and Escape are unchanged", () => {
   assert.match(head, /aria-label="Close batch details"/);
   assert.match(PAGE, /onClose=\{\(\) => setSelectedVaccine\(null\)\}/);
   // The batch dialog has no backdrop-click close (it never had one); the stacked one keeps its own.
-  assert.doesNotMatch(DIALOG.slice(0, DIALOG.indexOf("export function InventoryStackedDialog")), /backdrop[^>]*onClick/);
+  assert.doesNotMatch(DIALOG.slice(0, DIALOG.indexOf("export function InventoryDialog")), /backdrop[^>]*onClick/);
 });
 
 test("the shared hook: one lock for the stack, focus that never scrolls, Escape for the top dialog only", () => {
@@ -238,9 +238,9 @@ test("Correct stock stacks ABOVE the batch dialog in the same dialog stack", () 
   assert.ok(open, "openCorrectDialog");
   assert.doesNotMatch(open[1], /setSelectedVaccine\(null\)/, "the batch dialog stays open underneath");
   assert.match(PAGE, /onClick=\{\(\) => openCorrectDialog\(drawerItem\)\}/);
-  assert.match(PAGE, /<InventoryStackedDialog\s*labelledBy="inv-correct-title"\s*onClose=\{closeCorrectDialog\}\s*busy=\{savingCorrection\}\s*className="inv-price-modal"\s*>/);
+  assert.match(PAGE, /<InventoryDialog\s*labelledBy="inv-correct-title"\s*onClose=\{closeCorrectDialog\}\s*busy=\{savingCorrection\}\s*className="inv-price-modal"\s*>/);
   // Portaled after the batch dialog, so it paints above it; joins the same stack.
-  const stacked = DIALOG.slice(DIALOG.indexOf("export function InventoryStackedDialog"));
+  const stacked = DIALOG.slice(DIALOG.indexOf("export function InventoryDialog"));
   assert.match(stacked, /useDialogFocus\(\{ dialogRef, onDismiss: onClose, busy \}\);/);
   assert.match(stacked, /<div className="v2-inventory-modal-backdrop" onClick=\{onClose\}>/);
   assert.match(stacked, /onClick=\{\(e\) => e\.stopPropagation\(\)\}/);

@@ -4,6 +4,7 @@ import { signOut } from "firebase/auth";
 import { auth } from "../../firebase";
 import { AdminSidebar } from "./AdminSidebar";
 import OfflineNotice from "../shell/OfflineNotice";
+import { adminWrapperClassFor } from "./adminShellClasses";
 import "./AdminLayout.css";
 
 /**
@@ -15,29 +16,12 @@ import "./AdminLayout.css";
  * own `.inventory-page` wrapper + <AdminSidebar>, so the rail unmounted and
  * "reset" on every click.
  *
- * The wrapper class is chosen per route so the existing shell CSS still applies
- * unchanged: `.adl-root` for the AdminLayout pages, `.clinics-shell` (+ page
- * modifiers) for the clinic screens, plain `.inventory-page` otherwise. The
+ * The wrapper class is chosen per route (adminShellClasses.js) so the existing
+ * shell CSS still applies unchanged. The
  * sidebar and the page's own <main> stay DIRECT children of `.inventory-page`
  * (no wrapper div around the Outlet), so every `.inventory-page > …` and
  * `.adl-root > .adx-main` selector keeps matching.
  */
-const WRAPPER_CLASS = {
-  "/admin": "inventory-page adl-root",
-  "/admin/inventory": "inventory-page adl-root",
-  "/admin/allocation": "inventory-page adl-root",
-  "/admin/order-history": "inventory-page adl-root",
-  "/admin/analytics": "inventory-page adl-root",
-  "/admin/ai-inventory-analytics": "inventory-page adl-root",
-  "/admin/delivery-calendar": "inventory-page adl-root",
-  "/admin/live-tracking": "inventory-page adl-root",
-  "/admin/clinics": "inventory-page clinics-shell",
-};
-
-function wrapperClassFor(pathname) {
-  return WRAPPER_CLASS[pathname] || "inventory-page";
-}
-
 // The page title shown in the shared top bar — the same pattern the Sales Rep
 // and Dispatcher shells use. The top bar owns each page's <h1> (DESIGN.md ›
 // Layout), so admin pages no longer render their own large heading.
@@ -79,7 +63,7 @@ function AdminShell() {
   };
 
   return (
-    <div className={wrapperClassFor(location.pathname)}>
+    <div className={adminWrapperClassFor(location.pathname)}>
       <AdminSidebar onLogout={handleLogout} />
       {/* Portalled to <body>: not a child of this layout. */}
       <OfflineNotice />

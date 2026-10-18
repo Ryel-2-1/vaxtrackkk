@@ -15,6 +15,7 @@ import "./Settings.css";
 import { subscribeUsers, updateUserStatus, updateUserRole } from "../../services/userService";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
+import AdminDialogLayer from "../../components/admin/AdminDialogLayer";
 import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import { ToastRegion } from "../../components/ui/Feedback";
 import { useToast } from "../../components/ui/useToast";
@@ -807,7 +808,11 @@ function UserManagement({ searchTerm, showToast }) {
         </div>
       </section>
 
+      {/* Every dialog below is portaled (AdminDialogLayer): this tab renders
+          inside the page's transformed <main>, where they opened off-screen
+          once the staff list was scrolled. */}
       {rejectTarget && (
+        <AdminDialogLayer pageClass="settings-v3-main">
         <ConfirmDialog
           title="Reject this application?"
           target={`${rejectTarget.name} (${rejectTarget.email})`}
@@ -818,9 +823,11 @@ function UserManagement({ searchTerm, showToast }) {
           onCancel={() => setRejectTarget(null)}
           onConfirm={confirmReject}
         />
+        </AdminDialogLayer>
       )}
 
       {statusChange && (
+        <AdminDialogLayer pageClass="settings-v3-main">
         <ConfirmDialog
           title={ACCOUNT_ACTIONS[statusChange.action].title}
           target={`${statusChange.person.name} (${statusChange.person.email}) · ${statusChange.person.role}`}
@@ -832,9 +839,11 @@ function UserManagement({ searchTerm, showToast }) {
           onCancel={() => setStatusChange(null)}
           onConfirm={confirmStatusChange}
         />
+        </AdminDialogLayer>
       )}
 
       {selectedStaff && (
+        <AdminDialogLayer pageClass="settings-v3-main">
         <StaffDetailsModal
           person={selectedStaff}
           isSelf={selectedStaff.uid === currentAdminUid}
@@ -856,9 +865,11 @@ function UserManagement({ searchTerm, showToast }) {
             setTerritoryTarget(selectedStaff);
           }}
         />
+        </AdminDialogLayer>
       )}
 
       {territoryTarget && (
+        <AdminDialogLayer pageClass="settings-v3-main">
         <MedRepTerritoryDialog
           person={territoryTarget}
           live={staff.find((p) => p.uid === territoryTarget.uid) ?? null}
@@ -868,9 +879,11 @@ function UserManagement({ searchTerm, showToast }) {
             showToast(message, "success");
           }}
         />
+        </AdminDialogLayer>
       )}
 
       {roleChangeTarget && (
+        <AdminDialogLayer pageClass="settings-v3-main">
         <RoleChangeModal
           person={roleChangeTarget}
           saving={roleSaving}
@@ -882,6 +895,7 @@ function UserManagement({ searchTerm, showToast }) {
           }}
           onConfirm={(newRole) => changeRole(roleChangeTarget.uid, newRole)}
         />
+        </AdminDialogLayer>
       )}
     </>
   );
@@ -900,9 +914,17 @@ function StaffDetailsModal({
   onManageTerritory,
 }) {
   const actions = staffActionsFor(person.status, { isSelf });
+  const dialogRef = useRef(null);
+  useDialogFocus({ dialogRef, onDismiss: onClose, busy });
   return (
     <div className="settings-modal-backdrop">
-      <div className="settings-modal">
+      <div
+        ref={dialogRef}
+        className="settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="staff-details-title"
+      >
         <button type="button" className="settings-modal-close" onClick={onClose} aria-label="Close">
           <X size={18} />
         </button>
@@ -911,7 +933,7 @@ function StaffDetailsModal({
           <UserRound size={28} />
         </div>
 
-        <h2>{person.name}</h2>
+        <h2 id="staff-details-title">{person.name}</h2>
         <p>
           {person.role} • {person.id}
         </p>

@@ -38,6 +38,8 @@ import {
 import { rescheduleOrderDelivery } from "../../services/scheduleCallables";
 import useManilaDayNow from "../useManilaDayNow";
 import MonthCalendar from "../ui/MonthCalendar";
+import { useDialogFocus } from "../ui/useDialogFocus";
+import AdminDialogLayer from "../admin/AdminDialogLayer";
 import StatusBadge from "../ui/StatusBadge";
 import "./DeliveryCalendar.css";
 
@@ -161,44 +163,11 @@ function RescheduleDialog({ order, todayIso, onClose, onSaved }) {
   const dialogRef = useRef(null);
   const firstFieldRef = useRef(null);
 
-  useEffect(() => {
-    firstFieldRef.current?.focus();
-  }, []);
-
-  // Escape closes (unless a save is in flight) and Tab stays inside: the dialog
-  // declares aria-modal, so the page behind must not be reachable.
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") {
-        if (!saving) {
-          e.stopPropagation();
-          onClose();
-        }
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const root = dialogRef.current;
-      if (!root) return;
-      const items = [
-        ...root.querySelectorAll('button, input, select, textarea, [tabindex]:not([tabindex="-1"])'),
-      ].filter((el) => !el.disabled && el.getClientRects().length > 0);
-      if (items.length === 0) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (!root.contains(document.activeElement)) {
-        e.preventDefault();
-        first.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      } else if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [saving, onClose]);
+  // The shared modal behaviour: focus starts on the first field, Escape closes
+  // (unless a save is in flight), Tab stays inside — the dialog declares
+  // aria-modal, so the page behind must not be reachable — focus returns to
+  // the opener, and the page is locked and put back where it was.
+  useDialogFocus({ dialogRef, initialRef: firstFieldRef, onDismiss: onClose, busy: saving });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -582,13 +551,18 @@ function DeliveryCalendar({ role }) {
         </div>
       )}
 
+      {/* Admin-only, and portaled (AdminDialogLayer): inside the Admin page's
+          transformed <main> it was centred in the whole long calendar and
+          opened off-screen once the page was scrolled. */}
       {isAdmin && editing ? (
-        <RescheduleDialog
-          order={editing}
-          todayIso={today}
-          onClose={closeReschedule}
-          onSaved={handleSaved}
-        />
+        <AdminDialogLayer>
+          <RescheduleDialog
+            order={editing}
+            todayIso={today}
+            onClose={closeReschedule}
+            onSaved={handleSaved}
+          />
+        </AdminDialogLayer>
       ) : null}
     </div>
   );

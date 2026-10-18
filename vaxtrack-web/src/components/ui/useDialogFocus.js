@@ -34,17 +34,23 @@ function lockPage() {
     y: window.scrollY,
     bodyOverflow: document.body.style.overflow,
     rootOverflow: root.style.overflow,
+    rootGutter: root.style.scrollbarGutter,
   };
+  // Keep the scrollbar's space while it is hidden: without it the page reflows
+  // wider (and so shorter), and a page scrolled to its end is pulled up
+  // behind the dialog.
+  root.style.scrollbarGutter = "stable";
   document.body.style.overflow = "hidden";
   root.style.overflow = "hidden";
 }
 
 function unlockPage() {
   if (!pageLock) return;
-  const { x, y, bodyOverflow, rootOverflow } = pageLock;
+  const { x, y, bodyOverflow, rootOverflow, rootGutter } = pageLock;
   pageLock = null;
   document.body.style.overflow = bodyOverflow;
   document.documentElement.style.overflow = rootOverflow;
+  document.documentElement.style.scrollbarGutter = rootGutter;
   window.scrollTo({ left: x, top: y, behavior: "instant" });
 }
 

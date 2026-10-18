@@ -1,5 +1,5 @@
 // Admin Inventory — the batch-details dialog shell, and the frame for the
-// dialogs stacked over it (Correct stock).
+// page's other dialogs (Edit price; Correct stock, stacked over the batch).
 //
 // Rendered through DialogLayer (a portal into document.body), so it is fixed
 // to and centred in the VIEWPORT whatever the Inventory page's height or
@@ -72,13 +72,14 @@ export default function InventoryBatchDialog({ badge, badgeTone, title, descript
 }
 
 /**
- * A dialog stacked over the batch details (Correct stock). Portaled after it,
- * so it paints above it; it joins the same dialog stack, so Escape closes only
- * this one, focus returns to the control that opened it, and the page stays
- * locked until the batch dialog closes too. A backdrop click closes it, as
- * before; clicks inside the dialog do not.
+ * An Inventory form dialog (Edit price, Correct stock), portaled to the
+ * viewport like the batch details. Opened over the batch dialog (Correct
+ * stock), it is portaled after it, so it paints above it; it joins the same
+ * dialog stack, so Escape closes only this one, focus returns to the control
+ * that opened it, and the page stays locked until the last dialog closes. A
+ * backdrop click closes it, as before; clicks inside the dialog do not.
  */
-export function InventoryStackedDialog({ labelledBy, onClose, busy = false, className = "", children }) {
+export function InventoryDialog({ labelledBy, onClose, busy = false, className = "", children }) {
   const dialogRef = useRef(null);
   useDialogFocus({ dialogRef, onDismiss: onClose, busy });
   return (

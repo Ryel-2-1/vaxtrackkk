@@ -571,7 +571,7 @@ test("the modal keeps its box model, padding and controls", () => {
   assert.match(CODE, /className="analytics-modal-close"[\s\S]{0,80}aria-label="Close"/);
   assert.match(CODE, /<div className="analytics-modal-actions">[\s\S]*?Close/);
   // And its content is still rendered from the modal object, not hardcoded.
-  assert.match(CODE, /<h2>\{modal\.title\}<\/h2>/);
+  assert.match(CODE, /<h2 id="analytics-modal-title">\{modal\.title\}<\/h2>/);
   assert.match(CODE, /<p>\{modal\.description\}<\/p>/);
   assert.match(CODE, /modal\.rows\.map\(/);
 });

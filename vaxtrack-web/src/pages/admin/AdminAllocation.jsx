@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import AdminLayout from "../../components/admin/AdminLayout";
 import KpiCard from "../../components/ui/KpiCard";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
+import AdminDialogLayer from "../../components/admin/AdminDialogLayer";
 import { kpiValue, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { subscribeBackorderQueue, subscribePendingReturns } from "../../services/allocationService";
 import { confirmReturnDisposition } from "../../services/inventoryCallables";
@@ -222,7 +223,10 @@ function AdminAllocation() {
         </p>
       )}
 
+      {/* Portaled: inside the page's transformed <main> it opened off-screen
+          once the page was scrolled (AdminDialogLayer.jsx). */}
       {pending && pendingChoice && (
+        <AdminDialogLayer>
         <ConfirmDialog
           title={`Record "${pendingChoice.label}"?`}
           target={`${(Number(pending.ret.totalQuantity) || 0).toLocaleString()} returned vials from ${
@@ -241,6 +245,7 @@ function AdminAllocation() {
           onConfirm={runDisposition}
           onCancel={() => setPending(null)}
         />
+        </AdminDialogLayer>
       )}
 
       <section className="alloc-card" aria-labelledby="alloc-returns-heading">
