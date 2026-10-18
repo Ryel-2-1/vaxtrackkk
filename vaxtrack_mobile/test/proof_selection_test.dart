@@ -181,8 +181,8 @@ void main() {
       expect(eligible, isNot(contains('failed')));
     });
 
-    test('3. eligible In Transit (and Delayed) orders appear; not-yet-dispatched do not', () {
-      expect(eligible, ['transit', 'delayed']);
+    test('3. only In Transit orders appear — Delayed and not-yet-dispatched do not', () {
+      expect(eligible, ['transit']);
     });
 
     test("4. only the authenticated rider's assigned orders appear", () {
@@ -203,6 +203,8 @@ void main() {
       expect(r('legacyCompleted'), ProofIneligibility.completed);
       expect(r('cancelled'), ProofIneligibility.cancelled);
       expect(r('failed'), ProofIneligibility.failed);
+      expect(r('delayed'), ProofIneligibility.delayed);
+      expect(proofIneligibilityMessage(ProofIneligibility.delayed), contains('Resume it (In Transit)'));
       expect(r('assigned'), ProofIneligibility.notReady);
       expect(r('theirs'), ProofIneligibility.notAssignedToYou);
       expect(proofIneligibility(null, riderUid: me), ProofIneligibility.notFound);
@@ -265,6 +267,27 @@ void main() {
       expect(after.selected, isNull, reason: 'submission disabled');
       expect(after.blockedReason, ProofIneligibility.completed);
       expect(ids(after.eligible), ['y'], reason: 'removed from the choices');
+    });
+
+    test('a direct entry for a DELAYED order shows the resume reason and selects nothing', () {
+      final s = resolveProofSelection(
+        deliveries: [order('late', status: 'delayed'), order('open', number: 'VT-2')],
+        riderUid: me,
+        selectedId: 'late',
+      );
+      expect(s.selected, isNull, reason: 'submission disabled');
+      expect(s.blockedReason, ProofIneligibility.delayed);
+      expect(proofIneligibilityMessage(s.blockedReason!), contains('Resume it (In Transit)'));
+      expect(ids(s.eligible), ['open'], reason: 'the Delayed order is never a choice');
+    });
+
+    test('an open screen whose order turns DELAYED loses its selection', () {
+      final before = resolveProofSelection(deliveries: [order('x')], riderUid: me, selectedId: 'x');
+      expect(before.selected!.id, 'x');
+      final after = resolveProofSelection(deliveries: [order('x', status: 'delayed')], riderUid: me, selectedId: 'x');
+      expect(after.selected, isNull);
+      expect(after.blockedReason, ProofIneligibility.delayed);
+      expect(after.eligible, isEmpty);
     });
 
     test('9. a stale direct-navigation id never falls back to another order', () {
@@ -346,6 +369,22 @@ void main() {
         expect(log.calls, ['fetch:o1'], reason: d.status);
         expect(c.errorMessage, contains(text));
       }
+    });
+
+    test('an already-open screen still showing In Transit, but the order is now DELAYED: nothing uploads', () async {
+      // The screen's copy says in_transit and both photos are chosen; the
+      // authoritative re-read says Delayed.
+      loader.current = order('o1', status: 'delayed');
+      expect(await submit(status: 'in_transit'), isFalse);
+      expect(log.calls, ['fetch:o1'], reason: 'no geofence call, upload, record or completion');
+      expect(c.errorMessage, contains('Resume it (In Transit)'));
+      expect(c.hasPendingUpload, isFalse);
+      expect(c.isProofSaved, isFalse);
+      // Resumed: the same photos submit once and complete.
+      loader.current = order('o1');
+      log.calls.clear();
+      expect(await submit(), isTrue);
+      expect(log.calls, ['fetch:o1', 'upload-proof', 'upload-invoice', 'record-proof', 'record-invoice', 'complete:o1']);
     });
 
     test('the order cannot be confirmed (offline): refused before any upload', () async {

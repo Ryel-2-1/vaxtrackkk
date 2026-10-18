@@ -38,10 +38,18 @@ class TrackingStatusBanner extends StatelessWidget {
   static const String backgroundActivityMessage =
       'Keep background activity allowed for reliable location sharing.';
 
-  /// Shown under the sharing state when Android notifications are off.
+  /// Shown whenever Android notifications are off for VaxTrack. Android still
+  /// lets the location service run, but hides its notice — and some phones
+  /// stop a hidden service — so reliable sharing is NOT promised.
   static const String notificationsHiddenMessage =
-      'Notifications are off for VaxTrack, so the "sharing location" notification '
-      'is hidden. Your location is still shared for your active delivery.';
+      'Notifications are off for VaxTrack. Android hides the "sharing location" '
+      'notice, and sharing may stop while the screen is locked. Turn on '
+      'notifications in App settings for reliable delivery tracking.';
+
+  /// Shown until the first position has actually been received.
+  static String startingMessage(int deliveries) =>
+      'Starting location sharing for $deliveries active '
+      'deliver${deliveries == 1 ? 'y' : 'ies'} — your position is not shared yet.';
 
   @override
   Widget build(BuildContext context) {
@@ -54,6 +62,22 @@ class TrackingStatusBanner extends StatelessWidget {
             return const SizedBox.shrink();
           case TrackingStatus.tracking:
           case TrackingStatus.navigating:
+            if (!controller.sharingConfirmed) {
+              // Asked for, but no position yet: never shown as sharing.
+              return _card(
+                icon: Icons.schedule,
+                color: Colors.orange.shade800,
+                text: [
+                  startingMessage(controller.activeOrderIds.length),
+                  if (controller.lastError == kNoFixYetMessage) kNoFixYetMessage,
+                  if (!controller.notificationsAllowed) notificationsHiddenMessage,
+                ].join('\n'),
+                actions: [
+                  _button('Retry', controller.retry),
+                  _button('App settings', controller.openAppSettings),
+                ],
+              );
+            }
             final sharing = status == TrackingStatus.navigating
                 ? 'Navigating a delivery — sharing your location (route monitoring on).'
                 : 'Sharing your location for ${controller.activeOrderIds.length} active '

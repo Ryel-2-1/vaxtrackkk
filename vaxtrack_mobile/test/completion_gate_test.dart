@@ -18,6 +18,7 @@ void main() {
     bool hasInvoice = true,
     bool completionInProgress = false,
     bool dataConfirmed = true,
+    bool statusDelayed = false,
   }) =>
       evaluateCompletionReadiness(
         orderId: orderId,
@@ -28,6 +29,7 @@ void main() {
         hasInvoice: hasInvoice,
         completionInProgress: completionInProgress,
         dataConfirmed: dataConfirmed,
+        statusDelayed: statusDelayed,
       );
 
   test('a fully ready delivery may open the confirmation', () {
@@ -187,6 +189,18 @@ void main() {
     test('an already-completed delivery cannot be completed again', () {
       // A delivered order has canComplete == false, whatever its evidence.
       expect(evaluate(statusEligible: false).block, CompletionBlock.notEligible);
+    });
+
+    test('a Delayed delivery cannot complete and is told to resume first', () {
+      // Delayed is not completable (rider table: delayed → in_transit only),
+      // even with both photos on the order.
+      final r = evaluate(statusEligible: false, statusDelayed: true);
+      expect(r.ready, isFalse);
+      expect(r.block, CompletionBlock.notEligible);
+      expect(r.code, 'status-not-eligible');
+      expect(r.message, contains('Resume it (In Transit)'));
+      // The flag only changes the wording: it never makes a delivery eligible.
+      expect(evaluate(statusEligible: false).message, isNot(contains('Resume it')));
     });
 
     test('status is checked before evidence', () {

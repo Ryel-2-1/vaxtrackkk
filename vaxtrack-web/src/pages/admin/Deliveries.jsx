@@ -15,6 +15,7 @@ import {
 } from "../../services/deliveryService";
 import { ORDER_STATUSES, STATUS_LABELS } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
+import TimingIndicator from "../../components/ui/TimingIndicator";
 import KpiCard from "../../components/ui/KpiCard";
 import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 import { subscribeOrderStatusEvents } from "../../services/statusEventService";
@@ -68,6 +69,11 @@ function normalizeDelivery(raw) {
     // written by the Flutter Rider app, so the web renders them directly and
     // needs no Storage SDK. `invoiceUrl` is the rider's photo of the paper
     // invoice — unrelated to the `invoices` collection / Admin Invoices module.
+    // Server-evaluated delivery timing (functions/src/deliveryTiming.js) —
+    // shown next to the lifecycle status, never instead of it.
+    timingStatus: raw.timingStatus ?? null,
+    expectedArrivalAt: raw.expectedArrivalAt ?? null,
+    automaticDelayedAt: raw.automaticDelayedAt ?? null,
     proofOfDeliveryUrl: raw.proofOfDeliveryUrl || "",
     invoiceUrl: raw.invoiceUrl || "",
     // The rider whose live location the map reads (riderLocations/{uid} — the
@@ -445,6 +451,9 @@ function Deliveries() {
 
                     <td>
                       <StatusBadge statusKey={delivery.statusKey} />
+                      <div>
+                        <TimingIndicator order={delivery} detail={false} />
+                      </div>
                     </td>
 
                     <td onClick={(e) => e.stopPropagation()}>
@@ -565,6 +574,7 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
               <h2>{delivery.id}</h2>
               <StatusBadge statusKey={delivery.statusKey} />
             </div>
+            <TimingIndicator order={delivery} />
             <p>{delivery.destination}</p>
           </div>
 

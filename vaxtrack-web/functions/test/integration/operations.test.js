@@ -1032,9 +1032,14 @@ test("RACE: cancellation against delivery yields one terminal outcome", async ()
     assert.equal(res.status, "consumed");
     assert.equal(invAfter.quantity, onHandBefore - 10);
   } else {
+    // The order was In Transit: its vials are with the rider, so a winning
+    // cancellation sends them to return-pending for an Admin check — not back
+    // to available stock (functions/src/policy.js RETURN_ON_CANCEL_FROM).
     assert.equal(o.status, "cancelled");
-    assert.equal(res.status, "released");
+    assert.equal(res.status, "returned");
     assert.equal(invAfter.quantity, onHandBefore, "a cancellation never deducts on-hand");
+    assert.equal(invAfter.returnPendingQuantity, 10, "held for the Admin check");
+    assert.equal((await db.collection("inventoryReturns").doc(`${r.orderId}_cancel`).get()).data().status, "pending");
   }
   assert.equal(invAfter.reservedQuantity, 0, "settled exactly once either way");
   assert.ok(invAfter.quantity >= 0 && invAfter.reservedQuantity >= 0, "invariants hold");

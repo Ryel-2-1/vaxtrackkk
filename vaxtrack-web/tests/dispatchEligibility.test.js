@@ -318,7 +318,7 @@ test("cargo loading's promotion and finalize both check the stored order", () =>
   // Inside the validation pass that runs before ANY write, so one early order
   // refuses the whole group.
   const checkAt = finalize.indexOf("assertScheduleReached(order)");
-  assert.ok(checkAt !== -1 && checkAt < finalize.indexOf("refs.forEach((ref) =>"));
+  assert.ok(checkAt !== -1 && checkAt < finalize.indexOf("refs.forEach((ref, index) =>"));
 });
 
 test("both services raise the stable code from the shared rule", () => {
@@ -344,8 +344,15 @@ test("the rules carry the same instant and guard every client write", () => {
   // In the guard EVERY client order write carries — admin included.
   assert.match(rules, /function clientOrderWriteIsAllowed\(\) \{[\s\S]*?&& scheduleGuardHolds\(\)\s*\n\s*&& scheduledDateWriteIsValid\(\);/);
   assert.match(rules, /next in \['assigned', 'loading', 'in_transit'\]/);
-  // The Med Rep cannot pull their own date forward.
-  assert.match(rules, /&& scheduledDateUnchanged\(\)\s*\n\s*\/\/ The snapshot is immutable after creation\./);
+  // The Med Rep cannot pull their own date forward: they have no order-update
+  // branch at all (orders change only through callables), and every other
+  // client write keeps the date through scheduledDateWriteIsValid() below.
+  const orderUpdate = rules.slice(
+    rules.indexOf("allow update: if clientOrderWriteIsAllowed()"),
+    rules.indexOf("allow delete: if isAdmin();", rules.indexOf("allow update: if clientOrderWriteIsAllowed()"))
+  );
+  assert.ok(orderUpdate.length > 0, "the order update rule was found");
+  assert.equal(/isSalesRep\(\)/.test(orderUpdate), false, "no Sales Rep branch in the order update rule");
   // FAIL CLOSED: a missing field is not an exemption — presence is required.
   assert.match(
     rules,
@@ -433,10 +440,19 @@ test("pages re-evaluate at Manila midnight rather than on a server job", () => {
   }
   const hook = read("src/components/useManilaDayNow.js");
   assert.match(hook, /nextManilaMidnightMs\(now\)/);
-  // No scheduled Cloud Function re-evaluates dispatch eligibility. The ONLY
-  // scheduled export is the rider-tracking retention purge, which never reads
-  // a schedule or an order's eligibility.
+  // No scheduled Cloud Function re-evaluates dispatch eligibility. The only
+  // scheduled exports are the rider-tracking retention purge and the delivery
+  // timing evaluator; neither reads a delivery schedule or an order's dispatch
+  // eligibility (the evaluator reads only the timing baseline frozen at
+  // dispatch).
   const index = read("functions/index.js");
   assert.equal(/pubsub\.schedule/.test(index), false);
-  assert.deepEqual([...index.matchAll(/exports\.(\w+) = onSchedule\(/g)].map((m) => m[1]), ["purgeRiderTrackingData"]);
+  assert.deepEqual(
+    [...index.matchAll(/exports\.(\w+) = onSchedule\(/g)].map((m) => m[1]).sort(),
+    ["evaluateDeliveryTiming", "purgeRiderTrackingData"]
+  );
+  for (const p of ["functions/src/deliveryTiming.js", "functions/src/deliveryTimingOps.js"]) {
+    const code = read(p).replace(/^\s*(\*|\/\/).*$/gm, "");
+    assert.doesNotMatch(code, /requestedDeliveryDate|scheduledDeliveryTime|dispatchEligibility/, p);
+  }
 });

@@ -66,6 +66,7 @@ const allocation = require("./src/allocation");
 const failureReturn = require("./src/failureReturn");
 const orderHistoryOutbox = require("./src/orderHistoryOutbox");
 const riderTrackingOps = require("./src/riderTrackingOps");
+const deliveryTimingOps = require("./src/deliveryTimingOps");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -113,6 +114,8 @@ function toHttpsError(error, context) {
       "reservation-not-found": "failed-precondition",
       "reservation-already-settled": "failed-precondition",
       "invalid-status-transition": "failed-precondition",
+      // A Delayed delivery must be resumed (in transit) before proof/completion.
+      "delivery-delayed": "failed-precondition",
       "proof-missing": "failed-precondition",
       "invoice-missing": "failed-precondition",
       "evidence-not-yours": "failed-precondition",
@@ -271,7 +274,9 @@ exports.cancelOrderWithInventoryRelease = callable(
 exports.validateDeliveryCompletionGeofence = callable(
   "validateDeliveryCompletionGeofence",
   ({ db, uid, data, now }) =>
-    operations.validateDeliveryCompletionGeofence({ db, uid, orderId: data.orderId, now })
+    // `payload` is checked to carry the order id ONLY (no status, destination,
+    // radius or location may be supplied by the client).
+    operations.validateDeliveryCompletionGeofence({ db, uid, orderId: data.orderId, payload: data, now })
 );
 
 exports.markOrderDeliveredWithInventoryConsumption = callable(
@@ -283,6 +288,7 @@ exports.markOrderDeliveredWithInventoryConsumption = callable(
       uid,
       email,
       orderId: data.orderId,
+      payload: data,
       now,
     })
 );
@@ -479,6 +485,11 @@ exports.recordOrderStatusEvent = onDocumentWritten(
         eventId: event.id,
         event: statusEvent,
         at: event.data.after.updateTime,
+        // The dispatch event also freezes the delivery-timing baseline from
+        // this write's own snapshot (statusEvents.recordStatusEvent).
+        after,
+        FieldValue,
+        Timestamp: admin.firestore.Timestamp,
       });
       if (!result.recorded) {
         logger.info("recordOrderStatusEvent: skipped", { orderId, reason: result.reason });
@@ -524,7 +535,9 @@ exports.trackNavigationSession = onDocumentWritten(
   { document: "riderNavigationSessions/{riderUid}", retry: true },
   async (event) => {
     const after = event.data?.after?.exists ? event.data.after.data() : null;
-    await riderTrackingOps.handleSessionWrite({ db, FieldValue, riderUid: event.params.riderUid, after });
+    const before = event.data?.before?.exists ? event.data.before.data() : null;
+    // A write that only confirms a navigation fix is skipped (no transaction).
+    await riderTrackingOps.handleSessionWrite({ db, FieldValue, riderUid: event.params.riderUid, after, before });
   }
 );
 
@@ -534,6 +547,25 @@ exports.syncRiderTrackingOnOrderWrite = onDocumentWritten(
     const before = event.data?.before?.exists ? event.data.before.data() : null;
     const after = event.data?.after?.exists ? event.data.after.data() : null;
     await riderTrackingOps.handleOrderWrite({ db, FieldValue, orderId: event.params.orderId, before, after });
+  }
+);
+
+// ---------------------------------------------------------------- delivery timing
+//
+// Automatic delivery timing (src/deliveryTiming.js): every 5 minutes, the
+// orders whose next timing check is DUE (timingActive && timingNextCheckAt <=
+// now; composite index in firestore.indexes.json) move forward on_time →
+// at_risk → delayed by SERVER time. Never changes the lifecycle status and
+// never blocks proof or completion; the first "delayed" records one history
+// event and one alert. Each processed order leaves the due set, so a backlog
+// drains oldest-first; overlapping or retried runs are no-ops.
+exports.evaluateDeliveryTiming = onSchedule(
+  { schedule: "every 5 minutes", timeZone: "Asia/Manila" },
+  async () => {
+    const counts = await deliveryTimingOps.evaluateDeliveryTimingRun({
+      db, FieldValue, Timestamp: admin.firestore.Timestamp, now: new Date(),
+    });
+    if (counts.scanned > 0) logger.info("delivery-timing", counts);
   }
 );
 

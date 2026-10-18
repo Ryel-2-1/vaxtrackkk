@@ -46,3 +46,14 @@ const int kDeviationReturnMeters = 400;
 const int kDeviationConfirmSeconds = 180;
 const int kDeviationReturnConfirmSeconds = 120;
 const int kDeviationMaxAccuracyMeters = 100;
+
+/// Navigation continuity (functions/src/riderTracking.js, CONFIRMED
+/// CONTINUITY). A session started with this version promises the server a
+/// confirmation (lastNavigationFixAt) for every qualifying tagged fix, which is
+/// what lets the server tell a live session from an abandoned one no matter
+/// in which order its location triggers run.
+const int kNavigationContinuityVersion = 1;
+
+/// A fix stored more than this long after it was captured does not qualify
+/// (the server's DEVIATION_RULES.maxFixAgeMs and firestore.rules).
+const int kMaxFixAgeSeconds = 60;

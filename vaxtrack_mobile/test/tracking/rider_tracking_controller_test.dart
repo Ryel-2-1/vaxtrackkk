@@ -65,6 +65,10 @@ class FakeStore implements TrackingStore {
   final List<(String, String)> endedSessions = [];
   Completer<void>? hold; // when set, writeLocation waits (offline)
   bool failStart = false;
+  String? serverSession; // a session the SERVER still holds as navigating
+
+  @override
+  Future<String?> navigatingSessionId(String riderUid) async => serverSession;
 
   @override
   Future<void> writeLocation({
@@ -91,6 +95,36 @@ class FakeStore implements TrackingStore {
       endedSessions.add((sessionId, reason));
 }
 
+/// Manual timers: the first-fix watchdog fires only when a test says so.
+class FakeTimer implements Timer {
+  FakeTimer(this.duration, this._callback);
+  final Duration duration;
+  final void Function() _callback;
+  bool _active = true;
+  @override
+  bool get isActive => _active;
+  @override
+  int get tick => 0;
+  @override
+  void cancel() => _active = false;
+  void fire() {
+    if (!_active) return;
+    _active = false;
+    _callback();
+  }
+}
+
+class FakeTimers {
+  final List<FakeTimer> all = [];
+  Timer start(Duration d, void Function() cb) {
+    final t = FakeTimer(d, cb);
+    all.add(t);
+    return t;
+  }
+
+  List<FakeTimer> get active => all.where((t) => t.isActive).toList();
+}
+
 final t0 = DateTime.utc(2026, 10, 1, 8);
 LocationFix fix(int s, {double lat = 14.6, double acc = 10}) => LocationFix(
       latitude: lat,
@@ -106,11 +140,18 @@ void main() {
   late FakeStore store;
   late RiderTrackingController c;
   late StreamController<List<TrackedOrder>> orders;
+  late FakeTimers timers;
 
   setUp(() {
     source = FakeSource();
     store = FakeStore();
-    c = RiderTrackingController(source: source, store: store, clock: () => t0.add(const Duration(hours: 1)));
+    timers = FakeTimers();
+    c = RiderTrackingController(
+      source: source,
+      store: store,
+      clock: () => t0.add(const Duration(hours: 1)),
+      startTimer: timers.start,
+    );
     orders = StreamController<List<TrackedOrder>>();
     c.attach(rider, orders.stream);
   });
@@ -399,14 +440,184 @@ void main() {
     });
   });
 
-  test('notifications off: sharing continues and the rider is told the notification is hidden', () async {
-    source.notifications = false;
-    await emit([order('o1', 'assigned')]);
-    expect(c.status, TrackingStatus.tracking);
-    expect(c.notificationsAllowed, isFalse);
-    source.notifications = true;
-    await c.retry();
-    expect(c.notificationsAllowed, isTrue);
+  group('notifications and the first position (staging QA A-1)', () {
+    test('notifications off: never claimed as sharing before a position arrives', () async {
+      source.notifications = false;
+      await emit([order('o1', 'assigned')]);
+      expect(c.status, TrackingStatus.tracking, reason: 'the plan: an active delivery');
+      expect(c.notificationsAllowed, isFalse);
+      expect(c.sharingConfirmed, isFalse, reason: 'no position yet — not "sharing"');
+      await sendFix(fix(0));
+      expect(c.sharingConfirmed, isTrue);
+      expect(store.writes, hasLength(1));
+    });
+
+    test('granting notifications restarts the ONE stream at once — no ten-minute wait', () async {
+      source.notifications = false;
+      await emit([order('o1', 'assigned')]);
+      await sendFix(fix(0));
+      expect(source.streamsOpened, hasLength(1));
+      source.notifications = true;
+      await c.setForeground(true); // back from App settings
+      expect(c.notificationsAllowed, isTrue);
+      expect(source.streamsOpened, hasLength(2), reason: 'restarted immediately, not after a timeout');
+      expect(source.activeStreams, 1, reason: 'never two streams');
+      await c.setForeground(true);
+      expect(source.streamsOpened, hasLength(2), reason: 'only on the change, not every resume');
+    });
+
+    test('a stream that stays silent is replaced after the timeout and the rider is told', () async {
+      await emit([order('o1', 'assigned')]);
+      expect(timers.active.single.duration, const Duration(seconds: 45));
+      expect(c.sharingConfirmed, isFalse);
+      timers.active.single.fire();
+      await pumpEventQueue();
+      await c.idle;
+      expect(source.streamsOpened, hasLength(2));
+      expect(source.activeStreams, 1, reason: 'the silent stream was cancelled first');
+      expect(c.lastError, kNoFixYetMessage);
+      expect(c.restartsWithoutFix, 1);
+      await sendFix(fix(0));
+      expect(c.sharingConfirmed, isTrue);
+      expect(c.lastError, isNull);
+      expect(timers.active, isEmpty, reason: 'the watchdog stops once a position arrives');
+    });
+
+    test('Retry replaces a silent stream; a working stream is never restarted by Retry', () async {
+      await emit([order('o1', 'assigned')]);
+      await c.retry();
+      expect(source.streamsOpened, hasLength(2));
+      expect(source.activeStreams, 1);
+      await sendFix(fix(0));
+      await c.retry();
+      expect(source.streamsOpened, hasLength(2));
+    });
+
+    test('"sharing" only once a position is SAVED — not when a stream exists or a fix is received', () async {
+      store.hold = Completer<void>();
+      await emit([order('o1', 'assigned')]);
+      expect(source.streaming, isTrue);
+      expect(c.sharingConfirmed, isFalse, reason: 'a stream object alone is not sharing');
+      await sendFix(fix(0));
+      expect(store.writes, hasLength(1));
+      expect(c.sharingConfirmed, isFalse, reason: 'received, write still in flight');
+      store.hold!.complete();
+      await pumpEventQueue();
+      expect(c.sharingConfirmed, isTrue);
+    });
+
+    test('a received fix that is never saved (too inaccurate) keeps it "starting"', () async {
+      await emit([order('o1', 'assigned')]);
+      await sendFix(fix(0, acc: 500));
+      expect(store.writes, isEmpty);
+      expect(c.sharingConfirmed, isFalse);
+    });
+
+    test('switching to navigation needs a new saved position before it is "sharing" again', () async {
+      await emit([order('o1', 'in_transit')]);
+      await sendFix(fix(0));
+      expect(c.sharingConfirmed, isTrue);
+      await c.startNavigation('o1');
+      expect(c.sharingConfirmed, isFalse, reason: 'new stream, nothing saved on it yet');
+      await sendFix(fix(15)); // past the navigation minimum write interval
+      expect(c.sharingConfirmed, isTrue);
+    });
+
+    test('losing location permission cancels the watchdog and the stream', () async {
+      await emit([order('o1', 'assigned')]);
+      expect(timers.active, hasLength(1));
+      source.access = LocationAccess.denied;
+      await c.setForeground(true); // back from App settings: re-checked
+      expect(timers.active, isEmpty);
+      expect(source.activeStreams, 0);
+      expect(c.status, TrackingStatus.needsPermission);
+      source.access = LocationAccess.granted;
+      await c.setForeground(true);
+      expect(source.activeStreams, 1, reason: 'granted again: one stream');
+    });
+
+    test('sign-out cancels every timer and stream', () async {
+      await emit([order('o1', 'in_transit')]);
+      await c.startNavigation('o1');
+      await c.shutdown(reason: kEndReasonSignedOut);
+      expect(timers.active, isEmpty);
+      expect(source.activeStreams, 0);
+      expect(orders.hasListener, isFalse);
+    });
+
+    test('dispose releases every timer and stream, and nothing restarts afterwards', () async {
+      await emit([order('o1', 'assigned')]);
+      expect([timers.active.length, source.activeStreams], [1, 1]);
+      c.dispose();
+      await pumpEventQueue();
+      expect(timers.active, isEmpty);
+      expect(source.activeStreams, 0);
+      expect(orders.hasListener, isFalse);
+      final opened = source.streamsOpened.length;
+      c.attach('riderZ', Stream.value([order('o9', 'assigned', to: 'riderZ')]));
+      await pumpEventQueue();
+      expect(source.streamsOpened.length, opened);
+    });
+
+    test('stopping sharing cancels the watchdog', () async {
+      await emit([order('o1', 'assigned')]);
+      await emit([order('o1', 'delivered')]);
+      expect(timers.active, isEmpty);
+    });
+  });
+
+  group('navigation sessions left behind (staging QA A-F1)', () {
+    test('a session the server still holds from a killed app is ended on sign-in', () async {
+      final s2 = FakeStore()..serverSession = 'oldSession001';
+      final c2 = RiderTrackingController(source: FakeSource(), store: s2, startTimer: FakeTimers().start);
+      c2.attach(rider, const Stream<List<TrackedOrder>>.empty());
+      await pumpEventQueue();
+      await c2.idle;
+      expect(s2.endedSessions, [('oldSession001', kEndReasonTrackingStopped)]);
+      expect(c2.navigation, isNull);
+    });
+
+    test('no leftover session: nothing is ended', () async {
+      await emit([order('o1', 'in_transit')]);
+      expect(store.endedSessions, isEmpty);
+    });
+
+    test('a session this app starts after sign-in is never ended by the leftover check', () async {
+      await emit([order('o1', 'in_transit')]);
+      await c.startNavigation('o1');
+      expect(store.endedSessions, isEmpty);
+      expect(c.navigation, isNotNull);
+    });
+
+    test('a DELAYED order keeps its running navigation, and Stop still ends it', () async {
+      await emit([order('o1', 'in_transit')]);
+      await c.startNavigation('o1');
+      final sid = c.navigation!.sessionId;
+      await emit([order('o1', 'delayed')]);
+      expect(c.navigation?.sessionId, sid, reason: 'delayed is still navigable');
+      expect(c.status, TrackingStatus.navigating);
+      await c.stopNavigation();
+      expect(store.endedSessions.single, (sid, kEndReasonRiderStopped), reason: 'no status change needed to stop');
+      expect(c.status, TrackingStatus.tracking);
+    });
+
+    test('ineligible transitions end navigation: unassigned, cancelled, failed, delivered', () async {
+      for (final next in [
+        [order('o1', 'in_transit', to: 'riderB')],
+        [order('o1', 'cancelled')],
+        [order('o1', 'delivery_failed')],
+        [order('o1', 'delivered')],
+        [order('o1', 'assigned')],
+      ]) {
+        store.endedSessions.clear();
+        await emit([order('o1', 'in_transit')]);
+        await c.startNavigation('o1');
+        final sid = c.navigation!.sessionId;
+        await emit(next);
+        expect(store.endedSessions, [(sid, kEndReasonTrackingStopped)], reason: '${next.first.status}/${next.first.assignedRiderId}');
+        expect(c.navigation, isNull);
+      }
+    });
   });
 
   group('write coalescing', () {

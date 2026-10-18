@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import { auth } from "../../firebase";
 import { subscribeActiveAlerts } from "../../services/alertService";
+import { lateAlertLiveText } from "../../services/deliveryTiming";
+import useMinuteClock from "../../components/useMinuteClock";
 import SidebarProfile from "../../components/shell/SidebarProfile";
 import OfflineNotice from "../../components/shell/OfflineNotice";
 import {
@@ -102,6 +104,8 @@ function DispatcherLayout() {
   // No demo/sample data is seeded here — notifications start empty until wired
   // to real Firestore alerts.
   const [notifications, setNotifications] = useState([]);
+  // Live "now N minutes past expected arrival" on late-delivery alerts.
+  const minuteNow = useMinuteClock();
   // A failed feed is said as such — "No notifications." would be a false all-clear.
   const [notificationsError, setNotificationsError] = useState(false);
 
@@ -525,6 +529,9 @@ function DispatcherLayout() {
                       <div>
                         <strong>{notification.title || "Alert"}</strong>
                         <p>{notification.message || "No additional details."}</p>
+                        {lateAlertLiveText(notification, minuteNow) && (
+                          <small className="tnum">{lateAlertLiveText(notification, minuteNow)}</small>
+                        )}
                         <small>{alertTimeText(notification.createdAt)}</small>
                       </div>
                     </button>

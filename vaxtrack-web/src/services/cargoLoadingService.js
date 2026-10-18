@@ -18,10 +18,25 @@ import {
   WorkflowError,
 } from "./orderWorkflow";
 import { logSafeError } from "./liveDataErrors.js";
+import { hasLoadingAudit } from "./loadingCustody.js";
 import { listenLive } from "./liveSnapshot.js";
 
 const ORDERS = "orders";
 const USERS = "users";
+
+/**
+ * The loading custody audit for an order that has none yet: stamped by the
+ * server clock and the signed-in dispatcher. firestore.rules accepts exactly
+ * this (request.time, request.auth.uid, the token's email) and refuses any
+ * write that clears or rewrites an audit already on the order.
+ */
+function loadingAuditStamp(currentUser) {
+  return {
+    loadedAt: serverTimestamp(),
+    loadedByUid: currentUser.uid,
+    ...(currentUser.email ? { loadedByEmail: currentUser.email } : {}),
+  };
+}
 
 /**
  * Refuse a scheduled order before 00:00 Asia/Manila on its requested date, or
@@ -203,6 +218,10 @@ export function subscribeCargoLoadingGroups(callback, onError) {
  * documented pending_dispatch → assigned → loading → in_transit → delivered
  * flow reachable now that Shipments no longer offers "Start loading".
  *
+ * The first confirmation stamps the loading audit (loadedAt / loadedByUid /
+ * loadedByEmail); it is never cleared or rewritten afterwards, because
+ * cancellation treats an order ever confirmed as loaded as handled stock.
+ *
  * Unchecking only clears the loaded flag. The status is deliberately NOT
  * regressed from `loading` back to `assigned`: `loading` means preparation has
  * begun, and silent backwards transitions would confuse the audit trail and
@@ -250,10 +269,15 @@ export async function updateOrderLoadedState(orderId, isLoaded) {
       updatedAt: serverTimestamp(),
     };
 
+    // The audit records the FIRST confirmation and is kept from then on. A
+    // legacy order ticked before the audit existed (isLoaded true, no audit)
+    // gets one on its next change, untick included, so the custody evidence
+    // survives the untick.
+    const needsAudit =
+      !hasLoadingAudit(order) && (loaded || order.isLoaded === true);
+    if (needsAudit) Object.assign(update, loadingAuditStamp(currentUser));
+
     if (loaded) {
-      update.loadedAt = serverTimestamp();
-      update.loadedByUid = currentUser.uid;
-      if (currentUser.email) update.loadedByEmail = currentUser.email;
 
       // First confirmation of an `assigned` order promotes it to `loading`.
       // Cargo Loading is the ONLY authority for this step, and the transition
@@ -267,16 +291,12 @@ export async function updateOrderLoadedState(orderId, isLoaded) {
         update.statusUpdatedByUid = currentUser.uid;
         if (currentUser.email) update.statusUpdatedByEmail = currentUser.email;
       }
-    } else {
-      // Clearing a confirmation removes the audit fields so they never go
-      // stale. The status is deliberately NOT regressed from `loading` back to
-      // `assigned`: `loading` means preparation has begun, and a silent
-      // backwards move would corrupt the audit trail. `loading → assigned` is
-      // not in the dispatcher matrix at all, so the rules refuse it too.
-      update.loadedAt = null;
-      update.loadedByUid = null;
-      update.loadedByEmail = null;
     }
+    // Unticking clears only isLoaded. The audit stays: the vials WERE handled,
+    // and a later cancellation must still return them for inspection. The
+    // status is deliberately NOT regressed from `loading` back to
+    // `assigned` either: `loading → assigned` is not in the dispatcher
+    // matrix at all, so the rules refuse it too.
 
     tx.update(ref, update);
     return { orderId, isLoaded: loaded, status: update.status ?? status };
@@ -350,7 +370,9 @@ export async function finalizeRiderDispatch(riderId, orderIds) {
       }
 
       // The same condition the UI enables the button on — every order in the
-      // group physically confirmed as loaded.
+      // group physically confirmed as loaded. firestore.rules refuses the
+      // in_transit write without it (isLoaded true + a loading audit), so this
+      // is the friendly message, not the guard.
       if (order.isLoaded !== true) {
         throw new WorkflowError(
           "order-not-loaded",
@@ -363,8 +385,13 @@ export async function finalizeRiderDispatch(riderId, orderIds) {
       assertScheduleReached(order);
     });
 
-    refs.forEach((ref) => {
+    refs.forEach((ref, index) => {
+      // A legacy order confirmed before the audit existed is stamped as it
+      // leaves, so every dispatched order carries one. An existing audit is
+      // never touched.
+      const order = snaps[index].data();
       tx.update(ref, {
+        ...(hasLoadingAudit(order) ? {} : loadingAuditStamp(currentUser)),
         status: "in_transit",
         dispatchedAt: serverTimestamp(),
         loadingFinalizedAt: serverTimestamp(),

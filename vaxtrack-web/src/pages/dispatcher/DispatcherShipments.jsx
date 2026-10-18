@@ -6,6 +6,9 @@ import {
   cancelOrderWithInventoryRelease,
   requeueFailedOrder,
 } from "../../services/inventoryCallables";
+import { useSearchParams } from "react-router-dom";
+import { cancelStockEffect } from "../../services/cancelStockEffect";
+import { loadingCustodyConfirmed } from "../../services/loadingCustody";
 import { requestOrderDestinationChange } from "../../services/destinationCorrectionService";
 import DestinationCorrectionDialog from "./DestinationCorrectionDialog";
 import {
@@ -14,6 +17,7 @@ import {
   canTransition,
 } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
+import TimingIndicator from "../../components/ui/TimingIndicator";
 import KpiCard from "../../components/ui/KpiCard";
 import {
   dispatchEligibility,
@@ -100,6 +104,9 @@ function DispatcherShipments() {
   const [updating, setUpdating] = useState("");
   const [filterStatus, setFilterStatus] = useState("active");
   const now = useManilaDayNow();
+  // A notification's link (/dispatcher/shipments?order=…) points at one order.
+  const [searchParams] = useSearchParams();
+  const focusOrderId = searchParams.get("order") || "";
 
   useEffect(() => {
     const unsub = subscribeDeliveries(
@@ -255,10 +262,16 @@ function DispatcherShipments() {
       // transaction and releases each batch exactly once. The dialog, its reason
       // validation and its accessibility behaviour are unchanged — only the
       // service boundary and the error mapping moved.
-      await cancelOrderWithInventoryRelease(order.id, reason);
+      const result = await cancelOrderWithInventoryRelease(order.id, reason);
       closeCancelDialog();
       showToast(
-        `Order ${order.orderNumber || order.id} cancelled.`,
+        // Worded from what the SERVER did (returnedForCheck / released), not
+        // from the dialog's possibly stale copy of the order.
+        result?.returnedForCheck
+          ? `Order ${order.orderNumber || order.id} cancelled. Its vials are held as a return for an Admin to inspect.`
+          : result?.released
+            ? `Order ${order.orderNumber || order.id} cancelled. Its reservation was released for other orders.`
+            : `Order ${order.orderNumber || order.id} cancelled.`,
         "success"
       );
     } catch (err) {
@@ -405,6 +418,7 @@ function DispatcherShipments() {
                       onRequestCancel={openCancelDialog}
                       onRequestReassign={openReassignDialog}
                       onRequestCorrection={openCorrectionDialog}
+                      focused={order.id === focusOrderId}
                     />
                   ))}
                 </tbody>
@@ -675,7 +689,7 @@ function CancelOrderDialog({ order, onDismiss, onConfirm }) {
 
         <p id={descId} className="shp-dialog-desc">
           Order {order.orderNumber || order.id} for {order.clinicName || "this clinic"} will
-          be cancelled. This cannot be undone.
+          be cancelled. This cannot be undone. {cancelStockEffect(order.statusKey, loadingCustodyConfirmed(order))}
         </p>
 
         <form onSubmit={submit}>
@@ -718,7 +732,12 @@ function CancelOrderDialog({ order, onDismiss, onConfirm }) {
   );
 }
 
-function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign, onRequestCorrection }) {
+function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign, onRequestCorrection, focused = false }) {
+  const rowRef = useRef(null);
+  // Opened from a notification: bring the order into view once.
+  useEffect(() => {
+    if (focused) rowRef.current?.scrollIntoView?.({ block: "center" });
+  }, [focused]);
   const sKey = order.statusKey;
   const cancellable = canCancel(sKey);
   // Recovery only returns the order to the dispatch queue; the assignment that
@@ -742,7 +761,7 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
   const updated = formatTime(order.updatedAt || order.assignedAt || order.createdAt);
 
   return (
-    <tr className={isDelayed ? "shp-row-delayed" : ""}>
+    <tr ref={rowRef} className={`${isDelayed ? "shp-row-delayed" : ""}${focused ? " shp-row-focus" : ""}`} aria-current={focused ? "true" : undefined}>
       <td>
         <span className="shp-order-id">{orderNum}</span>
       </td>
@@ -767,6 +786,9 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
       </td>
       <td>
         <StatusBadge statusKey={sKey} />
+        <div>
+          <TimingIndicator order={order} />
+        </div>
         {earlyDispatch && (
           <div>
             <span

@@ -20,13 +20,112 @@ const ALLOCATION_VERSION = 1;
 // reservation; a requeued order starts a fresh, empty reservation.
 const RESERVATION_STATUSES = Object.freeze(["reserved", "consumed", "released", "returned"]);
 
-/** Order statuses a delivery may be completed from. */
-const DELIVERABLE_FROM = Object.freeze(["in_transit", "delayed"]);
+/**
+ * Order statuses a delivery may be completed from — and the only status in
+ * which proof of delivery may be submitted. A DELAYED order must first be
+ * resumed (delayed → in_transit) by its rider: navigation may continue while
+ * delayed, completion may not. Mirrored by firestore.rules
+ * (orderAcceptsEvidence / isValidCompletion), storage.rules and the rider
+ * transition tables (src/services/orderWorkflow.js, order_workflow.dart).
+ */
+const DELIVERABLE_FROM = Object.freeze(["in_transit"]);
+
+/**
+ * Proof/completion callables accept the delivery's id and NOTHING else. The
+ * status, destination, radius and location are always read on the server; a
+ * request that tries to supply any of them is refused outright rather than
+ * silently ignored.
+ */
+function assertOnlyOrderIdPayload(payload) {
+  if (payload == null) return;
+  if (typeof payload !== "object" || Array.isArray(payload)) {
+    throw new PolicyError("invalid-payload", "That delivery could not be identified.");
+  }
+  const extra = Object.keys(payload).filter((k) => k !== "orderId");
+  if (extra.length > 0) {
+    throw new PolicyError("invalid-payload", "Only the delivery id may be sent to complete a delivery.");
+  }
+}
+
+/** The refusal for a delivery reported as Delayed (resume before completing). */
+const DELAYED_NOT_COMPLETABLE_MESSAGE =
+  "This delivery is marked Delayed. Resume it (In Transit) before submitting proof or completing it.";
 
 /** Order statuses a dispatcher may cancel from. Mirrors firestore.rules. */
 const CANCELLABLE_FROM = Object.freeze([
   "pending_dispatch", "assigned", "loading", "in_transit", "delayed", "delivery_failed",
 ]);
+
+/**
+ * Cancelled from these, the order's vials are physically with the rider
+ * (dispatch has been finalized), so its reserved units go to return-pending
+ * for an Admin check — never straight back to available stock, and never to a
+ * waiting order — exactly like a failed delivery.
+ *
+ * `loading` is not here on its own: see cancellationReturnsForInspection.
+ */
+const RETURN_ON_CANCEL_FROM = Object.freeze(["in_transit", "delayed"]);
+
+/**
+ * Does cancelling this order send its reserved units to return-pending (Admin
+ * inspection) instead of releasing them? Decided from the STORED order only —
+ * never from anything the caller sends.
+ *
+ *   in_transit / delayed   yes: dispatch is finalized, the vials are with the rider;
+ *   loading, ever confirmed as loaded (loadingCustodyConfirmed)
+ *                          yes: the dispatcher confirmed the vials as loaded in
+ *                          Cargo Loading — the physical custody boundary. Once
+ *                          handled they are inspected before reuse, even if the
+ *                          checkbox was unticked since;
+ *   loading, never confirmed, pending_dispatch, assigned
+ *                          no: nothing was handed over — release and reallocate.
+ *
+ * Custody is per order, not per vial: a loaded order's whole reservation is
+ * treated as handled.
+ */
+function cancellationReturnsForInspection(order) {
+  const status = order?.status;
+  if (RETURN_ON_CANCEL_FROM.includes(status)) return true;
+  return status === "loading" && loadingCustodyConfirmed(order);
+}
+
+function isValidTimestamp(value) {
+  if (value instanceof Date) return Number.isFinite(value.getTime());
+  if (value && typeof value.toMillis === "function") {
+    try {
+      return Number.isFinite(value.toMillis());
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+/**
+ * The loading custody audit: `loadedAt` (a real timestamp) and `loadedByUid`
+ * (the confirming dispatcher), stamped by the FIRST Cargo Loading
+ * confirmation. firestore.rules lets no dispatcher clear or rewrite it, and an
+ * untick clears only `isLoaded`, so it is the durable record that the vials
+ * were handled. Only requeueFailedOrder clears it, for a fresh assignment.
+ */
+function hasLoadingAudit(order) {
+  return (
+    isValidTimestamp(order?.loadedAt) &&
+    typeof order?.loadedByUid === "string" &&
+    order.loadedByUid.length > 0
+  );
+}
+
+/**
+ * Were this order's vials ever confirmed as loaded?
+ *   isLoaded exactly true (with or without an audit — legacy orders ticked
+ *     before the audit existed have none)      yes;
+ *   isLoaded false / missing, complete audit     yes — ticked, then unticked;
+ *   no flag, no complete audit                   no.
+ */
+function loadingCustodyConfirmed(order) {
+  return order?.isLoaded === true || hasLoadingAudit(order);
+}
 
 /** Bounds. maxLines caps the transaction's document reads; see operations.js. */
 const MAX_ORDER_LINES = 20;
@@ -1257,9 +1356,15 @@ module.exports = {
   hasServerPricing,
   RESERVATION_STATUSES,
   DELIVERABLE_FROM,
+  assertOnlyOrderIdPayload,
+  DELAYED_NOT_COMPLETABLE_MESSAGE,
   MIN_GEOFENCE_RADIUS_M,
   MAX_GEOFENCE_RADIUS_M,
   CANCELLABLE_FROM,
+  RETURN_ON_CANCEL_FROM,
+  cancellationReturnsForInspection,
+  hasLoadingAudit,
+  loadingCustodyConfirmed,
   MAX_ORDER_LINES,
   MAX_LINE_QUANTITY,
   MAX_STOCK_QUANTITY,

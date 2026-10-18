@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 
 import '../models/delivery.dart';
 import '../tracking/location_write_policy.dart';
+import '../tracking/navigation_continuity.dart';
 import '../tracking/rider_tracking_controller.dart';
 import '../tracking/tracking_contract.dart';
 import '../tracking/tracking_lifecycle.dart';
@@ -181,8 +182,9 @@ class FirestoreTrackingStore implements TrackingStore {
     required LocationFix fix,
     String? activeOrderId,
     String? navigationSessionId,
-  }) {
-    return _location(riderUid).set({
+  }) async {
+    final ref = _location(riderUid);
+    await ref.set({
       'riderUid': riderUid,
       'latitude': fix.latitude,
       'longitude': fix.longitude,
@@ -199,6 +201,40 @@ class FirestoreTrackingStore implements TrackingStore {
       'source': kLocationSource,
       'schemaVersion': kLocationSchemaVersion,
     });
+    // A qualifying fix of the navigation session is confirmed on the session
+    // (navigation_continuity.dart). The confirmation is queued before this
+    // returns, so it commits ahead of the next location write.
+    await confirmStoredNavigationFix(
+      navigationSessionId: navigationSessionId,
+      activeOrderId: activeOrderId,
+      latitude: fix.latitude,
+      longitude: fix.longitude,
+      accuracyMeters: fix.accuracyMeters,
+      capturedAt: fix.capturedAt,
+      readStored: () async {
+        // The acknowledged write is in the local cache with the server's
+        // updatedAt; no network read.
+        final data = (await ref.get(const GetOptions(source: Source.cache))).data();
+        final captured = data?['capturedAt'];
+        final updated = data?['updatedAt'];
+        if (data == null || captured is! Timestamp) return null;
+        return StoredFix(
+          capturedAt: captured.toDate(),
+          updatedAt: updated is Timestamp ? updated.toDate() : null,
+          rawUpdatedAt: updated is Timestamp ? updated : null,
+          navigationSessionId: data['navigationSessionId'] as String?,
+          activeOrderId: data['activeOrderId'] as String?,
+        );
+      },
+      send: (rawUpdatedAt) {
+        // Not awaited: tracking never waits on it, and a refusal (the session
+        // ended or was replaced meanwhile) changes nothing.
+        unawaited(_session(riderUid).update({
+          'lastNavigationFixAt': rawUpdatedAt,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }).catchError((Object _) {}));
+      },
+    );
   }
 
   @override
@@ -235,6 +271,8 @@ class FirestoreTrackingStore implements TrackingStore {
       'updatedAt': FieldValue.serverTimestamp(),
       'endedAt': null,
       'endReason': null,
+      // This app confirms every qualifying navigation fix (see writeLocation).
+      'continuityVersion': kNavigationContinuityVersion,
     });
   }
 
@@ -258,6 +296,14 @@ class FirestoreTrackingStore implements TrackingStore {
         'updatedAt': FieldValue.serverTimestamp(),
       });
     });
+  }
+
+  @override
+  Future<String?> navigatingSessionId(String riderUid) async {
+    final data = (await _session(riderUid).get()).data();
+    if (data == null || data['state'] != 'navigating' || data['riderUid'] != riderUid) return null;
+    final id = data['sessionId'];
+    return id is String && id.isNotEmpty ? id : null;
   }
 
   /// The server's deviation state for the rider (own doc only — rules).

@@ -48,10 +48,14 @@ test("the preflight only reads, and decides with the same function", () => {
   assert.match(body, /evaluateDeliveryGeofence\(/);
   assert.match(body, /order\.assignedRiderId !== uid/);
   assert.match(body, /DELIVERABLE_FROM\.includes\(order\.status\)/);
+  // A Delayed order is refused with its own code, before the geofence.
+  assert.ok(body.indexOf('order.status === "delayed"') < body.indexOf("evaluateDeliveryGeofence("));
   assert.match(INDEX, /exports\.validateDeliveryCompletionGeofence = callable\(/);
-  // Only the order id is taken from the request.
+  // Only the order id is taken from the request — and the raw request is
+  // passed ONLY to be checked to carry nothing else (assertOnlyOrderIdPayload).
   const exported = INDEX.slice(INDEX.indexOf("exports.validateDeliveryCompletionGeofence"));
-  assert.match(exported.slice(0, 400), /orderId: data\.orderId, now \}/);
+  assert.match(exported.slice(0, 500), /orderId: data\.orderId, payload: data, now \}/);
+  assert.match(body, /assertOnlyOrderIdPayload\(payload\)/);
   assert.equal(/data\.(lat|lng|latitude|longitude|distance|accuracy|capturedAt|inside|eligible|uid)/.test(exported.slice(0, 400)), false);
 });
 

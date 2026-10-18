@@ -89,9 +89,38 @@
   color: var(--gray-600) !important;
   background: transparent !important;
   border-style: dashed !important;
-  border-color: var(--gray-400, #9ca3af) !important;
+  border-color: var(--gray-500) !important;
 }
-.m-badge-unknown .m-badge-dot { background: var(--gray-400, #9ca3af) !important; }
+.m-badge-unknown .m-badge-dot { background: var(--gray-500) !important; }
+
+/* ---------------- delivery timing (secondary to the lifecycle badge) ----------------
+   services/deliveryTiming.js. Sits next to a StatusBadge, never instead of it:
+   a quieter outline chip so the lifecycle status stays the primary signal. */
+.m-timing {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.35;
+  max-width: 100%;
+}
+.m-timing-label {
+  padding: 1px 8px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-pill);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.m-timing-detail { color: var(--gray-600); }
+.m-timing-ok .m-timing-label { color: var(--success-text); border-color: var(--success-border); background: var(--success-bg); }
+.m-timing-warn .m-timing-label { color: var(--warning-text); border-color: var(--warning-border); background: var(--warning-bg); }
+.m-timing-late .m-timing-label { color: var(--danger-text); border-color: var(--danger-border); background: var(--danger-bg); }
+.m-timing-none .m-timing-label { color: var(--gray-600); border-style: dashed; border-color: var(--gray-500); }
+/* The Rider-reported hold (lifecycle `delayed`): neutral, so it never reads as the
+   automatic-lateness chip beside it. */
+.m-timing .m-timing-label.m-timing-hold { color: var(--gray-900); border-color: var(--gray-300); background: var(--gray-100); }
 
 /* ---------------- KPI card ---------------- */
 

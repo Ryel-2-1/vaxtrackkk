@@ -118,15 +118,63 @@ test("confirming an order that is already loading writes metadata only", async (
   assert.equal(data(store, "o1").isLoaded, true);
 });
 
-test("unchecking never regresses loading back to assigned", async () => {
-  const store = installStore(seed({ o1: order({ status: "loading", isLoaded: true }) }), DISPATCHER);
+// A stored loading audit: an earlier confirmation by another dispatcher.
+const EARLIER = { toMillis: () => Date.parse("2026-01-01T00:30:00Z") };
+const audited = (over = {}) => ({
+  loadedAt: EARLIER,
+  loadedByUid: "EarlierDispatcher",
+  loadedByEmail: "earlier@vaxtrack.com",
+  ...over,
+});
+const auditKeys = (write) => Object.keys(write.data).filter((k) => k.startsWith("loadedBy") || k === "loadedAt");
+
+test("unchecking never regresses loading back to assigned, and keeps the loading audit", async () => {
+  const store = installStore(seed({ o1: order({ status: "loading", isLoaded: true, ...audited() }) }), DISPATCHER);
   await cargo.updateOrderLoadedState("o1", false);
   const o = data(store, "o1");
 
   assert.equal(o.status, "loading", "loading means preparation began; it does not un-begin");
   assert.equal(o.isLoaded, false);
-  assert.equal(o.loadedAt, null, "stale audit fields are cleared");
-  assert.equal(o.loadedByUid, null);
+  assert.equal(o.loadedAt, EARLIER, "the audit survives the untick");
+  assert.equal(o.loadedByUid, "EarlierDispatcher");
+  assert.equal(o.loadedByEmail, "earlier@vaxtrack.com");
+  assert.deepEqual(auditKeys(store.writes[0]), [], "the untick writes no audit field at all");
+});
+
+test("re-ticking an order that has an audit changes only the flag", async () => {
+  const store = installStore(seed({ o1: order({ status: "loading", isLoaded: false, ...audited() }) }), DISPATCHER);
+  await cargo.updateOrderLoadedState("o1", true);
+  const o = data(store, "o1");
+  assert.equal(o.isLoaded, true);
+  assert.equal(o.loadedAt, EARLIER, "the first confirmation stays the record");
+  assert.equal(o.loadedByUid, "EarlierDispatcher");
+  assert.deepEqual(auditKeys(store.writes[0]), []);
+});
+
+test("an assigned order with an earlier audit is promoted without rewriting it", async () => {
+  const store = installStore(seed({ o1: order({ ...audited() }) }), DISPATCHER);
+  await cargo.updateOrderLoadedState("o1", true);
+  const o = data(store, "o1");
+  assert.equal(o.status, "loading");
+  assert.equal(o.loadedAt, EARLIER);
+  assert.equal(o.loadedByUid, "EarlierDispatcher");
+});
+
+test("a legacy loaded order without an audit is stamped when unticked, so custody is not lost", async () => {
+  const store = installStore(seed({ o1: order({ status: "loading", isLoaded: true }) }), DISPATCHER);
+  await cargo.updateOrderLoadedState("o1", false);
+  const o = data(store, "o1");
+  assert.equal(o.isLoaded, false);
+  assert.equal(o.loadedAt, SERVER_TIMESTAMP);
+  assert.equal(o.loadedByUid, DISPATCHER.uid);
+  assert.equal(o.loadedByEmail, DISPATCHER.email);
+});
+
+test("unticking an order that was never confirmed writes no audit", async () => {
+  const store = installStore(seed({ o1: order({ status: "loading", isLoaded: false }) }), DISPATCHER);
+  await cargo.updateOrderLoadedState("o1", false);
+  assert.deepEqual(auditKeys(store.writes[0]), []);
+  assert.equal("loadedAt" in data(store, "o1"), false);
 });
 
 test("loading metadata is refused outside assigned and loading", async () => {
@@ -201,6 +249,33 @@ test("a mixed-status batch fails atomically — nothing is dispatched", async ()
   assert.equal(data(store, "o1").status, "loading", "the eligible order was NOT dispatched");
   assert.equal(data(store, "o2").status, "assigned");
   assert.equal(store.writes.length, 0, "no partial write escaped");
+});
+
+test("finalize stamps a legacy order's missing audit and never rewrites an existing one", async () => {
+  const store = installStore(
+    seed({ legacy: loadedOrder(), kept: loadedOrder({ ...audited() }) }),
+    DISPATCHER
+  );
+  await cargo.finalizeRiderDispatch(RIDER, ["legacy", "kept"]);
+  const legacy = data(store, "legacy");
+  assert.equal(legacy.status, "in_transit");
+  assert.equal(legacy.loadedAt, SERVER_TIMESTAMP);
+  assert.equal(legacy.loadedByUid, DISPATCHER.uid);
+  const kept = data(store, "kept");
+  assert.equal(kept.status, "in_transit");
+  assert.equal(kept.loadedAt, EARLIER);
+  assert.equal(kept.loadedByUid, "EarlierDispatcher");
+  const keptWrite = store.writes.find((w) => w.id === "kept");
+  assert.deepEqual(auditKeys(keptWrite), []);
+});
+
+test("an unticked order with an audit still blocks dispatch", async () => {
+  const store = installStore(
+    seed({ o1: loadedOrder({ isLoaded: false, ...audited() }) }),
+    DISPATCHER
+  );
+  await expectRejection(cargo.finalizeRiderDispatch(RIDER, ["o1"]), "order-not-loaded");
+  assert.equal(store.writes.length, 0);
 });
 
 test("an unloaded order blocks the whole dispatch", async () => {

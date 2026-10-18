@@ -76,6 +76,10 @@ const EVENT_TYPES = Object.freeze({
   RETURN_QUARANTINED: "return_quarantined",
   RETURN_WRITTEN_OFF: "return_written_off",
   ORDER_REQUEUED: "order_requeued",
+  // Automatic delivery timing (deliveryTimingOps.js): recorded once per
+  // dispatch when the order passes its expected arrival plus grace. The order
+  // stays in transit; this is a schedule fact, not a lifecycle change.
+  DELIVERY_RUNNING_LATE: "delivery_running_late",
 });
 
 const SYSTEM_ACTOR = Object.freeze({ actorUid: null, actorRole: "system" });
@@ -769,13 +773,22 @@ function consumptionEvent({ orderId, order, reservationItems, uid }) {
 }
 
 /** Failed delivery: reserved units → Return Pending (neither reserved nor available). */
-function returnPendingEvent({ orderId, order, reservationItems, returnId, reportedByUid, sourceOperation }) {
+/**
+ * Reserved units moved to Return Pending. [kind] "delivery_failed" (default):
+ * reported by the rider; a version-2 order waits for stock again.
+ * "cancelled_after_dispatch": the dispatcher cancelled an order whose vials
+ * were with the rider; nothing is awaited any more.
+ */
+function returnPendingEvent({ orderId, order, reservationItems, returnId, reportedByUid, sourceOperation, kind = "delivery_failed" }) {
+  const cancelling = kind === "cancelled_after_dispatch";
   const grouped = slicesByLine(reservationItems, order.items);
   const batches = grouped.flatMap((g) => g.batches.map((b) => ({ ...b, lineIndex: g.lineIndex })));
   const moved = batches.reduce((s, b) => s + b.quantity, 0);
   const items = Array.isArray(order.items) ? order.items : [];
   const v2 = order.allocationVersion === 2;
-  const afterItems = v2 ? items.map((l) => ({ ...l, reservedQuantity: 0, backorderedQuantity: l.quantity })) : items;
+  const afterItems = v2
+    ? items.map((l) => ({ ...l, reservedQuantity: 0, backorderedQuantity: cancelling ? 0 : l.quantity }))
+    : items;
   const lines = afterItems.map((l, i) => {
     const g = grouped.find((x) => x.lineIndex === i);
     return { ...lineSnapshot(l, i), returnedQuantity: g ? g.batches.reduce((s, b) => s + b.quantity, 0) : 0, batches: g ? g.batches : [] };
@@ -787,15 +800,24 @@ function returnPendingEvent({ orderId, order, reservationItems, returnId, report
       order: { ...order, items: afterItems },
       eventType: EVENT_TYPES.MOVED_TO_RETURN_PENDING,
       sourceOperation,
-      actor: actorOf(reportedByUid, "rider"),
+      actor: actorOf(reportedByUid, cancelling ? "dispatcher" : "rider"),
       lines,
       batches,
       quantityChanged: moved,
-      allocationStateAfter: v2 ? "awaiting_stock" : order.allocationState ?? null,
-      // The units belonged to the epoch that just failed.
+      allocationStateAfter: v2 && !cancelling ? "awaiting_stock" : order.allocationState ?? null,
+      // The units belonged to the epoch that just failed (or was cancelled).
       epoch: epochOf(order),
-      summary: `Delivery failed: ${batchPhrase(batches)} moved to Return Pending. Not available until an Admin confirms their condition.`,
-      extra: { returnId, returnedQuantity: moved },
+      summary: cancelling
+        ? order.status === "loading"
+          ? `Cancelled after loading: ${batchPhrase(batches)} confirmed as loaded moved to Return Pending. Not available until an Admin confirms their condition.`
+          : `Cancelled after dispatch: ${batchPhrase(batches)} held by the rider moved to Return Pending. Not available until an Admin confirms their condition.`
+        : `Delivery failed: ${batchPhrase(batches)} moved to Return Pending. Not available until an Admin confirms their condition.`,
+      extra: {
+        returnId,
+        returnedQuantity: moved,
+        returnSource: kind,
+        ...(cancelling ? { cancelledFromStatus: order.status ?? null } : {}),
+      },
     }),
   };
 }
@@ -813,8 +835,29 @@ const DISPOSITION_PHRASE = {
   missing: "recorded as missing and written off",
 };
 
-/** An Admin's disposition of a pending return. [order] may be null if it was deleted. */
-function dispositionEvent({ returnId, ret, order, disposition, uid }) {
+/**
+ * An Admin's disposition of a pending return. [order] may be null if it was
+ * deleted. A whole-return decision is one event under the return's
+ * "disposition" id. A split decision ([lines], per-batch quantities by outcome)
+ * is one event per outcome actually used, each under its own id, each carrying
+ * only that outcome's quantities — so history reads exactly what was restored,
+ * quarantined or written off.
+ */
+function dispositionEvents({ returnId, ret, order, disposition, lines = null, uid }) {
+  if (!Array.isArray(lines)) return [dispositionEvent({ returnId, ret, order, disposition, uid })];
+  const byInventory = new Map((Array.isArray(ret.items) ? ret.items : []).map((r) => [r.inventoryId, r]));
+  const out = [];
+  for (const outcome of ["usable", "damaged", "temperature_excursion", "missing"]) {
+    const items = lines
+      .filter((l) => count(l[outcome]) > 0)
+      .map((l) => ({ ...(byInventory.get(l.inventoryId) ?? { inventoryId: l.inventoryId }), quantity: count(l[outcome]) }));
+    if (items.length === 0) continue;
+    out.push(dispositionEvent({ returnId, ret: { ...ret, items }, order, disposition: outcome, uid, idSuffix: outcome }));
+  }
+  return out;
+}
+
+function dispositionEvent({ returnId, ret, order, disposition, uid, idSuffix = null }) {
   const batches = (Array.isArray(ret.items) ? ret.items : []).map((r) => ({
     inventoryId: r.inventoryId ?? null,
     batchId: textOrNull(r.batchId),
@@ -825,7 +868,7 @@ function dispositionEvent({ returnId, ret, order, disposition, uid }) {
   const orderId = ret.orderId;
   const base = order ?? { orderNumber: ret.orderNumber ?? null, createdByUid: null, items: [] };
   return {
-    eventId: eventIdOf(returnId, "disposition"),
+    eventId: idSuffix ? eventIdOf(returnId, "disposition", idSuffix) : eventIdOf(returnId, "disposition"),
     event: buildEvent({
       orderId,
       order: base,
@@ -895,5 +938,6 @@ module.exports = {
   consumptionEvent,
   returnPendingEvent,
   dispositionEvent,
+  dispositionEvents,
   requeueEvent,
 };

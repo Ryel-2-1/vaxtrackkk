@@ -37,9 +37,36 @@
  * WHICH FIXES ARE EVALUATED (navigationFixDecision)
  *   Only a fix the Rider app TAGGED with the current session (its
  *   navigationSessionId and order). Ordinary tracking fixes are untagged and
- *   are never measured against a route: an untagged fix means the app is not
- *   navigating, so a session it left behind (app killed, reinstalled, signed
- *   out offline) is ended as abandoned instead of being evaluated.
+ *   are never measured against a route, and they neither bridge nor break the
+ *   3-minute timer. A session left behind (app killed, reinstalled, signed out
+ *   offline) is ended as abandoned when an untagged fix arrives and the session
+ *   is STALE: no tagged fix for 3 minutes (or none since the start-up grace).
+ *
+ * EVENT ORDER (sessionEvidence)
+ *   Location triggers are delivered at least once and in ANY order. Staleness
+ *   is therefore never judged from one event's before/after pair alone: every
+ *   tagged fix of the session that any event observes (its own fix, the fix
+ *   before it, the stored current fix) is recorded on the deviation state as a
+ *   monotonic maximum, and a session whose tagged history is not on record is
+ *   never presumed stale (missing history is not proof that no tagged fix came).
+ *
+ * CONFIRMED CONTINUITY (navigation continuity version 1)
+ *   Trigger snapshots alone cannot close the race: a tagged fix Tn is visible
+ *   only to its own event, to the next write's event (as `before`) and while it
+ *   is the stored document. If both events are still undelivered when a later
+ *   untagged fix is processed, nothing the server can read shows that Tn was
+ *   ever written. So a session started with `continuityVersion: 1` carries its
+ *   own durable anchor: after each QUALIFYING tagged fix is stored, the Rider
+ *   app writes `lastNavigationFixAt` on its session document, and
+ *   firestore.rules accept it only when it EQUALS the server write time
+ *   (updatedAt, pinned to request.time) of the stored location — tagged with
+ *   this session and order, accurate to 100 m, written within 60 s of capture
+ *   — and moves forward while the session is navigating. One client's writes
+ *   commit in order, so that confirmation is stored before any later location
+ *   write of the app; every handler reads the session document in its own
+ *   transaction, whatever order the events arrive in. Staleness of such a
+ *   session is decided from qualifying fixes only (confirmedSessionIsStale).
+ *   Sessions started by older app builds keep the evidence rule above.
  *
  * TIME
  *   Elapsed time is the SERVER write time of each fix (riderLocations.updatedAt,
@@ -62,15 +89,28 @@ const DEVIATION_RULES = Object.freeze({
 });
 
 /**
- * Navigation-session lifecycle on the server. An untagged (ordinary) fix
- * written this long after the session started proves the app is no longer
- * navigating it: the session is ended as abandoned. The grace covers the
- * instant between Start Navigation and the app tagging its next fix.
+ * Navigation-session lifecycle on the server. An untagged (ordinary) fix ends a
+ * session as ABANDONED only when the session is genuinely stale:
+ *   * staleAfterMs — since the LAST fix tagged with that exact session (server
+ *     time). A navigating app tags a fix at least every 30 s, so a session with
+ *     a tagged fix seconds ago survives an accidental untagged write;
+ *   * untaggedGraceMs — since the session started, used ONLY when no tagged fix
+ *     ever arrived (covers the instant between Start Navigation and the app
+ *     tagging its first fix).
  */
-const SESSION_RULES = Object.freeze({ untaggedGraceMs: 60 * 1000 });
+const SESSION_RULES = Object.freeze({
+  untaggedGraceMs: 60 * 1000,
+  staleAfterMs: 3 * 60 * 1000,
+});
 
 /** Display freshness, from the fix's capture time (never newer than the server write). */
 const FRESHNESS = Object.freeze({ freshMs: 2 * 60 * 1000, offlineMs: 10 * 60 * 1000 });
+
+/**
+ * A session document that declares this version promises a confirmation
+ * (lastNavigationFixAt) for every qualifying tagged fix of the session.
+ */
+const NAVIGATION_CONTINUITY_VERSION = 1;
 
 const TRACKING_STATES = Object.freeze(["active", "paused", "ended"]);
 const SESSION_STATES = Object.freeze(["navigating", "ended"]);
@@ -282,14 +322,25 @@ function sampleFromLocation(location, rules = DEVIATION_RULES) {
  *                                        and its order — measure it;
  *   { action: "end", reason }            the app is not navigating it any more:
  *                                        "tracking_stopped" (sharing ended) or
- *                                        "abandoned" (untagged fixes after the
- *                                        grace) — close it, never evaluate it;
+ *                                        "abandoned" (an untagged fix while the
+ *                                        session is STALE) — close it, never
+ *                                        evaluate it;
  *   { action: "ignore", reason }         anything else (a fix for another
- *                                        session, the start-up grace, a write
+ *                                        session or order, an untagged fix while
+ *                                        the session is still live, a write
  *                                        before the session).
+ * `lastTaggedFixAtMs` is the newest server time of a fix tagged with this
+ * exact session that the server has observed (sessionEvidence), or null.
+ * `taggedHistorySinceMs` is when complete recording of those fixes began (the
+ * session start for a state created with the session); null means there is no
+ * record at all, so an untagged fix is never taken as proof of staleness.
+ * `lastQualifyingFixAtMs` is the newest QUALIFYING fix of the session the
+ * server observed; for a session with confirmed continuity it is combined
+ * with the session's own confirmation (confirmedSessionIsStale) and the two
+ * tagged-history inputs are not used.
  * Every time compared is server time (updatedAt / startedAt).
  */
-function navigationFixDecision({ session, location, rules = SESSION_RULES }) {
+function navigationFixDecision({ session, location, lastTaggedFixAtMs = null, taggedHistorySinceMs = null, lastQualifyingFixAtMs = null, rules = SESSION_RULES }) {
   const startedMs = millisOf(session?.startedAt);
   const writtenMs = millisOf(location?.updatedAt);
   if (!session || !location) return { action: "ignore", reason: "no_session" };
@@ -300,11 +351,13 @@ function navigationFixDecision({ session, location, rules = SESSION_RULES }) {
   if (location.trackingState !== "active") return { action: "ignore", reason: "not_tracking" };
   const tag = location.navigationSessionId ?? null;
   if (tag === null) {
-    // Untagged: ordinary tracking. Never evaluated against the route.
-    if (startedMs !== null && writtenMs !== null && writtenMs - startedMs >= rules.untaggedGraceMs) {
-      return { action: "end", reason: "abandoned" };
-    }
-    return { action: "ignore", reason: "untagged_fix" };
+    // Untagged: ordinary tracking. Never evaluated against the route, and it
+    // ends the session only when that session is genuinely stale.
+    if (writtenMs === null) return { action: "ignore", reason: "untagged_fix" };
+    const stale = hasConfirmedContinuity(session)
+      ? confirmedSessionIsStale({ writtenMs, startedMs, lastQualifyingFixAtMs: laterOf(confirmedNavigationFixMs(session), lastQualifyingFixAtMs), rules })
+      : untaggedSessionIsStale({ writtenMs, startedMs, lastTaggedFixAtMs, taggedHistorySinceMs, rules });
+    return stale ? { action: "end", reason: "abandoned" } : { action: "ignore", reason: "untagged_fix" };
   }
   if (tag !== session.sessionId) return { action: "ignore", reason: "other_session" };
   if ((location.activeOrderId ?? null) !== session.orderId) return { action: "ignore", reason: "other_order" };
@@ -312,16 +365,176 @@ function navigationFixDecision({ session, location, rules = SESSION_RULES }) {
 }
 
 /**
- * Server time of the rider's previous fix (the location document's prior
- * version) for the continuity check — only when it was a fix of THE SAME
- * navigation session. Anything else (ordinary tracking, another session,
- * sharing ended, no server time) is a gap: the timer starts afresh.
+ * Is the session STALE for an untagged fix written at `writtenMs`?
+ *   * No record (`taggedHistorySinceMs` null): never — the server cannot know.
+ *   * Complete record since the session start and no tagged fix ever: stale
+ *     after the start-up grace (untaggedGraceMs) from the start.
+ *   * Otherwise: stale once staleAfterMs has passed since the later of the last
+ *     recorded tagged fix and the moment recording began — so a record that
+ *     began mid-session (a state written before recording existed) first has
+ *     to cover a full stale period before it can prove anything.
  */
-function previousSessionSampleAtMs(previous, sessionId) {
-  if (!previous || previous.trackingState !== "active") return null;
-  if ((previous.navigationSessionId ?? null) !== sessionId || sessionId == null) return null;
-  if (!isValidCoordinate(previous.latitude, previous.longitude)) return null;
-  return millisOf(previous.updatedAt);
+function untaggedSessionIsStale({ writtenMs, startedMs, lastTaggedFixAtMs, taggedHistorySinceMs, rules = SESSION_RULES }) {
+  if (!Number.isFinite(writtenMs) || !Number.isFinite(taggedHistorySinceMs)) return false;
+  const last = Number.isFinite(lastTaggedFixAtMs) ? lastTaggedFixAtMs : null;
+  const completeFromStart = Number.isFinite(startedMs) && taggedHistorySinceMs <= startedMs;
+  if (last === null && completeFromStart) return writtenMs - startedMs >= rules.untaggedGraceMs;
+  return writtenMs - Math.max(taggedHistorySinceMs, last ?? -Infinity) >= rules.staleAfterMs;
+}
+
+/** Was the session started by an app that confirms every qualifying fix? */
+function hasConfirmedContinuity(session) {
+  return session?.continuityVersion === NAVIGATION_CONTINUITY_VERSION;
+}
+
+/**
+ * The session's own confirmed anchor: the server write time of its newest
+ * qualifying tagged fix (firestore.rules verify it against the stored fix),
+ * or null — none yet, an older app's session, or a value not after the start.
+ */
+function confirmedNavigationFixMs(session) {
+  if (!hasConfirmedContinuity(session)) return null;
+  const at = millisOf(session.lastNavigationFixAt);
+  const started = millisOf(session.startedAt);
+  if (at === null || (started !== null && at <= started)) return null;
+  return at;
+}
+
+/**
+ * Is a session with confirmed continuity STALE for an untagged fix written at
+ * `writtenMs`? Its qualifying history is complete from the start (every
+ * qualifying fix is confirmed before any later write of the app commits), so:
+ *   * no qualifying fix yet: stale once the start-up grace has passed;
+ *   * otherwise: stale once staleAfterMs has passed since the newest one.
+ * Only QUALIFYING fixes count — a tagged fix that is inaccurate or was written
+ * long after capture never keeps a session alive. Without a server start time
+ * nothing can be judged: never stale.
+ */
+function confirmedSessionIsStale({ writtenMs, startedMs, lastQualifyingFixAtMs, rules = SESSION_RULES }) {
+  if (!Number.isFinite(writtenMs) || !Number.isFinite(startedMs)) return false;
+  const last = Number.isFinite(lastQualifyingFixAtMs) && lastQualifyingFixAtMs > startedMs ? lastQualifyingFixAtMs : null;
+  if (last === null) return writtenMs - startedMs >= rules.untaggedGraceMs;
+  return writtenMs - last >= rules.staleAfterMs;
+}
+
+/**
+ * Server times a location document contributes to THIS session (`session`'s
+ * id, order AND rider), or nulls:
+ *   taggedAtMs      an active fix the app tagged with this session, with valid
+ *                   coordinates — proof the app is navigating it (staleness);
+ *   qualifyingAtMs  the same, AND a usable deviation sample (accuracy, server
+ *                   time, not delivered late) — the only fixes that count for
+ *                   the continuity of the 3-minute timer.
+ * Ordinary (untagged) fixes, other sessions or orders, and ended sharing
+ * contribute nothing.
+ */
+function sessionFixTimes(doc, session, rules = DEVIATION_RULES) {
+  const none = { taggedAtMs: null, qualifyingAtMs: null };
+  if (!doc || !session || doc.trackingState !== "active") return none;
+  if (session.riderUid != null && doc.riderUid !== session.riderUid) return none;
+  if ((doc.navigationSessionId ?? null) !== session.sessionId || session.sessionId == null) return none;
+  if ((doc.activeOrderId ?? null) !== session.orderId) return none;
+  if (!isValidCoordinate(doc.latitude, doc.longitude)) return none;
+  const updated = millisOf(doc.updatedAt);
+  if (updated === null) return none;
+  const sample = sampleFromLocation(doc, rules);
+  return { taggedAtMs: updated, qualifyingAtMs: sample.ok ? sample.sample.atMs : null };
+}
+
+/** The later of two optional times. */
+function laterOf(a, b) {
+  if (!Number.isFinite(a)) return Number.isFinite(b) ? b : null;
+  if (!Number.isFinite(b)) return a;
+  return Math.max(a, b);
+}
+
+/**
+ * What the server knows about this session's navigation activity, from one
+ * trigger event, and what to RECORD so that a later event — delivered in any
+ * order — knows it too.
+ *
+ * Inputs: the event's own fix (`location`), the fix before it (`previous`),
+ * the location document as currently stored (`current`), and the session's
+ * own deviation state (`state`, null when it is not this session's). Only
+ * fixes of this exact session, order and rider count (sessionFixTimes).
+ *
+ * Returns:
+ *   lastTaggedFixAtMs       newest tagged-fix server time observed (stored, own,
+ *                           previous, current) — for staleness;
+ *   taggedHistorySinceMs    when complete recording began (state), or null with
+ *                           no state; a state written before recording existed
+ *                           starts its record at `nowMs`;
+ *   previousQualifyingAtMs  latest QUALIFYING fix before this one (stored or
+ *                           previous) — continuity of the 3-minute timer;
+ *   lastQualifyingFixAtMs   newest QUALIFYING fix observed (stored, own,
+ *                           previous, current) — staleness of a session with
+ *                           confirmed continuity;
+ *   ownQualifyingAtMs       this fix's own qualifying time, or null;
+ *   replay                  this fix's qualifying time is already on record:
+ *                           it was evaluated before (a redelivered event);
+ *   patch                   fields to store — only values that move FORWARD
+ *                           (never backwards), plus the record start once.
+ *
+ * The current document only ever adds tagged evidence, never a qualifying
+ * time: it may be newer than this event's fix, and recording its qualifying
+ * time first would make its own evaluation look like a replay.
+ */
+function sessionEvidence({ session, location, previous = null, current = null, state = null, nowMs = null, rules = DEVIATION_RULES }) {
+  const own = Boolean(state) && state.sessionId === session?.sessionId;
+  const storedTagged = own && Number.isFinite(state.lastTaggedFixAtMs) ? state.lastTaggedFixAtMs : null;
+  const storedQualifying = own && Number.isFinite(state.lastQualifyingFixAtMs) ? state.lastQualifyingFixAtMs : null;
+  const storedSince = own && Number.isFinite(state.taggedHistorySinceMs) ? state.taggedHistorySinceMs : null;
+  const self = sessionFixTimes(location, session, rules);
+  const prev = sessionFixTimes(previous, session, rules);
+  const cur = sessionFixTimes(current, session, rules);
+
+  const lastTaggedFixAtMs = [self.taggedAtMs, prev.taggedAtMs, cur.taggedAtMs].reduce(laterOf, storedTagged);
+  const newestQualifying = laterOf(self.qualifyingAtMs, prev.qualifyingAtMs);
+  const replay = Number.isFinite(self.qualifyingAtMs) && storedQualifying !== null && storedQualifying >= self.qualifyingAtMs;
+
+  const patch = {};
+  let taggedHistorySinceMs = null;
+  if (own) {
+    if (lastTaggedFixAtMs !== null && lastTaggedFixAtMs > (storedTagged ?? -Infinity)) patch.lastTaggedFixAtMs = lastTaggedFixAtMs;
+    if (newestQualifying !== null && newestQualifying > (storedQualifying ?? -Infinity)) patch.lastQualifyingFixAtMs = newestQualifying;
+    taggedHistorySinceMs = storedSince;
+    if (taggedHistorySinceMs === null && Number.isFinite(nowMs)) {
+      taggedHistorySinceMs = nowMs;
+      patch.taggedHistorySinceMs = nowMs;
+    }
+  }
+  return {
+    lastTaggedFixAtMs,
+    taggedHistorySinceMs,
+    previousQualifyingAtMs: laterOf(prev.qualifyingAtMs, storedQualifying),
+    lastQualifyingFixAtMs: [self.qualifyingAtMs, prev.qualifyingAtMs, cur.qualifyingAtMs].reduce(laterOf, storedQualifying),
+    ownQualifyingAtMs: self.qualifyingAtMs,
+    replay,
+    patch,
+  };
+}
+
+/**
+ * Is a riderNavigationSessions write ONLY the app confirming a navigation fix
+ * (lastNavigationFixAt / updatedAt) on the same, still-navigating session?
+ * Such a write starts, replaces or ends nothing, so the session trigger skips
+ * it without a transaction.
+ */
+function isFixConfirmationOnly(before, after) {
+  if (!before || !after) return false;
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  for (const k of keys) {
+    if (k === "lastNavigationFixAt" || k === "updatedAt") continue;
+    if (!sameValue(before[k], after[k])) return false;
+  }
+  return after.state === "navigating" && !sameValue(before.lastNavigationFixAt, after.lastNavigationFixAt);
+}
+
+function sameValue(a, b) {
+  const ma = millisOf(a);
+  const mb = millisOf(b);
+  if (ma !== null || mb !== null) return ma === mb && typeof a === typeof b;
+  return a === b;
 }
 
 /**
@@ -372,8 +585,8 @@ const TRANSITION_KEYS = Object.freeze(["phase", "pendingOffSinceMs", "pendingRet
  * Advance the deviation state machine by ONE location sample.
  *
  *  * `sample.atMs` — the server write time of this fix (sampleFromLocation).
- *  * `previousSampleAtMs` — server time of the rider's PREVIOUS fix of the same
- *    session (previousSessionSampleAtMs), or null. A running timer survives
+ *  * `previousSampleAtMs` — server time of the last QUALIFYING fix of the same
+ *    session (continuityAnchors), or null. A running timer survives
  *    only if that previous fix is at most `maxSampleGapMs` older: 3 minutes is
  *    never inferred across a gap. The first qualifying off-route fix anchors
  *    `pendingOffSinceMs`; later ones keep that anchor.
@@ -601,6 +814,7 @@ module.exports = {
   TRACKING_STATES,
   SESSION_STATES,
   LOCATION_SCHEMA_VERSION,
+  NAVIGATION_CONTINUITY_VERSION,
   RETENTION,
   ROUTE_UNAVAILABLE_REASONS,
   normalizeStatus,
@@ -614,7 +828,13 @@ module.exports = {
   millisOf,
   sampleFromLocation,
   navigationFixDecision,
-  previousSessionSampleAtMs,
+  sessionFixTimes,
+  untaggedSessionIsStale,
+  hasConfirmedContinuity,
+  confirmedNavigationFixMs,
+  confirmedSessionIsStale,
+  isFixConfirmationOnly,
+  sessionEvidence,
   locationFreshness,
   initialDeviationState,
   TRANSITION_KEYS,

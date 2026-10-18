@@ -698,3 +698,22 @@ test("a batch priced under the legacy VAT-exclusive convention is never quoted o
   // An unpriced batch is still reported as unpriced first.
   assert.equal(codeOf(() => evaluate({ sellingPriceCentavos: null, priceIsVatInclusive: false })), "batch-unpriced");
 });
+
+// ---------------------------------------------------------------- proof/completion eligibility
+
+test("a delivery completes (and takes proof) only IN TRANSIT — Delayed must be resumed first", () => {
+  assert.deepEqual([...P.DELIVERABLE_FROM], ["in_transit"]);
+  for (const s of ["delayed", "assigned", "loading", "pending_dispatch", "delivery_failed", "cancelled", "delivered"]) {
+    assert.equal(P.DELIVERABLE_FROM.includes(s), false, s);
+  }
+  assert.match(P.DELAYED_NOT_COMPLETABLE_MESSAGE, /Delayed.*Resume it \(In Transit\)/);
+});
+
+test("the proof/completion callables accept the order id and nothing else", () => {
+  assert.doesNotThrow(() => P.assertOnlyOrderIdPayload({ orderId: "o1" }));
+  assert.doesNotThrow(() => P.assertOnlyOrderIdPayload(null));
+  assert.doesNotThrow(() => P.assertOnlyOrderIdPayload(undefined));
+  for (const bad of [{ orderId: "o1", status: "in_transit" }, { orderId: "o1", destinationLat: 1 }, { orderId: "o1", destinationGeofenceRadiusM: 9e9 }, { orderId: "o1", latitude: 1, longitude: 2 }, [], "o1"]) {
+    assert.throws(() => P.assertOnlyOrderIdPayload(bad), (e) => e.code === "invalid-payload", JSON.stringify(bad));
+  }
+});

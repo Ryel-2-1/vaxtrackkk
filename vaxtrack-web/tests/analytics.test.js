@@ -253,7 +253,7 @@ test("the full delivery time comes only from the server-stamped first dispatch",
   assert.ok(metrics.includes("timestampMs(order.firstDispatchedAt)"));
   assert.ok(metrics.includes("if (start == null || end == null || end <= start) continue;"));
   // The field is server-only and stamped once by the status-history trigger.
-  assert.match(read("firestore.rules"), /function serverOnlyOrderFields\(\)[\s\S]*?'firstDispatchedAt'\s*\]/);
+  assert.match(read("firestore.rules"), /function serverOnlyOrderFields\(\) \{\s*return \[[^\]]*'firstDispatchedAt'[^\]]*\];/);
   const events = read("functions/src/statusEvents.js");
   assert.ok(events.includes('event.to === "in_transit" && orderSnap.get("firstDispatchedAt") == null'));
 });

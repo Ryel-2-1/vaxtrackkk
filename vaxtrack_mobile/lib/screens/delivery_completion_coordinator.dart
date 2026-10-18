@@ -66,6 +66,7 @@ class DeliveryCompletionCoordinator extends ChangeNotifier {
       assignedRiderId: d.assignedRiderId,
       dataConfirmed: _dataConfirmed,
       statusEligible: d.canComplete,
+      statusDelayed: d.isDelayed,
       hasProof: d.hasProof,
       hasInvoice: d.hasInvoice,
       completionInProgress: _completing,

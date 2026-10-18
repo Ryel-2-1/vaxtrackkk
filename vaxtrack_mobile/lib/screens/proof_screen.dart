@@ -13,6 +13,8 @@ import '../utils/proof_validation.dart';
 import '../widgets/complete_delivery_confirm_sheet.dart';
 import '../widgets/proof_order_selector.dart';
 import 'proof_submission_controller.dart';
+import '../widgets/rider_action_button.dart';
+import '../widgets/rider_feed_builder.dart';
 
 /// Proof of Delivery — and, in the same action, completing the delivery.
 ///
@@ -53,6 +55,7 @@ class _ProofScreenState extends State<ProofScreen> {
 
   String? _riderId;
   String? _selectedOrderId;
+
   File? _proofPhoto;
   File? _invoicePhoto;
 
@@ -267,17 +270,22 @@ class _ProofScreenState extends State<ProofScreen> {
       },
       child: Scaffold(
         appBar: AppBar(title: const Text('Proof of Delivery')),
-        body: StreamBuilder<List<Delivery>>(
-          stream: _deliveryService.riderDeliveries(_riderId!),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
+        // Subscribed ONCE (RiderFeedBuilder), never in build(): every
+        // keystroke in the recipient field and every progress update calls
+        // setState, and a stream created in build() resubscribed each time —
+        // the form was replaced by a spinner on a white page for a frame, the
+        // white flash the Rider saw on every letter. A failed feed now shows a
+        // safe error with Retry instead of looking like "no deliveries".
+        body: RiderFeedBuilder<List<Delivery>>(
+          riderId: _riderId!,
+          open: _deliveryService.riderDeliveries,
+          component: 'ProofScreen',
+          what: 'your deliveries',
+          builder: (context, deliveries) {
             // Only deliveries that can still take proof and be completed are
             // choices; the selection is resolved by Firestore document id.
             final selection = resolveProofSelection(
-              deliveries: snapshot.data ?? const [],
+              deliveries: deliveries,
               riderUid: _riderId,
               selectedId: _selectedOrderId,
             );
@@ -651,23 +659,12 @@ class _ProofScreenState extends State<ProofScreen> {
       invoiceRecorded: order.hasRecordedInvoice,
     );
 
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton.icon(
-        key: const ValueKey('submit-and-complete'),
-        onPressed: ready ? () => _submitAndComplete(order) : null,
-        icon: _submission.isCommitting
-            ? const SizedBox(
-                height: 18,
-                width: 18,
-                child: CircularProgressIndicator(
-                    color: Colors.white, strokeWidth: 2),
-              )
-            : Icon(retryOnly ? Icons.refresh : Icons.check_circle),
-        label: Text(retryOnly
-            ? 'Retry Completion'
-            : 'Submit Proof & Complete Delivery'),
-      ),
+    return RiderActionButton(
+      key: const ValueKey('submit-and-complete'),
+      onPressed: ready ? () => _submitAndComplete(order) : null,
+      busy: _submission.isCommitting,
+      icon: retryOnly ? Icons.refresh : Icons.check_circle,
+      label: retryOnly ? 'Retry Completion' : kSubmitAndCompleteLabel,
     );
   }
 }

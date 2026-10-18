@@ -215,6 +215,7 @@ export const EVENT_LABELS = Object.freeze({
   return_quarantined: "Return quarantined",
   return_written_off: "Return written off",
   order_requeued: "Requeued after failed delivery",
+  delivery_running_late: "Running late (automatically delayed)",
 });
 
 const EVENT_TONES = Object.freeze({
@@ -231,6 +232,7 @@ const EVENT_TONES = Object.freeze({
   return_quarantined: "danger",
   return_written_off: "danger",
   order_requeued: "warning",
+  delivery_running_late: "warning",
 });
 
 export const SOURCE_LABELS = Object.freeze({
@@ -241,6 +243,7 @@ export const SOURCE_LABELS = Object.freeze({
   reportDeliveryFailure: "Failed-delivery report",
   settleClientReportedFailure: "Failed-delivery report",
   requeueFailedOrder: "Requeue",
+  evaluateDeliveryTiming: "Delivery timing",
   confirmReturnDisposition: "Return confirmation",
   allocateOnInventoryWrite: "Stock change",
   allocateOnOrderWrite: "Order queued",

@@ -25,6 +25,7 @@ import StatusBadge from "../../components/ui/StatusBadge";
 import KpiCard from "../../components/ui/KpiCard";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
+import { missingEtaWarning } from "../../services/deliveryTiming";
 import { ToastRegion } from "../../components/ui/Feedback";
 import { useToast } from "../../components/ui/useToast";
 import "./CargoLoading.css";
@@ -304,7 +305,17 @@ function DispatcherCargoLoading() {
           failureMessage="The dispatch could not be finalized. No order was moved — please try again."
           onCancel={() => setConfirmGroup(null)}
           onConfirm={() => handleFinalize(confirmGroup)}
-        />
+        >
+          {/* Non-blocking: dispatch stays available without a route ETA. */}
+          {(() => {
+            const warning = missingEtaWarning(confirmGroup.orders);
+            return warning ? (
+              <p className="m-dialog-warning" role="note">
+                {warning.text} <span className="tnum">({warning.orderLabels.join(", ")})</span>
+              </p>
+            ) : null;
+          })()}
+        </ConfirmDialog>
       )}
 
       {printGroup && (

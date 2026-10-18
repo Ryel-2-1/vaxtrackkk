@@ -207,6 +207,80 @@ test("moving outside after a successful preflight fails at completion; nothing i
   assert.deepEqual(await snapshot(), before);
 });
 
+// A passed preflight is early feedback only — it authorizes nothing. Each case
+// below passes the preflight, then the Rider's latest trusted fix changes
+// before the completion is pressed; completion re-reads it and refuses with no
+// Delivered transition, no consumption and no history. A NEW good fix then
+// completes exactly once, showing the decision is made at completion time.
+async function refusedAfterPassedPreflight({ change, completeAt = NOW, code }) {
+  await world();
+  await locate(north(100));
+  const passed = await preflight();
+  assert.equal(passed.eligible, true);
+  await change();
+  const before = await snapshot();
+  const at = completeAt;
+  assert.equal(
+    await codeOf(ops.markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid: RIDER, orderId: ORDER, now: at })),
+    code
+  );
+  const after = await snapshot();
+  assert.deepEqual(after, before, code);
+  assert.equal(after.order.status, "in_transit", code);
+  assert.equal(after.reservation.status, "reserved", code);
+  assert.equal(after.inventory.quantity, 10, code);
+  assert.equal(after.inventory.reservedQuantity, 2, code);
+  assert.equal(after.history, 0, code);
+  // Recovery is a fresh, good fix — not the earlier preflight.
+  await ref("riderLocations", RIDER).set({
+    riderUid: RIDER, trackingState: "active", latitude: CLINIC.lat, longitude: CLINIC.lng, accuracyMeters: 10,
+    capturedAt: Timestamp.fromMillis(at.getTime() - 5000), updatedAt: Timestamp.fromMillis(at.getTime() - 5000),
+  });
+  const done = await ops.markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid: RIDER, orderId: ORDER, now: at });
+  assert.equal(done.status, "delivered", code);
+  const settled = await snapshot();
+  assert.equal(settled.reservation.status, "consumed", code);
+  assert.equal(settled.inventory.quantity, 8, code);
+  assert.equal(settled.inventory.reservedQuantity, 0, code);
+}
+
+test("after a passed preflight, a latest fix OUTSIDE the radius refuses completion (no consumption, not Delivered)", async () => {
+  await refusedAfterPassedPreflight({
+    change: () => locate(north(RADIUS + 1), { ageMs: 5000 }),
+    code: "delivery-outside-geofence",
+  });
+});
+
+test("after a passed preflight, the fix going STALE (no new fix for over 3 min) refuses completion", async () => {
+  // The preflight saw a 20 s old fix; nothing new arrives, and the Rider
+  // presses Complete 3 min later (fix age 3 min 20 s > the 3 min limit).
+  await refusedAfterPassedPreflight({
+    change: async () => {},
+    completeAt: new Date(NOW.getTime() + 3 * 60 * 1000),
+    code: "rider-location-stale",
+  });
+});
+
+test("after a passed preflight, a latest fix with unacceptable ACCURACY refuses completion — even at the clinic", async () => {
+  await refusedAfterPassedPreflight({
+    change: () => locate(CLINIC, { ageMs: 5000, accuracyMeters: 101 }),
+    code: "rider-location-inaccurate",
+  });
+});
+
+test("an ASSIGNED order (not yet dispatched) is refused by the preflight and the completion, at the clinic with evidence", async () => {
+  await world({ order: { status: "assigned" } });
+  await locate(CLINIC);
+  const before = await snapshot();
+  assert.equal(await codeOf(preflight()), "invalid-status-transition");
+  assert.equal(await codeOf(complete()), "invalid-status-transition");
+  const after = await snapshot();
+  assert.deepEqual(after, before);
+  assert.equal(after.order.status, "assigned");
+  assert.equal(after.reservation.status, "reserved");
+  assert.equal(after.history, 0);
+});
+
 test("reassignment after a successful preflight fails at completion", async () => {
   await world();
   await locate(CLINIC);
@@ -245,4 +319,91 @@ test("route-deviation state never decides delivery eligibility", async () => {
   await ref("riderDeviationStates", RIDER).set({ sessionState: "navigating", routeStatus: "available", phase: "on_route" });
   await locate(north(700));
   assert.equal(await codeOf(preflight()), "delivery-outside-geofence");
+});
+
+// ---------------------------------------------------------------- proof/completion eligibility (Delayed bug)
+
+test("Delayed + inside the geofence: preflight and completion refuse 'delivery-delayed'; nothing changes", async () => {
+  await world({ order: { status: "delayed" } });
+  await locate(north(40));
+  const before = await snapshot();
+  await assert.rejects(preflight(), (e) => e.code === "delivery-delayed" && /Resume it \(In Transit\)/.test(e.message));
+  assert.equal(await codeOf(complete()), "delivery-delayed");
+  assert.deepEqual(await snapshot(), before, "no status, reservation, inventory or history change");
+});
+
+test("Delayed + outside the geofence: refused for being Delayed (status is decided before location)", async () => {
+  await world({ order: { status: "delayed" } });
+  await locate(north(900));
+  const before = await snapshot();
+  assert.equal(await codeOf(preflight()), "delivery-delayed");
+  assert.equal(await codeOf(complete()), "delivery-delayed");
+  assert.deepEqual(await snapshot(), before);
+});
+
+test("In Transit + outside: refused; In Transit + inside + valid location: completes once", async () => {
+  await world();
+  await locate(north(301)); // just beyond the configured 300 m radius
+  assert.equal(await codeOf(preflight()), "delivery-outside-geofence");
+  await locate(north(299), { ageMs: 1000 }); // within the configured radius
+  assert.equal((await preflight()).eligible, true);
+  assert.equal((await complete()).consumed, true);
+});
+
+test("reported Delayed after a successful preflight (e.g. during uploads): completion refuses, stock untouched; resuming allows it", async () => {
+  await world();
+  await locate(north(60));
+  assert.equal((await preflight()).eligible, true);
+  // The rider (or another device) reports a delay while the photos upload.
+  await ref("orders", ORDER).update({ status: "delayed" });
+  const before = await snapshot();
+  assert.equal(await codeOf(complete()), "delivery-delayed");
+  assert.deepEqual(await snapshot(), before, "not delivered, nothing consumed, reservation still reserved");
+  assert.equal(before.reservation.status, "reserved");
+  // Resumed (in transit) and still at the clinic: the recorded evidence completes it once.
+  await ref("orders", ORDER).update({ status: "in_transit" });
+  assert.equal((await complete()).consumed, true);
+  assert.equal((await get("inventory", "inv1")).quantity, 8);
+});
+
+test("only the order id is accepted: any client-supplied status, destination, radius or location is refused", async () => {
+  await world();
+  await locate(north(5000)); // far away — an override would be the only way in
+  const before = await snapshot();
+  for (const extra of [
+    { status: "in_transit" },
+    { destinationLat: north(5000).lat, destinationLng: north(5000).lng },
+    { destinationGeofenceRadiusM: 100000 },
+    { latitude: CLINIC.lat, longitude: CLINIC.lng, accuracyMeters: 1 },
+  ]) {
+    const payload = { orderId: ORDER, ...extra };
+    assert.equal(
+      await codeOf(ops.validateDeliveryCompletionGeofence({ db, uid: RIDER, orderId: ORDER, payload, now: NOW })),
+      "invalid-payload",
+      JSON.stringify(extra)
+    );
+    assert.equal(
+      await codeOf(ops.markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid: RIDER, orderId: ORDER, payload, now: NOW })),
+      "invalid-payload",
+      JSON.stringify(extra)
+    );
+  }
+  assert.deepEqual(await snapshot(), before);
+  // The normal request (order id only) is still decided on the server's own data.
+  const plain = ops.validateDeliveryCompletionGeofence({ db, uid: RIDER, orderId: ORDER, payload: { orderId: ORDER }, now: NOW });
+  assert.equal(await codeOf(plain), "delivery-outside-geofence");
+});
+
+test("repeated taps: concurrent completions consume the reservation exactly once", async () => {
+  await world();
+  await locate(north(20));
+  const results = await Promise.allSettled([complete(), complete(), complete()]);
+  const ok = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
+  assert.ok(ok.length >= 1, "at least one succeeds");
+  assert.equal(ok.filter((r) => r.consumed === true).length, 1, "exactly one consumes");
+  assert.equal((await get("inventory", "inv1")).quantity, 8);
+  assert.equal((await get("inventory", "inv1")).reservedQuantity, 0);
+  assert.equal((await get("inventoryReservations", ORDER)).status, "consumed");
+  assert.equal((await get("orders", ORDER)).status, "delivered");
+  assert.equal((await snapshot()).history, 1, "one consumption event");
 });

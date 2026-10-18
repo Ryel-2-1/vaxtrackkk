@@ -90,13 +90,23 @@ test("the callables are the only inventory-affecting entry points", () => {
     "trackNavigationSession",
     "syncRiderTrackingOnOrderWrite",
     "purgeRiderTrackingData",
+    // Automatic delivery timing (scheduled): advances an in-transit order's
+    // timingStatus and records one history event + alert. Never names
+    // inventory and never writes an order status (checked below).
+    "evaluateDeliveryTiming",
   ];
   const exported = [...index.matchAll(/^exports\.(\w+)\s*=/gm)].map((m) => m[1]);
   assert.deepEqual(
     exported.sort(),
     [...CALLABLE_NAMES, ...NON_CALLABLE_EXPORTS].sort(),
-    "exactly these callables, plus the ten triggers / scheduled jobs"
+    "exactly these callables, plus the triggers / scheduled jobs listed above"
   );
+  for (const p of ["functions/src/deliveryTiming.js", "functions/src/deliveryTimingOps.js"]) {
+    const code = read(p).replace(/^\s*(\*|\/\/).*$/gm, "");
+    assert.equal(/inventory|reservedQuantity|Centavos/i.test(code), false, `${p} never names inventory`);
+    assert.doesNotMatch(code, /status:\s*"(pending_dispatch|assigned|loading|in_transit|delayed|delivered|cancelled|delivery_failed)"/,
+      `${p} never writes an order status`);
+  }
   assert.match(index, /exports\.materializeOrderHistory = onDocumentWritten\(\s*\{ document: "orderHistoryOutbox\/\{orderId\}", retry: true \}/);
   const outboxModule = read("functions/src/orderHistoryOutbox.js").replace(/^\s*(\*|\/\/).*$/gm, "");
   assert.doesNotMatch(outboxModule, /status:\s*"(pending_dispatch|assigned|loading|in_transit|delayed|delivered|cancelled|delivery_failed)"/,

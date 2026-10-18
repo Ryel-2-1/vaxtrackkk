@@ -5,8 +5,10 @@ import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/delivery.dart';
 import '../services/delivery_service.dart';
+import '../services/rider_tracking_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/completion_gate.dart';
+import '../utils/delivery_timing.dart';
 import '../utils/google_maps_url.dart';
 import '../utils/nav_availability.dart';
 import '../utils/order_workflow.dart';
@@ -17,6 +19,7 @@ import 'delivery_completion_coordinator.dart';
 import 'proof_screen.dart';
 import 'route_monitoring_screen.dart';
 import 'package:intl/intl.dart';
+import '../widgets/rider_action_button.dart';
 
 class DeliveryDetailScreen extends StatefulWidget {
   final Delivery delivery;
@@ -440,6 +443,53 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     );
   }
 
+  // A session still running for this delivery outside In Transit (e.g. it was
+  // reported Delayed while navigating): open the screen whose Stop ends it. No
+  // status change and no destination pin are needed to stop.
+  Future<void> _openActiveNavigation() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => RouteMonitoringScreen(delivery: d)),
+    );
+  }
+
+  Widget _activeNavigationStop() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.info.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Navigation is still on for this delivery. You can stop it at any time — '
+            'no status change is needed.',
+            style: TextStyle(fontSize: 12, color: AppColors.textDark),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              key: const Key('openActiveNavigationStop'),
+              onPressed: _openActiveNavigation,
+              icon: const Icon(Icons.stop_circle_outlined),
+              label: const Text('Open navigation · Stop'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.urgent,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -639,8 +689,18 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
                   style: TextStyle(fontSize: 11, color: AppColors.textLight),
                 ),
               ),
-            ] else if (nav.statusPrompt != null) ...[
-              _statusPromptBox(nav.statusPrompt!),
+            ] else ...[
+              // Rebuilds when navigation starts/stops anywhere in the app.
+              AnimatedBuilder(
+                animation: riderTracking,
+                builder: (context, _) => NavigationAvailability.showsActiveNavigationStop(
+                  d,
+                  riderTracking.navigation?.orderId,
+                )
+                    ? _activeNavigationStop()
+                    : const SizedBox.shrink(),
+              ),
+              if (nav.statusPrompt != null) _statusPromptBox(nav.statusPrompt!),
             ],
           ],
         ),
@@ -813,6 +873,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
           children: [
             _cardHeader('Status Timeline'),
             const SizedBox(height: 12),
+            ..._timingRow(),
             _timelineEntry('Order Created', d.createdAt, true),
             _timelineEntry('Assigned', d.assignedAt, d.assignedAt != null),
             _timelineEntry(
@@ -830,6 +891,50 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
         ),
       ),
     );
+  }
+
+  /// The server's schedule condition, under the lifecycle (never instead of it).
+  List<Widget> _timingRow() {
+    final t = deliveryTimingDisplay(
+      status: d.status,
+      timingStatus: d.timingStatus,
+      expectedArrivalAt: d.expectedArrivalAt,
+      automaticDelayedAt: d.automaticDelayedAt,
+      now: DateTime.now(),
+    );
+    if (t == null) return const [];
+    final (Color fg, Color bg) = switch (t.tone) {
+      TimingTone.onTime => (AppColors.primaryDark, AppColors.primaryLight),
+      TimingTone.atRisk => (AppColors.warning, AppColors.warningBg),
+      TimingTone.late => (AppColors.urgent, AppColors.urgentBg),
+      TimingTone.unknown => (AppColors.textLight, AppColors.background),
+    };
+    return [
+      Semantics(
+        label: '${t.combinedLabel}. ${t.detail}',
+        child: ExcludeSemantics(
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                decoration: BoxDecoration(
+                  color: bg,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: fg.withValues(alpha: 0.35)),
+                ),
+                child: Text(t.combinedLabel,
+                    style: TextStyle(color: fg, fontWeight: FontWeight.w600, fontSize: 12)),
+              ),
+              Text(t.detail, style: const TextStyle(color: AppColors.textMedium, fontSize: 13)),
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(height: 8),
+    ];
   }
 
   Widget _timelineEntry(String label, DateTime? time, bool done) {
@@ -959,7 +1064,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
           ),
         if (d.canComplete)
           _actionButton(
-            'Submit Proof & Complete Delivery',
+            kSubmitAndCompleteLabel,
             Icons.check_circle,
             AppColors.primary,
             _onCompletePressed,
@@ -992,16 +1097,15 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     Color color,
     VoidCallback onTap,
   ) {
+    // Shared with the Proof screen: one line, one height, so the stacked
+    // actions read as a matching set (see RiderActionButton).
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: SizedBox(
-        width: double.infinity,
-        child: ElevatedButton.icon(
-          onPressed: _busy ? null : onTap,
-          icon: Icon(icon),
-          label: Text(label),
-          style: ElevatedButton.styleFrom(backgroundColor: color),
-        ),
+      child: RiderActionButton(
+        label: label,
+        icon: icon,
+        color: color,
+        onPressed: _busy ? null : onTap,
       ),
     );
   }

@@ -43,9 +43,10 @@ const {
 } = require("./allocation");
 const { statusUpdatedByEmailValue } = require("./attribution");
 const { routeFieldDeletes } = require("./orderRouteFields");
+const { TIMING_FIELDS } = require("./deliveryTiming");
 const { settleFailureReturn, failureWouldSettle } = require("./failureReturn");
 const { PRICES_INCLUDE_VAT } = require("./pricingConfig");
-const { dispositionEvent, epochOf, requeueEvent, prepareEvents, createPreparedEvents } = require("./orderHistory");
+const { dispositionEvents, epochOf, requeueEvent, prepareEvents, createPreparedEvents } = require("./orderHistory");
 
 const ORDERS = "orders";
 const INVENTORY = "inventory";
@@ -292,16 +293,90 @@ async function reportDeliveryFailure({ db, FieldValue, uid, email = null, payloa
 
 // ---------------------------------------------------------------- disposition
 
+/** A whole-return decision split across a return's batches, or a split decision. */
+const SPLIT_DISPOSITION = "split";
+
+/**
+ * The per-batch outcome of a return, normalized against the return's own
+ * batches: [{ inventoryId, usable, damaged, temperature_excursion, missing }],
+ * in the return's batch order. [requested] is either a single disposition (every
+ * unit of every batch gets it) or the caller's `lines`. A line must name each
+ * batch of the return exactly once, use only whole non-negative numbers, and
+ * account for exactly that batch's returned quantity — nothing more, nothing
+ * left over. Pure; throws PolicyError("invalid-disposition-lines") otherwise.
+ */
+function normalizeDispositionLines(returnItems, { disposition = null, lines = null } = {}) {
+  const batches = [...unitsByBatch(returnItems)];
+  if (lines == null) {
+    return batches.map(([inventoryId, quantity]) => ({
+      inventoryId,
+      ...Object.fromEntries(RETURN_DISPOSITIONS.map((d) => [d, d === disposition ? quantity : 0])),
+    }));
+  }
+  const bad = (message) => new PolicyError("invalid-disposition-lines", message);
+  if (!Array.isArray(lines) || lines.length !== batches.length) {
+    throw bad("Record an outcome for every batch on this return.");
+  }
+  const byId = new Map();
+  for (const line of lines) {
+    if (!line || typeof line !== "object" || Array.isArray(line)) throw bad("Each batch outcome must list quantities.");
+    const extra = Object.keys(line).filter((k) => k !== "inventoryId" && !RETURN_DISPOSITIONS.includes(k));
+    if (extra.length > 0) throw bad("Only usable, damaged, temperature excursion and missing quantities can be recorded.");
+    if (typeof line.inventoryId !== "string" || byId.has(line.inventoryId)) throw bad("Each batch must appear exactly once.");
+    byId.set(line.inventoryId, line);
+  }
+  return batches.map(([inventoryId, quantity]) => {
+    const line = byId.get(inventoryId);
+    if (!line) throw bad("Record an outcome for every batch on this return.");
+    const out = { inventoryId };
+    let total = 0;
+    for (const d of RETURN_DISPOSITIONS) {
+      const v = line[d] ?? 0;
+      if (!Number.isInteger(v) || v < 0) throw bad("Quantities must be whole numbers, zero or more.");
+      out[d] = v;
+      total += v;
+    }
+    if (total !== quantity) {
+      throw bad(`The quantities for each batch must add up to the ${quantity} returned.`);
+    }
+    return out;
+  });
+}
+
+/** Same per-batch outcome, whatever order Firestore returned the map keys in. */
+function sameDispositionLines(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  return a.every((line, i) =>
+    line?.inventoryId === b[i]?.inventoryId &&
+    RETURN_DISPOSITIONS.every((d) => (line?.[d] ?? 0) === (b[i]?.[d] ?? 0)));
+}
+
+/** The single disposition a set of lines amounts to, or "split" when mixed. */
+function dispositionOfLines(lines) {
+  const used = RETURN_DISPOSITIONS.filter((d) => lines.some((l) => l[d] > 0));
+  return used.length === 1 ? used[0] : SPLIT_DISPOSITION;
+}
+
 /**
  * An admin records what physically came back. usable → available again and
  * immediately reallocated; damaged / temperature_excursion → quarantined
  * (still on hand, never allocated); missing → written off (on hand reduced).
+ *
+ * Either one `disposition` for the whole return, or `lines`: per batch, how
+ * many vials were usable, damaged, temperature-excursion or missing (each
+ * batch's figures must add up to what was returned). Only the usable quantity
+ * becomes available and is reallocated. A return is decided once: the same
+ * decision again replays without writing; a different one is refused.
  */
 async function confirmReturnDisposition({ db, FieldValue, uid, payload, now }) {
   await loadApproved(db, uid, "admin");
   const returnId = validateDocumentId(payload?.returnId, "That return could not be identified.");
-  const disposition = payload?.disposition;
-  if (!RETURN_DISPOSITIONS.includes(disposition)) {
+  const hasLines = payload?.lines !== undefined && payload?.lines !== null;
+  const requestedDisposition = payload?.disposition ?? null;
+  if (hasLines && requestedDisposition !== null) {
+    throw new PolicyError("invalid-disposition", "Record either one outcome for the whole return or quantities per batch, not both.");
+  }
+  if (!hasLines && !RETURN_DISPOSITIONS.includes(requestedDisposition)) {
     throw new PolicyError("invalid-disposition", "Choose returned and usable, damaged, temperature excursion or missing.");
   }
   let notes = null;
@@ -317,13 +392,20 @@ async function confirmReturnDisposition({ db, FieldValue, uid, payload, now }) {
     const snap = await tx.get(returnRef);
     if (!snap.exists) throw new PolicyError("return-not-found", "That return no longer exists.");
     const ret = snap.data();
+    const decided = normalizeDispositionLines(ret.items, { disposition: requestedDisposition, lines: hasLines ? payload.lines : null });
+    const disposition = requestedDisposition ?? dispositionOfLines(decided);
     if (ret.status === "resolved") {
-      if (ret.disposition === disposition) {
-        return { returnId, disposition, replayed: true, productKeys: [] };
-      }
+      // The same decision again (a retry) replays; anything else is refused.
+      // A return resolved before per-batch outcomes existed has no stored
+      // lines: it matches the same single disposition only.
+      const same = Array.isArray(ret.dispositionLines)
+        ? sameDispositionLines(ret.dispositionLines, decided)
+        : ret.disposition === disposition && disposition !== SPLIT_DISPOSITION;
+      if (same) return { returnId, disposition: ret.disposition, replayed: true, productKeys: [] };
       throw new PolicyError("return-already-resolved", "This return was already resolved with a different disposition.");
     }
     const perBatch = [...unitsByBatch(ret.items)];
+    const decidedById = new Map(decided.map((l) => [l.inventoryId, l]));
     const refs = perBatch.map(([id]) => db.collection(INVENTORY).doc(id));
     const snaps = [];
     for (const ref of refs) snaps.push(await tx.get(ref));
@@ -336,7 +418,14 @@ async function confirmReturnDisposition({ db, FieldValue, uid, payload, now }) {
     const preparedHistory = orderSnap
       ? await prepareEvents(tx, {
           db,
-          events: [dispositionEvent({ returnId, ret, order: orderSnap.exists ? orderSnap.data() : null, disposition, uid })],
+          events: dispositionEvents({
+            returnId,
+            ret,
+            order: orderSnap.exists ? orderSnap.data() : null,
+            disposition,
+            lines: disposition === SPLIT_DISPOSITION ? decided : null,
+            uid,
+          }),
         })
       : [];
     perBatch.forEach(([inventoryId, quantity], i) => {
@@ -346,25 +435,32 @@ async function confirmReturnDisposition({ db, FieldValue, uid, payload, now }) {
       if (!returning.ok || returning.value < quantity) {
         throw new PolicyError("inventory-invariant-broken", "This batch's return-pending figure does not cover the return and needs review.", { inventoryId });
       }
+      // Usable units simply leave return-pending (on hand, so available again);
+      // damaged and temperature-excursion units move to quarantine; missing
+      // units are written off.
+      const line = decidedById.get(inventoryId);
       const update = { returnPendingQuantity: returning.value - quantity, updatedAt: FieldValue.serverTimestamp() };
-      if (disposition === "damaged" || disposition === "temperature_excursion") {
+      const toQuarantine = line.damaged + line.temperature_excursion;
+      if (toQuarantine > 0) {
         const q = readReservedQuantity(data.quarantinedQuantity);
         if (!q.ok) throw new PolicyError("inventory-invariant-broken", "This batch's quarantine figure is not valid.", { inventoryId });
-        update.quarantinedQuantity = q.value + quantity;
-      } else if (disposition === "missing") {
+        update.quarantinedQuantity = q.value + toQuarantine;
+      }
+      if (line.missing > 0) {
         const onHand = readStockInteger(data.quantity);
-        if (!onHand.ok || onHand.value < quantity) {
+        if (!onHand.ok || onHand.value < line.missing) {
           throw new PolicyError("inventory-invariant-broken", "This batch's stock does not cover the write-off.", { inventoryId });
         }
-        update.quantity = onHand.value - quantity;
+        update.quantity = onHand.value - line.missing;
         const w = readReservedQuantity(data.writtenOffQuantity);
-        update.writtenOffQuantity = (w.ok ? w.value : 0) + quantity;
+        update.writtenOffQuantity = (w.ok ? w.value : 0) + line.missing;
       }
       tx.update(refs[i], update);
     });
     tx.update(returnRef, {
       status: "resolved",
       disposition,
+      dispositionLines: decided,
       notes,
       resolvedByUid: uid,
       resolvedAt: FieldValue.serverTimestamp(),
@@ -378,11 +474,18 @@ async function confirmReturnDisposition({ db, FieldValue, uid, payload, now }) {
       // Recorded once: a repeated decision replays above without writing.
       createPreparedEvents(tx, { FieldValue, prepared: preparedHistory });
     }
+    // Only products with usable units go back to the allocator.
+    const usableKeys = new Set();
+    for (const item of Array.isArray(ret.items) ? ret.items : []) {
+      if ((decidedById.get(item.inventoryId)?.usable ?? 0) > 0 && typeof item.productKey === "string" && item.productKey) {
+        usableKeys.add(item.productKey);
+      }
+    }
     return {
       returnId,
       disposition,
       replayed: false,
-      productKeys: disposition === "usable" ? (ret.productKeys ?? []) : [],
+      productKeys: [...usableKeys].sort(),
     };
   });
 
@@ -485,6 +588,17 @@ async function requeueFailedOrder({ db, FieldValue, uid, email = null, payload, 
       assignedRiderName: null,
       assignedRiderPhone: null,
       isLoaded: false,
+      // A new custody epoch: the old loading confirmation belonged to the
+      // previous assignment and its vials went back through the failure
+      // return. Left in place it would make cancelling the requeued order
+      // (before anyone loads it) hold its fresh reservation as a return.
+      // Dispatchers cannot clear it (firestore.rules); only this server step.
+      loadedAt: FieldValue.delete(),
+      loadedByUid: FieldValue.delete(),
+      loadedByEmail: FieldValue.delete(),
+      // The delivery-timing baseline belonged to the failed dispatch; the next
+      // dispatch freezes its own (deliveryTiming.js).
+      ...Object.fromEntries(TIMING_FIELDS.map((f) => [f, FieldValue.delete()])),
       // The saved route/trip started at the previous rider's position: it is
       // stale for whoever is assigned next. The dispatcher regenerates it.
       ...routeFieldDeletes(order, FieldValue),
@@ -602,7 +716,10 @@ async function getReservationProvenance({ db, uid, payload, now }) {
       orderId: r.orderId ?? null,
       orderNumber: r.orderNumber ?? null,
       quantity: (r.items ?? []).filter((x) => x?.inventoryId === inventoryId).reduce((s, x) => s + (x.quantity || 0), 0),
+      source: r.source ?? "delivery_failed",
       failureReason: r.failureReason ?? null,
+      cancelReason: r.cancelReason ?? null,
+      cancelledFromStatus: r.cancelledFromStatus ?? null,
     };
   });
   const reserved = readReservedQuantity(batch.reservedQuantity);
@@ -648,6 +765,9 @@ module.exports = {
   addStockBatchWithAllocation,
   reportDeliveryFailure,
   confirmReturnDisposition,
+  normalizeDispositionLines,
+  dispositionOfLines,
+  SPLIT_DISPOSITION,
   requeueFailedOrder,
   getReservationProvenance,
   productKeysForInventoryWrite,

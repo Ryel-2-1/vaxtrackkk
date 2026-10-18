@@ -413,6 +413,7 @@ test("retrying any transition sample is idempotent: no change, no event", () => 
 const ts = (ms) => ({ toMillis: () => ms });
 const SESSION = { sessionId: "sessCurrent01", orderId: "orderNav", riderUid: "rider1", state: "navigating", startedAt: ts(T0) };
 const fix = (over = {}) => ({
+  riderUid: "rider1",
   trackingState: "active", latitude: 14.6, longitude: 121.0025, accuracyMeters: 8,
   capturedAt: ts(T0 + 30000), updatedAt: ts(T0 + 30000),
   navigationSessionId: "sessCurrent01", activeOrderId: "orderNav",
@@ -430,7 +431,8 @@ test("deviation time is the SERVER write time; a late-delivered fix is refused",
 });
 
 test("A-F1: only a fix tagged with the CURRENT session and order is ever evaluated", () => {
-  const d = (over) => T.navigationFixDecision({ session: SESSION, location: fix(over) });
+  // A state created with the session records every tagged fix from its start.
+  const d = (over) => T.navigationFixDecision({ session: SESSION, location: fix(over), taggedHistorySinceMs: T0 });
   assert.deepEqual(d({}), { action: "evaluate", reason: null });
   // Ordinary tracking (untagged): never measured against the route.
   assert.deepEqual(d({ navigationSessionId: null, activeOrderId: null, updatedAt: ts(T0 + 59999) }), { action: "ignore", reason: "untagged_fix" });
@@ -446,12 +448,184 @@ test("A-F1: only a fix tagged with the CURRENT session and order is ever evaluat
   assert.equal(T.SESSION_RULES.untaggedGraceMs, 60000);
 });
 
-test("continuity counts only a previous fix of the SAME session, by server time", () => {
-  assert.equal(T.previousSessionSampleAtMs(fix(), "sessCurrent01"), T0 + 30000);
-  assert.equal(T.previousSessionSampleAtMs(fix({ navigationSessionId: null }), "sessCurrent01"), null, "ordinary fix = gap");
-  assert.equal(T.previousSessionSampleAtMs(fix({ navigationSessionId: "sessOther0001" }), "sessCurrent01"), null);
-  assert.equal(T.previousSessionSampleAtMs(fix({ trackingState: "ended" }), "sessCurrent01"), null);
-  assert.equal(T.previousSessionSampleAtMs(null, "sessCurrent01"), null);
+test("session fix times: tagged = proof of navigation; qualifying = usable for the timer", () => {
+  assert.deepEqual(T.sessionFixTimes(fix(), SESSION), { taggedAtMs: T0 + 30000, qualifyingAtMs: T0 + 30000 });
+  assert.deepEqual(T.sessionFixTimes(fix({ accuracyMeters: 150 }), SESSION), { taggedAtMs: T0 + 30000, qualifyingAtMs: null }, "inaccurate: tagged, not qualifying");
+  assert.deepEqual(T.sessionFixTimes(fix({ capturedAt: ts(T0 - 40000) }), SESSION), { taggedAtMs: T0 + 30000, qualifyingAtMs: null }, "delivered late");
+  for (const over of [{ navigationSessionId: null, activeOrderId: null }, { navigationSessionId: "sessOther0001" }, { activeOrderId: "otherOrder" }, { trackingState: "ended" }, { latitude: 0, longitude: 0 }]) {
+    assert.deepEqual(T.sessionFixTimes(fix(over), SESSION), { taggedAtMs: null, qualifyingAtMs: null }, JSON.stringify(over));
+  }
+  assert.deepEqual(T.sessionFixTimes(null, SESSION), { taggedAtMs: null, qualifyingAtMs: null });
+});
+
+test("abandonment race: a live session with a tagged fix seconds ago SURVIVES an accidental untagged fix", () => {
+  const thirtyMin = T0 + 30 * 60 * 1000;
+  const untagged = fix({ navigationSessionId: null, activeOrderId: null, capturedAt: ts(thirtyMin), updatedAt: ts(thirtyMin) });
+  // 30 minutes after the start, last tagged fix 10 s ago: still navigating.
+  const decide = (location, lastTaggedFixAtMs, taggedHistorySinceMs = T0) =>
+    T.navigationFixDecision({ session: SESSION, location, lastTaggedFixAtMs, taggedHistorySinceMs });
+  assert.deepEqual(decide(untagged, thirtyMin - 10000), { action: "ignore", reason: "untagged_fix" });
+  assert.deepEqual(decide(untagged, thirtyMin - 179999).action, "ignore");
+  // Genuinely stale: no tagged fix for 3 minutes.
+  assert.deepEqual(decide(untagged, thirtyMin - 180000), { action: "end", reason: "abandoned" });
+  // Never any tagged fix: the start-up grace applies from the session start.
+  const early = fix({ navigationSessionId: null, activeOrderId: null, updatedAt: ts(T0 + 59999) });
+  assert.equal(decide(early, null).action, "ignore");
+  assert.equal(decide({ ...early, updatedAt: ts(T0 + 60000) }, null).reason, "abandoned");
+  assert.equal(T.SESSION_RULES.staleAfterMs, 180000);
+});
+
+test("missing history is never proof of staleness; a record that began mid-session must cover a full stale period", () => {
+  const thirtyMin = T0 + 30 * 60 * 1000;
+  const untagged = fix({ navigationSessionId: null, activeOrderId: null, capturedAt: ts(thirtyMin), updatedAt: ts(thirtyMin) });
+  // No record at all (no own state): never abandoned, whatever the age.
+  assert.equal(T.navigationFixDecision({ session: SESSION, location: untagged }).action, "ignore");
+  assert.equal(T.navigationFixDecision({ session: SESSION, location: untagged, lastTaggedFixAtMs: T0 + 1000 }).action, "ignore");
+  // Recording began 10 s ago (a state from before recording existed): the old
+  // stored time is not trusted; a full stale period from the record start is.
+  const since = thirtyMin - 10000;
+  const stale = (w, last = T0 + 1000) => T.untaggedSessionIsStale({ writtenMs: w, startedMs: T0, lastTaggedFixAtMs: last, taggedHistorySinceMs: since });
+  assert.equal(stale(thirtyMin), false);
+  assert.equal(stale(since + 179999), false);
+  assert.equal(stale(since + 180000), true);
+  assert.equal(stale(since + 180000, since + 100000), false, "a tagged fix recorded after the start moves the clock");
+  // Complete record from the start: grace without a tagged fix, stale period with one.
+  const complete = (w, last) => T.untaggedSessionIsStale({ writtenMs: w, startedMs: T0, lastTaggedFixAtMs: last, taggedHistorySinceMs: T0 });
+  assert.deepEqual([complete(T0 + 59999, null), complete(T0 + 60000, null)], [false, true]);
+  assert.deepEqual([complete(T0 + 300000, T0 + 120001), complete(T0 + 300000, T0 + 120000)], [false, true]);
+  assert.equal(T.untaggedSessionIsStale({ writtenMs: T0 + 999999, startedMs: T0, lastTaggedFixAtMs: null, taggedHistorySinceMs: null }), false);
+});
+
+test("session evidence: every observed tagged/qualifying fix is recorded, forward only, exact session/order/rider", () => {
+  const state = { sessionId: "sessCurrent01", sessionState: "navigating", taggedHistorySinceMs: T0 };
+  const good = (sec, over = {}) => fix({ capturedAt: ts(T0 + sec * 1000), updatedAt: ts(T0 + sec * 1000), ...over });
+  const untagged = (sec) => good(sec, { navigationSessionId: null, activeOrderId: null });
+  const ev = (o) => T.sessionEvidence({ session: SESSION, state, ...o });
+
+  // An evaluated fix records ITSELF; continuity comes from the fix before it.
+  const self = ev({ location: good(60), previous: good(30) });
+  assert.deepEqual(self.patch, { lastTaggedFixAtMs: T0 + 60000, lastQualifyingFixAtMs: T0 + 60000 });
+  assert.deepEqual([self.previousQualifyingAtMs, self.ownQualifyingAtMs, self.replay], [T0 + 30000, T0 + 60000, false]);
+  // Replayed after it was recorded: recognised, nothing to store.
+  const recorded = { ...state, ...self.patch };
+  const replay = T.sessionEvidence({ session: SESSION, state: recorded, location: good(60), previous: good(30) });
+  assert.deepEqual([replay.replay, replay.patch], [true, {}]);
+  // Untagged fix whose previous fix was tagged: the tagged one is recorded.
+  assert.deepEqual(ev({ location: untagged(70), previous: good(60) }).patch, { lastTaggedFixAtMs: T0 + 60000, lastQualifyingFixAtMs: T0 + 60000 });
+  // The stored CURRENT document adds tagged evidence only (never a qualifying
+  // time: it may not have been evaluated yet).
+  assert.deepEqual(ev({ location: untagged(40), previous: untagged(30), current: good(90) }).patch, { lastTaggedFixAtMs: T0 + 90000 });
+  // Never backwards.
+  const later = { ...state, lastTaggedFixAtMs: T0 + 100000, lastQualifyingFixAtMs: T0 + 100000 };
+  const older = T.sessionEvidence({ session: SESSION, state: later, location: untagged(80), previous: good(60) });
+  assert.deepEqual([older.patch, older.lastTaggedFixAtMs], [{}, T0 + 100000]);
+  // Inaccurate / late tagged fixes are evidence of navigation, never continuity.
+  assert.deepEqual(ev({ location: good(90, { accuracyMeters: 150 }), previous: untagged(80) }).patch, { lastTaggedFixAtMs: T0 + 90000 });
+  // Another session, order or rider contributes nothing.
+  for (const over of [{ navigationSessionId: "sessOther0001" }, { activeOrderId: "otherOrder" }, { riderUid: "rider2" }]) {
+    assert.deepEqual(ev({ location: untagged(70), previous: good(60, over), current: good(65, over) }).patch, {}, JSON.stringify(over));
+  }
+  // A state of another session: nothing is recorded and no history is known.
+  const other = T.sessionEvidence({ session: SESSION, state: { ...state, sessionId: "sessOther0001" }, location: untagged(70), previous: good(60) });
+  assert.deepEqual([other.patch, other.taggedHistorySinceMs, other.lastTaggedFixAtMs], [{}, null, T0 + 60000]);
+  // A state written before recording existed: recording starts now, once.
+  const legacy = { sessionId: "sessCurrent01", sessionState: "navigating", lastTaggedFixAtMs: T0 + 1000 };
+  const first = T.sessionEvidence({ session: SESSION, state: legacy, location: untagged(500), previous: untagged(490), nowMs: T0 + 500000 });
+  assert.deepEqual([first.patch, first.taggedHistorySinceMs], [{ taggedHistorySinceMs: T0 + 500000 }, T0 + 500000]);
+});
+
+test("session fix times: only this rider's fixes count", () => {
+  assert.deepEqual(T.sessionFixTimes(fix({ riderUid: "rider2" }), SESSION), { taggedAtMs: null, qualifyingAtMs: null });
+});
+
+// ---------------------------------------------------------------- confirmed continuity (navigation continuity version 1)
+
+const CONFIRMED = { ...SESSION, continuityVersion: 1 };
+const untaggedAt = (ms) => fix({ navigationSessionId: null, activeOrderId: null, capturedAt: ts(ms), updatedAt: ts(ms) });
+
+test("confirmed continuity: the session's own anchor decides, whatever the trigger evidence says", () => {
+  assert.equal(T.NAVIGATION_CONTINUITY_VERSION, 1);
+  const decide = (session, writtenMs, extra = {}) => T.navigationFixDecision({ session, location: untaggedAt(writtenMs), ...extra });
+  // Tn confirmed 155 s before U2; the trigger record still says T(n-1) at -30 s
+  // with a complete history — the legacy rule would abandon (REPRO-1).
+  const tn = T0 + 3600000;
+  const confirmed = { ...CONFIRMED, startedAt: ts(T0), lastNavigationFixAt: ts(tn) };
+  const evidence = { lastTaggedFixAtMs: tn - 30000, taggedHistorySinceMs: T0, lastQualifyingFixAtMs: tn - 30000 };
+  assert.deepEqual(decide({ ...SESSION, startedAt: ts(T0) }, tn + 155000, evidence), { action: "end", reason: "abandoned" }, "legacy session: the race");
+  assert.deepEqual(decide(confirmed, tn + 155000, evidence), { action: "ignore", reason: "untagged_fix" });
+  assert.deepEqual(decide(confirmed, tn + 179999, evidence).action, "ignore");
+  assert.deepEqual(decide(confirmed, tn + 180000, evidence), { action: "end", reason: "abandoned" }, "a genuinely stale session still ends");
+  // Startup grace (REPRO-2): Tn confirmed at +50 s, U2 at +65 s.
+  assert.equal(decide({ ...CONFIRMED, lastNavigationFixAt: ts(T0 + 50000) }, T0 + 65000).action, "ignore");
+  assert.equal(decide(CONFIRMED, T0 + 59999).action, "ignore", "no confirmation yet: inside the grace");
+  assert.deepEqual(decide(CONFIRMED, T0 + 60000), { action: "end", reason: "abandoned" }, "grace expired with no qualifying fix");
+  // Trigger evidence can only extend a confirmed session, never shorten it.
+  assert.equal(decide({ ...CONFIRMED, lastNavigationFixAt: ts(T0 + 10000) }, T0 + 250000, { lastQualifyingFixAtMs: T0 + 100000 }).action, "ignore");
+});
+
+test("confirmed continuity: only QUALIFYING fixes keep a session alive; tagged-only evidence does not", () => {
+  // Inaccurate or late tagged fixes reach the trigger evidence as tagged, never
+  // qualifying: with confirmed continuity they do not extend the session.
+  const last = T0 + 1000;
+  const r = T.navigationFixDecision({
+    session: { ...CONFIRMED, lastNavigationFixAt: ts(last) },
+    location: untaggedAt(last + 180000),
+    lastTaggedFixAtMs: last + 170000, // a poor-accuracy tagged fix 10 s ago
+    taggedHistorySinceMs: T0,
+    lastQualifyingFixAtMs: last,
+  });
+  assert.deepEqual(r, { action: "end", reason: "abandoned" });
+});
+
+test("confirmed anchor: a value at or before the start, a non-timestamp, or an undeclared session is ignored", () => {
+  assert.equal(T.confirmedNavigationFixMs({ ...CONFIRMED, lastNavigationFixAt: ts(T0 + 5) }), T0 + 5);
+  assert.equal(T.confirmedNavigationFixMs({ ...CONFIRMED, lastNavigationFixAt: ts(T0) }), null, "not after the start");
+  assert.equal(T.confirmedNavigationFixMs({ ...CONFIRMED, lastNavigationFixAt: "2026-10-10" }), null);
+  assert.equal(T.confirmedNavigationFixMs({ ...SESSION, lastNavigationFixAt: ts(T0 + 5) }), null, "no continuity declared");
+  assert.equal(T.confirmedNavigationFixMs({ ...SESSION, continuityVersion: 2, lastNavigationFixAt: ts(T0 + 5) }), null);
+  assert.equal(T.confirmedNavigationFixMs(null), null);
+  // Staleness boundaries.
+  const stale = (w, last) => T.confirmedSessionIsStale({ writtenMs: w, startedMs: T0, lastQualifyingFixAtMs: last });
+  assert.deepEqual([stale(T0 + 59999, null), stale(T0 + 60000, null)], [false, true]);
+  assert.deepEqual([stale(T0 + 300000, T0 + 120001), stale(T0 + 300000, T0 + 120000)], [false, true]);
+  assert.equal(stale(T0 + 60000, T0), true, "a 'fix' at the start time is not after it: grace applies");
+  assert.equal(T.confirmedSessionIsStale({ writtenMs: T0 + 999999, startedMs: null, lastQualifyingFixAtMs: null }), false, "no server start: never");
+  assert.equal(T.confirmedSessionIsStale({ writtenMs: NaN, startedMs: T0, lastQualifyingFixAtMs: null }), false);
+});
+
+test("session evidence reports the newest QUALIFYING fix it sees, including the stored current one", () => {
+  const state = { sessionId: "sessCurrent01", sessionState: "navigating", taggedHistorySinceMs: T0, lastQualifyingFixAtMs: T0 + 20000 };
+  const good = (sec, over = {}) => fix({ capturedAt: ts(T0 + sec * 1000), updatedAt: ts(T0 + sec * 1000), ...over });
+  const untagged = (sec) => good(sec, { navigationSessionId: null, activeOrderId: null });
+  const ev = T.sessionEvidence({ session: SESSION, state, location: untagged(40), previous: untagged(30), current: good(90) });
+  assert.equal(ev.lastQualifyingFixAtMs, T0 + 90000);
+  assert.deepEqual(ev.patch, { lastTaggedFixAtMs: T0 + 90000 }, "the current doc is still recorded as tagged evidence only");
+  const poor = T.sessionEvidence({ session: SESSION, state, location: untagged(40), previous: good(30, { accuracyMeters: 150 }) });
+  assert.equal(poor.lastQualifyingFixAtMs, T0 + 20000, "inaccurate: not qualifying");
+});
+
+test("the session trigger skips a write that only confirms a navigation fix", () => {
+  const base = { riderUid: "rider1", orderId: "orderNav", sessionId: "sessCurrent01", state: "navigating", startedAt: ts(T0), updatedAt: ts(T0), endedAt: null, endReason: null, continuityVersion: 1 };
+  const confirmed = { ...base, lastNavigationFixAt: ts(T0 + 30000), updatedAt: ts(T0 + 31000) };
+  assert.equal(T.isFixConfirmationOnly(base, confirmed), true);
+  assert.equal(T.isFixConfirmationOnly(confirmed, { ...confirmed, lastNavigationFixAt: ts(T0 + 60000), updatedAt: ts(T0 + 61000) }), true);
+  // Anything that starts, replaces or ends a session is handled.
+  assert.equal(T.isFixConfirmationOnly(confirmed, { ...confirmed, state: "ended", endReason: "rider_stopped", endedAt: ts(T0 + 90000) }), false);
+  assert.equal(T.isFixConfirmationOnly(confirmed, { ...base, sessionId: "sessNext00001", startedAt: ts(T0 + 90000) }), false);
+  assert.equal(T.isFixConfirmationOnly(base, { ...base, updatedAt: ts(T0 + 5) }), false, "no confirmation in it");
+  assert.equal(T.isFixConfirmationOnly(null, base), false);
+  assert.equal(T.isFixConfirmationOnly(base, null), false);
+});
+
+test("strict continuity: an inaccurate fix neither bridges a real gap nor breaks a short one", () => {
+  const far = north(800);
+  // good 0 → [inaccurate 100] → good 200: the qualifying gap is 200 s > 2 min → the anchor restarts at 200.
+  const bridged = run([sample(far, 0)]);
+  const after = run([sample(far, 200)], { state: bridged.state, prev: at(0) });
+  assert.deepEqual([after.state.pendingOffSinceMs, after.events.length], [at(200), 0]);
+  // good 0 → [inaccurate 30] → good 60: qualifying gap 60 s → the anchor stays at 0.
+  const short = run([sample(far, 60)], { state: bridged.state, prev: at(0) });
+  assert.equal(short.state.pendingOffSinceMs, at(0));
 });
 
 test("DEV-2: 30-second navigation fixes keep the FIRST anchor; no alert at 2:59, exactly one at 3:00", () => {

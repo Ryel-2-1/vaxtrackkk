@@ -235,6 +235,27 @@ void main() {
       ]);
     });
 
+    test('reported Delayed after the preflight: the server refuses, resume wording, retry is completion-only', () async {
+      completer.results.add(refusal(kDeliveryDelayed));
+      expect(await run(), isFalse);
+      expect(c.isCompleted, isFalse);
+      expect(c.isCompletionPending, isTrue);
+      expect(c.errorMessage, kDelayedNotCompletableMessage);
+      expect(c.completionFailureDetail, ProofSubmissionController.evidenceKeptMessage);
+      // Resumed and pressed again: no second upload or record.
+      expect(await run(), isTrue);
+      expect(log.calls.where((x) => x.startsWith('upload') || x.startsWith('record')).length, 4);
+      expect(log.calls.where((x) => x == 'complete').length, 2);
+    });
+
+    test('a Delayed refusal at the preflight uploads and records nothing', () async {
+      geofence.results.add(refusal(kDeliveryDelayed));
+      expect(await run(), isFalse);
+      expect(log.calls, ['geofence']);
+      expect(c.errorMessage, kDelayedNotCompletableMessage);
+      expect(c.hasPendingUpload, isFalse);
+    });
+
     test('reassignment after the preflight: the not-completable reason, no duplicate evidence', () async {
       completer.results.add(refusal('not-assigned-rider'));
       expect(await run(), isFalse);
@@ -272,6 +293,9 @@ void main() {
       expect(map(kGeofenceUnavailable).message, kTrackingStoppedMessage);
       expect(map(kGeofenceDestinationInvalid).message, kDestinationInvalidMessage);
       expect(map('not-assigned-rider').message, kNotCompletableMessage);
+      expect(map(kDeliveryDelayed).message, kDelayedNotCompletableMessage);
+      expect(map(kDeliveryDelayed).code, kDeliveryDelayed);
+      expect(isDeliveryLocationRefusal(kDeliveryDelayed), isTrue);
       expect(map('invalid-status-transition').code, 'invalid-status-transition');
       // Other domain refusals keep the server's sentence.
       expect(map('order-not-fully-reserved', null, 'Needs dispatcher review.').message, 'Needs dispatcher review.');
@@ -287,6 +311,7 @@ void main() {
           '${ProofSubmissionController.evidenceKeptMessage}',
       kInaccurateLocationMessage,
       kDestinationInvalidMessage,
+      '$kDelayedNotCompletableMessage\n${ProofSubmissionController.evidenceKeptMessage}',
     ];
     for (final scale in [1.0, 1.5, 2.0]) {
       for (final message in longest) {

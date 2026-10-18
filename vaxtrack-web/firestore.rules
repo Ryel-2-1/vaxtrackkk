@@ -371,13 +371,25 @@ service cloud.firestore {
     function navigationSessionFields() {
       return ['riderUid', 'orderId', 'sessionId', 'state', 'startedAt', 'updatedAt', 'endedAt', 'endReason'];
     }
+    // Optional (navigation continuity version 1, functions/src/riderTracking.js
+    // CONFIRMED CONTINUITY): an app that declares continuityVersion 1 at Start
+    // Navigation confirms every qualifying tagged fix with lastNavigationFixAt.
+    // Older app builds send neither field and keep working unchanged.
+    function navigationContinuityFields() {
+      return ['continuityVersion', 'lastNavigationFixAt'];
+    }
     function validNavigationSession(riderUid) {
       let d = request.resource.data;
       let sameSession = resource != null
         && resource.data.sessionId == d.sessionId
         && resource.data.orderId == d.orderId
         && resource.data.startedAt == d.startedAt;
-      return d.keys().hasOnly(navigationSessionFields())
+      // Within one session the declaration and the confirmed anchor change
+      // only through isNavigationFixConfirmation below.
+      let continuityKept = resource != null
+        && d.get('continuityVersion', null) == resource.data.get('continuityVersion', null)
+        && d.get('lastNavigationFixAt', null) == resource.data.get('lastNavigationFixAt', null);
+      return d.keys().hasOnly(navigationSessionFields().concat(navigationContinuityFields()))
         && d.keys().hasAll(navigationSessionFields())
         && d.riderUid == riderUid
         && d.updatedAt == request.time
@@ -385,17 +397,54 @@ service cloud.firestore {
         && d.orderId is string
         && (
           // Start (or replace) navigation for an order this rider is moving now.
+          // A new session may declare continuity, but never arrives with an
+          // anchor: its first confirmation must come from a fix of its own.
           (d.state == 'navigating'
             && d.endedAt == null && d.endReason == null
             && riderAssignedToOrder(d.orderId)
             && get(/databases/$(database)/documents/orders/$(d.orderId)).data.status in ['in_transit', 'delayed']
-            && (sameSession && resource.data.state == 'navigating' || d.startedAt == request.time))
+            && (
+              (sameSession && resource.data.state == 'navigating' && continuityKept)
+              || (d.startedAt == request.time
+                && d.get('continuityVersion', 1) == 1
+                && !d.keys().hasAny(['lastNavigationFixAt']))
+            ))
           // End the CURRENT session (Stop, sign-out, tracking stopped).
           || (d.state == 'ended'
             && sameSession
+            && continuityKept
             && d.endedAt == request.time
             && d.endReason in ['rider_stopped', 'signed_out', 'tracking_stopped'])
+          || isNavigationFixConfirmation(riderUid)
         );
+    }
+    // Confirm a navigation fix: lastNavigationFixAt becomes the SERVER write
+    // time of the rider's stored location — never a time the client picks —
+    // and only when that location is a QUALIFYING fix of this very session
+    // (tagged with its id and order, active, real coordinates, accuracy
+    // <= 100 m, written within 60 s of capture, after the start). Forward
+    // only, while the session is navigating, on a session that declared
+    // continuity; nothing else in the session may change in the same write.
+    function isNavigationFixConfirmation(riderUid) {
+      let d = request.resource.data;
+      let loc = get(/databases/$(database)/documents/riderLocations/$(riderUid)).data;
+      return resource != null
+        && resource.data.state == 'navigating'
+        && resource.data.get('continuityVersion', null) == 1
+        && d.diff(resource.data).affectedKeys().hasOnly(['lastNavigationFixAt', 'updatedAt'])
+        && d.lastNavigationFixAt is timestamp
+        && d.lastNavigationFixAt > resource.data.startedAt
+        && (resource.data.get('lastNavigationFixAt', null) == null
+          || d.lastNavigationFixAt > resource.data.lastNavigationFixAt)
+        && loc.riderUid == riderUid
+        && loc.trackingState == 'active'
+        && loc.navigationSessionId == resource.data.sessionId
+        && loc.activeOrderId == resource.data.orderId
+        && loc.updatedAt == d.lastNavigationFixAt
+        && loc.latitude is number && loc.longitude is number
+        && !(loc.latitude == 0 && loc.longitude == 0)
+        && loc.accuracyMeters is number && loc.accuracyMeters <= 100
+        && loc.updatedAt <= loc.capturedAt + duration.value(60, 's');
     }
 
     // Order fields each non-admin role is allowed to change. These mirror the
@@ -448,17 +497,12 @@ service cloud.firestore {
 
     // ---------------- delivery evidence (workflow checkpoint 4) ----------------
     //
-    // Everything that records HOW a delivery was proven. Any rider write that
-    // touches one of these must be a complete, valid evidence submission —
-    // there is no path that changes a status and attaches evidence in the same
-    // operation, and no path that quietly amends a URL on its own.
-    function evidenceFields() {
-      return [
-        'invoicePath', 'invoiceSubmittedAt', 'invoiceSubmittedByUid',
-        'invoiceUrl', 'proofOfDeliveryPath', 'proofOfDeliveryUrl',
-        'proofRecipientName', 'proofSubmittedAt', 'proofSubmittedByUid'
-      ];
-    }
+    // The fields that record HOW a delivery was proven (proofOfDelivery*,
+    // proof*, invoice*). Any rider write that touches them must be a complete,
+    // valid evidence submission — there is no path that changes a status and
+    // attaches evidence in the same operation, and no path that quietly amends
+    // a URL on its own. (The evidenceFields() list existed only for the old
+    // Sales Rep update branch, which is gone: Sales Reps cannot update orders.)
 
     // Cheap discriminators: does this write ADD an evidence record?
     //
@@ -502,9 +546,12 @@ service cloud.firestore {
 
     // Evidence is attached while the delivery is happening — never bolted onto
     // a delivery that has already closed. `delivered` is deliberately absent:
-    // proof added after the fact is a record of a record, not evidence.
+    // proof added after the fact is a record of a record, not evidence. A
+    // DELAYED delivery takes no evidence either: the rider resumes it (in
+    // transit) first — the same single status the completion callable accepts
+    // (functions/src/policy.js DELIVERABLE_FROM).
     function orderAcceptsEvidence() {
-      return priorStatus() == 'in_transit' || priorStatus() == 'delayed';
+      return priorStatus() == 'in_transit';
     }
 
     // A rider records proof exactly once.
@@ -637,7 +684,20 @@ service cloud.firestore {
         // Stamped once by the status-history trigger (functions/src/statusEvents.js)
         // from the commit time of the first move into in_transit. It is the start
         // of the true delivery duration, so no client may author or move it.
-        'firstDispatchedAt'
+        'firstDispatchedAt',
+        // Automatic delivery timing (functions/src/deliveryTiming.js): the
+        // baseline frozen at dispatch and the schedule condition the server
+        // evaluates from it. Written only by the status-history trigger and
+        // the evaluateDeliveryTiming schedule — no client, Admin included, may
+        // forge, clear or postpone them.
+        'timingStatus', 'expectedArrivalAt', 'automaticDelayedAt', 'timingEtaSeconds',
+        'timingGraceSeconds', 'timingRouteSource', 'timingBaselineAt', 'timingStatusChangedAt',
+        'timingDelayedAt', 'timingDelayReason', 'timingUnknownReason',
+        // The dispatch attempt and scheduler eligibility (timingActive and
+        // timingNextCheckAt are what the due query reads): a client that could
+        // set them could hide a delivery from the evaluator, delay its check,
+        // or graft it onto another attempt.
+        'timingContractVersion', 'timingActive', 'timingEpoch', 'timingNextCheckAt'
       ];
     }
 
@@ -1007,8 +1067,8 @@ service cloud.firestore {
     //               assigned         → loading       (cargo loading)
     //               loading          → in_transit    (finalize dispatch)
     //               any non-terminal → cancelled     (reason required)
-    //   Rider:      in_transit → delayed | delivered
-    //               delayed    → in_transit | delivered
+    //   Rider:      in_transit → delayed | delivered (completion callable only)
+    //               delayed    → in_transit          (resume BEFORE completing)
     //
     // Nothing else. In particular a dispatcher may not deliver, delay or
     // resume — those belong to the rider actually carrying the order — and a
@@ -1037,13 +1097,62 @@ service cloud.firestore {
     // --- dispatcher operations ---
 
     // assigned → loading. Reached only by confirming cargo is loaded.
+    // The loading audit (loadedAt + loadedByUid) is checked by
+    // loadingAuditWriteValid(): stamped now by this dispatcher, or the one an
+    // earlier confirmation already left on the order.
     function isValidLoadingPromotion() {
       return priorStatus() == 'assigned'
         && nextStatus() == 'loading'
         && request.resource.data.isLoaded == true
-        && request.resource.data.loadedAt == request.time
+        && hasLoadingAudit(request.resource.data)
         && statusAuditIsServerStamped()
         && orderIsFullyReserved();
+    }
+
+    // ---- loading custody audit ----
+    //
+    // loadedAt + loadedByUid record the FIRST Cargo Loading confirmation of
+    // the order's vials. Cancellation reads them (functions/src/policy.js,
+    // cancellationReturnsForInspection): an order ever confirmed as loaded
+    // comes back as a return for Admin inspection even if it was unticked
+    // since. So the record is monotonic for a dispatcher:
+    //
+    //   audit present  -> loadedAt / loadedByUid / loadedByEmail never change
+    //                     (no clearing, no re-stamping, no rewriting);
+    //   no audit, and the order is or becomes isLoaded == true
+    //                  -> a write that changes isLoaded must stamp it (now, by
+    //                     this dispatcher); any other write may stamp it (a
+    //                     legacy loaded order dispatched as-is);
+    //   no audit, never loaded
+    //                  -> the audit fields may not be written at all.
+    //
+    // Only the server (Admin SDK) clears it, when a failed order is requeued
+    // for a fresh assignment (inventoryWorkflow.requeueFailedOrder).
+    function loadingAuditFields() {
+      return ['loadedAt', 'loadedByEmail', 'loadedByUid'];
+    }
+    function hasLoadingAudit(d) {
+      return d.get('loadedAt', null) is timestamp
+        && d.get('loadedByUid', null) is string
+        && d.get('loadedByUid', '').size() > 0;
+    }
+    function stampsLoadingAudit() {
+      return request.resource.data.get('loadedAt', null) == request.time
+        && request.resource.data.get('loadedByUid', null) == request.auth.uid
+        && (
+          !changedKeys().hasAny(['loadedByEmail'])
+          || request.resource.data.loadedByEmail == request.auth.token.get('email', null)
+        );
+    }
+    function loadingAuditWriteValid() {
+      return hasLoadingAudit(resource.data)
+        ? !changedKeys().hasAny(loadingAuditFields())
+        : !(resource.data.get('isLoaded', false) == true
+            || request.resource.data.get('isLoaded', false) == true)
+          ? !changedKeys().hasAny(loadingAuditFields())
+          : changedKeys().hasAny(['isLoaded'])
+            ? stampsLoadingAudit()
+            : (!changedKeys().hasAny(loadingAuditFields()) || stampsLoadingAudit());
     }
 
     // Ticking/unticking the loaded flag without moving the order. Permitted
@@ -1098,10 +1207,15 @@ service cloud.firestore {
         && changedKeys().hasAny(['tripGeneratedAt']);
     }
 
-    // loading → in_transit. The finalize-dispatch step.
+    // loading → in_transit. The finalize-dispatch step. The order that results
+    // must be confirmed as loaded with a loading audit — enforced here, not
+    // only by Cargo Loading's button — so a direct write cannot dispatch an
+    // order nobody confirmed.
     function isValidDispatch() {
       return priorStatus() == 'loading'
         && nextStatus() == 'in_transit'
+        && request.resource.data.get('isLoaded', false) == true
+        && hasLoadingAudit(request.resource.data)
         && request.resource.data.dispatchedAt == request.time
         && request.resource.data.startedAt == request.time
         && statusAuditIsServerStamped()
@@ -1160,8 +1274,10 @@ service cloud.firestore {
         && statusAuditIsServerStamped();
     }
 
+    // Kept as the SHAPE the completion callable enforces (no client rule uses
+    // it): only an in-transit delivery completes; a delayed one resumes first.
     function isValidCompletion() {
-      return (priorStatus() == 'in_transit' || priorStatus() == 'delayed')
+      return priorStatus() == 'in_transit'
         && nextStatus() == 'delivered'
         && request.resource.data.deliveredAt == request.time
         && statusAuditIsServerStamped();
@@ -1539,7 +1655,7 @@ service cloud.firestore {
       // Dispatcher: only dispatch/assignment/status fields (allowlist).
       // Rider: only status/location/proof fields, on their OWN assigned order,
       //        and cannot reassign it (assignedRiderId is not in the allowlist).
-      // Sales Rep: may update only their own orders (rarely used by the app).
+      // Sales Rep: no direct update (orders change only through callables).
       // Every client branch below additionally carries
       // clientOrderWriteIsAllowed(): no client, admin included, may write a
       // terminal status or an allocation field. Those belong to the callables,
@@ -1565,41 +1681,22 @@ service cloud.firestore {
           // alone" escape: the two legitimate non-status writes (loading
           // metadata and route generation) are enumerated inside.
           && isValidDispatcherOrderWrite()
+          // ...and it never clears or rewrites the loading custody audit.
+          && loadingAuditWriteValid()
         )
         || (
           isRider()
           && resource.data.assignedRiderId == request.auth.uid
           && isValidRiderOrderWrite(orderId)
         )
-        || (
-          isSalesRep()
-          && resource.data.createdByUid == request.auth.uid
-          && request.resource.data.createdByUid == request.auth.uid
-          // A sales rep raises orders; they do not run deliveries. The order's
-          // lifecycle belongs to the dispatcher and the assigned rider, so the
-          // status is off-limits here even on their own order — and so is
-          // everything else that records how the delivery went. Blocking only
-          // `status` was not enough: it still left them able to rewrite the
-          // assignment identity or the failure record on their own order, as
-          // long as they left the status alone.
-          && !statusChanged()
-          && !changedKeys().hasAny(assignmentIdentityFields())
-          && !changedKeys().hasAny(failureRecordFields())
-          // Nor the delivery evidence. A sales rep has no allowlist, so
-          // without this they could write proofOfDeliveryUrl and a recipient
-          // name onto their own order — manufacturing proof for a delivery
-          // they never made. Evidence belongs to the assigned rider alone.
-          && !changedKeys().hasAny(evidenceFields())
-          // Nor the schedule. Moving their own order's date to today would
-          // make it dispatchable early; the date is fixed at checkout.
-          && scheduledDateUnchanged()
-          // The snapshot is immutable after creation. Dispatcher and Rider are
-          // already confined by their hasOnly() allowlists, which exclude these
-          // fields; Sales Rep has no allowlist, so it is stated explicitly here.
-          // Admin is covered by immutableDestinationFields() at the outer
-          // boundary; Sales Rep is stated here as a second fail-closed guard.
-          && !changedKeys().hasAny(clinicSnapshotFields())
-        )
+        // Sales Rep: NO direct update, not even on their own order. A sales rep
+        // raises orders (createOrderWithReservation) and answers destination
+        // changes (reviewOrderDestinationChange) through server callables; no
+        // Med Rep screen writes an order document. The branch that used to be
+        // here listed only what was FORBIDDEN, so every field it forgot stayed
+        // writable — loading flags and their audit, priority, quantity and
+        // product text, instructions, rider location and route fields. With no
+        // branch, nothing is writable, including any field added later.
         );
 
       allow delete: if isAdmin();

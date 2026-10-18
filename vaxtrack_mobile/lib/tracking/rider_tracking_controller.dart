@@ -53,7 +53,17 @@ abstract class TrackingStore {
     required String sessionId,
     required String reason,
   });
+
+  /// The id of the rider's session the SERVER still holds as navigating, or
+  /// null. Used once per sign-in to end a session this app instance does not
+  /// know about (left behind by a killed or reinstalled app).
+  Future<String?> navigatingSessionId(String riderUid);
 }
+
+/// Shown while sharing has been asked for but no position has arrived yet.
+const String kNoFixYetMessage =
+    'Location sharing has not started yet — no position has been received. '
+    'VaxTrack is retrying. Check that location is on.';
 
 /// The one navigation route the rider is following.
 class ActiveNavigation {
@@ -80,14 +90,27 @@ class RiderTrackingController extends ChangeNotifier {
     required TrackingLocationSource source,
     required TrackingStore store,
     DateTime Function()? clock,
+    Timer Function(Duration, void Function())? startTimer,
+    this.firstFixTimeout = const Duration(seconds: 45),
   })  : _source = source,
         _store = store,
-        _clock = clock ?? DateTime.now;
+        _clock = clock ?? DateTime.now,
+        _startTimer = startTimer ?? Timer.new;
 
   final TrackingLocationSource _source;
   final TrackingStore _store;
   final DateTime Function() _clock;
+  final Timer Function(Duration, void Function()) _startTimer;
   final LocationWritePolicy _policy = LocationWritePolicy();
+
+  /// A stream that has produced no position by then is restarted (one stream
+  /// replaces the other — never two). The Android plugin can accept a listen
+  /// before its location service is bound and then stay silent with no error;
+  /// waiting on such a stream is how sharing silently did not start.
+  final Duration firstFixTimeout;
+  Timer? _firstFixTimer;
+  bool _awaitingFirstFix = false;
+  int _restartsWithoutFix = 0;
 
   String? _riderUid;
   StreamSubscription<List<TrackedOrder>>? _ordersSub;
@@ -119,6 +142,20 @@ class RiderTrackingController extends ChangeNotifier {
   LocationFix? get lastFix => _lastFix;
   String? get lastError => _lastError;
   bool get isSharing => _fixSub != null;
+
+  /// True only once the running stream has actually produced a position. The
+  /// UI never says "sharing" before that.
+  bool get sharingConfirmed => _fixSub != null && _writtenOnStream == _streamGeneration;
+
+  // Each started stream gets a new generation; a write that succeeds while that
+  // stream is current confirms sharing ON IT. A stream object alone, or a
+  // position that was received but not saved, never counts as "sharing".
+  int _streamGeneration = 0;
+  int _writtenOnStream = -1;
+  bool _disposed = false;
+
+  /// Times the stream was restarted because no position arrived (diagnostics).
+  int get restartsWithoutFix => _restartsWithoutFix;
   bool get notificationsAllowed => _notificationsAllowed;
 
   /// App lifecycle (HomeScreen). Returning to the foreground re-checks and
@@ -130,8 +167,13 @@ class RiderTrackingController extends ChangeNotifier {
 
   /// Begin following [riderUid]'s assigned orders. Idempotent per rider.
   void attach(String riderUid, Stream<List<TrackedOrder>> orders) {
+    if (_disposed) return;
     if (_riderUid == riderUid && _ordersSub != null) return;
     _riderUid = riderUid;
+    // A navigation session this app instance did not start is one left behind
+    // (app killed, reinstalled, signed out offline): end it, so nothing is
+    // ever monitored for a route the rider is not following.
+    _serialize(_endLeftoverSession);
     _ordersSub?.cancel();
     _ordersSub = orders.listen(
       (list) {
@@ -153,8 +195,14 @@ class RiderTrackingController extends ChangeNotifier {
         await _reconcile();
       });
 
-  /// Retry after the rider changed a setting or switched location on.
-  Future<void> retry() => _serialize(_reconcile);
+  /// Retry after the rider changed a setting or switched location on. A stream
+  /// that has produced no position yet is replaced (one stream, never two).
+  Future<void> retry() => _serialize(() async {
+        if (_fixSub != null && _awaitingFirstFix && _inForeground) {
+          await _startStream(_streamMode);
+        }
+        await _reconcile();
+      });
 
   Future<void> openAppSettings() => _source.openAppSettings();
   Future<void> openLocationSettings() => _source.openLocationSettings();
@@ -247,8 +295,12 @@ class RiderTrackingController extends ChangeNotifier {
       _notify();
       return;
     }
-    _notificationsAllowed = await _source.notificationsAllowed();
-    if (_fixSub == null || _streamMode != _plan.mode) {
+    final allowed = await _source.notificationsAllowed();
+    // Notifications just turned on: restart the running stream once so the
+    // foreground service re-posts its notice now — no waiting for a timeout.
+    final regained = allowed && !_notificationsAllowed && _fixSub != null && _inForeground;
+    _notificationsAllowed = allowed;
+    if (_fixSub == null || _streamMode != _plan.mode || regained) {
       if (_inForeground) {
         await _startStream(_plan.mode);
       } else if (_fixSub == null) {
@@ -267,7 +319,13 @@ class RiderTrackingController extends ChangeNotifier {
 
   Future<void> _startStream(TrackingMode mode) async {
     await _fixSub?.cancel();
+    _fixSub = null;
+    if (_disposed) return;
+    _streamGeneration++;
     _streamMode = mode;
+    _awaitingFirstFix = true;
+    _firstFixTimer?.cancel();
+    _firstFixTimer = _startTimer(firstFixTimeout, _onFirstFixTimeout);
     _fixSub = _source.fixes(mode).listen(
       _onFix,
       onError: (Object e) {
@@ -281,8 +339,39 @@ class RiderTrackingController extends ChangeNotifier {
     );
   }
 
+  /// No position arrived on the current stream: replace it (cancel, then one
+  /// new listen) and say so — never a silent wait.
+  void _onFirstFixTimeout() {
+    _serialize(() async {
+      if (_fixSub == null || !_awaitingFirstFix) return;
+      _restartsWithoutFix++;
+      _lastError = kNoFixYetMessage;
+      if (_inForeground) {
+        await _startStream(_streamMode);
+      } else {
+        _firstFixTimer = _startTimer(firstFixTimeout, _onFirstFixTimeout);
+      }
+      _notify();
+    });
+  }
+
+  Future<void> _endLeftoverSession() async {
+    final uid = _riderUid;
+    if (uid == null || _navigation != null) return;
+    try {
+      final leftover = await _store.navigatingSessionId(uid);
+      if (leftover == null || _navigation != null) return;
+      await _store.endSession(riderUid: uid, sessionId: leftover, reason: kEndReasonTrackingStopped);
+    } catch (_) {
+      // Best effort: the server also ends a session once untagged fixes arrive.
+    }
+  }
+
   Future<void> _stopStream({required bool writeEnded}) async {
     final hadStream = _fixSub != null;
+    _firstFixTimer?.cancel();
+    _firstFixTimer = null;
+    _awaitingFirstFix = false;
     await _fixSub?.cancel();
     _fixSub = null;
     _streamMode = TrackingMode.off;
@@ -313,6 +402,13 @@ class RiderTrackingController extends ChangeNotifier {
 
   void _onFix(LocationFix fix) {
     _lastFix = fix;
+    if (_awaitingFirstFix) {
+      _awaitingFirstFix = false;
+      _firstFixTimer?.cancel();
+      _firstFixTimer = null;
+      _restartsWithoutFix = 0;
+      if (_lastError == kNoFixYetMessage) _lastError = null;
+    }
     final mode = _plan.mode;
     if (_writeInFlight) {
       // Keep only the newest fix while a write is pending (offline-safe).
@@ -332,6 +428,7 @@ class RiderTrackingController extends ChangeNotifier {
     _policy.markWritten(fix, mode);
     _writeInFlight = true;
     final nav = mode == TrackingMode.navigating ? _navigation : null;
+    final generation = _streamGeneration;
     _store
         .writeLocation(
           riderUid: uid,
@@ -342,6 +439,8 @@ class RiderTrackingController extends ChangeNotifier {
         .then((_) {
           _wroteSinceStart = true;
           _lastError = null;
+          // Saved while this stream is still the current one: sharing is real.
+          if (generation == _streamGeneration) _writtenOnStream = generation;
         })
         .catchError((Object e) {
           // A rejected write (e.g. a newer fix already stored by another
@@ -359,6 +458,19 @@ class RiderTrackingController extends ChangeNotifier {
 
   void _notify() {
     if (hasListeners) notifyListeners();
+  }
+
+  /// Releases every timer and stream. Nothing starts again afterwards.
+  @override
+  void dispose() {
+    _disposed = true;
+    _firstFixTimer?.cancel();
+    _firstFixTimer = null;
+    _fixSub?.cancel();
+    _fixSub = null;
+    _ordersSub?.cancel();
+    _ordersSub = null;
+    super.dispose();
   }
 
   @visibleForTesting

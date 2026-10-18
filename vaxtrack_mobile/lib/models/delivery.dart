@@ -81,6 +81,13 @@ class Delivery {
   final int? tripDistanceMeters;
   final int? tripDurationSeconds;
 
+  /// Server-evaluated delivery timing (functions/src/deliveryTiming.js):
+  /// on_time / at_risk / delayed / unknown, with the baseline frozen at
+  /// dispatch. Secondary to [status]; never blocks proof or completion.
+  final String? timingStatus;
+  final DateTime? expectedArrivalAt;
+  final DateTime? automaticDelayedAt;
+
   Delivery({
     required this.id,
     required this.orderNumber,
@@ -128,6 +135,9 @@ class Delivery {
     this.tripPolyline,
     this.tripDistanceMeters,
     this.tripDurationSeconds,
+    this.timingStatus,
+    this.expectedArrivalAt,
+    this.automaticDelayedAt,
   });
 
   static String? _nonBlank(Object? value) =>
@@ -190,6 +200,9 @@ class Delivery {
           : data['tripPolyline'] as String?,
       tripDistanceMeters: _toInt(data['tripDistanceMeters']),
       tripDurationSeconds: _toInt(data['tripDurationSeconds']),
+      timingStatus: _nonBlank(data['timingStatus']),
+      expectedArrivalAt: _toDateTime(data['expectedArrivalAt']),
+      automaticDelayedAt: _toDateTime(data['automaticDelayedAt']),
     );
   }
 

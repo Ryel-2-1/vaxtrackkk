@@ -24,6 +24,7 @@ import {
   subscribeDestinationCorrections,
 } from "../../services/destinationCorrectionService";
 import StatusBadge from "../../components/ui/StatusBadge";
+import TimingIndicator from "../../components/ui/TimingIndicator";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import { ToastRegion } from "../../components/ui/Feedback";
 import { useToast } from "../../components/ui/useToast";
@@ -171,6 +172,10 @@ function normalizeOrder(raw) {
     priority: raw.priority || "Standard",
     instructions: raw.deliveryInstructions || "",
     requestedDeliveryDate: raw.requestedDeliveryDate || null,
+    // Server-evaluated delivery timing, secondary to the lifecycle status.
+    timingStatus: raw.timingStatus ?? null,
+    expectedArrivalAt: raw.expectedArrivalAt ?? null,
+    automaticDelayedAt: raw.automaticDelayedAt ?? null,
     // Current schedule (an Admin may have moved it) and the original request.
     scheduledDeliveryTime: raw.scheduledDeliveryTime || null,
     originalRequestedDeliveryDate: raw.originalRequestedDeliveryDate || null,
@@ -508,6 +513,7 @@ function SalesRepOrderTracking() {
                   <StatusBadge statusKey={selectedOrder.statusKey} label={selectedOrder.status} />
                   <span>Rider: {selectedOrder.driverName}</span>
                 </div>
+                <TimingIndicator order={selectedOrder} />
 
                 {selectedOrder.changeRequest && (
                   <section className="tracking-destination-request" aria-label="Destination change request">
@@ -692,6 +698,9 @@ function TrackingRow({ selected, order, onSelect }) {
 
       <td>
         <StatusBadge statusKey={order.statusKey} label={order.status} />
+        <div>
+          <TimingIndicator order={order} detail={false} />
+        </div>
       </td>
 
       <td>
