@@ -1,5 +1,6 @@
 import "./Alerts.css";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   Bell,
@@ -24,6 +25,7 @@ import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import { ToastRegion } from "../../components/ui/Feedback";
 import { useToast } from "../../components/ui/useToast";
+import { presentAlert } from "../../services/alertPresentation";
 
 const TYPE_MAP = {
   route_deviation: {
@@ -48,41 +50,43 @@ const TYPE_MAP = {
   },
 };
 
-function formatRelativeTime(timestamp) {
-  if (!timestamp?.toDate) return "Just now";
-  const mins = Math.floor((Date.now() - timestamp.toDate().getTime()) / 60000);
-  if (mins < 1) return "Just now";
-  if (mins < 60) return `${mins} min${mins !== 1 ? "s" : ""} ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} hr${hours !== 1 ? "s" : ""} ago`;
-  const days = Math.floor(hours / 24);
-  return `${days} day${days !== 1 ? "s" : ""} ago`;
-}
-
+// Everything an admin READS comes from presentAlert (shared with the
+// Dispatcher bell and dashboards): rider name, the human order code and
+// friendly times — never the alert document id, a rider uid, an order's
+// document id or a Firestore path. `id` is kept only as the React key and
+// for the read/resolve writes; it is never rendered.
 function normalizeAlert(raw) {
   const mapped = TYPE_MAP[raw.type] || {
     display: raw.title || raw.type || "Alert",
     iconKey: null,
     recommendation: "",
   };
+  const view = presentAlert(raw, { role: "admin", fallbackTitle: mapped.display });
+  const status = raw.status || "active";
   return {
     id: raw.id,
     type: mapped.display,
-    message: raw.message || "",
-    source: raw.deliveryId || raw.orderId || "System",
-    deliveryId: raw.deliveryId || "",
-    rider: raw.riderName || "System",
+    title: view.title,
+    message: view.message,
+    meta: view.meta,
+    details: view.details,
+    statusLabel: view.statusLabel,
+    orderCode: view.orderCode,
+    path: view.path,
+    actionLabel: view.actionLabel,
+    searchText: view.searchText,
     severity: raw.severity || "notice",
-    status: raw.status || "active",
-    time: formatRelativeTime(raw.createdAt),
+    status,
     iconKey: mapped.iconKey,
-    recommendation: raw.recommendation || mapped.recommendation,
+    // A resolved alert asks for nothing; its type's "act now" advice would
+    // contradict the resolved state.
+    recommendation: status === "resolved" ? "No further action required." : raw.recommendation || mapped.recommendation,
     read: raw.read || false,
   };
 }
 
 function Alerts() {
-
+  const navigate = useNavigate();
   const [alerts, setAlerts] = useState([]);
   // Loading and failure are their own states: an empty list must mean "no
   // alerts", never "not loaded yet" or "not allowed to read".
@@ -124,7 +128,7 @@ function Alerts() {
   const filteredAlerts = useMemo(() => {
     return alerts.filter((alert) => {
       const searchValue =
-        `${alert.type} ${alert.message} ${alert.source} ${alert.deliveryId} ${alert.rider} ${alert.severity} ${alert.status}`.toLowerCase();
+        `${alert.type} ${alert.searchText} ${alert.severity} ${alert.status}`.toLowerCase();
 
       const matchesSearch = searchValue.includes(searchTerm.toLowerCase());
 
@@ -310,7 +314,7 @@ function Alerts() {
               <div className="alerts-search">
                 <Search size={16} />
                 <input
-                  placeholder="Search alert type, rider, batch, delivery ID..."
+                  placeholder="Search alert type, rider or order number..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
@@ -372,17 +376,18 @@ function Alerts() {
 
                   <div className="alert-row-content">
                     <div className="alert-row-title">
-                      <h3>{alert.type}</h3>
+                      <h3>{alert.title}</h3>
                       <span>{getSeverityLabel(alert)}</span>
+                      {/* Unread is a reading state, not an operational one:
+                          a neutral word, never a green status dot. */}
+                      {!alert.read && <span className="alert-unread-tag">New</span>}
                     </div>
 
                     <p>{alert.message}</p>
 
-                    <div className="alert-row-meta">
-                      <small>{alert.id}</small>
-                      <small>{alert.source}</small>
-                      <small>{alert.time}</small>
-                    </div>
+                    {alert.meta.length > 0 && (
+                      <p className="alert-row-meta">{alert.meta.join(" · ")}</p>
+                    )}
                   </div>
 
                   <button
@@ -393,7 +398,7 @@ function Alerts() {
                       handleReviewAlert(alert);
                     }}
                   >
-                    Review
+                    {alert.actionLabel}
                   </button>
                 </div>
               ))}
@@ -476,12 +481,12 @@ function Alerts() {
                 <div className={`priority-alert-card ${getAlertClass(priorityAlert)}`}>
                   <div>{getAlertIcon(priorityAlert.iconKey)}</div>
 
-                  <h3>{priorityAlert.type}</h3>
+                  <h3>{priorityAlert.title}</h3>
                   <p>{priorityAlert.message}</p>
 
                   <button type="button" onClick={() => handleReviewAlert(priorityAlert)}>
                     <MapPin size={15} />
-                    Review Alert
+                    {priorityAlert.actionLabel}
                   </button>
                 </div>
               ) : (
@@ -504,13 +509,14 @@ function Alerts() {
           alert={selectedAlert}
           onClose={() => setSelectedAlertId(null)}
           onResolve={() => setConfirmResolveId(selectedAlert.id)}
+          onOpenDelivery={selectedAlert.path ? () => navigate(selectedAlert.path) : null}
         />
       )}
 
       {confirmResolveId && selectedAlert && (
         <ConfirmDialog
           title="Mark alert as resolved?"
-          target={`${selectedAlert.type} · ${selectedAlert.deliveryId || selectedAlert.source || selectedAlert.id}`}
+          target={selectedAlert.orderCode ? `${selectedAlert.title} · Order ${selectedAlert.orderCode}` : selectedAlert.title}
           consequence="It moves to the resolved list and stops counting as an open alert. Resolved alerts cannot be reopened from VaxTrack."
           confirmLabel="Mark resolved"
           busyLabel="Resolving…"
@@ -541,7 +547,7 @@ function CategoryItem({ icon, title, count, type, onClick }) {
   );
 }
 
-function AlertReviewModal({ alert, onClose, onResolve }) {
+function AlertReviewModal({ alert, onClose, onResolve, onOpenDelivery }) {
   const dialogRef = useRef(null);
   useDialogFocus({ dialogRef, onDismiss: onClose });
   return (
@@ -561,7 +567,7 @@ function AlertReviewModal({ alert, onClose, onResolve }) {
           {getAlertIcon(alert.iconKey)}
         </div>
 
-        <h2 id="alert-review-title">{alert.type}</h2>
+        <h2 id="alert-review-title">{alert.title}</h2>
         <p>{alert.message}</p>
 
         <div className="alerts-modal-grid">
@@ -572,28 +578,15 @@ function AlertReviewModal({ alert, onClose, onResolve }) {
 
           <div>
             <span>Status</span>
-            <strong>{alert.status === "resolved" ? "Resolved" : "Needs Review"}</strong>
+            <strong>{alert.statusLabel}</strong>
           </div>
 
-          <div>
-            <span>Alert ID</span>
-            <strong>{alert.id}</strong>
-          </div>
-
-          <div>
-            <span>Source</span>
-            <strong>{alert.source}</strong>
-          </div>
-
-          <div>
-            <span>Rider / Module</span>
-            <strong>{alert.rider}</strong>
-          </div>
-
-          <div>
-            <span>Time</span>
-            <strong>{alert.time}</strong>
-          </div>
+          {alert.details.map(({ label, value }) => (
+            <div key={label}>
+              <span>{label}</span>
+              <strong>{value}</strong>
+            </div>
+          ))}
 
           <div className="wide">
             <span>Recommended Action</span>
@@ -617,18 +610,19 @@ function AlertReviewModal({ alert, onClose, onResolve }) {
             Contact Rider
           </button>
 
-          <button type="button" className="alerts-light-action" disabled aria-describedby="alert-unavailable-actions">
-            <MapPin size={15} aria-hidden="true" />
-            View Route
-          </button>
+          {onOpenDelivery && (
+            <button type="button" className="alerts-light-action" onClick={onOpenDelivery}>
+              <MapPin size={15} aria-hidden="true" />
+              Open delivery
+            </button>
+          )}
 
           <button type="button" className="alerts-light-action" onClick={onClose}>
             Close
           </button>
         </div>
         <p id="alert-unavailable-actions" className="alerts-unavailable-note">
-          Calling a rider and viewing their route from an alert aren't available yet. Use Live Tracking
-          for positions and the rider's registered phone number to call.
+          Calling a rider from an alert isn't available yet. Use the rider's registered phone number.
         </p>
       </div>
     </div>

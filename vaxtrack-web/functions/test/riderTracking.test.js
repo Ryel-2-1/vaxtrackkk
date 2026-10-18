@@ -221,14 +221,43 @@ test("only one open alert per rider/order/session; reopen and resolve on transit
   const create = T.planAlertWrite({ existing: null, transition: dev, context: ctx });
   assert.equal(create.action, "create");
   assert.deepEqual([create.data.type, create.data.status, create.data.severity, create.data.source], ["route_deviation", "active", "critical", "server"]);
-  assert.match(create.data.message, /more than 500 m from the assigned route for order VT-ORD-1 for at least 3 minutes \(now 812 m off route\)/);
+  assert.equal(create.data.message, "Juan is 812 m away from the planned route for Order VT-ORD-1. The deviation has continued for at least 3 minutes.");
+  assert.deepEqual(
+    [create.data.presentationVersion, create.data.thresholdMeters, create.data.minimumDurationMinutes, create.data.path],
+    [1, 500, 3, "/dispatcher/shipments?order=order1"]
+  );
   assert.equal(T.planAlertWrite({ existing: { status: "active", episodeCount: 1 }, transition: dev, context: ctx }).action, "noop", "never a second open alert");
   const reopen = T.planAlertWrite({ existing: { status: "resolved", episodeCount: 1 }, transition: dev, context: ctx });
   assert.deepEqual([reopen.action, reopen.data.episodeCount], ["reopen", 2]);
   const resolve = T.planAlertWrite({ existing: { status: "active" }, transition: { type: "returned" }, context: ctx });
   assert.deepEqual([resolve.action, resolve.data.resolutionReason], ["resolve", "returned_to_route"]);
+  assert.equal(resolve.data.message, "Juan returned to the planned route for Order VT-ORD-1.", "a resolved alert no longer says off route");
+  // Closed from the stored state (no names in the context): the alert's own names are used.
+  const closed = T.planAlertWrite({
+    existing: { status: "active", riderName: "Abdul Malik", orderNumber: "VT-ORD-1791165600000-6IMB" },
+    transition: { type: "session_closed", reason: "abandoned" },
+    context: { orderId: "o1", riderUid: "r1", sessionId: "sess_abc12345" },
+  });
+  assert.equal(closed.data.message, "Route monitoring for Order 6IMB has ended.");
   assert.equal(T.planAlertWrite({ existing: null, transition: { type: "returned" }, context: ctx }).action, "noop", "a return never creates an alert");
   assert.equal(T.planAlertWrite({ existing: { status: "active" }, transition: { type: "session_closed", reason: "completed" }, context: ctx }).data.resolutionReason, "completed");
+});
+
+test("alert wording: human order code, friendly distance, never an id; safe without names", () => {
+  assert.equal(T.orderCodeOf("VT-ORD-1791165600000-6IMB"), "6IMB");
+  assert.equal(T.orderCodeOf("VT-ORD-1783611813231"), "VT-ORD-1783611813231", "a legacy number is shown whole");
+  for (const v of [null, undefined, "", "  ", 42]) assert.equal(T.orderCodeOf(v), null);
+  assert.deepEqual([0, 650, 999.4, 999.6, 1000, 1650, 1604, 2000].map(T.formatDistanceMeters),
+    ["0 m", "650 m", "999 m", "1 km", "1 km", "1.65 km", "1.6 km", "2 km"]);
+  assert.equal(T.formatDistanceMeters(NaN), null);
+  // No order number and no rider name: generic wording — the order id is never used.
+  assert.equal(
+    T.deviationAlertText({ status: "active", distanceMeters: 650 }),
+    "The rider is 650 m away from the planned route for this order. The deviation has continued for at least 3 minutes."
+  );
+  const noNames = { orderId: "Zx81kQpLmN0aBcDeFgHi", riderUid: "uidQwErTy123", sessionId: "sess_abc12345" };
+  const created = T.planAlertWrite({ existing: null, transition: { type: "deviated", distanceMeters: 1650, sinceMs: T0, atMs: T0 }, context: noNames });
+  assert.equal(/Zx81kQpLmN0aBcDeFgHi|uidQwErTy123/.test(created.data.message), false);
 });
 
 test("alert and event ids are deterministic per session (retries cannot duplicate)", () => {

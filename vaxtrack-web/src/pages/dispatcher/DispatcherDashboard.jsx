@@ -26,6 +26,7 @@ import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import DispatcherTrackingOverview from "../../components/tracking/DispatcherTrackingOverview";
 import { availableRiderCount } from "../../services/riderTracking";
 import { assignmentBlockReason } from "../../services/backorder";
+import { presentAlert } from "../../services/alertPresentation";
 
 function shortDate(iso) {
   const d = new Date(`${iso}T00:00:00.000Z`);
@@ -146,7 +147,8 @@ function DispatcherDashboard() {
       ?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const latestAlert = activeAlerts[0];
+  // Shared wording (names + human order code, never ids or an address).
+  const latestAlert = activeAlerts[0] ? presentAlert(activeAlerts[0], { role: "dispatcher" }) : null;
 
   // Genuinely free riders: approved and not carrying an active delivery.
   const availableRiders = useMemo(() => availableRiderCount(riders, allOrders), [riders, allOrders]);
@@ -231,10 +233,8 @@ function DispatcherDashboard() {
             <AlertTriangle size={18} />
             <div>
               <strong>{latestAlert.title}</strong>
-              <p>
-                {latestAlert.riderName} • {latestAlert.location} •{" "}
-                {latestAlert.message}
-              </p>
+              <p>{latestAlert.message}</p>
+              {latestAlert.metaText && <small>{latestAlert.metaText}</small>}
             </div>
           </section>
         )}

@@ -11,6 +11,7 @@ import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
 import { ORDER_STATUSES } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
 import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
+import { presentAlert } from "../../services/alertPresentation";
 
 // Small shimmer placeholder used while the first snapshots load, so sections
 // don't flash their empty state before real data arrives.
@@ -43,6 +44,9 @@ const ALERT_TYPE_MAP = {
 };
 
 function normalizeAlert(raw) {
+  // Wording shared with Admin Alerts and the Dispatcher bell: names and the
+  // human order code, never ids.
+  const view = presentAlert(raw, { role: "admin", fallbackTitle: raw.type || "Alert" });
   return {
     id: raw.id,
     // An unrecognised type falls back to "unknown", which paints the neutral
@@ -52,8 +56,8 @@ function normalizeAlert(raw) {
     // `status === "resolved" ? "success"` arm was unreachable: this list is
     // filtered to unresolved alerts before it gets here.)
     type: ALERT_TYPE_MAP[raw.type] || "unknown",
-    title: raw.title || raw.type || "Alert",
-    desc: raw.message || raw.description || "—",
+    title: view.title,
+    desc: view.message || raw.description || "—",
     time: formatRelativeTime(raw.createdAt),
   };
 }

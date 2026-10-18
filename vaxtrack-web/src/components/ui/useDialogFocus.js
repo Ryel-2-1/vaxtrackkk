@@ -26,8 +26,16 @@ export function useDialogFocus({ dialogRef, initialRef, onDismiss, busy = false,
     const dialog = dialogRef.current;
     const first = initialRef?.current || dialog?.querySelector(FOCUSABLE_SELECTOR) || dialog;
     first?.focus?.();
+    // Background scroll lock. The page scroller in this app is <html>, not
+    // <body>: the global styles give <html> overflow-x: hidden, so its
+    // overflow-y computes to auto and it scrolls the page. Locking only <body>
+    // left the page scrollable behind every dialog, so both are locked, and
+    // each is restored to its own previous inline value.
+    const root = document.documentElement;
     const prevOverflow = document.body.style.overflow;
+    const prevRootOverflow = root.style.overflow;
     document.body.style.overflow = "hidden";
+    root.style.overflow = "hidden";
 
     const token = {};
     openDialogs.push(token);
@@ -58,6 +66,7 @@ export function useDialogFocus({ dialogRef, initialRef, onDismiss, busy = false,
       const at = openDialogs.indexOf(token);
       if (at !== -1) openDialogs.splice(at, 1);
       document.body.style.overflow = prevOverflow;
+      root.style.overflow = prevRootOverflow;
       if (opener && typeof opener.focus === "function" && document.contains(opener)) opener.focus();
     };
     // Runs once per open dialog; the refs above carry the latest callbacks.

@@ -691,11 +691,56 @@ function deviationEventId({ sessionId, episode, type }) {
  * (type route_deviation). `serverTimestamps` lists fields the caller sets to
  * the server time. Returns { action: "create"|"reopen"|"resolve"|"noop", data, serverTimestamps }.
  */
+/** Presentation contract of route-deviation alerts (web mirror: src/services/alertPresentation.js). */
+const ALERT_PRESENTATION_VERSION = 1;
+
+/**
+ * The human-facing order reference: the official short code at the end of a
+ * VT-ORD-<time>-<CODE> order number, else the order number itself. Never a
+ * Firestore document id — without an order number it is null.
+ */
+function orderCodeOf(orderNumber) {
+  if (typeof orderNumber !== "string" || orderNumber.trim() === "") return null;
+  const n = orderNumber.trim();
+  const m = /^VT-ORD-\d+-([A-Z0-9]{3,8})$/.exec(n);
+  return m ? m[1] : n;
+}
+
+/** "650 m" below a kilometre, else "1.65 km" (up to two decimals). */
+function formatDistanceMeters(meters) {
+  if (typeof meters !== "number" || !Number.isFinite(meters) || meters < 0) return null;
+  // The unit is chosen after rounding: 999.6 m reads "1 km", never "1000 m".
+  if (Math.round(meters) < 1000) return `${Math.round(meters)} m`;
+  return `${Number((meters / 1000).toFixed(2))} km`;
+}
+
+const minutesOf = (ms) => Math.round(ms / 60000);
+
+/** The alert wording, from display fields only (never an id or an address). */
+function deviationAlertText({ status, riderName, orderNumber, distanceMeters, resolutionReason }) {
+  const rider = typeof riderName === "string" && riderName.trim() ? riderName.trim() : "The rider";
+  const code = orderCodeOf(orderNumber);
+  const orderText = code ? `Order ${code}` : "this order";
+  if (status === "resolved") {
+    if (resolutionReason === "returned_to_route") return `${rider} returned to the planned route for ${orderText}.`;
+    return `Route monitoring for ${orderText} has ended.`;
+  }
+  const distance = formatDistanceMeters(distanceMeters);
+  return `${rider} is ${distance ?? `more than ${DEVIATION_RULES.offRouteMeters} m`} away from the planned route for ${orderText}. ` +
+    `The deviation has continued for at least ${minutesOf(DEVIATION_RULES.confirmDeviationMs)} minutes.`;
+}
+
+/** Where a Dispatcher acts on the alert: the order's shipment row. */
+const deviationAlertPath = (orderId) => `/dispatcher/shipments?order=${encodeURIComponent(orderId)}`;
+
 function planAlertWrite({ existing, transition, context }) {
-  const order = context.orderNumber || context.orderId;
   if (transition.type === "deviated") {
-    const message = `Rider ${context.riderName || ""}`.trim() +
-      ` has been more than ${DEVIATION_RULES.offRouteMeters} m from the assigned route for order ${order} for at least 3 minutes (now ${Math.round(transition.distanceMeters)} m off route).`;
+    const message = deviationAlertText({
+      status: "active",
+      riderName: context.riderName,
+      orderNumber: context.orderNumber,
+      distanceMeters: transition.distanceMeters,
+    });
     if (!existing) {
       return {
         action: "create",
@@ -718,6 +763,11 @@ function planAlertWrite({ existing, transition, context }) {
           resolutionReason: null,
           resolvedAt: null,
           source: "server",
+          // Presentation (no ids, no address): the rule it broke and where to act.
+          presentationVersion: ALERT_PRESENTATION_VERSION,
+          thresholdMeters: DEVIATION_RULES.offRouteMeters,
+          minimumDurationMinutes: minutesOf(DEVIATION_RULES.confirmDeviationMs),
+          path: deviationAlertPath(context.orderId),
         },
         serverTimestamps: ["createdAt", "firstCreatedAt", "updatedAt", "lastDetectedAt"],
       };
@@ -743,11 +793,21 @@ function planAlertWrite({ existing, transition, context }) {
   }
   // "returned" or "session_closed": resolve an OPEN alert; never create one.
   if (!existing || existing.status !== "active") return { action: "noop", data: {}, serverTimestamps: [] };
+  const resolutionReason = transition.type === "returned" ? "returned_to_route" : transition.reason || "session_closed";
   return {
     action: "resolve",
     data: {
       status: "resolved",
-      resolutionReason: transition.type === "returned" ? "returned_to_route" : transition.reason || "session_closed",
+      resolutionReason,
+      // The open alert's wording described the rider as off route; a resolved
+      // alert must not. Names come from the context or, when closing from the
+      // stored state (which carries no names), from the alert itself.
+      message: deviationAlertText({
+        status: "resolved",
+        riderName: context.riderName ?? existing.riderName,
+        orderNumber: context.orderNumber ?? existing.orderNumber,
+        resolutionReason,
+      }),
     },
     serverTimestamps: ["resolvedAt", "updatedAt"],
   };
@@ -842,6 +902,10 @@ module.exports = {
   deviationDisplayState,
   deviationAlertId,
   deviationEventId,
+  ALERT_PRESENTATION_VERSION,
+  orderCodeOf,
+  formatDistanceMeters,
+  deviationAlertText,
   planAlertWrite,
   viewersForRider,
   ridersAffectedByOrderWrite,

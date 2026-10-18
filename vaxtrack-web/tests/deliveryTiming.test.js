@@ -157,10 +157,11 @@ test("the order history labels every timing event the server writes", () => {
 });
 
 test("wiring the browser cannot run here (no DOM in this suite): the bell and the deep link", () => {
-  // The notification bell navigates to an alert's server-provided `path`; the
-  // late alert's path is the Shipments deep link the page reads back.
+  // The notification bell navigates to the alert's path as presented
+  // (src/services/alertPresentation.js: the server-provided Dispatcher path,
+  // else the Shipments deep link); the late alert's path is that deep link.
   const layout = read("src/pages/dispatcher/DispatcherLayout.jsx");
-  assert.match(layout, /if \(notification\.path\) \{\s*navigate\(notification\.path\);/);
+  assert.match(layout, /const \{ path \} = presentAlert\(notification, \{ role: "dispatcher" \}\);\s*if \(path\) \{\s*navigate\(path\);/);
   assert.match(layout, /lateAlertLiveText\(notification, minuteNow\)/);
   const ops = read("functions/src/deliveryTimingOps.js");
   assert.match(ops, /const SHIPMENT_PATH = \(orderId\) => `\/dispatcher\/shipments\?order=\$\{encodeURIComponent\(orderId\)\}`;/);

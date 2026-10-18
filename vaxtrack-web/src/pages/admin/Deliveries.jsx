@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   ChevronDown,
@@ -121,6 +122,29 @@ function Deliveries() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [selectedDelivery, setSelectedDelivery] = useState(null);
+  // An alert’s "Open delivery" link (/admin/deliveries?order=<order id>)
+  // opens that order’s drawer as soon as the live list has it. Derived, not
+  // copied into state, so it always shows the stored order; closing the
+  // drawer drops the parameter so it does not reopen.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedOrderId = searchParams.get("order") || "";
+  const linkedDelivery = linkedOrderId
+    ? deliveryList.find((d) => d.uid === linkedOrderId) ?? null
+    : null;
+  const openDelivery = selectedDelivery ?? linkedDelivery;
+  const closeDelivery = () => {
+    setSelectedDelivery(null);
+    if (linkedOrderId) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("order");
+          return next;
+        },
+        { replace: true }
+      );
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = subscribeDeliveries(
@@ -182,7 +206,7 @@ function Deliveries() {
   // can read all orders, so it plots the whole tour; the map falls back to the
   // single numbered stop when this is empty.
   const selectedTripStops = useMemo(() => {
-    const tripId = selectedDelivery?.tripId;
+    const tripId = openDelivery?.tripId;
     if (!tripId) return [];
     return deliveryList
       .filter(
@@ -194,7 +218,7 @@ function Deliveries() {
       )
       .sort((a, b) => a.stopSequence - b.stopSequence)
       .map((d) => ({ lat: d.clinicLat, lng: d.clinicLng, label: d.stopSequence }));
-  }, [deliveryList, selectedDelivery]);
+  }, [deliveryList, openDelivery]);
 
   return (
     <>
@@ -531,11 +555,11 @@ function Deliveries() {
           is no reviewed field, and Admin is a read-only view of the orders
           collection. "View Route" promised a live route Admin has no source
           for. "Contact Rider" is now a tel: link inside the drawer. */}
-      {selectedDelivery && (
+      {openDelivery && (
         <DeliveryModal
-          delivery={selectedDelivery}
+          delivery={openDelivery}
           tripStops={selectedTripStops}
-          onClose={() => setSelectedDelivery(null)}
+          onClose={closeDelivery}
         />
       )}
     </>

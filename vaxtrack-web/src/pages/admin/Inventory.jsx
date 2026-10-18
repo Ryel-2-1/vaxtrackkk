@@ -35,6 +35,7 @@ import StaleEditNotice from "../../components/ui/StaleEditNotice";
 import { staleFields } from "../../services/liveFormSync";
 import { useToast } from "../../components/ui/useToast";
 import ReservationProvenance from "../../components/admin/ReservationProvenance";
+import InventoryBatchDialog from "./InventoryBatchDialog";
 import { MAX_STOCK_QUANTITY } from "../../services/orderEligibility";
 import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
 import {
@@ -926,24 +927,45 @@ function Inventory() {
         </section>
 
       {selectedVaccine && (
-        <div className="v2-inventory-modal-backdrop">
-          <div className="v2-inventory-modal">
-            <button
-              type="button"
-              className="v2-inventory-modal-close"
-              onClick={() => setSelectedVaccine(null)}
-              aria-label="Close"
-            >
-              <X size={18} />
-            </button>
+        <InventoryBatchDialog
+          badge={selectedVaccine.status}
+          badgeTone={selectedVaccine.level}
+          title={selectedVaccine.name}
+          description={`${selectedVaccine.type} vaccine batch details.`}
+          onClose={() => setSelectedVaccine(null)}
+          footer={
+            <div className="v2-modal-actions">
+              <button
+                type="button"
+                className="v2-blue-action"
+                onClick={() => navigate("/admin/add-stock")}
+              >
+                Add Stock
+              </button>
 
-            <div className={`v2-modal-badge ${selectedVaccine.level}`}>
-              {selectedVaccine.status}
+              <button
+                type="button"
+                className="inv-price-cancel"
+                onClick={() => openCorrectDialog(selectedVaccine)}
+              >
+                Correct stock
+              </button>
+
+              {/* "View Batch History" and "Flag for Review" were removed.
+                  Neither had anything behind it: there is no history source to
+                  open — a batch document holds only its current state, with no
+                  audit trail of changes — and no flag schema, writer, reader or
+                  review workflow exists, so "flagged for review" recorded
+                  nothing and no one would ever have seen it.
+
+                  Both are worth building, and neither is invented here: a
+                  history view needs an append-only trail that does not exist
+                  yet, and a review flag needs a decision about what a flag
+                  means and who acts on it. "Add Stock" stays because it really
+                  navigates, and the batch's price is edited from its table row. */}
             </div>
-
-            <h2>{selectedVaccine.name}</h2>
-            <p>{selectedVaccine.type} vaccine batch details.</p>
-
+          }
+        >
             <div className="v2-modal-detail-grid">
               <div>
                 <span>Batch ID</span>
@@ -1019,39 +1041,7 @@ function Inventory() {
             {/* "2 reserved" is always inspectable: which orders hold it,
                 and whether those add up to the batch's counter. */}
             <ReservationProvenance key={selectedVaccine.id} inventoryId={selectedVaccine.id} />
-
-            <div className="v2-modal-actions">
-              <button
-                type="button"
-                className="v2-blue-action"
-                onClick={() => navigate("/admin/add-stock")}
-              >
-                Add Stock
-              </button>
-
-              <button
-                type="button"
-                className="inv-price-cancel"
-                onClick={() => openCorrectDialog(selectedVaccine)}
-              >
-                Correct stock
-              </button>
-
-              {/* "View Batch History" and "Flag for Review" were removed.
-                  Neither had anything behind it: there is no history source to
-                  open — a batch document holds only its current state, with no
-                  audit trail of changes — and no flag schema, writer, reader or
-                  review workflow exists, so "flagged for review" recorded
-                  nothing and no one would ever have seen it.
-
-                  Both are worth building, and neither is invented here: a
-                  history view needs an append-only trail that does not exist
-                  yet, and a review flag needs a decision about what a flag
-                  means and who acts on it. "Add Stock" stays because it really
-                  navigates, and the batch's price is edited from its table row. */}
-            </div>
-          </div>
-        </div>
+        </InventoryBatchDialog>
       )}
 
       {pricing && (

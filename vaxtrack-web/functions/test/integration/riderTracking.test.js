@@ -122,6 +122,10 @@ test("a 3-minute deviation opens ONE alert and event; retries and further sample
   assert.deepEqual([alert.type, alert.status, alert.severity, alert.source, alert.episodeCount], ["route_deviation", "active", "critical", "server", 1]);
   assert.ok(alert.createdAt instanceof Timestamp);
   assert.ok(!JSON.stringify(alert).includes("Private Clinic Name"), "the alert carries no clinic details");
+  // Presentation: a sentence of names and the order number, never an id.
+  assert.match(alert.message, /^Juan Rider is \d+ m away from the planned route for Order VT-o1\. The deviation has continued for at least 3 minutes\.$/);
+  assert.ok(!alert.message.includes(RIDER) && !alert.message.includes(alertId), "no uid or alert id in the wording");
+  assert.deepEqual([alert.presentationVersion, alert.thresholdMeters, alert.minimumDurationMinutes, alert.path], [1, 500, 3, "/dispatcher/shipments?order=o1"]);
 
   // Retry of the same location write (at-least-once trigger) and more off-route samples.
   const alertSnap = await db.collection(C.ALERTS).doc(alertId).get();
@@ -138,6 +142,7 @@ test("a 3-minute deviation opens ONE alert and event; retries and further sample
   assert.equal((await locate(back, 480)).event, "returned");
   const resolved = await get(C.ALERTS, alertId);
   assert.deepEqual([resolved.status, resolved.resolutionReason], ["resolved", "returned_to_route"]);
+  assert.equal(resolved.message, "Juan Rider returned to the planned route for Order VT-o1.", "a resolved alert no longer says the rider is off route");
   assert.deepEqual((await all(C.EVENTS)).map((e) => e.id).sort(), ["sess_aaaaaaaa_e1_deviated", "sess_aaaaaaaa_e1_returned"]);
   const state = await get(C.STATES, RIDER);
   assert.deepEqual([state.phase, state.episode, state.openAlertId], ["on_route", 1, null]);
@@ -178,6 +183,7 @@ test("completing, failing or cancelling the navigated order ends the session and
     await ops.handleSessionWrite({ db, FieldValue, riderUid: RIDER, after: session });
     const alert = await get(C.ALERTS, T.deviationAlertId({ orderId: "o1", riderUid: RIDER, sessionId: "sess_endcase1" }));
     assert.deepEqual([alert.status, alert.resolutionReason], ["resolved", reason], status);
+    assert.equal(alert.message, "Route monitoring for Order VT-o1 has ended.", status);
     // Monitoring has stopped: further far samples change nothing.
     assert.equal((await locate(north(900), 400)).reason, "not_navigating");
   }

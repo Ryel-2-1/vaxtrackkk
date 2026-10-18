@@ -20,6 +20,7 @@ import {
 import { auth } from "../../firebase";
 import { subscribeActiveAlerts } from "../../services/alertService";
 import { lateAlertLiveText } from "../../services/deliveryTiming";
+import { presentAlert } from "../../services/alertPresentation";
 import useMinuteClock from "../../components/useMinuteClock";
 import SidebarProfile from "../../components/shell/SidebarProfile";
 import OfflineNotice from "../../components/shell/OfflineNotice";
@@ -33,17 +34,6 @@ import "./Dispatcher.css";
 
 // Relative time from a Firestore Timestamp (or "" when unavailable) — an honest
 // fallback, never a fabricated time.
-function alertTimeText(createdAt) {
-  if (!createdAt || typeof createdAt.toDate !== "function") return "";
-  const mins = Math.floor((Date.now() - createdAt.toDate().getTime()) / 60000);
-  if (mins < 1) return "Just now";
-  if (mins < 60) return `${mins} min ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs} hr${hrs !== 1 ? "s" : ""} ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days} day${days !== 1 ? "s" : ""} ago`;
-}
-
 // Map an alert's severity to the dropdown's existing tone classes.
 function alertToneClass(severity) {
   if (severity === "critical") return "danger";
@@ -248,9 +238,10 @@ function DispatcherLayout() {
     );
 
     setShowNotifications(false);
-    // Real alert docs carry no client route; navigate only when a path exists.
-    if (notification.path) {
-      navigate(notification.path);
+    // Order-linked alerts open their shipment; others have nowhere to go.
+    const { path } = presentAlert(notification, { role: "dispatcher" });
+    if (path) {
+      navigate(path);
     }
   };
 
@@ -509,7 +500,10 @@ function DispatcherLayout() {
                       No notifications.
                     </p>
                   )}
-                  {notifications.map((notification) => (
+                  {notifications.map((notification) => {
+                    // Shared wording: names + the human order code, never ids.
+                    const view = presentAlert(notification, { role: "dispatcher", nowMs: minuteNow });
+                    return (
                     <button
                       type="button"
                       key={notification.id}
@@ -527,15 +521,16 @@ function DispatcherLayout() {
                       </div>
 
                       <div>
-                        <strong>{notification.title || "Alert"}</strong>
-                        <p>{notification.message || "No additional details."}</p>
+                        <strong>{view.title}</strong>
+                        <p>{view.message || "No additional details."}</p>
                         {lateAlertLiveText(notification, minuteNow) && (
                           <small className="tnum">{lateAlertLiveText(notification, minuteNow)}</small>
                         )}
-                        <small>{alertTimeText(notification.createdAt)}</small>
+                        {view.metaText && <small>{view.metaText}</small>}
                       </div>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}

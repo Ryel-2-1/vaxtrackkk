@@ -586,7 +586,9 @@ test("no raw provider HTTP status or provider text reaches the routing UI", () =
 
 test("placeholder controls are disabled with an explanation — they cannot trigger false progress", () => {
   const pages = {
-    "src/pages/admin/Alerts.jsx": ["alert-unavailable-actions", ["Contact Rider", "View Route"]],
+    // Alerts' "View Route" placeholder became a real "Open delivery" link
+    // (tests/alertPresentation.test.js); only "Contact Rider" is still unbuilt.
+    "src/pages/admin/Alerts.jsx": ["alert-unavailable-actions", ["Contact Rider"]],
     "src/pages/admin/Riders.jsx": ["rider-unavailable-actions", ["Contact Rider", "View Route"]],
     "src/pages/admin/Clinics.jsx": ["clinic-edit-unavailable", ["Edit Clinic"]],
   };
