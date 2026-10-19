@@ -293,3 +293,43 @@
     flex: 1 1 auto;
   }
 }
+
+/* Rider trips: where each Rider is. A Rider on a trip, or returning to the
+   hub, cannot be given an order (the server refuses it either way). */
+.ar-rider.out {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.ar-rider-info small.ar-rider-trip {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--gray-100);
+  color: var(--gray-700);
+}
+
+.ar-rider-info small.ar-rider-trip.available {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.ar-rider-info small.ar-rider-trip.forming {
+  background: var(--info-bg);
+  color: var(--info-text);
+}
+
+.ar-rider-info small.ar-rider-trip.on_trip,
+.ar-rider-info small.ar-rider-trip.returning {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.ar-rider-info small.ar-rider-trip-note {
+  margin-top: 3px;
+  color: var(--gray-600);
+  white-space: normal;
+}

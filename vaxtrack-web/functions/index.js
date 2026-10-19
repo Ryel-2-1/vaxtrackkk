@@ -67,6 +67,7 @@ const failureReturn = require("./src/failureReturn");
 const orderHistoryOutbox = require("./src/orderHistoryOutbox");
 const riderTrackingOps = require("./src/riderTrackingOps");
 const deliveryTimingOps = require("./src/deliveryTimingOps");
+const riderDispatchOps = require("./src/riderDispatchOps");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -182,6 +183,25 @@ function toHttpsError(error, context) {
       // An order-history record with this id already holds different content.
       // Nothing was written or changed (orderHistory.js).
       "history-integrity-conflict": "failed-precondition",
+      // Rider trips (riderDispatchOps.js).
+      "rider-not-found": "not-found",
+      "not-a-rider": "failed-precondition",
+      "rider-not-approved": "failed-precondition",
+      "rider-on-trip": "failed-precondition",
+      "rider-returning": "failed-precondition",
+      "rider-state-unknown": "failed-precondition",
+      "order-not-pending": "failed-precondition",
+      "order-already-assigned": "failed-precondition",
+      "order-not-dispatchable": "failed-precondition",
+      "order-not-loaded": "failed-precondition",
+      "scheduled-date-not-reached": "failed-precondition",
+      "scheduled-date-missing": "failed-precondition",
+      "scheduled-date-invalid": "failed-precondition",
+      "trip-not-forming": "failed-precondition",
+      "trip-not-settled": "failed-precondition",
+      "trip-full": "failed-precondition",
+      // The trip moved underneath the caller — refresh, then retry.
+      "trip-changed": "aborted",
     };
     const httpsCode = map[error.code] ?? "invalid-argument";
     return new HttpsError(httpsCode, error.message, {
@@ -350,6 +370,31 @@ exports.requeueFailedOrder = callable(
   "requeueFailedOrder",
   ({ db, FieldValue, uid, email, data, now }) =>
     inventoryWorkflow.requeueFailedOrder({ db, FieldValue, uid, email, payload: data, now })
+);
+
+// ---------------------------------------------------------------- rider trips
+//
+// One server-owned state per Rider (riderDispatchStates/{uid}) and a
+// server-generated trip id (riderTrips). Orders join a trip only before
+// departure; Finalize Dispatch sends the whole trip; once every trip order is
+// settled the Rider is returning_to_hub until a Dispatcher/Admin confirms the
+// physical return. Assignment and departure are refused to every client by
+// firestore.rules — these callables are the only path.
+exports.assignRiderToOrder = callable(
+  "assignRiderToOrder",
+  ({ db, FieldValue, uid, email, data, now }) =>
+    riderDispatchOps.assignRiderToOrder({ db, FieldValue, uid, email, payload: data, now })
+);
+
+exports.finalizeRiderDispatch = callable(
+  "finalizeRiderDispatch",
+  ({ db, FieldValue, uid, email, data, now }) =>
+    riderDispatchOps.finalizeRiderDispatch({ db, FieldValue, uid, email, payload: data, now })
+);
+
+exports.confirmRiderReturnToHub = callable(
+  "confirmRiderReturnToHub",
+  ({ db, FieldValue, uid, data }) => riderDispatchOps.confirmRiderReturnToHub({ db, FieldValue, uid, payload: data })
 );
 
 exports.getReservationProvenance = callable(
@@ -538,6 +583,25 @@ exports.trackNavigationSession = onDocumentWritten(
     const before = event.data?.before?.exists ? event.data.before.data() : null;
     // A write that only confirms a navigation fix is skipped (no transaction).
     await riderTrackingOps.handleSessionWrite({ db, FieldValue, riderUid: event.params.riderUid, after, before });
+  }
+);
+
+// Trip membership and settlement after ANY order change: a cancellation before
+// departure leaves the forming trip; delivered / cancelled / failed / requeued
+// orders settle it; the last one moves the Rider to returning_to_hub. Also
+// folds in assignments written directly by a client during the rollout window
+// (before the rules forbid it) — logged as anomalies, never silently dropped.
+exports.reconcileRiderDispatchOnOrderWrite = onDocumentWritten(
+  { document: "orders/{orderId}", retry: true },
+  async (event) => {
+    const before = event.data?.before?.exists ? event.data.before.data() : null;
+    const after = event.data?.after?.exists ? event.data.after.data() : null;
+    const results = await riderDispatchOps.reconcileRiderOnOrderWrite({ db, FieldValue, before, after });
+    for (const r of results) {
+      if (r.anomalies?.length) {
+        logger.warn("rider-dispatch-anomaly", { orderId: event.params.orderId, riderUid: r.riderUid, anomalies: r.anomalies });
+      }
+    }
   }
 );
 

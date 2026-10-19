@@ -137,8 +137,22 @@ test("riders available = approved riders not carrying an active delivery (not fr
   assert.equal(T.availableRiderCount(riders, orders), 1, "only c: a and b are delivering, d/e are not approved");
   assert.deepEqual([...T.riderUidsOnDelivery(orders)].sort(), ["a", "b", "d"]);
   assert.equal(T.availableRiderCount(riders, []), 3);
-  assert.equal(T.availableRiderCount.length, 2, "takes riders and orders — never locations");
-  assert.match(DASH, /const availableRiders = useMemo\(\(\) => availableRiderCount\(riders, allOrders\), \[riders, allOrders\]\);/);
+  assert.equal(T.availableRiderCount.length, 2, "takes riders and orders (and optional trip states) — never locations");
+  // Rider trips: a Rider out on a trip or returning to the hub is not
+  // available, even with no active order left; forming at the hub still is.
+  const states = new Map([
+    ["c", { state: "returning_to_hub" }],
+  ]);
+  assert.equal(T.availableRiderCount(riders, orders, states), 0, "c finished their deliveries but is not back yet");
+  const all = new Map([
+    ["a", { state: "on_trip" }],
+    ["b", { state: "trip_forming" }],
+    ["c", { state: "available_at_hub" }],
+  ]);
+  assert.equal(T.availableRiderCount(riders, [], all), 2, "b (forming at the hub) and c");
+  assert.equal(T.availableRiderCount(riders, [], null), 3, "without trip states: the order-based count");
+  assert.match(DASH, /const availableRiders = useMemo\(\s*\(\) => availableRiderCount\(riders, allOrders, tripStates\),\s*\[riders, allOrders, tripStates\]\s*\);/);
+  assert.match(DASH, /subscribeRiderDispatchStates\(setTripStates, \(\) => \{/);
 });
 
 test("header chips and summary cells use the dashboard's real counts and wording", () => {

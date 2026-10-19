@@ -413,7 +413,8 @@ test("route-field lists match across server, web and the rules allowlists", asyn
   assert.match(strip2("functions/src/inventoryWorkflow.js"), /\.\.\.routeFieldDeletes\(order, FieldValue\)/);
   assert.match(strip2("functions/src/destinationOperations.js"), /\.\.\.routeFieldDeletes\(order, FieldValue\)/);
   assert.match(strip2("functions/src/destinationOperations.js"), /routeFieldDeletes\(sibling\.data\(\), FieldValue, TRIP_ROUTE_FIELDS\)/);
-  assert.match(strip2("src/services/orderService.js"), /for \(const field of presentRouteFields\(order\)\) update\[field\] = deleteField\(\);/);
+  // Assignment moved to the server (Rider trips) and clears with the same list.
+  assert.match(strip2("functions/src/riderDispatchOps.js"), /\.\.\.routeFieldDeletes\(order, FieldValue\)/);
 });
 
 test("DEV-2 guard: navigation fixes arrive well inside the server's continuity window; ordinary ones are never timed", () => {

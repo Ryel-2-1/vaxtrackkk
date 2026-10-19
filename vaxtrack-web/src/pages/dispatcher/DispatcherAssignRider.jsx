@@ -15,6 +15,9 @@ import {
 } from "lucide-react";
 import { assignRiderToOrder, getOrderById, subscribePendingDispatchOrders } from "../../services/orderService";
 import { subscribeRiders } from "../../services/riderService";
+import { subscribeRiderDispatchStates } from "../../services/riderDispatchService";
+import { riderTripStatus } from "../../services/riderTrip";
+import DispatcherDialogLayer from "./DispatcherDialogLayer";
 import { dispatchEligibility } from "../../services/dispatchEligibility";
 import { assignmentBlockReason } from "../../services/backorder";
 import { normalizeStatusKey } from "../../services/deliveryService";
@@ -74,6 +77,10 @@ function DispatcherAssignRider() {
   const [riders, setRiders] = useState([]);
   const [ridersLoading, setRidersLoading] = useState(true);
   const [ridersError, setRidersError] = useState("");
+  // Each Rider's trip (server-owned). A Rider who has left on a trip — or is
+  // returning to the hub — cannot be given an order; the server refuses it
+  // regardless, this just says so before the click.
+  const [tripStates, setTripStates] = useState(() => new Map());
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -130,9 +137,14 @@ function DispatcherAssignRider() {
         setRidersLoading(false);
       }
     );
+    const unsubStates = subscribeRiderDispatchStates(setTripStates, () => {
+      // Unreadable trip states: riders stay selectable and the server decides.
+      setTripStates(new Map());
+    });
     return () => {
       unsubOrders();
       unsubRiders();
+      unsubStates();
     };
   }, []);
 
@@ -162,7 +174,10 @@ function DispatcherAssignRider() {
   }, [dialogGone, dialogOrderId]);
 
   const approvedRiders = riders.filter((r) => r.status === "approved");
+  const tripOf = (uid) => riderTripStatus(tripStates.get(uid));
   const selectedRider = approvedRiders.find((r) => r.uid === selectedRiderId) || null;
+  // A Rider who left while the dialog was open is no longer selectable.
+  const selectedRiderOut = !!selectedRider && !tripOf(selectedRider.uid).assignable;
   // A scheduled order is not assignable before 00:00 Manila on its date, and a
   // future order waits until it is fully reserved (no partial dispatch). The
   // transaction and the rules refuse both regardless; this says so first.
@@ -170,7 +185,7 @@ function DispatcherAssignRider() {
   const scheduleBlocked = !!schedule && !schedule.eligible;
   const stockBlock = selectedOrder ? assignmentBlockReason(selectedOrder) : null;
   const canAssign =
-    !saving && !!selectedRiderId && !!selectedRider && !!selectedOrder && !scheduleBlocked && !stockBlock;
+    !saving && !!selectedRiderId && !!selectedRider && !selectedRiderOut && !!selectedOrder && !scheduleBlocked && !stockBlock;
 
   const openDialog = (orderId) => {
     setDialogOrderId(orderId);
@@ -356,7 +371,11 @@ function DispatcherAssignRider() {
         </section>
       </div>
 
+      {/* Portaled: inside the Dispatcher content area (transformed by its
+          entrance animation) this dialog was centred in the whole queue and
+          opened off-screen once it was scrolled (DispatcherDialogLayer.jsx). */}
       {selectedOrder && (
+        <DispatcherDialogLayer>
         <div className="arq-backdrop" onClick={closeDialog}>
           <div
             className="arq-dialog"
@@ -432,14 +451,17 @@ function DispatcherAssignRider() {
                   const empId = getRiderEmployeeId(rider);
                   const phone = getRiderPhone(rider);
                   const isSelected = selectedRiderId === rider.uid;
+                  const trip = tripOf(rider.uid);
+                  const noteId = `ar-trip-${rider.uid}`;
                   return (
                     <button
                       type="button"
                       key={rider.uid}
-                      className={`ar-rider ${isSelected ? "selected" : ""}`}
+                      className={`ar-rider ${isSelected ? "selected" : ""} ${trip.assignable ? "" : "out"}`}
                       onClick={() => setSelectedRiderId(rider.uid)}
                       aria-pressed={isSelected}
-                      disabled={saving}
+                      aria-describedby={trip.note ? noteId : undefined}
+                      disabled={saving || !trip.assignable}
                     >
                       <span className="ar-avatar">{initialsOf(name)}</span>
                       <div className="ar-rider-info">
@@ -453,6 +475,12 @@ function DispatcherAssignRider() {
                             <Phone size={11} /> {phone}
                           </small>
                         )}
+                        <small className={`ar-rider-trip ${trip.key}`}>{trip.label}</small>
+                        {trip.note && (
+                          <small id={noteId} className="ar-rider-trip-note">
+                            {trip.note}
+                          </small>
+                        )}
                       </div>
                       <span className={`ar-radio ${isSelected ? "on" : ""}`}>
                         {isSelected && <CheckCircle2 size={18} />}
@@ -463,6 +491,11 @@ function DispatcherAssignRider() {
               </div>
             )}
 
+            {selectedRiderOut && (
+              <p className="dispatch-hold-note" role="status">
+                {tripOf(selectedRider.uid).note}
+              </p>
+            )}
             {scheduleBlocked && (
               <p className="dispatch-hold-note" role="status">
                 {schedule.message}
@@ -501,6 +534,7 @@ function DispatcherAssignRider() {
             </div>
           </div>
         </div>
+        </DispatcherDialogLayer>
       )}
     </>
   );

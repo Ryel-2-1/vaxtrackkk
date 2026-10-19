@@ -28,7 +28,6 @@ import {
 
 const loader = createServiceLoader();
 const orders = await loader.load("orderService.js");
-const { AssignmentError } = orders;
 
 const RIDER = "RiderUid1";
 const OTHER_RIDER = "RiderUid2";
@@ -64,15 +63,6 @@ const seed = (docs, users) =>
 
 const data = (store, id) => store.collections.orders[id].data;
 
-async function expectRejection(promise, code) {
-  await assert.rejects(promise, (err) => {
-    assert.ok(err instanceof AssignmentError, `expected AssignmentError, got ${err?.name}`);
-    assert.equal(err.code, code);
-    assert.ok(err.message.length > 0, "must carry a displayable message");
-    return true;
-  });
-}
-
 // ---------------------------------------------------------------------------
 // The two entry points stay narrow
 // ---------------------------------------------------------------------------
@@ -81,10 +71,15 @@ test("the client-side failed-order reassignment no longer exists", () => {
   assert.equal(orders.reassignFailedOrder, undefined);
 });
 
-test("normal assignment was NOT widened to accept failed orders", async () => {
-  const store = installStore(seed({ o1: failedOrder() }), DISPATCHER);
-  await expectRejection(orders.assignRiderToOrder("o1", RIDER), "order-not-pending");
-  assert.equal(data(store, "o1").status, "delivery_failed", "untouched");
+test("normal assignment was NOT widened to accept failed orders", () => {
+  // Assignment is the assignRiderToOrder callable (Rider trips). It accepts
+  // only pending_dispatch — a failed order is refused with order-not-pending
+  // (exercised against a real Firestore in
+  // functions/test/integration/riderDispatch.test.js) and firestore.rules
+  // refuse the direct write, so there is no client path either.
+  const ops = readFileSync(new URL("../functions/src/riderDispatchOps.js", import.meta.url), "utf8");
+  assert.match(ops, /if \(order\.status !== "pending_dispatch"\) \{\s*throw new PolicyError\("order-not-pending"/);
+  assert.doesNotMatch(ops, /delivery_failed[^\n]*assigned/);
 });
 
 // ---------------------------------------------------------------------------

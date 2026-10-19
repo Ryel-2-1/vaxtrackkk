@@ -682,12 +682,11 @@ async function main() {
     await assertSucceeds(getDoc(doc(dispatcher, "orders", "ordSR1")));
   });
 
-  await check("P6 dispatcher updates allowed order fields", async () => {
-    // `assignedAt` is now required to be server-stamped (workflow checkpoint 1)
-    // — it used to be the client string "t". The field list is otherwise
-    // unchanged; this case still proves the dispatcher allowlist accepts the
-    // full assignment payload.
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordSR1"), {
+  await check("P6 a dispatcher's direct assignment write is refused (server-only since Rider trips)", async () => {
+    // This full, well-formed assignment payload used to be accepted. Assigning
+    // now reads the Rider's trip state, which a rule cannot, so it is
+    // the assignRiderToOrder / finalizeRiderDispatch callables (functions/test/integration/riderDispatch.test.js).
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordSR1"), {
       status: "assigned",
       assignedRiderId: riderUid,
       assignedRiderName: "R",
@@ -2067,8 +2066,9 @@ async function main() {
       statusUpdatedByUid: dispatcherUid,
       updatedAt: serverTimestamp(),
     }));
-    // loading → in_transit, via finalize dispatch.
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordLegacyNoSnapshot"), {
+    // loading → in_transit is Finalize Dispatch, now server-only for every
+    // order, legacy or not (the assignRiderToOrder / finalizeRiderDispatch callables (functions/test/integration/riderDispatch.test.js)).
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordLegacyNoSnapshot"), {
       status: "in_transit",
       dispatchedAt: serverTimestamp(),
       startedAt: serverTimestamp(),
@@ -2076,6 +2076,12 @@ async function main() {
       statusUpdatedByUid: dispatcherUid,
       updatedAt: serverTimestamp(),
     }));
+    // What the callable writes (Admin SDK, rules bypassed) — Psnap6 starts here.
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      updateDoc(doc(ctx.firestore(), "orders", "ordLegacyNoSnapshot"), {
+        status: "in_transit", dispatchedAt: serverTimestamp(), startedAt: serverTimestamp(),
+      })
+    );
   });
 
   await check("Psnap6 legacy order keeps its rider lifecycle", async () => {
@@ -2325,18 +2331,27 @@ async function main() {
     ...over,
   });
 
-  await check("Passign1 dispatcher assigns an approved rider to a pending order", async () => {
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordAssignOk"), assignment(riderUid)));
+  // Passign1-3 were the accepted shapes of a DIRECT assignment. Every one is
+  // now a bypass attempt: assignment is the assignRiderToOrder / finalizeRiderDispatch callables (functions/test/integration/riderDispatch.test.js),
+  // which also refuses a Rider who is already on a trip.
+  await check("Passign1 (now refused) a valid direct assignment by a dispatcher", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignOk"), assignment(riderUid)));
   });
 
-  await check("Passign2 the same approved rider may take another order (no per-rider limit)", async () => {
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordAssignSame"), assignment(riderUid)));
+  await check("Passign2 (now refused) a second order to the same rider, written directly", async () => {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignSame"), assignment(riderUid)));
   });
 
-  await check("Passign3 assignment without the optional display name is allowed", async () => {
+  await check("Passign3 (now refused) a direct assignment without the display name", async () => {
     const payload = assignment(otherRiderUid);
     delete payload.assignedRiderName;
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordAssignOk2"), payload));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignOk2"), payload));
+    // ...or through a transaction, exactly as the old client wrote it.
+    await assertFails(runTransaction(dispatcher, async (tx) => {
+      const ref = doc(dispatcher, "orders", "ordAssignOk2");
+      await tx.get(ref);
+      tx.update(ref, payload);
+    }));
   });
 
   await check("Nassign1 cannot assign an order that is not pending_dispatch", async () => {
@@ -2428,6 +2443,12 @@ async function main() {
 
   await check("Passign4 ordinary dispatcher lifecycle updates still work", async () => {
     // No assignment identity touched — the existing flow must not regress.
+    // The order starts as the assignment callable leaves it.
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      updateDoc(doc(ctx.firestore(), "orders", "ordAssignOk"), {
+        status: "assigned", assignedRiderId: riderUid, dispatchTripId: "tripFromServer",
+      })
+    );
     await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordAssignOk"), {
       status: "loading",
       isLoaded: true,
@@ -2457,9 +2478,15 @@ async function main() {
     }));
   });
 
-  await check("Passign6 admin retains assignment repair authority", async () => {
-    await assertSucceeds(updateDoc(doc(admin, "orders", "ordOrphanAssignment"), {
+  await check("Passign6 (now refused) not even an Admin writes an assignment directly", async () => {
+    // Admin's repair authority over assignment ended with Rider trips: a
+    // direct assignedRiderId write would put an order on a Rider's trip
+    // without the trip state knowing. Admin assigns through the callable.
+    await assertFails(updateDoc(doc(admin, "orders", "ordOrphanAssignment"), {
       assignedRiderId: riderUid, updatedAt: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(doc(admin, "orders", "ordOrphanAssignment"), {
+      assignedRiderId: deleteField(), updatedAt: serverTimestamp(),
     }));
   });
 
@@ -2469,7 +2496,7 @@ async function main() {
     for (const db of [admin, dispatcher]) {
       await assertSucceeds(getDoc(doc(db, "orders", "ordNameOnly")));
     }
-    // ordOrphanAssignment was just repaired above; ordNameOnly still has no id.
+    // ordNameOnly still has no id.
     await assertSucceeds(getDoc(doc(salesRep, "orders", "ordNameOnly")));
   });
 
@@ -2480,8 +2507,8 @@ async function main() {
   await check("Passign8 the clinic snapshot stays immutable during assignment", async () => {
     await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignLater"),
       assignment(riderUid, { clinicLat: 1.23 })));
-    // and the plain assignment on the same order still succeeds
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordAssignLater"), assignment(riderUid)));
+    // ...and the plain one is refused too: assignment is server-only.
+    await assertFails(updateDoc(doc(dispatcher, "orders", "ordAssignLater"), assignment(riderUid)));
   });
 
   // The assignment's status attribution. Without it the Assigned history event
@@ -2503,10 +2530,106 @@ async function main() {
     await assertFails(updateDoc(ref, assignment(riderUid, {
       statusUpdatedAt: Timestamp.fromDate(new Date("2026-01-01T00:00:00Z")),
     })));
-    // The honest one succeeds — with or without an email.
+    // The honest one is refused as well now — the callable stamps the audit
+    // itself, from the verified caller.
     const { statusUpdatedByEmail: _email, ...noEmail } = assignment(riderUid);
     void _email;
-    await assertSucceeds(updateDoc(ref, noEmail));
+    await assertFails(updateDoc(ref, noEmail));
+  });
+
+  // =========================================================================
+  // Rider trips (functions/src/riderDispatchOps.js). Assignment and Finalize
+  // Dispatch read the Rider's server-owned trip state, so every client path to
+  // either is closed — the bypass attempts below — and the trip state, the
+  // trip audit and each order's server trip id are server-written only.
+  // =========================================================================
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const fdb = ctx.firestore();
+    await setDoc(doc(fdb, "riderDispatchStates", riderUid), { riderUid, state: "on_trip", tripId: "tripA", orderIds: ["tripOrder"] });
+    await setDoc(doc(fdb, "riderDispatchStates", otherRiderUid), { riderUid: otherRiderUid, state: "available_at_hub", tripId: null, orderIds: [] });
+    await setDoc(doc(fdb, "riderTrips", "tripA"), { riderUid, status: "departed", orderIds: ["tripOrder"] });
+    await setDoc(doc(fdb, "orders", "tripOrder"), {
+      orderNumber: "VT-TRIP", status: "in_transit", assignedRiderId: riderUid, dispatchTripId: "tripA",
+      createdByUid: salesRepUid, requestedDeliveryDate: FIXTURE_DELIVERY_DATE,
+    });
+    await setDoc(doc(fdb, "orders", "tripPending"), {
+      orderNumber: "VT-TRIP-P", status: "pending_dispatch", assignedRiderId: null,
+      createdByUid: salesRepUid, requestedDeliveryDate: FIXTURE_DELIVERY_DATE,
+    });
+    await setDoc(doc(fdb, "orders", "tripLoading"), {
+      orderNumber: "VT-TRIP-L", status: "loading", assignedRiderId: otherRiderUid, dispatchTripId: "tripB",
+      isLoaded: true, ...SEEDED_LOADING_AUDIT, createdByUid: salesRepUid, requestedDeliveryDate: FIXTURE_DELIVERY_DATE,
+    });
+  });
+
+  await check("RDS1 trip state and trip audit: staff read them, nobody writes them", async () => {
+    await assertSucceeds(getDoc(doc(dispatcher, "riderDispatchStates", riderUid)));
+    await assertSucceeds(getDocs(collection(dispatcher, "riderDispatchStates")));
+    await assertSucceeds(getDoc(doc(admin, "riderDispatchStates", riderUid)));
+    await assertSucceeds(getDocs(collection(admin, "riderTrips")));
+    await assertSucceeds(getDoc(doc(dispatcher, "riderTrips", "tripA")));
+    // A Rider sees their own state only — not another Rider's, not the list, not the trips.
+    await assertSucceeds(getDoc(doc(rider, "riderDispatchStates", riderUid)));
+    await assertFails(getDoc(doc(rider, "riderDispatchStates", otherRiderUid)));
+    await assertFails(getDocs(collection(rider, "riderDispatchStates")));
+    await assertFails(getDoc(doc(rider, "riderTrips", "tripA")));
+    await assertFails(getDoc(doc(salesRep, "riderDispatchStates", riderUid)));
+    await assertFails(getDoc(doc(anon, "riderDispatchStates", riderUid)));
+    // No client writes either — freeing a Rider mid-trip is the obvious bypass.
+    for (const db of [admin, dispatcher, rider]) {
+      await assertFails(setDoc(doc(db, "riderDispatchStates", riderUid), { state: "available_at_hub", tripId: null, orderIds: [] }));
+      await assertFails(updateDoc(doc(db, "riderDispatchStates", riderUid), { state: "available_at_hub" }));
+      await assertFails(deleteDoc(doc(db, "riderDispatchStates", riderUid)));
+      await assertFails(setDoc(doc(db, "riderTrips", "forged"), { riderUid, status: "returned" }));
+      await assertFails(updateDoc(doc(db, "riderTrips", "tripA"), { status: "returned" }));
+    }
+  });
+
+  await check("RDS2 the server trip id on an order is server-only, for every client", async () => {
+    await assertFails(updateDoc(doc(admin, "orders", "tripOrder"), { dispatchTripId: "other", updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(admin, "orders", "tripOrder"), { dispatchTripId: deleteField(), updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "tripLoading"), { dispatchTripId: "tripA", updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(rider, "orders", "tripOrder"), { dispatchTripId: "x", updatedAt: serverTimestamp() }));
+  });
+
+  await check("RDS3 mid-trip assignment and direct departure are refused to Admin too", async () => {
+    // Assigning to a Rider who is on the road, written directly (the bypass).
+    for (const db of [dispatcher, admin]) {
+      await assertFails(updateDoc(doc(db, "orders", "tripPending"), assignment(riderUid)));
+      await assertFails(updateDoc(doc(db, "orders", "tripPending"), { status: "assigned", assignedRiderId: riderUid, updatedAt: serverTimestamp() }));
+      // ...or to a Rider at the hub: still the callable's.
+      await assertFails(updateDoc(doc(db, "orders", "tripPending"), assignment(otherRiderUid)));
+    }
+    // Reassigning an order already on a trip.
+    await assertFails(updateDoc(doc(admin, "orders", "tripOrder"), { assignedRiderId: otherRiderUid, updatedAt: serverTimestamp() }));
+    // Sending a forming trip out directly.
+    for (const db of [dispatcher, admin]) {
+      await assertFails(updateDoc(doc(db, "orders", "tripLoading"), {
+        status: "in_transit", dispatchedAt: serverTimestamp(), startedAt: serverTimestamp(),
+        statusUpdatedAt: serverTimestamp(), statusUpdatedByUid: dispatcherUid, updatedAt: serverTimestamp(),
+      }));
+    }
+    // What is unchanged: the Rider's own delay/resume, and Cargo Loading's untick.
+    await assertSucceeds(updateDoc(doc(rider, "orders", "tripOrder"), {
+      status: "delayed", delayReason: "Flat tyre", delayedAt: serverTimestamp(),
+      statusUpdatedAt: serverTimestamp(), statusUpdatedByUid: riderUid, updatedAt: serverTimestamp(),
+    }));
+    await assertSucceeds(updateDoc(doc(rider, "orders", "tripOrder"), {
+      status: "in_transit", startedAt: serverTimestamp(),
+      statusUpdatedAt: serverTimestamp(), statusUpdatedByUid: riderUid, updatedAt: serverTimestamp(),
+    }));
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "tripLoading"), { isLoaded: false, updatedAt: serverTimestamp() }));
+  });
+
+  await check("RDS4 an Admin repair-create cannot fabricate an assigned or departed order", async () => {
+    const base = {
+      orderNumber: "VT-REPAIR", createdByUid: salesRepUid, requestedDeliveryDate: FIXTURE_DELIVERY_DATE,
+    };
+    for (const status of ["assigned", "loading", "in_transit", "delayed"]) {
+      await assertFails(setDoc(doc(admin, "orders", `repair-${status}`), { ...base, status, assignedRiderId: riderUid }));
+    }
+    await assertFails(setDoc(doc(admin, "orders", "repair-rider"), { ...base, status: "pending_dispatch", assignedRiderId: riderUid }));
+    await assertFails(setDoc(doc(admin, "orders", "repair-trip"), { ...base, status: "pending_dispatch", dispatchTripId: "tripA" }));
   });
 
   // ---------------------------------------------------------------- allocation (version 2)
@@ -2538,10 +2661,12 @@ async function main() {
     await setDoc(doc(fdb, "orders", "allocPartialLoading"), allocOrder("partially_reserved", { status: "loading", assignedRiderId: riderUid, isLoaded: true, ...SEEDED_LOADING_AUDIT }));
   });
 
-  await check("ALLOC1 a backordered order cannot be assigned; a fully reserved one can", async () => {
+  await check("ALLOC1 no order is assigned by a client write, reserved or not", async () => {
+    // The fully-reserved gate now lives in assignRiderToOrder
+    // (order-not-fully-reserved), which every assignment goes through.
     await assertFails(updateDoc(doc(dispatcher, "orders", "allocAwaiting"), assignment(riderUid)));
     await assertFails(updateDoc(doc(dispatcher, "orders", "allocPartial"), assignment(riderUid)));
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "allocFull"), assignment(riderUid)));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "allocFull"), assignment(riderUid)));
   });
 
   await check("ALLOC2 loading and dispatch are refused for an order that is not fully reserved", async () => {
@@ -2702,8 +2827,10 @@ async function main() {
     }));
   });
 
-  await check("Plc3 dispatcher finalizes dispatch (loading → in_transit)", async () => {
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "lcLoading2"), dispatchRun()));
+  await check("Plc3 (now refused) a dispatcher cannot finalize dispatch by a direct write", async () => {
+    // loading → in_transit sends the Rider's whole trip and locks it; it is
+    // the assignRiderToOrder / finalizeRiderDispatch callables (functions/test/integration/riderDispatch.test.js).
+    await assertFails(updateDoc(doc(dispatcher, "orders", "lcLoading2"), dispatchRun()));
   });
 
   // Plc4 was "dispatcher cancels a non-terminal order with a reason" and PASSED
@@ -4028,11 +4155,13 @@ async function main() {
     updatedAt: serverTimestamp(),
   });
 
-  await check("SD1 same-day and past valid dates are assignable", async () => {
+  await check("SD1 dated orders are assigned only through the callable, whatever the date", async () => {
+    // The date gate itself moved with the move: assignRiderToOrder refuses an
+    // order before 00:00 Manila on its date (scheduled-date-not-reached).
     await seedSched("sdToday", { requestedDeliveryDate: schedToday });
     await seedSched("sdPast", { requestedDeliveryDate: schedYesterday });
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "sdToday"), assignPayload()));
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "sdPast"), assignPayload()));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "sdToday"), assignPayload()));
+    await assertFails(updateDoc(doc(dispatcher, "orders", "sdPast"), assignPayload()));
   });
 
   await check("SD1b a legacy order with NO date fails closed at every dispatch step", async () => {
@@ -4106,7 +4235,8 @@ async function main() {
     await testEnv.withSecurityRulesDisabled((ctx) =>
       updateDoc(doc(ctx.firestore(), "orders", "sdNoneRepair"), { requestedDeliveryDate: schedToday })
     );
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "sdNoneRepair"), assignPayload()));
+    // Repaired; it is then assigned through assignRiderToOrder, never directly.
+    await assertFails(updateDoc(doc(dispatcher, "orders", "sdNoneRepair"), assignPayload()));
   });
 
   await check("SD2 a future order cannot be assigned, even by a direct SDK write", async () => {
@@ -4166,7 +4296,8 @@ async function main() {
       startedAt: serverTimestamp(),
       ...audit(dispatcherUid),
     }));
-    // ...while the same steps on a same-day order still go through.
+    // ...and a same-day order is not sent out by a client write either:
+    // Finalize Dispatch is finalizeRiderDispatch's (which checks the date too).
     await seedSched("sdLoadingToday", {
       requestedDeliveryDate: schedToday,
       status: "loading",
@@ -4174,7 +4305,7 @@ async function main() {
       isLoaded: true,
       ...SEEDED_LOADING_AUDIT,
     });
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "sdLoadingToday"), {
+    await assertFails(updateDoc(doc(dispatcher, "orders", "sdLoadingToday"), {
       status: "in_transit",
       dispatchedAt: serverTimestamp(),
       startedAt: serverTimestamp(),
@@ -4232,7 +4363,8 @@ async function main() {
     await testEnv.withSecurityRulesDisabled((ctx) =>
       updateDoc(doc(ctx.firestore(), "orders", "sdAdminRepair"), { requestedDeliveryDate: schedToday })
     );
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "sdAdminRepair"), assignPayload()));
+    // Repaired; assignment itself is the callable's (never a direct write).
+    await assertFails(updateDoc(doc(dispatcher, "orders", "sdAdminRepair"), assignPayload()));
   });
 
   await check("SD7 admin cannot create an undated order, or one dispatched ahead of schedule", async () => {
@@ -5720,9 +5852,11 @@ async function main() {
     await assertFails(updateDoc(ref, lcaDispatch()), "dispatch while unticked");
     // Re-tick: only the flag changes.
     await assertSucceeds(updateDoc(ref, { isLoaded: true, updatedAt: serverTimestamp() }));
-    await assertSucceeds(updateDoc(ref, lcaDispatch()));
+    // Finalizing is finalizeRiderDispatch's now; it never touches an existing
+    // audit (riderDispatchOps.js). A direct dispatch is refused outright.
+    await assertFails(updateDoc(ref, lcaDispatch()), "direct dispatch");
     o = await lcaRead("lcaAudited2");
-    if (o.status !== "in_transit" || !keepsSeededAudit(o)) throw new Error("finalize did not keep the original audit");
+    if (o.status !== "loading" || o.isLoaded !== true || !keepsSeededAudit(o)) throw new Error("re-tick changed the audit");
   });
 
   await check("LCA5 Loading → In Transit is refused unless the resulting order is loaded with an audit", async () => {
@@ -5740,7 +5874,9 @@ async function main() {
 
   await check("LCA6 a legacy loaded order (no audit) is stamped as it is dispatched or unticked", async () => {
     await assertFails(updateDoc(doc(dispatcher, "orders", "lcaLegacy"), lcaDispatch()), "legacy dispatch, no stamp");
-    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "lcaLegacy"), { ...lcaDispatch(), ...lcaStamp() }));
+    // The stamped legacy dispatch is the callable's now (it stamps the audit as
+    // the order leaves); a direct write is refused even with the stamp.
+    await assertFails(updateDoc(doc(dispatcher, "orders", "lcaLegacy"), { ...lcaDispatch(), ...lcaStamp() }), "direct legacy dispatch");
     // An untick without stamping would erase the only custody evidence: refused.
     await assertFails(updateDoc(doc(dispatcher, "orders", "lcaLegacy2"), { isLoaded: false, updatedAt: serverTimestamp() }),
       "legacy untick, no stamp");

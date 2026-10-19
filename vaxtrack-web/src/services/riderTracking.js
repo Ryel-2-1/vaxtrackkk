@@ -243,10 +243,19 @@ export function riderUidsOnDelivery(orders) {
 /**
  * Riders genuinely free to take a delivery: approved accounts not currently
  * carrying an active order. (Not derived from live locations.)
+ *
+ * With the server's Rider trip states (`tripStates`, riderUid → state doc), a
+ * Rider who has left on a trip or is returning to the hub is not free either,
+ * even once their last order is delivered — they take new orders only after
+ * a Dispatcher confirms they are back at the hub.
  */
-export function availableRiderCount(riders, orders) {
+export function availableRiderCount(riders, orders, tripStates = null) {
   const busy = riderUidsOnDelivery(orders);
-  return (riders || []).filter((r) => r?.status === "approved" && !busy.has(r.uid)).length;
+  const away = (uid) => {
+    const state = tripStates?.get?.(uid)?.state;
+    return state === "on_trip" || state === "returning_to_hub";
+  };
+  return (riders || []).filter((r) => r?.status === "approved" && !busy.has(r.uid) && !away(r.uid)).length;
 }
 
 /**

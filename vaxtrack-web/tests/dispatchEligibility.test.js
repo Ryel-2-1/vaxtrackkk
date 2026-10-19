@@ -291,40 +291,77 @@ function fnBody(src, name) {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
+// Assignment and Finalize Dispatch are server callables (Rider trips,
+// functions/src/riderDispatchOps.js). The schedule is re-checked there, on
+// the stored order, inside the transaction and before any write; the same
+// rule, codes and wording as dispatchEligibility (parity below).
+const dispatchOps = read("functions/src/riderDispatchOps.js");
+const serverDispatch = require("../functions/src/riderDispatch.js");
+/** A server (CommonJS) function's source, up to the next top-level function. */
+function serverFnBody(src, name) {
+  const start = src.indexOf(`async function ${name}(`);
+  assert.notEqual(start, -1, `${name} not found`);
+  const rest = src.slice(start + 1);
+  const next = rest.search(/\n(async )?function /);
+  return next === -1 ? rest : rest.slice(0, next);
+}
+
 test("assignment re-checks the schedule inside its transaction (stale UI)", () => {
-  const body = fnBody(orderService, "assignRiderToOrder");
-  const txAt = body.indexOf("runTransaction(");
-  const readAt = body.indexOf("tx.get(orderRef)");
-  const checkAt = body.indexOf("assertScheduleReached(order)");
+  const body = serverFnBody(dispatchOps, "assignRiderToOrder");
+  const txAt = body.indexOf("runTripTransaction(db, async (tx) => {");
+  const readAt = body.indexOf("await tx.get(orderRef)");
+  const checkAt = body.indexOf("D.dispatchBlock(order, now)");
   const writeAt = body.indexOf("tx.update(orderRef");
   assert.ok(txAt !== -1 && txAt < readAt && readAt < checkAt && checkAt < writeAt,
     "the stored order is read, then checked, then written — all in one transaction");
+  // The web service sends only the ids; nothing it shows can stand in for the check.
+  assert.match(fnBody(orderService, "assignRiderToOrder"), /return await assignRiderToOrderOnServer\(orderId, riderUid\);/);
 });
 
 test("failed-delivery recovery re-enters through normal, schedule-gated assignment", () => {
-  // Recovery now only returns the order to pending_dispatch (server callable
-  // requeueFailedOrder); the client reassignment that skipped the queue is gone,
-  // so the only way back to a rider is assignRiderToOrder, checked above.
+  // Recovery only returns the order to pending_dispatch (requeueFailedOrder);
+  // the way back to a rider is assignRiderToOrder, where the schedule check
+  // runs before the stock check, on the same stored order.
   assert.equal(/export async function reassignFailedOrder/.test(orderService), false);
-  const body = fnBody(orderService, "assignRiderToOrder");
-  assert.ok(body.indexOf("assertScheduleReached(order)") < body.indexOf("assignmentBlockReason(order)"),
-    "the stock check runs on the same stored order, after the schedule check");
+  const block = serverDispatch.dispatchBlock.toString();
+  assert.ok(block.indexOf("scheduleEligibility(order, now)") < block.indexOf("fullyReserved(order)"));
 });
 
 test("cargo loading's promotion and finalize both check the stored order", () => {
   const load = fnBody(cargoService, "updateOrderLoadedState");
   assert.match(load, /assertTransition\(ACTOR_DISPATCHER, status, "loading"\);\s*\n\s*\/\/[^\n]*\n\s*assertScheduleReached\(order\);/);
-  const finalize = fnBody(cargoService, "finalizeRiderDispatch");
-  // Inside the validation pass that runs before ANY write, so one early order
-  // refuses the whole group.
-  const checkAt = finalize.indexOf("assertScheduleReached(order)");
-  assert.ok(checkAt !== -1 && checkAt < finalize.indexOf("refs.forEach((ref, index) =>"));
+  // Finalize: every trip order is checked before ANY write, so one early
+  // order refuses the whole trip.
+  const finalize = serverFnBody(dispatchOps, "finalizeRiderDispatch");
+  const checkAt = finalize.indexOf("D.dispatchBlock(o, now)");
+  assert.ok(checkAt !== -1 && checkAt < finalize.indexOf("// ---- writes"));
 });
 
-test("both services raise the stable code from the shared rule", () => {
-  for (const [src, errorClass] of [[orderService, "AssignmentError"], [cargoService, "WorkflowError"]]) {
-    assert.match(src, /const schedule = dispatchEligibility\(order\);/);
-    assert.match(src, new RegExp(`throw new ${errorClass}\\(schedule\\.code, schedule\\.message\\)`));
+test("both sides raise the stable code from the shared rule — and agree", () => {
+  assert.match(cargoService, /const schedule = dispatchEligibility\(order\);/);
+  assert.match(cargoService, /throw new WorkflowError\(schedule\.code, schedule\.message\)/);
+  // Parity: the server's decision, code and message equal the web's.
+  const now = at("2026-10-03T15:59:59.000Z");
+  const later = at("2026-10-03T16:00:00.000Z");
+  const cases = [
+    {},
+    { requestedDeliveryDate: undefined },
+    { requestedDeliveryDate: null },
+    { requestedDeliveryDate: "" },
+    { requestedDeliveryDate: "2026-10-04 " },
+    { requestedDeliveryDate: "2026-02-31" },
+    { requestedDeliveryDate: "2026/10/04" },
+    { requestedDeliveryDate: 20261004 },
+    { requestedDeliveryDate: OCT4 },
+    { requestedDeliveryDate: "2026-10-03" },
+  ];
+  for (const fields of cases) {
+    for (const when of [now, later]) {
+      const web = dispatchEligibility(fields, when);
+      const srv = serverDispatch.scheduleEligibility(fields, when);
+      assert.equal(srv.eligible, web.eligible, JSON.stringify(fields));
+      if (!web.eligible) assert.deepEqual([srv.code, srv.message], [web.code, web.message], JSON.stringify(fields));
+    }
   }
 });
 

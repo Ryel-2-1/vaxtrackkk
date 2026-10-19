@@ -655,6 +655,9 @@ service cloud.firestore {
         // Failure return / requeue (functions/src/inventoryWorkflow.js).
         'failureCount', 'pendingReturnId', 'returnDisposition', 'returnResolvedAt',
         'requeuedAt', 'requeuedByUid',
+        // Rider trips (functions/src/riderDispatchOps.js): the server trip an
+        // order belongs to. Not the route optimizer's client 'tripId'.
+        'dispatchTripId',
         'pricingVersion', 'priceCurrency', 'priceIsVatInclusive',
         'subtotalCentavos', 'subtotal', 'pricedAt',
         // Negotiated pricing + statutory (SC/PWD) line discounts
@@ -733,6 +736,20 @@ service cloud.firestore {
             // requeueFailedOrder (→ pending_dispatch) or a cancel. There is no
             // client path back to a rider: delivery_failed → assigned is gone.
             || priorStatus() == 'delivery_failed');
+    }
+
+    // Rider trips. Assigning a Rider (→ assigned) and sending a trip out
+    // (loading → in_transit) are the assignRiderToOrder and
+    // finalizeRiderDispatch callables alone: they read the Rider's server-owned
+    // trip state (riderDispatchStates) in the same transaction, which a rule
+    // cannot — a rule cannot see whether the Rider is already on the road. So
+    // no client, Admin included, may write either move or any assignment
+    // identity field (clientOrderWriteIsAllowed). A Rider resuming a delayed
+    // delivery (delayed → in_transit) is unaffected.
+    function writesServerOnlyDispatch() {
+      return statusChanged()
+        && (nextStatus() == 'assigned'
+            || (priorStatus() == 'loading' && nextStatus() == 'in_transit'));
     }
 
     // ---- TEMPORARY ROLLOUT COMPATIBILITY ----
@@ -837,6 +854,8 @@ service cloud.firestore {
     // The guard every client order write now carries.
     function clientOrderWriteIsAllowed() {
       return !writesServerOnlyStatus()
+        && !writesServerOnlyDispatch()
+        && !changedKeys().hasAny(assignmentIdentityFields())
         && !changedKeys().hasAny(serverOnlyOrderFields())
         // Order items carry the server's price and VAT snapshots. No client —
         // Admin included — may rewrite them after creation.
@@ -1004,9 +1023,8 @@ service cloud.firestore {
 
     // ---------------- rider assignment (workflow checkpoint 1) ----------------
     //
-    // Who an order belongs to. Deliberately absent from riderOrderFields(), so
-    // a rider can never reassign their own order; a dispatcher may change these
-    // only as part of a valid assignment, defined below.
+    // Who an order belongs to. Set only by the assignRiderToOrder callable (and
+    // cleared by requeueFailedOrder); no client may write any of them.
     function assignmentIdentityFields() {
       return [
         'assignedAt', 'assignedByEmail', 'assignedByUid', 'assignedRiderId',
@@ -1014,50 +1032,9 @@ service cloud.firestore {
       ];
     }
 
-    // An order counts as unassigned when the field is absent, null, or an empty
-    // string. Sales-rep-created orders start with an explicit null, and a blank
-    // string must not be usable to make a touched order look free again.
-    function hasNoAssignedRider(d) {
-      return !('assignedRiderId' in d)
-        || d.assignedRiderId == null
-        || (d.assignedRiderId is string && d.assignedRiderId.size() == 0);
-    }
-
-    function riderUserData(uid) {
-      return get(/databases/$(database)/documents/users/$(uid)).data;
-    }
-
-    // The assignment identity must be a real users DOCUMENT ID whose stored
-    // role and status say the account may ride. Because that id is used as the
-    // document path, an employee id or any other display identifier simply
-    // fails exists() — it cannot be substituted for the UID.
-    function isAssignableRiderUid(uid) {
-      return uid is string
-        && uid.size() > 0
-        && exists(/databases/$(database)/documents/users/$(uid))
-        && riderUserData(uid).role == 'rider'
-        && riderUserData(uid).status == 'approved';
-    }
-
-    // A dispatcher assigning a rider: the order must still be awaiting dispatch
-    // and still unassigned, the target must be an approved rider, the timestamp
-    // must be server-stamped, and the audit must name the caller. This mirrors
-    // the transaction in assignRiderToOrder, so the guarantee survives a client
-    // that bypasses the app entirely.
-    //
-    // The status audit is required too, as on every other transition: without
-    // it the Assigned history event had no actor and Admin's Activity panel
-    // kept naming whoever changed the status before.
-    function isValidRiderAssignment() {
-      return resource.data.status == 'pending_dispatch'
-        && request.resource.data.status == 'assigned'
-        && hasNoAssignedRider(resource.data)
-        && isAssignableRiderUid(request.resource.data.assignedRiderId)
-        && request.resource.data.assignedAt == request.time
-        && request.resource.data.assignedByUid == request.auth.uid
-        && statusAuditIsServerStamped()
-        && orderIsFullyReserved();
-    }
+    // Assignment itself is server-only (writesServerOnlyDispatch); the rules
+    // that validated a client assignment (isValidRiderAssignment and its rider
+    // lookups) were removed with it — no client write can make one any more.
 
     // ---------------- order lifecycle (workflow checkpoint 2) ----------------
     //
@@ -1207,20 +1184,10 @@ service cloud.firestore {
         && changedKeys().hasAny(['tripGeneratedAt']);
     }
 
-    // loading → in_transit. The finalize-dispatch step. The order that results
-    // must be confirmed as loaded with a loading audit — enforced here, not
-    // only by Cargo Loading's button — so a direct write cannot dispatch an
-    // order nobody confirmed.
-    function isValidDispatch() {
-      return priorStatus() == 'loading'
-        && nextStatus() == 'in_transit'
-        && request.resource.data.get('isLoaded', false) == true
-        && hasLoadingAudit(request.resource.data)
-        && request.resource.data.dispatchedAt == request.time
-        && request.resource.data.startedAt == request.time
-        && statusAuditIsServerStamped()
-        && orderIsFullyReserved();
-    }
+    // loading → in_transit (Finalize Dispatch) is the finalizeRiderDispatch
+    // callable's alone (writesServerOnlyDispatch). It keeps the same
+    // requirements this rule enforced — every order loaded with a custody audit,
+    // fully reserved, its date reached — for the WHOLE trip at once.
 
     // Any non-terminal order → cancelled, with a reason. A failed delivery is
     // cancellable too: that is the dispatcher's other recovery option.
@@ -1243,18 +1210,16 @@ service cloud.firestore {
     // stock has gone to return-pending, so it cannot go straight back to a
     // rider (the old delivery_failed → assigned write): requeueFailedOrder
     // returns it to pending_dispatch, the allocator reserves it again, and it
-    // is assigned through isValidRiderAssignment() once fully reserved.
+    // is assigned through the assignRiderToOrder callable once fully reserved.
 
     // `isValidCancellation()` is deliberately absent: cancelling releases
     // reserved stock, so it is now the callable's alone. The function is kept
     // above only as the shape the callable enforces server-side.
     function isValidDispatcherOrderWrite() {
-      return isValidRiderAssignment()
-        || isValidLoadingPromotion()
+      return isValidLoadingPromotion()
         || isLoadingMetadataUpdate()
         || isRouteGenerationWrite()
-        || isTripOptimizationWrite()
-        || isValidDispatch();
+        || isTripOptimizationWrite();
     }
 
     // --- rider operations ---
@@ -1648,8 +1613,10 @@ service cloud.firestore {
         // already dispatched ahead of it.
         && (scheduledDateField() in request.resource.data)
         && isScheduledDateShape(request.resource.data[scheduledDateField()])
-        && (!(request.resource.data.get('status', null) in ['assigned', 'loading', 'in_transit'])
-            || scheduleAllowsDispatch(request.resource.data));
+        // ...nor one already assigned to a Rider or on the road: that would
+        // put an order on a Rider's trip without the trip state knowing.
+        && !(request.resource.data.get('status', null) in ['assigned', 'loading', 'in_transit', 'delayed'])
+        && !request.resource.data.keys().hasAny(assignmentIdentityFields());
 
       // Admin: full update.
       // Dispatcher: only dispatch/assignment/status fields (allowlist).
@@ -1666,17 +1633,8 @@ service cloud.firestore {
         || (
           isDispatcher()
           && changedKeys().hasOnly(dispatcherOrderFields())
-          // A dispatcher write either IS a valid assignment, or it leaves the
-          // assignment identity completely alone. That covers both directions:
-          // an assignment cannot be made on an order that is not awaiting
-          // dispatch or is already taken, and an ordinary lifecycle write
-          // (status change, cargo loading, route generation) can never quietly
-          // move an order to a different rider.
-          && (
-            isValidRiderAssignment()
-            || !changedKeys().hasAny(assignmentIdentityFields())
-          )
-          // ...and the write must be one of the dispatcher's approved
+          // (Assignment identity is untouchable by any client — see
+          // clientOrderWriteIsAllowed.) The write must be one of the dispatcher's approved
           // operations. There is no blanket "anything that leaves status
           // alone" escape: the two legitimate non-status writes (loading
           // metadata and route generation) are enumerated inside.
@@ -1843,6 +1801,18 @@ service cloud.firestore {
       allow write: if false;
     }
     match /routeDeviationEvents/{eventId} {
+      allow get, list: if isAdmin() || isDispatcher();
+      allow write: if false;
+    }
+    // Rider trips (functions/src/riderDispatchOps.js): one server-owned state
+    // per Rider and an audit record per trip. Written only by the callables and
+    // the order-write trigger. A Rider may read their own state.
+    match /riderDispatchStates/{riderUid} {
+      allow get: if isAdmin() || isDispatcher() || (isRider() && request.auth.uid == riderUid);
+      allow list: if isAdmin() || isDispatcher();
+      allow write: if false;
+    }
+    match /riderTrips/{tripId} {
       allow get, list: if isAdmin() || isDispatcher();
       allow write: if false;
     }

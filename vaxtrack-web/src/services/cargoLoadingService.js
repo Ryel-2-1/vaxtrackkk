@@ -12,7 +12,6 @@ import { dispatchEligibility } from "./dispatchEligibility";
 import {
   ACTOR_DISPATCHER,
   assertTransition,
-  canTransition,
   canUpdateLoadingMetadata,
   normalizeStatus,
   WorkflowError,
@@ -20,6 +19,7 @@ import {
 import { logSafeError } from "./liveDataErrors.js";
 import { hasLoadingAudit } from "./loadingCustody.js";
 import { listenLive } from "./liveSnapshot.js";
+import { finalizeRiderTripOnServer } from "./riderDispatchService";
 
 const ORDERS = "orders";
 const USERS = "users";
@@ -304,112 +304,31 @@ export async function updateOrderLoadedState(orderId, isLoaded) {
 }
 
 /**
- * Finalize dispatch for a rider's whole group atomically.
+ * Finalize Dispatch: the Rider's whole forming trip leaves, at once — on the
+ * server (finalizeRiderDispatch callable, functions/src/riderDispatchOps.js).
  *
- * Uses a Firestore write batch so either every order is moved to `in_transit`
- * or none are — the group is never left partially finalized. Writes dispatch
- * audit fields using server timestamps and does not overwrite unrelated fields.
+ * The server re-reads the Rider's trip and every order in one transaction:
+ * the orders sent must be exactly the trip's (a stale or partial group is
+ * refused with `trip-changed`), every one in Loading, confirmed loaded, fully
+ * reserved and on or after its date — or nothing moves. Departure then locks
+ * the trip: no order can join it, and the Rider takes no new assignment until
+ * their return to the hub is confirmed. A repeat of a Finalize that already
+ * ran is a no-op success. firestore.rules refuse the direct loading →
+ * in_transit write, Admin included.
+ *
+ * `tripId` is the server trip id the page saw (riderDispatchStates), passed so
+ * a trip replaced in the meantime is refused rather than sent; it may be null
+ * for a Rider the server has not classified yet.
  */
-export async function finalizeRiderDispatch(riderId, orderIds) {
+export async function finalizeRiderDispatch(riderId, orderIds, tripId = null) {
   if (typeof riderId !== "string" || riderId.trim() === "") {
     throw new WorkflowError("rider-required", "Rider is required.");
   }
   if (!Array.isArray(orderIds) || orderIds.length === 0) {
     throw new WorkflowError("no-orders", "No orders to finalize.");
   }
-  const uniqueIds = [...new Set(orderIds)];
-
-  const currentUser = auth.currentUser;
-  if (!currentUser?.uid) {
-    throw new WorkflowError(
-      "not-signed-in",
-      "Your session has expired. Please sign in again."
-    );
+  if (!auth.currentUser?.uid) {
+    throw new WorkflowError("not-signed-in", "Your session has expired. Please sign in again.");
   }
-
-  // A writeBatch cannot read, so the previous version validated nothing: it
-  // wrote `in_transit` onto whatever ids the rendered group happened to hold.
-  // A transaction reads every order first, rejects the whole dispatch if any
-  // one of them fails, and — because Firestore retries a transaction whose read
-  // set changed — cannot commit against a group that moved underneath it.
-  return runTransaction(db, async (tx) => {
-    const refs = uniqueIds.map((id) => doc(db, ORDERS, id));
-
-    // All reads must precede all writes inside a transaction.
-    const snaps = [];
-    for (const ref of refs) {
-      snaps.push(await tx.get(ref));
-    }
-
-    snaps.forEach((snap, index) => {
-      const orderId = uniqueIds[index];
-      if (!snap.exists()) {
-        throw new WorkflowError(
-          "order-not-found",
-          `Order ${orderId} no longer exists. Refresh cargo loading.`
-        );
-      }
-      const order = snap.data();
-
-      // Every order must belong to the rider being dispatched. Without this a
-      // stale or tampered group could sweep another rider's order along.
-      if (order.assignedRiderId !== riderId) {
-        throw new WorkflowError(
-          "order-not-for-rider",
-          "One of these orders is no longer assigned to this rider. Refresh cargo loading."
-        );
-      }
-
-      const status = normalizeStatus(getOrderStatusValue(order));
-      const check = canTransition(ACTOR_DISPATCHER, status, "in_transit");
-      if (!check.ok) {
-        throw new WorkflowError(
-          "order-not-dispatchable",
-          "One of these orders is no longer ready for dispatch. Refresh cargo loading."
-        );
-      }
-
-      // The same condition the UI enables the button on — every order in the
-      // group physically confirmed as loaded. firestore.rules refuses the
-      // in_transit write without it (isLoaded true + a loading audit), so this
-      // is the friendly message, not the guard.
-      if (order.isLoaded !== true) {
-        throw new WorkflowError(
-          "order-not-loaded",
-          "Every order must be confirmed as loaded before dispatch."
-        );
-      }
-
-      // No order leaves before 00:00 Manila on its scheduled date. One early
-      // order refuses the whole group — a partial dispatch is never written.
-      assertScheduleReached(order);
-    });
-
-    refs.forEach((ref, index) => {
-      // A legacy order confirmed before the audit existed is stamped as it
-      // leaves, so every dispatched order carries one. An existing audit is
-      // never touched.
-      const order = snaps[index].data();
-      tx.update(ref, {
-        ...(hasLoadingAudit(order) ? {} : loadingAuditStamp(currentUser)),
-        status: "in_transit",
-        dispatchedAt: serverTimestamp(),
-        loadingFinalizedAt: serverTimestamp(),
-        // Standard status audit fields, consistent with the rest of the app.
-        startedAt: serverTimestamp(),
-        statusUpdatedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        dispatchedByUid: currentUser.uid,
-        statusUpdatedByUid: currentUser.uid,
-        ...(currentUser.email
-          ? {
-              dispatchedByEmail: currentUser.email,
-              statusUpdatedByEmail: currentUser.email,
-            }
-          : {}),
-      });
-    });
-
-    return { riderId, dispatchedOrderIds: uniqueIds };
-  });
+  return finalizeRiderTripOnServer({ riderUid: riderId, orderIds: [...new Set(orderIds)], tripId });
 }

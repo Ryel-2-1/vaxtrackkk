@@ -25,6 +25,7 @@ import KpiCard from "../../components/ui/KpiCard";
 import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import DispatcherTrackingOverview from "../../components/tracking/DispatcherTrackingOverview";
 import { availableRiderCount } from "../../services/riderTracking";
+import { subscribeRiderDispatchStates } from "../../services/riderDispatchService";
 import { assignmentBlockReason } from "../../services/backorder";
 import { presentAlert } from "../../services/alertPresentation";
 
@@ -45,6 +46,9 @@ function DispatcherDashboard() {
   const [pendingOrders, setPendingOrders] = useState([]);
   const [allOrders, setAllOrders] = useState([]);
   const [riders, setRiders] = useState([]);
+  // Rider trips (server-owned): a Rider out on a trip or returning to the hub
+  // is not available, even after their last delivery.
+  const [tripStates, setTripStates] = useState(null);
   const [activeAlerts, setActiveAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -151,7 +155,18 @@ function DispatcherDashboard() {
   const latestAlert = activeAlerts[0] ? presentAlert(activeAlerts[0], { role: "dispatcher" }) : null;
 
   // Genuinely free riders: approved and not carrying an active delivery.
-  const availableRiders = useMemo(() => availableRiderCount(riders, allOrders), [riders, allOrders]);
+  useEffect(
+    () =>
+      subscribeRiderDispatchStates(setTripStates, () => {
+        // Without trip states the count falls back to riders with no active order.
+        setTripStates(null);
+      }),
+    []
+  );
+  const availableRiders = useMemo(
+    () => availableRiderCount(riders, allOrders, tripStates),
+    [riders, allOrders, tripStates]
+  );
   const activeDeliveries = allOrders.filter(
     (o) => o.statusKey === "in_transit" || o.statusKey === "assigned" || o.statusKey === "loading"
   ).length;

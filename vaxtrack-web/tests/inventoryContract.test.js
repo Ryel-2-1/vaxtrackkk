@@ -41,6 +41,11 @@ const CALLABLE_NAMES = [
   // Rider: read-only delivery-geofence preflight before evidence upload. The
   // completion callable repeats the decision authoritatively.
   "validateDeliveryCompletionGeofence",
+  // Rider trips (functions/src/riderDispatchOps.js) — Dispatcher/Admin. None
+  // moves stock: they read the fully-reserved flag the allocator keeps.
+  "assignRiderToOrder", // pending_dispatch → assigned; the order joins the Rider's forming trip
+  "finalizeRiderDispatch", // the whole forming trip: loading → in_transit
+  "confirmRiderReturnToHub", // returning_to_hub → available_at_hub
 ];
 
 test("the callables are the only inventory-affecting entry points", () => {
@@ -94,6 +99,10 @@ test("the callables are the only inventory-affecting entry points", () => {
     // timingStatus and records one history event + alert. Never names
     // inventory and never writes an order status (checked below).
     "evaluateDeliveryTiming",
+    // Rider trips: membership and settlement after any order change. Writes
+    // the Rider's trip state and stamps dispatchTripId — never a status,
+    // never inventory (checked below).
+    "reconcileRiderDispatchOnOrderWrite",
   ];
   const exported = [...index.matchAll(/^exports\.(\w+)\s*=/gm)].map((m) => m[1]);
   assert.deepEqual(
@@ -101,6 +110,18 @@ test("the callables are the only inventory-affecting entry points", () => {
     [...CALLABLE_NAMES, ...NON_CALLABLE_EXPORTS].sort(),
     "exactly these callables, plus the triggers / scheduled jobs listed above"
   );
+  for (const p of ["functions/src/riderDispatch.js", "functions/src/riderDispatchOps.js"]) {
+    const code = read(p).replace(/^\s*(\*|\/\/).*$/gm, "");
+    assert.equal(/inventory|reservedQuantity|Centavos/i.test(code), false, `${p} never names inventory`);
+  }
+  {
+    // The reconciler (reconcileRider) writes trip state and dispatchTripId only.
+    const ops = read("functions/src/riderDispatchOps.js");
+    const reconcile = ops.slice(ops.indexOf("async function reconcileRider("), ops.indexOf("async function reconcileRiderOnOrderWrite("));
+    assert.doesNotMatch(reconcile.replace(/^\s*(\*|\/\/).*$/gm, ""), /status:\s*"(pending_dispatch|assigned|loading|in_transit|delayed|delivered|cancelled|delivery_failed)"/,
+      "the trip reconciler never writes an order status");
+    assert.match(reconcile, /tx\.update\(db\.collection\(ORDERS\)\.doc\(id\), \{ dispatchTripId: tripId, updatedAt: stamp \}\)/);
+  }
   for (const p of ["functions/src/deliveryTiming.js", "functions/src/deliveryTimingOps.js"]) {
     const code = read(p).replace(/^\s*(\*|\/\/).*$/gm, "");
     assert.equal(/inventory|reservedQuantity|Centavos/i.test(code), false, `${p} never names inventory`);

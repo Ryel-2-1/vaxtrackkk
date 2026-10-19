@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createServiceLoader, createStore, installStore, SERVER_TIMESTAMP } from "./serviceHarness.js";
+import { callableError, createServiceLoader, createStore, installCallables, installStore } from "./serviceHarness.js";
 import * as Q from "../src/services/assignmentQueue.js";
 
 /**
@@ -11,10 +11,12 @@ import * as Q from "../src/services/assignmentQueue.js";
  * `setTimeout(() => navigate("/dispatcher"), 1200)` and dumped the dispatcher
  * on the Dashboard. The page is now a live queue + dialog that stays put.
  *
- * The real assignRiderToOrder runs against the in-memory Firestore stand-in
- * (serviceHarness) through the same one-at-a-time runner the page uses; the
- * page's wiring (no navigation, listeners, states) is checked by source shape,
- * as elsewhere in this repo (no DOM renderer).
+ * The real assignRiderToOrder service runs through the same one-at-a-time
+ * runner the page uses. Since Rider trips it is a callable: the harness plays
+ * the server's replies (the server itself is tested against a real Firestore
+ * in functions/test/integration/riderDispatch.test.js). The page's wiring (no
+ * navigation, listeners, states) is checked by source shape, as elsewhere in
+ * this repo (no DOM renderer).
  */
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
@@ -39,16 +41,17 @@ const seed = (order = pending(), riders = { rider1: { role: "rider", status: "ap
 
 // ---------------------------------------------------------------- the assignment run
 
-test("success: one transactional assignment with attribution, and the success message", async () => {
+test("success: one server assignment request, and the success message", async () => {
   const store = installStore(seed(), DISPATCHER);
+  const calls = installCallables({
+    assignRiderToOrder: () => ({ orderId: "o1", riderUid: "rider1", tripId: "T1", replayed: false }),
+  });
   const runner = LQ.createAssignmentRunner(assignRiderToOrder);
   const outcome = await runner.run("o1", "rider1");
   assert.deepEqual([outcome.ok, outcome.message], [true, "Rider assigned successfully."]);
-  const order = store.collections.orders.o1.data;
-  assert.equal(order.status, "assigned");
-  assert.equal(order.assignedRiderId, "rider1");
-  assert.equal(order.assignedByUid, DISPATCHER.uid);
-  assert.equal(order.assignedAt, SERVER_TIMESTAMP);
+  assert.deepEqual(calls, [{ name: "assignRiderToOrder", data: { orderId: "o1", riderUid: "rider1" } }]);
+  // The status, the rider fields and the attribution are written by the server.
+  assert.equal(store.writes.length, 0);
 });
 
 test("a double click sends exactly one assignment; the second is refused while pending", async () => {
@@ -70,29 +73,52 @@ test("a double click sends exactly one assignment; the second is refused while p
   assert.equal(runner.pending, false);
 });
 
+/** The server refusing with a stable code (and optional context). */
+const refuse = (code, message, info) =>
+  installCallables({ assignRiderToOrder: () => { throw callableError(code, message, info); } });
+
 test("another dispatcher assigned first: the clear conflict message, nothing overwritten", async () => {
   const store = installStore(seed(pending({ status: "assigned", assignedRiderId: "otherRider" })), DISPATCHER);
+  refuse("order-not-pending", "That order is no longer awaiting dispatch. Refresh the queue.", { status: "assigned" });
   const outcome = await LQ.createAssignmentRunner(assignRiderToOrder).run("o1", "rider1");
   assert.equal(outcome.ok, false);
   assert.equal(outcome.conflict, true);
   assert.equal(outcome.message, "This order has already been assigned. The list has been updated.");
   assert.equal(store.collections.orders.o1.data.assignedRiderId, "otherRider");
+  refuse("order-already-assigned", "That order has already been assigned to a rider.");
+  const raced = await LQ.createAssignmentRunner(assignRiderToOrder).run("o1", "rider1");
+  assert.deepEqual([raced.conflict, raced.message], [true, "This order has already been assigned. The list has been updated."]);
 });
 
 test("unavailable rider and invalid status stay on the page with a clear message", async () => {
   installStore(seed(pending(), { rider1: { role: "rider", status: "disabled" } }), DISPATCHER);
+  refuse("rider-not-approved", "That rider is not approved for assignment.");
   const rider = await LQ.createAssignmentRunner(assignRiderToOrder).run("o1", "rider1");
   assert.deepEqual([rider.ok, rider.conflict, rider.message], [false, false, "That rider is no longer available. Choose another rider."]);
 
   installStore(seed(pending({ status: "cancelled" })), DISPATCHER);
+  refuse("order-not-pending", "That order is no longer awaiting dispatch. Refresh the queue.", { status: "cancelled" });
   const status = await LQ.createAssignmentRunner(assignRiderToOrder).run("o1", "rider1");
   assert.equal(status.ok, false);
   assert.equal(status.conflict, true);
   assert.equal(status.message, "This order was cancelled. The list has been updated.");
 
   installStore(seed(pending({ status: "delivery_failed" })), DISPATCHER);
+  refuse("order-not-pending", "That order is no longer awaiting dispatch. Refresh the queue.", { status: "delivery_failed" });
   const other = await LQ.createAssignmentRunner(assignRiderToOrder).run("o1", "rider1");
   assert.equal(other.message, "This order is no longer waiting for a rider. The list has been updated.");
+});
+
+test("a Rider who left on a trip (or is returning) keeps the dialog open with the server's reason", async () => {
+  installStore(seed(), DISPATCHER);
+  for (const [code, message] of [
+    ["rider-on-trip", "This rider has already left on a trip. New orders can be assigned after they return to the hub."],
+    ["rider-returning", "This rider is returning to the hub. Confirm their return before assigning new orders."],
+  ]) {
+    refuse(code, message);
+    const outcome = await LQ.createAssignmentRunner(assignRiderToOrder).run("o1", "rider1");
+    assert.deepEqual([outcome.ok, outcome.conflict, outcome.message], [false, false, message]);
+  }
 });
 
 test("permission and network failures never show raw Firebase text", async () => {
@@ -186,7 +212,9 @@ test("success closes the dialog and says so; failures keep the user's context", 
   // Search, filter and page are never reset by the assignment.
   assert.equal(/setSearch|setFilter|setPage/.test(handler), false);
   // The confirm button is disabled while pending.
-  assert.match(PAGE, /const canAssign =\s*!saving && !!selectedRiderId && !!selectedRider && !!selectedOrder && !scheduleBlocked && !stockBlock;/);
+  // ...and while the chosen Rider is out on a trip / returning (live trip state).
+  assert.match(PAGE, /const canAssign =\s*!saving && !!selectedRiderId && !!selectedRider && !selectedRiderOut && !!selectedOrder && !scheduleBlocked && !stockBlock;/);
+  assert.match(PAGE, /const selectedRiderOut = !!selectedRider && !tripOf\(selectedRider\.uid\)\.assignable;/);
   assert.match(PAGE, /onClick=\{handleConfirmAssignment\}\s*disabled=\{!canAssign\}/);
   assert.match(PAGE, /const \[runner\] = useState\(\(\) => createAssignmentRunner\(assignRiderToOrder\)\);/);
 });
@@ -194,8 +222,9 @@ test("success closes the dialog and says so; failures keep the user's context", 
 test("one live listener per feed, created once and removed on unmount", () => {
   assert.equal([...PAGE.matchAll(/subscribePendingDispatchOrders\(/g)].length, 1);
   assert.equal([...PAGE.matchAll(/subscribeRiders\(/g)].length, 1);
+  assert.equal([...PAGE.matchAll(/subscribeRiderDispatchStates\(/g)].length, 1);
   const effect = PAGE.slice(PAGE.indexOf("const unsubOrders = subscribePendingDispatchOrders("), PAGE.indexOf("const queue = useMemo("));
-  assert.match(effect, /return \(\) => \{\s*unsubOrders\(\);\s*unsubRiders\(\);\s*\};\s*\}, \[\]\);/, "empty deps: no duplicate listeners on re-render");
+  assert.match(effect, /return \(\) => \{\s*unsubOrders\(\);\s*unsubRiders\(\);\s*unsubStates\(\);\s*\};\s*\}, \[\]\);/, "empty deps: no duplicate listeners on re-render");
   // The dialog shows only the LIVE order, never a stale cached copy.
   assert.match(PAGE, /const selectedOrder = dialogOrderId && orders \? orders\.find\(\(o\) => o\.id === dialogOrderId\) \|\| null : null;/);
   // The subscription reports errors instead of loading forever.

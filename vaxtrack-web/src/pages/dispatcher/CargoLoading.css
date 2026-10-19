@@ -535,3 +535,62 @@
     margin: 6px 0;
   }
 }
+
+/* Rider trips: riders whose trip is finished, waiting for a Dispatcher to
+   confirm they are physically back at the distribution hub. */
+.cl-return {
+  background: #ffffff;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 16px;
+  margin-bottom: 16px;
+  font-family: var(--font-ui);
+}
+
+.cl-return-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--green-800);
+}
+
+.cl-return-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.cl-return-head p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--gray-600);
+}
+
+.cl-return-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.cl-return-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--gray-100);
+}
+
+@media (max-width: 640px) {
+  .cl-return-row {
+    flex-wrap: wrap;
+  }
+
+  .cl-return-row .cl-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
