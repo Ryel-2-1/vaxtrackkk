@@ -1,11 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import {
+  CORRECTION_REASON_CODES,
   MAX_CORRECTION_REASON_LENGTH,
+  MIN_CORRECTION_REASON_LENGTH,
   readReserved,
   validateStockCorrection,
 } from "../src/services/stockCorrection.js";
+import { createServiceLoader, createStore, installCallables, installStore } from "./serviceHarness.js";
 
 /**
  * Admin stock correction fixes a human error in a batch's on-hand figure. The
@@ -20,6 +24,7 @@ const base = {
   newQuantity: 120,
   currentQuantity: 100,
   reservedQuantity: 10,
+  reasonCode: "count_discrepancy",
   reason: "Recount confirms 120",
 };
 
@@ -46,7 +51,8 @@ test("a missing or zero reserved figure is treated as zero", () => {
     newQuantity: 0,
     currentQuantity: 50,
     reservedQuantity: undefined,
-    reason: "Batch written off after spoilage",
+    reasonCode: "entry_error",
+    reason: "Add Stock entered 50; the delivery note shows none",
   });
   assert.equal(out.ok, true);
 });
@@ -61,9 +67,15 @@ test("the corrected quantity must be a whole, non-negative number", () => {
 
 // ------------------------------------------------------------------- reason
 
-test("a non-empty reason within the length limit is required", () => {
+test("a meaningful reason (10–500 characters) and a correction category are required", () => {
   assert.equal(validateStockCorrection({ ...base, reason: "" }).ok, false);
   assert.equal(validateStockCorrection({ ...base, reason: "   " }).ok, false);
+  assert.equal(MIN_CORRECTION_REASON_LENGTH, 10);
+  assert.equal(validateStockCorrection({ ...base, reason: "x" }).field, "reason", "a token reason is refused");
+  assert.equal(validateStockCorrection({ ...base, reason: "Recount 1" }).field, "reason", "9 characters is too short");
+  assert.equal(validateStockCorrection({ ...base, reasonCode: undefined }).field, "reasonCode");
+  assert.equal(validateStockCorrection({ ...base, reasonCode: "damaged" }).field, "reasonCode", "unusable stock is not a correction");
+  assert.deepEqual([...CORRECTION_REASON_CODES], ["entry_error", "count_discrepancy"]);
   assert.equal(
     validateStockCorrection({ ...base, reason: "x".repeat(MAX_CORRECTION_REASON_LENGTH + 1) }).ok,
     false
@@ -71,6 +83,46 @@ test("a non-empty reason within the length limit is required", () => {
   const out = validateStockCorrection({ ...base, reason: "  Miscount at intake  " });
   assert.equal(out.ok, true);
   assert.equal(out.value.reason, "Miscount at intake", "the reason is trimmed");
+  assert.equal(out.value.reasonCode, "count_discrepancy");
+});
+
+test("an expired batch cannot be reduced by a correction — that is quarantine, then dispose", () => {
+  const down = validateStockCorrection({ ...base, newQuantity: 60, expired: true });
+  assert.equal(down.ok, false);
+  assert.match(down.message, /Remove unusable stock/);
+  assert.equal(validateStockCorrection({ ...base, newQuantity: 140, expired: true }).ok, true, "raising a miscounted expired batch is a record fix");
+  assert.equal(validateStockCorrection({ ...base, newQuantity: 60, expired: false }).ok, true);
+});
+
+test("web and server agree on the correction rules", () => {
+  const server = createRequire(import.meta.url)("../functions/src/inventoryRemoval.js");
+  assert.deepEqual([...CORRECTION_REASON_CODES], [...server.CORRECTION_REASON_CODES]);
+  assert.equal(MIN_CORRECTION_REASON_LENGTH, server.MIN_CORRECTION_REASON);
+  const now = new Date("2026-10-05T02:00:00Z");
+  const data = (over) => ({ quantity: 100, reservedQuantity: 10, returnPendingQuantity: 5, quarantinedQuantity: 5, expiryDate: "2027-06-30", ...over });
+  const cases = [
+    [{}, 120],
+    [{}, 19],
+    [{}, 20],
+    [{}, 100],
+    [{ expiryDate: "2026-10-01" }, 60],
+    [{ expiryDate: "2026-10-01" }, 140],
+  ];
+  for (const [over, newQuantity] of cases) {
+    const d = data(over);
+    const web = validateStockCorrection({
+      newQuantity, currentQuantity: d.quantity, reservedQuantity: d.reservedQuantity,
+      returnPendingQuantity: d.returnPendingQuantity, quarantinedQuantity: d.quarantinedQuantity,
+      reasonCode: "count_discrepancy", reason: "Recount confirms the figure", expired: d.expiryDate < "2026-10-05",
+    });
+    let srv = null;
+    try {
+      server.planStockCorrection({ data: d, inventoryId: "b", expectedQuantity: d.quantity, newQuantity, now });
+    } catch (e) {
+      srv = e.message;
+    }
+    assert.equal(web.ok, srv === null, JSON.stringify([over, newQuantity]));
+  }
 });
 
 // ----------------------------------------------------------------- no-op guard
@@ -88,6 +140,7 @@ test("a batch with a corrupt (text) quantity can still be corrected", () => {
     newQuantity: 100,
     currentQuantity: "100",
     reservedQuantity: 0,
+    reasonCode: "entry_error",
     reason: "Quantity was stored as text; recount is 100",
   });
   assert.equal(out.ok, true);
@@ -97,26 +150,23 @@ test("a batch with a corrupt (text) quantity can still be corrected", () => {
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 
-test("the service reads the batch fresh, then writes only quantity + audit", () => {
-  const src = read("src/services/vaccineService.js");
-  // CRLF-tolerant: a Windows checkout (core.autocrlf=true) ends lines in \r\n.
-  const fn = /export async function correctStockQuantity\([\s\S]*?\r?\n}\r?\n/.exec(src);
-  assert.ok(fn, "correctStockQuantity must exist");
-  const body = fn[0];
-  assert.match(body, /getDoc\(/, "must read the current batch");
-  assert.match(body, /validateStockCorrection\(/, "must validate before writing");
-  assert.match(body, /quantityCorrectedByUid: auth\.currentUser/, "actor comes from the session");
-  assert.match(body, /quantityCorrectedAt: serverTimestamp\(\)/, "time is server-stamped");
+test("Correct Stock is a server callable: the client sends the figures it saw and writes nothing itself", async () => {
+  const vaccineService = read("src/services/vaccineService.js").replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.equal(/correctStockQuantity|quantityCorrected/.test(vaccineService), false, "no direct-write correction remains");
 
-  // The WRITE payload (not the read/validate args) must never carry
-  // reservedQuantity — that field moves only inside a callable transaction.
-  const write = /updateDoc\(ref, \{[\s\S]*?\}\);/.exec(body);
-  assert.ok(write, "must write via updateDoc(ref, { ... })");
-  assert.equal(
-    /reservedQuantity/.test(write[0]),
-    false,
-    "the correction write must not include reservedQuantity"
-  );
+  const loader = createServiceLoader();
+  const svc = await loader.load("inventoryRemovalService.js");
+  const store = installStore(createStore(), { uid: "admin1", email: "admin@vaxtrack.test" });
+  const calls = installCallables({ correctStockQuantity: () => ({ inventoryId: "inv1", newQuantity: 120, replayed: false, reallocated: [] }) });
+  await svc.correctStockQuantity({
+    requestId: "req_abcdefghijklmnop", inventoryId: "inv1", expectedQuantity: 100, newQuantity: 120,
+    reasonCode: "count_discrepancy", reason: "  Recount confirms 120  ",
+  });
+  assert.deepEqual(calls, [{
+    name: "correctStockQuantity",
+    data: { requestId: "req_abcdefghijklmnop", inventoryId: "inv1", expectedQuantity: 100, newQuantity: 120, reasonCode: "count_discrepancy", reason: "Recount confirms 120" },
+  }]);
+  assert.equal(store.writes.length, 0, "no Firestore write from the browser");
 });
 
 const PAGE = "src/pages/admin/Inventory.jsx";
@@ -125,7 +175,7 @@ test("the page wires a Correct stock control through the real service", () => {
   const src = read(PAGE);
   assert.match(
     src,
-    /import \{[^}]*correctStockQuantity[^}]*\} from "\.\.\/\.\.\/services\/vaccineService"/,
+    /import \{[^}]*correctStockQuantity[^}]*\} from "\.\.\/\.\.\/services\/inventoryRemovalService"/,
     "must import correctStockQuantity"
   );
   assert.match(src, /Correct stock/, "the drawer must offer a Correct stock control");

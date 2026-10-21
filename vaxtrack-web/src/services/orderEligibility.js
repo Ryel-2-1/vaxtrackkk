@@ -56,6 +56,10 @@ export const ELIGIBILITY_REASONS = Object.freeze({
   // awaits Admin re-confirmation. Mirrors the server's batch-price-convention-legacy.
   LEGACY_PRICE_CONVENTION: "legacy-price-convention",
   NO_AVAILABLE_STOCK: "no-available-stock",
+  // An Admin voided the batch (a mistaken entry) — mirrors the server's batch-voided.
+  BATCH_VOIDED: "batch-voided",
+  // An Admin archived the vaccine product — mirrors the server's vaccine-archived.
+  VACCINE_ARCHIVED: "vaccine-archived",
   // Cart-line only: the batch is orderable, but the requested quantity is more
   // than is available. Mirrors the server's `insufficient-stock`.
   INSUFFICIENT_STOCK: "insufficient-stock",
@@ -73,6 +77,8 @@ const REASON_MESSAGES = Object.freeze({
   "missing-price": "Price not available",
   "legacy-price-convention": "Legacy pricing — VAT recorded as exclusive; awaiting Admin price confirmation",
   "no-available-stock": "No available stock",
+  "batch-voided": "Batch was voided by an Admin",
+  "vaccine-archived": "Vaccine is archived and no longer offered",
   "insufficient-stock": "Not enough stock available",
 });
 
@@ -137,10 +143,14 @@ function ineligible(reasonCode, availableQuantity, normalizedStatus, override) {
  * available stock), so the reason a rep is shown is the reason the server would
  * report first.
  *
+ * `context.vaccine` is the batch's vaccine product document when the caller
+ * has it; an ARCHIVED product makes the batch ineligible, as the server's
+ * order callable refuses it. Without it, archive is left to the server.
+ *
  * @returns {{eligible:boolean, availableQuantity:(number|null),
  *   normalizedStatus:(string|null), reasonCode:(string|null), reason:string}}
  */
-export function evaluateBatchEligibility(batch, todayIso) {
+export function evaluateBatchEligibility(batch, todayIso, context = {}) {
   const normalizedStatus = normalizeStatus(batch?.status) || null;
 
   // 1. No Firestore document id → the server reads it verbatim and throws
@@ -148,6 +158,12 @@ export function evaluateBatchEligibility(batch, todayIso) {
   const inventoryId = typeof batch?.id === "string" ? batch.id.trim() : "";
   if (!inventoryId) {
     return ineligible(ELIGIBILITY_REASONS.MISSING_INVENTORY_ID, null, normalizedStatus);
+  }
+
+  // 1b. A voided batch (an Admin's record of a mistaken entry) is never
+  //     quoted — the server's first check after the batch exists.
+  if (batch?.voided === true) {
+    return ineligible(ELIGIBILITY_REASONS.BATCH_VOIDED, null, normalizedStatus);
   }
 
   // 2. Stock / reserved figures must be usable integers.
@@ -200,6 +216,12 @@ export function evaluateBatchEligibility(batch, todayIso) {
     return ineligible(ELIGIBILITY_REASONS.LEGACY_PRICE_CONVENTION, availableQuantity, normalizedStatus);
   }
 
+  // 5c. An archived vaccine product is not offered for new orders. The server
+  //     reads the product after the batch checks, so this comes after them too.
+  if (context?.vaccine?.archived === true) {
+    return ineligible(ELIGIBILITY_REASONS.VACCINE_ARCHIVED, availableQuantity, normalizedStatus);
+  }
+
   // 6. No available stock is NOT a refusal any more: the batch is a valid
   //    QUOTE (its VAT-inclusive price), and the server backorders what it
   //    cannot reserve.
@@ -225,8 +247,9 @@ export function evaluateBatchEligibility(batch, todayIso) {
  * @param {{inventoryId:string, quantity:number}} cartLine
  * @param {object|null|undefined} batch the live inventory document, or null/undefined if gone
  * @param {string} todayIso today in Manila
+ * @param {{vaccine?: object}} [context] the batch's vaccine product, when known
  */
-export function reconcileCartLine(cartLine, batch, todayIso) {
+export function reconcileCartLine(cartLine, batch, todayIso, context = {}) {
   if (!batch) {
     return {
       ok: false,
@@ -236,7 +259,7 @@ export function reconcileCartLine(cartLine, batch, todayIso) {
     };
   }
 
-  const eligibility = evaluateBatchEligibility(batch, todayIso);
+  const eligibility = evaluateBatchEligibility(batch, todayIso, context);
   if (!eligibility.eligible) {
     return {
       ok: false,

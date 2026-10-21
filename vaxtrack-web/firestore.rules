@@ -922,25 +922,6 @@ service cloud.firestore {
       return value is string && value.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$');
     }
 
-    // A write that changes ANY batch date — manufacturing, arrival or expiry —
-    // must leave a complete, consistent set: all three present, date-only, and
-    // manufacturing <= arrival < expiry (so manufacturing < expiry as well).
-    // A legacy batch without a manufacturing date keeps loading and accepting
-    // unrelated updates; only editing one of its dates requires the Admin to
-    // supply a valid manufacturingDate in the same write. Nothing is back-filled.
-    function stockDatesValidIfChanged() {
-      let d = request.resource.data;
-      return !changedKeys().hasAny(['manufacturingDate', 'arrivalDate', 'expiryDate'])
-        || (
-          isDateOnlyString(d.get('manufacturingDate', null))
-          && isDateOnlyString(d.get('arrivalDate', null))
-          && isDateOnlyString(d.get('expiryDate', null))
-          && d.manufacturingDate <= d.arrivalDate
-          && d.manufacturingDate < d.expiryDate
-          && d.arrivalDate < d.expiryDate
-        );
-    }
-
     // Re-pricing an existing batch is an ordinary admin update — that IS the
     // price-management workflow — but the value that lands must still be a
     // positive integer number of centavos. Guarded by presence so an admin can
@@ -984,41 +965,20 @@ service cloud.firestore {
     // rather than stored as something subtly different from what was meant.
     function maxSafeInteger() { return 9007199254740991; }
 
-    // An admin STOCK CORRECTION — the controlled path for fixing a human error
-    // in Add Stock or a batch's on-hand figure. It may change `quantity` and its
-    // OWN audit fields only. It may never touch `reservedQuantity` (reservations
-    // move solely inside a callable's transaction) and may never set `quantity`
-    // below what is already reserved for open orders, so availability stays >= 0.
-    // WHO and WHEN are pinned to the caller and the server clock, the prior value
-    // is recorded honestly, and a non-empty reason is required — a correction is
-    // evidence, not a silent overwrite.
-    // Stock counters only the server moves (allocation, delivery, failure
-    // return, disposition). An admin's correction may change `quantity` alone.
-    function stockCounterFields() {
-      return ['quantity', 'reservedQuantity', 'returnPendingQuantity',
-              'quarantinedQuantity', 'writtenOffQuantity'];
+    // The fields an Admin re-price writes (vaccineService.updateStockPrice).
+    // Nothing else on a batch is client-writable: Correct Stock is the
+    // correctStockQuantity callable (category, reason, stale-figure check,
+    // held-units floor, expired-stock rule, permanent before/after audit), and
+    // every other counter, date, status and record field is server-written.
+    function stockPriceFields() {
+      return ['sellingPriceCentavos', 'priceCurrency', 'priceIsVatInclusive',
+              'priceSetAt', 'priceSetByUid', 'updatedAt'];
     }
 
-    function isValidStockCorrection() {
-      let d = request.resource.data;
-      let prev = resource.data;
-      return d.quantity is int
-        && d.quantity >= 0
-        // On hand can never drop below the units it must still account for.
-        && d.quantity >= prev.get('reservedQuantity', 0)
-             + prev.get('returnPendingQuantity', 0)
-             + prev.get('quarantinedQuantity', 0)
-        && d.previousQuantity == prev.quantity
-        && d.quantityCorrectedAt == request.time
-        && d.quantityCorrectedByUid == request.auth.uid
-        && d.quantityCorrectionReason is string
-        && d.quantityCorrectionReason.size() > 0
-        && d.quantityCorrectionReason.size() <= 500
-        && changedKeys().hasOnly([
-          'quantity', 'previousQuantity', 'quantityCorrectedAt',
-          'quantityCorrectedByUid', 'quantityCorrectedByEmail',
-          'quantityCorrectionReason', 'updatedAt'
-        ]);
+    // Vaccine archive state: set only by setVaccineArchived.
+    function vaccineArchiveFields() {
+      return ['archived', 'archivedAt', 'archivedByUid', 'archivedByEmail', 'archiveReason',
+              'restoredAt', 'restoredByUid', 'restoredByEmail', 'restoreReason'];
     }
 
     // ---------------- rider assignment (workflow checkpoint 1) ----------------
@@ -1826,34 +1786,32 @@ service cloud.firestore {
     // pages need vaccines/types). Writes are admin-only.
     // Stock levels are settlement state, not ordinary catalog data.
     //
-    // Admin Add Stock still creates batches from the client, now with the field
-    // validation the rules never had. `reservedQuantity` still moves ONLY inside
-    // a callable's reservation/release/consumption transaction — no client may
-    // change it. `quantity` likewise moves through the callables during the order
-    // lifecycle, with ONE additional controlled path: an admin STOCK CORRECTION
-    // (isValidStockCorrection), which fixes a human error in the on-hand figure
-    // without ever dropping below what is reserved or touching reservedQuantity.
-    // Any other client attempt to change quantity is still refused.
+    // Every stock counter moves only inside a server callable's transaction:
+    // reservation/release/consumption, failure returns and their disposition,
+    // quarantine/disposal, and Correct Stock (correctStockQuantity). No client
+    // — Admin included — writes `quantity` or any other counter directly.
     match /inventory/{id} {
       allow read: if isApprovedUser();
       // New stock arrives through addStockBatchWithAllocation, which creates
       // the batch and allocates it to waiting orders in ONE transaction. A
       // client-created batch would skip the allocation, so none is allowed.
       allow create: if false;
-      allow update: if isAdmin() && stockDatesValidIfChanged() && (
-        (
-          !changedKeys().hasAny(stockCounterFields())
-          && stockPriceValidIfPresent()
-          && stockPriceAuditValid()
-        )
-        || isValidStockCorrection()
-      );
-      // Never while units are reserved, waiting on a return or quarantined:
-      // deleting the batch would orphan the records that explain them.
-      allow delete: if isAdmin()
-        && resource.data.get('reservedQuantity', 0) == 0
-        && resource.data.get('returnPendingQuantity', 0) == 0
-        && resource.data.get('quarantinedQuantity', 0) == 0;
+      // The ONLY client write to a batch is an Admin re-pricing it. Everything
+      // else — every stock counter, Correct Stock and its audit, the expiry
+      // and other dates, the status, product identity, the void and usage
+      // records — is written by the server callables, which apply the checks
+      // a direct write would skip (functions/src/inventoryRemoval.js,
+      // allocation.js, operations.js).
+      allow update: if isAdmin()
+        // A voided batch is an audit record: no client edits it at all.
+        && resource.data.get('voided', false) != true
+        && changedKeys().hasOnly(stockPriceFields())
+        && stockPriceValidIfPresent()
+        && stockPriceAuditValid();
+      // No hard delete, Admin included. A mistaken batch is VOIDED
+      // (voidInventoryBatch) and unusable doses are quarantined/disposed
+      // (removeUnusableStock) — both keep the batch and its audit trail.
+      allow delete: if false;
     }
     // Vaccine catalog. A new product must carry a VAT classification —
     // exactly 'vatable' or 'vat_exempt', no default. A legacy product without
@@ -1864,9 +1822,21 @@ service cloud.firestore {
     match /vaccines/{id} {
       allow read: if isApprovedUser();
       allow create: if isAdmin()
-        && isProductVatClassification(request.resource.data.get('vatClassification', null));
-      allow update: if isAdmin() && vaccineVatChangeValid();
-      allow delete: if isAdmin();
+        && isProductVatClassification(request.resource.data.get('vatClassification', null))
+        && !request.resource.data.keys().hasAny(vaccineArchiveFields());
+      allow update: if isAdmin() && vaccineVatChangeValid()
+        // Archive / restore only through setVaccineArchived (audited, server).
+        && !changedKeys().hasAny(vaccineArchiveFields());
+      // No hard delete: orders, batches and history reference the product.
+      // A product that should no longer be ordered is ARCHIVED instead.
+      allow delete: if false;
+    }
+    // Admin inventory removal audit (functions/src/inventoryRemoval.js):
+    // archive/restore, void, quarantine and disposal. Written only by those
+    // callables through the Admin SDK; Admin may read; nobody may write.
+    match /inventoryAuditEvents/{eventId} {
+      allow read: if isAdmin();
+      allow write: if false;
     }
     match /vaccineTypes/{id} {
       allow read: if isApprovedUser();

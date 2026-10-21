@@ -256,21 +256,9 @@ function SalesRepPlaceOrder() {
       : liveStock.failed
         ? "failed"
         : "live";
-  const displayItems = useMemo(
-    () => liveCartLines(items, liveStock.batches, liveStock.todayIso),
-    [items, liveStock]
-  );
-  const review = cartReview(displayItems, liveStatus);
-  const handleAcceptLine = (line) => setItems((current) => acceptLiveLine(current, line));
-
-  // ---- final price review (negotiated pricing; services/negotiatedPricing.js) ----
-  // The rep's agreed-price TEXT and reason per line, keyed by batch. A line
-  // with no entry is at its standard price. Nothing here is a total: every
-  // figure is derived from quantity × unit price in integer centavos, and the
-  // server recomputes all of it from the batch it re-reads.
-  const [negotiation, setNegotiation] = useState({});
-  // The cart's vaccine products, for the full SKU and the CURRENT VAT class
-  // the server will snapshot (only these products, never the whole catalog).
+  // The cart's vaccine products, for the full SKU, the CURRENT VAT class the
+  // server will snapshot, and whether the product was archived (only these
+  // products, never the whole catalog).
   const vaccineIdsKey = [
     ...new Set((liveStock.batches || []).map((b) => b.vaccineId).filter((id) => typeof id === "string" && id)),
   ]
@@ -285,6 +273,20 @@ function SalesRepPlaceOrder() {
       () => setCatalog({ key: vaccineIdsKey, byId: new Map() })
     );
   }, [vaccineIdsKey]);
+  const displayItems = useMemo(
+    // An archived product blocks its lines here; the server refuses it anyway.
+    () => liveCartLines(items, liveStock.batches, liveStock.todayIso, catalog.byId),
+    [items, liveStock, catalog]
+  );
+  const review = cartReview(displayItems, liveStatus);
+  const handleAcceptLine = (line) => setItems((current) => acceptLiveLine(current, line));
+
+  // ---- final price review (negotiated pricing; services/negotiatedPricing.js) ----
+  // The rep's agreed-price TEXT and reason per line, keyed by batch. A line
+  // with no entry is at its standard price. Nothing here is a total: every
+  // figure is derived from quantity × unit price in integer centavos, and the
+  // server recomputes all of it from the batch it re-reads.
+  const [negotiation, setNegotiation] = useState({});
   const reviewLines = useMemo(() => {
     const batchById = new Map((liveStock.batches || []).map((b) => [b.id, b]));
     return displayItems.map((item) => {

@@ -2699,7 +2699,7 @@ async function main() {
     }
   });
 
-  await check("ALLOC4 no client moves return/quarantine counters; a correction respects them", async () => {
+  await check("ALLOC4 no client moves return/quarantine counters, nor corrects on hand", async () => {
     await testEnv.withSecurityRulesDisabled((ctx) =>
       setDoc(doc(ctx.firestore(), "inventory", "invReturning"), {
         vaccineId: "prodA", vaccineName: "A", batchId: "RET-1", expiryDate: "2027-12-31",
@@ -2721,9 +2721,10 @@ async function main() {
       quantityCorrectionReason: "Recount",
       updatedAt: serverTimestamp(),
     });
-    // 5 reserved + 3 return-pending + 2 quarantined = 10 must stay on hand.
+    // Correct Stock is the correctStockQuantity callable now: even a client
+    // correction that respects the 10 held units is refused.
     await assertFails(updateDoc(doc(admin, "inventory", "invReturning"), correction(9)));
-    await assertSucceeds(updateDoc(doc(admin, "inventory", "invReturning"), correction(10)));
+    await assertFails(updateDoc(doc(admin, "inventory", "invReturning"), correction(10)));
   });
 
   await check("ALLOC5 return records: Admin and Dispatcher read, nobody writes", async () => {
@@ -2754,7 +2755,7 @@ async function main() {
     }
   });
 
-  await check("ALLOC6 a batch holding reserved, return-pending or quarantined units cannot be deleted", async () => {
+  await check("ALLOC6 no batch can be hard-deleted — not one holding units, not even an empty one", async () => {
     await assertFails(deleteDoc(doc(admin, "inventory", "invReturning")));
     await testEnv.withSecurityRulesDisabled((ctx) =>
       setDoc(doc(ctx.firestore(), "inventory", "invEmpty"), {
@@ -2762,7 +2763,8 @@ async function main() {
         returnPendingQuantity: 0, quarantinedQuantity: 0,
       })
     );
-    await assertSucceeds(deleteDoc(doc(admin, "inventory", "invEmpty")));
+    // A mistaken batch is VOIDED through voidInventoryBatch; nothing deletes it.
+    await assertFails(deleteDoc(doc(admin, "inventory", "invEmpty")));
   });
 
   // =========================================================================
@@ -3549,11 +3551,11 @@ async function main() {
       await assertFails(updateDoc(doc(ctx, "inventory", "invAdmin"), { quantity: 9999 }));
       await assertFails(updateDoc(doc(ctx, "inventory", "invAdmin"), { reservedQuantity: 5 }));
     }
-    // An admin may still correct non-settlement fields.
-    await assertSucceeds(updateDoc(doc(admin, "inventory", "invAdmin"), { manufacturer: "Corrected" }));
+    // Nor any other batch field: an Admin's only client write is a re-price.
+    await assertFails(updateDoc(doc(admin, "inventory", "invAdmin"), { manufacturer: "Corrected" }));
   });
 
-  await check("Ncorr admin stock correction: only a safe, audited shape is allowed", async () => {
+  await check("Ncorr no client stock correction at all — Correct Stock is the server callable", async () => {
     // A full, valid correction. reservedQuantity is deliberately absent — it is
     // never part of a correction.
     const good = (extra) => ({
@@ -3587,11 +3589,49 @@ async function main() {
     // a non-admin cannot correct at all
     await assertFails(updateDoc(doc(dispatcher, "inventory", "invCorrect"), good()));
 
-    // --- positives ---
-    // down to exactly the reserved floor, on its own fixture
-    await assertSucceeds(updateDoc(doc(admin, "inventory", "invCorrectFloor"), good({ quantity: 10 })));
-    // a valid upward correction with full audit (runs last on invCorrect)
-    await assertSucceeds(updateDoc(doc(admin, "inventory", "invCorrect"), good()));
+    // --- formerly permitted: a fully audited correction is still refused ---
+    // (it would skip the category, the meaningful-reason minimum, the
+    // stale-figure check, the expired-stock rule and the permanent audit).
+    await assertFails(updateDoc(doc(admin, "inventory", "invCorrectFloor"), good({ quantity: 10 })));
+    await assertFails(updateDoc(doc(admin, "inventory", "invCorrect"), good()));
+    await assertFails(updateDoc(doc(admin, "inventory", "invCorrect"), good({ quantityCorrectionCode: "entry_error" })));
+  });
+
+  await check("CORR1 an Admin may only re-price a batch; every other client write is a bypass", async () => {
+    const ref = doc(admin, "inventory", "invCorrect");
+    // Permitted: the audited re-price (vaccineService.updateStockPrice).
+    await assertSucceeds(updateDoc(ref, {
+      sellingPriceCentavos: 130000, priceCurrency: "PHP", priceIsVatInclusive: true,
+      priceSetAt: serverTimestamp(), priceSetByUid: adminUid,
+    }));
+    // Bypass attempts — each would skip a server check.
+    const bypasses = {
+      quantity: { quantity: 50 }, // a silent on-hand drop (unusable stock must be quarantined → disposed)
+      expiryDate: { expiryDate: "2030-01-01" }, // revive expired stock
+      manufacturingDate: { manufacturingDate: "2026-01-01", arrivalDate: "2026-02-01", expiryDate: "2027-12-31" },
+      status: { status: "Stable" }, // make a refused batch orderable
+      manufacturer: { manufacturer: "Other" },
+      previousQuantity: { previousQuantity: 1 },
+      quantityCorrectionReason: { quantityCorrectionReason: "forged" },
+      quantityCorrectedAt: { quantityCorrectedAt: serverTimestamp() },
+      quantityCorrectedByUid: { quantityCorrectedByUid: adminUid },
+      quantityCorrectionCode: { quantityCorrectionCode: "entry_error" },
+      vaccineId: { vaccineId: "otherProduct" },
+      usageTracked: { usageTracked: true },
+      priceSmuggling: {
+        sellingPriceCentavos: 140000, priceCurrency: "PHP", priceIsVatInclusive: true,
+        priceSetAt: serverTimestamp(), priceSetByUid: adminUid, quantity: 50,
+      },
+    };
+    for (const [name, data] of Object.entries(bypasses)) {
+      await assertFails(updateDoc(ref, data), name);
+    }
+    // Non-admins cannot re-price either.
+    for (const ctx of [dispatcher, salesRep, rider, anon]) {
+      await assertFails(updateDoc(doc(ctx, "inventory", "invCorrect"), {
+        sellingPriceCentavos: 1, priceSetAt: serverTimestamp(), priceSetByUid: adminUid, priceIsVatInclusive: true,
+      }));
+    }
   });
 
   await check("Nlock7 a new stock batch must be a valid integer batch", async () => {
@@ -3866,10 +3906,10 @@ async function main() {
     }));
   });
 
-  await check("Pprice2 a non-price correction needs no re-price audit", async () => {
-    // The audit is required only when the PRICE changes, so an unrelated fix
-    // does not have to pretend to be one.
-    await assertSucceeds(updateDoc(doc(admin, "inventory", "invAdmin"), {
+  await check("Pprice2 a non-price field is not client-writable, audited or not", async () => {
+    // A re-price is the only client write to a batch (stockPriceFields); an
+    // unrelated "fix" is not an escape hatch around the server checks.
+    await assertFails(updateDoc(doc(admin, "inventory", "invAdmin"), {
       manufacturer: "Corrected Again",
     }));
   });
@@ -3883,8 +3923,7 @@ async function main() {
       priceSetAt: serverTimestamp(),
       priceSetByUid: adminUid,
     }));
-    // A batch that predates pricing can still be corrected on other fields —
-    // the rule is guarded by presence, so it does not strand legacy stock.
+    // A legacy batch can still be re-priced, but not edited on other fields.
     await testEnv.withSecurityRulesDisabled((ctx) =>
       setDoc(doc(ctx.firestore(), "inventory", "invLegacyNoPrice"), {
         vaccineName: "Legacy", batchId: "LEG-1", expiryDate: "2027-12-31",
@@ -3892,8 +3931,12 @@ async function main() {
         quantity: 5, reservedQuantity: 0, sellingPriceCentavos: 100,
       })
     );
-    await assertSucceeds(updateDoc(doc(admin, "inventory", "invLegacyNoPrice"), {
+    await assertFails(updateDoc(doc(admin, "inventory", "invLegacyNoPrice"), {
       manufacturer: "Corrected",
+    }));
+    await assertSucceeds(updateDoc(doc(admin, "inventory", "invLegacyNoPrice"), {
+      sellingPriceCentavos: 120, priceCurrency: "PHP", priceIsVatInclusive: true,
+      priceSetAt: serverTimestamp(), priceSetByUid: adminUid,
     }));
   });
 
@@ -4888,7 +4931,7 @@ async function main() {
     }
   });
 
-  await check("MFG4 legacy batches without the field stay readable and updatable", async () => {
+  await check("MFG4 legacy batches without the field stay readable; their fields are server-written", async () => {
     await testEnv.withSecurityRulesDisabled((ctx) =>
       setDoc(doc(ctx.firestore(), "inventory", "mfgLegacy"), {
         vaccineName: "Legacy", batchId: "LEG-MFG", arrivalDate: "2026-01-20", expiryDate: "2027-12-31",
@@ -4897,15 +4940,14 @@ async function main() {
     );
     await assertSucceeds(getDoc(doc(salesRep, "inventory", "mfgLegacy")));
     await assertSucceeds(getDoc(doc(admin, "inventory", "mfgLegacy")));
-    // An unrelated correction still works without the field.
-    await assertSucceeds(updateDoc(doc(admin, "inventory", "mfgLegacy"), { manufacturer: "Corrected" }));
-    // Adding one later is held to the same shape and order.
+    // No client edits a batch's other fields or dates, valid or not.
+    await assertFails(updateDoc(doc(admin, "inventory", "mfgLegacy"), { manufacturer: "Corrected" }));
     await assertFails(updateDoc(doc(admin, "inventory", "mfgLegacy"), { manufacturingDate: "2026/01/01" }));
     await assertFails(updateDoc(doc(admin, "inventory", "mfgLegacy"), { manufacturingDate: "2028-01-01" }));
-    await assertSucceeds(updateDoc(doc(admin, "inventory", "mfgLegacy"), { manufacturingDate: "2026-01-15" }));
+    await assertFails(updateDoc(doc(admin, "inventory", "mfgLegacy"), { manufacturingDate: "2026-01-15" }));
   });
 
-  await check("MFG5 a date update must leave manufacturing <= arrival < expiry", async () => {
+  await check("MFG5 batch dates are server-written: no client date edit, consistent or not", async () => {
     await testEnv.withSecurityRulesDisabled((ctx) =>
       setDoc(doc(ctx.firestore(), "inventory", "mfgDates"), newBatch({ batchId: "MFG-DATES" }))
     );
@@ -4921,12 +4963,14 @@ async function main() {
     // a malformed or removed date is refused too
     await assertFails(updateDoc(ref, { arrivalDate: "2026-9-1" }));
     await assertFails(updateDoc(ref, { arrivalDate: deleteField() }));
-    // 4 · a valid coordinated update is accepted
-    await assertSucceeds(updateDoc(ref, { manufacturingDate: "2026-07-01", arrivalDate: "2026-07-15", expiryDate: "2027-07-15" }));
-    await assertSucceeds(updateDoc(ref, { arrivalDate: "2026-07-01" })); // equal to manufacturing is allowed
+    // 4 · even a consistent update is refused: the expiry date decides what
+    //     may be ordered, allocated, corrected or disposed of, so it is never
+    //     a client write (Add Stock sets it, validated, on the server).
+    await assertFails(updateDoc(ref, { manufacturingDate: "2026-07-01", arrivalDate: "2026-07-15", expiryDate: "2027-07-15" }));
+    await assertFails(updateDoc(ref, { arrivalDate: "2026-07-01" }));
   });
 
-  await check("MFG6 a legacy batch without manufacturingDate: unrelated updates pass, date edits need one", async () => {
+  await check("MFG6 a legacy batch without manufacturingDate: no client field or date edit", async () => {
     await testEnv.withSecurityRulesDisabled((ctx) =>
       setDoc(doc(ctx.firestore(), "inventory", "mfgLegacy2"), {
         vaccineName: "Legacy", batchId: "LEG-MFG-2", arrivalDate: "2026-01-20", expiryDate: "2027-12-31",
@@ -4934,13 +4978,13 @@ async function main() {
       })
     );
     const ref = doc(admin, "inventory", "mfgLegacy2");
-    // 5 · an unrelated permitted update is unaffected by the missing field
-    await assertSucceeds(updateDoc(ref, { manufacturer: "Corrected Manufacturer" }));
+    // 5 · no unrelated client update either
+    await assertFails(updateDoc(ref, { manufacturer: "Corrected Manufacturer" }));
     // 6 · editing a date without supplying a manufacturing date is refused
     await assertFails(updateDoc(ref, { expiryDate: "2027-11-30" }));
     await assertFails(updateDoc(ref, { arrivalDate: "2026-01-25" }));
-    // 7 · editing the dates while adding a valid manufacturing date is accepted
-    await assertSucceeds(updateDoc(ref, { manufacturingDate: "2026-01-10", expiryDate: "2027-11-30" }));
+    // 7 · nor with a valid manufacturing date supplied
+    await assertFails(updateDoc(ref, { manufacturingDate: "2026-01-10", expiryDate: "2027-11-30" }));
   });
 
   await check("MFG7 date updates stay Admin-only", async () => {
@@ -4955,12 +4999,12 @@ async function main() {
     }
   });
 
-  await check("MFG8 date checks leave the quantity/reservation guards unchanged", async () => {
+  await check("MFG8 no date edit, alone or carrying a counter change", async () => {
     const ref = doc(admin, "inventory", "mfgDates");
     // A valid date edit cannot smuggle a reserved or on-hand change through.
     await assertFails(updateDoc(ref, { expiryDate: "2027-08-15", reservedQuantity: 5 }));
     await assertFails(updateDoc(ref, { expiryDate: "2027-08-15", quantity: 9999 }));
-    await assertSucceeds(updateDoc(ref, { expiryDate: "2027-08-15" }));
+    await assertFails(updateDoc(ref, { expiryDate: "2027-08-15" }));
   });
 
   // ---------------------------------------------------------------- VAT classification
@@ -6041,6 +6085,106 @@ async function main() {
     await assertFails(getDoc(eventRef(testEnv.authenticatedContext(otherSalesRepUid).firestore())));
     await assertFails(getDoc(eventRef(rider)));
     for (const ctx of [admin, dispatcher, salesRep]) await assertFails(updateDoc(eventRef(ctx), { eventType: "x" }));
+  });
+
+  // ================= Admin inventory removal controls =================
+  //
+  // Archive/restore, void, quarantine and disposal are server callables only
+  // (functions/src/inventoryRemoval.js). No client — Admin included — may
+  // hard-delete a vaccine or batch, write the void/usage/archive fields, edit
+  // a voided batch, or touch the removal audit.
+
+  await check("REM1 no client hard-deletes a vaccine product", async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "vaccines", "remVac"), { vaccineName: "Rem", internalSku: "VXT-REM", vatClassification: "vatable" })
+    );
+    for (const ctx of [admin, dispatcher, salesRep, rider, anon]) {
+      await assertFails(deleteDoc(doc(ctx, "vaccines", "remVac")));
+    }
+  });
+
+  await check("REM2 archive state is server-only: no client sets or clears it, on create or update", async () => {
+    for (const field of ["archived", "archivedAt", "archivedByUid", "archiveReason", "restoredAt", "restoredByUid"]) {
+      await assertFails(updateDoc(doc(admin, "vaccines", "remVac"), { [field]: field === "archived" ? true : "x" }), field);
+    }
+    await assertFails(setDoc(doc(admin, "vaccines", "remVacNew"), {
+      vaccineName: "New", internalSku: "VXT-NEW", vatClassification: "vatable", archived: true,
+    }));
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      updateDoc(doc(ctx.firestore(), "vaccines", "remVac"), { archived: true, archivedByUid: adminUid })
+    );
+    await assertFails(updateDoc(doc(admin, "vaccines", "remVac"), { archived: false }), "no client restore");
+    // Ordinary product edits still work, archived or not.
+    await assertSucceeds(updateDoc(doc(admin, "vaccines", "remVac"), { vaccineName: "Rem (renamed)" }));
+    await assertSucceeds(setDoc(doc(admin, "vaccines", "remVacOk"), { vaccineName: "Ok", internalSku: "VXT-OK", vatClassification: "vatable" }));
+  });
+
+  await check("REM3 void, usage and identity fields on a batch are server-only", async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "inventory", "remBatch"), {
+        vaccineId: "remVac", batchId: "REM-1", quantity: 10, reservedQuantity: 0, returnPendingQuantity: 0,
+        quarantinedQuantity: 0, usageTracked: true, status: "Stable", expiryDate: "2027-06-30",
+        sellingPriceCentavos: 100, priceIsVatInclusive: true,
+      })
+    );
+    const writes = {
+      voided: true, voidedAt: serverTimestamp(), voidedByUid: adminUid, voidReason: "x",
+      usageTracked: false, firstUsedAt: null, firstUsedBy: "x", lastStockRemovalAt: serverTimestamp(),
+      vaccineId: "otherProduct", batchId: "REM-OTHER",
+    };
+    for (const [field, value] of Object.entries(writes)) {
+      await assertFails(updateDoc(doc(admin, "inventory", "remBatch"), { [field]: value }), field);
+    }
+    // Quarantine / write-off counters stay server-only too.
+    await assertFails(updateDoc(doc(admin, "inventory", "remBatch"), { quarantinedQuantity: 2 }));
+    await assertFails(updateDoc(doc(admin, "inventory", "remBatch"), { writtenOffQuantity: 2 }));
+    // Nor is any other field: only a re-price is a client write.
+    await assertFails(updateDoc(doc(admin, "inventory", "remBatch"), { manufacturer: "Corrected" }));
+    await assertSucceeds(updateDoc(doc(admin, "inventory", "remBatch"), {
+      sellingPriceCentavos: 200, priceIsVatInclusive: true, priceSetAt: serverTimestamp(), priceSetByUid: adminUid,
+    }));
+    await assertFails(deleteDoc(doc(admin, "inventory", "remBatch")));
+  });
+
+  await check("REM4 a voided batch is frozen: no re-price, no correction, no edit, no un-void", async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "inventory", "remVoided"), {
+        vaccineId: "remVac", batchId: "REM-V", quantity: 40, reservedQuantity: 0, returnPendingQuantity: 0,
+        quarantinedQuantity: 0, usageTracked: true, voided: true, voidedByUid: adminUid, status: "Stable",
+        expiryDate: "2027-06-30", sellingPriceCentavos: 100, priceIsVatInclusive: true,
+      })
+    );
+    const ref = doc(admin, "inventory", "remVoided");
+    await assertFails(updateDoc(ref, { manufacturer: "x" }));
+    await assertFails(updateDoc(ref, {
+      sellingPriceCentavos: 200, priceIsVatInclusive: true, priceSetAt: serverTimestamp(), priceSetByUid: adminUid,
+    }));
+    await assertFails(updateDoc(ref, {
+      quantity: 0, previousQuantity: 40, quantityCorrectionReason: "Entered twice",
+      quantityCorrectedAt: serverTimestamp(), quantityCorrectedByUid: adminUid, updatedAt: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(ref, { voided: false }));
+    // Still readable — it is kept as a record.
+    await assertSucceeds(getDoc(ref));
+    await assertSucceeds(getDoc(doc(salesRep, "inventory", "remVoided")));
+  });
+
+  await check("REM5 the removal audit: Admin reads it; nobody writes or erases it", async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "inventoryAuditEvents", "stock_admin1_req"), {
+        action: "stock_quarantined", inventoryId: "remBatch", quantity: 2, reason: "damaged", actorUid: adminUid,
+      })
+    );
+    await assertSucceeds(getDoc(doc(admin, "inventoryAuditEvents", "stock_admin1_req")));
+    await assertSucceeds(getDocs(query(collection(admin, "inventoryAuditEvents"), where("inventoryId", "==", "remBatch"))));
+    for (const ctx of [dispatcher, salesRep, rider, anon]) {
+      await assertFails(getDoc(doc(ctx, "inventoryAuditEvents", "stock_admin1_req")));
+    }
+    for (const ctx of [admin, dispatcher, salesRep, rider]) {
+      await assertFails(setDoc(doc(ctx, "inventoryAuditEvents", "forged"), { action: "stock_disposed", quantity: 1 }));
+      await assertFails(updateDoc(doc(ctx, "inventoryAuditEvents", "stock_admin1_req"), { quantity: 0 }));
+      await assertFails(deleteDoc(doc(ctx, "inventoryAuditEvents", "stock_admin1_req")));
+    }
   });
 
   await testEnv.cleanup();

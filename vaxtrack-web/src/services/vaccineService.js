@@ -2,7 +2,6 @@ import {
   addDoc,
   collection,
   doc,
-  getDoc,
   getDocs,
   orderBy,
   query,
@@ -11,7 +10,6 @@ import {
   where,
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
-import { validateStockCorrection } from "./stockCorrection";
 import { validateStockBatchDates } from "./stockBatchDates";
 import { readVatClassification } from "./vatClassification";
 import { PRICES_INCLUDE_VAT } from "./pricingConfig";
@@ -223,50 +221,6 @@ export async function updateStockPrice({ inventoryId, sellingPriceCentavos }) {
   });
 }
 
-/**
- * Correct a batch's on-hand quantity — the admin fix for a human error in Add
- * Stock or in a batch's recorded figure.
- *
- * The batch is read fresh here, so `previousQuantity` and the reserved-floor
- * check reflect what Firestore actually holds, not a possibly-stale row on
- * screen. Only `quantity` and its audit fields are written; `reservedQuantity`
- * is never touched, and the value can never drop below what is reserved — the
- * same bound the Firestore rules enforce, so a stale attempt fails there too.
- * WHO/WHEN come from the session and the server clock, never from a parameter.
- */
-export async function correctStockQuantity({ inventoryId, newQuantity, reason }) {
-  if (typeof inventoryId !== "string" || inventoryId.trim() === "") {
-    throw new UserMessageError("A batch is required to correct its stock.");
-  }
-
-  const ref = doc(db, INVENTORY, inventoryId);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) {
-    throw new UserMessageError("That batch no longer exists.");
-  }
-  const prev = snap.data();
-
-  const check = validateStockCorrection({
-    newQuantity,
-    currentQuantity: prev.quantity,
-    reservedQuantity: prev.reservedQuantity,
-    returnPendingQuantity: prev.returnPendingQuantity,
-    quarantinedQuantity: prev.quarantinedQuantity,
-    reason,
-  });
-  if (!check.ok) {
-    throw new UserMessageError(check.message);
-  }
-
-  return updateDoc(ref, {
-    quantity: check.value.newQuantity,
-    // Record the prior value exactly as stored (even a corrupt text figure), so
-    // the correction is auditable and the rules can verify it is honest.
-    previousQuantity: prev.quantity ?? null,
-    quantityCorrectionReason: check.value.reason,
-    quantityCorrectedAt: serverTimestamp(),
-    quantityCorrectedByUid: auth.currentUser?.uid ?? null,
-    quantityCorrectedByEmail: auth.currentUser?.email ?? null,
-    updatedAt: serverTimestamp(),
-  });
-}
+/* Correct Stock is no longer a client write: it is the correctStockQuantity
+   callable (services/inventoryRemovalService.js), and firestore.rules refuse
+   every direct client change to a stock counter. */

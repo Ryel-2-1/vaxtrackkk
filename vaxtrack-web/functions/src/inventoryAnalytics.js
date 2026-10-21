@@ -420,6 +420,8 @@ function emptyStock() {
 function stockByProduct({ batches, now, warnings = createWarningLog() }) {
   const out = new Map();
   for (const { id, data } of batches) {
+    // A voided batch was a mistaken entry, kept only as a record: never stock.
+    if (data?.voided === true) continue;
     const vaccineId = typeof data?.vaccineId === "string" && data.vaccineId ? data.vaccineId : null;
     if (!vaccineId) {
       warnings.add(WARNING.BATCH_WITHOUT_PRODUCT, id);

@@ -46,6 +46,12 @@ const CALLABLE_NAMES = [
   "assignRiderToOrder", // pending_dispatch → assigned; the order joins the Rider's forming trip
   "finalizeRiderDispatch", // the whole forming trip: loading → in_transit
   "confirmRiderReturnToHub", // returning_to_hub → available_at_hub
+  // Admin inventory removal controls (functions/src/inventoryRemoval.js) —
+  // each one transaction with an audit entry; none is a generic adjuster.
+  "setVaccineArchived", // archive / restore a product for NEW orders and stock
+  "voidInventoryBatch", // a provably unused, mistaken batch → voided record
+  "removeUnusableStock", // free → quarantined, or quarantined → written off
+  "correctStockQuantity", // a RECORD fix: category, reason, floor, expired rule, audit
 ];
 
 test("the callables are the only inventory-affecting entry points", () => {

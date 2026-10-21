@@ -59,6 +59,7 @@ export const doc = (_db, name, id) => ({ __col: name, __id: id });
 export const query = (ref, ...clauses) => ({ ...ref, __isQuery: true, __clauses: clauses });
 export const where = (field, op, value) => ({ __t: 'where', field, op, value });
 export const orderBy = (...a) => ({ __t: 'orderBy', a });
+export const limit = (n) => ({ __t: 'limit', n });
 export const serverTimestamp = () => "${SERVER_TIMESTAMP}";
 export const deleteField = () => "${DELETE_FIELD}";
 export const GeoPoint = class { constructor(lat, lng) { this.latitude = lat; this.longitude = lng; } };
