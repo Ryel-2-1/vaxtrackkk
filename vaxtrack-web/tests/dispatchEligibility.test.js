@@ -386,7 +386,8 @@ test("the rules carry the same instant and guard every client write", () => {
   // client write keeps the date through scheduledDateWriteIsValid() below.
   const orderUpdate = rules.slice(
     rules.indexOf("allow update: if clientOrderWriteIsAllowed()"),
-    rules.indexOf("allow delete: if isAdmin();", rules.indexOf("allow update: if clientOrderWriteIsAllowed()"))
+    // The orders block's own delete rule (no client deletes an order) ends it.
+    rules.indexOf("allow delete: if false;", rules.indexOf("allow update: if clientOrderWriteIsAllowed()"))
   );
   assert.ok(orderUpdate.length > 0, "the order update rule was found");
   assert.equal(/isSalesRep\(\)/.test(orderUpdate), false, "no Sales Rep branch in the order update rule");

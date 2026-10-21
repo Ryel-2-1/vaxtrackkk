@@ -36,6 +36,7 @@ import {
   Timestamp,
   deleteField,
   GeoPoint,
+  writeBatch,
 } from "firebase/firestore";
 
 const PROJECT_ID = "vaxtrack-rules-test";
@@ -2630,6 +2631,81 @@ async function main() {
     }
     await assertFails(setDoc(doc(admin, "orders", "repair-rider"), { ...base, status: "pending_dispatch", assignedRiderId: riderUid }));
     await assertFails(setDoc(doc(admin, "orders", "repair-trip"), { ...base, status: "pending_dispatch", dispatchTripId: "tripA" }));
+  });
+
+  await check("RDS5 no client can free a Rider on the road by editing the trip state or the order they carry", async () => {
+    // Every attempt is made; the allowed ones are named (not just the first).
+    const allowed = [];
+    const deny = async (label, request) => {
+      try {
+        await assertFails(request);
+      } catch {
+        allowed.push(label);
+      }
+    };
+    const roles = { dispatcher, admin, rider };
+    // A stale-looking state cannot be "fixed" from a browser in either direction.
+    for (const [name, db] of Object.entries(roles)) {
+      await deny(`${name}: state → available`, setDoc(doc(db, "riderDispatchStates", riderUid), { riderUid, state: "available_at_hub", tripId: null, orderIds: [] }));
+      await deny(`${name}: state → returning`, updateDoc(doc(db, "riderDispatchStates", riderUid), { state: "returning_to_hub" }));
+      await deny(`${name}: trip → returned`, updateDoc(doc(db, "riderTrips", "tripA"), { status: "returned", orderIds: [] }));
+    }
+    // The in-transit order cannot be taken off its Rider, sent back before
+    // departure, or closed directly — each would make the Rider look free.
+    for (const [name, db] of Object.entries({ dispatcher, admin })) {
+      await deny(`${name}: unassign (null)`, updateDoc(doc(db, "orders", "tripOrder"), { assignedRiderId: null, updatedAt: serverTimestamp() }));
+      await deny(`${name}: unassign (delete)`, updateDoc(doc(db, "orders", "tripOrder"), { assignedRiderId: deleteField(), dispatchTripId: deleteField(), updatedAt: serverTimestamp() }));
+      for (const status of ["pending_dispatch", "assigned", "loading", "delivered", "cancelled", "delivery_failed"]) {
+        await deny(`${name}: in_transit → ${status}`, updateDoc(doc(db, "orders", "tripOrder"), { status, statusUpdatedAt: serverTimestamp(), statusUpdatedByUid: dispatcherUid, updatedAt: serverTimestamp() }));
+      }
+    }
+    for (const status of ["pending_dispatch", "assigned", "loading", "delivered", "cancelled"]) {
+      await deny(`rider: in_transit → ${status}`, updateDoc(doc(rider, "orders", "tripOrder"), { status, statusUpdatedAt: serverTimestamp(), statusUpdatedByUid: riderUid, updatedAt: serverTimestamp() }));
+    }
+    await deny("rider: reassign", updateDoc(doc(rider, "orders", "tripOrder"), { assignedRiderId: otherRiderUid, updatedAt: serverTimestamp() }));
+    for (const [name, db] of Object.entries({ salesRep, anon })) await deny(`${name}: read trip`, getDoc(doc(db, "riderTrips", "tripA")));
+    if (allowed.length > 0) throw new Error(`allowed: ${allowed.join("; ")}`);
+  });
+
+  await check("RDS6 no client deletes an order in any status — Admin and Dispatcher included", async () => {
+    // Deleting an order would drop it out from under its Rider's trip and its
+    // stock custody (reservation, return, history) at once. No client path
+    // deletes an order; the server workflows never delete one either.
+    const statuses = ["pending_dispatch", "assigned", "loading", "in_transit", "delayed", "delivery_failed", "delivered", "cancelled"];
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      for (const status of statuses) {
+        await setDoc(doc(ctx.firestore(), "orders", `del-${status}`), {
+          orderNumber: `VT-DEL-${status}`, status, createdByUid: salesRepUid, requestedDeliveryDate: FIXTURE_DELIVERY_DATE,
+          ...(status === "pending_dispatch" ? {} : { assignedRiderId: riderUid, dispatchTripId: "tripA" }),
+        });
+      }
+    });
+    const allowed = [];
+    for (const [name, db] of Object.entries({ admin, dispatcher, salesRep, rider, anon })) {
+      for (const status of statuses) {
+        try {
+          await assertFails(deleteDoc(doc(db, "orders", `del-${status}`)));
+        } catch {
+          allowed.push(`${name}: delete ${status}`);
+        }
+      }
+    }
+    // A batch is no way around it either.
+    try {
+      const batch = writeBatch(admin);
+      batch.delete(doc(admin, "orders", "del-in_transit"));
+      await assertFails(batch.commit());
+    } catch {
+      allowed.push("admin: batched delete");
+    }
+    if (allowed.length > 0) throw new Error(`allowed: ${allowed.join("; ")}`);
+    // Every one still exists.
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      for (const status of statuses) {
+        const s = await getDoc(doc(ctx.firestore(), "orders", `del-${status}`));
+        if (!s.exists()) throw new Error(`del-${status} was deleted`);
+      }
+    });
   });
 
   // ---------------------------------------------------------------- allocation (version 2)

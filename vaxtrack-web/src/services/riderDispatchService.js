@@ -23,8 +23,12 @@ function callables() {
     assign: httpsCallable(fns, "assignRiderToOrder"),
     finalize: httpsCallable(fns, "finalizeRiderDispatch"),
     confirmReturn: httpsCallable(fns, "confirmRiderReturnToHub"),
+    recheck: httpsCallable(fns, "recheckRiderTripStates"),
   };
 }
+
+/** The server re-checks at most this many Riders per call (MAX_RECHECK_RIDERS). */
+export const RECHECK_BATCH = 25;
 
 /**
  * A refusal from a trip callable, carrying the server's stable code
@@ -87,6 +91,26 @@ export async function confirmRiderReturnToHub({ riderUid, tripId }) {
   } catch (error) {
     return rethrow(error);
   }
+}
+
+/**
+ * Re-derive the named Riders' trip state from their orders, on the server — the
+ * recovery for a status left stale by a missed update. It never frees a Rider
+ * after a trip (a finished trip shows as returning, to be confirmed as usual).
+ * Sent in batches of RECHECK_BATCH; resolves the combined per-Rider results.
+ */
+export async function recheckRiderTripStatesOnServer(riderUids) {
+  const unique = [...new Set((riderUids || []).filter((id) => typeof id === "string" && id))];
+  const results = [];
+  try {
+    for (let i = 0; i < unique.length; i += RECHECK_BATCH) {
+      const { data } = await callables().recheck({ riderUids: unique.slice(i, i + RECHECK_BATCH) });
+      results.push(...(Array.isArray(data?.results) ? data.results : []));
+    }
+  } catch (error) {
+    return rethrow(error);
+  }
+  return results;
 }
 
 /** Live map riderUid → trip state document (Dispatcher / Admin only). */

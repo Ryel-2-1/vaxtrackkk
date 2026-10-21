@@ -125,7 +125,9 @@ test("a repeated submission is answered by the server as a replay, not a second 
 
 test("no client code path writes an assignment any more", async () => {
   const { readFileSync } = await import("node:fs");
-  const src = readFileSync(new URL("../src/services/orderService.js", import.meta.url), "utf8");
+  // Line endings normalised: a Windows checkout (core.autocrlf) has CRLF, and
+  // the slice below looks for "\n}\n".
+  const src = readFileSync(new URL("../src/services/orderService.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const fn = src.slice(src.indexOf("export async function assignRiderToOrder"), src.indexOf("\n}\n", src.indexOf("export async function assignRiderToOrder")));
   assert.match(fn, /return await assignRiderToOrderOnServer\(orderId, riderUid\);/);
   assert.doesNotMatch(fn, /runTransaction|updateDoc|tx\.update|assignedRiderId:/);

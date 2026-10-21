@@ -747,9 +747,24 @@ service cloud.firestore {
     // identity field (clientOrderWriteIsAllowed). A Rider resuming a delayed
     // delivery (delayed → in_transit) is unaffected.
     function writesServerOnlyDispatch() {
-      return statusChanged()
+      return (statusChanged()
         && (nextStatus() == 'assigned'
-            || (priorStatus() == 'loading' && nextStatus() == 'in_transit'));
+            || (priorStatus() == 'loading' && nextStatus() == 'in_transit')))
+        || leavesTheRoadDirectly();
+    }
+
+    // An order on the road (in_transit / delayed) leaves it only through the
+    // server — completion, a failure report, a cancellation — or the Rider's
+    // own delay and resume (and the assigned Rider's direct failure report,
+    // which writesServerOnlyStatus permits only during the compatibility
+    // window). A browser that could move it back to pending_dispatch /
+    // assigned / loading, or close it, would detach it from the trip that
+    // carries it and make its Rider look free.
+    function leavesTheRoadDirectly() {
+      return statusChanged()
+        && (priorStatus() == 'in_transit' || priorStatus() == 'delayed')
+        && !(nextStatus() in ['in_transit', 'delayed'])
+        && !(nextStatus() == 'delivery_failed' && isRider());
     }
 
     // ---- TEMPORARY ROLLOUT COMPATIBILITY ----
@@ -1657,7 +1672,13 @@ service cloud.firestore {
         // branch, nothing is writable, including any field added later.
         );
 
-      allow delete: if isAdmin();
+      // No client deletes an order — Admin included. Deleting one would drop
+      // it out from under its Rider's trip and its stock custody (reservation,
+      // return, history) at once, with no server check. No page deletes an
+      // order; orders end through the callables (deliver, fail, cancel). The
+      // Admin SDK (server workflows, approved data repair) is not subject to
+      // these rules.
+      allow delete: if false;
     }
 
     // ---------------- reservations + idempotency (server-only) ----------------

@@ -397,6 +397,14 @@ exports.confirmRiderReturnToHub = callable(
   ({ db, FieldValue, uid, data }) => riderDispatchOps.confirmRiderReturnToHub({ db, FieldValue, uid, payload: data })
 );
 
+// Repair for a trip state a missed or failed trigger event left stale: a
+// Dispatcher/Admin re-derives the named Riders' state from their orders (the
+// same transaction the trigger runs). Never frees a Rider after a departure.
+exports.recheckRiderTripStates = callable(
+  "recheckRiderTripStates",
+  ({ db, FieldValue, uid, data }) => riderDispatchOps.recheckRiderTripStates({ db, FieldValue, uid, payload: data })
+);
+
 exports.getReservationProvenance = callable(
   "getReservationProvenance",
   ({ db, uid, data, now }) => inventoryWorkflow.getReservationProvenance({ db, uid, payload: data, now })
@@ -600,6 +608,14 @@ exports.reconcileRiderDispatchOnOrderWrite = onDocumentWritten(
     for (const r of results) {
       if (r.anomalies?.length) {
         logger.warn("rider-dispatch-anomaly", { orderId: event.params.orderId, riderUid: r.riderUid, anomalies: r.anomalies });
+      }
+      // Fail closed: an assigned order whose status cannot be placed leaves the
+      // Rider's state untouched, and every trip decision for them is refused.
+      if (r.unknown) {
+        logger.error("rider-dispatch-unknown-order", { orderId: event.params.orderId, riderUid: r.riderUid, orderIds: r.orderIds });
+      }
+      if (r.recovered) {
+        logger.warn("rider-dispatch-recovered", { orderId: event.params.orderId, riderUid: r.riderUid, state: r.state });
       }
     }
   }

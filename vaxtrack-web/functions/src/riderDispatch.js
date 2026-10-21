@@ -151,115 +151,195 @@ function classifyFromOrders(orders) {
 }
 
 /**
- * The next state after any order change — the one rule the order-write
- * trigger applies, and the one a missing state document is classified with.
- *
- * Inputs:
- *   current     the stored state (null → classify)
- *   memberOrders Map id → order data (or null) for current.orderIds + heldOrderIds
- *   riderOrders  [{ id, data }] currently assigned to the Rider (by query)
- *
- * Output: { state, orderIds, heldOrderIds, adoptOrderIds, departedByLegacyWrite,
- *           dissolved, settled, anomalies } — or { unchanged: true }.
- *
- * Orders assigned WITHOUT the server (a direct client write during the
- * rollout window, before the rules forbid it) are folded in, never rejected
- * after the fact: before departure they join the forming trip; once the
- * Rider is out they are held for the next trip and reported as anomalies.
+ * Every order status a Rider's order may legitimately have. An order assigned
+ * to the Rider with any other status cannot be placed on or off the road, so
+ * no decision is made about that Rider (fail closed).
  */
-function reconcile({ riderUid, current, memberOrders, riderOrders }) {
-  if (!current) {
-    const c = classifyFromOrders(riderOrders);
-    // Every trip member carries the server trip id; held orders get one when
-    // their own trip forms.
-    return { ...c, adoptOrderIds: c.orderIds, classified: true, anomalies: [] };
-  }
-  const tripId = current.tripId ?? null;
-  const members = Array.isArray(current.orderIds) ? current.orderIds : [];
-  const held = Array.isArray(current.heldOrderIds) ? current.heldOrderIds : [];
-  const known = new Set([...members, ...held]);
-  // Assigned to this Rider by a write that did not go through the server.
-  const strays = riderOrders.filter(
-    ({ id, data }) => !known.has(id) && !isText(data?.dispatchTripId) && [...PRE_DEPARTURE, ...DEPARTED].includes(data?.status)
-  );
-  const live = (id) => {
-    const o = memberOrders.get(id);
-    return o && o.assignedRiderId === riderUid && (!isText(o.dispatchTripId) || o.dispatchTripId === tripId);
-  };
-  const liveHeld = held.filter((id) => {
-    const o = memberOrders.get(id);
-    return o && o.assignedRiderId === riderUid && PRE_DEPARTURE.includes(o.status);
-  });
+const KNOWN_STATUSES = Object.freeze(["pending_dispatch", ...PRE_DEPARTURE, ...DEPARTED, ...SETTLED]);
 
-  if (current.state === STATE.AVAILABLE) {
-    if (strays.length === 0) return { unchanged: true };
-    const c = classifyFromOrders(strays);
+/** Did this order leave the hub with its Rider at some point? */
+function travelled(order) {
+  return order != null && (order.status === "delivered" || order.status === "delivery_failed" || order.dispatchedAt != null);
+}
+
+/**
+ * The Rider's state as their ORDERS say it is — the one rule the order-write
+ * trigger, the repair operation and every callable apply before deciding. A
+ * stored state document never decides on its own: it is only trusted for what
+ * the orders cannot say (which trip is current, whether a return to the hub has
+ * already been confirmed), and it is corrected whenever the orders contradict it
+ * — after a missed or out-of-order trigger event, or a write made without the
+ * server.
+ *
+ * Inputs (all read in one transaction):
+ *   current      the stored state document (null → classify from orders)
+ *   memberOrders Map id → order data (or null) for current.orderIds + heldOrderIds
+ *   riderOrders  [{ id, data }] EVERY order now assigned to the Rider (by query)
+ *   trip         riderTrips/{current.tripId} data, null when missing, or
+ *                undefined when not read (pure tests)
+ *
+ * Authority, in order:
+ *   1. An assigned order whose status is not a known one → { unknown: true }.
+ *   2. Any order of the Rider in_transit / delayed → on_trip. Those orders are
+ *      the trip (joining the current trip, or a new one); assigned/loading
+ *      orders are held for the next trip. Whatever the document said.
+ *   3. Nothing on the road after a departure (stored on_trip/returning, or a
+ *      forming trip whose orders in fact travelled) → returning_to_hub — never
+ *      available: only a confirmed return to the hub frees the Rider.
+ *   4. A forming trip with nothing left that ever travelled → its remaining
+ *      assigned/loading orders, or available when every one was cancelled or
+ *      taken off the Rider before departure.
+ *   5. A stored state that is unknown, lacks its trip id, or whose server trip
+ *      document is missing or belongs to another Rider → treated as unproven:
+ *      on_trip if anything is on the road, else returning_to_hub (a person
+ *      confirms the return), never available.
+ *
+ * Output: { state, tripId, newTrip, orderIds, heldOrderIds, adoptOrderIds,
+ *           departedByLegacyWrite, dissolved, settled, recovered, classified,
+ *           anomalies } — or { unchanged: true } — or { unknown: true, ... }.
+ * `newTrip` asks the caller for a fresh server trip id (a `riderTrips` doc id);
+ * the route optimizer's client `tripId` is never read.
+ */
+function reconcile({ riderUid, current, memberOrders, riderOrders, trip = undefined }) {
+  // Every order assigned to the Rider: the query, plus any member read by id
+  // that still names them (in one transaction both say the same).
+  const assigned = new Map(riderOrders.map((o) => [o.id, o.data]));
+  for (const [id, data] of memberOrders) {
+    if (!assigned.has(id) && data && data.assignedRiderId === riderUid) assigned.set(id, data);
+  }
+  const all = [...assigned].map(([id, data]) => ({ id, data }));
+  const unknownOrders = all.filter(({ data }) => !KNOWN_STATUSES.includes(data?.status)).map((o) => o.id);
+  if (unknownOrders.length > 0) {
+    return { unknown: true, reason: "order-status-unknown", orderIds: sortedUnique(unknownOrders) };
+  }
+  const departed = sortedUnique(all.filter(({ data }) => DEPARTED.includes(data.status)).map((o) => o.id));
+  const pre = sortedUnique(all.filter(({ data }) => PRE_DEPARTURE.includes(data.status)).map((o) => o.id));
+  const dataOf = (id) => memberOrders.get(id) ?? assigned.get(id) ?? null;
+
+  if (!current) {
+    const c = classifyFromOrders(all);
     return {
       ...c,
+      tripId: null,
+      newTrip: c.state !== STATE.AVAILABLE,
+      // Every trip member carries the server trip id; held orders get one when
+      // their own trip forms.
       adoptOrderIds: c.orderIds,
-      departedByLegacyWrite: c.state === STATE.ON_TRIP,
-      anomalies: strays.map((s) => s.id),
+      classified: true,
+      anomalies: [],
     };
   }
 
-  if (current.state === STATE.FORMING) {
-    const statusOf = (id) => (memberOrders.get(id) ?? strays.find((s) => s.id === id)?.data)?.status;
-    const stillIn = members.filter((id) => live(id) && [...PRE_DEPARTURE, ...DEPARTED].includes(memberOrders.get(id).status));
-    const strayIds = strays.map((s) => s.id);
-    const all = sortedUnique([...stillIn, ...strayIds]);
-    if (all.length === 0) {
-      return { state: STATE.AVAILABLE, orderIds: [], heldOrderIds: [], adoptOrderIds: [], dissolved: true, anomalies: [] };
+  const members = Array.isArray(current.orderIds) ? sortedUnique(current.orderIds) : [];
+  const held = Array.isArray(current.heldOrderIds) ? sortedUnique(current.heldOrderIds) : [];
+  const known = new Set([...members, ...held]);
+  const tripId = isText(current.tripId) ? current.tripId : null;
+  const tripProven =
+    current.state === STATE.AVAILABLE ||
+    (tripId !== null && (trip === undefined || (trip !== null && trip.riderUid === riderUid)));
+  const result = (next) => {
+    const out = {
+      tripId: next.newTrip ? null : next.tripId ?? null,
+      newTrip: false,
+      heldOrderIds: [],
+      adoptOrderIds: [],
+      anomalies: [],
+      ...next,
+    };
+    if (
+      !out.newTrip &&
+      out.state === current.state &&
+      (out.tripId ?? null) === tripId &&
+      sameIds(out.orderIds, members) &&
+      sameIds(out.heldOrderIds, held) &&
+      out.adoptOrderIds.length === 0
+    ) {
+      return { unchanged: true };
     }
-    // A legacy client Finalize (rollout window) put members on the road. The
-    // departed ones are the trip; any left behind wait for the next trip.
-    const departed = all.filter((id) => DEPARTED.includes(statusOf(id)));
+    return out;
+  };
+  const notMemberOf = (id, t) => dataOf(id)?.dispatchTripId !== t;
+
+  // 5. A stored state that cannot be trusted: decide from the orders alone,
+  //    conservatively.
+  if (!STATES.includes(current.state) || !tripProven) {
     if (departed.length > 0) {
-      return {
-        state: STATE.ON_TRIP,
-        orderIds: departed,
-        heldOrderIds: all.filter((id) => !departed.includes(id)),
-        adoptOrderIds: departed.filter((id) => strayIds.includes(id)),
-        departedByLegacyWrite: true,
-        anomalies: strayIds,
-      };
+      return result({ state: STATE.ON_TRIP, newTrip: true, orderIds: departed, heldOrderIds: pre, adoptOrderIds: departed, recovered: true, departedByLegacyWrite: true, anomalies: departed });
     }
-    if (sameIds(all, members) && strayIds.length === 0) return { unchanged: true };
-    return { state: STATE.FORMING, orderIds: all, heldOrderIds: [], adoptOrderIds: strayIds, anomalies: strayIds };
+    return result({ state: STATE.RETURNING, newTrip: true, orderIds: [], heldOrderIds: pre, recovered: true, anomalies: pre });
   }
 
-  // on_trip / returning_to_hub: membership is frozen at departure. The only
-  // way it grows is an order put on the road WITHOUT the server (a legacy
-  // client Finalize during the rollout window) — then it joins this trip, so
-  // a Rider carrying it can never be released.
-  const preStrays = strays.filter((s) => PRE_DEPARTURE.includes(s.data.status)).map((s) => s.id);
-  const dataOf = (id) => memberOrders.get(id) ?? strays.find((s) => s.id === id)?.data ?? null;
-  const departedExtra = [...held, ...strays.map((s) => s.id)].filter((id) => {
-    const o = dataOf(id);
-    return o && o.assignedRiderId === riderUid && DEPARTED.includes(o.status);
-  });
-  const nextMembers = sortedUnique([...members, ...departedExtra]);
-  const nextHeld = sortedUnique([...liveHeld, ...preStrays]);
-  // An order joining now is judged as a member of THIS trip (it is stamped
-  // with this trip id in the same write), whatever trip id it carried before.
-  const asMember = (id) => {
-    const o = dataOf(id);
-    return o && departedExtra.includes(id) ? { ...o, dispatchTripId: tripId } : o;
-  };
-  const allSettled = nextMembers.every((id) => settledForTrip(asMember(id), riderUid, tripId));
-  const nextState = allSettled
-    ? (current.state === STATE.ON_TRIP ? STATE.RETURNING : current.state)
-    : STATE.ON_TRIP;
-  if (nextState === current.state && sameIds(nextHeld, held) && sameIds(nextMembers, members)) return { unchanged: true };
-  const adopt = departedExtra.filter((id) => !isText(dataOf(id)?.dispatchTripId) || dataOf(id).dispatchTripId !== tripId);
-  return {
-    state: nextState,
-    orderIds: nextMembers,
-    heldOrderIds: nextHeld,
-    adoptOrderIds: adopt,
-    settled: nextState === STATE.RETURNING && current.state === STATE.ON_TRIP,
-    departedByLegacyWrite: departedExtra.length > 0,
-    anomalies: sortedUnique([...preStrays, ...departedExtra]),
-  };
+  // 2. Someone is on the road: on_trip, whatever the document said.
+  if (departed.length > 0) {
+    if (current.state === STATE.ON_TRIP || current.state === STATE.RETURNING) {
+      const adopt = departed.filter((id) => notMemberOf(id, tripId));
+      return result({
+        state: STATE.ON_TRIP,
+        tripId,
+        orderIds: sortedUnique([...members, ...departed]),
+        heldOrderIds: pre,
+        adoptOrderIds: adopt,
+        departedByLegacyWrite: adopt.length > 0,
+        anomalies: sortedUnique([...adopt, ...pre.filter((id) => !known.has(id))]),
+      });
+    }
+    if (current.state === STATE.FORMING) {
+      // A departure that did not go through Finalize: the departed orders are
+      // this trip; anything left behind waits for the next one.
+      return result({
+        state: STATE.ON_TRIP,
+        tripId,
+        orderIds: departed,
+        heldOrderIds: pre,
+        adoptOrderIds: departed.filter((id) => notMemberOf(id, tripId)),
+        departedByLegacyWrite: true,
+        anomalies: sortedUnique([...departed, ...pre].filter((id) => !known.has(id))),
+      });
+    }
+    // Stored "available" while orders are on the road.
+    return result({ state: STATE.ON_TRIP, newTrip: true, orderIds: departed, heldOrderIds: pre, adoptOrderIds: departed, departedByLegacyWrite: true, anomalies: sortedUnique([...departed, ...pre]) });
+  }
+
+  // 3. Nothing on the road after a departure: returning, never available.
+  if (current.state === STATE.ON_TRIP || current.state === STATE.RETURNING) {
+    return result({
+      state: STATE.RETURNING,
+      tripId,
+      orderIds: members,
+      heldOrderIds: pre,
+      settled: current.state === STATE.ON_TRIP,
+      anomalies: pre.filter((id) => !known.has(id)),
+    });
+  }
+
+  if (current.state === STATE.FORMING) {
+    if (pre.length > 0) {
+      return result({
+        state: STATE.FORMING,
+        tripId,
+        orderIds: pre,
+        adoptOrderIds: pre.filter((id) => notMemberOf(id, tripId)),
+        anomalies: pre.filter((id) => !known.has(id)),
+      });
+    }
+    // 4. Nothing left before departure. If a member of THIS trip travelled
+    //    with the Rider (delivered, failed, or dispatched), the trip happened:
+    //    the Rider is returning. Otherwise the trip never left: dissolve it.
+    const wentOut = members.some((id) => {
+      const o = dataOf(id);
+      return o && o.assignedRiderId === riderUid && (!isText(o.dispatchTripId) || o.dispatchTripId === tripId) && travelled(o);
+    });
+    if (wentOut) {
+      return result({ state: STATE.RETURNING, tripId, orderIds: members, settled: true, departedByLegacyWrite: true });
+    }
+    return result({ state: STATE.AVAILABLE, tripId: null, orderIds: [], dissolved: true });
+  }
+
+  // Stored available: any assigned/loading order starts a forming trip.
+  if (pre.length > 0) {
+    return result({ state: STATE.FORMING, newTrip: true, orderIds: pre, adoptOrderIds: pre, anomalies: pre });
+  }
+  return result({ state: STATE.AVAILABLE, tripId: null, orderIds: [] });
 }
 
 function sameIds(a, b) {
@@ -288,6 +368,8 @@ module.exports = {
   PRE_DEPARTURE,
   DEPARTED,
   SETTLED,
+  KNOWN_STATUSES,
+  travelled,
   settledForTrip,
   scheduleEligibility,
   scheduleReached,

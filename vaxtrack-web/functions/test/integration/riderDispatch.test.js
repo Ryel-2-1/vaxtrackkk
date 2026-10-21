@@ -332,7 +332,10 @@ test("legacy: a Rider already on the road is classified on_trip and never freed 
   await seedOrder("given-later", { status: "assigned", assignedRiderId: R1 });
   await seedOrder("new");
   await rejects(assign("new", R1), "rider-on-trip");
-  assert.equal(await state(R1), null, "a refused call writes nothing");
+  // A refused call still records the truth: the Rider is classified from
+  // their orders (on_trip), and the order it refused is untouched.
+  assert.equal((await state(R1)).state, D.STATE.ON_TRIP, "the refusal classified the Rider");
+  assert.equal((await order("new")).status, "pending_dispatch");
 
   // The first order change classifies the Rider.
   await change("out", { status: "delayed" });

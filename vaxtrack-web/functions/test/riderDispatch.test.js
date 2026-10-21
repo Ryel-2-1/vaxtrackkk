@@ -113,6 +113,73 @@ test("reconcile: writes made without the server are folded in, never dropped", (
   assert.deepEqual([gone.state, gone.orderIds, gone.heldOrderIds, gone.departedByLegacyWrite], [D.STATE.ON_TRIP, ["a"], ["b"], true]);
 });
 
+// ------------------------------------------------------------------ stale stored state: the orders decide
+
+const orders = (list) => list.map(([id, data]) => ({ id, data: { assignedRiderId: R, ...data } }));
+const derive = (current, list, trip) => D.reconcile({ riderUid: R, current, memberOrders: M([]), riderOrders: orders(list), trip });
+
+test("a stored available state never hides an order on the road — with or without a server trip id", () => {
+  for (const extra of [{ dispatchTripId: "OLD" }, {}]) {
+    const r = derive({ state: D.STATE.AVAILABLE, tripId: null, orderIds: [] }, [["x", { status: "in_transit", ...extra }], ["y", { status: "assigned" }]]);
+    assert.deepEqual([r.state, r.newTrip, r.orderIds, r.heldOrderIds, r.adoptOrderIds], [D.STATE.ON_TRIP, true, ["x"], ["y"], ["x"]]);
+  }
+});
+
+test("after a departure, nothing on the road means returning — never available", () => {
+  const trip = { riderUid: R };
+  const r = derive({ state: D.STATE.ON_TRIP, tripId: "T", orderIds: ["x"] }, [["x", { status: "delivered", dispatchTripId: "T" }]], trip);
+  assert.deepEqual([r.state, r.settled, r.tripId], [D.STATE.RETURNING, true, "T"]);
+  // An order put back on the road re-opens the trip.
+  const back = derive({ state: D.STATE.RETURNING, tripId: "T", orderIds: ["x"] }, [["z", { status: "delayed", dispatchTripId: "Z" }]], trip);
+  assert.deepEqual([back.state, back.orderIds, back.adoptOrderIds], [D.STATE.ON_TRIP, ["x", "z"], ["z"]]);
+  // A forming trip whose member travelled is a trip that happened.
+  const formed = D.reconcile({
+    riderUid: R,
+    current: { state: D.STATE.FORMING, tripId: "T", orderIds: ["a"] },
+    memberOrders: M([["a", { status: "delivered", assignedRiderId: R, dispatchTripId: "T" }]]),
+    riderOrders: [],
+    trip,
+  });
+  assert.equal(formed.state, D.STATE.RETURNING);
+  // Only a forming trip that never left dissolves to available.
+  const never = D.reconcile({
+    riderUid: R,
+    current: { state: D.STATE.FORMING, tripId: "T", orderIds: ["a"] },
+    memberOrders: M([["a", { status: "cancelled", assignedRiderId: R, dispatchTripId: "T" }]]),
+    riderOrders: [],
+    trip,
+  });
+  assert.deepEqual([never.state, never.dissolved], [D.STATE.AVAILABLE, true]);
+});
+
+test("an unproven stored state (unknown, no trip id, missing or foreign trip) is never trusted", () => {
+  const cases = [
+    [{ state: "bogus", tripId: "T", orderIds: [] }, { riderUid: R }],
+    [{ state: D.STATE.ON_TRIP, tripId: null, orderIds: [] }, undefined],
+    [{ state: D.STATE.FORMING, tripId: "T", orderIds: ["a"] }, null],
+    [{ state: D.STATE.RETURNING, tripId: "T", orderIds: [] }, { riderUid: "someoneElse" }],
+  ];
+  for (const [current, trip] of cases) {
+    const out = derive(current, [["a", { status: "assigned" }]], trip);
+    assert.deepEqual([out.state, out.recovered, out.newTrip, out.heldOrderIds], [D.STATE.RETURNING, true, true, ["a"]], JSON.stringify(current));
+    const road = derive(current, [["x", { status: "in_transit" }]], trip);
+    assert.deepEqual([road.state, road.recovered, road.orderIds], [D.STATE.ON_TRIP, true, ["x"]], JSON.stringify(current));
+  }
+});
+
+test("fail closed: an assigned order with an unknown status yields no decision", () => {
+  const r = derive({ state: D.STATE.AVAILABLE, tripId: null, orderIds: [] }, [["w", { status: "in_tarnsit" }], ["x", { status: "assigned" }]]);
+  assert.deepEqual(r, { unknown: true, reason: "order-status-unknown", orderIds: ["w"] });
+  assert.deepEqual([...D.KNOWN_STATUSES].sort(), ["assigned", "cancelled", "delayed", "delivered", "delivery_failed", "in_transit", "loading", "pending_dispatch"]);
+});
+
+test("an agreeing stored state is left alone (idempotent)", () => {
+  const trip = { riderUid: R };
+  assert.deepEqual(derive({ state: D.STATE.FORMING, tripId: "T", orderIds: ["a"] }, [["a", { status: "loading", dispatchTripId: "T" }]], trip), { unchanged: true });
+  assert.deepEqual(derive({ state: D.STATE.ON_TRIP, tripId: "T", orderIds: ["x"], heldOrderIds: [] }, [["x", { status: "in_transit", dispatchTripId: "T" }]], trip), { unchanged: true });
+  assert.deepEqual(derive({ state: D.STATE.AVAILABLE, tripId: null, orderIds: [] }, [["d", { status: "delivered" }]]), { unchanged: true });
+});
+
 // ------------------------------------------------------------------ transaction retry (riderDispatchOps)
 
 const ops = require("../src/riderDispatchOps");

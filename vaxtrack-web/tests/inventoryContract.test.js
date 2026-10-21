@@ -46,6 +46,7 @@ const CALLABLE_NAMES = [
   "assignRiderToOrder", // pending_dispatch → assigned; the order joins the Rider's forming trip
   "finalizeRiderDispatch", // the whole forming trip: loading → in_transit
   "confirmRiderReturnToHub", // returning_to_hub → available_at_hub
+  "recheckRiderTripStates", // repair: re-derive named Riders' trip state from their orders (never frees one)
 ];
 
 test("the callables are the only inventory-affecting entry points", () => {
@@ -115,12 +116,18 @@ test("the callables are the only inventory-affecting entry points", () => {
     assert.equal(/inventory|reservedQuantity|Centavos/i.test(code), false, `${p} never names inventory`);
   }
   {
-    // The reconciler (reconcileRider) writes trip state and dispatchTripId only.
-    const ops = read("functions/src/riderDispatchOps.js");
+    // The reconciler (reconcileRider, through the shared applyNext writer that
+    // every callable also uses to correct a stale state) writes trip state and
+    // dispatchTripId only.
+    const ops = read("functions/src/riderDispatchOps.js").replace(/\r\n/g, "\n");
     const reconcile = ops.slice(ops.indexOf("async function reconcileRider("), ops.indexOf("async function reconcileRiderOnOrderWrite("));
-    assert.doesNotMatch(reconcile.replace(/^\s*(\*|\/\/).*$/gm, ""), /status:\s*"(pending_dispatch|assigned|loading|in_transit|delayed|delivered|cancelled|delivery_failed)"/,
-      "the trip reconciler never writes an order status");
-    assert.match(reconcile, /tx\.update\(db\.collection\(ORDERS\)\.doc\(id\), \{ dispatchTripId: tripId, updatedAt: stamp \}\)/);
+    const writer = ops.slice(ops.indexOf("function applyNext("), ops.indexOf("async function settle("));
+    for (const part of [reconcile, writer]) {
+      assert.doesNotMatch(part.replace(/^\s*(\*|\/\/).*$/gm, ""), /status:\s*"(pending_dispatch|assigned|loading|in_transit|delayed|delivered|cancelled|delivery_failed)"/,
+        "the trip reconciler never writes an order status");
+    }
+    assert.match(reconcile, /applyNext\(tx, db, FieldValue, view, riderUid, next\)/);
+    assert.match(writer, /tx\.update\(db\.collection\(ORDERS\)\.doc\(id\), \{ dispatchTripId: tripId, updatedAt: stamp \}\)/);
   }
   for (const p of ["functions/src/deliveryTiming.js", "functions/src/deliveryTimingOps.js"]) {
     const code = read(p).replace(/^\s*(\*|\/\/).*$/gm, "");

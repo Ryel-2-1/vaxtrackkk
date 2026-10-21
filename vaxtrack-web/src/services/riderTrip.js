@@ -103,3 +103,25 @@ export function cargoGroupDispatch(stateDoc) {
   }
   return { canFinalize: true, tripId: state === RIDER_TRIP_STATES.FORMING ? stateDoc.tripId ?? null : null, reason: "" };
 }
+
+/**
+ * One sentence for the Dispatcher after a "Re-check trip status": how many
+ * Riders were re-checked, how many had a stale status corrected, and how many
+ * could not be checked (an order the server could not place — refused, not
+ * guessed). `results` are recheckRiderTripStates' per-Rider results.
+ */
+export function describeRecheck(results) {
+  const list = Array.isArray(results) ? results : [];
+  const checked = list.filter((r) => !r?.error);
+  const corrected = checked.filter((r) => r.changed).length;
+  const unknown = list.filter((r) => r?.error === "rider-state-unknown").length;
+  const parts = [
+    `Trip status re-checked for ${plural(checked.length, "rider")}`,
+    corrected > 0 ? `${plural(corrected, "status", "statuses")} corrected from their orders` : "all were up to date",
+  ];
+  let text = `${parts[0]}: ${parts[1]}.`;
+  if (unknown > 0) {
+    text += ` ${plural(unknown, "rider")} could not be checked — an order needs review, so no trip decision will be made for them.`;
+  }
+  return { text, corrected, unknown, tone: unknown > 0 ? "error" : "success" };
+}

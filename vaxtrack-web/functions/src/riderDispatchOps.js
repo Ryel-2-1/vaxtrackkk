@@ -7,19 +7,34 @@
  *                                       Rider's forming trip (or starts one)
  *   finalizeRiderDispatch     callable  the WHOLE forming trip loading → in_transit
  *   confirmRiderReturnToHub   callable  returning_to_hub → available_at_hub
+ *   recheckRiderTripStates    callable  repair: re-derive named Riders' trip
+ *                                       state from their orders (never frees one)
  *   reconcileRiderOnOrderWrite trigger  membership + settlement after any
  *                                       order change (cancel, deliver, fail,
  *                                       requeue, or a legacy direct write)
  *
- * Each reads the Rider's state document AND every order assigned to the Rider
- * inside one transaction, so concurrent calls serialize on the same documents:
- * two assignments to an available Rider form ONE trip; an assignment racing a
- * Finalize either joins before departure (and blocks the Finalize until it is
- * loaded) or is refused after it. Every operation is safe to repeat.
+ * The stored `riderDispatchStates` document is NOT authoritative on its own.
+ * Every decision first re-derives the Rider's state from EVERY order now
+ * assigned to them (riderDispatch.reconcile) inside the transaction that acts on
+ * it, so a state left stale by a missed or out-of-order trigger event can never
+ * authorize an assignment, a departure or a release:
  *
- * A Rider with no state document (everyone, at rollout) is classified from
- * their orders in the same transaction — never freeing a Rider who is on the
- * road (riderDispatch.classifyFromOrders).
+ *   - Each callable first runs the same re-derivation in its own transaction
+ *     (`reconcileRider`), so a correction is committed even when the action is
+ *     then refused; it re-derives again inside its decision transaction, so a
+ *     change in between is honoured.
+ *   - An order on the road keeps the Rider on_trip; a finished trip leaves them
+ *     returning_to_hub; only confirmRiderReturnToHub (a Dispatcher or Admin
+ *     confirming the physical return) makes them available.
+ *   - An assigned order whose status cannot be placed stops every decision for
+ *     that Rider (fail closed).
+ *
+ * Each transaction reads the Rider's state, their server trip document AND
+ * every order assigned to them, so concurrent calls serialize on the same
+ * documents: two assignments to an available Rider form ONE trip; an
+ * assignment racing a Finalize either joins before departure (and blocks the
+ * Finalize until it is loaded) or is refused after it. Every operation is safe
+ * to repeat.
  */
 
 const { PolicyError, hasLoadingAudit } = require("./policy");
@@ -31,6 +46,8 @@ const ORDERS = "orders";
 const USERS = "users";
 const DISPATCH_ROLES = Object.freeze(["dispatcher", "admin"]);
 const MAX_TRIP_ORDERS = 50;
+/** The repair operation names its Riders; at most this many per call. */
+const MAX_RECHECK_RIDERS = 25;
 
 function requestId(value, message) {
   const id = typeof value === "string" ? value.trim() : "";
@@ -50,22 +67,31 @@ async function loadDispatchActor(db, uid) {
 
 /**
  * Everything a decision about one Rider needs, read inside the transaction:
- * the state document, every order now assigned to the Rider, and any trip
- * member that has since left them (requeued) — by id.
+ * the state document, its server trip document, every order now assigned to
+ * the Rider, any trip member that has since left them (requeued) — and any
+ * further orders the caller names — by id. Reads only.
  */
-async function readRiderView(tx, db, riderUid) {
+async function readRiderView(tx, db, riderUid, extraOrderIds = []) {
   const stateRef = db.collection(D.RIDER_DISPATCH_STATES).doc(riderUid);
   const stateSnap = await tx.get(stateRef);
   const state = stateSnap.exists ? stateSnap.data() : null;
   const q = await tx.get(db.collection(ORDERS).where("assignedRiderId", "==", riderUid));
   const riderOrders = q.docs.map((d) => ({ id: d.id, data: d.data() }));
   const byId = new Map(riderOrders.map((o) => [o.id, o.data]));
-  const wanted = [...(state?.orderIds ?? []), ...(state?.heldOrderIds ?? [])].filter((id) => typeof id === "string" && !byId.has(id));
+  const wanted = [...(state?.orderIds ?? []), ...(state?.heldOrderIds ?? []), ...extraOrderIds].filter(
+    (id) => typeof id === "string" && id !== "" && !id.includes("/") && !byId.has(id)
+  );
   for (const id of [...new Set(wanted)]) {
     const s = await tx.get(db.collection(ORDERS).doc(id));
     byId.set(id, s.exists ? s.data() : null);
   }
-  return { stateRef, state, riderOrders, byId };
+  // The server trip the document names (never the route optimizer's tripId).
+  let trip;
+  if (typeof state?.tripId === "string" && state.tripId !== "" && !state.tripId.includes("/")) {
+    const t = await tx.get(db.collection(D.RIDER_TRIPS).doc(state.tripId));
+    trip = t.exists ? t.data() : null;
+  }
+  return { stateRef, state, riderOrders, byId, trip };
 }
 
 const newTripId = (db) => db.collection(D.RIDER_TRIPS).doc().id;
@@ -117,52 +143,102 @@ async function runTripTransaction(db, fn) {
   }
 }
 
-/**
- * The state to act on: the stored one, or — for a Rider without a document —
- * the classification of their orders, with its trip id allocated now.
- */
-function effectiveState(db, riderUid, view) {
-  if (view.state) return { ...view.state, stored: true };
-  const c = D.reconcile({ riderUid, current: null, memberOrders: view.byId, riderOrders: view.riderOrders });
+// ------------------------------------------------------------------ authoritative state
+
+const ids = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x !== "") : []);
+
+/** The stored document as the shape decisions use (only when it agrees with the orders). */
+function fromStored(riderUid, state) {
   return {
     riderUid,
-    state: c.state,
-    tripId: c.state === D.STATE.AVAILABLE ? null : newTripId(db),
-    orderIds: c.orderIds,
-    heldOrderIds: c.heldOrderIds,
-    classifyAdopt: c.adoptOrderIds,
-    stored: false,
+    state: state.state,
+    tripId: typeof state.tripId === "string" && state.tripId !== "" ? state.tripId : null,
+    orderIds: ids(state.orderIds),
+    heldOrderIds: ids(state.heldOrderIds),
+    lastConfirmedTripId: state.lastConfirmedTripId ?? null,
   };
 }
 
-/** Write a classified state for the first time (stamping its trip on members). */
-function persistClassification(tx, db, FieldValue, eff, view) {
-  if (eff.stored) return;
+/**
+ * Write a re-derived state (riderDispatch.reconcile's output) in the current
+ * transaction: the state document, the server trip document, and the trip id
+ * on every adopted order. Writes only — call after every read. Returns the
+ * state decisions use from here on.
+ */
+function applyNext(tx, db, FieldValue, view, riderUid, next) {
+  const current = view.state;
+  const tripId = next.state === D.STATE.AVAILABLE ? null : next.newTrip ? newTripId(db) : next.tripId;
+  const stamp = FieldValue.serverTimestamp();
   tx.set(view.stateRef, {
-    riderUid: eff.riderUid,
-    state: eff.state,
-    tripId: eff.tripId,
-    orderIds: eff.orderIds,
-    heldOrderIds: eff.heldOrderIds,
-    classifiedFrom: "orders",
-    classifiedAt: FieldValue.serverTimestamp(),
-    ...(eff.state === D.STATE.ON_TRIP ? { departedAt: null, departedBy: "legacy" } : {}),
-    updatedAt: FieldValue.serverTimestamp(),
-  });
-  if (eff.tripId) {
-    tx.set(db.collection(D.RIDER_TRIPS).doc(eff.tripId), {
-      riderUid: eff.riderUid,
-      status: eff.state === D.STATE.ON_TRIP ? "departed" : "forming",
-      orderIds: eff.orderIds,
-      source: "classification",
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
+    riderUid,
+    state: next.state,
+    tripId,
+    orderIds: next.orderIds,
+    heldOrderIds: next.heldOrderIds,
+    updatedAt: stamp,
+    ...(current ? {} : { classifiedFrom: "orders", classifiedAt: stamp }),
+    ...(!current && next.state === D.STATE.ON_TRIP ? { departedAt: null, departedBy: "legacy" } : {}),
+    ...(next.recovered ? { recoveredAt: stamp, recoveredFromState: typeof current?.state === "string" ? current.state : null } : {}),
+    ...(next.settled ? { settledAt: stamp } : {}),
+    ...(current && next.departedByLegacyWrite && next.state === D.STATE.ON_TRIP && current.state !== D.STATE.ON_TRIP
+      ? { departedAt: stamp, departedByUid: null, departedBy: "legacy-client-write" }
+      : {}),
+    ...(next.dissolved ? { departedAt: null, departedByUid: null, settledAt: null } : {}),
+  }, { merge: true });
+
+  if (tripId) {
+    const status = next.state === D.STATE.FORMING ? "forming" : next.state === D.STATE.ON_TRIP ? "departed" : "settled";
+    tx.set(db.collection(D.RIDER_TRIPS).doc(tripId), {
+      riderUid,
+      status,
+      orderIds: next.orderIds,
+      ...(next.settled ? { settledAt: stamp } : {}),
+      ...(next.newTrip
+        ? { source: !current ? "classification" : next.recovered ? "recovery" : "legacy-client-write", createdAt: stamp }
+        : {}),
+      updatedAt: stamp,
+    }, { merge: true });
   }
-  for (const id of eff.classifyAdopt ?? []) {
-    tx.update(db.collection(ORDERS).doc(id), { dispatchTripId: eff.tripId, updatedAt: FieldValue.serverTimestamp() });
+  // A forming trip that never left is closed — only if it is this Rider's.
+  if (next.dissolved && typeof current?.tripId === "string" && current.tripId && view.trip?.riderUid === riderUid) {
+    tx.set(db.collection(D.RIDER_TRIPS).doc(current.tripId), { status: "dissolved", orderIds: [], updatedAt: stamp }, { merge: true });
   }
+  for (const id of next.adoptOrderIds ?? []) {
+    if (tripId && view.byId.get(id)?.dispatchTripId !== tripId) {
+      tx.update(db.collection(ORDERS).doc(id), { dispatchTripId: tripId, updatedAt: stamp });
+    }
+  }
+  return {
+    riderUid,
+    state: next.state,
+    tripId,
+    orderIds: next.orderIds,
+    heldOrderIds: next.heldOrderIds,
+    lastConfirmedTripId: current?.lastConfirmedTripId ?? null,
+  };
 }
+
+/**
+ * Inside a callable's transaction: read the Rider, re-derive their state from
+ * their orders, write any correction, and return the state to decide on.
+ * Fails closed when an assigned order's status cannot be placed.
+ */
+async function settle(tx, db, FieldValue, riderUid, extraOrderIds = []) {
+  const view = await readRiderView(tx, db, riderUid, extraOrderIds);
+  const next = D.reconcile({ riderUid, current: view.state, memberOrders: view.byId, riderOrders: view.riderOrders, trip: view.trip });
+  if (next.unknown) {
+    throw new PolicyError(
+      "rider-state-unknown",
+      "This rider's orders could not be checked, so no trip decision was made. Ask an Admin to review the rider's orders.",
+      { orderIds: next.orderIds }
+    );
+  }
+  const cur = next.unchanged ? fromStored(riderUid, view.state) : applyNext(tx, db, FieldValue, view, riderUid, next);
+  return { view, cur };
+}
+
+/** Belt and braces: the orders themselves say whether the Rider is on the road. */
+const onTheRoad = (view) => view.riderOrders.filter(({ data }) => D.DEPARTED.includes(data?.status)).map((o) => o.id);
 
 const firstText = (...values) => values.find((v) => typeof v === "string" && v.trim() !== "")?.trim() ?? null;
 
@@ -172,25 +248,27 @@ async function assignRiderToOrder({ db, FieldValue, uid, email = null, payload, 
   await loadDispatchActor(db, uid);
   const orderId = requestId(payload?.orderId, "That order could not be identified.");
   const riderUid = requestId(payload?.riderUid, "Please select an available rider.");
+  // Commit any correction first, so a refusal below still repairs a stale state.
+  await reconcileRider({ db, FieldValue, riderUid });
 
   return runTripTransaction(db, async (tx) => {
     const orderRef = db.collection(ORDERS).doc(orderId);
     const orderSnap = await tx.get(orderRef);
     const riderSnap = await tx.get(db.collection(USERS).doc(riderUid));
-    const view = await readRiderView(tx, db, riderUid);
+    const { view, cur } = await settle(tx, db, FieldValue, riderUid);
 
     if (!orderSnap.exists) throw new PolicyError("order-not-found", "That order no longer exists.");
     const order = orderSnap.data();
-    const eff = effectiveState(db, riderUid, view);
 
     // Repeat of a call that already succeeded: same order, same Rider, same trip.
     if (
+      cur.state === D.STATE.FORMING &&
       order.assignedRiderId === riderUid &&
       D.PRE_DEPARTURE.includes(order.status) &&
       typeof order.dispatchTripId === "string" &&
-      order.dispatchTripId === eff.tripId
+      order.dispatchTripId === cur.tripId
     ) {
-      return { orderId, riderUid, tripId: eff.tripId, replayed: true };
+      return { orderId, riderUid, tripId: cur.tripId, replayed: true };
     }
     if (order.status !== "pending_dispatch") {
       throw new PolicyError("order-not-pending", "That order is no longer awaiting dispatch. Refresh the queue.", { status: order.status ?? null });
@@ -206,18 +284,20 @@ async function assignRiderToOrder({ db, FieldValue, uid, email = null, payload, 
     if (rider.role !== "rider") throw new PolicyError("not-a-rider", "That account is not a rider.");
     if (rider.status !== "approved") throw new PolicyError("rider-not-approved", "That rider is not approved for assignment.");
 
-    const allowed = D.assignmentAllowed(eff.state);
-    if (!allowed.ok) throw new PolicyError(allowed.code, allowed.message, { riderState: eff.state });
+    const allowed = D.assignmentAllowed(cur.state);
+    if (!allowed.ok) throw new PolicyError(allowed.code, allowed.message, { riderState: cur.state });
+    if (onTheRoad(view).length > 0) {
+      throw new PolicyError("rider-on-trip", D.assignmentAllowed(D.STATE.ON_TRIP).message, { riderState: D.STATE.ON_TRIP });
+    }
 
-    const forming = eff.state === D.STATE.FORMING;
-    const tripId = forming ? eff.tripId : newTripId(db);
-    const members = forming ? [...new Set([...(eff.orderIds ?? []), orderId])].sort() : [orderId];
+    const forming = cur.state === D.STATE.FORMING;
+    const tripId = forming ? cur.tripId : newTripId(db);
+    const members = forming ? [...new Set([...cur.orderIds, orderId])].sort() : [orderId];
     if (members.length > MAX_TRIP_ORDERS) {
       throw new PolicyError("trip-full", `A trip can carry at most ${MAX_TRIP_ORDERS} orders. Dispatch this rider first.`);
     }
 
     // ---- writes
-    if (forming) persistClassification(tx, db, FieldValue, eff, view);
     const assignedRiderName = firstText(rider.fullName, rider.name, rider.displayName, rider.email);
     const assignedRiderPhone = firstText(rider.phone, rider.contactNumber);
     tx.update(orderRef, {
@@ -238,8 +318,8 @@ async function assignRiderToOrder({ db, FieldValue, uid, email = null, payload, 
     });
     const tripRef = db.collection(D.RIDER_TRIPS).doc(tripId);
     if (forming) {
-      tx.set(view.stateRef, { state: D.STATE.FORMING, tripId, orderIds: members, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      tx.set(tripRef, { orderIds: members, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      tx.set(view.stateRef, { state: D.STATE.FORMING, tripId, orderIds: members, heldOrderIds: [], updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      tx.set(tripRef, { riderUid, orderIds: members, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     } else {
       tx.set(view.stateRef, {
         riderUid,
@@ -253,8 +333,8 @@ async function assignRiderToOrder({ db, FieldValue, uid, email = null, payload, 
         departedByUid: null,
         settledAt: null,
         updatedAt: FieldValue.serverTimestamp(),
-        ...(view.state?.lastConfirmedTripId ? { lastConfirmedTripId: view.state.lastConfirmedTripId } : {}),
-      }, view.state ? { merge: true } : undefined);
+        ...(cur.lastConfirmedTripId ? { lastConfirmedTripId: cur.lastConfirmedTripId } : {}),
+      }, { merge: true });
       tx.set(tripRef, {
         riderUid,
         status: "forming",
@@ -279,20 +359,13 @@ async function finalizeRiderDispatch({ db, FieldValue, uid, email = null, payloa
     throw new PolicyError("invalid-request", "No orders to dispatch.");
   }
   const requested = [...new Set(payload.orderIds.map((id) => requestId(id, "An order could not be identified.")))].sort();
+  await reconcileRider({ db, FieldValue, riderUid });
 
   return runTripTransaction(db, async (tx) => {
-    const view = await readRiderView(tx, db, riderUid);
-    // Orders named by the caller that the view does not hold yet (a replay
-    // after the trip moved on).
-    for (const id of requested) {
-      if (!view.byId.has(id)) {
-        const s = await tx.get(db.collection(ORDERS).doc(id));
-        view.byId.set(id, s.exists ? s.data() : null);
-      }
-    }
-    const eff = effectiveState(db, riderUid, view);
+    // The orders the caller named are read too (a replay after the trip moved on).
+    const { view, cur } = await settle(tx, db, FieldValue, riderUid, requested);
 
-    if (eff.state !== D.STATE.FORMING) {
+    if (cur.state !== D.STATE.FORMING) {
       // A repeat of a Finalize that already ran: every requested order left
       // with this Rider on one trip.
       const tripIds = new Set(requested.map((id) => view.byId.get(id)?.dispatchTripId));
@@ -305,20 +378,23 @@ async function finalizeRiderDispatch({ db, FieldValue, uid, email = null, payloa
         return { riderUid, tripId: onlyTrip, dispatchedOrderIds: requested, replayed: true };
       }
       throw new PolicyError(
-        eff.state === D.STATE.AVAILABLE ? "trip-not-forming" : "rider-on-trip",
-        eff.state === D.STATE.AVAILABLE
+        cur.state === D.STATE.AVAILABLE ? "trip-not-forming" : "rider-on-trip",
+        cur.state === D.STATE.AVAILABLE
           ? "This rider has no orders waiting to be dispatched. Refresh cargo loading."
-          : "This rider has already left on a trip. Refresh cargo loading."
+          : "This rider has already left on a trip or is returning to the hub. Refresh cargo loading."
       );
     }
-    if (expectedTripId && eff.stored && eff.tripId !== expectedTripId) {
+    if (onTheRoad(view).length > 0) {
+      throw new PolicyError("rider-on-trip", "This rider still has orders out for delivery. Refresh cargo loading.");
+    }
+    if (expectedTripId && cur.tripId !== expectedTripId) {
       throw new PolicyError("trip-changed", "This rider's trip changed. Refresh cargo loading.");
     }
 
-    // The live trip: members still with this Rider and not cancelled before departure.
-    const live = (eff.orderIds ?? []).filter((id) => {
+    // The live trip: every order with this Rider waiting to leave.
+    const live = cur.orderIds.filter((id) => {
       const o = view.byId.get(id);
-      return o && o.assignedRiderId === riderUid && o.status !== "cancelled";
+      return o && o.assignedRiderId === riderUid && D.PRE_DEPARTURE.includes(o.status);
     });
     if (!D.sameIds(live, requested)) {
       throw new PolicyError("trip-changed", "The orders for this rider changed. Refresh cargo loading and dispatch again.");
@@ -336,7 +412,6 @@ async function finalizeRiderDispatch({ db, FieldValue, uid, email = null, payloa
     }
 
     // ---- writes
-    persistClassification(tx, db, FieldValue, eff, view);
     for (const id of live) {
       const o = view.byId.get(id);
       tx.update(db.collection(ORDERS).doc(id), {
@@ -346,7 +421,7 @@ async function finalizeRiderDispatch({ db, FieldValue, uid, email = null, payloa
           ? {}
           : { loadedAt: FieldValue.serverTimestamp(), loadedByUid: uid, ...(email ? { loadedByEmail: email } : {}) }),
         status: "in_transit",
-        dispatchTripId: eff.tripId,
+        dispatchTripId: cur.tripId,
         dispatchedAt: FieldValue.serverTimestamp(),
         loadingFinalizedAt: FieldValue.serverTimestamp(),
         startedAt: FieldValue.serverTimestamp(),
@@ -361,20 +436,22 @@ async function finalizeRiderDispatch({ db, FieldValue, uid, email = null, payloa
     }
     tx.set(view.stateRef, {
       state: D.STATE.ON_TRIP,
-      tripId: eff.tripId,
+      tripId: cur.tripId,
       orderIds: live,
+      heldOrderIds: [],
       departedAt: FieldValue.serverTimestamp(),
       departedByUid: uid,
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
-    tx.set(db.collection(D.RIDER_TRIPS).doc(eff.tripId), {
+    tx.set(db.collection(D.RIDER_TRIPS).doc(cur.tripId), {
+      riderUid,
       status: "departed",
       orderIds: live,
       departedAt: FieldValue.serverTimestamp(),
       departedByUid: uid,
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
-    return { riderUid, tripId: eff.tripId, dispatchedOrderIds: live, replayed: false };
+    return { riderUid, tripId: cur.tripId, dispatchedOrderIds: live, replayed: false };
   });
 }
 
@@ -384,39 +461,37 @@ async function confirmRiderReturnToHub({ db, FieldValue, uid, payload }) {
   await loadDispatchActor(db, uid);
   const riderUid = requestId(payload?.riderUid, "Rider is required.");
   const tripId = requestId(payload?.tripId, "That trip could not be identified.");
+  await reconcileRider({ db, FieldValue, riderUid });
 
   return runTripTransaction(db, async (tx) => {
-    const view = await readRiderView(tx, db, riderUid);
-    const eff = effectiveState(db, riderUid, view);
+    const { view, cur } = await settle(tx, db, FieldValue, riderUid);
 
-    if (eff.lastConfirmedTripId === tripId && eff.tripId !== tripId) {
-      return { riderUid, tripId, state: eff.state, replayed: true };
+    if (cur.lastConfirmedTripId === tripId && cur.tripId !== tripId) {
+      return { riderUid, tripId, state: cur.state, replayed: true };
     }
-    if (eff.tripId !== tripId) {
+    if (cur.tripId !== tripId) {
       throw new PolicyError("trip-changed", "This rider's trip changed. Refresh and try again.");
     }
-    if (eff.state !== D.STATE.RETURNING) {
+    if (cur.state !== D.STATE.RETURNING) {
       throw new PolicyError(
         "trip-not-settled",
-        eff.state === D.STATE.ON_TRIP
+        cur.state === D.STATE.ON_TRIP
           ? "This rider still has orders out for delivery. Confirm their return once every order is finished."
           : "This rider is not returning from a trip."
       );
     }
-    // Re-checked here, not trusted from the stored state.
-    const unsettled = (eff.orderIds ?? []).filter((id) => !D.settledForTrip(view.byId.get(id), riderUid, tripId));
-    if (unsettled.length > 0) {
+    // From the orders, not the document: nothing may still be on the road.
+    if (onTheRoad(view).length > 0) {
       throw new PolicyError("trip-not-settled", "This rider still has orders out for delivery.");
     }
-    // Legacy orders assigned while the Rider was already out become the next trip.
-    const held = (eff.heldOrderIds ?? []).filter((id) => {
+    // Orders assigned while the Rider was out (held) become the next trip.
+    const held = cur.heldOrderIds.filter((id) => {
       const o = view.byId.get(id);
       return o && o.assignedRiderId === riderUid && D.PRE_DEPARTURE.includes(o.status);
     });
     const nextTripId = held.length > 0 ? newTripId(db) : null;
 
     // ---- writes
-    persistClassification(tx, db, FieldValue, eff, view);
     tx.set(db.collection(D.RIDER_TRIPS).doc(tripId), {
       status: "returned",
       returnConfirmedAt: FieldValue.serverTimestamp(),
@@ -455,7 +530,7 @@ async function confirmRiderReturnToHub({ db, FieldValue, uid, payload }) {
   });
 }
 
-// ------------------------------------------------------------------ trigger
+// ------------------------------------------------------------------ reconcile (trigger + repair)
 
 const TRIP_FIELDS = ["status", "assignedRiderId", "dispatchTripId"];
 
@@ -465,50 +540,29 @@ function tripRelevant(before, after) {
   return TRIP_FIELDS.some((f) => (before[f] ?? null) !== (after[f] ?? null));
 }
 
+/**
+ * Bring one Rider's stored state in line with their orders, in one
+ * transaction. Idempotent: writes nothing when they already agree. Never makes
+ * a Rider available after a departure (riderDispatch.reconcile). An order with
+ * an unplaceable status leaves the state untouched and is reported.
+ */
 async function reconcileRider({ db, FieldValue, riderUid }) {
   return runTripTransaction(db, async (tx) => {
     const view = await readRiderView(tx, db, riderUid);
-    const next = D.reconcile({ riderUid, current: view.state, memberOrders: view.byId, riderOrders: view.riderOrders });
-    if (next.unchanged) return { riderUid, changed: false };
-
-    const current = view.state;
-    const startsTrip = !current || current.state === D.STATE.AVAILABLE;
-    const tripId = next.state === D.STATE.AVAILABLE ? null : (startsTrip || !current?.tripId ? newTripId(db) : current.tripId);
-    const stamp = FieldValue.serverTimestamp();
-
-    tx.set(view.stateRef, {
+    const next = D.reconcile({ riderUid, current: view.state, memberOrders: view.byId, riderOrders: view.riderOrders, trip: view.trip });
+    const previousState = typeof view.state?.state === "string" ? view.state.state : null;
+    if (next.unknown) return { riderUid, changed: false, unknown: true, orderIds: next.orderIds, state: previousState, previousState };
+    if (next.unchanged) return { riderUid, changed: false, state: previousState, previousState };
+    const cur = applyNext(tx, db, FieldValue, view, riderUid, next);
+    return {
       riderUid,
-      state: next.state,
-      tripId,
-      orderIds: next.orderIds,
-      heldOrderIds: next.heldOrderIds,
-      updatedAt: stamp,
-      ...(current ? {} : { classifiedFrom: "orders", classifiedAt: stamp }),
-      ...(next.settled ? { settledAt: stamp } : {}),
-      ...(next.departedByLegacyWrite && current?.state !== D.STATE.ON_TRIP ? { departedAt: stamp, departedByUid: null, departedBy: "legacy-client-write" } : {}),
-      ...(next.dissolved ? { departedAt: null, departedByUid: null, settledAt: null } : {}),
-    }, { merge: true });
-
-    if (tripId) {
-      const tripStatus = next.state === D.STATE.FORMING ? "forming" : next.state === D.STATE.ON_TRIP ? "departed" : "settled";
-      tx.set(db.collection(D.RIDER_TRIPS).doc(tripId), {
-        riderUid,
-        status: tripStatus,
-        orderIds: next.orderIds,
-        ...(next.settled ? { settledAt: stamp } : {}),
-        ...(startsTrip ? { source: current ? "legacy-client-write" : "classification", createdAt: stamp } : {}),
-        updatedAt: stamp,
-      }, { merge: true });
-    }
-    if (next.dissolved && current?.tripId) {
-      tx.set(db.collection(D.RIDER_TRIPS).doc(current.tripId), { status: "dissolved", orderIds: [], updatedAt: stamp }, { merge: true });
-    }
-    for (const id of next.adoptOrderIds ?? []) {
-      if (tripId && view.byId.get(id)?.dispatchTripId !== tripId) {
-        tx.update(db.collection(ORDERS).doc(id), { dispatchTripId: tripId, updatedAt: stamp });
-      }
-    }
-    return { riderUid, changed: true, state: next.state, tripId, anomalies: next.anomalies ?? [] };
+      changed: true,
+      state: cur.state,
+      previousState,
+      tripId: cur.tripId,
+      recovered: Boolean(next.recovered),
+      anomalies: next.anomalies ?? [],
+    };
   });
 }
 
@@ -520,15 +574,53 @@ async function reconcileRiderOnOrderWrite({ db, FieldValue, before, after }) {
   return results;
 }
 
+/**
+ * Repair: a Dispatcher or Admin re-derives the trip state of the Riders they
+ * name (1–25), one transaction each — the same step the order-write trigger
+ * runs, for a state a missed or failed trigger event left behind. It never
+ * makes a Rider available after a departure (a finished trip becomes
+ * returning_to_hub, to be confirmed as usual), never changes an order's status
+ * or assignment, and refuses accounts that are not Riders.
+ */
+async function recheckRiderTripStates({ db, FieldValue, uid, payload }) {
+  await loadDispatchActor(db, uid);
+  const raw = payload?.riderUids;
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_RECHECK_RIDERS) {
+    throw new PolicyError("invalid-request", `Name between 1 and ${MAX_RECHECK_RIDERS} riders to re-check.`);
+  }
+  const riderUids = [...new Set(raw.map((v) => requestId(v, "A rider could not be identified.")))];
+  const results = [];
+  for (const riderUid of riderUids) {
+    const user = await db.collection(USERS).doc(riderUid).get();
+    if (!user.exists || user.data().role !== "rider") {
+      results.push({ riderUid, changed: false, error: "not-a-rider" });
+      continue;
+    }
+    const r = await reconcileRider({ db, FieldValue, riderUid });
+    results.push({
+      riderUid,
+      changed: r.changed,
+      state: r.state ?? null,
+      previousState: r.previousState ?? null,
+      ...(r.unknown ? { error: "rider-state-unknown", orderIds: r.orderIds } : {}),
+      ...(r.recovered ? { recovered: true } : {}),
+      anomalies: r.anomalies ?? [],
+    });
+  }
+  return { results };
+}
+
 module.exports = {
   loadDispatchActor,
   assignRiderToOrder,
   finalizeRiderDispatch,
   confirmRiderReturnToHub,
+  recheckRiderTripStates,
   reconcileRider,
   reconcileRiderOnOrderWrite,
   tripRelevant,
   MAX_TRIP_ORDERS,
+  MAX_RECHECK_RIDERS,
   // Exported for the retry tests.
   isTransientTransactionError,
   runTripTransaction,
