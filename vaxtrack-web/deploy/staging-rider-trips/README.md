@@ -1,18 +1,26 @@
 # Staging rollout — Rider trips (Part B): server-owned assignment, Finalize Dispatch, return to hub
 
 **Target: `vaxtrack-staging` only. PREPARED, NOT DEPLOYED.** Prepared 2026-10-19,
-preflight re-checked and runbook corrected 2026-10-21.
+preflight re-checked and runbook corrected 2026-10-21 and 2026-10-22.
 
 **Status:** the Netlify publication blocker is cleared — the site owner confirmed on
 2026-10-21 that staging is **locked against auto publishing** and still publishes
-`main@acc2f55` (keep it locked). Still required before running anything: approval
-to push `fix/rider-navigation-session-lifecycle` and merge it into `main` (option A
+`main@acc2f55` (keep it locked; the lock setting itself is user-reported — it
+cannot be read without Netlify access). Still required before running anything:
+approval to merge `fix/rider-navigation-session-lifecycle` into `main` (option A
 below), and the deployment approval itself. Everything else in this runbook has
 been checked read-only.
 
 **The Part B commit** below means the reviewed head of
-`fix/rider-navigation-session-lifecycle`: `75866e6` plus the stale trip-state fix
-(2026-10-21, see "Stale trip state") and this runbook. Run every command from
+`fix/rider-navigation-session-lifecycle`. The reviewed code is **`669115a`**
+("fix: reconcile stale rider trips and protect active orders", on `75866e6`),
+already on GitHub. Runbook corrections and test-only changes may sit on top of it;
+neither is deployed (`firebase.json` excludes `test` from the functions upload,
+and the web build does not include `functions/`). Before the merge, check that
+the branch head differs from `669115a` only there (run in `vaxtrack-web/`):
+`git diff --stat 669115a <head> -- . ":(exclude)deploy" ":(exclude)functions/test"`
+must print nothing.
+Run every command from
 `vaxtrack-web/` of a **clean checkout of the Part B commit** (or of the `main`
 merge commit whose second parent is it — see below), never from
 the inventory branch `feat/admin-inventory-removal-controls` (`4f540ae`), whose
@@ -24,7 +32,7 @@ production).
 
 | Layer | Exactly |
 |---|---|
-| Functions | `assignRiderToOrder`, `finalizeRiderDispatch`, `confirmRiderReturnToHub`, `recheckRiderTripStates` (callables) and `reconcileRiderDispatchOnOrderWrite` (Firestore trigger on `orders/{orderId}`). Nothing else. |
+| Functions | Five, all new: four callables — `assignRiderToOrder`, `finalizeRiderDispatch`, `confirmRiderReturnToHub`, `recheckRiderTripStates` — and one Firestore trigger, `reconcileRiderDispatchOnOrderWrite` (on `orders/{orderId}`). Nothing else: staging goes from 24 functions to **29**. |
 | Rules | `firestore.rules` at the Part B commit (see "Rules delta"). |
 | Web | the `vaxtrack-web` tree at the Part B commit (Netlify `npm run build:staging`). |
 
@@ -41,7 +49,9 @@ A deploy uploads the whole `functions/` tree; each named function loads
 | `attribution.js` | `baaf34d` | status-updated-by email |
 
 So the Part B functions carry `f8abad1`-era `policy.js`. Nothing of Part A's
-timing (`deliveryTiming*.js`) is on their path, and no other live function is
+timing (`deliveryTiming*.js`) is on their path — `index.js` loads
+`deliveryTimingOps` when an instance starts, but none of it runs in these five
+functions — and no other live function is
 replaced, so the Part A / delivery-hardening changes inside
 `operations.js`, `inventoryWorkflow.js`, `failureReturn.js` and `orderHistory.js`
 are **not** activated by this release (they stay as deployed 6–14 Oct).
@@ -97,7 +107,10 @@ The fix (`riderDispatch.reconcile`, `riderDispatchOps.js`):
    client writes any of them (web `acc2f55`: 0 occurrences; Rider app: none).
 2. **Part B:** `writesServerOnlyDispatch()` + `assignmentIdentityFields()` refused
    to every client (Admin included) — client assignment and client Finalize are
-   gone; Admin repair-create cannot create an assigned or departed order;
+   gone (the rules that validated them, `isValidRiderAssignment` and
+   `isValidDispatch`, are removed); Admin repair-create cannot create an order
+   that is `assigned`, `loading`, `in_transit` or `delayed`, or that carries any
+   assignment field;
    read-only `riderDispatchStates` (Admin/Dispatcher list; a Rider their own) and
    `riderTrips` (Admin/Dispatcher).
 3. **Stale-state fix:** `leavesTheRoadDirectly()` — an order `in_transit`/`delayed`
@@ -118,13 +131,13 @@ No index is needed: Part B queries `orders` by `assignedRiderId` only and reads
 `riderDispatchStates` as a collection. (The only `firestore.indexes.json` change
 since `acc2f55` is the Part A timing index — not deployed here.)
 
-## Live staging baseline (read-only, 2026-10-21)
+## Live staging baseline (read-only, re-checked 2026-10-22)
 
 | Item | Live now |
 |---|---|
 | Firestore rules | ruleset `37b2ced0-62b4-48a8-92f7-3d37d20baac3`, released 2026-10-17T09:38:07Z; byte-identical (line endings aside) to `rollback-staging-firestore.rules.20261017T093807Z`. |
-| Functions | 24, unchanged since 2026-10-20; none of the Part B functions (`recheckRiderTripStates` included), `evaluateDeliveryTiming` or `purgeRiderTrackingData` exists. |
-| Indexes | 11 composite, no field overrides. |
+| Functions | 24, unchanged since 2026-10-20; none of the five Part B functions, `evaluateDeliveryTiming` or `purgeRiderTrackingData` exists. The Part B source exports 31: the 24, the five, and the two scheduled jobs, which the five-name deploy cannot create. |
+| Indexes | 11 composite, no field overrides (2026-10-21; not re-read — this release deploys no index). |
 | Web | `https://vaxtrack-staging-1b4f31.netlify.app` serves `assets/index-DCzW7kNX.js` — the `acc2f55` build (verified 2026-10-19 by rebuilding `acc2f55`). `main--vaxtrack-staging-1b4f31.netlify.app` serves the same bundle. |
 
 ## Web publication
@@ -137,17 +150,16 @@ What was also established read-only (public GitHub API + public site):
 
 - `origin/main` = `acc2f55` (merge of PR #24); its tree equals `385fd2a`, and
   `75866e6` descends from `385fd2a`. Merging the Part B commit into `main` brings
-  exactly `f8abad1`, `0ff64bf`, `c9c744c`, `1206acb`, `75866e6` and the fix /
-  runbook commit(s) on top — no inventory code.
-- Netlify serves a `main--` branch alias with the live bundle, while
-  `feat-admin-inventory-removal-controls--…` and
-  `fix-rider-navigation-session-lifecycle--…` return 404. This indicates the
-  production branch is `main` and no branch deploy exists for the inventory
-  branch (pushed to GitHub on 2026-10-21) — but it is inference, not settings.
+  exactly `f8abad1`, `0ff64bf`, `c9c744c`, `1206acb`, `75866e6`, `669115a` (and any
+  documentation-only runbook commit on top) — no inventory code.
+- `fix/rider-navigation-session-lifecycle` is on GitHub at `669115a` (checked
+  2026-10-22 with `git ls-remote`). Netlify serves a `main--` branch alias with the
+  live bundle, while `feat-admin-inventory-removal-controls--…` and
+  `fix-rider-navigation-session-lifecycle--…` still return 404 (2026-10-22, after
+  both branches were pushed). This indicates the production branch is `main` and
+  no branch deploy exists for either branch — but it is inference, not settings.
 - There is no PR for the inventory branch (so no deploy preview of it) and no
-  GitHub deployment or check run from Netlify. `fix/rider-navigation-session-lifecycle`
-  exists on GitHub at `385fd2a` (already in `main`); the five Part B commits, the
-  stale-state fix and this runbook are local only until pushed.
+  GitHub deployment or check run from Netlify.
 
 **Why the lock matters:** without it, merging Part B into `main` would publish the
 new web **before** the functions and rules exist, and every Assign/Finalize in it
@@ -157,9 +169,9 @@ because branch deploys and previews are never published to production.
 
 **Publishing Part B without the inventory branch** (choose one, before step 1):
 
-- **A (recommended):** with auto publishing locked, push
-  `fix/rider-navigation-session-lifecycle` (the Part B commit), open a PR into `main`
-  and merge it. Netlify builds the merge commit but does not publish it. In the
+- **A (recommended):** with auto publishing locked, open a PR from
+  `fix/rider-navigation-session-lifecycle` (the Part B commit, already on GitHub)
+  into `main` and merge it. Netlify builds the merge commit but does not publish it. In the
   deploy log, check the commit is that merge (second parent = the Part B commit) and that
   the build contains no `inventoryRemovalService` / `InventoryRemovalDialogs`
   module. Publish it only at step 3. **Never merge
@@ -174,8 +186,13 @@ because branch deploys and previews are never published to production.
 - **Checkout prerequisites:** the clean Part B checkout needs its functions
   dependencies (`npm ci` in `functions/`) — the deploy loads `index.js` to
   discover endpoints, and the classification script uses `firebase-admin`. Run
-  `npm test` in `functions/` there as a smoke check. (Not done in the 2026-10-21
-  preflight: nothing was installed.)
+  `npm test` in `functions/` there as a smoke check. (2026-10-22 preflight, local
+  worktree at `669115a` + the `cancelAfterDispatch` diagnostic: after a clean
+  `npm ci` in both packages, functions unit 373/373, Functions emulator 492/492,
+  web 1228/1228, lint clean — all exit 0. A previous full emulator run failed one
+  concurrency test, `cancelAfterDispatch.test.js` "two identical Admin decisions
+  at the same moment apply once", which passes alone and did not recur; the test
+  now reports the rejected call and its error if it fails again.)
 - **QA setup (step 0) — before step 1, on the old system,** create the legacy
   fixtures in "QA plan" (a Rider already on the road, one mid-trip).
 - Pre-build the web (option A: the locked, unpublished Netlify deploy is ready;
@@ -194,7 +211,7 @@ because branch deploys and previews are never published to production.
 
 ## Order: close the direct-write window first, and keep it short
 
-1. **Functions** — the three callables and the reconciler.
+1. **Functions** — the four callables and the reconciler trigger (five names).
 2. **Firestore rules** — direct assignment / Finalize refused.
 3. **Web** — publish the pre-built Part B build.
 
@@ -231,9 +248,14 @@ firebase deploy --only firestore:rules --project vaxtrack-staging
 
 ## After each step (read-only checks)
 
-- **1:** `functions:list` shows 28 (with no scheduled job added); logs for the
-  five functions show no errors; the reconciler fires on order writes and logs
+- **1:** `functions:list` shows **29** — the 24 plus the five — with no
+  `evaluateDeliveryTiming` or `purgeRiderTrackingData`; logs for the five functions
+  show no errors; the reconciler fires on order writes and logs
   `rider-dispatch-anomaly` only if an old tab assigns directly before step 2.
+  Any `rider-dispatch-unknown-order` (error: a Rider has an assigned order whose
+  status cannot be placed, so every trip decision for them is refused) or
+  `rider-dispatch-recovered` (warning: a stored state was not trusted and was
+  rebuilt from the orders) is investigated before step 2.
 - **2:** an old tab's Assign / Finalize is refused (expected); Rider
   delay → resume still works; Med Rep order tracking unaffected.
 - **3:** a reloaded Dispatcher tab shows each Rider's trip status on Assign Rider;
@@ -277,17 +299,21 @@ that trip state is right**:
   event — but a Rider is only re-reconciled when a later write to one of their
   orders changes `status`, `assignedRiderId` or `dispatchTripId`. A missed event
   can leave that Rider's state stale indefinitely.
-- The callables act on the **stored** `riderDispatchStates` document whenever one
-  exists (they re-derive from orders only for a Rider with no document). A stale
-  document therefore drives real decisions: it can refuse a Rider who is in fact
-  back (blocking), or — worse — treat a Rider with an order still on the road as
-  available.
-- Since the stale-state fix, every assignment, Finalize and return confirmation
-  re-derives the Rider from their orders before deciding (and commits the
-  correction even when it refuses), so a stale document no longer authorizes a
-  decision on its own. `recheckRiderTripStates` (the **Re-check trip status**
-  button) repairs named Riders on demand; the classification script still only
-  covers Riders without a state document.
+- The callables do **not** rely on the stored document alone. Each of
+  `assignRiderToOrder`, `finalizeRiderDispatch` and `confirmRiderReturnToHub`
+  first re-derives the Rider's state from every order assigned to them and commits
+  any correction in its own transaction (even when the call is then refused), and
+  re-derives again inside the transaction that decides. A stale
+  `riderDispatchStates` document therefore cannot authorize a decision; an order
+  with a status that cannot be placed refuses every decision for that Rider
+  (`rider-state-unknown`). `recheckRiderTripStates` (the **Re-check trip status**
+  button) runs the same re-derivation for named Riders on demand; the
+  classification script still only covers Riders without a state document.
+- What re-derivation cannot do: it runs only when one of those calls (or the
+  trigger) runs for that Rider, so a stored state can still *display* wrong until
+  then, and `riderTrips` / `dispatchTripId` bookkeeping is only as complete as the
+  invocations that succeeded. It never frees a Rider after a departure — only a
+  confirmed return does.
 
 So after any incident, trip state is treated as **unverified** until the check
 below has been done.
@@ -295,9 +321,11 @@ below has been done.
 ### Before dispatch resumes after any incident: trip-state check (read-only)
 
 1. **Logs** (`firebase functions:log --project vaxtrack-staging --only reconcileRiderDispatchOnOrderWrite`,
-   and the same for the three callables; or Cloud Logging for the incident
-   window): every error, every invocation that failed repeatedly, and every
-   `rider-dispatch-anomaly` warning. Note the order and Rider of each.
+   and the same for the four callables; or Cloud Logging for the incident
+   window): every error, every invocation that failed repeatedly, every
+   `rider-dispatch-anomaly` and `rider-dispatch-recovered` warning, and every
+   `rider-dispatch-unknown-order` error (that Rider is blocked from every trip
+   decision until the order is fixed — see 4). Note the order and Rider of each.
 2. **Active orders:** every order with an `assignedRiderId` and status `assigned`,
    `loading`, `in_transit` or `delayed`, with its `dispatchTripId`.
 3. **Per Rider, compare** their active orders with `riderDispatchStates/{rider}`
@@ -316,11 +344,16 @@ below has been done.
 4. **Handle mismatches:**
    - **Unsafe** — a Rider with an `in_transit`/`delayed` order stored as
      `available_at_hub` or `trip_forming`, or any active order missing from its
-     Rider's state: **dispatch stays paused for everyone** (the callables would
-     act on the wrong state, and a "don't use this Rider" note enforces nothing).
+     Rider's state: **dispatch stays paused for everyone**. The callables
+     re-derive from orders before deciding, so the stored document alone cannot
+     authorize the unsafe decision — but a stored state that wrong means the
+     trigger or a callable did not behave as designed, and until that is explained
+     no trip decision is trusted (a "don't use this Rider" note enforces nothing).
    - **Blocking** — stored `on_trip`/`trip_forming` although every member order is
-     settled: safe (the Rider is refused) but stuck. Dispatch may resume for other
-     Riders only if there is no unsafe mismatch.
+     settled: safe (the Rider is refused). A Re-check (or the Rider's next call)
+     moves them to `returning_to_hub` — or `available_at_hub` when none of that
+     trip's orders ever left the hub — and a confirmed return frees them. Dispatch may
+     resume for other Riders only if there is no unsafe mismatch.
    - **Bookkeeping** — `riderTrips` or `dispatchTripId` disagreeing with an
      otherwise correct state: record it; resume only for Riders without it.
    - **Repair:** a Dispatcher or Admin runs **Re-check trip status** (Assign Rider)

@@ -769,8 +769,22 @@ test("two identical Admin decisions at the same moment apply once", async () => 
   const { x } = await vehicleScenario("in_transit");
   await cancel(x);
   const lines = [{ inventoryId: "b1", usable: 6, damaged: 2 }];
-  const outcomes = await Promise.allSettled([decide(`${x}_cancel`, { lines }), decide(`${x}_cancel`, { lines })]);
-  assert.ok(outcomes.every((o) => o.status === "fulfilled"));
+  // Each call is timed and a rejection keeps its error, so a failure names the
+  // call that was refused and why (a full emulator run once failed here with
+  // only "falsy value").
+  const timed = async (call) => {
+    const started = Date.now();
+    try {
+      return { call, status: "fulfilled", value: await decide(`${x}_cancel`, { lines }), ms: Date.now() - started };
+    } catch (e) {
+      return { call, status: "rejected", reason: e, ms: Date.now() - started };
+    }
+  };
+  const outcomes = await Promise.all([timed(1), timed(2)]);
+  const rejected = outcomes
+    .filter((o) => o.status === "rejected")
+    .map((o) => ({ call: o.call, ms: o.ms, error: o.reason?.constructor?.name, code: o.reason?.code, message: o.reason?.message }));
+  assert.deepEqual(rejected, [], `every concurrent decision succeeds (one applies, one replays); calls took ${outcomes.map((o) => `#${o.call} ${o.ms} ms`).join(", ")}`);
   assert.equal(outcomes.filter((o) => o.value.replayed !== true).length, 1);
   assert.deepEqual(await stock("b1"), { onHand: 10, reserved: 4, returnPending: 0, quarantined: 2, writtenOff: 0, available: 4 });
 });
