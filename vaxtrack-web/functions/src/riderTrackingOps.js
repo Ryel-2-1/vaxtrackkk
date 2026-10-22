@@ -6,10 +6,18 @@
  * Every function is a server-side (Admin SDK) handler for a trigger and is
  * written to be RETRY-SAFE: triggers run at least once, so each handler
  * re-reads the current documents inside a transaction and decides from them.
- * A replayed location write is ignored by the state machine (capture time not
- * newer); deviation events have deterministic ids and are created only when
- * absent; an alert is created at most once per session and only re-opened or
- * resolved by state transitions.
+ * A replayed location write is recognised (its qualifying time is already on
+ * record) and changes nothing; deviation events have deterministic ids and are
+ * created only when absent; an alert is created at most once per session and
+ * only re-opened or resolved by state transitions.
+ *
+ * ORDER: location triggers also arrive in ANY order. Only the latest stored
+ * fix is ever evaluated, but every event — even a superseded one — records the
+ * session's navigation evidence it carries (T.sessionEvidence), so a decision
+ * made by one event never depends on another having run first. A session with
+ * confirmed continuity (T.hasConfirmedContinuity) also carries its newest
+ * qualifying fix on the session document itself, read inside the same
+ * transaction — the only record that cannot be lost to delivery order.
  *
  * Never written here: orders, inventory, reservations, invoices, prices.
  * Written here: riderDeviationStates, routeDeviationEvents, alerts
@@ -115,6 +123,13 @@ function newState({ riderUid, session, route }) {
     routeFingerprint: route.fingerprint,
     openAlertId: null,
     endReason: null,
+    // Navigation evidence (T.sessionEvidence), monotonic: the newest tagged and
+    // qualifying fix of this session the server has seen, and when complete
+    // recording began — the session start, since this state is created with
+    // the session (or by its first tagged fix, before which none was seen).
+    lastTaggedFixAtMs: null,
+    lastQualifyingFixAtMs: null,
+    taggedHistorySinceMs: T.millisOf(session.startedAt),
   };
 }
 
@@ -123,15 +138,18 @@ function newState({ riderUid, session, route }) {
  * active navigation session (if any). Returns a summary for logging.
  *
  * Only a fix the app TAGGED with the current session is evaluated
- * (T.navigationFixDecision). An untagged fix after the start-up grace, or
- * sharing ended, means the app is not navigating that session any more: the
- * session is ENDED here (resolving any open alert) — it is never measured
- * against its route, however old it is.
+ * (T.navigationFixDecision). An untagged fix is never measured against a
+ * route; it ENDS the session (resolving any open alert) only when the session
+ * is stale — no tagged fix for SESSION_RULES.staleAfterMs, or none at all since
+ * the start-up grace — and sharing ended always ends it.
  *
- * Writes happen only on a meaningful change: a new or replaced session or
- * route, a route becoming (un)available, a deviation transition (a timer
- * starting, stopping or restarting after a gap, a phase change), or ending an
- * abandoned session. An ordinary sample that changes nothing performs reads only.
+ * Writes: a new or replaced session or route, a route becoming (un)available,
+ * a deviation transition, ending a session, and — whenever it moves forward —
+ * the session's navigation evidence. That last one means every NEW tagged fix
+ * writes the state once (about two writes a minute while navigating): recording
+ * it is what lets an untagged fix whose event runs first, or a superseded event,
+ * still know the session is alive. A replayed event writes nothing; an untagged
+ * fix writes only when it carries evidence not yet on record.
  *
  * `previous` is the location document before this write (continuity: only a
  * previous fix of the same session counts).
@@ -146,20 +164,56 @@ async function processLocationWrite({ db, FieldValue, riderUid, location, previo
     if (!session || session.state !== "navigating" || session.riderUid !== riderUid) {
       return { evaluated: false, reason: "not_navigating" };
     }
-    // Only the LATEST location is evaluated. Trigger delivery is not ordered:
-    // an older write's event arriving late is skipped (the rules already make
-    // stored capture times strictly increasing).
+    // Only the LATEST location is evaluated (the rules make stored capture
+    // times strictly increasing); an older write's event arriving late is
+    // superseded.
     const currentSnap = await tx.get(locationRef);
-    const currentAt = currentSnap.exists ? T.millisOf(currentSnap.data().capturedAt) : null;
+    const current = currentSnap.exists ? currentSnap.data() : null;
+    const currentAt = current ? T.millisOf(current.capturedAt) : null;
     const thisAt = T.millisOf(location?.capturedAt);
-    if (currentAt !== null && thisAt !== null && currentAt > thisAt) {
-      return { evaluated: false, reason: "superseded" };
-    }
-    const decision = T.navigationFixDecision({ session, location });
-    if (decision.action === "ignore") return { evaluated: false, reason: decision.reason };
-
+    const superseded = currentAt !== null && thisAt !== null && currentAt > thisAt;
     const stateSnap = await tx.get(stateRef);
     let state = stateSnap.exists ? stateSnap.data() : null;
+    const ownLiveState = Boolean(state) && state.sessionId === session.sessionId && state.sessionState === "navigating";
+
+    // Everything this event knows about the session's navigation activity —
+    // its own fix, the one before it, the stored current one — and what to
+    // record (forward only). "Now" is the newest server write time in hand.
+    const evidence = T.sessionEvidence({
+      session,
+      location,
+      previous,
+      current,
+      state: ownLiveState ? state : null,
+      nowMs: T.millisOf(current?.updatedAt) ?? T.millisOf(location?.updatedAt),
+    });
+    const recordEvidence = (reason, extra = {}) => {
+      if (ownLiveState && Object.keys(evidence.patch).length > 0) {
+        tx.set(stateRef, { ...state, ...evidence.patch, updatedAt: FieldValue.serverTimestamp() });
+        return { evaluated: false, reason, wrote: true, ...extra };
+      }
+      return { evaluated: false, reason, ...extra };
+    };
+
+    if (superseded) {
+      // Never evaluated, never ends a session, never alerts — but the
+      // navigation evidence it carries (e.g. the tagged fix before an untagged
+      // one) is recorded, so no later decision depends on delivery order.
+      return recordEvidence("superseded");
+    }
+
+    const decision = T.navigationFixDecision({
+      session,
+      location,
+      lastTaggedFixAtMs: evidence.lastTaggedFixAtMs,
+      taggedHistorySinceMs: evidence.taggedHistorySinceMs,
+      // A session with confirmed continuity (T.hasConfirmedContinuity) is
+      // judged from qualifying fixes: its own confirmation, read with the
+      // session in THIS transaction, and any qualifying fix the event sees.
+      lastQualifyingFixAtMs: evidence.lastQualifyingFixAtMs,
+    });
+
+    if (decision.action === "ignore") return recordEvidence(decision.reason);
 
     if (decision.action === "end") {
       // The app stopped navigating this session without ending it (process
@@ -195,8 +249,19 @@ async function processLocationWrite({ db, FieldValue, riderUid, location, previo
     }
 
     let dirty = false;
+    let ownEvidence = evidence;
     if (!state || state.sessionId !== session.sessionId) {
       state = newState({ riderUid, session, route });
+      ownEvidence = T.sessionEvidence({ session, location, previous, current, state, nowMs: T.millisOf(current?.updatedAt) ?? T.millisOf(location?.updatedAt) });
+      dirty = true;
+    } else if (evidence.replay) {
+      // This exact fix was evaluated before (a redelivered event): the state
+      // already reflects it. Nothing is re-measured or rewritten.
+      return { evaluated: false, event: null, ignored: "replay", wrote: false };
+    }
+    if (Object.keys(ownEvidence.patch).length > 0) {
+      // Record this fix (and any older evidence) — forward only.
+      state = { ...state, ...ownEvidence.patch };
       dirty = true;
     }
     const writeIfDirty = () => {
@@ -228,7 +293,10 @@ async function processLocationWrite({ db, FieldValue, riderUid, location, previo
       state,
       sample: parsed.sample,
       route: route.points,
-      previousSampleAtMs: T.previousSessionSampleAtMs(previous, session.sessionId),
+      // Continuity from the last QUALIFYING fix of this session before this
+      // one: an ordinary, inaccurate, late or other-session fix in between
+      // neither bridges nor breaks it.
+      previousSampleAtMs: ownEvidence.previousQualifyingAtMs,
       notBeforeMs: T.millisOf(session.startedAt),
     });
     if (result.changed) {
@@ -285,9 +353,12 @@ async function processLocationWrite({ db, FieldValue, riderUid, location, previo
 /**
  * A rider's riderNavigationSessions doc changed: a new or replaced session gets
  * a fresh state (closing the previous one); an ended or deleted session closes
- * its state and resolves any open alert.
+ * its state and resolves any open alert. A write that only confirms a
+ * navigation fix (T.isFixConfirmationOnly) changes nothing here and is skipped
+ * without a transaction.
  */
-async function handleSessionWrite({ db, FieldValue, riderUid, after }) {
+async function handleSessionWrite({ db, FieldValue, riderUid, after, before = undefined }) {
+  if (before !== undefined && T.isFixConfirmationOnly(before, after)) return { started: null, closed: null, skipped: "fix_confirmation" };
   const stateRef = db.collection(C.STATES).doc(riderUid);
   return db.runTransaction(async (tx) => {
     const stateSnap = await tx.get(stateRef);

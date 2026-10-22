@@ -6,24 +6,32 @@ import '../theme/app_theme.dart';
 import '../utils/delivery_buckets.dart';
 import '../widgets/delivery_list_card.dart';
 import 'delivery_detail_screen.dart';
+import '../widgets/rider_feed_builder.dart';
 
 class DeliveriesScreen extends StatefulWidget {
-  const DeliveriesScreen({super.key});
+  const DeliveriesScreen({super.key, this.riderId, this.deliveriesFeed});
+
+  /// Test seams. In the app both are null: the Rider is the signed-in user and
+  /// the feed is Firestore. Tests pass a Rider id and a controlled stream.
+  final String? riderId;
+  final Stream<List<Delivery>> Function(String riderId)? deliveriesFeed;
 
   @override
   State<DeliveriesScreen> createState() => _DeliveriesScreenState();
 }
 
 class _DeliveriesScreenState extends State<DeliveriesScreen> with SingleTickerProviderStateMixin {
-  final _deliveryService = DeliveryService();
+  // Lazy: only created when the Firestore feed is actually opened.
+  late final _deliveryService = DeliveryService();
   late TabController _tabController;
-  String? _riderId;
+  /// The signed-in Rider, read on every build — never captured once — so a
+  /// changed account can only ever open that account's feed.
+  String? get _riderId => widget.riderId ?? FirebaseAuth.instance.currentUser?.uid;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _riderId = FirebaseAuth.instance.currentUser?.uid;
   }
 
   @override
@@ -34,7 +42,8 @@ class _DeliveriesScreenState extends State<DeliveriesScreen> with SingleTickerPr
 
   @override
   Widget build(BuildContext context) {
-    if (_riderId == null) return const Center(child: Text('Not logged in.'));
+    final riderId = _riderId;
+    if (riderId == null) return const Center(child: Text('Not logged in.'));
 
     return Scaffold(
       appBar: AppBar(
@@ -51,17 +60,14 @@ class _DeliveriesScreenState extends State<DeliveriesScreen> with SingleTickerPr
           ],
         ),
       ),
-      body: StreamBuilder<List<Delivery>>(
-        stream: _deliveryService.riderDeliveries(_riderId!),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('Error loading deliveries.'));
-          }
-
-          final buckets = DeliveryBuckets(snapshot.data ?? []);
+      // One subscription for the life of the screen (see RiderFeedBuilder).
+      body: RiderFeedBuilder<List<Delivery>>(
+        riderId: riderId,
+        open: widget.deliveriesFeed ?? _deliveryService.riderDeliveries,
+        component: 'DeliveriesScreen',
+        what: 'your deliveries',
+        builder: (context, deliveries) {
+          final buckets = DeliveryBuckets(deliveries);
           final all = buckets.all;
           final active = buckets.active;
           final completed = buckets.completed;

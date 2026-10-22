@@ -14,24 +14,32 @@ import '../widgets/dashboard_delivery_card.dart';
 import '../widgets/sync_indicator.dart';
 import '../widgets/tracking_status_banner.dart';
 import 'delivery_detail_screen.dart';
+import '../widgets/rider_feed_builder.dart';
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key});
+  const DashboardScreen({super.key, this.riderId, this.deliveriesFeed});
+
+  /// Test seams. In the app both are null: the Rider is the signed-in user and
+  /// the feed is Firestore. Tests pass a Rider id and a controlled stream.
+  final String? riderId;
+  final Stream<RiderDeliveriesSnapshot> Function(String riderId)? deliveriesFeed;
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final _deliveryService = DeliveryService();
-  String? _riderId;
+  // Lazy: only created when the Firestore feed is actually opened.
+  late final _deliveryService = DeliveryService();
+  /// The signed-in Rider, read on every build — never captured once — so a
+  /// changed account can only ever open that account's feed.
+  String? get _riderId => widget.riderId ?? FirebaseAuth.instance.currentUser?.uid;
 
   @override
   void initState() {
     super.initState();
     // Opening the dashboard never sends a location: sharing is driven only by
     // the rider's active deliveries (riderTracking, attached by HomeScreen).
-    _riderId = FirebaseAuth.instance.currentUser?.uid;
   }
 
   // Open the whole optimized trip in Google Maps: current location → each stop
@@ -56,24 +64,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_riderId == null) {
+    final riderId = _riderId;
+    if (riderId == null) {
       return const Center(child: Text('Not logged in.'));
     }
 
     return Scaffold(
       appBar: AppBar(title: const Text('Rider Dashboard')),
-      body: StreamBuilder<RiderDeliveriesSnapshot>(
-        stream: _deliveryService.riderDeliveriesWithSync(_riderId!),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          }
-
-          final result = snapshot.data;
-          final deliveries = result?.deliveries ?? [];
+      // One subscription for the life of the screen: first-load spinner,
+      // safe error + Retry (never the raw error), live updates in place.
+      body: RiderFeedBuilder<RiderDeliveriesSnapshot>(
+        riderId: riderId,
+        open: widget.deliveriesFeed ?? _deliveryService.riderDeliveriesWithSync,
+        component: 'DashboardScreen',
+        what: 'your deliveries',
+        builder: (context, result) {
+          final deliveries = result.deliveries;
           final buckets = DeliveryBuckets(deliveries);
           final active = buckets.active;
           final completed = buckets.completed;
@@ -86,12 +92,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               final sb = b.isOnTrip ? (b.stopSequence ?? 9999) : 9999;
               return sa.compareTo(sb);
             });
-          final syncStatus = result == null
-              ? SyncStatus.synced
-              : syncStatusFrom(
-                  hasPendingWrites: result.hasPendingWrites,
-                  isFromCache: result.isFromCache,
-                );
+          final syncStatus = syncStatusFrom(
+            hasPendingWrites: result.hasPendingWrites,
+            isFromCache: result.isFromCache,
+          );
 
           return RefreshIndicator(
             onRefresh: riderTracking.retry,

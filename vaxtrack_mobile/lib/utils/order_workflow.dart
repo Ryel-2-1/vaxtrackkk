@@ -58,7 +58,9 @@ const Map<String, List<String>> kRiderTransitions = {
   'assigned': [],
   'loading': [],
   'in_transit': ['delayed', 'delivered', 'delivery_failed'],
-  'delayed': ['in_transit', 'delivered', 'delivery_failed'],
+  // Delayed is NOT completed directly: resume (in transit) first. Proof and
+  // completion are accepted only in transit (server callable + rules).
+  'delayed': ['in_transit', 'delivery_failed'],
   // A rider reports a failure and stops there. Retrying or reassigning is the
   // dispatcher's decision.
   'delivery_failed': [],

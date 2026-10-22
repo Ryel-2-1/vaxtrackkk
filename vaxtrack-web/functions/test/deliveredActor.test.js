@@ -76,11 +76,15 @@ function fakeDb(seed) {
         get: async (r) => snap(r.path),
         update: (r, data) => writes.push(["update", r.path, data]),
         create: (r, data) => writes.push(["create", r.path, data]),
+        // A full overwrite (a cancelled-after-dispatch return is written with set).
+        set: (r, data) => writes.push(["set", r.path, data]),
       };
       const result = await fn(tx);
       for (const [kind, p, data] of writes) {
         if (kind === "create") {
           if (store.has(p)) throw new Error(`create of existing ${p}`);
+          store.set(p, structuredClone(data));
+        } else if (kind === "set") {
           store.set(p, structuredClone(data));
         } else {
           if (!store.has(p)) throw new Error(`update of missing ${p}`);

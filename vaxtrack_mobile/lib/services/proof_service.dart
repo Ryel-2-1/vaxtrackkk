@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../utils/delivery_geofence_messages.dart'
+    show kDeliveryDelayed, kDelayedNotCompletableMessage;
 import '../utils/proof_validation.dart';
 
 /// The one place proof-of-delivery metadata is written.
@@ -292,10 +294,14 @@ ProofDecision? _checkEvidenceAuthorization({
     );
   }
   final status = _normalize(orderData['status']);
+  if (status == 'delayed') {
+    // Same code and wording as the completion callable's refusal.
+    return const ProofDecision.deny(kDeliveryDelayed, kDelayedNotCompletableMessage);
+  }
   if (!kProofSubmittableStatuses.contains(status)) {
     return const ProofDecision.deny(
       'invalid-status',
-      'Proof can only be submitted while a delivery is in transit or delayed.',
+      'Proof can only be submitted while a delivery is in transit.',
     );
   }
   return null;

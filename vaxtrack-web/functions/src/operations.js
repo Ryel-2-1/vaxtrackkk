@@ -35,14 +35,17 @@ const {
   validateRequestId,
   normalizeRequestedDeliveryDate,
   CANCELLABLE_FROM,
+  cancellationReturnsForInspection,
   DELIVERABLE_FROM,
+  assertOnlyOrderIdPayload,
+  DELAYED_NOT_COMPLETABLE_MESSAGE,
   HOME_ADDRESS_ID,
 } = require("./policy");
 const { RIDER_LOCATIONS, evaluateDeliveryGeofence } = require("./deliveryGeofence");
 const { readPriceConvention } = require("./pricingConfig");
 const { deliveryEvidenceProblem } = require("./deliveryEvidence");
 const { statusUpdatedByEmailValue } = require("./attribution");
-const { settleFailureReturn } = require("./failureReturn");
+const { settleFailureReturn, RETURN_SOURCES } = require("./failureReturn");
 const {
   ALLOCATION_VERSION_BACKORDER,
   allocationPriorityKey,
@@ -700,7 +703,16 @@ function destinationFromOrder(order) {
 }
 
 /**
- * Cancel an order and release its reservation exactly once.
+ * Cancel an order and settle its reservation exactly once.
+ *
+ * Before the vials are handled (Pending Dispatch, Assigned, or Loading with
+ * nothing confirmed as loaded) the reserved units never left the warehouse:
+ * they are released and go straight to the next waiting order. Once handled —
+ * Loading with the order confirmed as loaded in Cargo Loading, In Transit or
+ * Delayed (cancellationReturnsForInspection, decided from the stored order) —
+ * they go to return-pending under one return (`<orderId>_cancel`) that an
+ * Admin resolves with confirmReturnDisposition: nothing becomes available and
+ * nothing is reallocated until then.
  *
  * A legacy order (no allocationVersion) still cancels — its delivery lifecycle
  * is untouched — but moves no stock and gets an explicit reconciliation marker
@@ -803,6 +815,34 @@ async function cancelOrderTransaction({ db, FieldValue, uid, email, orderId, rea
       alreadyReturned = true;
     }
 
+    // Cancelled once the vials were handled — confirmed loaded, or with the
+    // rider: their units go to return-pending through the same settlement as a
+    // failed delivery (one return, Admin check, never straight back to
+    // available). Decided from the order as read in THIS transaction, so a
+    // concurrent Finalize Dispatch, completion or failure report (each its own
+    // transaction on the same order) cannot make the units settle twice.
+    let dispatchedSettlement = null;
+    if (
+      !legacy &&
+      !alreadyReturned &&
+      cancellationReturnsForInspection(order) &&
+      reservation?.status === "reserved"
+    ) {
+      dispatchedSettlement = await settleFailureReturn(tx, {
+        db,
+        FieldValue,
+        orderId,
+        order,
+        reservationRef,
+        reservation,
+        reason: cancelReason,
+        reportedByUid: uid,
+        sourceOperation: "cancelOrderWithInventoryRelease",
+        kind: RETURN_SOURCES.CANCELLED_AFTER_DISPATCH,
+      });
+      alreadyReturned = dispatchedSettlement.settled;
+    }
+
     if (!legacy && !alreadyReturned) {
       if (!reservation) {
         throw new PolicyError(
@@ -864,6 +904,12 @@ async function cancelOrderTransaction({ db, FieldValue, uid, email, orderId, rea
         orderUpdate.allocationStatus = "returned";
         orderUpdate.pendingReturnId = failureSettlement.returnId;
       }
+      if (dispatchedSettlement?.settled) {
+        // Nothing reserved and nothing awaited any more (items, queue fields),
+        // and the return that now holds the units. Who and when are on the
+        // reservation (settledAt/settledByUid) and the return (reportedAt/By).
+        Object.assign(orderUpdate, dispatchedSettlement.orderFields);
+      }
     } else {
       orderUpdate.allocationStatus = "released";
       orderUpdate.releasedAt = FieldValue.serverTimestamp();
@@ -893,6 +939,9 @@ async function cancelOrderTransaction({ db, FieldValue, uid, email, orderId, rea
       orderId,
       status: "cancelled",
       released: !legacy && !alreadyReturned,
+      // Vials held by the rider now wait in this return for an Admin check.
+      returnedForCheck: dispatchedSettlement?.settled === true,
+      returnId: dispatchedSettlement?.settled ? dispatchedSettlement.returnId : null,
       replayed: false,
       legacy,
       releasedProductKeys: [...releasedProductKeys],
@@ -913,9 +962,10 @@ const NOT_COMPLETABLE_MESSAGE = "This delivery is no longer assigned to you or c
  * throws a stable domain error (deliveryGeofence.GEOFENCE_CODES, or
  * not-assigned-rider / invalid-status-transition / order-not-found).
  */
-async function validateDeliveryCompletionGeofence({ db, uid, orderId, now = new Date() }) {
+async function validateDeliveryCompletionGeofence({ db, uid, orderId, payload = null, now = new Date() }) {
   const userData = await loadUser(db, uid);
   requireRole(userData, "rider");
+  assertOnlyOrderIdPayload(payload);
   if (typeof orderId !== "string" || orderId.trim() === "" || orderId.includes("/")) {
     throw new PolicyError("invalid-payload", "That delivery could not be identified.");
   }
@@ -926,6 +976,7 @@ async function validateDeliveryCompletionGeofence({ db, uid, orderId, now = new 
   if (!orderSnap.exists) throw new PolicyError("order-not-found", "That delivery no longer exists.");
   const order = orderSnap.data();
   if (order.assignedRiderId !== uid) throw new PolicyError("not-assigned-rider", NOT_COMPLETABLE_MESSAGE);
+  if (order.status === "delayed") throw new PolicyError("delivery-delayed", DELAYED_NOT_COMPLETABLE_MESSAGE);
   if (!DELIVERABLE_FROM.includes(order.status)) throw new PolicyError("invalid-status-transition", NOT_COMPLETABLE_MESSAGE);
   return evaluateDeliveryGeofence({
     order,
@@ -939,14 +990,18 @@ async function validateDeliveryCompletionGeofence({ db, uid, orderId, now = new 
  * Complete a delivery and consume its reservation exactly once.
  *
  * Requires, in this transaction: the caller is the order's current assigned
- * Rider; the order is in transit or delayed; both evidence photos are
- * recorded by that Rider; and the Rider's latest trusted location is inside
- * the order's delivery geofence (deliveryGeofence.js). Any refusal writes
- * nothing — no status, no inventory, no reservation, no history.
+ * Rider; the order is IN TRANSIT (a Delayed order must be resumed first); both
+ * evidence photos are recorded by that Rider; and the Rider's latest trusted
+ * location is inside the order's delivery geofence (deliveryGeofence.js).
+ * Status, assignment and location are all re-read here, so a change made while
+ * the photos were uploading is still refused. Any refusal writes nothing — no
+ * status, no inventory, no reservation, no history. Only the order id is
+ * accepted from the caller.
  */
-async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid, email = null, orderId, now = new Date() }) {
+async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid, email = null, orderId, payload = null, now = new Date() }) {
   const userData = await loadUser(db, uid);
   requireRole(userData, "rider");
+  assertOnlyOrderIdPayload(payload);
   if (typeof orderId !== "string" || orderId.trim() === "" || orderId.includes("/")) {
     throw new PolicyError("invalid-payload", "That delivery could not be identified.");
   }
@@ -979,6 +1034,9 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
       );
     }
 
+    if (order.status === "delayed") {
+      throw new PolicyError("delivery-delayed", DELAYED_NOT_COMPLETABLE_MESSAGE);
+    }
     if (!DELIVERABLE_FROM.includes(order.status)) {
       throw new PolicyError(
         "invalid-status-transition",

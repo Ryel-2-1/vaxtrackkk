@@ -716,6 +716,9 @@
   z-index: 90;
   background: rgba(15, 23, 42, 0.46);
   display: grid;
+  /* A fluid track, so the dialog's max-width: 100% means the screen width
+     (an auto track would grow to the dialog's own 620px on a phone). */
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
   padding: 24px;
 }
@@ -724,11 +727,67 @@
   position: relative;
   width: 620px;
   max-width: 100%;
+  /* Never taller than the screen: a long dialog scrolls inside itself
+     instead of spilling past the top and bottom of the viewport. */
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: #ffffff;
   border-radius: 16px;
   border: var(--border-card);
   padding: 28px;
   box-shadow: var(--shadow-float);
+}
+
+/* Batch details: the header (status, title, close) and the action footer
+   stay in view; only the body scrolls — one scroll container, so no nested
+   scrollbars. */
+.v2-inventory-modal.inv-batch-modal {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  /* Sized from the viewport alone (the dialog is portaled to <body>, see
+     DialogLayer.jsx): 16px clear of every screen edge, centred by the
+     backdrop's grid, independent of the page's height or scroll position. */
+  width: min(760px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  margin: 0;
+}
+.v2-inventory-modal-backdrop.inv-batch-backdrop {
+  padding: 16px;
+}
+.inv-batch-head {
+  position: relative;
+  flex: none;
+  padding: 28px 72px 0 28px;
+}
+.inv-batch-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 28px 20px;
+}
+/* Long order numbers (VT-ORD-<13 digits>-<code>) may wrap, so the
+   reservation tables fit a phone-width dialog instead of forcing a
+   horizontal scrollbar. */
+.inv-batch-body .inv-prov-table th,
+.inv-batch-body .inv-prov-table td {
+  overflow-wrap: anywhere;
+}
+.inv-batch-body:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: -2px;
+}
+.inv-batch-foot {
+  flex: none;
+  padding: 14px 28px 20px;
+  border-top: 1px solid var(--gray-200);
 }
 
 .v2-inventory-modal-close {
@@ -894,6 +953,27 @@
 
   .v2-modal-detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .v2-inventory-modal-backdrop {
+    padding: 12px;
+  }
+
+  .v2-inventory-modal {
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+
+  .inv-batch-head {
+    padding: 20px 64px 0 18px;
+  }
+
+  .inv-batch-body {
+    padding: 0 18px 16px;
+  }
+
+  .inv-batch-foot {
+    padding: 12px 18px 16px;
   }
 }
 /* =========================================================
@@ -1110,7 +1190,9 @@
 }
 
 .inv-price-modal {
-  max-width: 440px;
+  /* Never wider than the screen: a bare 440px overrode the base
+     max-width: 100% and hung off both edges of a phone. */
+  max-width: min(440px, 100%);
 }
 .inv-price-batch {
   display: flex;

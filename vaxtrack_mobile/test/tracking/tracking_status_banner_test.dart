@@ -8,9 +8,11 @@ import 'package:vaxtrack_mobile/tracking/tracking_lifecycle.dart';
 import 'package:vaxtrack_mobile/widgets/tracking_status_banner.dart';
 
 class _Source implements TrackingLocationSource {
-  _Source(this.access, {this.notifications = true});
+  _Source(this.access, {this.notifications = true, this.delivers = true});
   LocationAccess access;
   bool notifications;
+  /// false = a stream that never produces a position (the staging QA shape).
+  bool delivers;
   @override
   Future<bool> notificationsAllowed() async => notifications;
   @override
@@ -18,7 +20,9 @@ class _Source implements TrackingLocationSource {
   @override
   Future<LocationAccess> requestAccess() async => access;
   @override
-  Stream<LocationFix> fixes(TrackingMode mode) => const Stream.empty();
+  Stream<LocationFix> fixes(TrackingMode mode) => delivers
+      ? Stream.value(LocationFix(latitude: 14.6, longitude: 121.0, accuracyMeters: 8, capturedAt: DateTime.utc(2026, 10, 14)))
+      : const Stream.empty();
   @override
   Future<void> openAppSettings() async {}
   @override
@@ -39,12 +43,28 @@ class _Store implements TrackingStore {
   Future<void> startSession({required String riderUid, required String orderId, required String sessionId}) async {}
   @override
   Future<void> endSession({required String riderUid, required String sessionId, required String reason}) async {}
+  @override
+  Future<String?> navigatingSessionId(String riderUid) async => null;
+}
+
+/// A timer that never fires on its own (no real timer is left pending).
+class _IdleTimer implements Timer {
+  @override
+  bool get isActive => false;
+  @override
+  int get tick => 0;
+  @override
+  void cancel() {}
 }
 
 void main() {
   Future<RiderTrackingController> controllerWith(WidgetTester tester, LocationAccess access,
-      {List<TrackedOrder>? orders, bool notifications = true}) async {
-    final c = RiderTrackingController(source: _Source(access, notifications: notifications), store: _Store());
+      {List<TrackedOrder>? orders, bool notifications = true, bool delivers = true}) async {
+    final c = RiderTrackingController(
+      source: _Source(access, notifications: notifications, delivers: delivers),
+      store: _Store(),
+      startTimer: (_, _) => _IdleTimer(),
+    );
     final stream = StreamController<List<TrackedOrder>>();
     c.attach('r1', stream.stream);
     stream.add(orders ?? const [TrackedOrder(id: 'o1', status: 'assigned', assignedRiderId: 'r1')]);
@@ -109,6 +129,28 @@ void main() {
     await controllerWith(tester, LocationAccess.granted, orders: const []);
     expect(find.textContaining(TrackingStatusBanner.backgroundActivityMessage), findsNothing);
     expect(find.text('App settings'), findsNothing);
+  });
+
+  testWidgets('no position yet: says sharing is STARTING, never that it is shared', (tester) async {
+    await controllerWith(tester, LocationAccess.granted, delivers: false);
+    expect(find.textContaining(TrackingStatusBanner.startingMessage(1)), findsOneWidget);
+    expect(find.textContaining('Sharing your location'), findsNothing);
+    expect(find.text('Retry'), findsOneWidget);
+    expect(find.text('App settings'), findsOneWidget);
+  });
+
+  testWidgets('notifications off and no position: blocked state is honest and actionable', (tester) async {
+    await controllerWith(tester, LocationAccess.granted, notifications: false, delivers: false);
+    expect(find.textContaining(TrackingStatusBanner.notificationsHiddenMessage), findsOneWidget);
+    expect(find.textContaining('Sharing your location'), findsNothing);
+    expect(find.text('App settings'), findsOneWidget);
+  });
+
+  test('the notifications-off message never promises that location is still shared', () {
+    const text = TrackingStatusBanner.notificationsHiddenMessage;
+    expect(text.contains('still shared'), isFalse);
+    expect(text, contains('App settings'));
+    expect(text, contains('may stop'));
   });
 
   test('the explanation names who sees the location and when it stops', () {

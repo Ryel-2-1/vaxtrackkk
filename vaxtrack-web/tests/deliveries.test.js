@@ -301,10 +301,10 @@ test("Activity 'Updated by' shows the attribution every status writer keeps curr
   // The shared rule: the token email, or the field deleted — never kept stale.
   const helper = read("functions/src/attribution.js");
   assert.match(helper, /email\.trim\(\) !== "" \? email\.trim\(\) : FieldValue\.delete\(\)/);
-  // The web assignment now writes the attribution too.
-  assert.match(read("src/services/orderService.js"), /statusUpdatedByEmail: currentUser\.email \? currentUser\.email : deleteField\(\),/);
-  // Every web status writer already sets all three together.
-  for (const svc of ["src/services/orderService.js", "src/services/cargoLoadingService.js"]) {
-    assert.match(read(svc), /statusUpdatedByEmail/, svc);
-  }
+  // Assignment and Finalize Dispatch are server callables now (Rider trips);
+  // both write the attribution with the same shared rule.
+  const dispatchOps = read("functions/src/riderDispatchOps.js");
+  assert.equal((dispatchOps.match(/statusUpdatedByEmail: statusUpdatedByEmailValue\(email, FieldValue\),/g) || []).length, 2);
+  // The web status writer that remains (Cargo Loading's checkbox) sets all three together.
+  assert.match(read("src/services/cargoLoadingService.js"), /statusUpdatedByEmail/);
 });

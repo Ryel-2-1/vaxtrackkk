@@ -1,0 +1,6 @@
+/* The portal layer generates no box (see DialogLayer.jsx). `!important` and
+   the `body >` qualifier are needed to out-rank the scope classes it carries:
+   styles.css sets `.inventory-page { display: flex !important }`. */
+body > .vt-dialog-layer {
+  display: contents !important;
+}

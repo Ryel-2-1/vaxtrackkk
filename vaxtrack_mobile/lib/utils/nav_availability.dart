@@ -57,6 +57,13 @@ class NavigationAvailability {
     );
   }
 
+  /// A navigation session that is still running for [d] must always be
+  /// stoppable, whatever the delivery's status (e.g. reported Delayed while
+  /// navigating). True when [navigatingOrderId] is this delivery and the normal
+  /// in-transit actions (which already include Stop) are not shown.
+  static bool showsActiveNavigationStop(Delivery d, String? navigatingOrderId) =>
+      navigatingOrderId != null && navigatingOrderId == d.id && !d.isInTransit;
+
   static String? _statusPrompt(Delivery d) {
     if (d.isInTransit) return null;
     if (d.isAssigned || d.isLoading) {

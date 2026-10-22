@@ -228,6 +228,18 @@
   line-height: 1.45;
 }
 
+/* A non-blocking caution inside a confirmation (the action stays available). */
+.m-dialog-warning {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-control);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .m-field-error {
   padding: 0;
   border: 0;

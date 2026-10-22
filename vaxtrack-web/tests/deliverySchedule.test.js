@@ -269,7 +269,9 @@ test("the calendar has loading, error and empty states, and keyboard-operable co
   assert.match(page, /<strong>All active orders are dated<\/strong>/);
   // Dialog: modal semantics, Escape, focus trap, focus return.
   assert.match(page, /role="dialog"\s*aria-modal="true"/);
-  assert.match(page, /e\.key === "Escape"/);
+  // Escape (never mid-save) and the focus trap come from the shared dialog hook
+  // (tests/adminDialogs.test.js covers its wiring and the page lock).
+  assert.match(page, /useDialogFocus\(\{ dialogRef, initialRef: firstFieldRef, onDismiss: onClose, busy: saving \}\);/);
   assert.match(page, /triggerRef\.current\.focus\(\)/);
   // Month navigation: previous, current, next.
   assert.match(page, /onPrevMonth=\{goPrevMonth\}/);

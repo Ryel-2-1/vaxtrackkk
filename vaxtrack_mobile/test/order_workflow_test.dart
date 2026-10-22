@@ -25,7 +25,8 @@ const expectedRider = <String, List<String>>{
   'assigned': <String>[],
   'loading': <String>[],
   'in_transit': ['delayed', 'delivered', 'delivery_failed'],
-  'delayed': ['in_transit', 'delivered', 'delivery_failed'],
+  // A Delayed delivery is resumed (in transit) BEFORE proof/completion.
+  'delayed': ['in_transit', 'delivery_failed'],
   'delivery_failed': <String>[],
   'delivered': <String>[],
   'cancelled': <String>[],
@@ -67,7 +68,7 @@ void main() {
       }
 
       expect(total, 128);
-      expect(allowed, 16, reason: 'exactly sixteen legal transitions');
+      expect(allowed, 15, reason: 'exactly fifteen legal transitions (delayed → delivered removed: resume first)');
     });
 
     test('the exported tables agree with the matrix', () {
@@ -91,11 +92,12 @@ void main() {
       expect(canTransition(kActorRider, 'pending_dispatch', 'assigned').allowed, isFalse);
     });
 
-    test('a rider may delay, resume and complete', () {
+    test('a rider may delay, resume and complete — completion only from in transit', () {
       expect(canTransition(kActorRider, 'in_transit', 'delayed').allowed, isTrue);
       expect(canTransition(kActorRider, 'delayed', 'in_transit').allowed, isTrue);
       expect(canTransition(kActorRider, 'in_transit', 'delivered').allowed, isTrue);
-      expect(canTransition(kActorRider, 'delayed', 'delivered').allowed, isTrue);
+      expect(canTransition(kActorRider, 'delayed', 'delivered').allowed, isFalse,
+          reason: 'a Delayed delivery is resumed before it is completed');
     });
 
     test('a rider cannot move an order backwards', () {
@@ -176,10 +178,10 @@ void main() {
       expect(d.canResumeTransit, isFalse, reason: 'already moving');
     });
 
-    test('delayed exposes resume and complete only', () {
+    test('delayed exposes resume (and failure) — NOT completion', () {
       final d = deliveryWith('delayed');
       expect(d.canResumeTransit, isTrue);
-      expect(d.canComplete, isTrue);
+      expect(d.canComplete, isFalse, reason: 'resume (in transit) before completing');
       expect(d.canReportDelay, isFalse, reason: 'already delayed');
     });
 

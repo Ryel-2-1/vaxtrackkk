@@ -130,9 +130,17 @@ service firebase.storage {
 
     // The delivery is still under way. A delivered or cancelled order takes no
     // new evidence at all, whether or not it already has some.
+    //
+    // Only an IN-TRANSIT delivery takes an evidence upload — the single status
+    // the completion callable accepts (functions/src/policy.js DELIVERABLE_FROM)
+    // and the one firestore.rules records evidence in. Delayed, failed,
+    // assigned/loading, delivered and cancelled orders are all refused, so a
+    // stale or modified app cannot even stage a photo for one. A status change
+    // in the middle of an upload makes the upload (or the record step after
+    // it) fail; the canonical object stays a draft that a later, eligible
+    // attempt simply overwrites.
     function orderAcceptsEvidence(orderId) {
-      return orderDoc(orderId).status != 'delivered'
-        && orderDoc(orderId).status != 'cancelled';
+      return orderDoc(orderId).status == 'in_transit';
     }
 
     // Set by the Firestore proof/invoice submission. Its presence means the

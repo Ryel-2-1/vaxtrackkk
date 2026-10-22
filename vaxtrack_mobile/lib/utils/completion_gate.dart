@@ -13,6 +13,8 @@
 /// uploads or mutates anything.
 library;
 
+import 'delivery_geofence_messages.dart' show kDelayedNotCompletableMessage;
+
 /// Why a completion cannot proceed. `none` means it may.
 enum CompletionBlock {
   none,
@@ -86,6 +88,8 @@ bool _blank(String? value) => value == null || value.trim().isEmpty;
 /// [dataConfirmed]    false when the latest authoritative reload FAILED, so the
 ///                    evidence and status on screen cannot be trusted yet.
 /// [statusEligible]   the rider lifecycle allows this order → `delivered`.
+/// [statusDelayed]    the order is Delayed: it must be resumed before completing
+///                    (only changes the message; [statusEligible] decides).
 /// [hasProof] / [hasInvoice]  the order already carries each photo URL.
 /// [completionInProgress]     a completion request is already running.
 ///
@@ -100,6 +104,7 @@ CompletionReadiness evaluateCompletionReadiness({
   required bool hasInvoice,
   required bool completionInProgress,
   bool dataConfirmed = true,
+  bool statusDelayed = false,
 }) {
   if (completionInProgress) {
     return const CompletionReadiness(
@@ -139,9 +144,11 @@ CompletionReadiness evaluateCompletionReadiness({
     );
   }
   if (!statusEligible) {
-    return const CompletionReadiness(
+    return CompletionReadiness(
       CompletionBlock.notEligible,
-      'This delivery is not at a stage where it can be completed.',
+      statusDelayed
+          ? kDelayedNotCompletableMessage
+          : 'This delivery is not at a stage where it can be completed.',
     );
   }
   if (!hasProof) {

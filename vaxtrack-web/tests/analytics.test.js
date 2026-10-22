@@ -253,7 +253,7 @@ test("the full delivery time comes only from the server-stamped first dispatch",
   assert.ok(metrics.includes("timestampMs(order.firstDispatchedAt)"));
   assert.ok(metrics.includes("if (start == null || end == null || end <= start) continue;"));
   // The field is server-only and stamped once by the status-history trigger.
-  assert.match(read("firestore.rules"), /function serverOnlyOrderFields\(\)[\s\S]*?'firstDispatchedAt'\s*\]/);
+  assert.match(read("firestore.rules"), /function serverOnlyOrderFields\(\) \{\s*return \[[^\]]*'firstDispatchedAt'[^\]]*\];/);
   const events = read("functions/src/statusEvents.js");
   assert.ok(events.includes('event.to === "in_transit" && orderSnap.get("firstDispatchedAt") == null'));
 });
@@ -571,7 +571,7 @@ test("the modal keeps its box model, padding and controls", () => {
   assert.match(CODE, /className="analytics-modal-close"[\s\S]{0,80}aria-label="Close"/);
   assert.match(CODE, /<div className="analytics-modal-actions">[\s\S]*?Close/);
   // And its content is still rendered from the modal object, not hardcoded.
-  assert.match(CODE, /<h2>\{modal\.title\}<\/h2>/);
+  assert.match(CODE, /<h2 id="analytics-modal-title">\{modal\.title\}<\/h2>/);
   assert.match(CODE, /<p>\{modal\.description\}<\/p>/);
   assert.match(CODE, /modal\.rows\.map\(/);
 });

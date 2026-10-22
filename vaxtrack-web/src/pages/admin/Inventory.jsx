@@ -35,6 +35,7 @@ import StaleEditNotice from "../../components/ui/StaleEditNotice";
 import { staleFields } from "../../services/liveFormSync";
 import { useToast } from "../../components/ui/useToast";
 import ReservationProvenance from "../../components/admin/ReservationProvenance";
+import InventoryBatchDialog, { InventoryDialog } from "./InventoryBatchDialog";
 import { MAX_STOCK_QUANTITY } from "../../services/orderEligibility";
 import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
 import {
@@ -334,8 +335,9 @@ function Inventory() {
     setCorrectReason("");
     setCorrectError("");
     setCorrectErrorField(null);
-    // Close the detail drawer so only the correction dialog is in front.
-    setSelectedVaccine(null);
+    // Opened from the batch details, it stacks ABOVE them (both are portaled
+    // to the viewport and share one dialog stack): Escape or Cancel returns to
+    // the batch, with its figures read from the live row.
   };
 
   const closeCorrectDialog = () => {
@@ -925,62 +927,84 @@ function Inventory() {
           </div>
         </section>
 
-      {selectedVaccine && (
-        <div className="v2-inventory-modal-backdrop">
-          <div className="v2-inventory-modal">
-            <button
-              type="button"
-              className="v2-inventory-modal-close"
-              onClick={() => setSelectedVaccine(null)}
-              aria-label="Close"
-            >
-              <X size={18} />
-            </button>
+      {drawerItem && (
+        <InventoryBatchDialog
+          resetKey={drawerItem.id}
+          badge={drawerItem.status}
+          badgeTone={drawerItem.level}
+          title={drawerItem.name}
+          description={`${drawerItem.type} vaccine batch details.`}
+          onClose={() => setSelectedVaccine(null)}
+          footer={
+            <div className="v2-modal-actions">
+              <button
+                type="button"
+                className="v2-blue-action"
+                onClick={() => navigate("/admin/add-stock")}
+              >
+                Add Stock
+              </button>
 
-            <div className={`v2-modal-badge ${selectedVaccine.level}`}>
-              {selectedVaccine.status}
+              <button
+                type="button"
+                className="inv-price-cancel"
+                onClick={() => openCorrectDialog(drawerItem)}
+              >
+                Correct stock
+              </button>
+
+              {/* "View Batch History" and "Flag for Review" were removed.
+                  Neither had anything behind it: there is no history source to
+                  open — a batch document holds only its current state, with no
+                  audit trail of changes — and no flag schema, writer, reader or
+                  review workflow exists, so "flagged for review" recorded
+                  nothing and no one would ever have seen it.
+
+                  Both are worth building, and neither is invented here: a
+                  history view needs an append-only trail that does not exist
+                  yet, and a review flag needs a decision about what a flag
+                  means and who acts on it. "Add Stock" stays because it really
+                  navigates, and the batch's price is edited from its table row. */}
             </div>
-
-            <h2>{selectedVaccine.name}</h2>
-            <p>{selectedVaccine.type} vaccine batch details.</p>
-
+          }
+        >
             <div className="v2-modal-detail-grid">
               <div>
                 <span>Batch ID</span>
-                <strong>{selectedVaccine.batch}</strong>
+                <strong>{drawerItem.batch}</strong>
               </div>
 
               <div>
                 <span>On hand (not yet delivered) / Reserved / Available</span>
                 <strong>
-                  {selectedVaccine.onHand} / {selectedVaccine.reserved} /{" "}
-                  {selectedVaccine.available}
+                  {drawerItem.onHand} / {drawerItem.reserved} /{" "}
+                  {drawerItem.available}
                 </strong>
-                {selectedVaccine.flags.length > 0 && (
+                {drawerItem.flags.length > 0 && (
                   <small className="inv-flag-list">
-                    {selectedVaccine.flags.join(" · ")}
+                    {drawerItem.flags.join(" · ")}
                   </small>
                 )}
               </div>
 
               <div>
                 <span>Manufacturing Date</span>
-                <strong>{selectedVaccine.manufacturing}</strong>
+                <strong>{drawerItem.manufacturing}</strong>
               </div>
 
               <div>
                 <span>Expiry Date</span>
-                <strong>{selectedVaccine.expiry}</strong>
+                <strong>{drawerItem.expiry}</strong>
               </div>
 
               <div>
                 <span>Location</span>
-                <strong>{selectedVaccine.location}</strong>
+                <strong>{drawerItem.location}</strong>
               </div>
 
               <div>
                 <span>Manufacturer</span>
-                <strong>{selectedVaccine.manufacturer}</strong>
+                <strong>{drawerItem.manufacturer}</strong>
               </div>
 
               <div className="inv-vat-field">
@@ -1018,51 +1042,17 @@ function Inventory() {
 
             {/* "2 reserved" is always inspectable: which orders hold it,
                 and whether those add up to the batch's counter. */}
-            <ReservationProvenance key={selectedVaccine.id} inventoryId={selectedVaccine.id} />
-
-            <div className="v2-modal-actions">
-              <button
-                type="button"
-                className="v2-blue-action"
-                onClick={() => navigate("/admin/add-stock")}
-              >
-                Add Stock
-              </button>
-
-              <button
-                type="button"
-                className="inv-price-cancel"
-                onClick={() => openCorrectDialog(selectedVaccine)}
-              >
-                Correct stock
-              </button>
-
-              {/* "View Batch History" and "Flag for Review" were removed.
-                  Neither had anything behind it: there is no history source to
-                  open — a batch document holds only its current state, with no
-                  audit trail of changes — and no flag schema, writer, reader or
-                  review workflow exists, so "flagged for review" recorded
-                  nothing and no one would ever have seen it.
-
-                  Both are worth building, and neither is invented here: a
-                  history view needs an append-only trail that does not exist
-                  yet, and a review flag needs a decision about what a flag
-                  means and who acts on it. "Add Stock" stays because it really
-                  navigates, and the batch's price is edited from its table row. */}
-            </div>
-          </div>
-        </div>
+            <ReservationProvenance key={drawerItem.id} inventoryId={drawerItem.id} />
+        </InventoryBatchDialog>
       )}
 
       {pricing && (
-        <div className="v2-inventory-modal-backdrop" onClick={closePriceDialog}>
-          <div
-            className="v2-inventory-modal inv-price-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="inv-price-title"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <InventoryDialog
+          labelledBy="inv-price-title"
+          onClose={closePriceDialog}
+          busy={savingPrice}
+          className="inv-price-modal"
+        >
             <button
               type="button"
               className="v2-inventory-modal-close"
@@ -1165,19 +1155,16 @@ function Inventory() {
                 {savingPrice ? "Saving…" : reconfirm ? "Confirm VAT-inclusive price" : "Save price"}
               </button>
             </div>
-          </div>
-        </div>
+        </InventoryDialog>
       )}
 
       {correcting && (
-        <div className="v2-inventory-modal-backdrop" onClick={closeCorrectDialog}>
-          <div
-            className="v2-inventory-modal inv-price-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="inv-correct-title"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <InventoryDialog
+          labelledBy="inv-correct-title"
+          onClose={closeCorrectDialog}
+          busy={savingCorrection}
+          className="inv-price-modal"
+        >
             <button
               type="button"
               className="v2-inventory-modal-close"
@@ -1273,8 +1260,7 @@ function Inventory() {
                 {savingCorrection ? "Saving…" : "Save correction"}
               </button>
             </div>
-          </div>
-        </div>
+        </InventoryDialog>
       )}
     </AdminLayout>
   );

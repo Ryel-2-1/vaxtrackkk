@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  Home,
   Info,
   Loader2,
   Package,
@@ -25,8 +26,13 @@ import StatusBadge from "../../components/ui/StatusBadge";
 import KpiCard from "../../components/ui/KpiCard";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
+import { missingEtaWarning } from "../../services/deliveryTiming";
 import { ToastRegion } from "../../components/ui/Feedback";
 import { useToast } from "../../components/ui/useToast";
+import { subscribeRiders } from "../../services/riderService";
+import { confirmRiderReturnToHub, subscribeRiderDispatchStates } from "../../services/riderDispatchService";
+import { cargoGroupDispatch, ridersReturningToHub } from "../../services/riderTrip";
+import DispatcherDialogLayer from "./DispatcherDialogLayer";
 import "./CargoLoading.css";
 
 // Loading-state badge shown on each rider card. Text + icon (not colour alone)
@@ -87,6 +93,15 @@ function DispatcherCargoLoading() {
   const [dispatchedRiders, setDispatchedRiders] = useState({}); // riderId -> true (just dispatched)
 
   const [confirmGroup, setConfirmGroup] = useState(null); // group awaiting finalize confirmation
+  // Rider trips (server-owned): which Riders are out, and who is back at the
+  // hub waiting for a Dispatcher to confirm it.
+  const [tripStates, setTripStates] = useState(() => new Map());
+  // Unreadable trip states (e.g. before the rules that expose them are live):
+  // the page says so plainly; every Finalize and return is still checked on
+  // the server, so nothing is unsafe — only the trip labels are missing.
+  const [tripStatesUnavailable, setTripStatesUnavailable] = useState(false);
+  const [riders, setRiders] = useState([]);
+  const [confirmReturn, setConfirmReturn] = useState(null); // { riderUid, tripId, name, ... }
   const [printGroup, setPrintGroup] = useState(null); // group being printed
   const { toast, showToast, dismissToast } = useToast();
 
@@ -105,6 +120,38 @@ function DispatcherCargoLoading() {
     );
     return unsub;
   }, []);
+
+  useEffect(() => {
+    const unsubStates = subscribeRiderDispatchStates(
+      (map) => {
+        setTripStates(map);
+        setTripStatesUnavailable(false);
+      },
+      (err) => {
+        logSafeError("Rider trip states", err);
+        setTripStatesUnavailable(true);
+      }
+    );
+    const unsubRiders = subscribeRiders(setRiders, () => {});
+    return () => {
+      unsubStates();
+      unsubRiders();
+    };
+  }, []);
+
+  const returning = useMemo(() => ridersReturningToHub(tripStates, riders), [tripStates, riders]);
+
+  // Runs from the confirmation; on failure it rethrows so the dialog says why.
+  const handleConfirmReturn = async (entry) => {
+    try {
+      await confirmRiderReturnToHub({ riderUid: entry.riderUid, tripId: entry.tripId });
+    } catch (err) {
+      logSafeError("Confirm rider return", err);
+      throw err;
+    }
+    setConfirmReturn(null);
+    showToast(`${entry.name} is back at the hub and can take new orders.`, "success");
+  };
 
   const summary = useMemo(() => {
     const riders = groups.length;
@@ -148,11 +195,13 @@ function DispatcherCargoLoading() {
     if (!group || finalizingRider) return;
     setFinalizingRider(group.riderId);
     try {
-      // Every order is re-read and validated inside the service's transaction;
-      // the whole dispatch fails if any one of them is no longer eligible.
+      // The server re-reads the Rider's trip and every order; the whole trip
+      // leaves together or nothing moves. The trip id the page saw is sent so
+      // a trip that changed meanwhile is refused, not sent.
       await finalizeRiderDispatch(
         group.riderId,
-        group.orders.map((o) => o.id)
+        group.orders.map((o) => o.id),
+        cargoGroupDispatch(tripStates.get(group.riderId)).tripId
       );
       // Show the "Dispatched" state briefly; the snapshot then removes the group.
       setDispatchedRiders((prev) => ({ ...prev, [group.riderId]: true }));
@@ -250,6 +299,42 @@ function DispatcherCargoLoading() {
 
         <ToastRegion toast={toast} onDismiss={dismissToast} />
 
+        {tripStatesUnavailable && (
+          <p className="cl-hint" role="status">
+            Rider trip status is not available right now. Finalize dispatch still checks every rider on the server.
+          </p>
+        )}
+
+        {returning.length > 0 && (
+          <section className="cl-return" aria-label="Riders returning to the hub">
+            <div className="cl-return-head">
+              <Home size={16} aria-hidden="true" />
+              <div>
+                <h3>Returning to hub</h3>
+                <p>Every order on these trips is finished. Confirm each rider once they are physically back at the distribution hub.</p>
+              </div>
+            </div>
+            <ul className="cl-return-list">
+              {returning.map((r) => (
+                <li key={r.riderUid} className="cl-return-row">
+                  <span className="cl-avatar" aria-hidden="true">{initialsOf(r.name)}</span>
+                  <div className="cl-rider-meta">
+                    <strong>{r.name}</strong>
+                    <small>
+                      {r.plate ? <span className="cl-plate">{r.plate}</span> : null}
+                      {r.plate ? " · " : ""}
+                      <span className="tnum">{r.orderCount}</span> {r.orderCount === 1 ? "order" : "orders"} on the trip
+                    </small>
+                  </div>
+                  <button type="button" className="cl-btn cl-btn-primary" onClick={() => setConfirmReturn(r)}>
+                    <Home size={14} /> Confirm return
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         {groups.length === 0 ? (
           <div className="cl-empty">
             <span className="cl-empty-icon">
@@ -282,6 +367,7 @@ function DispatcherCargoLoading() {
                   onToggleLoaded={handleToggleLoaded}
                   onPrint={() => setPrintGroup(group)}
                   onFinalize={() => setConfirmGroup(group)}
+                  tripHold={cargoGroupDispatch(tripStates.get(group.riderId))}
                 />
               ))}
             </div>
@@ -289,7 +375,11 @@ function DispatcherCargoLoading() {
         )}
       </div>
 
+      {/* Portaled: inside the Dispatcher content area (transformed by its
+          entrance animation) a dialog is centred in the whole page and opens
+          off-screen once it is scrolled (DispatcherDialogLayer.jsx). */}
       {confirmGroup && (
+        <DispatcherDialogLayer>
         <ConfirmDialog
           title="Finalize dispatch?"
           target={`${confirmGroup.rider.name}${confirmGroup.rider.plate ? ` · ${confirmGroup.rider.plate}` : ""} · ${
@@ -297,14 +387,41 @@ function DispatcherCargoLoading() {
           } order${confirmGroup.totalOrders === 1 ? "" : "s"}`}
           consequence={`All ${confirmGroup.totalOrders} order${
             confirmGroup.totalOrders === 1 ? "" : "s"
-          } for this rider will be marked In Transit. This cannot be undone here.`}
+          } leave together as one trip and are marked In Transit. No more orders can be assigned to this rider until their return to the hub is confirmed. This cannot be undone here.`}
           confirmLabel="Confirm dispatch"
           busyLabel="Dispatching…"
           tone="primary"
           failureMessage="The dispatch could not be finalized. No order was moved — please try again."
           onCancel={() => setConfirmGroup(null)}
           onConfirm={() => handleFinalize(confirmGroup)}
-        />
+        >
+          {/* Non-blocking: dispatch stays available without a route ETA. */}
+          {(() => {
+            const warning = missingEtaWarning(confirmGroup.orders);
+            return warning ? (
+              <p className="m-dialog-warning" role="note">
+                {warning.text} <span className="tnum">({warning.orderLabels.join(", ")})</span>
+              </p>
+            ) : null;
+          })()}
+        </ConfirmDialog>
+        </DispatcherDialogLayer>
+      )}
+
+      {confirmReturn && (
+        <DispatcherDialogLayer>
+          <ConfirmDialog
+            title="Confirm return to hub?"
+            target={`${confirmReturn.name}${confirmReturn.plate ? ` · ${confirmReturn.plate}` : ""}`}
+            consequence="Confirm only once this rider is physically back at the distribution hub. They become available for new assignments."
+            confirmLabel="Confirm return"
+            busyLabel="Confirming…"
+            tone="primary"
+            failureMessage="The return could not be confirmed. The rider is still marked as returning — please try again."
+            onCancel={() => setConfirmReturn(null)}
+            onConfirm={() => handleConfirmReturn(confirmReturn)}
+          />
+        </DispatcherDialogLayer>
       )}
 
       {printGroup && (
@@ -323,6 +440,7 @@ function RiderCard({
   onToggleLoaded,
   onPrint,
   onFinalize,
+  tripHold = { canFinalize: true, reason: "" },
 }) {
   const badge = loadingBadge(group, dispatched);
   // Orders assigned before the schedule guard existed may still sit here ahead
@@ -334,7 +452,7 @@ function RiderCard({
   );
   const heldOrders = group.orders.filter((o) => !scheduleById[o.id].eligible);
   const canFinalize =
-    group.allLoaded && !dispatched && !finalizing && heldOrders.length === 0;
+    group.allLoaded && !dispatched && !finalizing && heldOrders.length === 0 && tripHold.canFinalize;
   const total = group.totalOrders || 0;
   const loaded = group.loadedCount || 0;
   const pct = total > 0 ? Math.round((loaded / total) * 100) : 0;
@@ -451,7 +569,9 @@ function RiderCard({
         })}
       </div>
 
-      {heldOrders.length > 0 && !dispatched ? (
+      {!tripHold.canFinalize && !dispatched ? (
+        <p className="cl-hint">{tripHold.reason}</p>
+      ) : heldOrders.length > 0 && !dispatched ? (
         <p className="cl-hint">
           {heldOrders.length === 1
             ? "One order cannot be dispatched yet (see its note), so this group is on hold."

@@ -44,8 +44,11 @@ String invoiceObjectPath(String orderId) =>
 ///
 /// `delivered` is absent on purpose: proof is evidence gathered while the
 /// delivery is being made, not something added afterwards. Delivered orders
-/// display whatever proof they already have, read-only.
-const List<String> kProofSubmittableStatuses = ['in_transit', 'delayed'];
+/// display whatever proof they already have, read-only. `delayed` is absent
+/// too: a Delayed delivery is resumed (in transit) before any proof or
+/// completion — the same single status the rules and the completion callable
+/// accept (firestore.rules orderAcceptsEvidence, functions/src/policy.js).
+const List<String> kProofSubmittableStatuses = ['in_transit'];
 
 /// A rejected proof operation. [code] is stable and machine-readable; [message]
 /// is written to be shown to the rider as-is.

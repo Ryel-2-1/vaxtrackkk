@@ -5,7 +5,6 @@ import {
   getDoc,
   runTransaction,
   serverTimestamp,
-  deleteField,
   updateDoc,
   where,
   query,
@@ -13,9 +12,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { buildClinicLocationSnapshot } from "./orderLocation";
-import { dispatchEligibility } from "./dispatchEligibility";
-import { assignmentBlockReason } from "./backorder";
-import { presentRouteFields } from "./orderRouteFields";
+import { assignRiderToOrderOnServer, RiderDispatchError } from "./riderDispatchService";
 import {
   ACTOR_DISPATCHER,
   assertTransition,
@@ -29,7 +26,6 @@ import { logSafeError } from "./liveDataErrors.js";
 import { listenLive } from "./liveSnapshot.js";
 
 const ORDERS_COLLECTION = "orders";
-const USERS_COLLECTION = "users";
 
 // IDENTITY RULE for every order read in this file.
 //
@@ -205,94 +201,30 @@ export class AssignmentError extends UserMessageError {
   }
 }
 
-// The canonical rider identity, matched exactly. A user is assignable only when
-// their STORED role and status say so — never because the UI offered them.
-const RIDER_ROLE = "rider";
-const RIDER_APPROVED_STATUS = "approved";
-const ASSIGNABLE_FROM_STATUS = "pending_dispatch";
-
-/** First non-empty trimmed string, or null. Never invents a value. */
-function firstNonEmptyString(...values) {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim() !== "") return value.trim();
-  }
-  return null;
-}
-
 /**
- * Refuse a scheduled order before 00:00 Asia/Manila on its requested date, or
- * one whose stored date is unusable. See dispatchEligibility.js.
- * @throws {AssignmentError} code `scheduled-date-not-reached` / `scheduled-date-invalid`
+ * Assign an approved rider to a pending order — on the server.
+ *
+ * Takes the order DOCUMENT id and the rider's Firestore/Auth UID (the users
+ * document id); an employee id or any display identifier is never accepted.
+ *
+ * Since Rider trips this is the assignRiderToOrder callable
+ * (functions/src/riderDispatchOps.js), not a client transaction: the decision
+ * needs the Rider's server-owned trip state, which no client write can read
+ * reliably. In one transaction the server re-reads the order (still
+ * pending_dispatch, unassigned, its date reached, fully reserved), the rider
+ * (stored role `rider`, status `approved`) and the Rider's trip — an order
+ * joins a trip only before departure, so a Rider on the road or returning to
+ * the hub is refused. Two dispatchers racing for one order, or two orders
+ * racing for one Rider, serialize there. firestore.rules refuse the direct
+ * write, Admin included.
+ *
+ * Display fields and the audit (who assigned, when) are written by the server
+ * from the rider document and the verified caller — never from this page.
+ *
+ * @returns {Promise<{orderId: string, riderUid: string, tripId: string, replayed: boolean}>}
+ * @throws {AssignmentError} with the server's stable code (order-not-pending,
+ *   order-already-assigned, rider-on-trip, rider-returning, …)
  */
-function assertScheduleReached(order) {
-  const schedule = dispatchEligibility(order);
-  if (!schedule.eligible) throw new AssignmentError(schedule.code, schedule.message);
-}
-
-/**
- * Whether an order already carries a rider.
- *
- * Absent, null and the empty string mean unassigned — sales-rep-created orders
- * start with an explicit null. Deliberately uses the RAW string length rather
- * than a trimmed one so this agrees exactly with `hasNoAssignedRider()` in
- * firestore.rules, which can only test `size() == 0`. If the two disagreed, a
- * whitespace-only value would pass here and then be refused by the rules.
- * Anything that is not a string is treated as assigned, matching the rule.
- */
-function hasAssignedRider(order) {
-  const value = order.assignedRiderId;
-  if (value === null || value === undefined) return false;
-  if (typeof value === "string") return value.length > 0;
-  return true;
-}
-
-/**
- * Assign an approved rider to a pending order, atomically.
- *
- * Takes the order DOCUMENT id and the rider's Firestore/Auth UID — the same
- * value as the `users` document id. An employee id or any other display
- * identifier is never accepted as the assignment identity.
- *
- * Everything that decides whether the assignment is legal is re-read INSIDE a
- * transaction, so the caller's view of the world is never trusted:
- *
- *   - the order must exist, still be `pending_dispatch`, and still carry no
- *     usable `assignedRiderId`;
- *   - the user must exist, with stored role exactly `rider` and stored status
- *     exactly `approved`.
- *
- * That closes the race the previous version had: the order id arrived from
- * localStorage and was written with `updateDoc`, so two dispatchers acting on
- * the same queue entry both succeeded and the later write silently replaced the
- * earlier rider. Firestore re-runs a transaction whose read set changed, so the
- * loser now re-reads an order that is already `assigned` and is rejected.
- *
- * A rider may hold any number of active deliveries — no per-rider limit is
- * enforced here, by decision.
- *
- * Display fields are copied from the rider DOCUMENT, never from the caller, and
- * only when genuinely present: a rider with no phone on record simply gets no
- * `assignedRiderPhone` rather than an invented one.
- *
- * @returns {Promise<{orderId: string, riderUid: string, assignedRiderName: string|null}>}
- * @throws {AssignmentError}
- */
-/**
- * The status-attribution trio for a dispatcher's status change: server time,
- * the session's uid and the session's email. Written TOGETHER — stamping only
- * the time and uid left the previous writer's email on the order, so Admin's
- * Activity panel named the wrong person. With no email on the session the
- * field is deleted rather than left stale. firestore.rules requires the time
- * and uid to be server-stamped and the caller's own.
- */
-function statusAttribution(currentUser) {
-  return {
-    statusUpdatedAt: serverTimestamp(),
-    statusUpdatedByUid: currentUser.uid,
-    statusUpdatedByEmail: currentUser.email ? currentUser.email : deleteField(),
-  };
-}
-
 export async function assignRiderToOrder(orderId, riderUid) {
   if (typeof orderId !== "string" || orderId.trim() === "") {
     throw new AssignmentError("order-id-required", "Order ID is required.");
@@ -300,102 +232,19 @@ export async function assignRiderToOrder(orderId, riderUid) {
   if (typeof riderUid !== "string" || riderUid.trim() === "") {
     throw new AssignmentError("rider-uid-required", "Please select an available rider.");
   }
-
-  // The dispatcher's own identity comes from the session, not from a caller
-  // argument, so the audit trail cannot be attributed to someone else. The
-  // Firestore rule also requires this to equal request.auth.uid.
-  const currentUser = auth.currentUser;
-  if (!currentUser?.uid) {
-    throw new AssignmentError(
-      "not-signed-in",
-      "Your session has expired. Please sign in again."
-    );
+  if (!auth.currentUser?.uid) {
+    throw new AssignmentError("not-signed-in", "Your session has expired. Please sign in again.");
   }
-
-  const orderRef = doc(db, ORDERS_COLLECTION, orderId);
-  const riderRef = doc(db, USERS_COLLECTION, riderUid);
-
-  return runTransaction(db, async (tx) => {
-    // Both reads happen before any write, as Firestore transactions require.
-    const orderSnap = await tx.get(orderRef);
-    if (!orderSnap.exists()) {
-      throw new AssignmentError("order-not-found", "That order no longer exists.");
+  try {
+    return await assignRiderToOrderOnServer(orderId, riderUid);
+  } catch (error) {
+    // Keep the page's error type: the code and the server's sentence (and any
+    // context, e.g. the status the order was found in) pass through as-is.
+    if (error instanceof RiderDispatchError) {
+      throw new AssignmentError(error.code, error.message, error.details ?? undefined);
     }
-    const order = orderSnap.data();
-
-    if (order.status !== ASSIGNABLE_FROM_STATUS) {
-      throw new AssignmentError(
-        "order-not-pending",
-        "That order is no longer awaiting dispatch. Refresh the queue.",
-        // Lets the page say whether it was assigned (by anyone) or cancelled.
-        { status: order.status ?? null }
-      );
-    }
-    if (hasAssignedRider(order)) {
-      throw new AssignmentError(
-        "order-already-assigned",
-        "That order has already been assigned to a rider."
-      );
-    }
-    // A scheduled order is not assignable before 00:00 Manila on its date,
-    // checked against the order as stored now — not the queue the page drew.
-    // firestore.rules refuses the same write independently.
-    assertScheduleReached(order);
-    // No partial dispatch: a future order is assignable only once the server
-    // has fully reserved every line. Read from the order as stored now; the
-    // rules (orderIsFullyReserved) refuse the same write independently.
-    const stockBlock = assignmentBlockReason(order);
-    if (stockBlock) {
-      throw new AssignmentError("order-not-fully-reserved", stockBlock);
-    }
-
-    const riderSnap = await tx.get(riderRef);
-    if (!riderSnap.exists()) {
-      throw new AssignmentError("rider-not-found", "That rider account no longer exists.");
-    }
-    const rider = riderSnap.data();
-
-    if (rider.role !== RIDER_ROLE) {
-      throw new AssignmentError("not-a-rider", "That account is not a rider.");
-    }
-    if (rider.status !== RIDER_APPROVED_STATUS) {
-      throw new AssignmentError(
-        "rider-not-approved",
-        "That rider is not approved for assignment."
-      );
-    }
-
-    // Authoritative display values, read from the rider document.
-    const assignedRiderName = firstNonEmptyString(
-      rider.fullName,
-      rider.name,
-      rider.displayName,
-      rider.email
-    );
-    const assignedRiderPhone = firstNonEmptyString(rider.phone, rider.contactNumber);
-
-    const update = {
-      status: "assigned",
-      assignedRiderId: riderUid,
-      assignedAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      assignedByUid: currentUser.uid,
-      // Who changed the status — the Assigned history event's actor and the
-      // Activity panel's "Updated by". Previously absent from assignment.
-      ...statusAttribution(currentUser),
-    };
-    // A route still on the order was drawn from another rider's position (the
-    // server clears it on requeue; this is the second guard). Removed so the
-    // new rider never navigates against it; the dispatcher regenerates it.
-    for (const field of presentRouteFields(order)) update[field] = deleteField();
-    if (assignedRiderName) update.assignedRiderName = assignedRiderName;
-    if (assignedRiderPhone) update.assignedRiderPhone = assignedRiderPhone;
-    if (currentUser.email) update.assignedByEmail = currentUser.email;
-
-    tx.update(orderRef, update);
-
-    return { orderId, riderUid, assignedRiderName };
-  });
+    throw error;
+  }
 }
 
 export function subscribeAssignedRiderOrders(riderId, callback) {

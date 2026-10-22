@@ -35,7 +35,8 @@ import {
 //               delayed          → cancelled
 //               delivery_failed  → pending_dispatch (requeue), cancelled
 //   Rider:      in_transit       → delayed, delivered, delivery_failed
-//               delayed          → in_transit, delivered, delivery_failed
+//               delayed          → in_transit, delivery_failed
+//                                  (a Delayed order is resumed BEFORE it completes)
 //
 // Everything else, for every actor, is illegal.
 
@@ -57,7 +58,9 @@ const EXPECTED = {
     assigned: [],
     loading: [],
     in_transit: ["delayed", "delivered", "delivery_failed"],
-    delayed: ["in_transit", "delivered", "delivery_failed"],
+    // Delayed: navigation may continue, but proof and completion wait until
+    // the rider resumes it (in transit).
+    delayed: ["in_transit", "delivery_failed"],
     // Reporting a failure is where the rider stops.
     delivery_failed: [],
     delivered: [],
@@ -89,9 +92,9 @@ test("the full transition matrix matches the approved lifecycle exactly", () => 
     }
   }
 
-  // 2 actors × 8 × 8 = 128 combinations, of which exactly 16 are legal.
+  // 2 actors × 8 × 8 = 128 combinations, of which exactly 15 are legal (delayed → delivered was removed: resume first).
   assert.equal(allowedCount + deniedCount, 128, "every combination was checked");
-  assert.equal(allowedCount, 16, "exactly sixteen legal transitions exist");
+  assert.equal(allowedCount, 15, "exactly fifteen legal transitions exist");
 });
 
 test("the exported tables agree with the matrix", () => {

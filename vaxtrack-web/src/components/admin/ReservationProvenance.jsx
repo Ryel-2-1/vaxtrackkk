@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { friendlyErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { getReservationProvenance } from "../../services/inventoryCallables";
+import { returnReason, returnSourceLabel } from "../../services/returnSplit";
 import "./ReservationProvenance.css";
 
 /**
@@ -106,7 +107,7 @@ function ReservationProvenance({ inventoryId }) {
 
       {returns.length > 0 && (
         <>
-          <h3>Returned by failed deliveries</h3>
+          <h3>Returned stock awaiting a decision</h3>
           <table className="inv-prov-table">
             <thead>
               <tr>
@@ -119,7 +120,11 @@ function ReservationProvenance({ inventoryId }) {
               {returns.map((r) => (
                 <tr key={r.returnId || r.orderId}>
                   <td>{r.orderNumber || r.orderId}</td>
-                  <td>{r.failureReason || "—"}</td>
+                  <td>
+                    {returnSourceLabel(r)}
+                    {": "}
+                    {returnReason(r) || "no reason given"}
+                  </td>
                   <td className="tnum">{r.quantity}</td>
                 </tr>
               ))}

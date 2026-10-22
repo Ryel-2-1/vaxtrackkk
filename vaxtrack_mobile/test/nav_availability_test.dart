@@ -163,4 +163,24 @@ void main() {
       });
     }
   });
+
+  group('a running navigation can always be stopped (staging QA A-F1)', () {
+    test('Delayed while navigating: the Stop control is shown without a status change', () {
+      final d = _mk(status: 'delayed', lat: 14.3, lng: 121.0);
+      expect(NavigationAvailability.of(d).inTransit, isFalse, reason: 'the normal actions are hidden');
+      expect(NavigationAvailability.showsActiveNavigationStop(d, 'order1'), isTrue);
+    });
+
+    test('also without a destination pin, and for any non-in-transit status', () {
+      for (final status in ['delayed', 'assigned', 'loading']) {
+        expect(NavigationAvailability.showsActiveNavigationStop(_mk(status: status), 'order1'), isTrue, reason: status);
+      }
+    });
+
+    test('not shown when navigating another delivery, when not navigating, or in transit (Stop is already there)', () {
+      expect(NavigationAvailability.showsActiveNavigationStop(_mk(status: 'delayed'), 'otherOrder'), isFalse);
+      expect(NavigationAvailability.showsActiveNavigationStop(_mk(status: 'delayed'), null), isFalse);
+      expect(NavigationAvailability.showsActiveNavigationStop(_mk(status: 'in_transit', lat: 1, lng: 1), 'order1'), isFalse);
+    });
+  });
 }

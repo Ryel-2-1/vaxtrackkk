@@ -450,8 +450,10 @@ test("dialog keyboard: Escape closes unless busy; Tab wraps inside", () => {
   assert.equal(nextFocusIndex({ count: 0, current: -1, shift: false }), -1);
   const hook = strip(read("src/components/ui/useDialogFocus.js"));
   assert.match(hook, /window\.addEventListener\("keydown", onKeyDown, true\)/, "handled before document-level modals");
-  assert.match(hook, /if \(openDialogs\[openDialogs\.length - 1\] !== token\) return;/, "only the top-most dialog reacts");
-  assert.match(hook, /opener\.focus\(\)/, "focus returns to the opener");
+  // Stack behaviour itself is exercised in tests/inventoryBatchDialog.test.js.
+  assert.match(hook, /export const isTopDialog = \(token\) => openDialogs\[openDialogs\.length - 1\] === token;/);
+  assert.match(hook, /if \(!isTopDialog\(token\)\) return;/, "only the top-most dialog reacts");
+  assert.match(hook, /focusQuietly\(opener\)/, "focus returns to the opener");
 });
 
 test("errors are alerts, everything else is polite; toasts stay long enough and errors persist", () => {
@@ -586,7 +588,9 @@ test("no raw provider HTTP status or provider text reaches the routing UI", () =
 
 test("placeholder controls are disabled with an explanation — they cannot trigger false progress", () => {
   const pages = {
-    "src/pages/admin/Alerts.jsx": ["alert-unavailable-actions", ["Contact Rider", "View Route"]],
+    // Alerts' "View Route" placeholder became a real "Open delivery" link
+    // (tests/alertPresentation.test.js); only "Contact Rider" is still unbuilt.
+    "src/pages/admin/Alerts.jsx": ["alert-unavailable-actions", ["Contact Rider"]],
     "src/pages/admin/Riders.jsx": ["rider-unavailable-actions", ["Contact Rider", "View Route"]],
     "src/pages/admin/Clinics.jsx": ["clinic-edit-unavailable", ["Edit Clinic"]],
   };

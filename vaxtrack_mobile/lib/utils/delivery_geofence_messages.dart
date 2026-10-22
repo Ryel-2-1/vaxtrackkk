@@ -20,8 +20,16 @@ const Set<String> kDeliveryLocationCodes = {
   kGeofenceDestinationInvalid,
 };
 
+/// The server code for a Delayed delivery (resume it before completing).
+const String kDeliveryDelayed = 'delivery-delayed';
+
+/// Same wording as the server (functions/src/policy.js
+/// DELAYED_NOT_COMPLETABLE_MESSAGE), used by every Rider-side check.
+const String kDelayedNotCompletableMessage =
+    'This delivery is marked Delayed. Resume it (In Transit) before submitting proof or completing it.';
+
 /// Codes meaning the delivery can no longer be completed by this Rider.
-const Set<String> kNotCompletableCodes = {'not-assigned-rider', 'invalid-status-transition'};
+const Set<String> kNotCompletableCodes = {'not-assigned-rider', 'invalid-status-transition', kDeliveryDelayed};
 
 const String kStaleLocationMessage =
     'Your location is out of date. Wait for VaxTrack to refresh your location, then try again.';
@@ -58,6 +66,8 @@ String? deliveryLocationMessage(String code, {Map<Object?, Object?>? info, Strin
       return kTrackingStoppedMessage;
     case kGeofenceDestinationInvalid:
       return kDestinationInvalidMessage;
+    case kDeliveryDelayed:
+      return kDelayedNotCompletableMessage;
     case 'not-assigned-rider':
     case 'invalid-status-transition':
       return kNotCompletableMessage;

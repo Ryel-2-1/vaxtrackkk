@@ -54,6 +54,13 @@ const MISSING_ORDER = "orderDoesNotExist";
 // so the only thing that can refuse a write is the order's own state.
 const ORDER_DELIVERED = "orderDelivered";
 const ORDER_CANCELLED = "orderCancelled";
+// Live but NOT in transit: no evidence may be staged (proof/completion fix).
+const ORDER_DELAYED = "orderDelayed";
+const ORDER_ASSIGNED_ONLY = "orderAssignedOnly";
+const ORDER_LOADING = "orderLoading";
+const ORDER_FAILED = "orderFailed";
+// Turns Delayed AFTER a photo was staged (mid-upload status change).
+const ORDER_TURNS_DELAYED = "orderTurnsDelayed";
 const ORDER_PROOF_FINAL = "orderProofFinal";     // proofSubmittedAt recorded
 const ORDER_INVOICE_FINAL = "orderInvoiceFinal"; // invoiceSubmittedAt recorded
 // Assigned to rider1, in transit, and NO object ever uploaded — the state the
@@ -167,6 +174,12 @@ async function main() {
     });
     await set(`orders/${ORDER_CANCELLED}`, {
       status: "cancelled", assignedRiderId: riderUid, createdByUid: salesRepUid,
+    });
+    for (const [id, status] of [[ORDER_DELAYED, "delayed"], [ORDER_ASSIGNED_ONLY, "assigned"], [ORDER_LOADING, "loading"], [ORDER_FAILED, "delivery_failed"]]) {
+      await set(`orders/${id}`, { status, assignedRiderId: riderUid, createdByUid: salesRepUid });
+    }
+    await set(`orders/${ORDER_TURNS_DELAYED}`, {
+      status: "in_transit", assignedRiderId: riderUid, createdByUid: salesRepUid,
     });
     // Live orders whose evidence has been RECORDED. The marker written by the
     // Firestore submission is what closes the object to further writes; the two
@@ -599,6 +612,41 @@ async function main() {
         fileFor(riderUid, invoicePath(orderId)).put(Buffer.from(imageBytes), imageMeta)
       );
     }
+  });
+
+  await check("NS39 a DELAYED, assigned, loading or failed order takes no evidence upload (in transit only)", async () => {
+    for (const orderId of [ORDER_DELAYED, ORDER_ASSIGNED_ONLY, ORDER_LOADING, ORDER_FAILED]) {
+      await assertFails(
+        fileFor(riderUid, proofPath(orderId)).put(Buffer.from(imageBytes), imageMeta)
+      );
+      await assertFails(
+        fileFor(riderUid, invoicePath(orderId)).put(Buffer.from(imageBytes), imageMeta)
+      );
+    }
+  });
+
+  await check("NS40 turning Delayed mid-upload: further uploads refused, the staged draft stays readable; resuming allows the overwrite", async () => {
+    // Staged while in transit.
+    await assertSucceeds(
+      fileFor(riderUid, proofPath(ORDER_TURNS_DELAYED)).put(Buffer.from(imageBytes), imageMeta)
+    );
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      ctx.firestore().doc(`orders/${ORDER_TURNS_DELAYED}`).update({ status: "delayed" })
+    );
+    await assertFails(
+      fileFor(riderUid, proofPath(ORDER_TURNS_DELAYED)).put(Buffer.from(imageBytes), imageMeta)
+    );
+    await assertFails(
+      fileFor(riderUid, invoicePath(ORDER_TURNS_DELAYED)).put(Buffer.from(imageBytes), imageMeta)
+    );
+    // Not lost: the assigned rider can still read the draft for a later retry.
+    await assertSucceeds(fileFor(riderUid, proofPath(ORDER_TURNS_DELAYED)).getDownloadURL());
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      ctx.firestore().doc(`orders/${ORDER_TURNS_DELAYED}`).update({ status: "in_transit" })
+    );
+    await assertSucceeds(
+      fileFor(riderUid, proofPath(ORDER_TURNS_DELAYED)).put(Buffer.from(imageBytes), imageMeta)
+    );
   });
 
   await check("NS25 nor can a closed order's existing evidence be overwritten", async () => {

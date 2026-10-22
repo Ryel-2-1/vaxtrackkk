@@ -29,6 +29,9 @@
  */
 
 const STATUS_EVENTS = "statusEvents";
+// Lazily required: the timing layer pulls in the tracking contract and order
+// history, which plain status-event tests never need.
+const timingOps = () => require("./deliveryTimingOps");
 const MAX_REASON_LENGTH = 500; // identical to policy.js / orderWorkflow.js
 
 function normalizeStatus(value) {
@@ -87,8 +90,15 @@ function deriveStatusEvent({ before, after }) {
  *
  * `at` is the commit time of the write that changed the status (the snapshot's
  * updateTime), passed in by the trigger.
+ *
+ * The DISPATCH event (loading → in_transit) also freezes the order's automatic
+ * delivery-timing baseline (deliveryTiming.js) in this same transaction, once:
+ * from `after` — that write's own snapshot, so a route regenerated later can
+ * never move the deadline — and `at`, its server commit time. Given
+ * `FieldValue` and `Timestamp` by the trigger; without them (older callers)
+ * nothing about timing is written.
  */
-async function recordStatusEvent({ db, orderId, eventId, event, at }) {
+async function recordStatusEvent({ db, orderId, eventId, event, at, after = null, FieldValue = null, Timestamp = null }) {
   const orderRef = db.collection("orders").doc(orderId);
   const eventRef = orderRef.collection(STATUS_EVENTS).doc(eventId);
 
@@ -99,14 +109,35 @@ async function recordStatusEvent({ db, orderId, eventId, event, at }) {
     const orderSnap = await tx.get(orderRef);
     if (!orderSnap.exists) return { recorded: false, reason: "order-deleted" };
 
+    // Timing baseline: the dispatch event registers ITS attempt, once — only
+    // while the order is still on that attempt (same failure epoch and
+    // dispatch time, clock-running lifecycle). A late trigger of an earlier
+    // attempt — after a requeue or a redispatch — registers nothing. Only the
+    // baseline is armed here; the scheduler evaluates it when it falls due.
+    let timing = null;
+    const current = orderSnap.data();
+    if (event.from === "loading" && event.to === "in_transit" && after && FieldValue && Timestamp
+      && current.timingContractVersion == null
+      && require("./deliveryTiming").sameDispatchAttempt(current, after)) {
+      timing = timingOps().timingFieldsOnDispatch({ dispatched: after, dispatchedAt: at, current, Timestamp });
+    }
+
     tx.create(eventRef, { ...event, at, eventId });
+
+    // One update of the order carries every field this event sets.
+    const orderUpdate = {};
+    if (timing) {
+      Object.assign(orderUpdate, timing,
+        timing.timingStatus !== "unknown" ? { timingStatusChangedAt: FieldValue.serverTimestamp() } : {});
+    }
 
     let stampedFirstDispatch = false;
     if (event.to === "in_transit" && orderSnap.get("firstDispatchedAt") == null) {
-      tx.update(orderRef, { firstDispatchedAt: at });
+      orderUpdate.firstDispatchedAt = at;
       stampedFirstDispatch = true;
     }
-    return { recorded: true, stampedFirstDispatch };
+    if (Object.keys(orderUpdate).length > 0) tx.update(orderRef, orderUpdate);
+    return { recorded: true, stampedFirstDispatch, timingStatus: timing ? timing.timingStatus : null };
   });
 }
 

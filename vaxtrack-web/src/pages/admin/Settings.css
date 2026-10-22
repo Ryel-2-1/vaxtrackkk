@@ -755,6 +755,8 @@
   z-index: 90;
   background: rgba(15, 23, 42, 0.46);
   display: grid;
+  /* A fluid track, so max-width: 100% means the screen width on a phone. */
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
   padding: 24px;
 }
@@ -763,6 +765,11 @@
   position: relative;
   width: 640px;
   max-width: 100%;
+  /* Never taller than the screen: long content scrolls inside the dialog. */
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: #ffffff;
   border-radius: 16px;
   border: var(--border-card);

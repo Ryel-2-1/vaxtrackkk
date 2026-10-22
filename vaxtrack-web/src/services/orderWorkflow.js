@@ -78,14 +78,16 @@ export const DISPATCHER_TRANSITIONS = Object.freeze({
  *
  * The rider never starts loading or transit — dispatch hands them an order that
  * is already `in_transit`. From there they may report a delay, resume, or
- * complete. They may not cancel.
+ * complete. They may not cancel. A DELAYED order is not completed directly:
+ * the rider resumes it (in transit) first — the server completion callable and
+ * the rules accept proof and completion only in transit.
  */
 export const RIDER_TRANSITIONS = Object.freeze({
   pending_dispatch: Object.freeze([]),
   assigned: Object.freeze([]),
   loading: Object.freeze([]),
   in_transit: Object.freeze(["delayed", "delivered", "delivery_failed"]),
-  delayed: Object.freeze(["in_transit", "delivered", "delivery_failed"]),
+  delayed: Object.freeze(["in_transit", "delivery_failed"]),
   // A rider reports a failure and stops there. Retrying or reassigning is a
   // dispatcher decision, so the rider cannot move it back into transit
   // themselves, and they can never cancel.

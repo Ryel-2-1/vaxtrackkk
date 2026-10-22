@@ -162,8 +162,11 @@ test("the Flutter detail screen offers no loading or transit control", () => {
 
   // The approved rider actions, and the waiting states.
   assert.match(screen, /'Resume Transit'/);
-  // Proof and completion are ONE action now; the separate button is gone.
-  assert.match(screen, /'Submit Proof & Complete Delivery'/);
+  // Proof and completion are ONE action now; the separate button is gone. Its
+  // label is the shared constant (one line beside "Report Delay").
+  assert.match(screen, /kSubmitAndCompleteLabel/);
+  const button = readFileSync(join(here, "..", "..", "vaxtrack_mobile", "lib", "widgets", "rider_action_button.dart"), "utf8");
+  assert.match(button, /const String kSubmitAndCompleteLabel = 'Submit Proof & Complete';/);
   assert.ok(!screen.includes("'Complete Delivery'"), "no separate Complete Delivery button");
   assert.match(screen, /'Report Delay'/);
   assert.match(screen, /'Report Delivery Failure'/);

@@ -19,6 +19,7 @@
 library;
 
 import '../models/delivery.dart';
+import 'delivery_geofence_messages.dart' show kDelayedNotCompletableMessage;
 
 /// Why a delivery is not offered for proof submission.
 enum ProofIneligibility {
@@ -37,6 +38,10 @@ enum ProofIneligibility {
   /// Reported as failed; the dispatcher decides what happens next.
   failed,
 
+  /// Reported as Delayed. Navigation may continue, but proof and completion
+  /// wait until the rider resumes it (in transit).
+  delayed,
+
   /// Not yet out for delivery (assigned / loading) or otherwise not at a
   /// stage that can be completed.
   notReady,
@@ -52,6 +57,7 @@ ProofIneligibility? proofIneligibility(Delivery? order, {required String? riderU
   if (order.isDelivered) return ProofIneligibility.completed;
   if (order.isCancelled) return ProofIneligibility.cancelled;
   if (order.isDeliveryFailed) return ProofIneligibility.failed;
+  if (order.isDelayed) return ProofIneligibility.delayed;
   if (!order.canComplete) return ProofIneligibility.notReady;
   return null;
 }
@@ -78,6 +84,8 @@ String proofIneligibilityMessage(ProofIneligibility reason) {
           'what happens next.';
     case ProofIneligibility.notAssignedToYou:
       return 'This delivery is no longer assigned to you.';
+    case ProofIneligibility.delayed:
+      return kDelayedNotCompletableMessage;
     case ProofIneligibility.notReady:
       return 'This delivery is not out for delivery yet, so it cannot be '
           'completed.';

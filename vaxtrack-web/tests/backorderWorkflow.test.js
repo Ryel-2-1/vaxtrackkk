@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import {
   ALLOCATION_STATE_LABELS,
   FUTURE_ORDER_LABEL,
@@ -9,7 +10,6 @@ import {
   estimateBackorders,
 } from "../src/services/backorder.js";
 import { buildConfirmationFromOrder } from "../src/services/orderConfirmation.js";
-import { createServiceLoader, createStore, installStore } from "./serviceHarness.js";
 
 // Future-order (backorder) workflow — the WEB half.
 //
@@ -98,53 +98,29 @@ test("assignment is blocked, with the shortage in words, until fully reserved", 
   assert.equal(assignmentBlockReason({}), null);
 });
 
-const loader = createServiceLoader();
-const { assignRiderToOrder, AssignmentError } = await loader.load("orderService.js");
-const DISPATCHER = { uid: "DispatcherUid", email: "dispatcher@vaxtrack.com" };
-const RIDER = "RiderUid";
+// Assignment is the assignRiderToOrder callable (Rider trips). The stock gate
+// is the server's: the same rule as firestore.rules orderIsFullyReserved, run
+// on the stored order inside the assignment transaction (refusing with
+// order-not-fully-reserved; exercised against a real Firestore in
+// functions/test/integration/riderDispatch.test.js). The pages explain the
+// shortage first, with the detail assignmentBlockReason gives (above).
+const serverDispatch = createRequire(import.meta.url)("../functions/src/riderDispatch.js");
 
-function seedOrder(order) {
-  return createStore({
-    orders: {
-      o1: {
-        orderNumber: "VT-ORD-9001",
-        status: "pending_dispatch",
-        assignedRiderId: null,
-        createdByUid: "salesRepUid",
-        requestedDeliveryDate: "2026-01-01",
-        ...order,
-      },
-    },
-    users: { [RIDER]: { role: "rider", status: "approved", fullName: "QA Rider" } },
-  });
-}
-
-test("the assignment transaction refuses an order that is not fully reserved", async () => {
+test("the assignment refuses an order that is not fully reserved", () => {
+  const now = new Date("2026-10-19T00:00:00Z");
   for (const state of ["awaiting_stock", "partially_reserved"]) {
-    const store = installStore(
-      seedOrder(v2(state, [{ name: "Vaxigrip", quantity: 10, reservedQuantity: state === "awaiting_stock" ? 0 : 4, backorderedQuantity: state === "awaiting_stock" ? 10 : 6 }])),
-      DISPATCHER
-    );
-    await assert.rejects(assignRiderToOrder("o1", RIDER), (err) => {
-      assert.ok(err instanceof AssignmentError);
-      assert.equal(err.code, "order-not-fully-reserved");
-      assert.match(err.message, /Waiting for stock/);
-      return true;
-    });
-    const o = store.collections.orders.o1.data;
-    assert.equal(o.status, "pending_dispatch", `${state}: nothing was written`);
-    assert.equal(o.assignedRiderId, null);
+    const block = serverDispatch.dispatchBlock({ allocationVersion: 2, allocationState: state, requestedDeliveryDate: "2026-01-01" }, now);
+    assert.equal(block.code, "order-not-fully-reserved", state);
+    assert.match(block.message, /waiting for stock/i);
   }
+  const ops = readFileSync(new URL("../functions/src/riderDispatchOps.js", import.meta.url), "utf8");
+  assert.match(ops, /const block = D\.dispatchBlock\(order, now\);\s*if \(block\) throw new PolicyError\(block\.code, block\.message\);/);
 });
 
-test("a fully reserved future order is assigned normally", async () => {
-  const store = installStore(
-    seedOrder(v2("fully_reserved", [{ name: "Vaxigrip", quantity: 10, reservedQuantity: 10, backorderedQuantity: 0 }])),
-    DISPATCHER
-  );
-  await assignRiderToOrder("o1", RIDER);
-  assert.equal(store.collections.orders.o1.data.status, "assigned");
-  assert.equal(store.collections.orders.o1.data.assignedRiderId, RIDER);
+test("a fully reserved future order — and a pre-allocation one — passes the stock gate", () => {
+  const now = new Date("2026-10-19T00:00:00Z");
+  assert.equal(serverDispatch.dispatchBlock({ allocationVersion: 2, allocationState: "fully_reserved", requestedDeliveryDate: "2026-01-01" }, now), null);
+  assert.equal(serverDispatch.dispatchBlock({ allocationVersion: 1, requestedDeliveryDate: "2026-01-01" }, now), null);
 });
 
 test("Dispatcher pages disable assignment and explain the shortage", () => {
@@ -235,7 +211,7 @@ test("Admin provenance shows held units by order and reports a mismatch", () => 
   assert.match(prov, /d\.reconciled === false/);
   assert.match(prov, /Returned, awaiting decision/);
   assert.match(prov, /Quarantined/);
-  assert.match(read("src/pages/admin/Inventory.jsx"), /<ReservationProvenance key=\{selectedVaccine\.id\} inventoryId=\{selectedVaccine\.id\} \/>/);
+  assert.match(read("src/pages/admin/Inventory.jsx"), /<ReservationProvenance key=\{drawerItem\.id\} inventoryId=\{drawerItem\.id\} \/>/);
 });
 
 test("Admin inventory availability excludes return-pending and quarantined units", () => {

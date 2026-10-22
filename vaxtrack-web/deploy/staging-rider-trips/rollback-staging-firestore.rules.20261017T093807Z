@@ -1,0 +1,2063 @@
+rules_version = '2';
+
+// VaxTrack Firestore security rules — production-oriented DRAFT (2026-07-24).
+//
+// NOT DEPLOYED. Must be tested against a STAGING Firebase project before it
+// ever reaches production — the field-level order allowlists below mirror the
+// current app's exact write sets, so if the app starts writing a new order
+// field the corresponding write will be denied until the allowlist is updated.
+//
+// Role/status source of truth: users/{uid}.role + users/{uid}.status.
+// Exact role strings: admin | dispatcher | salesrep | rider.
+// Exact status strings: approved | pending | disabled | rejected.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------------- helpers ----------------
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // The caller's own users doc. Only call when signedIn() is already true.
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isApproved() {
+      return signedIn() && userDoc().status == 'approved';
+    }
+
+    function hasRole(r) {
+      return signedIn() && userDoc().role == r;
+    }
+
+    function isAdmin()      { return hasRole('admin') && isApproved(); }
+    function isDispatcher() { return hasRole('dispatcher') && isApproved(); }
+    function isSalesRep()   { return hasRole('salesrep') && isApproved(); }
+    function isRider()      { return hasRole('rider') && isApproved(); }
+
+    // Any approved, signed-in user (staff or rider).
+    function isApprovedUser() { return isApproved(); }
+
+    // Area master data. Names are immutable after creation so the deterministic
+    // document identity remains stable; retiring an area is an active toggle,
+    // never a delete that would strand clinic/doctor references.
+    function validNewArea(areaId) {
+      let d = request.resource.data;
+      return d.keys().hasAll([
+          'key', 'name', 'nameNormalized', 'active', 'createdAt', 'updatedAt'
+        ])
+        && d.keys().hasOnly([
+          'key', 'name', 'nameNormalized', 'active', 'createdAt', 'updatedAt'
+        ])
+        && d.key is string
+        && d.key == areaId
+        && d.key.size() >= 2
+        && d.key.size() <= 960
+        && d.name is string
+        && d.name.size() >= 2
+        && d.name.size() <= 80
+        && d.nameNormalized is string
+        && d.nameNormalized.size() >= 2
+        && d.nameNormalized.size() <= 80
+        && d.active == true
+        && d.createdAt == request.time
+        && d.updatedAt == request.time;
+    }
+
+    function validAreaStatusUpdate() {
+      return changedKeys().hasOnly(['active', 'updatedAt'])
+        && request.resource.data.active is bool
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validActiveClinicArea() {
+      let d = request.resource.data;
+      return d.areaId is string
+        && d.areaId.size() >= 2
+        && d.areaId.size() <= 960
+        && d.area is string
+        && d.area.size() >= 2
+        && d.area.size() <= 80
+        && exists(/databases/$(database)/documents/areas/$(d.areaId))
+        && get(/databases/$(database)/documents/areas/$(d.areaId)).data.active == true
+        && get(/databases/$(database)/documents/areas/$(d.areaId)).data.name == d.area;
+    }
+
+    function validNewDoctor() {
+      let d = request.resource.data;
+      return d.keys().hasAll([
+          'name', 'nameNormalized', 'areaId', 'area', 'active',
+          'createdAt', 'updatedAt'
+        ])
+        && d.keys().hasOnly([
+          'name', 'nameNormalized', 'areaId', 'area', 'active',
+          'createdAt', 'updatedAt'
+        ])
+        && d.name is string
+        && d.name.size() >= 2
+        && d.name.size() <= 120
+        && d.nameNormalized is string
+        && d.nameNormalized.size() >= 2
+        && d.nameNormalized.size() <= 120
+        && d.areaId is string
+        && d.areaId.size() >= 2
+        && d.areaId.size() <= 960
+        && d.area is string
+        && d.area.size() >= 2
+        && d.area.size() <= 80
+        && d.active == true
+        && d.createdAt == request.time
+        && d.updatedAt == request.time
+        && exists(/databases/$(database)/documents/areas/$(d.areaId))
+        && get(/databases/$(database)/documents/areas/$(d.areaId)).data.active == true
+        && get(/databases/$(database)/documents/areas/$(d.areaId)).data.name == d.area;
+    }
+
+    function validDoctorStatusUpdate() {
+      return changedKeys().hasOnly(['active', 'updatedAt'])
+        && request.resource.data.active is bool
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validDoctorDestinationData() {
+      let d = request.resource.data;
+      return d.keys().hasAll([
+          'active', 'createdAt', 'updatedAt'
+        ])
+      && d.keys().hasOnly([
+          'active', 'createdAt', 'updatedAt'
+        ])
+        && d.active is bool
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function validDoctorHomeData() {
+      let d = request.resource.data;
+      return d.keys().hasAll([
+          'kind', 'addressLine', 'areaId', 'area', 'latitude', 'longitude',
+          'geofenceRadiusM', 'active', 'createdAt', 'updatedAt'
+        ])
+        && d.keys().hasOnly([
+          'kind', 'addressLine', 'areaId', 'area', 'latitude', 'longitude',
+          'geofenceRadiusM', 'active', 'createdAt', 'updatedAt'
+        ])
+        && d.kind == 'home'
+        && d.addressLine is string
+        && d.addressLine.trim().size() >= 5
+        && d.addressLine.size() <= 200
+        && d.areaId is string
+        && d.areaId.size() >= 2
+        && d.areaId.size() <= 960
+        && d.areaId == d.areaId.trim()
+        && d.area is string
+        && d.area.trim().size() >= 2
+        && d.area.size() <= 80
+        && (d.latitude is int || d.latitude is float)
+        && d.latitude >= -90
+        && d.latitude <= 90
+        && (d.longitude is int || d.longitude is float)
+        && d.longitude >= -180
+        && d.longitude <= 180
+        && d.geofenceRadiusM is int
+        && d.geofenceRadiusM >= 50
+        && d.geofenceRadiusM <= 1000
+        && d.active is bool
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function activeDoctorHomeRelationships(doctorId) {
+      let d = request.resource.data;
+      return exists(/databases/$(database)/documents/doctors/$(doctorId))
+        && get(/databases/$(database)/documents/doctors/$(doctorId)).data.active == true
+        && exists(/databases/$(database)/documents/areas/$(d.areaId))
+        && get(/databases/$(database)/documents/areas/$(d.areaId)).data.active == true
+        && get(/databases/$(database)/documents/areas/$(d.areaId)).data.name.trim() == d.area.trim();
+    }
+
+    function validNewDoctorHome(doctorId, addressId) {
+      return addressId == 'home'
+        && validDoctorHomeData()
+        && request.resource.data.active == true
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && activeDoctorHomeRelationships(doctorId);
+    }
+
+    function validDoctorHomeDetailsUpdate(doctorId, addressId) {
+      return addressId == 'home'
+        && resource.data.kind == 'home'
+        && changedKeys().hasOnly([
+          'addressLine', 'areaId', 'area', 'latitude', 'longitude',
+          'geofenceRadiusM', 'updatedAt'
+        ])
+        && changedKeys().hasAny([
+          'addressLine', 'areaId', 'area', 'latitude', 'longitude',
+          'geofenceRadiusM'
+        ])
+        && validDoctorHomeData()
+        && request.resource.data.updatedAt == request.time
+        && activeDoctorHomeRelationships(doctorId);
+    }
+
+    function validDoctorHomeStatusUpdate(doctorId, addressId) {
+      return addressId == 'home'
+        && resource.data.kind == 'home'
+        && changedKeys().hasOnly(['active', 'updatedAt'])
+        && changedKeys().hasAny(['active'])
+        && validDoctorHomeData()
+        && request.resource.data.updatedAt == request.time
+        && (
+          request.resource.data.active == false
+          || activeDoctorHomeRelationships(doctorId)
+        );
+    }
+
+    function validClinicDestinationData(c) {
+      return c.name is string
+        && c.name.trim().size() >= 2
+        && c.location is string
+        && c.location.trim().size() >= 5
+        && c.areaId is string
+        && c.areaId.size() >= 2
+        && c.areaId.size() <= 960
+        && c.areaId == c.areaId.trim()
+        && c.area is string
+        && c.area.trim().size() >= 2
+        && c.area.size() <= 80
+        && c.locationVerified == true
+        && (c.latitude is int || c.latitude is float)
+        && c.latitude >= -90
+        && c.latitude <= 90
+        && (c.longitude is int || c.longitude is float)
+        && c.longitude >= -180
+        && c.longitude <= 180
+        && (
+          !c.keys().hasAny(['geofenceRadiusM'])
+          || (
+            c.geofenceRadiusM is int
+            && c.geofenceRadiusM >= 50
+            && c.geofenceRadiusM <= 1000
+          )
+        )
+        && exists(/databases/$(database)/documents/areas/$(c.areaId))
+        && get(/databases/$(database)/documents/areas/$(c.areaId)).data.active == true
+        && get(/databases/$(database)/documents/areas/$(c.areaId)).data.name.trim() == c.area.trim();
+    }
+
+    function validClinicDestination(clinicDocId) {
+      return exists(/databases/$(database)/documents/clinics/$(clinicDocId))
+        && validClinicDestinationData(
+          get(/databases/$(database)/documents/clinics/$(clinicDocId)).data
+        );
+    }
+
+    function activeDoctorDestinationRelationships(doctorId, clinicDocId) {
+      return exists(/databases/$(database)/documents/doctors/$(doctorId))
+        && get(/databases/$(database)/documents/doctors/$(doctorId)).data.active == true
+        && validClinicDestination(clinicDocId);
+    }
+
+    function validNewDoctorDestination(doctorId, clinicDocId) {
+      return validDoctorDestinationData()
+        && request.resource.data.active == true
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && activeDoctorDestinationRelationships(doctorId, clinicDocId);
+    }
+
+    function validDoctorDestinationStatusUpdate(doctorId, clinicDocId) {
+      return changedKeys().hasOnly(['active', 'updatedAt'])
+        && changedKeys().hasAny(['active'])
+        && request.resource.data.active is bool
+        && request.resource.data.updatedAt == request.time
+        && (
+          request.resource.data.active == false
+          || (
+            validDoctorDestinationData()
+            && activeDoctorDestinationRelationships(doctorId, clinicDocId)
+          )
+        );
+    }
+
+    function isLegacyIndependentDoctorAddress() {
+      let d = resource.data;
+      return d.keys().hasAll([
+        'label', 'addressLine', 'areaId', 'area', 'latitude', 'longitude',
+        'geofenceRadiusM', 'active', 'createdAt', 'updatedAt'
+      ]);
+    }
+
+    // AI inventory analytics configuration (functions/src/analyticsRisk.js
+    // validateAnalyticsConfig mirrors this exactly).
+    function validAnalyticsConfig(vaccineId) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['vaccineId', 'leadTimeDays', 'safetyStockDays',
+          'safetyStockQuantity', 'enabled', 'updatedAt', 'updatedByUid'])
+        && d.keys().hasAll(['vaccineId', 'leadTimeDays', 'safetyStockDays',
+          'safetyStockQuantity', 'enabled', 'updatedAt', 'updatedByUid'])
+        && d.vaccineId == vaccineId
+        && exists(/databases/$(database)/documents/vaccines/$(vaccineId))
+        && d.leadTimeDays is int && d.leadTimeDays >= 1 && d.leadTimeDays <= 365
+        && d.enabled is bool
+        && d.updatedAt == request.time
+        && d.updatedByUid == request.auth.uid
+        && (
+          (d.safetyStockDays is int && d.safetyStockDays >= 0 && d.safetyStockDays <= 365
+            && d.safetyStockQuantity == null)
+          || (d.safetyStockQuantity is int && d.safetyStockQuantity >= 0
+            && d.safetyStockQuantity <= 100000000 && d.safetyStockDays == null)
+        );
+    }
+
+    // Keys whose value changed in this write.
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // Is the caller the approved rider currently assigned to this order?
+    // (Route-deviation alerts are server-owned; riders no longer write them.)
+    function riderAssignedToOrder(orderId) {
+      return isRider()
+        && exists(/databases/$(database)/documents/orders/$(orderId))
+        && get(/databases/$(database)/documents/orders/$(orderId)).data.assignedRiderId == request.auth.uid;
+    }
+
+    // ---- rider live tracking ----
+    function medRepMayViewRider(riderUid) {
+      return exists(/databases/$(database)/documents/riderLocationViewers/$(riderUid))
+        && request.auth.uid in get(/databases/$(database)/documents/riderLocationViewers/$(riderUid)).data.viewerUids;
+    }
+    function trackingIdValid(value) {
+      return value is string && value.matches('^[A-Za-z0-9_-]{8,64}$');
+    }
+    function riderLocationFields() {
+      return ['riderUid', 'latitude', 'longitude', 'accuracyMeters', 'headingDegrees',
+        'speedMps', 'capturedAt', 'updatedAt', 'trackingState', 'activeOrderId',
+        'navigationSessionId', 'source', 'schemaVersion'];
+    }
+    function validRiderLocation(riderUid) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(riderLocationFields())
+        && d.keys().hasAll(riderLocationFields())
+        && d.riderUid == riderUid
+        && d.updatedAt == request.time
+        && d.capturedAt is timestamp
+        && d.capturedAt <= request.time + duration.value(2, 'm')
+        && d.capturedAt > request.time - duration.value(1, 'h')
+        && (resource == null || d.capturedAt > resource.data.capturedAt)
+        && d.trackingState in ['active', 'paused', 'ended']
+        && d.source == 'geolocator'
+        && d.schemaVersion == 1
+        && (
+          (d.trackingState == 'ended'
+            && d.latitude == null && d.longitude == null && d.accuracyMeters == null
+            && d.headingDegrees == null && d.speedMps == null
+            && d.activeOrderId == null && d.navigationSessionId == null)
+          || (d.trackingState != 'ended'
+            && d.latitude is number && d.latitude >= -90 && d.latitude <= 90
+            && d.longitude is number && d.longitude >= -180 && d.longitude <= 180
+            && d.accuracyMeters is number && d.accuracyMeters >= 0 && d.accuracyMeters <= 10000
+            && (d.headingDegrees == null
+              || (d.headingDegrees is number && d.headingDegrees >= 0 && d.headingDegrees <= 360))
+            && (d.speedMps == null || (d.speedMps is number && d.speedMps >= 0 && d.speedMps <= 100))
+            && (d.activeOrderId == null || (d.activeOrderId is string && riderAssignedToOrder(d.activeOrderId)))
+            && (d.navigationSessionId == null || trackingIdValid(d.navigationSessionId)))
+        );
+    }
+    function navigationSessionFields() {
+      return ['riderUid', 'orderId', 'sessionId', 'state', 'startedAt', 'updatedAt', 'endedAt', 'endReason'];
+    }
+    // Optional (navigation continuity version 1, functions/src/riderTracking.js
+    // CONFIRMED CONTINUITY): an app that declares continuityVersion 1 at Start
+    // Navigation confirms every qualifying tagged fix with lastNavigationFixAt.
+    // Older app builds send neither field and keep working unchanged.
+    function navigationContinuityFields() {
+      return ['continuityVersion', 'lastNavigationFixAt'];
+    }
+    function validNavigationSession(riderUid) {
+      let d = request.resource.data;
+      let sameSession = resource != null
+        && resource.data.sessionId == d.sessionId
+        && resource.data.orderId == d.orderId
+        && resource.data.startedAt == d.startedAt;
+      // Within one session the declaration and the confirmed anchor change
+      // only through isNavigationFixConfirmation below.
+      let continuityKept = resource != null
+        && d.get('continuityVersion', null) == resource.data.get('continuityVersion', null)
+        && d.get('lastNavigationFixAt', null) == resource.data.get('lastNavigationFixAt', null);
+      return d.keys().hasOnly(navigationSessionFields().concat(navigationContinuityFields()))
+        && d.keys().hasAll(navigationSessionFields())
+        && d.riderUid == riderUid
+        && d.updatedAt == request.time
+        && trackingIdValid(d.sessionId)
+        && d.orderId is string
+        && (
+          // Start (or replace) navigation for an order this rider is moving now.
+          // A new session may declare continuity, but never arrives with an
+          // anchor: its first confirmation must come from a fix of its own.
+          (d.state == 'navigating'
+            && d.endedAt == null && d.endReason == null
+            && riderAssignedToOrder(d.orderId)
+            && get(/databases/$(database)/documents/orders/$(d.orderId)).data.status in ['in_transit', 'delayed']
+            && (
+              (sameSession && resource.data.state == 'navigating' && continuityKept)
+              || (d.startedAt == request.time
+                && d.get('continuityVersion', 1) == 1
+                && !d.keys().hasAny(['lastNavigationFixAt']))
+            ))
+          // End the CURRENT session (Stop, sign-out, tracking stopped).
+          || (d.state == 'ended'
+            && sameSession
+            && continuityKept
+            && d.endedAt == request.time
+            && d.endReason in ['rider_stopped', 'signed_out', 'tracking_stopped'])
+          || isNavigationFixConfirmation(riderUid)
+        );
+    }
+    // Confirm a navigation fix: lastNavigationFixAt becomes the SERVER write
+    // time of the rider's stored location — never a time the client picks —
+    // and only when that location is a QUALIFYING fix of this very session
+    // (tagged with its id and order, active, real coordinates, accuracy
+    // <= 100 m, written within 60 s of capture, after the start). Forward
+    // only, while the session is navigating, on a session that declared
+    // continuity; nothing else in the session may change in the same write.
+    function isNavigationFixConfirmation(riderUid) {
+      let d = request.resource.data;
+      let loc = get(/databases/$(database)/documents/riderLocations/$(riderUid)).data;
+      return resource != null
+        && resource.data.state == 'navigating'
+        && resource.data.get('continuityVersion', null) == 1
+        && d.diff(resource.data).affectedKeys().hasOnly(['lastNavigationFixAt', 'updatedAt'])
+        && d.lastNavigationFixAt is timestamp
+        && d.lastNavigationFixAt > resource.data.startedAt
+        && (resource.data.get('lastNavigationFixAt', null) == null
+          || d.lastNavigationFixAt > resource.data.lastNavigationFixAt)
+        && loc.riderUid == riderUid
+        && loc.trackingState == 'active'
+        && loc.navigationSessionId == resource.data.sessionId
+        && loc.activeOrderId == resource.data.orderId
+        && loc.updatedAt == d.lastNavigationFixAt
+        && loc.latitude is number && loc.longitude is number
+        && !(loc.latitude == 0 && loc.longitude == 0)
+        && loc.accuracyMeters is number && loc.accuracyMeters <= 100
+        && loc.updatedAt <= loc.capturedAt + duration.value(60, 's');
+    }
+
+    // Order fields each non-admin role is allowed to change. These mirror the
+    // app's real writes as of 2026-07-24 — keep them in sync with orderService,
+    // cargoLoadingService, and the Flutter delivery_service/location_service.
+    function dispatcherOrderFields() {
+      return [
+        'assignedAt', 'assignedByEmail', 'assignedByUid', 'assignedRiderId',
+        'assignedRiderName', 'assignedRiderPhone', 'cancelReason', 'cancelledAt',
+        'delayReason', 'delayedAt', 'deliveredAt', 'dispatchedAt',
+        'dispatchedByEmail', 'dispatchedByUid', 'isLoaded', 'loadedAt',
+        'loadedByEmail', 'loadedByUid', 'loadingFinalizedAt',
+        // Route + ETA (OpenRouteService) — written by the Geofence "Generate
+        // route & ETA" action. Dispatcher-only; set at generation, not by riders.
+        'routeDistanceMeters', 'routeDurationSeconds', 'routeEtaText',
+        'routeGeneratedAt', 'routePolyline', 'routeProvider',
+        'routeDestinationRevision',
+        // Multi-stop trip optimization (OpenRouteService /optimization) — the
+        // rider's whole-trip route + this order's place in it. Dispatcher-only;
+        // set when the trip is optimized, never by riders.
+        'tripId', 'tripStopCount', 'tripPolyline', 'tripDistanceMeters',
+        'tripDurationSeconds', 'tripGeneratedAt',
+        'stopSequence', 'stopEtaSeconds', 'stopEtaText',
+        'startedAt',
+        'status', 'statusUpdatedAt', 'statusUpdatedByEmail', 'statusUpdatedByUid',
+        'updatedAt'
+        // No failed-delivery recovery fields: recovery is requeueFailedOrder
+        // (server). previousAssignedRiderId is written there, never by a client.
+      ];
+    }
+    // A rider's ordinary writes: the lifecycle moves and continuous location.
+    //
+    // Delivery evidence is deliberately ABSENT. It is allowed by its own rules
+    // below, each carrying its own hasOnly(), so an ordinary write simply
+    // cannot name a proof or invoice field — no separate exclusion needed, and
+    // one fewer changedKeys() evaluation on the hot path.
+    function riderOrderFields() {
+      return [
+        'delayReason', 'delayedAt', 'deliveredAt',
+        // Failed-delivery report. The rider records WHY it failed and when;
+        // deciding what happens next is the dispatcher's, so no recovery field
+        // appears here.
+        'deliveryFailedAt', 'deliveryFailedByUid', 'deliveryFailureReason',
+        'heading',
+        'lastLocation', 'lastLocationUpdate', 'locationAccuracy',
+        'speed', 'startedAt', 'status', 'statusUpdatedAt',
+        'statusUpdatedByEmail', 'statusUpdatedByUid', 'updatedAt'
+      ];
+    }
+
+    // ---------------- delivery evidence (workflow checkpoint 4) ----------------
+    //
+    // The fields that record HOW a delivery was proven (proofOfDelivery*,
+    // proof*, invoice*). Any rider write that touches them must be a complete,
+    // valid evidence submission — there is no path that changes a status and
+    // attaches evidence in the same operation, and no path that quietly amends
+    // a URL on its own. (The evidenceFields() list existed only for the old
+    // Sales Rep update branch, which is gone: Sales Reps cannot update orders.)
+
+    // Cheap discriminators: does this write ADD an evidence record?
+    //
+    // Deliberately expressed with `in` on the two documents rather than through
+    // changedKeys(), which recomputes a full `diff()` of the order every time
+    // it is called. Routing on a diff here measurably inflated the per-request
+    // expression count on the rider's ordinary write path — enough to reach the
+    // engine's 1000-expression ceiling, which denies. These two checks cost a
+    // handful of map lookups and let a location write skip the evidence rules
+    // entirely.
+    //
+    // Requiring the marker to be ABSENT before the write is what makes the
+    // record one-shot: a second submission is not an evidence write at all, so
+    // it falls through to the lifecycle rule and is refused there.
+    function isProofSubmissionWrite() {
+      return 'proofSubmittedAt' in request.resource.data
+        && !('proofSubmittedAt' in resource.data);
+    }
+    function isInvoiceSubmissionWrite() {
+      return 'invoiceSubmittedAt' in request.resource.data
+        && !('invoiceSubmittedAt' in resource.data);
+    }
+
+    // Must stay identical to kMaxRecipientNameLength in
+    // vaxtrack_mobile/lib/utils/proof_validation.dart.
+    function maxRecipientNameLength() { return 120; }
+
+    // The person who took delivery: present, meaningful once trimmed, and
+    // bounded. Same shape as isMeaningfulReason, different limit.
+    function isMeaningfulRecipientName(value) {
+      return value is string
+        && value.trim().size() > 0
+        && value.size() <= maxRecipientNameLength();
+    }
+
+    // One object per order, named deterministically, so a retry overwrites its
+    // own failed attempt instead of leaving an undeletable orphan. Must stay
+    // identical to proofObjectPath()/invoiceObjectPath() in proof_validation.dart.
+    function canonicalProofPath(orderId)   { return 'proof_of_delivery/' + orderId + '/proof.jpg'; }
+    function canonicalInvoicePath(orderId) { return 'invoices/' + orderId + '/invoice.jpg'; }
+
+    // Evidence is attached while the delivery is happening — never bolted onto
+    // a delivery that has already closed. `delivered` is deliberately absent:
+    // proof added after the fact is a record of a record, not evidence. A
+    // DELAYED delivery takes no evidence either: the rider resumes it (in
+    // transit) first — the same single status the completion callable accepts
+    // (functions/src/policy.js DELIVERABLE_FROM).
+    function orderAcceptsEvidence() {
+      return priorStatus() == 'in_transit';
+    }
+
+    // A rider records proof exactly once.
+    //
+    // Status is untouched: proof does not complete a delivery, and completing
+    // one does not require proof — the two are separate decisions in this
+    // phase. The submission is written whole, server-stamped, and attributed to
+    // the session that made it, so none of the three can be supplied by a
+    // caller.
+    function isValidProofSubmission(orderId) {
+      return !statusChanged()
+        && orderAcceptsEvidence()
+        // Written once. Replacing recorded evidence is an admin repair.
+        && !('proofSubmittedAt' in resource.data)
+        && changedKeys().hasOnly([
+             'proofOfDeliveryPath', 'proofOfDeliveryUrl', 'proofRecipientName',
+             'proofSubmittedAt', 'proofSubmittedByUid', 'updatedAt'
+           ])
+        && changedKeys().hasAll([
+             'proofOfDeliveryUrl', 'proofRecipientName', 'proofSubmittedAt',
+             'proofSubmittedByUid', 'updatedAt'
+           ])
+        && request.resource.data.proofOfDeliveryUrl is string
+        && request.resource.data.proofOfDeliveryUrl.size() > 0
+        && isMeaningfulRecipientName(request.resource.data.proofRecipientName)
+        && request.resource.data.proofSubmittedAt == request.time
+        && request.resource.data.proofSubmittedByUid == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        // When a Storage path is recorded it must be THIS order's canonical
+        // object, so a URL belonging to another delivery cannot be filed here.
+        //
+        // It cannot yet be REQUIRED: the debug-only manual-link fallback records
+        // a URL with no Storage object behind it. Once that fallback is removed
+        // (after the physical-phone camera test), change this to a mandatory
+        // key check and the path becomes fully enforced server-side.
+        && (!('proofOfDeliveryPath' in request.resource.data)
+            || request.resource.data.proofOfDeliveryPath == canonicalProofPath(orderId));
+    }
+
+    // The optional photo of the paper invoice. Same contract, its own one-shot
+    // marker so recording one does not lock the other.
+    function isValidInvoiceSubmission(orderId) {
+      return !statusChanged()
+        && orderAcceptsEvidence()
+        && !('invoiceSubmittedAt' in resource.data)
+        && changedKeys().hasOnly([
+             'invoicePath', 'invoiceSubmittedAt', 'invoiceSubmittedByUid',
+             'invoiceUrl', 'updatedAt'
+           ])
+        && changedKeys().hasAll([
+             'invoiceUrl', 'invoiceSubmittedAt', 'invoiceSubmittedByUid',
+             'updatedAt'
+           ])
+        && request.resource.data.invoiceUrl is string
+        && request.resource.data.invoiceUrl.size() > 0
+        && request.resource.data.invoiceSubmittedAt == request.time
+        && request.resource.data.invoiceSubmittedByUid == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && (!('invoicePath' in request.resource.data)
+            || request.resource.data.invoicePath == canonicalInvoicePath(orderId));
+    }
+
+    // The failure record. Written once by the rider, then IMMUTABLE — recovery
+    // and cancellation must not erase it, or a twice-attempted order would be
+    // indistinguishable from a fresh one.
+    function failureRecordFields() {
+      return ['deliveryFailedAt', 'deliveryFailedByUid', 'deliveryFailureReason'];
+    }
+
+    // ---------------- server-only territory (workflow checkpoint 5) ----------------
+    //
+    // Stock is reserved on order creation, released on cancellation and consumed
+    // on delivery. Each of those has to move an order, a reservation document and
+    // one or more inventory counters in a SINGLE atomic step — and Security Rules
+    // cannot express "these three documents changed together and by matching
+    // amounts" for an arbitrary number of batches within the per-request budget.
+    //
+    // So those three operations moved behind trusted callable Cloud Functions,
+    // which run on the Admin SDK and bypass these rules by design. What is left
+    // here is the other half of that boundary: making sure a client SDK cannot
+    // reach around the callable and do it directly. Every rule below is about
+    // what clients may NO LONGER do.
+    //
+    // Money is in this list for the same reason stock is. An order's prices are
+    // read from the batch inside the reservation transaction and snapshotted; a
+    // client that could WRITE them could sell itself a vaccine at any price it
+    // liked, and a client that could EDIT them could restate what a clinic was
+    // charged after the fact. Neither is a client's decision to make.
+    function serverOnlyOrderFields() {
+      return [
+        'allocationVersion', 'allocationStatus', 'inventoryReconciliation',
+        'reservedAt', 'reservedByUid', 'consumedAt', 'consumedByUid',
+        'releasedAt', 'releasedByUid',
+        // Backorder-aware allocation (functions/src/allocation.js). The lines
+        // carry each item's reserved/backordered split and the price + VAT
+        // snapshot; the queue fields decide who gets stock next. All computed
+        // by the server, never by a client — Admin included.
+        'items', 'allocationState', 'allocationOpen', 'backorderedProductKeys',
+        'allocationPriorityKey', 'allocationCreatedAtMillis', 'allocationUpdatedAt',
+        'fullyReservedAt',
+        // Failure return / requeue (functions/src/inventoryWorkflow.js).
+        'failureCount', 'pendingReturnId', 'returnDisposition', 'returnResolvedAt',
+        'requeuedAt', 'requeuedByUid',
+        'pricingVersion', 'priceCurrency', 'priceIsVatInclusive',
+        'subtotalCentavos', 'subtotal', 'pricedAt',
+        // Negotiated pricing + statutory (SC/PWD) line discounts
+        // (functions/src/negotiatedPricing.js): the Med Rep agrees each line's
+        // price and enters any line discount BEFORE placement; the callable
+        // records them. After placement nobody — the Med Rep included — may
+        // restate the standard total, the negotiated adjustment, the discounts,
+        // the final total or the VAT breakdown.
+        'priceAgreementVersion', 'standardSubtotalCentavos', 'negotiatedAdjustmentTotalCentavos',
+        'priceNegotiated', 'statutoryDiscountTotalCentavos', 'statutoryDiscountApplied',
+        'finalTotalCentavos', 'vatSummary',
+        // The callable derives this snapshot from active Doctor, relationship,
+        // destination, and Area documents inside the reservation transaction.
+        // A client may select ids, but it may never author the resulting facts.
+        'destinationVersion', 'doctorId', 'doctorName', 'doctorAddressId',
+        'destinationType', 'destinationName', 'deliveryAddress',
+        'destinationAreaId', 'destinationArea', 'destinationLat',
+        'destinationLng', 'destinationGeofenceRadiusM',
+        'destinationLocationVerified', 'destinationSnapshotAt',
+        'destinationRevision', 'destinationCorrectedAt', 'destinationCorrectedByUid',
+        'destinationChangeRequest',
+        // Delivery-schedule audit, written only by the rescheduleOrderDelivery
+        // callable (functions/src/scheduleOperations.js) together with a
+        // scheduleEvents entry. No client may author or edit any of them.
+        'scheduledDeliveryTime', 'originalRequestedDeliveryDate', 'scheduleRevision',
+        'scheduleUpdatedAt', 'scheduleUpdatedByUid', 'scheduleChangeReason',
+        // Stamped once by the status-history trigger (functions/src/statusEvents.js)
+        // from the commit time of the first move into in_transit. It is the start
+        // of the true delivery duration, so no client may author or move it.
+        'firstDispatchedAt'
+      ];
+    }
+
+    // Canonical destination fields and the compatibility aliases read by the
+    // current Admin, Dispatcher, and Rider screens are one immutable snapshot.
+    // A later correction workflow must use a trusted callable and preserve an
+    // audit trail; no ordinary client update may silently rewrite either copy.
+    function immutableDestinationFields() {
+      return [
+        'destinationVersion', 'doctorId', 'doctorName', 'doctorAddressId',
+        'destinationType', 'destinationName', 'deliveryAddress',
+        'destinationAreaId', 'destinationArea', 'destinationLat',
+        'destinationLng', 'destinationGeofenceRadiusM',
+        'destinationLocationVerified', 'destinationSnapshotAt',
+        'clinicDocId', 'clinicId', 'clinicName', 'clinicAddress',
+        'clinicLat', 'clinicLng', 'clinicGeofenceRadiusM',
+        'clinicLocationVerified', 'clinicLocationSnapshotAt',
+        'clinicLocationUpdatedAt'
+      ];
+    }
+
+    // Terminal statuses now belong to the callables alone: `delivered` consumes
+    // stock and `cancelled` releases it, so neither can be written by a client
+    // without the matching inventory movement happening at the same instant.
+    function writesServerOnlyStatus() {
+      return statusChanged()
+        && (nextStatus() == 'delivered' || nextStatus() == 'cancelled'
+            // A failed delivery moves its reserved units to return-pending, so
+            // it is reported through reportDeliveryFailure — except for the one
+            // temporary, rider-only compatibility write below.
+            || (nextStatus() == 'delivery_failed' && !legacyRiderFailureWritesAllowed())
+            // A failed order leaves delivery_failed only through
+            // requeueFailedOrder (→ pending_dispatch) or a cancel. There is no
+            // client path back to a rider: delivery_failed → assigned is gone.
+            || priorStatus() == 'delivery_failed');
+    }
+
+    // ---- TEMPORARY ROLLOUT COMPATIBILITY ----
+    //
+    // Rider builds released before reportDeliveryFailure write
+    // in_transit|delayed → delivery_failed directly. While this returns true,
+    // that ONE write stays legal for the order's assigned rider, in exactly the
+    // shape isValidFailureReport() demands (meaningful reason, server-stamped
+    // time, reporter == caller) and with nothing outside riderOrderFields() —
+    // so no counter, reservation or allocation field can ride along. The
+    // settleClientReportedFailure trigger then moves the stock exactly as the
+    // callable does.
+    //
+    // PHASE 2 of the rollout sets this to false (strict), once every active
+    // Rider runs a build that uses the callable. Remove the function, its use
+    // above and the trigger together in a later release.
+    function legacyRiderFailureWritesAllowed() {
+      return true;
+    }
+
+    // An order with backorder-aware allocation (version 2) can be assigned,
+    // loaded or dispatched only once EVERY line is fully reserved. Earlier
+    // orders were reserved in full at creation.
+    function orderIsFullyReserved() {
+      return resource.data.get('allocationVersion', 0) != 2
+        || resource.data.get('allocationState', '') == 'fully_reserved';
+    }
+
+    // ---------------- scheduled dispatch ----------------
+    //
+    // `requestedDeliveryDate` is a REQUIRED date-only 'YYYY-MM-DD' string, a
+    // Manila calendar day, written by createOrderWithReservation (which refuses
+    // an order without one). An order may not be assigned, loaded or put in
+    // transit before 00:00 Asia/Manila on that day. Mirrors
+    // src/services/dispatchEligibility.js. FAILS CLOSED:
+    //
+    //   a real date      → dispatchable once request.time reaches Manila
+    //                      midnight on it
+    //   field absent     → refused (legacy orders from before the date was
+    //                      required; an admin must first store a valid date)
+    //   null / blank / malformed / impossible date / non-string → refused
+    function scheduledDateField() { return 'requestedDeliveryDate'; }
+    function utcMidnightOf(date) { return timestamp.value(date + 'T00:00:00Z'); }
+    // A real calendar date in canonical form. timestamp.value() ROLLS an
+    // impossible date over ('2026-02-31' becomes Mar 3) rather than failing,
+    // so the parsed day is required to read back as the same y/m/d. Anything
+    // the parser rejects outright (month 13) raises, which also denies.
+    function isScheduledDateShape(value) {
+      return value is string
+        && value.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && utcMidnightOf(value).year() == int(value[0:4])
+        && utcMidnightOf(value).month() == int(value[5:7])
+        && utcMidnightOf(value).day() == int(value[8:10]);
+    }
+    // 00:00 +08:00 on the date = 16:00 UTC the previous day. The Philippines
+    // has no daylight saving, so the fixed offset is exact all year.
+    function manilaStartOf(date) {
+      return utcMidnightOf(date) - duration.value(8, 'h');
+    }
+    function scheduleAllowsDispatch(d) {
+      return (scheduledDateField() in d)
+        && isScheduledDateShape(d[scheduledDateField()])
+        && request.time >= manilaStartOf(d[scheduledDateField()]);
+    }
+    // Plain field reads rather than changedKeys(): this runs on every client
+    // order write, including the rider's frequent location updates, and a
+    // second full diff there eats into the per-request expression budget.
+    function entersDispatch() {
+      let next = request.resource.data.get('status', null);
+      return next in ['assigned', 'loading', 'in_transit']
+        && next != resource.data.get('status', null);
+    }
+    // Applies to EVERY client, admin included: a status move into dispatch is
+    // checked against the date the order will hold after the write.
+    function scheduleGuardHolds() {
+      return !entersDispatch() || scheduleAllowsDispatch(request.resource.data);
+    }
+    // The schedule is not editable by ANY client — Admin included. An Admin
+    // changes (or repairs) a delivery date only through the
+    // rescheduleOrderDelivery callable, which records who/when, preserves the
+    // Med Rep's original request and writes a scheduleEvents entry in the same
+    // transaction. A direct client write would skip that history, so it is
+    // refused. Dispatcher and Rider were already confined by their hasOnly()
+    // allowlists; the Sales Rep branch states it explicitly.
+    function scheduledDateUnchanged() {
+      return (scheduledDateField() in request.resource.data)
+          == (scheduledDateField() in resource.data)
+        && request.resource.data.get(scheduledDateField(), null)
+          == resource.data.get(scheduledDateField(), null);
+    }
+    function scheduledDateWriteIsValid() {
+      return scheduledDateUnchanged();
+    }
+
+    // Who placed the order and its reference are fixed at creation. Receipts
+    // and allocation history are filtered to the Med Rep by the owner the
+    // server copied from here, so no client — Admin included — may redirect it.
+    function immutableOwnershipFields() {
+      return ['createdByUid', 'createdByRole', 'orderNumber'];
+    }
+
+    // The guard every client order write now carries.
+    function clientOrderWriteIsAllowed() {
+      return !writesServerOnlyStatus()
+        && !changedKeys().hasAny(serverOnlyOrderFields())
+        // Order items carry the server's price and VAT snapshots. No client —
+        // Admin included — may rewrite them after creation.
+        && !changedKeys().hasAny(['items'])
+        && !changedKeys().hasAny(immutableDestinationFields())
+        && !changedKeys().hasAny(immutableOwnershipFields())
+        && scheduleGuardHolds()
+        && scheduledDateWriteIsValid();
+    }
+
+    // A new stock batch, as Admin Add Stock writes it. Quantities are Firestore
+    // INTEGERS — the three hand-seeded staging batches hold `quantity` as text,
+    // which the callable refuses outright, and this stops another one appearing.
+    // `reservedQuantity` must start at zero: a batch that begins life already
+    // claiming reservations would misstate availability from its first day.
+    //
+    // A price is REQUIRED from the batch's first moment. The alternative — let
+    // a batch exist unpriced and hope someone prices it later — is how a line
+    // ends up costing ₱0.00 in a real invoice. An unpriced batch is refused at
+    // creation, so the only unpriced batches that can exist are the ones that
+    // predate this rule, which the catalog shows as disabled.
+    function isValidNewStockBatch() {
+      let d = request.resource.data;
+      return d.quantity is int
+        && d.quantity >= 0
+        && d.reservedQuantity == 0
+        && d.sellingPriceCentavos is int
+        && d.sellingPriceCentavos > 0
+        && d.sellingPriceCentavos <= maxSafeInteger()
+        && d.batchId is string && d.batchId.size() > 0
+        && d.vaccineName is string && d.vaccineName.size() > 0
+        && d.expiryDate is string && d.expiryDate.size() == 10
+        // Batch dates are date-only 'YYYY-MM-DD' strings, so they order
+        // correctly as strings: manufactured on/before arrival, before expiry.
+        // LIMITATION: the pattern accepts an impossible day such as
+        // 2026-02-31 and rules cannot read "today" in Manila, so a real
+        // calendar date and a not-in-the-future manufacturing date are
+        // enforced by the Add Stock form and addStockBatch, not here.
+        && isDateOnlyString(d.expiryDate)
+        && isDateOnlyString(d.get('arrivalDate', null))
+        && isDateOnlyString(d.get('manufacturingDate', null))
+        && d.manufacturingDate <= d.arrivalDate
+        && d.manufacturingDate < d.expiryDate;
+    }
+
+    // VATable (12%, VAT-inclusive prices), VAT Exempt, or Zero-Rated (VAT at
+    // 0%, reported separately). Mirrors PRODUCT_VAT_CLASSIFICATIONS on the
+    // server (functions/src/policy.js) and the web (vatClassification.js).
+    function isProductVatClassification(value) {
+      return value in ['vatable', 'vat_exempt', 'zero_rated'];
+    }
+
+    function vaccineVatChangeValid() {
+      let d = request.resource.data;
+      return !changedKeys().hasAny(['vatClassification', 'vatClassificationSetAt', 'vatClassificationSetByUid'])
+        || (
+          isProductVatClassification(d.get('vatClassification', null))
+          && d.get('vatClassificationSetAt', null) == request.time
+          && d.get('vatClassificationSetByUid', null) == request.auth.uid
+        );
+    }
+
+    function isDateOnlyString(value) {
+      return value is string && value.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$');
+    }
+
+    // A write that changes ANY batch date — manufacturing, arrival or expiry —
+    // must leave a complete, consistent set: all three present, date-only, and
+    // manufacturing <= arrival < expiry (so manufacturing < expiry as well).
+    // A legacy batch without a manufacturing date keeps loading and accepting
+    // unrelated updates; only editing one of its dates requires the Admin to
+    // supply a valid manufacturingDate in the same write. Nothing is back-filled.
+    function stockDatesValidIfChanged() {
+      let d = request.resource.data;
+      return !changedKeys().hasAny(['manufacturingDate', 'arrivalDate', 'expiryDate'])
+        || (
+          isDateOnlyString(d.get('manufacturingDate', null))
+          && isDateOnlyString(d.get('arrivalDate', null))
+          && isDateOnlyString(d.get('expiryDate', null))
+          && d.manufacturingDate <= d.arrivalDate
+          && d.manufacturingDate < d.expiryDate
+          && d.arrivalDate < d.expiryDate
+        );
+    }
+
+    // Re-pricing an existing batch is an ordinary admin update — that IS the
+    // price-management workflow — but the value that lands must still be a
+    // positive integer number of centavos. Guarded by presence so an admin can
+    // still correct an unrelated field on a batch that predates pricing, and so
+    // that adding a price to such a batch is validated on the way in.
+    function stockPriceValidIfPresent() {
+      let d = request.resource.data;
+      return !('sellingPriceCentavos' in d)
+        || (
+          d.sellingPriceCentavos is int
+          && d.sellingPriceCentavos > 0
+          && d.sellingPriceCentavos <= maxSafeInteger()
+        );
+    }
+
+    // Re-pricing must record WHO and WHEN, and neither may be chosen by the
+    // caller. `priceSetByUid` was previously a parameter the client passed,
+    // which would have let one admin record a re-price as another's — or as
+    // null. Pinned to request.auth.uid and request.time, so the audit trail on
+    // a price change is evidence rather than a claim.
+    //
+    // The price CONVENTION travels with the price. A price entered now is
+    // VAT-inclusive, so a re-price must stamp `priceIsVatInclusive == true`,
+    // and the flag can only ever be set to true — by the same audited act. A
+    // legacy batch recorded VAT-exclusive therefore becomes orderable again
+    // only through an Admin re-confirming its price; nothing flips it silently.
+    function stockPriceAuditValid() {
+      let d = request.resource.data;
+      return !changedKeys().hasAny(['sellingPriceCentavos', 'priceIsVatInclusive'])
+        || (
+          d.priceSetAt == request.time
+          && d.priceSetByUid == request.auth.uid
+          && d.get('priceIsVatInclusive', null) == true
+        );
+    }
+
+    // Number.MAX_SAFE_INTEGER. NOT a price cap — there is deliberately no
+    // business maximum on a price. Firestore integers are 64-bit, but every
+    // reader of this value is JavaScript, where integers past 2^53-1 collide
+    // silently. A figure that cannot survive the round trip exactly is refused
+    // rather than stored as something subtly different from what was meant.
+    function maxSafeInteger() { return 9007199254740991; }
+
+    // An admin STOCK CORRECTION — the controlled path for fixing a human error
+    // in Add Stock or a batch's on-hand figure. It may change `quantity` and its
+    // OWN audit fields only. It may never touch `reservedQuantity` (reservations
+    // move solely inside a callable's transaction) and may never set `quantity`
+    // below what is already reserved for open orders, so availability stays >= 0.
+    // WHO and WHEN are pinned to the caller and the server clock, the prior value
+    // is recorded honestly, and a non-empty reason is required — a correction is
+    // evidence, not a silent overwrite.
+    // Stock counters only the server moves (allocation, delivery, failure
+    // return, disposition). An admin's correction may change `quantity` alone.
+    function stockCounterFields() {
+      return ['quantity', 'reservedQuantity', 'returnPendingQuantity',
+              'quarantinedQuantity', 'writtenOffQuantity'];
+    }
+
+    function isValidStockCorrection() {
+      let d = request.resource.data;
+      let prev = resource.data;
+      return d.quantity is int
+        && d.quantity >= 0
+        // On hand can never drop below the units it must still account for.
+        && d.quantity >= prev.get('reservedQuantity', 0)
+             + prev.get('returnPendingQuantity', 0)
+             + prev.get('quarantinedQuantity', 0)
+        && d.previousQuantity == prev.quantity
+        && d.quantityCorrectedAt == request.time
+        && d.quantityCorrectedByUid == request.auth.uid
+        && d.quantityCorrectionReason is string
+        && d.quantityCorrectionReason.size() > 0
+        && d.quantityCorrectionReason.size() <= 500
+        && changedKeys().hasOnly([
+          'quantity', 'previousQuantity', 'quantityCorrectedAt',
+          'quantityCorrectedByUid', 'quantityCorrectedByEmail',
+          'quantityCorrectionReason', 'updatedAt'
+        ]);
+    }
+
+    // ---------------- rider assignment (workflow checkpoint 1) ----------------
+    //
+    // Who an order belongs to. Deliberately absent from riderOrderFields(), so
+    // a rider can never reassign their own order; a dispatcher may change these
+    // only as part of a valid assignment, defined below.
+    function assignmentIdentityFields() {
+      return [
+        'assignedAt', 'assignedByEmail', 'assignedByUid', 'assignedRiderId',
+        'assignedRiderName', 'assignedRiderPhone'
+      ];
+    }
+
+    // An order counts as unassigned when the field is absent, null, or an empty
+    // string. Sales-rep-created orders start with an explicit null, and a blank
+    // string must not be usable to make a touched order look free again.
+    function hasNoAssignedRider(d) {
+      return !('assignedRiderId' in d)
+        || d.assignedRiderId == null
+        || (d.assignedRiderId is string && d.assignedRiderId.size() == 0);
+    }
+
+    function riderUserData(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    // The assignment identity must be a real users DOCUMENT ID whose stored
+    // role and status say the account may ride. Because that id is used as the
+    // document path, an employee id or any other display identifier simply
+    // fails exists() — it cannot be substituted for the UID.
+    function isAssignableRiderUid(uid) {
+      return uid is string
+        && uid.size() > 0
+        && exists(/databases/$(database)/documents/users/$(uid))
+        && riderUserData(uid).role == 'rider'
+        && riderUserData(uid).status == 'approved';
+    }
+
+    // A dispatcher assigning a rider: the order must still be awaiting dispatch
+    // and still unassigned, the target must be an approved rider, the timestamp
+    // must be server-stamped, and the audit must name the caller. This mirrors
+    // the transaction in assignRiderToOrder, so the guarantee survives a client
+    // that bypasses the app entirely.
+    //
+    // The status audit is required too, as on every other transition: without
+    // it the Assigned history event had no actor and Admin's Activity panel
+    // kept naming whoever changed the status before.
+    function isValidRiderAssignment() {
+      return resource.data.status == 'pending_dispatch'
+        && request.resource.data.status == 'assigned'
+        && hasNoAssignedRider(resource.data)
+        && isAssignableRiderUid(request.resource.data.assignedRiderId)
+        && request.resource.data.assignedAt == request.time
+        && request.resource.data.assignedByUid == request.auth.uid
+        && statusAuditIsServerStamped()
+        && orderIsFullyReserved();
+    }
+
+    // ---------------- order lifecycle (workflow checkpoint 2) ----------------
+    //
+    // The approved matrix, enforced here independently of the client:
+    //
+    //   Dispatcher: pending_dispatch → assigned      (assignment)
+    //               assigned         → loading       (cargo loading)
+    //               loading          → in_transit    (finalize dispatch)
+    //               any non-terminal → cancelled     (reason required)
+    //   Rider:      in_transit → delayed | delivered (completion callable only)
+    //               delayed    → in_transit          (resume BEFORE completing)
+    //
+    // Nothing else. In particular a dispatcher may not deliver, delay or
+    // resume — those belong to the rider actually carrying the order — and a
+    // rider may not load, dispatch or cancel. `delivered` and `cancelled` are
+    // terminal for everyone: no rule below accepts them as a FROM status.
+    function maxReasonLength() { return 500; }
+
+    function statusChanged() { return changedKeys().hasAny(['status']); }
+    function priorStatus()   { return resource.data.status; }
+    function nextStatus()    { return request.resource.data.status; }
+
+    // Every status write carries the same audit stamp, server-side.
+    function statusAuditIsServerStamped() {
+      return request.resource.data.statusUpdatedAt == request.time
+        && request.resource.data.statusUpdatedByUid == request.auth.uid;
+    }
+
+    // A reason that is actually a reason: present, not blank once trimmed, and
+    // bounded so a single field cannot be used to store arbitrary payloads.
+    function isMeaningfulReason(value) {
+      return value is string
+        && value.trim().size() > 0
+        && value.size() <= maxReasonLength();
+    }
+
+    // --- dispatcher operations ---
+
+    // assigned → loading. Reached only by confirming cargo is loaded.
+    // The loading audit (loadedAt + loadedByUid) is checked by
+    // loadingAuditWriteValid(): stamped now by this dispatcher, or the one an
+    // earlier confirmation already left on the order.
+    function isValidLoadingPromotion() {
+      return priorStatus() == 'assigned'
+        && nextStatus() == 'loading'
+        && request.resource.data.isLoaded == true
+        && hasLoadingAudit(request.resource.data)
+        && statusAuditIsServerStamped()
+        && orderIsFullyReserved();
+    }
+
+    // ---- loading custody audit ----
+    //
+    // loadedAt + loadedByUid record the FIRST Cargo Loading confirmation of
+    // the order's vials. Cancellation reads them (functions/src/policy.js,
+    // cancellationReturnsForInspection): an order ever confirmed as loaded
+    // comes back as a return for Admin inspection even if it was unticked
+    // since. So the record is monotonic for a dispatcher:
+    //
+    //   audit present  -> loadedAt / loadedByUid / loadedByEmail never change
+    //                     (no clearing, no re-stamping, no rewriting);
+    //   no audit, and the order is or becomes isLoaded == true
+    //                  -> a write that changes isLoaded must stamp it (now, by
+    //                     this dispatcher); any other write may stamp it (a
+    //                     legacy loaded order dispatched as-is);
+    //   no audit, never loaded
+    //                  -> the audit fields may not be written at all.
+    //
+    // Only the server (Admin SDK) clears it, when a failed order is requeued
+    // for a fresh assignment (inventoryWorkflow.requeueFailedOrder).
+    function loadingAuditFields() {
+      return ['loadedAt', 'loadedByEmail', 'loadedByUid'];
+    }
+    function hasLoadingAudit(d) {
+      return d.get('loadedAt', null) is timestamp
+        && d.get('loadedByUid', null) is string
+        && d.get('loadedByUid', '').size() > 0;
+    }
+    function stampsLoadingAudit() {
+      return request.resource.data.get('loadedAt', null) == request.time
+        && request.resource.data.get('loadedByUid', null) == request.auth.uid
+        && (
+          !changedKeys().hasAny(['loadedByEmail'])
+          || request.resource.data.loadedByEmail == request.auth.token.get('email', null)
+        );
+    }
+    function loadingAuditWriteValid() {
+      return hasLoadingAudit(resource.data)
+        ? !changedKeys().hasAny(loadingAuditFields())
+        : !(resource.data.get('isLoaded', false) == true
+            || request.resource.data.get('isLoaded', false) == true)
+          ? !changedKeys().hasAny(loadingAuditFields())
+          : changedKeys().hasAny(['isLoaded'])
+            ? stampsLoadingAudit()
+            : (!changedKeys().hasAny(loadingAuditFields()) || stampsLoadingAudit());
+    }
+
+    // Ticking/unticking the loaded flag without moving the order. Permitted
+    // only while it is still assigned or loading — never once it has left —
+    // and only over the loading fields themselves.
+    function loadingMetadataFields() {
+      return ['isLoaded', 'loadedAt', 'loadedByEmail', 'loadedByUid', 'updatedAt'];
+    }
+    function isLoadingMetadataUpdate() {
+      return !statusChanged()
+        && (priorStatus() == 'assigned' || priorStatus() == 'loading')
+        && changedKeys().hasOnly(loadingMetadataFields());
+    }
+
+    // Generating a route + ETA touches no status. Enumerated rather than
+    // allowed as a blanket "any write that leaves status alone", which would
+    // have let a dispatcher stamp deliveredAt or delayedAt on any order.
+    function routeFields() {
+      return [
+        'routeDistanceMeters', 'routeDurationSeconds', 'routeEtaText',
+        'routeGeneratedAt', 'routePolyline', 'routeProvider',
+        'routeDestinationRevision', 'updatedAt'
+      ];
+    }
+    // `routeGeneratedAt` must actually change, so this cannot be used as a
+    // catch-all for a write that only bumps `updatedAt` — `updatedAt` is in the
+    // list below, so hasOnly() alone would have accepted a bare touch of any
+    // order in any status.
+    function isRouteGenerationWrite() {
+      return !statusChanged()
+        && changedKeys().hasOnly(routeFields())
+        && changedKeys().hasAny(['routeGeneratedAt'])
+        && request.resource.data.routeDestinationRevision
+          == resource.data.get('destinationRevision', 0);
+    }
+
+    // Saving an optimized multi-stop trip touches no status either. Enumerated
+    // for the same reason as routeFields(): a blanket "any non-status write"
+    // would let a dispatcher stamp allocation/lifecycle fields. `tripGeneratedAt`
+    // must actually change, so this cannot be abused as a bare `updatedAt` touch.
+    function tripFields() {
+      return [
+        'tripId', 'tripStopCount', 'tripPolyline', 'tripDistanceMeters',
+        'tripDurationSeconds', 'tripGeneratedAt',
+        'stopSequence', 'stopEtaSeconds', 'stopEtaText',
+        'routeProvider', 'updatedAt'
+      ];
+    }
+    function isTripOptimizationWrite() {
+      return !statusChanged()
+        && changedKeys().hasOnly(tripFields())
+        && changedKeys().hasAny(['tripGeneratedAt']);
+    }
+
+    // loading → in_transit. The finalize-dispatch step. The order that results
+    // must be confirmed as loaded with a loading audit — enforced here, not
+    // only by Cargo Loading's button — so a direct write cannot dispatch an
+    // order nobody confirmed.
+    function isValidDispatch() {
+      return priorStatus() == 'loading'
+        && nextStatus() == 'in_transit'
+        && request.resource.data.get('isLoaded', false) == true
+        && hasLoadingAudit(request.resource.data)
+        && request.resource.data.dispatchedAt == request.time
+        && request.resource.data.startedAt == request.time
+        && statusAuditIsServerStamped()
+        && orderIsFullyReserved();
+    }
+
+    // Any non-terminal order → cancelled, with a reason. A failed delivery is
+    // cancellable too: that is the dispatcher's other recovery option.
+    function isValidCancellation() {
+      return (priorStatus() == 'pending_dispatch'
+           || priorStatus() == 'assigned'
+           || priorStatus() == 'loading'
+           || priorStatus() == 'in_transit'
+           || priorStatus() == 'delayed'
+           || priorStatus() == 'delivery_failed')
+        && nextStatus() == 'cancelled'
+        // Cancelling a failed order must not quietly erase why it failed.
+        && !changedKeys().hasAny(failureRecordFields())
+        && isMeaningfulReason(request.resource.data.cancelReason)
+        && request.resource.data.cancelledAt == request.time
+        && statusAuditIsServerStamped();
+    }
+
+    // There is deliberately no client recovery rule. A failed delivery's
+    // stock has gone to return-pending, so it cannot go straight back to a
+    // rider (the old delivery_failed → assigned write): requeueFailedOrder
+    // returns it to pending_dispatch, the allocator reserves it again, and it
+    // is assigned through isValidRiderAssignment() once fully reserved.
+
+    // `isValidCancellation()` is deliberately absent: cancelling releases
+    // reserved stock, so it is now the callable's alone. The function is kept
+    // above only as the shape the callable enforces server-side.
+    function isValidDispatcherOrderWrite() {
+      return isValidRiderAssignment()
+        || isValidLoadingPromotion()
+        || isLoadingMetadataUpdate()
+        || isRouteGenerationWrite()
+        || isTripOptimizationWrite()
+        || isValidDispatch();
+    }
+
+    // --- rider operations ---
+
+    function isValidDelayReport() {
+      return priorStatus() == 'in_transit'
+        && nextStatus() == 'delayed'
+        && isMeaningfulReason(request.resource.data.delayReason)
+        && request.resource.data.delayedAt == request.time
+        && statusAuditIsServerStamped();
+    }
+
+    function isValidResume() {
+      return priorStatus() == 'delayed'
+        && nextStatus() == 'in_transit'
+        && request.resource.data.startedAt == request.time
+        && statusAuditIsServerStamped();
+    }
+
+    // Kept as the SHAPE the completion callable enforces (no client rule uses
+    // it): only an in-transit delivery completes; a delayed one resumes first.
+    function isValidCompletion() {
+      return priorStatus() == 'in_transit'
+        && nextStatus() == 'delivered'
+        && request.resource.data.deliveredAt == request.time
+        && statusAuditIsServerStamped();
+    }
+
+    // in_transit | delayed → delivery_failed. The rider reports that the
+    // delivery could not be completed and stops there; they cannot retry,
+    // reassign or cancel it themselves.
+    function isValidFailureReport() {
+      return (priorStatus() == 'in_transit' || priorStatus() == 'delayed')
+        && nextStatus() == 'delivery_failed'
+        && isMeaningfulReason(request.resource.data.deliveryFailureReason)
+        && request.resource.data.deliveryFailedAt == request.time
+        && request.resource.data.deliveryFailedByUid == request.auth.uid
+        && statusAuditIsServerStamped();
+    }
+
+    // A rider's ordinary write: only their own fields, and either one of their
+    // four legal status moves or no status change at all — which is what keeps
+    // continuous location tracking working.
+    //
+    // Because riderOrderFields() excludes every evidence field, this branch can
+    // never carry a proof or an invoice. That is what stops a write from
+    // completing the delivery AND attaching a proof URL in one operation, which
+    // would otherwise have slipped evidence in through isValidCompletion() with
+    // no recipient, no path check and no one-shot marker.
+    // `isValidCompletion()` is deliberately absent: delivering consumes reserved
+    // stock, so it is now the callable's alone. Delay, resume and failure are
+    // unchanged — none of them moves stock.
+    function isValidRiderLifecycleWrite() {
+      return changedKeys().hasOnly(riderOrderFields())
+        && (
+          !statusChanged()
+          || isValidDelayReport()
+          || isValidResume()
+          || isValidFailureReport()
+        );
+    }
+
+    // A rider write is a lifecycle write, a proof submission, or an invoice
+    // submission — never a blend. Each alternative carries its own hasOnly(),
+    // and the three key sets are disjoint by construction, so nothing can
+    // satisfy two of them.
+    //
+    // The cheap `in`-based discriminators gate the evidence rules so that an
+    // ordinary location or status write never evaluates them at all.
+    function isValidRiderOrderWrite(orderId) {
+      return (isProofSubmissionWrite() && isValidProofSubmission(orderId))
+        || (isInvoiceSubmissionWrite() && isValidInvoiceSubmission(orderId))
+        || isValidRiderLifecycleWrite();
+    }
+
+    // ---------------- order clinic-location snapshot (Phase 02A) ----------------
+    //
+    // An order stores its destination as an order-TIME SNAPSHOT copied from the
+    // clinic, so re-pinning a clinic later cannot rewrite where a historical
+    // delivery was sent. The client builds that snapshot, so these rules
+    // re-derive it from the referenced clinic document and reject anything that
+    // does not match: a client may choose WHICH clinic an order goes to, never
+    // WHERE that clinic is or how large its geofence is.
+    //
+    // Deliberately NOT in dispatcherOrderFields()/riderOrderFields(): a snapshot
+    // is written once by the callable. Corrections need their own later trusted
+    // workflow so the original Sales Rep choice and reason remain auditable.
+    function clinicSnapshotFields() {
+      return [
+        'clinicDocId', 'clinicGeofenceRadiusM', 'clinicId', 'clinicLat',
+        'clinicLng', 'clinicLocationSnapshotAt', 'clinicLocationUpdatedAt',
+        'clinicLocationVerified'
+      ];
+    }
+
+    // Radius bounds — must stay identical to MIN/MAX_GEOFENCE_RADIUS_M and
+    // DEFAULT_GEOFENCE_RADIUS_M in src/services/clinicLocation.js.
+    function minRadiusM() { return 50; }
+    function maxRadiusM() { return 1000; }
+    function defaultRadiusM() { return 300; }
+
+    // A clinic with no stored radius yields the validated default, matching
+    // readClinicLocation(). A clinic whose stored radius is out of bounds fails
+    // the range check below, so no order can inherit an unusable geofence.
+    function clinicEffectiveRadius(c) {
+      return ('geofenceRadiusM' in c) ? c.geofenceRadiusM : defaultRadiusM();
+    }
+
+    // A verified snapshot must reproduce the clinic exactly.
+    function verifiedSnapshotMatches(d, c) {
+      return c.locationVerified == true
+        && d.clinicLat == c.latitude
+        && d.clinicLng == c.longitude
+        && d.clinicGeofenceRadiusM == clinicEffectiveRadius(c)
+        && d.clinicGeofenceRadiusM >= minRadiusM()
+        && d.clinicGeofenceRadiusM <= maxRadiusM();
+    }
+
+    // An unverified snapshot must carry NO usable geofence data at all — no
+    // coordinates, no radius, no borrowed source timestamp. This is what stops
+    // "unverified" being used as a cover for a forged destination.
+    function unverifiedSnapshotIsEmpty(d) {
+      return !('clinicLat' in d)
+        && !('clinicLng' in d)
+        && !('clinicGeofenceRadiusM' in d)
+        && !('clinicLocationUpdatedAt' in d);
+    }
+
+    function snapshotAgreesWithClinic(d, c) {
+      // The business id is optional (clinics registered before it existed have
+      // none), but when the order carries one it must be the clinic's own.
+      return (!('clinicId' in d) || ('clinicId' in c && c.clinicId == d.clinicId))
+        && d.clinicLocationVerified is bool
+        // The snapshot must be stamped by the SERVER, not the client. Without
+        // this, an order could claim its destination copy was taken at any time
+        // — and simply omitting the stamp would be an equally easy way around
+        // it, so presence is required too, not just equality.
+        && 'clinicLocationSnapshotAt' in d
+        && d.clinicLocationSnapshotAt == request.time
+        // Source provenance: when the CLINIC's pin was last saved. Optional
+        // (not every clinic has one), but a value that is not the clinic's own
+        // would misrepresent how fresh the copied location is.
+        && (!('clinicLocationUpdatedAt' in d)
+              || ('locationUpdatedAt' in c
+                  && d.clinicLocationUpdatedAt == c.locationUpdatedAt))
+        && (d.clinicLocationVerified == true
+              ? verifiedSnapshotMatches(d, c)
+              : unverifiedSnapshotIsEmpty(d));
+    }
+
+    // Orders created before Phase 02A carry no snapshot at all; they are still
+    // valid and must keep working, so absence is allowed. Presence is verified.
+    function clinicSnapshotValidOnCreate() {
+      return !request.resource.data.keys().hasAny(clinicSnapshotFields())
+        || (
+          request.resource.data.clinicDocId is string
+          && exists(/databases/$(database)/documents/clinics/$(request.resource.data.clinicDocId))
+          && snapshotAgreesWithClinic(
+               request.resource.data,
+               get(/databases/$(database)/documents/clinics/$(request.resource.data.clinicDocId)).data
+             )
+        );
+    }
+
+    // ---------------- users ----------------
+    // The only roles and statuses that exist. Must stay identical to ROLES and
+    // STATUSES in src/services/authorization.js, and to VALID_ROLES /
+    // VALID_STATUSES in src/services/userService.js — the guards fail closed on
+    // anything else, so a value stored outside these lists is an account nobody
+    // can use and an admin action nobody can undo from the UI.
+    function isKnownRole() {
+      return request.resource.data.role in ['admin', 'dispatcher', 'salesrep', 'rider'];
+    }
+    function isKnownStatus() {
+      return request.resource.data.status
+        in ['approved', 'pending', 'pending_approval', 'rejected', 'disabled'];
+    }
+
+    // ---- a user's own profile edits ("My profile") ----
+    function selfProfileFields() {
+      return ['name', 'fullName', 'phone', 'contactNumber', 'updatedAt'];
+    }
+    // Written by the Rider app to the rider's own record
+    // (vaxtrack_mobile/lib/services/location_service.dart).
+    function riderLocationUserFields() {
+      return ['lastLocation', 'lastLocationUpdate', 'locationAccuracy', 'heading', 'speed'];
+    }
+    function selfEditableUserFields() {
+      return selfProfileFields().concat(riderLocationUserFields());
+    }
+    function selfNameValid(value) {
+      return value is string && value.trim().size() >= 2 && value.size() <= 80;
+    }
+    function selfPhoneValid(value) {
+      return value is string && value.size() <= 30;
+    }
+    function selfProfileValuesValid() {
+      let d = request.resource.data;
+      let changed = changedKeys();
+      return (!changed.hasAny(['name']) || selfNameValid(d.name))
+        && (!changed.hasAny(['fullName']) || selfNameValid(d.fullName))
+        && (!changed.hasAny(['phone']) || selfPhoneValid(d.phone))
+        && (!changed.hasAny(['contactNumber']) || selfPhoneValid(d.contactNumber))
+        && (!changed.hasAny(['updatedAt']) || d.updatedAt == request.time);
+    }
+
+    // The stored status as the access resolver reads it: trimmed, lowercased,
+    // '' when absent or not a string — so a legacy "Rejected" is protected
+    // exactly like "rejected".
+    function storedUserStatus() {
+      let s = resource.data.get('status', null);
+      return s is string ? s.trim().lower() : '';
+    }
+
+    // An admin status change that leaves the status alone (a role change, a
+    // profile fix) is always fine. A real change may not start from rejected,
+    // and may enter rejected only from an application still awaiting a
+    // decision — never from an active or deactivated account.
+    function adminStatusChangeAllowed() {
+      let next = request.resource.data.get('status', null);
+      return next == resource.data.get('status', null)
+        || (storedUserStatus() != 'rejected'
+            && (next != 'rejected'
+                || !(storedUserStatus() in ['approved', 'disabled'])));
+    }
+
+    // ---- Med Rep territory (assignedAreaIds / assignedClinicIds) ----
+    // Written ONLY by an Admin, ONLY onto a Med Rep (stored role 'salesrep'),
+    // and never together with a role or status change. Rules check the shape —
+    // lists, bounded, duplicate-free, stamped by the writer; that each id names
+    // an active area / a clinic inside an assigned area is checked by the Admin
+    // client inside a transaction AND re-enforced by createOrderWithReservation
+    // at order time, which is the authority. A Med Rep can read their own
+    // assignment (own-document read) but cannot write it: it is absent from
+    // selfEditableUserFields(), and self-registration may not include it.
+    function territoryUserFields() {
+      return ['assignedAreaIds', 'assignedClinicIds', 'territoryUpdatedAt', 'territoryUpdatedByUid'];
+    }
+    function territoryWriteValid() {
+      let d = request.resource.data;
+      return resource.data.get('role', null) == 'salesrep'
+        && d.get('role', null) == resource.data.get('role', null)
+        && d.get('status', null) == resource.data.get('status', null)
+        && d.assignedAreaIds is list
+        && d.assignedAreaIds.size() <= 50
+        && d.assignedAreaIds.toSet().size() == d.assignedAreaIds.size()
+        && d.assignedClinicIds is list
+        && d.assignedClinicIds.size() <= 200
+        && d.assignedClinicIds.toSet().size() == d.assignedClinicIds.size()
+        && d.territoryUpdatedByUid == request.auth.uid
+        && d.territoryUpdatedAt == request.time;
+    }
+
+    match /users/{uid} {
+      // Self-read at ANY status (so login + route guards can detect
+      // pending/disabled/rejected). Admin reads all; Dispatcher reads only
+      // rider docs (matches the server-filtered role == "rider" query).
+      allow get: if signedIn() && (
+        request.auth.uid == uid
+        || isAdmin()
+        || (isDispatcher() && resource.data.role == 'rider')
+      );
+      allow list: if isAdmin()
+        || (isDispatcher() && resource.data.role == 'rider');
+
+      // Admin may create user docs (broad write). Public self-application:
+      // a visitor creates their OWN doc to apply for a staff position — sales
+      // rep, dispatcher, or rider — which always lands pending.
+      //
+      // This is the identity boundary for self-registration. The uid check
+      // stops one caller creating another's document; the pending status stops
+      // self-approval (only an admin flips status to approved); and the role is
+      // confined to the three applicable positions, so ADMIN CAN NEVER BE
+      // SELF-APPLIED — an admin exists only when an existing admin sets the
+      // role. A rider is additionally pinned to the one supported vehicle type,
+      // so the Flutter self-registration contract is unchanged. Together these
+      // mean a modified client can create nothing but a pending, non-admin
+      // account owned by the caller (and a rider only on a motorcycle).
+      allow create: if isAdmin()
+        || (
+          signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.status == 'pending'
+          && request.resource.data.role in ['salesrep', 'dispatcher', 'rider']
+          && !request.resource.data.keys().hasAny(territoryUserFields())
+          // Rider vehicle type must stay identical to kRiderVehicleType in
+          // vaxtrack_mobile/lib/utils/rider_registration.dart.
+          && (
+            request.resource.data.role != 'rider'
+            || request.resource.data.vehicleType == 'Motorcycle'
+          )
+        );
+
+      // Admin manages any user (approve / disable / reject / role change), but
+      // only to a role and status that EXIST. The client already validates both
+      // against an allowlist; that validation lived only in JavaScript, so a
+      // modified client or a console write could store `role: "wizard"` or
+      // `status: "active"`. An unknown role fails closed at the guards — but an
+      // unknown STATUS used to be read as approved, so the two gaps together
+      // were a way to mint access. Both allowlists are enforced here now.
+      //
+      // A user may edit ONLY their own name and phone (and a rider their own
+      // location) — nothing else on their record. Role and status were already
+      // protected; employee ID, email, organization, department and branch
+      // were not, although every screen presents them as administrator-managed.
+      // selfEditableUserFields() mirrors SELF_EDITABLE_FIELDS in
+      // src/services/profileModel.js plus the Flutter location write.
+      //
+      // An admin's status change must also be an allowed TRANSITION
+      // (adminStatusChangeAllowed): a REJECTED application is final here —
+      // never re-activated, deactivated or returned to pending — and only an
+      // application still awaiting a decision can be rejected. Mirrors
+      // src/services/staffAccount.js.
+      allow update: if (isAdmin() && isKnownRole() && isKnownStatus() && adminStatusChangeAllowed()
+            && (!changedKeys().hasAny(territoryUserFields()) || territoryWriteValid()))
+        || (
+          signedIn()
+          && request.auth.uid == uid
+          && changedKeys().hasOnly(selfEditableUserFields())
+          && selfProfileValuesValid()
+          && (
+            !changedKeys().hasAny(riderLocationUserFields())
+            || resource.data.role == 'rider'
+          )
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    // ---------------- orders ----------------
+    match /orders/{orderId} {
+      // Request and decision records are written by the named callables only.
+      // The Med Rep who owns the order can read the reason and decision trail.
+      match /destinationChangeRequests/{requestId} {
+        allow read: if isAdmin() || isDispatcher()
+          || (isSalesRep()
+            && get(/databases/$(database)/documents/orders/$(orderId)).data.createdByUid == request.auth.uid);
+        allow write: if false;
+      }
+      // Server-only audit records for each destination correction. The
+      // order's owner may view the history; clients cannot forge or erase it.
+      match /destinationCorrections/{correctionId} {
+        allow read: if isAdmin() || isDispatcher()
+          || (isSalesRep()
+            && get(/databases/$(database)/documents/orders/$(orderId)).data.createdByUid == request.auth.uid);
+        allow write: if false;
+      }
+      // Status history, written only by the recordOrderStatusEvent trigger
+      // through the Admin SDK. Readable by whoever can read the order itself;
+      // no client can add, edit or erase an entry.
+      match /statusEvents/{eventId} {
+        allow read: if isAdmin() || isDispatcher()
+          || (isSalesRep()
+            && get(/databases/$(database)/documents/orders/$(orderId)).data.createdByUid == request.auth.uid)
+          || (isRider()
+            && get(/databases/$(database)/documents/orders/$(orderId)).data.assignedRiderId == request.auth.uid);
+        allow write: if false;
+      }
+      // Delivery-schedule history, appended by the rescheduleOrderDelivery
+      // callable through the Admin SDK. Admin and Dispatcher (the calendar
+      // roles) may read it; no client can add, edit or erase an entry.
+      match /scheduleEvents/{eventId} {
+        allow read: if isAdmin() || isDispatcher();
+        allow write: if false;
+      }
+      // Admin + Dispatcher see all orders. Sales Rep sees only orders they
+      // created; Rider sees only orders assigned to them.
+      allow get: if isAdmin() || isDispatcher()
+        || (isSalesRep() && resource.data.createdByUid == request.auth.uid)
+        || (isRider() && resource.data.assignedRiderId == request.auth.uid);
+      allow list: if isAdmin() || isDispatcher()
+        || (isSalesRep() && resource.data.createdByUid == request.auth.uid)
+        || (isRider() && resource.data.assignedRiderId == request.auth.uid);
+
+      // Admin may create orders (broad write). Sales Rep creates orders they own.
+      // Either way, any clinic-location snapshot on the new order must be a
+      // faithful copy of the clinic it names — including for admin, so a single
+      // compromised session cannot fabricate a destination either.
+      // A Sales Rep can no longer create an order from a client at all.
+      //
+      // Creating one reserves stock, and a client-side create cannot be made
+      // atomic with the reservation — the order would exist for a moment with
+      // no claim on the batch it depends on. Order creation is now
+      // `createOrderWithReservation` only. Admin create is kept for data
+      // repair, and may not fabricate an allocation.
+      allow create: if isAdmin()
+        && !request.resource.data.keys().hasAny(serverOnlyOrderFields())
+        && clinicSnapshotValidOnCreate()
+        // Every new order carries a real delivery date — the same requirement
+        // the callable enforces — and a repair-created order cannot be born
+        // already dispatched ahead of it.
+        && (scheduledDateField() in request.resource.data)
+        && isScheduledDateShape(request.resource.data[scheduledDateField()])
+        && (!(request.resource.data.get('status', null) in ['assigned', 'loading', 'in_transit'])
+            || scheduleAllowsDispatch(request.resource.data));
+
+      // Admin: full update.
+      // Dispatcher: only dispatch/assignment/status fields (allowlist).
+      // Rider: only status/location/proof fields, on their OWN assigned order,
+      //        and cannot reassign it (assignedRiderId is not in the allowlist).
+      // Sales Rep: no direct update (orders change only through callables).
+      // Every client branch below additionally carries
+      // clientOrderWriteIsAllowed(): no client, admin included, may write a
+      // terminal status or an allocation field. Those belong to the callables,
+      // which run on the Admin SDK and are not subject to these rules.
+      allow update: if clientOrderWriteIsAllowed()
+        && (
+        isAdmin()
+        || (
+          isDispatcher()
+          && changedKeys().hasOnly(dispatcherOrderFields())
+          // A dispatcher write either IS a valid assignment, or it leaves the
+          // assignment identity completely alone. That covers both directions:
+          // an assignment cannot be made on an order that is not awaiting
+          // dispatch or is already taken, and an ordinary lifecycle write
+          // (status change, cargo loading, route generation) can never quietly
+          // move an order to a different rider.
+          && (
+            isValidRiderAssignment()
+            || !changedKeys().hasAny(assignmentIdentityFields())
+          )
+          // ...and the write must be one of the dispatcher's approved
+          // operations. There is no blanket "anything that leaves status
+          // alone" escape: the two legitimate non-status writes (loading
+          // metadata and route generation) are enumerated inside.
+          && isValidDispatcherOrderWrite()
+          // ...and it never clears or rewrites the loading custody audit.
+          && loadingAuditWriteValid()
+        )
+        || (
+          isRider()
+          && resource.data.assignedRiderId == request.auth.uid
+          && isValidRiderOrderWrite(orderId)
+        )
+        // Sales Rep: NO direct update, not even on their own order. A sales rep
+        // raises orders (createOrderWithReservation) and answers destination
+        // changes (reviewOrderDestinationChange) through server callables; no
+        // Med Rep screen writes an order document. The branch that used to be
+        // here listed only what was FORBIDDEN, so every field it forgot stayed
+        // writable — loading flags and their audit, priority, quantity and
+        // product text, instructions, rider location and route fields. With no
+        // branch, nothing is writable, including any field added later.
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    // ---------------- reservations + idempotency (server-only) ----------------
+    //
+    // Written exclusively by the trusted callables through the Admin SDK, which
+    // is not subject to these rules. No client reads them either: the only
+    // figure a UI needs is `inventory.reservedQuantity`, which it already has,
+    // so exposing per-order reservations would widen the surface for nothing.
+    match /inventoryReservations/{orderId} {
+      allow read, write: if false;
+    }
+    // Units back from a failed delivery, awaiting an admin's disposition.
+    // Written only by the server (reportDeliveryFailure, the compatibility
+    // trigger, requeue/cancel settlement, confirmReturnDisposition).
+    match /inventoryReturns/{returnId} {
+      allow read: if isAdmin() || isDispatcher();
+      allow write: if false;
+    }
+    // Idempotency records. A client that could read these could replay another
+    // rep's checkout; a client that could write one could suppress a real order.
+    match /orderRequestKeys/{keyId} {
+      allow read, write: if false;
+    }
+    // Allocation continuations (allocation.js): cursors for a run that outgrew
+    // one bounded pass. Server-only — a client that could write one could
+    // re-order or stall allocation.
+    match /allocationContinuations/{productKey} {
+      allow read, write: if false;
+    }
+
+    // ---------------- order history (server-only, read-only) ----------------
+    //
+    // Order Confirmation Receipts and the Stock Allocation History ledger
+    // (functions/src/orderHistory.js). Written only by the trusted callables
+    // and triggers through the Admin SDK, inside the transaction that made the
+    // change; no client role may create, edit or delete an entry. Readable by
+    // Admin, and by the Med Rep the SERVER recorded as the order's owner
+    // (`medRepUid`) — a list query must filter on it. Dispatcher and Rider have
+    // no access here.
+    match /orderReceipts/{orderId} {
+      allow get, list: if isAdmin()
+        || (isSalesRep() && resource.data.medRepUid == request.auth.uid);
+      allow write: if false;
+    }
+    match /inventoryAllocationEvents/{eventId} {
+      allow get, list: if isAdmin()
+        || (isSalesRep() && resource.data.medRepUid == request.auth.uid);
+      allow write: if false;
+    }
+    // Outbox markers that guarantee each new order's initial-allocation
+    // history is recorded (functions/src/orderHistoryOutbox.js). Server-only:
+    // a client that could write one could suppress or forge that record.
+    match /orderHistoryOutbox/{orderId} {
+      allow read, write: if false;
+    }
+    // Negotiated-price audit: one immutable record per negotiated order line,
+    // created only by createOrderWithReservation in the order's own
+    // transaction (standard and agreed price, adjustment, reason, the Med Rep's
+    // uid, server time, request reference). Admin may read it. The Med Rep sees
+    // their own adjustment on the order itself; Dispatcher and Rider have no
+    // access. No client may create, edit or delete a record.
+    match /orderPriceAdjustments/{recordId} {
+      allow get, list: if isAdmin();
+      allow write: if false;
+    }
+    // Statutory-discount audit (SC/PWD and the other invoice categories): one
+    // immutable record per discounted order line, created only by
+    // createOrderWithReservation in the order's own transaction — category,
+    // amount, affected line, the Med Rep's uid, server time and request
+    // reference. Kept apart from the negotiated-price audit above. It holds no
+    // beneficiary identification. Admin may read it; no client may write it.
+    match /orderStatutoryDiscounts/{recordId} {
+      allow get, list: if isAdmin();
+      allow write: if false;
+    }
+
+    // ---------------- AI inventory analytics (advisory, Phase 1) ----------------
+    // Forecasts and run records are generated server-side only
+    // (functions/scripts/generateInventoryAnalytics.mjs, Admin SDK). No client
+    // role may create, change or delete them: a forecast someone could edit
+    // would no longer be the engine's output, and a run record is the audit
+    // trail of what was generated. Admin-only reads in Phase 1.
+    match /inventoryForecasts/{forecastId} {
+      allow get, list: if isAdmin();
+      allow write: if false;
+    }
+    match /inventoryAnalyticsRuns/{runId} {
+      allow get, list: if isAdmin();
+      allow write: if false;
+    }
+    // Per-vaccine reorder configuration, Admin-managed. Strictly validated:
+    // whole-day lead time 1–365, EXACTLY ONE of safety-stock days (0–365) or
+    // quantity (0–100,000,000), an explicit enabled flag, the document id is
+    // a real catalog vaccine, and the change is stamped with server time and
+    // the authenticated Admin's uid. Never deleted — disable it instead.
+    match /inventoryAnalyticsConfig/{vaccineId} {
+      allow get, list: if isAdmin();
+      allow create, update: if isAdmin() && validAnalyticsConfig(vaccineId);
+      allow delete: if false;
+    }
+
+    // ---------------- rider live tracking (functions/src/riderTracking.js) ----------------
+    //
+    // riderLocations/{riderUid}: ONE replaceable current-location doc per rider.
+    //   * written only by that (approved) rider, for their own uid;
+    //   * strict field set and ranges; updatedAt is the server write time;
+    //   * capturedAt must be newer than the stored one (an old or out-of-order
+    //     fix — a late offline write, a second device — can never overwrite a
+    //     newer location), not in the future (2 min clock skew) and not older
+    //     than 1 hour;
+    //   * 'ended' clears the coordinates (privacy);
+    //   * activeOrderId must be an order assigned to this rider.
+    //   Read: Admin and Dispatcher (all riders); the rider (own doc); a Med Rep
+    //   ONLY for a rider listed in the server-maintained riderLocationViewers
+    //   index for that Med Rep — one get(), never an enumeration. Nobody but
+    //   Admin/Dispatcher may list.
+    match /riderLocations/{riderUid} {
+      allow get: if isAdmin() || isDispatcher()
+        || (isRider() && request.auth.uid == riderUid)
+        || (isSalesRep() && medRepMayViewRider(riderUid));
+      allow list: if isAdmin() || isDispatcher();
+      allow create, update: if isRider() && request.auth.uid == riderUid && validRiderLocation(riderUid);
+      allow delete: if false;
+    }
+
+    // riderNavigationSessions/{riderUid}: the ONE route a rider is navigating
+    // (Start Navigation). Starting needs an in_transit/delayed order assigned to
+    // the rider; a different sessionId replaces the previous route. The server
+    // ends sessions whose order completes, fails, is cancelled or reassigned.
+    match /riderNavigationSessions/{riderUid} {
+      allow get: if isAdmin() || isDispatcher() || (isRider() && request.auth.uid == riderUid);
+      allow list: if isAdmin() || isDispatcher();
+      allow create, update: if isRider() && request.auth.uid == riderUid && validNavigationSession(riderUid);
+      allow delete: if false;
+    }
+
+    // Server-owned deviation state machine and its audit trail.
+    match /riderDeviationStates/{riderUid} {
+      allow get: if isAdmin() || isDispatcher() || (isRider() && request.auth.uid == riderUid);
+      allow list: if isAdmin() || isDispatcher();
+      allow write: if false;
+    }
+    match /routeDeviationEvents/{eventId} {
+      allow get, list: if isAdmin() || isDispatcher();
+      allow write: if false;
+    }
+    // Server-maintained Med Rep visibility index — used ONLY by the rules above.
+    match /riderLocationViewers/{riderUid} {
+      allow read, write: if false;
+    }
+
+    // ---------------- catalog data ----------------
+    // Read by any approved user (Sales Rep needs inventory + clinics; catalog
+    // pages need vaccines/types). Writes are admin-only.
+    // Stock levels are settlement state, not ordinary catalog data.
+    //
+    // Admin Add Stock still creates batches from the client, now with the field
+    // validation the rules never had. `reservedQuantity` still moves ONLY inside
+    // a callable's reservation/release/consumption transaction — no client may
+    // change it. `quantity` likewise moves through the callables during the order
+    // lifecycle, with ONE additional controlled path: an admin STOCK CORRECTION
+    // (isValidStockCorrection), which fixes a human error in the on-hand figure
+    // without ever dropping below what is reserved or touching reservedQuantity.
+    // Any other client attempt to change quantity is still refused.
+    match /inventory/{id} {
+      allow read: if isApprovedUser();
+      // New stock arrives through addStockBatchWithAllocation, which creates
+      // the batch and allocates it to waiting orders in ONE transaction. A
+      // client-created batch would skip the allocation, so none is allowed.
+      allow create: if false;
+      allow update: if isAdmin() && stockDatesValidIfChanged() && (
+        (
+          !changedKeys().hasAny(stockCounterFields())
+          && stockPriceValidIfPresent()
+          && stockPriceAuditValid()
+        )
+        || isValidStockCorrection()
+      );
+      // Never while units are reserved, waiting on a return or quarantined:
+      // deleting the batch would orphan the records that explain them.
+      allow delete: if isAdmin()
+        && resource.data.get('reservedQuantity', 0) == 0
+        && resource.data.get('returnPendingQuantity', 0) == 0
+        && resource.data.get('quarantinedQuantity', 0) == 0;
+    }
+    // Vaccine catalog. A new product must carry a VAT classification —
+    // exactly 'vatable' or 'vat_exempt', no default. A legacy product without
+    // one stays readable and editable; classifying (or re-classifying) it must
+    // set a valid value and record WHO and WHEN from the session. Only Admin
+    // writes here. The classification is snapshotted onto order items by the
+    // order callable, so changing it never touches an existing order.
+    match /vaccines/{id} {
+      allow read: if isApprovedUser();
+      allow create: if isAdmin()
+        && isProductVatClassification(request.resource.data.get('vatClassification', null));
+      allow update: if isAdmin() && vaccineVatChangeValid();
+      allow delete: if isAdmin();
+    }
+    match /vaccineTypes/{id} {
+      allow read: if isApprovedUser();
+      allow write: if isAdmin();
+    }
+    match /areas/{areaId} {
+      allow read: if isApprovedUser();
+      allow create: if isAdmin() && validNewArea(areaId);
+      allow update: if isAdmin() && validAreaStatusUpdate();
+      allow delete: if false;
+    }
+    match /doctors/{doctorId} {
+      allow read: if isApprovedUser();
+      allow create: if isAdmin() && validNewDoctor();
+      allow update: if isAdmin() && validDoctorStatusUpdate();
+      allow delete: if false;
+    }
+    match /doctors/{doctorId}/deliveryAddresses/{addressId} {
+      allow read: if isApprovedUser();
+      // `home` is the doctor's one private doorstep destination. Every other
+      // nested document id is a linked clinic id, so clinic links stay unique.
+      allow create: if isAdmin()
+        && (
+          validNewDoctorHome(doctorId, addressId)
+          || (
+            addressId != 'home'
+            && validNewDoctorDestination(doctorId, addressId)
+          )
+        );
+      allow update: if isAdmin()
+        && (
+          validDoctorHomeDetailsUpdate(doctorId, addressId)
+          || validDoctorHomeStatusUpdate(doctorId, addressId)
+          || (
+            addressId != 'home'
+            && validDoctorDestinationStatusUpdate(doctorId, addressId)
+          )
+        );
+      // One-way cleanup for standalone address documents created by the
+      // superseded checkpoint. Valid clinic relationships are never deletable.
+      allow delete: if isAdmin()
+        && addressId != 'home'
+        && isLegacyIndependentDoctorAddress();
+    }
+    match /clinics/{id} {
+      allow read: if isApprovedUser();
+      allow create: if isAdmin() && validActiveClinicArea();
+      // Existing clinics predate `areaId`, so ordinary edits remain available;
+      // every new or changed area relationship must point to active master data.
+      allow update: if isAdmin()
+        && (
+          !changedKeys().hasAny(['areaId', 'area'])
+          || validActiveClinicArea()
+        );
+      allow delete: if isAdmin();
+    }
+
+    // ---------------- alerts ----------------
+    // Admin + Dispatcher read all alerts; only Admin resolves / marks read /
+    // creates / deletes. Route-deviation alerts are SERVER-OWNED: the
+    // trackRiderLocation Cloud Function decides deviation and writes them
+    // (functions/src/riderTrackingOps.js). No rider may create, change or read
+    // one — a client can never forge or clear a deviation decision.
+    match /alerts/{id} {
+      allow get, list: if isAdmin() || isDispatcher();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ---------------- invoices (admin only) ----------------
+    // No Sales Rep / Dispatcher / Rider access. The invoice doc id IS the order
+    // id (one invoice per order). Phase 5E hardening mirrors invoiceService:
+    //  * create only as a server-timestamped DRAFT with a well-formed
+    //    INV-YYYY-###### number and the creating admin recorded;
+    //  * updates keep orderId / invoiceNumber / creation trail immutable and are
+    //    server-timestamped by the caller;
+    //  * the ONLY status change is draft -> issued, which must be
+    //    server-timestamped, done by the caller, and must NOT re-price the
+    //    invoice (totals frozen);
+    //  * once issued the invoice is frozen (no further update, no delete);
+    //  * legacy / seeded invoices stay readable by admin.
+    // ---------------- server-priced invoices (pricing checkpoint) ----------------
+    //
+    // An invoice for an order that carries a price snapshot is written ONLY by
+    // `saveInvoiceDraftForPricedOrder` / `issueInvoiceForPricedOrder`, which run
+    // on the Admin SDK and bypass these rules by design.
+    //
+    // Why the client write is denied outright rather than validated here: an
+    // invoice's base pricing is an ARRAY of lines that each have to agree with
+    // the matching line on the order. Rules cannot iterate an array, so they
+    // cannot express "every line matches" for an arbitrary number of lines —
+    // any rule written here would check the first line, or the length, and call
+    // that validation. A partial check that looks complete is worse than none,
+    // so the whole path is closed and the callable is the only way in.
+    //
+    // The invoice document id IS the order id, so the order is reachable
+    // directly — one get(), on a path that is not hot.
+    //
+    // `.data.get('pricingVersion', 0)` rather than `.data.pricingVersion`:
+    // reading a key that is absent is an ERROR in rules, not a null, and an
+    // erroring condition denies. Written the direct way, every LEGACY order —
+    // which by definition has no pricingVersion — would have had its manual
+    // invoice path denied outright. The default keeps that path open.
+    function invoiceOrderIsServerPriced(invoiceId) {
+      return exists(/databases/$(database)/documents/orders/$(invoiceId))
+        && get(/databases/$(database)/documents/orders/$(invoiceId)).data.get('pricingVersion', 0) == 1;
+    }
+
+    match /invoices/{invoiceId} {
+      allow get, list: if isAdmin();
+
+      allow create: if isAdmin()
+        && !invoiceOrderIsServerPriced(invoiceId)
+        && request.resource.data.orderId == invoiceId
+        && request.resource.data.invoiceStatus == 'draft'
+        && request.resource.data.invoiceNumber is string
+        && request.resource.data.invoiceNumber.matches('INV-[0-9]{4}-[0-9]{6}')
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.createdByUid == request.auth.uid
+        // A NEW manual invoice records the current convention: its prices are
+        // entered VAT-inclusive (pricingConfig.js).
+        && request.resource.data.get('priceIsVatInclusive', null) == true;
+
+      allow update: if isAdmin()
+        // A priced order's invoice is the callable's alone — see above.
+        && !invoiceOrderIsServerPriced(invoiceId)
+        // The convention a manual invoice was recorded under never changes. A
+        // draft saved before the flag existed was computed VAT-exclusive, so an
+        // absent flag reads as false — and stays false.
+        && request.resource.data.get('priceIsVatInclusive', false)
+             == resource.data.get('priceIsVatInclusive', false)
+        // identity + creation trail are immutable
+        && request.resource.data.orderId == resource.data.orderId
+        && request.resource.data.invoiceNumber == resource.data.invoiceNumber
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdByUid == resource.data.createdByUid
+        // only a DRAFT can be updated (an issued invoice is frozen)
+        && resource.data.invoiceStatus == 'draft'
+        && request.resource.data.invoiceStatus in ['draft', 'issued']
+        // server-set audit on every update, by the caller
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedByUid == request.auth.uid
+        // the draft -> issued transition: server time, by the caller, and the
+        // totals are frozen (issuing never re-prices the invoice)
+        && (
+          request.resource.data.invoiceStatus == 'draft'
+          || (
+            request.resource.data.issuedAt == request.time
+            && request.resource.data.issuedByUid == request.auth.uid
+            && request.resource.data.grandTotal == resource.data.grandTotal
+            && request.resource.data.subtotal == resource.data.subtotal
+          )
+        );
+
+      // No client delete (the app never deletes invoices; issued/legacy stay).
+    }
+
+    // ---------------- counters (admin only) ----------------
+    // Back the transactional invoice numbering. `current` is a non-negative
+    // integer that only ever increases (no reset/decrement), so an invoice
+    // number can never be reused.
+    match /counters/{counterId} {
+      allow get, list: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.current is int
+        && request.resource.data.current >= 0
+        && request.resource.data.updatedAt == request.time;
+      allow update: if isAdmin()
+        && request.resource.data.current is int
+        && request.resource.data.current > resource.data.current
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    // ---------------- deny by default ----------------
+    // Anything not matched above is denied (no catch-all allow).
+  }
+}

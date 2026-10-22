@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   ChevronDown,
@@ -15,6 +16,7 @@ import {
 } from "../../services/deliveryService";
 import { ORDER_STATUSES, STATUS_LABELS } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
+import TimingIndicator from "../../components/ui/TimingIndicator";
 import KpiCard from "../../components/ui/KpiCard";
 import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 import { subscribeOrderStatusEvents } from "../../services/statusEventService";
@@ -68,6 +70,11 @@ function normalizeDelivery(raw) {
     // written by the Flutter Rider app, so the web renders them directly and
     // needs no Storage SDK. `invoiceUrl` is the rider's photo of the paper
     // invoice — unrelated to the `invoices` collection / Admin Invoices module.
+    // Server-evaluated delivery timing (functions/src/deliveryTiming.js) —
+    // shown next to the lifecycle status, never instead of it.
+    timingStatus: raw.timingStatus ?? null,
+    expectedArrivalAt: raw.expectedArrivalAt ?? null,
+    automaticDelayedAt: raw.automaticDelayedAt ?? null,
     proofOfDeliveryUrl: raw.proofOfDeliveryUrl || "",
     invoiceUrl: raw.invoiceUrl || "",
     // The rider whose live location the map reads (riderLocations/{uid} — the
@@ -115,6 +122,29 @@ function Deliveries() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [selectedDelivery, setSelectedDelivery] = useState(null);
+  // An alert’s "Open delivery" link (/admin/deliveries?order=<order id>)
+  // opens that order’s drawer as soon as the live list has it. Derived, not
+  // copied into state, so it always shows the stored order; closing the
+  // drawer drops the parameter so it does not reopen.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedOrderId = searchParams.get("order") || "";
+  const linkedDelivery = linkedOrderId
+    ? deliveryList.find((d) => d.uid === linkedOrderId) ?? null
+    : null;
+  const openDelivery = selectedDelivery ?? linkedDelivery;
+  const closeDelivery = () => {
+    setSelectedDelivery(null);
+    if (linkedOrderId) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("order");
+          return next;
+        },
+        { replace: true }
+      );
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = subscribeDeliveries(
@@ -176,7 +206,7 @@ function Deliveries() {
   // can read all orders, so it plots the whole tour; the map falls back to the
   // single numbered stop when this is empty.
   const selectedTripStops = useMemo(() => {
-    const tripId = selectedDelivery?.tripId;
+    const tripId = openDelivery?.tripId;
     if (!tripId) return [];
     return deliveryList
       .filter(
@@ -188,7 +218,7 @@ function Deliveries() {
       )
       .sort((a, b) => a.stopSequence - b.stopSequence)
       .map((d) => ({ lat: d.clinicLat, lng: d.clinicLng, label: d.stopSequence }));
-  }, [deliveryList, selectedDelivery]);
+  }, [deliveryList, openDelivery]);
 
   return (
     <>
@@ -445,6 +475,9 @@ function Deliveries() {
 
                     <td>
                       <StatusBadge statusKey={delivery.statusKey} />
+                      <div>
+                        <TimingIndicator order={delivery} detail={false} />
+                      </div>
                     </td>
 
                     <td onClick={(e) => e.stopPropagation()}>
@@ -522,11 +555,11 @@ function Deliveries() {
           is no reviewed field, and Admin is a read-only view of the orders
           collection. "View Route" promised a live route Admin has no source
           for. "Contact Rider" is now a tel: link inside the drawer. */}
-      {selectedDelivery && (
+      {openDelivery && (
         <DeliveryModal
-          delivery={selectedDelivery}
+          delivery={openDelivery}
           tripStops={selectedTripStops}
-          onClose={() => setSelectedDelivery(null)}
+          onClose={closeDelivery}
         />
       )}
     </>
@@ -565,6 +598,7 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
               <h2>{delivery.id}</h2>
               <StatusBadge statusKey={delivery.statusKey} />
             </div>
+            <TimingIndicator order={delivery} />
             <p>{delivery.destination}</p>
           </div>
 

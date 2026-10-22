@@ -2,8 +2,9 @@
 //
 // Every file in src/services is copied to a temp directory with only its two
 // unresolvable import specifiers rewritten — `firebase/firestore` (the network
-// SDK) and `../firebase` (which would initialise a real app from Vite-only
-// `import.meta.env` vars). Sibling imports like `./deliveryService` keep
+// SDK), `firebase/functions` (callables; each test installs the server's
+// replies with installCallables) and `../firebase` (which would initialise a
+// real app from Vite-only `import.meta.env` vars). Sibling imports like `./deliveryService` keep
 // working because the whole directory is copied together, so the code under
 // test is the shipped code, not a transcription of it.
 //
@@ -169,6 +170,27 @@ export function createServiceLoader() {
     join(tmp, "__firebase.mjs"),
     `export const db = { __mockDb: true };
 export const auth = { get currentUser() { return globalThis.__vaxAuth ?? null; } };
+export default { __mockApp: true };
+`
+  );
+  // Callables: each call is recorded and answered by the handler the test
+  // installed for that name — its return value is the callable's `data`, a
+  // thrown error is what the SDK would throw. No handler: unavailable.
+  writeFileSync(
+    join(tmp, "__functions.mjs"),
+    `export function getFunctions(app, region) { return { __mockFunctions: true, region }; }
+export function httpsCallable(_fns, name) {
+  return async (data) => {
+    (globalThis.__vaxCalls ??= []).push({ name, data });
+    const handler = globalThis.__vaxCallables?.[name];
+    if (!handler) {
+      const error = new Error("internal");
+      error.code = "functions/unavailable";
+      throw error;
+    }
+    return { data: await handler(data) };
+  };
+}
 `
   );
 
@@ -178,6 +200,7 @@ export const auth = { get currentUser() { return globalThis.__vaxAuth ?? null; }
     const original = readFileSync(join(servicesDir, file), "utf8");
     const rewritten = original
       .replaceAll('"firebase/firestore"', '"./__firestore.mjs"')
+      .replaceAll('"firebase/functions"', '"./__functions.mjs"')
       .replaceAll('"../firebase"', '"./__firebase.mjs"')
       // Sibling imports are written extensionless (`./orderLocation`), which
       // Vite resolves and bare Node does not. Adding the extension keeps the
@@ -203,6 +226,26 @@ export function installStore(store, authUser = null) {
   globalThis.__vaxAuth = authUser;
   globalThis.__vaxBeforeCommit = null;
   return store;
+}
+
+/**
+ * Install the server's replies for callables, by name. A handler receives the
+ * request data and returns the response data, or throws what the SDK would
+ * (an Error with `code: "functions/…"` and `details: { code, info }`).
+ * Returns the call log.
+ */
+export function installCallables(handlers = {}) {
+  globalThis.__vaxCallables = handlers;
+  globalThis.__vaxCalls = [];
+  return globalThis.__vaxCalls;
+}
+
+/** What a callable refusal looks like to the client SDK. */
+export function callableError(code, message, info) {
+  const error = new Error(message);
+  error.code = "functions/failed-precondition";
+  error.details = { code, ...(info ? { info } : {}) };
+  return error;
 }
 
 /** Schedule a competing committed write inside the next transaction attempt. */

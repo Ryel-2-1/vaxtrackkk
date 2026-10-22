@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  callableError,
   createServiceLoader,
   createStore,
+  installCallables,
   installStore,
   SERVER_TIMESTAMP,
 } from "./serviceHarness.js";
@@ -95,20 +97,8 @@ test("an undated, invalid-dated or future order is not promoted to loading", asy
   }
 });
 
-test("finalize refuses the whole group if any order is undated or not yet due", async () => {
-  for (const [late, code] of [
-    [undated({ status: "loading", isLoaded: true }), "scheduled-date-missing"],
-    [order({ status: "loading", isLoaded: true, requestedDeliveryDate: "2999-01-01" }), "scheduled-date-not-reached"],
-  ]) {
-    const store = installStore(
-      seed({ o1: order({ status: "loading", isLoaded: true }), o2: late }),
-      DISPATCHER
-    );
-    await expectRejection(cargo.finalizeRiderDispatch(RIDER, ["o1", "o2"]), code);
-    assert.equal(data(store, "o1").status, "loading", "the eligible order was not dispatched alone");
-    assert.equal(data(store, "o2").status, "loading");
-  }
-});
+// Finalize's schedule check (undated / not yet due refuses the whole trip) is
+// the finalizeRiderDispatch callable's now: functions/test/integration/riderDispatch.test.js.
 
 test("confirming an order that is already loading writes metadata only", async () => {
   const store = installStore(seed({ o1: order({ status: "loading", isLoaded: false }) }), DISPATCHER);
@@ -118,15 +108,63 @@ test("confirming an order that is already loading writes metadata only", async (
   assert.equal(data(store, "o1").isLoaded, true);
 });
 
-test("unchecking never regresses loading back to assigned", async () => {
-  const store = installStore(seed({ o1: order({ status: "loading", isLoaded: true }) }), DISPATCHER);
+// A stored loading audit: an earlier confirmation by another dispatcher.
+const EARLIER = { toMillis: () => Date.parse("2026-01-01T00:30:00Z") };
+const audited = (over = {}) => ({
+  loadedAt: EARLIER,
+  loadedByUid: "EarlierDispatcher",
+  loadedByEmail: "earlier@vaxtrack.com",
+  ...over,
+});
+const auditKeys = (write) => Object.keys(write.data).filter((k) => k.startsWith("loadedBy") || k === "loadedAt");
+
+test("unchecking never regresses loading back to assigned, and keeps the loading audit", async () => {
+  const store = installStore(seed({ o1: order({ status: "loading", isLoaded: true, ...audited() }) }), DISPATCHER);
   await cargo.updateOrderLoadedState("o1", false);
   const o = data(store, "o1");
 
   assert.equal(o.status, "loading", "loading means preparation began; it does not un-begin");
   assert.equal(o.isLoaded, false);
-  assert.equal(o.loadedAt, null, "stale audit fields are cleared");
-  assert.equal(o.loadedByUid, null);
+  assert.equal(o.loadedAt, EARLIER, "the audit survives the untick");
+  assert.equal(o.loadedByUid, "EarlierDispatcher");
+  assert.equal(o.loadedByEmail, "earlier@vaxtrack.com");
+  assert.deepEqual(auditKeys(store.writes[0]), [], "the untick writes no audit field at all");
+});
+
+test("re-ticking an order that has an audit changes only the flag", async () => {
+  const store = installStore(seed({ o1: order({ status: "loading", isLoaded: false, ...audited() }) }), DISPATCHER);
+  await cargo.updateOrderLoadedState("o1", true);
+  const o = data(store, "o1");
+  assert.equal(o.isLoaded, true);
+  assert.equal(o.loadedAt, EARLIER, "the first confirmation stays the record");
+  assert.equal(o.loadedByUid, "EarlierDispatcher");
+  assert.deepEqual(auditKeys(store.writes[0]), []);
+});
+
+test("an assigned order with an earlier audit is promoted without rewriting it", async () => {
+  const store = installStore(seed({ o1: order({ ...audited() }) }), DISPATCHER);
+  await cargo.updateOrderLoadedState("o1", true);
+  const o = data(store, "o1");
+  assert.equal(o.status, "loading");
+  assert.equal(o.loadedAt, EARLIER);
+  assert.equal(o.loadedByUid, "EarlierDispatcher");
+});
+
+test("a legacy loaded order without an audit is stamped when unticked, so custody is not lost", async () => {
+  const store = installStore(seed({ o1: order({ status: "loading", isLoaded: true }) }), DISPATCHER);
+  await cargo.updateOrderLoadedState("o1", false);
+  const o = data(store, "o1");
+  assert.equal(o.isLoaded, false);
+  assert.equal(o.loadedAt, SERVER_TIMESTAMP);
+  assert.equal(o.loadedByUid, DISPATCHER.uid);
+  assert.equal(o.loadedByEmail, DISPATCHER.email);
+});
+
+test("unticking an order that was never confirmed writes no audit", async () => {
+  const store = installStore(seed({ o1: order({ status: "loading", isLoaded: false }) }), DISPATCHER);
+  await cargo.updateOrderLoadedState("o1", false);
+  assert.deepEqual(auditKeys(store.writes[0]), []);
+  assert.equal("loadedAt" in data(store, "o1"), false);
 });
 
 test("loading metadata is refused outside assigned and loading", async () => {
@@ -159,91 +197,51 @@ test("cargo loading refuses a missing order and an unauthenticated caller", asyn
 // Finalize dispatch — loading → in_transit, atomically
 // ---------------------------------------------------------------------------
 
-const loadedOrder = (over = {}) => order({ status: "loading", isLoaded: true, ...over });
+// ---------------------------------------------------------------------------
+// Finalize Dispatch — the finalizeRiderDispatch callable (Rider trips)
+//
+// The whole trip leaves on the server, or nothing does: every order re-read,
+// in Loading, confirmed loaded, fully reserved, on or after its date, and the
+// group exactly the Rider's trip (another Rider's, a vanished or a terminal
+// order is refused); a legacy order's missing custody audit is stamped and an
+// existing one never rewritten; route fields are kept. All of that is tested
+// against a real Firestore in functions/test/integration/riderDispatch.test.js.
+// Here: the service sends exactly the trip, writes nothing itself, and passes
+// the server's answer through.
+// ---------------------------------------------------------------------------
 
-test("a fully eligible group is dispatched together", async () => {
-  const store = installStore(
-    seed({ o1: loadedOrder(), o2: loadedOrder({ orderNumber: "VT-ORD-7002" }) }),
-    DISPATCHER
-  );
-  await cargo.finalizeRiderDispatch(RIDER, ["o1", "o2"]);
-
-  for (const id of ["o1", "o2"]) {
-    const o = data(store, id);
-    assert.equal(o.status, "in_transit");
-    assert.equal(o.dispatchedAt, SERVER_TIMESTAMP);
-    assert.equal(o.startedAt, SERVER_TIMESTAMP);
-    assert.equal(o.loadingFinalizedAt, SERVER_TIMESTAMP);
-    assert.equal(o.dispatchedByUid, DISPATCHER.uid);
-    assert.equal(o.statusUpdatedByUid, DISPATCHER.uid);
-  }
+test("finalize is one callable request for the rider's whole group, with the trip the page saw", async () => {
+  const store = installStore(seed({ o1: order({ status: "loading", isLoaded: true }) }), DISPATCHER);
+  const reply = { riderUid: RIDER, tripId: "Trip1", dispatchedOrderIds: ["o1", "o2"], replayed: false };
+  const calls = installCallables({ finalizeRiderDispatch: () => reply });
+  assert.deepEqual(await cargo.finalizeRiderDispatch(RIDER, ["o1", "o2", "o1"], "Trip1"), reply);
+  assert.deepEqual(calls, [{ name: "finalizeRiderDispatch", data: { riderUid: RIDER, orderIds: ["o1", "o2"], tripId: "Trip1" } }]);
+  // A Rider the server has not classified yet: no trip id is sent.
+  await cargo.finalizeRiderDispatch(RIDER, ["o1"]);
+  assert.deepEqual(calls[1].data, { riderUid: RIDER, orderIds: ["o1"] });
+  assert.equal(store.writes.length, 0, "the client writes nothing — no in_transit write exists here");
 });
 
-test("multiple orders per rider are preserved", async () => {
-  const store = installStore(
-    seed({ o1: loadedOrder(), o2: loadedOrder(), o3: loadedOrder() }),
-    DISPATCHER
-  );
-  await cargo.finalizeRiderDispatch(RIDER, ["o1", "o2", "o3"]);
-  assert.equal(
-    ["o1", "o2", "o3"].filter((id) => data(store, id).status === "in_transit").length,
-    3
-  );
-});
-
-test("a mixed-status batch fails atomically — nothing is dispatched", async () => {
-  const store = installStore(
-    seed({ o1: loadedOrder(), o2: loadedOrder({ status: "assigned" }) }),
-    DISPATCHER
-  );
-  await expectRejection(cargo.finalizeRiderDispatch(RIDER, ["o1", "o2"]), "order-not-dispatchable");
-
-  assert.equal(data(store, "o1").status, "loading", "the eligible order was NOT dispatched");
-  assert.equal(data(store, "o2").status, "assigned");
-  assert.equal(store.writes.length, 0, "no partial write escaped");
-});
-
-test("an unloaded order blocks the whole dispatch", async () => {
-  const store = installStore(
-    seed({ o1: loadedOrder(), o2: loadedOrder({ isLoaded: false }) }),
-    DISPATCHER
-  );
-  await expectRejection(cargo.finalizeRiderDispatch(RIDER, ["o1", "o2"]), "order-not-loaded");
-  assert.equal(data(store, "o1").status, "loading");
-  assert.equal(store.writes.length, 0);
-});
-
-test("an order belonging to another rider blocks the whole dispatch", async () => {
-  const store = installStore(
-    seed({ o1: loadedOrder(), o2: loadedOrder({ assignedRiderId: OTHER_RIDER }) }),
-    DISPATCHER
-  );
-  await expectRejection(cargo.finalizeRiderDispatch(RIDER, ["o1", "o2"]), "order-not-for-rider");
-  assert.equal(store.writes.length, 0);
-});
-
-test("a stale batch naming a vanished order fails atomically", async () => {
-  const store = installStore(seed({ o1: loadedOrder() }), DISPATCHER);
-  await expectRejection(cargo.finalizeRiderDispatch(RIDER, ["o1", "ghost"]), "order-not-found");
-  assert.equal(data(store, "o1").status, "loading");
-  assert.equal(store.writes.length, 0);
-});
-
-test("terminal orders can never be re-dispatched", async () => {
-  for (const status of ["delivered", "cancelled"]) {
-    const store = installStore(seed({ o1: loadedOrder({ status }) }), DISPATCHER);
-    await expectRejection(cargo.finalizeRiderDispatch(RIDER, ["o1"]), "order-not-dispatchable");
-    assert.equal(data(store, "o1").status, status);
+test("finalize refusals come back with the server's code and sentence", async () => {
+  installStore(seed({}), DISPATCHER);
+  for (const code of ["order-not-loaded", "order-not-dispatchable", "trip-changed", "rider-on-trip", "scheduled-date-not-reached"]) {
+    installCallables({ finalizeRiderDispatch: () => { throw callableError(code, `Refused: ${code}.`); } });
+    await assert.rejects(cargo.finalizeRiderDispatch(RIDER, ["o1"]), (err) => {
+      assert.deepEqual([err.code, err.message], [code, `Refused: ${code}.`]);
+      return true;
+    });
   }
 });
 
 test("finalize rejects an empty group, a missing rider and no session", async () => {
-  installStore(seed({ o1: loadedOrder() }), DISPATCHER);
+  installStore(seed({ o1: order({ status: "loading", isLoaded: true }) }), DISPATCHER);
+  const calls = installCallables({ finalizeRiderDispatch: () => ({}) });
   await expectRejection(cargo.finalizeRiderDispatch(RIDER, []), "no-orders");
   await expectRejection(cargo.finalizeRiderDispatch("", ["o1"]), "rider-required");
 
-  installStore(seed({ o1: loadedOrder() }), null);
+  installStore(seed({ o1: order({ status: "loading", isLoaded: true }) }), null);
   await expectRejection(cargo.finalizeRiderDispatch(RIDER, ["o1"]), "not-signed-in");
+  assert.equal(calls.length, 0, "nothing reached the server");
 });
 
 // ---------------------------------------------------------------------------
@@ -329,9 +327,14 @@ test("the arbitrary-status writer is gone from the order service", async () => {
 test("no dispatcher service can perform a rider transition", async () => {
   for (const status of ["in_transit", "delayed"]) {
     const store = installStore(seed({ o1: order({ status, isLoaded: true }) }), DISPATCHER);
-    // The only status-changing dispatcher entry points are these three.
+    // The status-changing dispatcher entry points: loading (client), Finalize
+    // (the server refuses anything not in Loading) and cancellation.
     await expectRejection(cargo.updateOrderLoadedState("o1", true), "not-loadable");
-    await expectRejection(cargo.finalizeRiderDispatch(RIDER, ["o1"]), "order-not-dispatchable");
+    installCallables({
+      finalizeRiderDispatch: () => { throw callableError("order-not-dispatchable", "No longer ready for dispatch."); },
+    });
+    await assert.rejects(cargo.finalizeRiderDispatch(RIDER, ["o1"]), (e) => e.code === "order-not-dispatchable");
+    assert.equal(data(store, "o1").status, status);
     // Cancellation is allowed — it is a dispatcher transition, not a rider one.
     await orders.cancelOrderByDispatcher("o1", "Recalled by supervisor");
     assert.equal(data(store, "o1").status, "cancelled");
@@ -346,8 +349,9 @@ test("loading and dispatch keep a valid route: only a change of rider or destina
   };
   const store = installStore(seed({ o1: order(route) }), DISPATCHER);
   await cargo.updateOrderLoadedState("o1", true);
-  await cargo.finalizeRiderDispatch(RIDER, ["o1"]);
   const o = data(store, "o1");
-  assert.equal(o.status, "in_transit");
+  assert.equal(o.status, "loading");
   for (const [k, v] of Object.entries(route)) assert.equal(o[k], v, `${k} kept`);
+  // Dispatch keeps them too — the server's Finalize writes no route field
+  // (functions/test/integration/riderDispatch.test.js).
 });

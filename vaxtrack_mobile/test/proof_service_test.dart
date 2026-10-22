@@ -61,11 +61,6 @@ void main() {
       expect(d.proofUrl, 'https://storage/proof.jpg');
     });
 
-    test('the assigned approved rider on a delayed order', () {
-      final d = decide(orderData: liveOrder(status: 'delayed'));
-      expect(d.allowed, isTrue);
-    });
-
     test('a submission with no Storage path (manual-link fallback)', () {
       // The fallback records a URL with no object behind it. Everything else —
       // authorization, order state, recipient — still applies.
@@ -118,7 +113,14 @@ void main() {
           'not-assigned-rider');
     });
 
-    test('every status except in_transit and delayed', () {
+    test('a DELAYED order: refused with the resume reason (same code as the server)', () {
+      final d = decide(orderData: liveOrder(status: 'delayed'));
+      expect(d.allowed, isFalse);
+      expect(d.code, 'delivery-delayed');
+      expect(d.message, contains('Resume it (In Transit)'));
+    });
+
+    test('every status except in_transit', () {
       for (final status in [
         'pending_dispatch',
         'assigned',

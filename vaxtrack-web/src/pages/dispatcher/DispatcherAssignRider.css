@@ -194,7 +194,12 @@
 .arq-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  /* The modal level the shared ConfirmDialog uses (feedback.css). At 1000 it
+     sat under the narrow-screen shell — the off-canvas sidebar (1200) and the
+     fixed menu toggle (1300) — so the toggle covered the dialog's heading and
+     stayed clickable behind a modal. Rendered after the shell (a body portal),
+     it now paints above both. */
+  z-index: 1300;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -292,4 +297,94 @@
   .arq-dialog-actions .ar-btn {
     flex: 1 1 auto;
   }
+}
+
+/* Rider trips: where each Rider is. A Rider on a trip, or returning to the
+   hub, cannot be given an order (the server refuses it either way). */
+.ar-rider.out {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.ar-rider-info small.ar-rider-trip {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--gray-100);
+  /* --gray-600: there is no --gray-700 token; the undefined variable made the
+     text inherit white, so "Trip status not confirmed yet" was unreadable. */
+  color: var(--gray-600);
+}
+
+.ar-rider-info small.ar-rider-trip.available {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.ar-rider-info small.ar-rider-trip.forming {
+  background: var(--info-bg);
+  color: var(--info-text);
+}
+
+.ar-rider-info small.ar-rider-trip.on_trip,
+.ar-rider-info small.ar-rider-trip.returning {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.ar-rider-info small.ar-rider-trip-note {
+  margin-top: 3px;
+  color: var(--gray-600);
+  white-space: normal;
+}
+
+/* "Re-check trip status": recovery for a status left stale by a missed update. */
+.arq-riders-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 4px 20px 0;
+}
+
+.arq-riders-head .arq-dialog-sub {
+  margin: 0;
+}
+
+.dispatcher-page .arq-recheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px !important; /* out-specifies the global button min-height reset */
+  padding: 4px 10px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control);
+  background: #ffffff;
+  color: var(--green-700);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dispatcher-page .arq-recheck:disabled {
+  color: var(--gray-500);
+  cursor: not-allowed;
+}
+
+.arq-recheck-note {
+  margin: 8px 20px 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.arq-recheck-note.success {
+  color: var(--success-text);
+}
+
+.arq-recheck-note.error {
+  color: var(--danger-text);
 }

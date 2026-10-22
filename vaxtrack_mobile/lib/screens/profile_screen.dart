@@ -6,68 +6,121 @@ import '../services/delivery_service.dart';
 import '../models/delivery.dart';
 import '../theme/app_theme.dart';
 import '../widgets/route_monitoring_card.dart';
+import '../widgets/rider_feed_builder.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({super.key, this.riderId, this.profileFeed, this.deliveriesFeed});
+
+  /// Test seams. In the app all are null: the Rider is the signed-in user and
+  /// both feeds are Firestore. Tests pass a Rider id and controlled streams.
+  final String? riderId;
+  final Stream<AppUser?> Function(String riderId)? profileFeed;
+  final Stream<List<Delivery>> Function(String riderId)? deliveriesFeed;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final _authService = AuthService();
-  final _deliveryService = DeliveryService();
+  // Lazy: only created when a Firestore feed is actually opened.
+  late final _authService = AuthService();
+  late final _deliveryService = DeliveryService();
+  /// The signed-in Rider, read on every build — never captured once — so a
+  /// changed account can only ever open that account's feed.
+  String? get _uid => widget.riderId ?? FirebaseAuth.instance.currentUser?.uid;
 
   @override
   Widget build(BuildContext context) {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = _uid;
     if (uid == null) return const Center(child: Text('Not logged in.'));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Rider Profile')),
-      body: StreamBuilder<AppUser?>(
-        stream: _authService.userProfileStream(uid),
-        builder: (context, userSnap) {
-          if (userSnap.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+      // Each feed is subscribed once (see RiderFeedBuilder). Sign Out stays
+      // reachable in every state, including a failed profile load.
+      body: RiderFeedBuilder<AppUser?>(
+        riderId: uid,
+        open: widget.profileFeed ?? _authService.userProfileStream,
+        component: 'ProfileScreen',
+        what: 'your profile',
+        errorBuilder: (context, message, retry) =>
+            RiderFeedError(message: message, onRetry: retry, footer: _signOutButton()),
+        builder: (context, user) {
+          if (user == null) {
+            // The profile feed is live: if the record appears, this updates
+            // by itself — so no Retry here.
+            return RiderFeedError(
+              message: 'Your rider profile could not be found. Contact your dispatcher.',
+              footer: _signOutButton(),
+            );
           }
-
-          final user = userSnap.data;
-          if (user == null) return const Center(child: Text('Profile not found.'));
-
-          return StreamBuilder<List<Delivery>>(
-            stream: _deliveryService.riderDeliveries(uid),
-            builder: (context, deliverySnap) {
-              final deliveries = deliverySnap.data ?? [];
+          // The delivery counts are secondary: while they load or if they
+          // fail, the rest of the profile (and Sign Out) stays on screen.
+          return RiderFeedBuilder<List<Delivery>>(
+            riderId: uid,
+            open: widget.deliveriesFeed ?? _deliveryService.riderDeliveries,
+            component: 'ProfileScreen',
+            what: 'your delivery counts',
+            loadingBuilder: (context) => _page(
+              user,
+              stats: const LinearProgressIndicator(key: ValueKey('profile-stats-loading')),
+            ),
+            errorBuilder: (context, message, retry) => _page(
+              user,
+              stats: _statsError(message, retry),
+            ),
+            builder: (context, deliveries) {
               final completed = deliveries.where((d) => d.isDelivered).length;
               final active = deliveries.where((d) => !d.isDelivered).length;
-
-              return ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  _profileHeader(user),
-                  const SizedBox(height: 16),
-                  _statsRow(deliveries.length, completed, active),
-                  const SizedBox(height: 16),
-                  _detailsCard(user),
-                  const SizedBox(height: 16),
-                  const RouteMonitoringCard(),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: _logout,
-                      icon: const Icon(Icons.logout, color: AppColors.urgent),
-                      label: const Text('Sign Out', style: TextStyle(color: AppColors.urgent)),
-                      style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.urgent)),
-                    ),
-                  ),
-                ],
-              );
+              return _page(user, stats: _statsRow(deliveries.length, completed, active));
             },
           );
         },
       ),
+    );
+  }
+
+  Widget _page(AppUser user, {required Widget stats}) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _profileHeader(user),
+        const SizedBox(height: 16),
+        stats,
+        const SizedBox(height: 16),
+        _detailsCard(user),
+        const SizedBox(height: 16),
+        const RouteMonitoringCard(),
+        const SizedBox(height: 24),
+        _signOutButton(),
+      ],
+    );
+  }
+
+  Widget _signOutButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: _logout,
+        icon: const Icon(Icons.logout, color: AppColors.urgent),
+        label: const Text('Sign Out', style: TextStyle(color: AppColors.urgent)),
+        style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.urgent)),
+      ),
+    );
+  }
+
+  Widget _statsError(String message, VoidCallback retry) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            message,
+            key: const ValueKey('feed-error-message'),
+            style: const TextStyle(fontSize: 12, color: AppColors.textMedium),
+          ),
+        ),
+        TextButton(key: const ValueKey('feed-retry'), onPressed: retry, child: const Text('Retry')),
+      ],
     );
   }
 

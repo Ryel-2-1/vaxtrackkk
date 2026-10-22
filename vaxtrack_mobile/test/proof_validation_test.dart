@@ -147,8 +147,9 @@ void main() {
     });
   });
 
-  test('proof is submittable only while in transit or delayed', () {
-    expect(kProofSubmittableStatuses, ['in_transit', 'delayed']);
+  test('proof is submittable only while in transit (a Delayed delivery resumes first)', () {
+    expect(kProofSubmittableStatuses, ['in_transit']);
+    expect(kProofSubmittableStatuses, isNot(contains('delayed')));
     // delivered is absent on purpose — evidence is gathered during the
     // delivery, not manufactured after it closed.
     expect(kProofSubmittableStatuses, isNot(contains('delivered')));

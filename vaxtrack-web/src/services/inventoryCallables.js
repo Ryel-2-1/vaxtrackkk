@@ -194,16 +194,19 @@ export async function addStockBatchWithAllocation({
 }
 
 /**
- * Admin: decide what happens to stock returned by a failed delivery.
- * `disposition` is one of usable | damaged | temperature_excursion | missing.
- * Usable stock is restored and immediately reallocated to waiting orders;
- * the rest is quarantined or written off and never allocated.
+ * Admin: decide what happens to stock returned by a failed delivery or by an
+ * order cancelled after dispatch. Either one `disposition` for the whole return
+ * (usable | damaged | temperature_excursion | missing), or — with `lines`
+ * (src/services/returnSplit.js) — how many vials of each batch were usable,
+ * damaged, a temperature excursion or missing. Usable stock is restored and
+ * immediately reallocated to waiting orders; the rest is quarantined or written
+ * off and never allocated.
  */
-export async function confirmReturnDisposition(returnId, disposition, notes) {
+export async function confirmReturnDisposition(returnId, disposition, notes, lines = null) {
   try {
     const result = await callables().disposition({
       returnId,
-      disposition,
+      ...(Array.isArray(lines) ? { lines } : { disposition }),
       ...(notes && notes.trim() ? { notes: notes.trim() } : {}),
     });
     return result.data;

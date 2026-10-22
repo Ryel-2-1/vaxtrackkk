@@ -66,6 +66,8 @@ const allocation = require("./src/allocation");
 const failureReturn = require("./src/failureReturn");
 const orderHistoryOutbox = require("./src/orderHistoryOutbox");
 const riderTrackingOps = require("./src/riderTrackingOps");
+const deliveryTimingOps = require("./src/deliveryTimingOps");
+const riderDispatchOps = require("./src/riderDispatchOps");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -113,6 +115,8 @@ function toHttpsError(error, context) {
       "reservation-not-found": "failed-precondition",
       "reservation-already-settled": "failed-precondition",
       "invalid-status-transition": "failed-precondition",
+      // A Delayed delivery must be resumed (in transit) before proof/completion.
+      "delivery-delayed": "failed-precondition",
       "proof-missing": "failed-precondition",
       "invoice-missing": "failed-precondition",
       "evidence-not-yours": "failed-precondition",
@@ -179,6 +183,25 @@ function toHttpsError(error, context) {
       // An order-history record with this id already holds different content.
       // Nothing was written or changed (orderHistory.js).
       "history-integrity-conflict": "failed-precondition",
+      // Rider trips (riderDispatchOps.js).
+      "rider-not-found": "not-found",
+      "not-a-rider": "failed-precondition",
+      "rider-not-approved": "failed-precondition",
+      "rider-on-trip": "failed-precondition",
+      "rider-returning": "failed-precondition",
+      "rider-state-unknown": "failed-precondition",
+      "order-not-pending": "failed-precondition",
+      "order-already-assigned": "failed-precondition",
+      "order-not-dispatchable": "failed-precondition",
+      "order-not-loaded": "failed-precondition",
+      "scheduled-date-not-reached": "failed-precondition",
+      "scheduled-date-missing": "failed-precondition",
+      "scheduled-date-invalid": "failed-precondition",
+      "trip-not-forming": "failed-precondition",
+      "trip-not-settled": "failed-precondition",
+      "trip-full": "failed-precondition",
+      // The trip moved underneath the caller — refresh, then retry.
+      "trip-changed": "aborted",
     };
     const httpsCode = map[error.code] ?? "invalid-argument";
     return new HttpsError(httpsCode, error.message, {
@@ -271,7 +294,9 @@ exports.cancelOrderWithInventoryRelease = callable(
 exports.validateDeliveryCompletionGeofence = callable(
   "validateDeliveryCompletionGeofence",
   ({ db, uid, data, now }) =>
-    operations.validateDeliveryCompletionGeofence({ db, uid, orderId: data.orderId, now })
+    // `payload` is checked to carry the order id ONLY (no status, destination,
+    // radius or location may be supplied by the client).
+    operations.validateDeliveryCompletionGeofence({ db, uid, orderId: data.orderId, payload: data, now })
 );
 
 exports.markOrderDeliveredWithInventoryConsumption = callable(
@@ -283,6 +308,7 @@ exports.markOrderDeliveredWithInventoryConsumption = callable(
       uid,
       email,
       orderId: data.orderId,
+      payload: data,
       now,
     })
 );
@@ -344,6 +370,39 @@ exports.requeueFailedOrder = callable(
   "requeueFailedOrder",
   ({ db, FieldValue, uid, email, data, now }) =>
     inventoryWorkflow.requeueFailedOrder({ db, FieldValue, uid, email, payload: data, now })
+);
+
+// ---------------------------------------------------------------- rider trips
+//
+// One server-owned state per Rider (riderDispatchStates/{uid}) and a
+// server-generated trip id (riderTrips). Orders join a trip only before
+// departure; Finalize Dispatch sends the whole trip; once every trip order is
+// settled the Rider is returning_to_hub until a Dispatcher/Admin confirms the
+// physical return. Assignment and departure are refused to every client by
+// firestore.rules — these callables are the only path.
+exports.assignRiderToOrder = callable(
+  "assignRiderToOrder",
+  ({ db, FieldValue, uid, email, data, now }) =>
+    riderDispatchOps.assignRiderToOrder({ db, FieldValue, uid, email, payload: data, now })
+);
+
+exports.finalizeRiderDispatch = callable(
+  "finalizeRiderDispatch",
+  ({ db, FieldValue, uid, email, data, now }) =>
+    riderDispatchOps.finalizeRiderDispatch({ db, FieldValue, uid, email, payload: data, now })
+);
+
+exports.confirmRiderReturnToHub = callable(
+  "confirmRiderReturnToHub",
+  ({ db, FieldValue, uid, data }) => riderDispatchOps.confirmRiderReturnToHub({ db, FieldValue, uid, payload: data })
+);
+
+// Repair for a trip state a missed or failed trigger event left stale: a
+// Dispatcher/Admin re-derives the named Riders' state from their orders (the
+// same transaction the trigger runs). Never frees a Rider after a departure.
+exports.recheckRiderTripStates = callable(
+  "recheckRiderTripStates",
+  ({ db, FieldValue, uid, data }) => riderDispatchOps.recheckRiderTripStates({ db, FieldValue, uid, payload: data })
 );
 
 exports.getReservationProvenance = callable(
@@ -479,6 +538,11 @@ exports.recordOrderStatusEvent = onDocumentWritten(
         eventId: event.id,
         event: statusEvent,
         at: event.data.after.updateTime,
+        // The dispatch event also freezes the delivery-timing baseline from
+        // this write's own snapshot (statusEvents.recordStatusEvent).
+        after,
+        FieldValue,
+        Timestamp: admin.firestore.Timestamp,
       });
       if (!result.recorded) {
         logger.info("recordOrderStatusEvent: skipped", { orderId, reason: result.reason });
@@ -524,7 +588,36 @@ exports.trackNavigationSession = onDocumentWritten(
   { document: "riderNavigationSessions/{riderUid}", retry: true },
   async (event) => {
     const after = event.data?.after?.exists ? event.data.after.data() : null;
-    await riderTrackingOps.handleSessionWrite({ db, FieldValue, riderUid: event.params.riderUid, after });
+    const before = event.data?.before?.exists ? event.data.before.data() : null;
+    // A write that only confirms a navigation fix is skipped (no transaction).
+    await riderTrackingOps.handleSessionWrite({ db, FieldValue, riderUid: event.params.riderUid, after, before });
+  }
+);
+
+// Trip membership and settlement after ANY order change: a cancellation before
+// departure leaves the forming trip; delivered / cancelled / failed / requeued
+// orders settle it; the last one moves the Rider to returning_to_hub. Also
+// folds in assignments written directly by a client during the rollout window
+// (before the rules forbid it) — logged as anomalies, never silently dropped.
+exports.reconcileRiderDispatchOnOrderWrite = onDocumentWritten(
+  { document: "orders/{orderId}", retry: true },
+  async (event) => {
+    const before = event.data?.before?.exists ? event.data.before.data() : null;
+    const after = event.data?.after?.exists ? event.data.after.data() : null;
+    const results = await riderDispatchOps.reconcileRiderOnOrderWrite({ db, FieldValue, before, after });
+    for (const r of results) {
+      if (r.anomalies?.length) {
+        logger.warn("rider-dispatch-anomaly", { orderId: event.params.orderId, riderUid: r.riderUid, anomalies: r.anomalies });
+      }
+      // Fail closed: an assigned order whose status cannot be placed leaves the
+      // Rider's state untouched, and every trip decision for them is refused.
+      if (r.unknown) {
+        logger.error("rider-dispatch-unknown-order", { orderId: event.params.orderId, riderUid: r.riderUid, orderIds: r.orderIds });
+      }
+      if (r.recovered) {
+        logger.warn("rider-dispatch-recovered", { orderId: event.params.orderId, riderUid: r.riderUid, state: r.state });
+      }
+    }
   }
 );
 
@@ -534,6 +627,25 @@ exports.syncRiderTrackingOnOrderWrite = onDocumentWritten(
     const before = event.data?.before?.exists ? event.data.before.data() : null;
     const after = event.data?.after?.exists ? event.data.after.data() : null;
     await riderTrackingOps.handleOrderWrite({ db, FieldValue, orderId: event.params.orderId, before, after });
+  }
+);
+
+// ---------------------------------------------------------------- delivery timing
+//
+// Automatic delivery timing (src/deliveryTiming.js): every 5 minutes, the
+// orders whose next timing check is DUE (timingActive && timingNextCheckAt <=
+// now; composite index in firestore.indexes.json) move forward on_time →
+// at_risk → delayed by SERVER time. Never changes the lifecycle status and
+// never blocks proof or completion; the first "delayed" records one history
+// event and one alert. Each processed order leaves the due set, so a backlog
+// drains oldest-first; overlapping or retried runs are no-ops.
+exports.evaluateDeliveryTiming = onSchedule(
+  { schedule: "every 5 minutes", timeZone: "Asia/Manila" },
+  async () => {
+    const counts = await deliveryTimingOps.evaluateDeliveryTimingRun({
+      db, FieldValue, Timestamp: admin.firestore.Timestamp, now: new Date(),
+    });
+    if (counts.scanned > 0) logger.info("delivery-timing", counts);
   }
 );
 

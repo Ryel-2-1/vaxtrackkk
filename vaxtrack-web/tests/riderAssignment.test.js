@@ -1,24 +1,29 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  callableError,
   createServiceLoader,
   createStore,
-  injectCompetingWrite,
+  installCallables,
   installStore,
-  SERVER_TIMESTAMP,
 } from "./serviceHarness.js";
 
-// Transactional rider assignment.
+// Rider assignment — the web side.
 //
-// The previous version took a caller-supplied rider object and wrote it with
-// `updateDoc`, trusting an order id that arrived through localStorage. Two
-// dispatchers acting on the same queue entry both succeeded and the later write
-// silently replaced the earlier rider.
+// Assignment is the assignRiderToOrder CALLABLE (Rider trips): the decision
+// needs the Rider's server-owned trip state, which no client write can read,
+// and firestore.rules refuse the direct write, Admin included. Every check the
+// old client transaction made — order still pending and unassigned (absent,
+// null and "" mean unassigned; whitespace does not), date reached, fully
+// reserved, the user an approved rider by exact role/status, display fields
+// from the rider document, route fields cleared, attribution from the
+// verified caller, nothing else touched, races serialized — is now made by
+// the server and tested against a real Firestore in
+// functions/test/integration/riderDispatch.test.js.
 //
-// These tests execute the real `assignRiderToOrder` against an in-memory store
-// that models Firestore's optimistic concurrency: a transaction records the
-// versions it read and is retried if any changed before commit. No emulator,
-// no network, no staging write.
+// What remains here: the page's service sends exactly the ids, writes
+// nothing itself, and turns every server answer into the error type and
+// codes the Assign Rider page already handles.
 
 const loader = createServiceLoader();
 const { assignRiderToOrder, AssignmentError } = await loader.load("orderService.js");
@@ -27,34 +32,7 @@ const ORDER_ID = "OrderDocAbc";
 const RIDER_UID = "RiderDocUid123";
 const DISPATCHER = { uid: "DispatcherUid", email: "dispatcher@vaxtrack.com" };
 
-const pendingOrder = (overrides = {}) => ({
-  orderNumber: "VT-ORD-5001",
-  status: "pending_dispatch",
-  assignedRiderId: null,
-  assignedRiderName: null,
-  createdByUid: "salesRepUid",
-  // A valid, already-reached delivery date; undated orders fail closed.
-  requestedDeliveryDate: "2026-01-01",
-  ...overrides,
-});
-
-const approvedRider = (overrides = {}) => ({
-  role: "rider",
-  status: "approved",
-  fullName: "QA Rider Two",
-  phone: "09179876543",
-  employeeId: "EMP-4432",
-  vehiclePlate: "ABC-1234",
-  ...overrides,
-});
-
-const seed = ({ order = pendingOrder(), rider = approvedRider(), extraUsers = {} } = {}) =>
-  createStore({
-    orders: order ? { [ORDER_ID]: order } : {},
-    users: { ...(rider ? { [RIDER_UID]: rider } : {}), ...extraUsers },
-  });
-
-const orderIn = (store) => store.collections.orders[ORDER_ID].data;
+const ok = { orderId: ORDER_ID, riderUid: RIDER_UID, tripId: "TripFromServer", replayed: false };
 
 async function expectRejection(promise, code) {
   await assert.rejects(promise, (err) => {
@@ -63,364 +41,94 @@ async function expectRejection(promise, code) {
     assert.ok(err.message.length > 0, "the error must carry a displayable message");
     return true;
   });
+  return code;
 }
 
-// ---------------------------------------------------------------------------
-// The happy path
-// ---------------------------------------------------------------------------
-
-test("an approved rider is assigned to a pending order", async () => {
-  const store = installStore(seed(), DISPATCHER);
+test("assignment is one callable request carrying only the two ids", async () => {
+  const store = installStore(createStore({ orders: { [ORDER_ID]: { status: "pending_dispatch" } } }), DISPATCHER);
+  const calls = installCallables({ assignRiderToOrder: () => ok });
   const result = await assignRiderToOrder(ORDER_ID, RIDER_UID);
-
-  const order = orderIn(store);
-  assert.equal(order.status, "assigned");
-  assert.equal(order.assignedRiderId, RIDER_UID);
-  assert.equal(result.riderUid, RIDER_UID);
-  assert.equal(result.orderId, ORDER_ID);
-  assert.equal(result.assignedRiderName, "QA Rider Two");
+  assert.deepEqual(result, ok);
+  assert.deepEqual(calls, [{ name: "assignRiderToOrder", data: { orderId: ORDER_ID, riderUid: RIDER_UID } }]);
+  // No display value, no audit and no timestamp is sent — the server writes them.
+  assert.equal(store.writes.length, 0, "the client writes nothing to Firestore");
 });
 
-test("an order with no requested delivery date cannot be assigned to a rider", async () => {
-  // A legacy order from before the date became required: the field is ABSENT,
-  // not present-and-empty. It fails closed rather than being treated as
-  // dispatchable now.
-  const legacy = pendingOrder();
-  delete legacy.requestedDeliveryDate;
-  const store = installStore(seed({ order: legacy }), DISPATCHER);
-  const before = structuredClone(orderIn(store));
-
-  await expectRejection(assignRiderToOrder(ORDER_ID, RIDER_UID), "scheduled-date-missing");
-  // Not partially mutated: the stored order is exactly what it was.
-  assert.deepEqual(orderIn(store), before);
-  assert.equal(orderIn(store).status, "pending_dispatch");
-  assert.equal(orderIn(store).assignedRiderId, null);
+test("server refusals keep their stable code, sentence and context", async () => {
+  installStore(createStore(), DISPATCHER);
+  const cases = [
+    ["order-not-pending", "That order is no longer awaiting dispatch. Refresh the queue.", { status: "assigned" }],
+    ["order-already-assigned", "That order has already been assigned to a rider."],
+    ["order-not-found", "That order no longer exists."],
+    ["rider-not-approved", "That rider is not approved for assignment."],
+    ["not-a-rider", "That account is not a rider."],
+    ["rider-not-found", "That rider account no longer exists."],
+    ["scheduled-date-not-reached", "This order is scheduled for a later date and cannot be dispatched yet."],
+    ["order-not-fully-reserved", "This order is still waiting for stock."],
+    ["rider-on-trip", "This rider has already left on a trip."],
+    ["rider-returning", "This rider is returning to the hub."],
+  ];
+  for (const [code, message, info] of cases) {
+    installCallables({ assignRiderToOrder: () => { throw callableError(code, message, info); } });
+    await assert.rejects(assignRiderToOrder(ORDER_ID, RIDER_UID), (err) => {
+      assert.ok(err instanceof AssignmentError);
+      assert.deepEqual([err.code, err.message], [code, message]);
+      if (info) assert.deepEqual(err.details, info, "the page reads details.status to say what happened");
+      return true;
+    });
+  }
 });
 
-test("an invalid or not-yet-due delivery date also blocks assignment", async () => {
-  for (const [date, code] of [
-    [null, "scheduled-date-invalid"],
-    ["", "scheduled-date-invalid"],
-    ["2026-02-31", "scheduled-date-invalid"],
-    ["2999-01-01", "scheduled-date-not-reached"],
+test("transport failures are worded, never passed through raw", async () => {
+  installStore(createStore(), DISPATCHER);
+  for (const [sdkCode, code] of [
+    ["functions/unavailable", "unavailable"],
+    ["functions/deadline-exceeded", "deadline-exceeded"],
+    ["functions/unauthenticated", "unauthenticated"],
+    ["functions/internal", "service-unavailable"],
   ]) {
-    const store = installStore(seed({ order: pendingOrder({ requestedDeliveryDate: date }) }), DISPATCHER);
-    const before = structuredClone(orderIn(store));
-    await expectRejection(assignRiderToOrder(ORDER_ID, RIDER_UID), code);
-    assert.deepEqual(orderIn(store), before, `${JSON.stringify(date)} must leave the order untouched`);
+    installCallables({
+      assignRiderToOrder: () => {
+        const e = new Error("RAW SDK TEXT with internals");
+        e.code = sdkCode;
+        throw e;
+      },
+    });
+    await assert.rejects(assignRiderToOrder(ORDER_ID, RIDER_UID), (err) => {
+      assert.ok(err instanceof AssignmentError);
+      assert.equal(err.code, code);
+      assert.doesNotMatch(err.message, /RAW SDK TEXT/);
+      return true;
+    });
   }
 });
 
-test("assignment timestamps and audit identity are server-stamped and authentic", async () => {
-  const store = installStore(seed(), DISPATCHER);
-  await assignRiderToOrder(ORDER_ID, RIDER_UID);
-  const order = orderIn(store);
-
-  assert.equal(order.assignedAt, SERVER_TIMESTAMP, "assignedAt must be server-stamped");
-  assert.equal(order.updatedAt, SERVER_TIMESTAMP);
-  // The dispatcher identity comes from the session, not from a caller argument.
-  assert.equal(order.assignedByUid, DISPATCHER.uid);
-  assert.equal(order.assignedByEmail, DISPATCHER.email);
-  // ...and so is the status attribution, which assignment used to omit.
-  assert.equal(order.statusUpdatedAt, SERVER_TIMESTAMP);
-  assert.equal(order.statusUpdatedByUid, DISPATCHER.uid);
-  assert.equal(order.statusUpdatedByEmail, DISPATCHER.email);
-});
-
-test("assignment replaces a previous writer's attribution instead of keeping it", async () => {
-  const stale = { statusUpdatedByUid: "someoneElse", statusUpdatedByEmail: "someone@else.com" };
-  // With an email on the session it is replaced...
-  let store = installStore(seed({ order: pendingOrder(stale) }), DISPATCHER);
-  await assignRiderToOrder(ORDER_ID, RIDER_UID);
-  assert.equal(orderIn(store).statusUpdatedByUid, DISPATCHER.uid);
-  assert.equal(orderIn(store).statusUpdatedByEmail, DISPATCHER.email);
-  // ...and without one it is removed, never left naming the wrong person.
-  store = installStore(seed({ order: pendingOrder(stale) }), { uid: DISPATCHER.uid });
-  await assignRiderToOrder(ORDER_ID, RIDER_UID);
-  assert.equal(orderIn(store).statusUpdatedByUid, DISPATCHER.uid);
-  assert.equal("statusUpdatedByEmail" in orderIn(store), false);
-});
-
-test("display fields are copied from the rider document", async () => {
-  const store = installStore(seed(), DISPATCHER);
-  await assignRiderToOrder(ORDER_ID, RIDER_UID);
-  const order = orderIn(store);
-
-  assert.equal(order.assignedRiderName, "QA Rider Two");
-  assert.equal(order.assignedRiderPhone, "09179876543");
-  // Employee id and vehicle are display-only elsewhere and are not assignment data.
-  assert.equal(order.assignedRiderEmployeeId, undefined);
-  assert.equal(order.assignedRiderVehicle, undefined);
-});
-
-test("a rider with no phone on record gets no invented phone", async () => {
-  const store = installStore(
-    seed({ rider: approvedRider({ phone: undefined, contactNumber: undefined }) }),
-    DISPATCHER
-  );
-  await assignRiderToOrder(ORDER_ID, RIDER_UID);
-  const order = orderIn(store);
-
-  assert.ok(!("assignedRiderPhone" in order), "absent rather than fabricated");
-  assert.equal(order.assignedRiderName, "QA Rider Two");
-});
-
-test("a rider with no name falls back through the document, never to a placeholder", async () => {
-  const store = installStore(
-    seed({
-      rider: approvedRider({ fullName: undefined, name: undefined, displayName: undefined, email: "rider@vaxtrack.com" }),
-    }),
-    DISPATCHER
-  );
-  const result = await assignRiderToOrder(ORDER_ID, RIDER_UID);
-  assert.equal(orderIn(store).assignedRiderName, "rider@vaxtrack.com");
-  assert.equal(result.assignedRiderName, "rider@vaxtrack.com");
-});
-
-// ---------------------------------------------------------------------------
-// Order-side rejections
-// ---------------------------------------------------------------------------
-
-test("a missing order is rejected", async () => {
-  installStore(seed({ order: null }), DISPATCHER);
-  await expectRejection(assignRiderToOrder(ORDER_ID, RIDER_UID), "order-not-found");
-});
-
-test("an order that is not pending_dispatch is rejected", async () => {
-  for (const status of ["assigned", "loading", "in_transit", "delayed", "delivered", "cancelled"]) {
-    const store = installStore(seed({ order: pendingOrder({ status }) }), DISPATCHER);
-    await expectRejection(assignRiderToOrder(ORDER_ID, RIDER_UID), "order-not-pending");
-    assert.equal(orderIn(store).status, status, "the order must be left untouched");
-  }
-});
-
-test("an already-assigned order is rejected even if its status looks pending", async () => {
-  // Defence in depth: status and assignment are checked independently.
-  const store = installStore(
-    seed({ order: pendingOrder({ assignedRiderId: "SomeOtherRiderUid" }) }),
-    DISPATCHER
-  );
-  await expectRejection(assignRiderToOrder(ORDER_ID, RIDER_UID), "order-already-assigned");
-  assert.equal(orderIn(store).assignedRiderId, "SomeOtherRiderUid", "no overwrite");
-});
-
-test("a whitespace-only assignedRiderId still counts as assigned", async () => {
-  // Deliberately matched to firestore.rules, which can only test `size() == 0`
-  // and therefore treats "   " as a present value. If the service trimmed
-  // instead, it would accept a write the rules then refuse.
-  const store = installStore(seed({ order: pendingOrder({ assignedRiderId: "   " }) }), DISPATCHER);
-  await expectRejection(assignRiderToOrder(ORDER_ID, RIDER_UID), "order-already-assigned");
-  assert.equal(orderIn(store).assignedRiderId, "   ");
-});
-
-test("absent, null and empty-string all mean unassigned", async () => {
-  for (const order of [
-    pendingOrder({ assignedRiderId: null }),
-    pendingOrder({ assignedRiderId: "" }),
-    (() => { const o = pendingOrder(); delete o.assignedRiderId; return o; })(),
-  ]) {
-    const store = installStore(seed({ order }), DISPATCHER);
-    await assignRiderToOrder(ORDER_ID, RIDER_UID);
-    assert.equal(orderIn(store).assignedRiderId, RIDER_UID);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Rider-side rejections
-// ---------------------------------------------------------------------------
-
-test("a missing user is rejected", async () => {
-  installStore(seed({ rider: null }), DISPATCHER);
-  await expectRejection(assignRiderToOrder(ORDER_ID, RIDER_UID), "rider-not-found");
-});
-
-test("admin, dispatcher and sales rep accounts are rejected", async () => {
-  for (const role of ["admin", "dispatcher", "salesrep"]) {
-    const store = installStore(seed({ rider: approvedRider({ role }) }), DISPATCHER);
-    await expectRejection(assignRiderToOrder(ORDER_ID, RIDER_UID), "not-a-rider");
-    assert.equal(orderIn(store).status, "pending_dispatch");
-  }
-});
-
-test("pending, disabled and rejected riders are rejected", async () => {
-  for (const status of ["pending", "pending_approval", "disabled", "rejected"]) {
-    const store = installStore(seed({ rider: approvedRider({ status }) }), DISPATCHER);
-    await expectRejection(assignRiderToOrder(ORDER_ID, RIDER_UID), "rider-not-approved");
-    assert.equal(orderIn(store).assignedRiderId, null);
-  }
-});
-
-test("role and status must match exactly — no case or whitespace leniency", async () => {
-  for (const rider of [approvedRider({ role: "Rider" }), approvedRider({ role: " rider " })]) {
-    installStore(seed({ rider }), DISPATCHER);
-    await expectRejection(assignRiderToOrder(ORDER_ID, RIDER_UID), "not-a-rider");
-  }
-  installStore(seed({ rider: approvedRider({ status: "Approved" }) }), DISPATCHER);
-  await expectRejection(assignRiderToOrder(ORDER_ID, RIDER_UID), "rider-not-approved");
-});
-
-// ---------------------------------------------------------------------------
-// Identity cannot be substituted or forged
-// ---------------------------------------------------------------------------
-
-test("an employee id cannot substitute for the rider UID", async () => {
-  installStore(seed(), DISPATCHER);
-  // EMP-4432 is the rider's employeeId, not their document id.
-  await expectRejection(assignRiderToOrder(ORDER_ID, "EMP-4432"), "rider-not-found");
-});
-
-test("caller-supplied name and phone cannot forge assignment data", async () => {
-  // The signature takes identities only, so there is nowhere to inject these.
-  assert.equal(assignRiderToOrder.length, 2, "orderId and riderUid only");
-
-  const store = installStore(seed(), DISPATCHER);
-  await assignRiderToOrder(ORDER_ID, RIDER_UID, {
-    name: "Fake Rider",
-    phone: "0000000000",
-    employeeId: "EMP-FORGED",
-  });
-  const order = orderIn(store);
-  assert.equal(order.assignedRiderName, "QA Rider Two", "authoritative name wins");
-  assert.equal(order.assignedRiderPhone, "09179876543");
-  assert.ok(!JSON.stringify(order).includes("EMP-FORGED"));
-  assert.ok(!JSON.stringify(order).includes("Fake Rider"));
-});
-
-test("an empty or non-string identity is rejected before any read", async () => {
-  installStore(seed(), DISPATCHER);
+test("an empty identity or a signed-out session is refused before any request", async () => {
+  installStore(createStore(), DISPATCHER);
+  const calls = installCallables({ assignRiderToOrder: () => ok });
   await expectRejection(assignRiderToOrder("", RIDER_UID), "order-id-required");
+  await expectRejection(assignRiderToOrder("   ", RIDER_UID), "order-id-required");
   await expectRejection(assignRiderToOrder(ORDER_ID, ""), "rider-uid-required");
   await expectRejection(assignRiderToOrder(ORDER_ID, null), "rider-uid-required");
-});
-
-test("an unauthenticated caller is rejected", async () => {
-  installStore(seed(), null);
+  installStore(createStore(), null);
   await expectRejection(assignRiderToOrder(ORDER_ID, RIDER_UID), "not-signed-in");
+  assert.equal(calls.length, 0, "nothing reached the server");
 });
 
-// ---------------------------------------------------------------------------
-// Concurrency
-// ---------------------------------------------------------------------------
-
-test("a repeated submission does not produce a second assignment", async () => {
-  const store = installStore(seed(), DISPATCHER);
-  await assignRiderToOrder(ORDER_ID, RIDER_UID);
-  const writesAfterFirst = store.writes.length;
-
-  await expectRejection(assignRiderToOrder(ORDER_ID, RIDER_UID), "order-not-pending");
-  assert.equal(store.writes.length, writesAfterFirst, "no second write occurred");
+test("a repeated submission is answered by the server as a replay, not a second assignment", async () => {
+  installStore(createStore(), DISPATCHER);
+  let n = 0;
+  installCallables({ assignRiderToOrder: () => ({ ...ok, replayed: n++ > 0 }) });
+  assert.equal((await assignRiderToOrder(ORDER_ID, RIDER_UID)).replayed, false);
+  assert.equal((await assignRiderToOrder(ORDER_ID, RIDER_UID)).replayed, true);
 });
 
-test("two dispatchers racing the same order cannot overwrite one another", async () => {
-  const store = installStore(seed({ extraUsers: { RiderTwoUid: approvedRider({ fullName: "Second Rider" }) } }), DISPATCHER);
-
-  // A competing dispatcher commits between this attempt's reads and its commit.
-  // The store bumps the document version, so the transaction is retried and the
-  // retry sees an order that is already assigned.
-  injectCompetingWrite(async () => {
-    const rec = store.collections.orders[ORDER_ID];
-    rec.data = {
-      ...rec.data,
-      status: "assigned",
-      assignedRiderId: "RiderTwoUid",
-      assignedRiderName: "Second Rider",
-    };
-    rec.version += 1;
-  });
-
-  await expectRejection(assignRiderToOrder(ORDER_ID, RIDER_UID), "order-not-pending");
-
-  const order = orderIn(store);
-  assert.equal(order.assignedRiderId, "RiderTwoUid", "the winner's assignment survives");
-  assert.equal(order.assignedRiderName, "Second Rider");
-  assert.ok(store.transactionAttempts >= 2, "the losing transaction retried rather than clobbering");
-});
-
-test("the same rider may still be assigned to a different order", async () => {
-  // No one-active-order-per-rider limit, by decision.
-  const SECOND_ORDER = "OrderDocDef";
-  const store = createStore({
-    orders: { [ORDER_ID]: pendingOrder(), [SECOND_ORDER]: pendingOrder({ orderNumber: "VT-ORD-5002" }) },
-    users: { [RIDER_UID]: approvedRider() },
-  });
-  installStore(store, DISPATCHER);
-
-  await assignRiderToOrder(ORDER_ID, RIDER_UID);
-  await assignRiderToOrder(SECOND_ORDER, RIDER_UID);
-
-  assert.equal(store.collections.orders[ORDER_ID].data.assignedRiderId, RIDER_UID);
-  assert.equal(store.collections.orders[SECOND_ORDER].data.assignedRiderId, RIDER_UID);
-});
-
-// ---------------------------------------------------------------------------
-// Blast radius
-// ---------------------------------------------------------------------------
-
-test("a rejected assignment writes nothing at all", async () => {
-  const store = installStore(seed({ rider: approvedRider({ status: "disabled" }) }), DISPATCHER);
-  await expectRejection(assignRiderToOrder(ORDER_ID, RIDER_UID), "rider-not-approved");
-  assert.equal(store.writes.length, 0, "no partial write may escape a rejected transaction");
-});
-
-test("assignment touches only assignment fields", async () => {
-  const store = installStore(
-    seed({
-      order: pendingOrder({
-        clinicDocId: "clinicDocAbc",
-        clinicLocationVerified: true,
-        clinicLat: 14.5995,
-        quantity: 120,
-      }),
-    }),
-    DISPATCHER
-  );
-  await assignRiderToOrder(ORDER_ID, RIDER_UID);
-  const order = orderIn(store);
-
-  // Phase 02A snapshot and order payload are untouched.
-  assert.equal(order.clinicDocId, "clinicDocAbc");
-  assert.equal(order.clinicLocationVerified, true);
-  assert.equal(order.clinicLat, 14.5995);
-  assert.equal(order.quantity, 120);
-  assert.equal(order.createdByUid, "salesRepUid");
-
-  const written = store.writes.at(-1).data;
-  const allowed = [
-    "status", "assignedRiderId", "assignedRiderName", "assignedRiderPhone",
-    "assignedAt", "assignedByUid", "assignedByEmail", "updatedAt",
-    // Who changed the status (Assigned history actor, Activity "Updated by").
-    "statusUpdatedAt", "statusUpdatedByUid", "statusUpdatedByEmail",
-  ];
-  for (const key of Object.keys(written)) {
-    assert.ok(allowed.includes(key), `unexpected field written: ${key}`);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Stale route data (rider live tracking)
-// ---------------------------------------------------------------------------
-
-const STALE_ROUTE = {
-  routePolyline: "_p~iF~ps|U_ulLnnqC", routeDistanceMeters: 900, routeDurationSeconds: 120,
-  routeEtaText: "1:00 PM", routeGeneratedAt: "earlier", routeProvider: "openrouteservice",
-  routeDestinationRevision: 0,
-  tripId: "trip-old", tripStopCount: 2, tripPolyline: "_p~iF~ps|U", tripDistanceMeters: 2000,
-  tripDurationSeconds: 300, tripGeneratedAt: "earlier", stopSequence: 1, stopEtaSeconds: 60, stopEtaText: "1:01 PM",
-};
-
-test("assigning a rider removes every route field left from a previous rider", async () => {
-  const store = installStore(seed({ order: pendingOrder({ ...STALE_ROUTE, previousAssignedRiderId: "OldRider" }) }), DISPATCHER);
-  await assignRiderToOrder(ORDER_ID, RIDER_UID);
-  const order = orderIn(store);
-  for (const field of Object.keys(STALE_ROUTE)) {
-    assert.equal(field in order, false, `${field} must not survive reassignment`);
-  }
-  assert.equal(order.assignedRiderId, RIDER_UID);
-});
-
-test("an order without a route gains no route keys on assignment", async () => {
-  const store = installStore(seed(), DISPATCHER);
-  await assignRiderToOrder(ORDER_ID, RIDER_UID);
-  const order = orderIn(store);
-  assert.equal(Object.keys(order).some((k) => /^(route|trip|stop)[A-Z]/.test(k)), false);
+test("no client code path writes an assignment any more", async () => {
+  const { readFileSync } = await import("node:fs");
+  // Line endings normalised: a Windows checkout (core.autocrlf) has CRLF, and
+  // the slice below looks for "\n}\n".
+  const src = readFileSync(new URL("../src/services/orderService.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  const fn = src.slice(src.indexOf("export async function assignRiderToOrder"), src.indexOf("\n}\n", src.indexOf("export async function assignRiderToOrder")));
+  assert.match(fn, /return await assignRiderToOrderOnServer\(orderId, riderUid\);/);
+  assert.doesNotMatch(fn, /runTransaction|updateDoc|tx\.update|assignedRiderId:/);
 });

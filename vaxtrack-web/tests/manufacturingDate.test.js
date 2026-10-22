@@ -115,7 +115,7 @@ test("10/11 · a legacy batch with no manufacturing date reads as Not recorded, 
   // The Inventory drawer uses these helpers, so a legacy row renders the label.
   const inventory = read("src/pages/admin/Inventory.jsx");
   assert.match(inventory, /manufacturing: formatBatchDate\(raw\.manufacturingDate\),/);
-  assert.match(inventory, /<span>Manufacturing Date<\/span>\s*<strong>\{selectedVaccine\.manufacturing\}<\/strong>/);
+  assert.match(inventory, /<span>Manufacturing Date<\/span>\s*<strong>\{drawerItem\.manufacturing\}<\/strong>/);
 });
 
 test("12/13 · the export carries the column and leaves legacy values blank", () => {

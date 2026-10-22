@@ -40,8 +40,8 @@ class CompleteDeliveryConfirmSheet extends StatefulWidget {
     this.confirmLabel = 'Confirm Delivery',
     this.progress,
     this.progressText,
-  })  : assert(proofImageUrl != null || proofImage != null),
-        assert(invoiceImageUrl != null || invoiceImage != null);
+  }) : assert(proofImageUrl != null || proofImage != null),
+       assert(invoiceImageUrl != null || invoiceImage != null);
 
   final String orderNumber;
   final String destinationTitle;
@@ -163,13 +163,18 @@ class _CompleteDeliveryConfirmSheetState
                 const SizedBox(height: 2),
                 Text(
                   widget.destinationTitle,
-                  style: const TextStyle(fontSize: 13, color: AppColors.textLight),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textLight,
+                  ),
                 ),
                 if ((widget.destinationSubtitle ?? '').isNotEmpty)
                   Text(
                     widget.destinationSubtitle!,
-                    style:
-                        const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textMuted,
+                    ),
                   ),
                 const SizedBox(height: 16),
                 Row(
@@ -177,7 +182,8 @@ class _CompleteDeliveryConfirmSheetState
                     Expanded(
                       child: _EvidenceThumb(
                         label: 'Proof of delivery',
-                        image: widget.proofImage ??
+                        image:
+                            widget.proofImage ??
                             NetworkImage(widget.proofImageUrl!),
                       ),
                     ),
@@ -185,7 +191,8 @@ class _CompleteDeliveryConfirmSheetState
                     Expanded(
                       child: _EvidenceThumb(
                         label: 'Invoice',
-                        image: widget.invoiceImage ??
+                        image:
+                            widget.invoiceImage ??
                             NetworkImage(widget.invoiceImageUrl!),
                       ),
                     ),
@@ -202,15 +209,21 @@ class _CompleteDeliveryConfirmSheetState
                   child: const Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.warning_amber_rounded,
-                          size: 18, color: AppColors.warning),
+                      Icon(
+                        Icons.warning_amber_rounded,
+                        size: 18,
+                        color: AppColors.warning,
+                      ),
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           'Completing settles this order\'s stock and cannot be '
                           'casually reversed. Only confirm once the vaccines have '
                           'been handed over.',
-                          style: TextStyle(fontSize: 12, color: AppColors.warning),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.warning,
+                          ),
                         ),
                       ),
                     ],
@@ -237,7 +250,9 @@ class _CompleteDeliveryConfirmSheetState
                                 text,
                                 key: const ValueKey('confirm-sheet-progress'),
                                 style: const TextStyle(
-                                    fontSize: 13, color: AppColors.textMedium),
+                                  fontSize: 13,
+                                  color: AppColors.textMedium,
+                                ),
                               ),
                             ),
                           ],
@@ -257,14 +272,19 @@ class _CompleteDeliveryConfirmSheetState
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.error_outline,
-                            size: 18, color: AppColors.urgent),
+                        const Icon(
+                          Icons.error_outline,
+                          size: 18,
+                          color: AppColors.urgent,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             _error!,
                             style: const TextStyle(
-                                fontSize: 12, color: AppColors.urgent),
+                              fontSize: 12,
+                              color: AppColors.urgent,
+                            ),
                           ),
                         ),
                       ],
@@ -272,35 +292,59 @@ class _CompleteDeliveryConfirmSheetState
                   ),
                 ],
                 const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: _submitting
-                            ? null
-                            : () => Navigator.of(context).pop(false),
-                        child: const Text('Go Back'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: _submitting ? null : _confirm,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
+                // A matched pair: equal widths (Expanded), equal heights
+                // (IntrinsicHeight + stretch, so if a large text size wraps
+                // one label both buttons grow together and their edges stay
+                // aligned), and one shared size/padding/type so the labels
+                // sit centred the same way in each.
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _submitting
+                              ? null
+                              : () => Navigator.of(context).pop(false),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: _actionMinSize,
+                            padding: _actionPadding,
+                            textStyle: _actionTextStyle,
+                          ),
+                          child: const Text(
+                            'Go Back',
+                            textAlign: TextAlign.center,
+                          ),
                         ),
-                        child: _submitting
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                    color: Colors.white, strokeWidth: 2),
-                              )
-                            : Text(widget.confirmLabel),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _submitting ? null : _confirm,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            minimumSize: _actionMinSize,
+                            padding: _actionPadding,
+                            textStyle: _actionTextStyle,
+                          ),
+                          child: _submitting
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : Text(
+                                  widget.confirmLabel,
+                                  textAlign: TextAlign.center,
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -310,6 +354,21 @@ class _CompleteDeliveryConfirmSheetState
     );
   }
 }
+
+// Shared by both sheet actions. Each button is half of a 360 dp phone less
+// the 20 dp margins and 12 dp gap: 154 dp. With the theme's 24 dp side padding
+// "Submit & Complete" (≈130 dp in Roboto Bold 15) had only 106 dp and wrapped;
+// 8 dp leaves 138 dp, so it sits on one line. Narrower phones or larger text
+// still wrap it — the IntrinsicHeight pair then grows both buttons together.
+const Size _actionMinSize = Size(0, 52);
+const EdgeInsets _actionPadding = EdgeInsets.symmetric(
+  horizontal: 8,
+  vertical: 12,
+);
+const TextStyle _actionTextStyle = TextStyle(
+  fontSize: 15,
+  fontWeight: FontWeight.w700,
+);
 
 /// A Listenable that never fires, for when no progress source is given.
 class _NoChange implements Listenable {
@@ -334,7 +393,10 @@ class _EvidenceThumb extends StatelessWidget {
         Text(
           label,
           style: const TextStyle(
-              fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textMedium),
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textMedium,
+          ),
         ),
         const SizedBox(height: 6),
         ClipRRect(
@@ -348,8 +410,10 @@ class _EvidenceThumb extends StatelessWidget {
               height: 110,
               color: AppColors.background,
               alignment: Alignment.center,
-              child: const Icon(Icons.image_not_supported_outlined,
-                  color: AppColors.textMuted),
+              child: const Icon(
+                Icons.image_not_supported_outlined,
+                color: AppColors.textMuted,
+              ),
             ),
           ),
         ),

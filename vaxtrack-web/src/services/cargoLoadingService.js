@@ -12,16 +12,31 @@ import { dispatchEligibility } from "./dispatchEligibility";
 import {
   ACTOR_DISPATCHER,
   assertTransition,
-  canTransition,
   canUpdateLoadingMetadata,
   normalizeStatus,
   WorkflowError,
 } from "./orderWorkflow";
 import { logSafeError } from "./liveDataErrors.js";
+import { hasLoadingAudit } from "./loadingCustody.js";
 import { listenLive } from "./liveSnapshot.js";
+import { finalizeRiderTripOnServer } from "./riderDispatchService";
 
 const ORDERS = "orders";
 const USERS = "users";
+
+/**
+ * The loading custody audit for an order that has none yet: stamped by the
+ * server clock and the signed-in dispatcher. firestore.rules accepts exactly
+ * this (request.time, request.auth.uid, the token's email) and refuses any
+ * write that clears or rewrites an audit already on the order.
+ */
+function loadingAuditStamp(currentUser) {
+  return {
+    loadedAt: serverTimestamp(),
+    loadedByUid: currentUser.uid,
+    ...(currentUser.email ? { loadedByEmail: currentUser.email } : {}),
+  };
+}
 
 /**
  * Refuse a scheduled order before 00:00 Asia/Manila on its requested date, or
@@ -203,6 +218,10 @@ export function subscribeCargoLoadingGroups(callback, onError) {
  * documented pending_dispatch → assigned → loading → in_transit → delivered
  * flow reachable now that Shipments no longer offers "Start loading".
  *
+ * The first confirmation stamps the loading audit (loadedAt / loadedByUid /
+ * loadedByEmail); it is never cleared or rewritten afterwards, because
+ * cancellation treats an order ever confirmed as loaded as handled stock.
+ *
  * Unchecking only clears the loaded flag. The status is deliberately NOT
  * regressed from `loading` back to `assigned`: `loading` means preparation has
  * begun, and silent backwards transitions would confuse the audit trail and
@@ -250,10 +269,15 @@ export async function updateOrderLoadedState(orderId, isLoaded) {
       updatedAt: serverTimestamp(),
     };
 
+    // The audit records the FIRST confirmation and is kept from then on. A
+    // legacy order ticked before the audit existed (isLoaded true, no audit)
+    // gets one on its next change, untick included, so the custody evidence
+    // survives the untick.
+    const needsAudit =
+      !hasLoadingAudit(order) && (loaded || order.isLoaded === true);
+    if (needsAudit) Object.assign(update, loadingAuditStamp(currentUser));
+
     if (loaded) {
-      update.loadedAt = serverTimestamp();
-      update.loadedByUid = currentUser.uid;
-      if (currentUser.email) update.loadedByEmail = currentUser.email;
 
       // First confirmation of an `assigned` order promotes it to `loading`.
       // Cargo Loading is the ONLY authority for this step, and the transition
@@ -267,16 +291,12 @@ export async function updateOrderLoadedState(orderId, isLoaded) {
         update.statusUpdatedByUid = currentUser.uid;
         if (currentUser.email) update.statusUpdatedByEmail = currentUser.email;
       }
-    } else {
-      // Clearing a confirmation removes the audit fields so they never go
-      // stale. The status is deliberately NOT regressed from `loading` back to
-      // `assigned`: `loading` means preparation has begun, and a silent
-      // backwards move would corrupt the audit trail. `loading → assigned` is
-      // not in the dispatcher matrix at all, so the rules refuse it too.
-      update.loadedAt = null;
-      update.loadedByUid = null;
-      update.loadedByEmail = null;
     }
+    // Unticking clears only isLoaded. The audit stays: the vials WERE handled,
+    // and a later cancellation must still return them for inspection. The
+    // status is deliberately NOT regressed from `loading` back to
+    // `assigned` either: `loading → assigned` is not in the dispatcher
+    // matrix at all, so the rules refuse it too.
 
     tx.update(ref, update);
     return { orderId, isLoaded: loaded, status: update.status ?? status };
@@ -284,105 +304,31 @@ export async function updateOrderLoadedState(orderId, isLoaded) {
 }
 
 /**
- * Finalize dispatch for a rider's whole group atomically.
+ * Finalize Dispatch: the Rider's whole forming trip leaves, at once — on the
+ * server (finalizeRiderDispatch callable, functions/src/riderDispatchOps.js).
  *
- * Uses a Firestore write batch so either every order is moved to `in_transit`
- * or none are — the group is never left partially finalized. Writes dispatch
- * audit fields using server timestamps and does not overwrite unrelated fields.
+ * The server re-reads the Rider's trip and every order in one transaction:
+ * the orders sent must be exactly the trip's (a stale or partial group is
+ * refused with `trip-changed`), every one in Loading, confirmed loaded, fully
+ * reserved and on or after its date — or nothing moves. Departure then locks
+ * the trip: no order can join it, and the Rider takes no new assignment until
+ * their return to the hub is confirmed. A repeat of a Finalize that already
+ * ran is a no-op success. firestore.rules refuse the direct loading →
+ * in_transit write, Admin included.
+ *
+ * `tripId` is the server trip id the page saw (riderDispatchStates), passed so
+ * a trip replaced in the meantime is refused rather than sent; it may be null
+ * for a Rider the server has not classified yet.
  */
-export async function finalizeRiderDispatch(riderId, orderIds) {
+export async function finalizeRiderDispatch(riderId, orderIds, tripId = null) {
   if (typeof riderId !== "string" || riderId.trim() === "") {
     throw new WorkflowError("rider-required", "Rider is required.");
   }
   if (!Array.isArray(orderIds) || orderIds.length === 0) {
     throw new WorkflowError("no-orders", "No orders to finalize.");
   }
-  const uniqueIds = [...new Set(orderIds)];
-
-  const currentUser = auth.currentUser;
-  if (!currentUser?.uid) {
-    throw new WorkflowError(
-      "not-signed-in",
-      "Your session has expired. Please sign in again."
-    );
+  if (!auth.currentUser?.uid) {
+    throw new WorkflowError("not-signed-in", "Your session has expired. Please sign in again.");
   }
-
-  // A writeBatch cannot read, so the previous version validated nothing: it
-  // wrote `in_transit` onto whatever ids the rendered group happened to hold.
-  // A transaction reads every order first, rejects the whole dispatch if any
-  // one of them fails, and — because Firestore retries a transaction whose read
-  // set changed — cannot commit against a group that moved underneath it.
-  return runTransaction(db, async (tx) => {
-    const refs = uniqueIds.map((id) => doc(db, ORDERS, id));
-
-    // All reads must precede all writes inside a transaction.
-    const snaps = [];
-    for (const ref of refs) {
-      snaps.push(await tx.get(ref));
-    }
-
-    snaps.forEach((snap, index) => {
-      const orderId = uniqueIds[index];
-      if (!snap.exists()) {
-        throw new WorkflowError(
-          "order-not-found",
-          `Order ${orderId} no longer exists. Refresh cargo loading.`
-        );
-      }
-      const order = snap.data();
-
-      // Every order must belong to the rider being dispatched. Without this a
-      // stale or tampered group could sweep another rider's order along.
-      if (order.assignedRiderId !== riderId) {
-        throw new WorkflowError(
-          "order-not-for-rider",
-          "One of these orders is no longer assigned to this rider. Refresh cargo loading."
-        );
-      }
-
-      const status = normalizeStatus(getOrderStatusValue(order));
-      const check = canTransition(ACTOR_DISPATCHER, status, "in_transit");
-      if (!check.ok) {
-        throw new WorkflowError(
-          "order-not-dispatchable",
-          "One of these orders is no longer ready for dispatch. Refresh cargo loading."
-        );
-      }
-
-      // The same condition the UI enables the button on — every order in the
-      // group physically confirmed as loaded.
-      if (order.isLoaded !== true) {
-        throw new WorkflowError(
-          "order-not-loaded",
-          "Every order must be confirmed as loaded before dispatch."
-        );
-      }
-
-      // No order leaves before 00:00 Manila on its scheduled date. One early
-      // order refuses the whole group — a partial dispatch is never written.
-      assertScheduleReached(order);
-    });
-
-    refs.forEach((ref) => {
-      tx.update(ref, {
-        status: "in_transit",
-        dispatchedAt: serverTimestamp(),
-        loadingFinalizedAt: serverTimestamp(),
-        // Standard status audit fields, consistent with the rest of the app.
-        startedAt: serverTimestamp(),
-        statusUpdatedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        dispatchedByUid: currentUser.uid,
-        statusUpdatedByUid: currentUser.uid,
-        ...(currentUser.email
-          ? {
-              dispatchedByEmail: currentUser.email,
-              statusUpdatedByEmail: currentUser.email,
-            }
-          : {}),
-      });
-    });
-
-    return { riderId, dispatchedOrderIds: uniqueIds };
-  });
+  return finalizeRiderTripOnServer({ riderUid: riderId, orderIds: [...new Set(orderIds)], tripId });
 }

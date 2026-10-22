@@ -111,6 +111,19 @@ test("the 500 m / 3 minute deviation rule agrees (with 400 m / 2 minute recovery
   }
 });
 
+test("navigation continuity: the app, the server and the rules agree on what a qualifying fix is", () => {
+  assert.equal(dartConst("kNavigationContinuityVersion"), server.NAVIGATION_CONTINUITY_VERSION);
+  assert.equal(dartConst("kMaxFixAgeSeconds") * 1000, server.DEVIATION_RULES.maxFixAgeMs);
+  const confirm = strip(RULES).match(/function isNavigationFixConfirmation\(riderUid\) \{([\s\S]*?)\n {4}\}/);
+  assert.ok(confirm, "the confirmation rule exists");
+  const body = confirm[1];
+  assert.match(body, new RegExp(`continuityVersion', null\\) == ${server.NAVIGATION_CONTINUITY_VERSION}`));
+  assert.match(body, new RegExp(`loc\\.accuracyMeters <= ${server.DEVIATION_RULES.maxAccuracyMeters}\\b`));
+  assert.match(body, new RegExp(`duration\\.value\\(${server.DEVIATION_RULES.maxFixAgeMs / 1000}, 's'\\)`));
+  // The time is the stored location's server write time — never one the client picks.
+  assert.match(body, /loc\.updatedAt == d\.lastNavigationFixAt/);
+});
+
 test("collection names, schema version and source agree with the rules", () => {
   const C = serverOps.TRACKING_COLLECTIONS;
   assert.equal(dartConst("kRiderLocationsCollection"), C.LOCATIONS);
@@ -400,5 +413,23 @@ test("route-field lists match across server, web and the rules allowlists", asyn
   assert.match(strip2("functions/src/inventoryWorkflow.js"), /\.\.\.routeFieldDeletes\(order, FieldValue\)/);
   assert.match(strip2("functions/src/destinationOperations.js"), /\.\.\.routeFieldDeletes\(order, FieldValue\)/);
   assert.match(strip2("functions/src/destinationOperations.js"), /routeFieldDeletes\(sibling\.data\(\), FieldValue, TRIP_ROUTE_FIELDS\)/);
-  assert.match(strip2("src/services/orderService.js"), /for \(const field of presentRouteFields\(order\)\) update\[field\] = deleteField\(\);/);
+  // Assignment moved to the server (Rider trips) and clears with the same list.
+  assert.match(strip2("functions/src/riderDispatchOps.js"), /\.\.\.routeFieldDeletes\(order, FieldValue\)/);
+});
+
+test("DEV-2 guard: navigation fixes arrive well inside the server's continuity window; ordinary ones are never timed", () => {
+  // The 3-minute timer survives only between fixes of the SAME session at most
+  // maxSampleGapMs apart. The rider app's navigating heartbeat must leave room
+  // for missed writes; the ordinary 2-minute heartbeat never reaches the timer
+  // (untagged fixes are not evaluated — navigationFixDecision).
+  const policy = read("../vaxtrack_mobile/lib/tracking/location_write_policy.dart");
+  const nav = policy.match(/TrackingMode\.navigating: WriteCadence\([\s\S]*?heartbeat: Duration\(seconds: (\d+)\)/);
+  assert.ok(nav, "navigating heartbeat found");
+  const navHeartbeatMs = Number(nav[1]) * 1000;
+  assert.ok(server.DEVIATION_RULES.maxSampleGapMs >= 3 * navHeartbeatMs, "at least three missed navigation writes before a gap");
+  assert.ok(server.SESSION_RULES.untaggedGraceMs >= navHeartbeatMs, "the start-up grace covers the first tagged write");
+  const ordinary = { trackingState: "active", latitude: 14.6, longitude: 121, accuracyMeters: 8, navigationSessionId: null, activeOrderId: null,
+    capturedAt: { toMillis: () => 5000 }, updatedAt: { toMillis: () => 5000 } };
+  const session = { sessionId: "sessXYZ00001", orderId: "o1", startedAt: { toMillis: () => 1000 } };
+  assert.notEqual(server.navigationFixDecision({ session, location: ordinary }).action, "evaluate");
 });

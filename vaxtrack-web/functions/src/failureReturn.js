@@ -1,16 +1,20 @@
 "use strict";
 
 /**
- * Settling a failed delivery's stock: still-reserved units → return-pending.
+ * Settling stock that has physically left the warehouse: still-reserved units
+ * → return-pending, never straight back to available.
  *
- * ONE implementation, used by every path that can meet a failed delivery whose
- * reservation is still active:
+ * ONE implementation, used by every path that can meet such an order:
  *
  *   reportDeliveryFailure       the rider's callable (the normal path)
  *   settleClientReportedFailure the compatibility trigger for Rider builds that
  *                               still write `delivery_failed` directly
  *   requeueFailedOrder          if the trigger has not run yet
- *   cancelOrderWithInventoryRelease  likewise, for allocation-version-2 orders
+ *   cancelOrderWithInventoryRelease  likewise, for allocation-version-2 orders;
+ *                               and (kind "cancelled_after_dispatch") for an
+ *                               order cancelled while In Transit or Delayed —
+ *                               the vials are with the rider, so they come back
+ *                               through the same Admin check as a failure.
  *
  * Whichever runs first moves the units; the reservation becomes `returned`, so
  * every later caller sees nothing left to move. That is what makes the paths
@@ -37,6 +41,17 @@ function failureWouldSettle(order, reservation) {
 const INVENTORY = "inventory";
 const RETURNS = "inventoryReturns";
 
+/** Why units went to return-pending. Stored on the return as `source`. */
+const RETURN_SOURCES = Object.freeze({
+  DELIVERY_FAILED: "delivery_failed",
+  CANCELLED_AFTER_DISPATCH: "cancelled_after_dispatch",
+});
+
+/** The one return a cancelled order can have (cancelled is terminal). */
+function cancellationReturnId(orderId) {
+  return `${orderId}_cancel`;
+}
+
 /**
  * [order] / [reservation] are the documents as read in [tx] (reservation may be
  * null). Returns `{ settled, returnId, returnItems, orderFields }`; `settled` is
@@ -45,6 +60,13 @@ const RETURNS = "inventoryReturns";
  * When units move, the Stock Allocation History event is written here too, in
  * [tx], under the return's deterministic id — so all four paths record it the
  * same way and at most once. [sourceOperation] names the path that settled it.
+ *
+ * [kind] "delivery_failed" (default): a failure — the failure epoch advances,
+ * a version-2 order waits for stock again, and the return id is
+ * `<orderId>_<failureCount>`. "cancelled_after_dispatch": the order is being
+ * cancelled — no failure is counted, nothing is awaited any more, and the
+ * return id is `<orderId>_cancel`; [reason] is the cancel reason and
+ * [reportedByUid] the dispatcher.
  */
 async function settleFailureReturn(tx, {
   db,
@@ -56,19 +78,23 @@ async function settleFailureReturn(tx, {
   reason,
   reportedByUid,
   sourceOperation = "reportDeliveryFailure",
+  kind = RETURN_SOURCES.DELIVERY_FAILED,
 }) {
+  const cancelling = kind === RETURN_SOURCES.CANCELLED_AFTER_DISPATCH;
   const failureSeq = (Number.isInteger(order.failureCount) ? order.failureCount : 0) + 1;
-  const orderFields = { failureCount: failureSeq };
+  const orderFields = cancelling ? {} : { failureCount: failureSeq };
   if (order.allocationVersion === ALLOCATION_VERSION_BACKORDER) {
-    // No active reservation; not in the queue until a dispatcher requeues it.
+    // No active reservation. A failed order is out of the queue until a
+    // dispatcher requeues it (every line awaited again); a cancelled one is
+    // out for good (nothing awaited).
     Object.assign(orderFields, {
       allocationOpen: false,
       backorderedProductKeys: [],
-      allocationState: "awaiting_stock",
+      ...(cancelling ? {} : { allocationState: "awaiting_stock" }),
       items: (Array.isArray(order.items) ? order.items : []).map((l) => ({
         ...l,
         reservedQuantity: 0,
-        backorderedQuantity: l.quantity,
+        backorderedQuantity: cancelling ? 0 : l.quantity,
       })),
     });
   }
@@ -82,7 +108,7 @@ async function settleFailureReturn(tx, {
   const snaps = [];
   for (const ref of refs) snaps.push(await tx.get(ref));
 
-  const returnId = `${orderId}_${failureSeq}`;
+  const returnId = cancelling ? cancellationReturnId(orderId) : `${orderId}_${failureSeq}`;
   // History, READ phase (before this function's first write): create-only.
   const history = returnPendingEvent({
     orderId,
@@ -91,6 +117,7 @@ async function settleFailureReturn(tx, {
     returnId,
     reportedByUid,
     sourceOperation,
+    kind,
   });
   const preparedHistory = await prepareEvents(tx, { db, events: [history] });
 
@@ -114,7 +141,15 @@ async function settleFailureReturn(tx, {
     inventoryIds: returnItems.map((r) => r.inventoryId).sort(),
     productKeys: [...new Set(returnItems.map((r) => r.productKey).filter(Boolean))].sort(),
     totalQuantity: returnItems.reduce((s, r) => s + r.quantity, 0),
-    failureReason: typeof reason === "string" ? reason : null,
+    source: kind,
+    failureReason: !cancelling && typeof reason === "string" ? reason : null,
+    ...(cancelling
+      ? {
+          cancelReason: typeof reason === "string" ? reason : null,
+          // loading (confirmed loaded), in_transit or delayed.
+          cancelledFromStatus: typeof order.status === "string" ? order.status : null,
+        }
+      : {}),
     reportedByUid: reportedByUid ?? null,
     reportedAt: FieldValue.serverTimestamp(),
   });
@@ -122,7 +157,7 @@ async function settleFailureReturn(tx, {
     status: "returned",
     settledAt: FieldValue.serverTimestamp(),
     settledByUid: reportedByUid ?? null,
-    settlementType: "delivery_failed",
+    settlementType: kind,
     returnId,
   });
   createPreparedEvents(tx, { FieldValue, prepared: preparedHistory });
@@ -180,4 +215,10 @@ async function settleClientReportedFailure({ db, FieldValue, orderId, before, af
   });
 }
 
-module.exports = { settleFailureReturn, settleClientReportedFailure, failureWouldSettle };
+module.exports = {
+  settleFailureReturn,
+  settleClientReportedFailure,
+  failureWouldSettle,
+  RETURN_SOURCES,
+  cancellationReturnId,
+};

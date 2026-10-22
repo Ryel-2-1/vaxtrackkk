@@ -313,15 +313,13 @@
   border-color: var(--gray-300);
 }
 
-.alert-row.unread::after {
-  content: "";
-  position: absolute;
-  top: 18px;
-  right: 18px;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--green-700);
+/* Unread is a reading state, shown as a neutral "New" word in the title row
+   (.alert-unread-tag) — not a green dot, which read as an operational
+   "active/OK" status and stayed lit on resolved alerts. */
+.alert-row-title .alert-unread-tag {
+  background: #ffffff;
+  border: 1px solid var(--gray-300);
+  color: var(--gray-700);
 }
 
 .alert-row.critical {
@@ -399,13 +397,8 @@
   font-weight: 600;
 }
 
-.alert-row-meta {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.alert-row-meta small {
+.alert-row p.alert-row-meta {
+  margin: 0;
   color: #64748b;
   font-size: 12px;
   font-weight: 600;
