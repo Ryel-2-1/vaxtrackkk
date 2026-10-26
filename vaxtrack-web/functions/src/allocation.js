@@ -50,7 +50,7 @@
 
 // The same usability and date rules the order path applies (policy.js), so a
 // batch is never allocatable here while being unorderable there.
-const { isUsableStatus, isoDateOnly, manilaDateString, isUnconfirmedStockQuantity } = require("./policy");
+const { isUsableStatus, isBatchVoided, isoDateOnly, manilaDateString, isUnconfirmedStockQuantity } = require("./policy");
 // Every allocation writes its Stock Allocation History event in the same
 // transaction (orderHistory.js).
 const { allocationEvents, prepareEvents, createPreparedEvents } = require("./orderHistory");
@@ -87,10 +87,12 @@ function readCounter(raw) {
  * unusable. Unusable: corrupt counters, an on-hand figure above the
  * MAX_STOCK_QUANTITY ceiling (unconfirmed), a status outside USABLE_STATUSES
  * (disabled, quarantined, critical …), a missing/invalid expiry, or expired
- * (Manila calendar day). return-pending and quarantined units never count.
+ * (Manila calendar day), or voided by an Admin. return-pending and quarantined
+ * units never count.
  */
 function allocatableUnits(data, now) {
   if (!data) return 0;
+  if (isBatchVoided(data)) return 0;
   const onHand = readCounter(data.quantity);
   const reserved = readCounter(data.reservedQuantity);
   const returning = readCounter(data.returnPendingQuantity);
@@ -103,6 +105,23 @@ function allocatableUnits(data, now) {
   if (expiry === null || expiry < manilaDateString(now)) return 0;
   const available = onHand.value - reserved.value - returning.value - quarantined.value;
   return available > 0 ? available : 0;
+}
+
+// ---------------------------------------------------------------- usage marker
+//
+// A batch can be VOIDED (inventoryRemoval.js) only if it provably never had
+// downstream use. Batches created by addStockBatchWithAllocation carry
+// `usageTracked: true` from their first moment; every server path that makes a
+// batch part of an order — quoting it as a line's price source
+// (createOrderWithReservation) or reserving from it (allocation) — stamps
+// `firstUsedAt` / `firstUsedBy` in the same transaction. Both fields are
+// server-only (firestore.rules), and order `items` are server-only, so no
+// client write can reference a batch without leaving the mark.
+
+/** The fields that record a batch's first downstream use; {} once recorded. */
+function usageMark(data, FieldValue, usedBy) {
+  if (data && data.firstUsedAt) return {};
+  return { firstUsedAt: FieldValue.serverTimestamp(), firstUsedBy: usedBy };
 }
 
 /** First-expiry-first-out; ties by arrival date, then document id. */
@@ -389,9 +408,16 @@ async function allocateInTransaction(tx, {
     })),
   });
   const extraReserved = new Map();
+  const batchById = new Map(batches.map((b) => [b.id, b.data]));
   for (const u of plan.batchUpdates) {
     if (extraIds.has(u.id)) extraReserved.set(u.id, u.reservedQuantity);
-    else tx.update(db.collection("inventory").doc(u.id), { reservedQuantity: u.reservedQuantity });
+    else {
+      tx.update(db.collection("inventory").doc(u.id), {
+        reservedQuantity: u.reservedQuantity,
+        // A reservation is downstream use: from now on the batch can never be voided.
+        ...usageMark(batchById.get(u.id), FieldValue, "allocation"),
+      });
+    }
   }
   for (const u of plan.orderUpdates) {
     const resIdx = orderSnap.docs.findIndex((d) => d.id === u.orderId);
@@ -614,6 +640,7 @@ module.exports = {
   MAX_ORDERS_PER_ROUND,
   readCounter,
   allocatableUnits,
+  usageMark,
   compareFefo,
   priorityTuple,
   compareAllocationPriority,

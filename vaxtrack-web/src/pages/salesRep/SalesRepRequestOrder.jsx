@@ -74,6 +74,7 @@ function normalizeProduct(raw, todayIso) {
     // The vaccine product this batch belongs to — the source of its VAT
     // classification. Absent on batches created before the link existed.
     vaccineId: typeof raw.vaccineId === "string" && raw.vaccineId ? raw.vaccineId : null,
+    voided: raw.voided === true,
     // The price shown on this card, and the exact figure the checkout will ask
     // the server to confirm. Carried into the cart so a price that moves while
     // the rep is deciding is caught rather than silently applied.
@@ -195,7 +196,12 @@ function SalesRepRequestOrder() {
 
   const vaccinesById = useMemo(() => new Map((vaccines || []).map((v) => [v.id, v])), [vaccines]);
   const products = useMemo(
-    () => catalog.map((product) => applyVatToCatalogProduct(product, vaccinesById)),
+    () =>
+      catalog
+        // Voided batches and archived vaccines are not new-order choices at
+        // all — hidden, not shown disabled. They stay in Admin Inventory.
+        .filter((product) => !product.voided && !vaccinesById.get(product.vaccineId)?.archived)
+        .map((product) => applyVatToCatalogProduct(product, vaccinesById)),
     [catalog, vaccinesById]
   );
 
@@ -233,14 +239,17 @@ function SalesRepRequestOrder() {
   const cartLines = useMemo(
     () =>
       cart.map((item) => {
+        const batch = rawById.get(item.inventoryId);
         const check = reconcileCartLine(
           { inventoryId: item.inventoryId, quantity: item.quantity },
-          rawById.get(item.inventoryId),
-          catalogTodayIso
+          batch,
+          catalogTodayIso,
+          // A line whose vaccine was archived is blocked, never silently dropped.
+          { vaccine: batch ? vaccinesById.get(batch.vaccineId) ?? null : null }
         );
         return { ...item, ok: check.ok, issue: check.ok ? null : check.reason };
       }),
-    [cart, rawById, catalogTodayIso]
+    [cart, rawById, catalogTodayIso, vaccinesById]
   );
 
   const backorderEstimates = useMemo(() => estimateBackorders(cart, products), [cart, products]);

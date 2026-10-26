@@ -7,7 +7,8 @@ import { subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeAllAlerts } from "../../services/alertService";
 import { subscribeRiders } from "../../services/riderService";
 import { subscribeInventory } from "../../services/inventoryService";
-import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
+import { manilaToday } from "../../services/expiry";
+import { countExpiringOrExpiredBatches } from "../../services/inventoryRemovalModel";
 import { ORDER_STATUSES } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
 import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
@@ -183,13 +184,7 @@ function AdminDashboard() {
         // Derived from each batch's expiry date, not from the stored `status`
         // that Add Stock stamped once and nothing recomputes. Resolved here,
         // where the snapshot arrives, so no render reads the clock.
-        const today = manilaToday(Date.now());
-        setCriticalCount(
-          batches.filter((b) => {
-            const { level } = deriveExpiryCondition(b, today);
-            return level === "expired" || level === "critical";
-          }).length
-        );
+        setCriticalCount(countExpiringOrExpiredBatches(batches, manilaToday(Date.now())));
         loaded.inventory = true;
         recover("inventory");
         checkAllLoaded();

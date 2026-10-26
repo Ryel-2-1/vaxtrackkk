@@ -466,7 +466,6 @@ export const onSnapshot = (ref, next, err) => {
   __emit(l);
   return () => { l.active = false; __live.listeners.delete(l); };
 };
-export const limit = (n) => ({ __t: "limit", n });
 export const startAfter = (c) => ({ __t: "startAfter", c });
 export const documentId = () => "__name__";
 export const deleteDoc = async (ref) => { delete col(ref.__col)[ref.__id]; __live.emitAll(); };
@@ -877,7 +876,7 @@ const RETAINED_ONE_TIME_READS = {
   ],
   "orderService.js": ["getOrderById"], // checkout confirmation re-read; Assign Rider's "why did it leave" lookup
   "userService.js": ["getUserProfile"], // a blank-field default in InvoiceEditor
-  "vaccineService.js": ["getVaccineTypes", "skuExists", "getVaccines", "batchIdExists", "correctStockQuantity"], // submit-time checks; read inside a write
+  "vaccineService.js": ["getVaccineTypes", "skuExists", "getVaccines", "batchIdExists"], // submit-time checks
 };
 
 test("remaining one-time reads are only the documented ones", () => {

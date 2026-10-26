@@ -1389,3 +1389,263 @@
   color: var(--warning-text);
   font-size: 13px;
 }
+
+/* ---------------- removal controls (InventoryRemovalDialogs.jsx) ----------
+   Archive / void / quarantine / dispose. Meridian tokens only. Destructive
+   confirmations use the danger tokens; explanations use the warning ones. */
+
+.inventory-page .inv-tag {
+  display: inline-block;
+  margin: 4px 6px 0 0;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+}
+.inventory-page .inv-tag-voided {
+  border: 1px solid var(--gray-300);
+  background: var(--gray-100);
+  color: var(--gray-600);
+}
+.inventory-page .inv-tag-archived {
+  border: 1px solid var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+.inventory-page .inv-out-of-stock {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--warning-text);
+  white-space: nowrap;
+}
+
+.inventory-page .inv-danger-outline:not(:disabled) {
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+}
+.inventory-page .inv-danger-save {
+  border-color: var(--danger-text);
+  background: var(--danger-text);
+}
+
+.inv-removal-modal {
+  max-width: min(520px, 100%);
+}
+/* The page is light-only, but :root carries `color-scheme: light dark`
+   (index.css), so on a dark-mode device native radios, checkboxes and selects
+   drew dark on these white cards — an unchecked radio read as selected. */
+.inventory-page .inv-price-modal {
+  color-scheme: light;
+}
+.inventory-page .inv-removal-modal select,
+.inventory-page .inv-removal-modal textarea {
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 9px 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control);
+  background: #ffffff !important;
+  font: inherit;
+  font-size: 14px;
+}
+.inventory-page .inv-removal-modal label {
+  margin-top: 14px;
+}
+.inv-removal-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+  margin: 0 0 6px;
+}
+.inv-removal-counts div {
+  padding: 8px 10px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-control);
+}
+.inv-removal-counts dt {
+  font-size: 12px;
+  color: var(--gray-600);
+}
+.inv-removal-counts dd {
+  margin: 2px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--gray-900);
+}
+.inv-removal-options {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  border: 0;
+}
+.inv-removal-options legend {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-600);
+}
+.inventory-page .inv-removal-options label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control);
+  font-weight: 400;
+  cursor: pointer;
+}
+.inventory-page .inv-removal-options label:has(input:checked) {
+  border-color: var(--green-700);
+  background: var(--green-50);
+}
+/* Fixed-size native controls: the global `input { height: 48px }` (≤1000px)
+   and `min-height: 46px !important` would otherwise stretch a radio or
+   checkbox into a tall, misdrawn shape. */
+.inventory-page .inv-removal-options input,
+.inventory-page .inv-removal-confirm input {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  min-height: 0 !important;
+  margin: 2px 0 0;
+  padding: 0;
+  accent-color: var(--green-700);
+}
+.inv-removal-options strong {
+  display: block;
+  font-size: 13px;
+  color: var(--gray-900);
+}
+.inventory-page .inv-removal-options small {
+  margin-top: 2px;
+}
+.inv-removal-consequence {
+  margin: 14px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--gray-600);
+}
+.inventory-page .inv-removal-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-weight: 400;
+}
+.inv-removal-warning {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-control);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.inv-removal-warning p {
+  margin: 0 0 8px;
+}
+.inv-removal-warning p:last-child {
+  margin-bottom: 0;
+}
+
+.inv-vaccine-list {
+  max-height: 46vh;
+  margin: 12px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-control);
+}
+.inv-vaccine-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--gray-200);
+}
+.inv-vaccine-list li:last-child {
+  border-bottom: 0;
+}
+.inv-vaccine-list li.is-archived strong {
+  color: var(--gray-600);
+}
+.inv-vaccine-list strong {
+  display: block;
+  font-size: 14px;
+  color: var(--gray-900);
+}
+.inventory-page .inv-vaccine-list small {
+  margin-top: 2px;
+}
+.inv-vaccine-empty {
+  justify-content: center !important;
+  color: var(--gray-600);
+  font-size: 13px;
+}
+
+.inv-removal-history {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--gray-200);
+}
+.inv-removal-history h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+.inv-removal-history ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.inv-removal-history li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--gray-100);
+}
+.inv-removal-history li:last-child {
+  border-bottom: 0;
+}
+.inv-removal-history strong {
+  display: block;
+  font-size: 13px;
+  color: var(--gray-900);
+}
+.inv-removal-history small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--gray-600);
+}
+.inv-removal-history .inv-removal-note {
+  color: var(--gray-600);
+}
+.inv-removal-muted {
+  margin: 0;
+  font-size: 13px;
+  color: var(--gray-600);
+}
+
+/* Correct Stock: correction category + reason (server-checked callable). */
+.inventory-page .inv-price-modal .inv-correct-code,
+.inventory-page .inv-price-modal #inv-correct-reason {
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 9px 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control);
+  background: #ffffff !important;
+  font: inherit;
+  font-size: 14px;
+}
+.inventory-page .inv-price-modal label[for="inv-correct-code"],
+.inventory-page .inv-price-modal label[for="inv-correct-reason"] {
+  margin-top: 14px;
+}

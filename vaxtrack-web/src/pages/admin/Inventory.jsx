@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Download, Package, Plus, Search, X } from "lucide-react";
+import { Archive, Download, Package, Plus, Search, X } from "lucide-react";
 import AdminLayout from "../../components/admin/AdminLayout";
 import { subscribeInventory } from "../../services/inventoryService";
 import {
@@ -13,7 +13,8 @@ import {
   WARNING_WITHIN_DAYS,
 } from "../../services/expiry";
 import { formatBatchDate, readManufacturingDate } from "../../services/stockBatchDates";
-import { correctStockQuantity, setVaccineVatClassification, updateStockPrice } from "../../services/vaccineService";
+import { setVaccineVatClassification, updateStockPrice } from "../../services/vaccineService";
+import { correctStockQuantity, newRequestId } from "../../services/inventoryRemovalService";
 import { subscribeVaccines } from "../../services/vaccineCatalogService";
 import {
   NOT_CLASSIFIED,
@@ -21,7 +22,11 @@ import {
   PRODUCT_VAT_LABELS,
   batchVatClassification,
 } from "../../services/vatClassification";
-import { validateStockCorrection } from "../../services/stockCorrection";
+import {
+  CORRECTION_REASON_CODES,
+  CORRECTION_REASON_LABELS,
+  validateStockCorrection,
+} from "../../services/stockCorrection";
 import {
   centavosToInputValue,
   formatCentavos,
@@ -36,6 +41,13 @@ import { staleFields } from "../../services/liveFormSync";
 import { useToast } from "../../components/ui/useToast";
 import ReservationProvenance from "../../components/admin/ReservationProvenance";
 import InventoryBatchDialog, { InventoryDialog } from "./InventoryBatchDialog";
+import {
+  BatchRemovalHistory,
+  ManageVaccinesDialog,
+  RemoveStockDialog,
+  VoidBatchDialog,
+} from "./InventoryRemovalDialogs";
+import { OUT_OF_STOCK_LABEL, removalSource } from "../../services/inventoryRemovalModel";
 import { MAX_STOCK_QUANTITY } from "../../services/orderEligibility";
 import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
 import {
@@ -143,9 +155,21 @@ function normalizeInventoryItem(raw, todayIso) {
   if (expiryCondition.level === "unknown") {
     flags.push("No usable expiry date — cannot be ordered");
   }
+  const voided = raw.voided === true;
+  // Leads the list so the table's ⚠ title and the Excel export both say it first.
+  if (voided) flags.unshift("Voided — kept as a record; not stock and not orderable");
 
   return {
     id: raw.id,
+    // Voided (a mistaken entry, kept as a record): never stock, never ordered.
+    voided,
+    voidReason: typeof raw.voidReason === "string" ? raw.voidReason : "",
+    voidedAt: raw.voidedAt ?? null,
+    voidedByEmail: typeof raw.voidedByEmail === "string" ? raw.voidedByEmail : "",
+    // Zero available is shown as "Out of stock"; the batch is never removed for it.
+    outOfStock: !voided && available === 0,
+    // The stored figures the removal dialogs check (inventoryRemovalModel.js).
+    source: removalSource(raw),
     name: raw.vaccineName || "—",
     type: raw.vaccineType || "—",
     batch: raw.batchId || "—",
@@ -224,8 +248,12 @@ function Inventory() {
   const [correcting, setCorrecting] = useState(null);
   const [correctInput, setCorrectInput] = useState("");
   const [correctReason, setCorrectReason] = useState("");
+  // entry_error | count_discrepancy — damaged/expired/recalled is not a correction.
+  const [correctReasonCode, setCorrectReasonCode] = useState("");
+  // One id per correction ATTEMPT, kept across retries so the server replays.
+  const [correctRequestId, setCorrectRequestId] = useState(() => newRequestId());
   const [correctError, setCorrectError] = useState("");
-  // Which field the correction message belongs to: "quantity" | "reason" | null.
+  // Which field the correction message belongs to: "quantity" | "reasonCode" | "reason" | null.
   const [correctErrorField, setCorrectErrorField] = useState(null);
 
   // The price and correction dialogs keep the batch as it was when opened.
@@ -243,6 +271,16 @@ function Inventory() {
     : [];
   const correctionBlocked = correctionStale.length > 0 || correctingGone;
   const [savingCorrection, setSavingCorrection] = useState(false);
+
+  // Removal controls (InventoryRemovalDialogs.jsx): each dialog keeps the batch
+  // as opened and reads its LIVE row, so its figures never go stale.
+  const [removing, setRemoving] = useState(null);
+  const [voiding, setVoiding] = useState(null);
+  const [managingVaccines, setManagingVaccines] = useState(false);
+  const removingLive = removing ? inventory.find((i) => i.id === removing.id) ?? null : null;
+  const removingGone = Boolean(removing) && !loading && !loadError && !removingLive;
+  const voidingLive = voiding ? inventory.find((i) => i.id === voiding.id) ?? null : null;
+  const voidingGone = Boolean(voiding) && !loading && !loadError && !voidingLive;
 
   useEffect(() => {
     const unsubscribe = subscribeInventory((raw) => {
@@ -333,6 +371,8 @@ function Inventory() {
     setCorrecting(item);
     setCorrectInput(item.onHandValue != null ? String(item.onHandValue) : "");
     setCorrectReason("");
+    setCorrectReasonCode("");
+    setCorrectRequestId(newRequestId());
     setCorrectError("");
     setCorrectErrorField(null);
     // Opened from the batch details, it stacks ABOVE them (both are portaled
@@ -344,6 +384,7 @@ function Inventory() {
     setCorrecting(null);
     setCorrectInput("");
     setCorrectReason("");
+    setCorrectReasonCode("");
     setCorrectError("");
     setCorrectErrorField(null);
   };
@@ -373,12 +414,18 @@ function Inventory() {
       reservedQuantity: correcting.reservedValue,
       returnPendingQuantity: correcting.returnPendingValue,
       quarantinedQuantity: correcting.quarantinedValue,
+      reasonCode: correctReasonCode,
       reason: correctReason,
+      expired: correcting.level === "expired",
     });
     if (!pre.ok) {
       setCorrectError(pre.message);
       setCorrectErrorField(pre.field ?? null);
-      document.getElementById(pre.field === "reason" ? "inv-correct-reason" : "inv-correct-input")?.focus();
+      document
+        .getElementById(
+          pre.field === "reason" ? "inv-correct-reason" : pre.field === "reasonCode" ? "inv-correct-code" : "inv-correct-input"
+        )
+        ?.focus();
       return;
     }
 
@@ -386,16 +433,30 @@ function Inventory() {
     setCorrectError("");
     setCorrectErrorField(null);
     try {
-      await correctStockQuantity({
+      // A server callable: it re-checks the batch as it is NOW (the figure
+      // shown must still be the stored one), the held-units floor and the
+      // expired-stock rule, and writes a permanent before/after audit entry.
+      const result = await correctStockQuantity({
+        requestId: correctRequestId,
         inventoryId: correcting.id,
+        expectedQuantity: correcting.source.quantity,
         newQuantity: pre.value.newQuantity,
+        reasonCode: pre.value.reasonCode,
         reason: pre.value.reason,
       });
       const batch = correcting.batch;
+      const freed = (result?.reallocated ?? []).reduce((sum, a) => sum + (a.units || 0), 0);
       closeCorrectDialog();
-      showToast(`Stock corrected for batch ${batch}.`, "success");
+      showToast(
+        freed > 0
+          ? `Stock corrected for batch ${batch}. ${freed} vial${freed === 1 ? "" : "s"} went to waiting orders.`
+          : `Stock corrected for batch ${batch}.`,
+        "success"
+      );
     } catch (error) {
       logSafeError("Correct stock", error);
+      // A reused id means an earlier attempt already went through.
+      if (error?.code === "idempotency-conflict") setCorrectRequestId(newRequestId());
       setCorrectError(
         friendlyErrorMessage(error, "The stock could not be corrected. Nothing was changed — please try again.")
       );
@@ -428,6 +489,7 @@ function Inventory() {
           vatClassification: cls,
           vatLabel: cls ? PRODUCT_VAT_LABELS[cls] : NOT_CLASSIFIED,
           vaccineProductName: vaccinesById.get(item.vaccineId)?.vaccineName || item.name,
+          vaccineArchived: vaccinesById.get(item.vaccineId)?.archived === true,
         };
       }),
     [inventory, vaccinesById]
@@ -503,10 +565,20 @@ function Inventory() {
     }
   };
 
+  // Voided batches are records of mistaken entries, not stock: they stay in the
+  // table (tagged) but never count toward the stock figures and expiry cards.
+  const stockBatches = useMemo(() => inventory.filter((i) => !i.voided), [inventory]);
+  // Batches per vaccine product, for Manage vaccines.
+  const batchCounts = useMemo(() => {
+    const counts = new Map();
+    for (const i of stockBatches) if (i.vaccineId) counts.set(i.vaccineId, (counts.get(i.vaccineId) ?? 0) + 1);
+    return counts;
+  }, [stockBatches]);
+
   const stockByType = useMemo(() => {
-    if (inventory.length === 0) return [];
+    if (stockBatches.length === 0) return [];
     const totals = {};
-    inventory.forEach((item) => {
+    stockBatches.forEach((item) => {
       const key = item.type !== "—" ? item.type : "Unknown";
       totals[key] = (totals[key] || 0) + item.qtyRaw;
     });
@@ -519,31 +591,31 @@ function Inventory() {
       percentage: Math.max(4, Math.round((totalQty / maxQty) * 100)),
       tone: tones[i % tones.length],
     }));
-  }, [inventory]);
+  }, [stockBatches]);
 
   const criticalAndExpiring = useMemo(() => {
     const days = (i) => i.daysRemaining ?? Infinity;
-    return inventory
+    return stockBatches
       .filter((i) => i.level === "expired" || i.level === "critical")
       .sort((a, b) => days(a) - days(b))
       .slice(0, 4);
-  }, [inventory]);
+  }, [stockBatches]);
 
   const criticalCount = useMemo(
-    () => inventory.filter((i) => i.level === "critical").length,
-    [inventory]
+    () => stockBatches.filter((i) => i.level === "critical").length,
+    [stockBatches]
   );
   const expiringSoonCount = useMemo(
     () =>
-      inventory.filter((i) => {
+      stockBatches.filter((i) => {
         const days = i.daysRemaining ?? Infinity;
         return days >= 0 && days <= WARNING_WITHIN_DAYS;
       }).length,
-    [inventory]
+    [stockBatches]
   );
   const stableCount = useMemo(
-    () => inventory.filter((i) => i.level === "stable").length,
-    [inventory]
+    () => stockBatches.filter((i) => i.level === "stable").length,
+    [stockBatches]
   );
 
   const totalPages = Math.max(1, Math.ceil(filteredVaccines.length / pageSize));
@@ -596,6 +668,15 @@ function Inventory() {
           <button
             type="button"
             className="v2-light-action"
+            onClick={() => setManagingVaccines(true)}
+            disabled={loading}
+          >
+            <Archive size={16} aria-hidden="true" />
+            Manage vaccines
+          </button>
+          <button
+            type="button"
+            className="v2-light-action"
             onClick={() => navigate("/admin/add-vaccine")}
           >
             <Plus size={16} aria-hidden="true" />
@@ -632,7 +713,7 @@ function Inventory() {
               and pricing are separate concerns, surfaced as row flags. */}
           <KpiCard
             label="Expired"
-            value={loading || loadError ? "—" : inventory.filter((i) => i.level === "expired").length}
+            value={loading || loadError ? "—" : stockBatches.filter((i) => i.level === "expired").length}
             context="Past expiry date — not orderable"
             tone="danger"
             attention
@@ -641,7 +722,7 @@ function Inventory() {
 
           <KpiCard
             label="Expiring within 30 days"
-            value={loading || loadError ? "—" : inventory.filter((i) => i.level === "critical").length}
+            value={loading || loadError ? "—" : stockBatches.filter((i) => i.level === "critical").length}
             context="By expiry date"
             tone="warning"
             onClick={() => setStatusFilter("critical")}
@@ -654,7 +735,7 @@ function Inventory() {
               promised. */}
           <KpiCard
             label="Expiring in 31–90 days"
-            value={loading || loadError ? "—" : inventory.filter((i) => i.level === "warning").length}
+            value={loading || loadError ? "—" : stockBatches.filter((i) => i.level === "warning").length}
             context="By expiry date"
             tone="neutral"
             onClick={() => setStatusFilter("warning")}
@@ -798,6 +879,8 @@ function Inventory() {
                         <div>
                           <strong>{item.name}</strong>
                           <small>{item.type}</small>
+                          {item.voided && <span className="inv-tag inv-tag-voided">Voided</span>}
+                          {item.vaccineArchived && <span className="inv-tag inv-tag-archived">Vaccine archived</span>}
                         </div>
                       </div>
                     </td>
@@ -807,7 +890,8 @@ function Inventory() {
                     <td>{item.onHand}</td>
                     <td>{item.reserved}</td>
                     <td>
-                      {item.available}
+                      {item.voided ? "—" : item.available}
+                      {item.outOfStock && <small className="inv-out-of-stock">{OUT_OF_STOCK_LABEL}</small>}
                       {item.flags.length > 0 && (
                         <span className="inv-flag" title={item.flags.join(" · ")}>
                           {' '}⚠
@@ -834,7 +918,8 @@ function Inventory() {
                     </td>
 
                     <td onClick={(e) => e.stopPropagation()}>
-                      <button
+                      {/* A voided batch is a record, not stock: nothing to price. */}
+                      {!item.voided && <button
                         type="button"
                         className="inv-price-btn"
                         onClick={() => openPriceDialog(item)}
@@ -844,7 +929,7 @@ function Inventory() {
                           : item.priceNeedsReconfirm
                             ? "Re-confirm price"
                             : "Edit price"}
-                      </button>
+                      </button>}
                     </td>
                   </tr>
                 ))}
@@ -930,8 +1015,8 @@ function Inventory() {
       {drawerItem && (
         <InventoryBatchDialog
           resetKey={drawerItem.id}
-          badge={drawerItem.status}
-          badgeTone={drawerItem.level}
+          badge={drawerItem.voided ? "Voided" : drawerItem.status}
+          badgeTone={drawerItem.voided ? "unknown" : drawerItem.level}
           title={drawerItem.name}
           description={`${drawerItem.type} vaccine batch details.`}
           onClose={() => setSelectedVaccine(null)}
@@ -949,8 +1034,28 @@ function Inventory() {
                 type="button"
                 className="inv-price-cancel"
                 onClick={() => openCorrectDialog(drawerItem)}
+                disabled={drawerItem.voided}
               >
                 Correct stock
+              </button>
+
+              {/* Removal controls — server-checked, audited, never a delete. */}
+              <button
+                type="button"
+                className="inv-price-cancel"
+                onClick={() => setRemoving(drawerItem)}
+                disabled={drawerItem.voided}
+              >
+                Remove unusable stock
+              </button>
+
+              <button
+                type="button"
+                className="inv-price-cancel inv-danger-outline"
+                onClick={() => setVoiding(drawerItem)}
+                disabled={drawerItem.voided}
+              >
+                Void batch
               </button>
 
               {/* "View Batch History" and "Flag for Review" were removed.
@@ -968,6 +1073,19 @@ function Inventory() {
             </div>
           }
         >
+            {drawerItem.voided && (
+              <p className="inv-removal-warning" role="note">
+                Voided{drawerItem.voidedByEmail ? ` by ${drawerItem.voidedByEmail}` : ""}
+                {drawerItem.voidReason ? ` — ${drawerItem.voidReason}` : ""}. This batch is kept as a record only: it is
+                not stock and cannot be ordered.
+              </p>
+            )}
+            {drawerItem.vaccineArchived && !drawerItem.voided && (
+              <p className="inv-removal-warning" role="note">
+                {drawerItem.vaccineProductName} is archived, so this batch is not offered for new orders. Orders already
+                waiting for it can still receive its stock. Restore the vaccine from Manage vaccines.
+              </p>
+            )}
             <div className="v2-modal-detail-grid">
               <div>
                 <span>Batch ID</span>
@@ -978,7 +1096,8 @@ function Inventory() {
                 <span>On hand (not yet delivered) / Reserved / Available</span>
                 <strong>
                   {drawerItem.onHand} / {drawerItem.reserved} /{" "}
-                  {drawerItem.available}
+                  {drawerItem.voided ? "—" : drawerItem.available}
+                  {drawerItem.outOfStock && <small className="inv-out-of-stock">{OUT_OF_STOCK_LABEL}</small>}
                 </strong>
                 {drawerItem.flags.length > 0 && (
                   <small className="inv-flag-list">
@@ -1043,7 +1162,52 @@ function Inventory() {
             {/* "2 reserved" is always inspectable: which orders hold it,
                 and whether those add up to the batch's counter. */}
             <ReservationProvenance key={drawerItem.id} inventoryId={drawerItem.id} />
+
+            {/* Quarantine, disposal and void entries for this batch (audit). */}
+            <BatchRemovalHistory inventoryId={drawerItem.id} />
         </InventoryBatchDialog>
+      )}
+
+      {removing && (
+        <RemoveStockDialog
+          key={removing.id}
+          item={removing}
+          live={removingLive}
+          gone={removingGone}
+          onClose={() => setRemoving(null)}
+          onDone={(message) => {
+            setRemoving(null);
+            showToast(message, "success");
+          }}
+        />
+      )}
+
+      {voiding && (
+        <VoidBatchDialog
+          key={voiding.id}
+          item={voiding}
+          live={voidingLive}
+          gone={voidingGone}
+          onClose={() => setVoiding(null)}
+          onDone={(message) => {
+            setVoiding(null);
+            showToast(message, "success");
+          }}
+          onRemoveInstead={() => {
+            const batch = voiding;
+            setVoiding(null);
+            setRemoving(batch);
+          }}
+        />
+      )}
+
+      {managingVaccines && (
+        <ManageVaccinesDialog
+          vaccines={vaccines}
+          batchCounts={batchCounts}
+          onClose={() => setManagingVaccines(false)}
+          onDone={(message) => showToast(message, "success")}
+        />
       )}
 
       {pricing && (
@@ -1203,12 +1367,30 @@ function Inventory() {
               }
             />
             <small id="inv-correct-help">
-              Fixes a human error in the on-hand figure. It cannot be set below
-              the reserved amount, and it does not change reservations or any
-              order already placed.
+              Fixes the recorded on-hand figure. It cannot go below the doses
+              reserved, returned awaiting a decision or quarantined, and
+              it does not change reservations or any order already placed.
+              Damaged, expired or recalled doses are not a correction — use
+              Remove unusable stock.
             </small>
 
-            <label htmlFor="inv-correct-reason">Reason (recorded for the audit trail)</label>
+            <label htmlFor="inv-correct-code">What kind of correction is this?</label>
+            <select
+              id="inv-correct-code"
+              className="inv-correct-code"
+              value={correctReasonCode}
+              onChange={(e) => setCorrectReasonCode(e.target.value)}
+              aria-invalid={correctErrorField === "reasonCode" ? "true" : undefined}
+            >
+              <option value="">Choose…</option>
+              {CORRECTION_REASON_CODES.map((code) => (
+                <option key={code} value={code}>
+                  {CORRECTION_REASON_LABELS[code]}
+                </option>
+              ))}
+            </select>
+
+            <label htmlFor="inv-correct-reason">Reason — at least 10 characters (kept permanently in the audit trail)</label>
             <textarea
               id="inv-correct-reason"
               rows={2}

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { deriveExpiryCondition, manilaToday } from "../src/services/expiry.js";
 import { evaluateBatchEligibility } from "../src/services/orderEligibility.js";
+import { countExpiringOrExpiredBatches } from "../src/services/inventoryRemovalModel.js";
 
 /**
  * The three expiry bands are EXCLUSIVE, and every surface that names or counts
@@ -58,7 +59,7 @@ test("the three bands are exclusive and cover every day", () => {
 test("Admin Inventory labels each KPI with the band it actually counts", () => {
   // The critical card covers today through day 30…
   assert.match(INV, /label="Expiring within 30 days"/);
-  assert.match(INV, /value=\{loading \|\| loadError \? "—" : inventory\.filter\(\(i\) => i\.level === "critical"\)\.length\}/);
+  assert.match(INV, /value=\{loading \|\| loadError \? "—" : stockBatches\.filter\(\(i\) => i\.level === "critical"\)\.length\}/);
 
   // …and the warning card covers 31 through 90, which is what its label now
   // says. "Expiring within 90 days" read as 0–90 over a 31–90 count.
@@ -68,11 +69,11 @@ test("Admin Inventory labels each KPI with the band it actually counts", () => {
     false,
     "an inclusive-from-zero label over an exclusive count is a miscount"
   );
-  assert.match(INV, /value=\{loading \|\| loadError \? "—" : inventory\.filter\(\(i\) => i\.level === "warning"\)\.length\}/);
+  assert.match(INV, /value=\{loading \|\| loadError \? "—" : stockBatches\.filter\(\(i\) => i\.level === "warning"\)\.length\}/);
 
   // Expired stays its own card, counted on its own level.
   assert.match(INV, /label="Expired"/);
-  assert.match(INV, /value=\{loading \|\| loadError \? "—" : inventory\.filter\(\(i\) => i\.level === "expired"\)\.length\}/);
+  assert.match(INV, /value=\{loading \|\| loadError \? "—" : stockBatches\.filter\(\(i\) => i\.level === "expired"\)\.length\}/);
 
   // Each card filters to the single level it counts, so figure and list agree.
   for (const level of ["expired", "critical", "warning"]) {
@@ -83,12 +84,9 @@ test("Admin Inventory labels each KPI with the band it actually counts", () => {
 // ----------------------------------------------- 2. Admin Dashboard couting
 
 test("the Dashboard KPI counts critical AND expired, and nothing else", () => {
-  // Executed, not just read: the page's own predicate applied to one batch of
-  // each level.
-  const predicate = (batch) => {
-    const { level } = deriveExpiryCondition(batch, TODAY);
-    return level === "expired" || level === "critical";
-  };
+  // Executed, not just read: the page's own counting helper applied to one
+  // batch of each level.
+  const predicate = (batch) => countExpiringOrExpiredBatches([batch], TODAY) === 1;
   const at = (days) => ({
     expiryDate: new Date(Date.parse(`${TODAY}T00:00:00.000Z`) + days * 86400000)
       .toISOString()
@@ -108,8 +106,8 @@ test("the Dashboard KPI counts critical AND expired, and nothing else", () => {
   const batches = [at(-5), at(-1), at(0), at(30), at(31), at(90), at(200), {}, { expiryDate: "x" }];
   assert.equal(batches.filter(predicate).length, 4);
 
-  // And the page really uses that predicate, under a label naming both.
-  assert.match(DASH, /level === "expired" \|\| level === "critical"/);
+  // And the page really uses that helper, under a label naming both.
+  assert.match(DASH, /setCriticalCount\(countExpiringOrExpiredBatches\(batches, manilaToday\(Date\.now\(\)\)\)\)/);
   assert.match(DASH, /label: "Expiring or expired stock"/);
   assert.match(DASH, /note: criticalCount > 0 \? "Within 30 days or past expiry"/);
 });

@@ -29,8 +29,10 @@ const {
   readReservedQuantity,
   readSellingPriceCentavos,
   MAX_STOCK_QUANTITY,
+  isVaccineArchived,
 } = require("./policy");
 const {
+  usageMark,
   ALLOCATION_VERSION_BACKORDER,
   allocateInTransaction,
   allocateProduct,
@@ -152,6 +154,9 @@ async function addStockBatchWithAllocation({ db, FieldValue, uid, payload, now }
     const vaccineSnap = await tx.get(db.collection(VACCINES).doc(input.vaccineId));
     if (!vaccineSnap.exists) throw new PolicyError("vaccine-not-found", "That vaccine no longer exists.");
     const vaccine = vaccineSnap.data();
+    if (isVaccineArchived(vaccine)) {
+      throw new PolicyError("vaccine-archived", "This vaccine is archived. Restore it before adding stock.");
+    }
 
     const batchData = {
       // Identity and description come from the catalog document, never the caller.
@@ -173,6 +178,9 @@ async function addStockBatchWithAllocation({ db, FieldValue, uid, payload, now }
       // The entered price is VAT-inclusive (pricingConfig.js).
       priceIsVatInclusive: PRICES_INCLUDE_VAT,
       status: input.status,
+      // Usage is recorded from this batch's first moment (allocation.usageMark),
+      // so whether it was ever used can be PROVEN — the precondition for voiding.
+      usageTracked: true,
     };
 
     const r = await allocateInTransaction(tx, {
@@ -187,6 +195,7 @@ async function addStockBatchWithAllocation({ db, FieldValue, uid, payload, now }
     tx.set(batchRef, {
       ...batchData,
       reservedQuantity: reservedFromNew,
+      ...(reservedFromNew > 0 ? usageMark(null, FieldValue, "allocation") : {}),
       createdAt: FieldValue.serverTimestamp(),
       createdByUid: uid,
       updatedAt: FieldValue.serverTimestamp(),

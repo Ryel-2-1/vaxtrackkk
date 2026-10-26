@@ -52,6 +52,12 @@ const CALLABLE_NAMES = [
   // that never left back in the queue. Reservations and stock are never touched.
   "previewRiderRecovery",
   "applyRiderRecovery",
+  // Admin inventory removal controls (functions/src/inventoryRemoval.js) —
+  // each one transaction with an audit entry; none is a generic adjuster.
+  "setVaccineArchived", // archive / restore a product for NEW orders and stock
+  "voidInventoryBatch", // a provably unused, mistaken batch → voided record
+  "removeUnusableStock", // free → quarantined, or quarantined → written off
+  "correctStockQuantity", // a RECORD fix: category, reason, floor, expired rule, audit
 ];
 
 test("the callables are the only inventory-affecting entry points", () => {

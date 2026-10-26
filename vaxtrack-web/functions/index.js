@@ -62,6 +62,7 @@ const scheduleOperations = require("./src/scheduleOperations");
 const invoiceOperations = require("./src/invoiceOperations");
 const statusEvents = require("./src/statusEvents");
 const inventoryWorkflow = require("./src/inventoryWorkflow");
+const inventoryRemoval = require("./src/inventoryRemoval");
 const allocation = require("./src/allocation");
 const failureReturn = require("./src/failureReturn");
 const orderHistoryOutbox = require("./src/orderHistoryOutbox");
@@ -182,6 +183,29 @@ function toHttpsError(error, context) {
       "return-already-resolved": "failed-precondition",
       "invalid-disposition": "invalid-argument",
       "invalid-notes": "invalid-argument",
+      // Admin inventory removal controls (inventoryRemoval.js).
+      "vaccine-archived": "failed-precondition",
+      "batch-voided": "failed-precondition",
+      "batch-in-use": "failed-precondition",
+      "batch-usage-unproven": "failed-precondition",
+      "insufficient-free-stock": "failed-precondition",
+      "insufficient-quarantined-stock": "failed-precondition",
+      "removal-reason-not-applicable": "failed-precondition",
+      "invalid-archive-request": "invalid-argument",
+      "invalid-removal-action": "invalid-argument",
+      "invalid-removal-quantity": "invalid-argument",
+      "invalid-removal-reason": "invalid-argument",
+      "reason-required": "invalid-argument",
+      "reason-too-long": "invalid-argument",
+      "invalid-request-id": "invalid-argument",
+      // Correct Stock (inventoryRemoval.correctStockQuantity).
+      "stock-changed": "aborted",
+      "correction-unchanged": "failed-precondition",
+      "correction-below-held": "failed-precondition",
+      "correction-expired-decrease": "failed-precondition",
+      "invalid-correction-quantity": "invalid-argument",
+      "invalid-correction-request": "invalid-argument",
+      "invalid-correction-reason": "invalid-argument",
       // An order-history record with this id already holds different content.
       // Nothing was written or changed (orderHistory.js).
       "history-integrity-conflict": "failed-precondition",
@@ -443,6 +467,34 @@ exports.applyRiderRecovery = callable(
 exports.getReservationProvenance = callable(
   "getReservationProvenance",
   ({ db, uid, data, now }) => inventoryWorkflow.getReservationProvenance({ db, uid, payload: data, now })
+);
+
+// Admin inventory removal controls (src/inventoryRemoval.js): archive/restore a
+// vaccine, void a provably unused batch, quarantine/dispose unusable doses.
+// Each is one transaction with an immutable inventoryAuditEvents entry.
+exports.setVaccineArchived = callable(
+  "setVaccineArchived",
+  ({ db, FieldValue, uid, email, data }) => inventoryRemoval.setVaccineArchived({ db, FieldValue, uid, email, payload: data })
+);
+
+exports.voidInventoryBatch = callable(
+  "voidInventoryBatch",
+  ({ db, FieldValue, uid, email, data }) => inventoryRemoval.voidInventoryBatch({ db, FieldValue, uid, email, payload: data })
+);
+
+// Correct Stock moved here from a direct client write (firestore.rules now
+// refuse every client change to a stock counter): category + reason, stale
+// figure check, held-units floor, expired-stock rule, permanent audit.
+exports.correctStockQuantity = callable(
+  "correctStockQuantity",
+  ({ db, FieldValue, uid, email, data, now }) =>
+    inventoryRemoval.correctStockQuantity({ db, FieldValue, uid, email, payload: data, now })
+);
+
+exports.removeUnusableStock = callable(
+  "removeUnusableStock",
+  ({ db, FieldValue, uid, email, data, now }) =>
+    inventoryRemoval.removeUnusableStock({ db, FieldValue, uid, email, payload: data, now })
 );
 
 // Safety net. The callables allocate synchronously; these re-run allocation

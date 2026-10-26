@@ -521,7 +521,7 @@ test("field validation is associated accessibly, and focus goes to the first inv
     "src/pages/admin/Clinics.jsx": [/\{\.\.\.fieldA11y\("new-clinic", "name", errors\)\}/, /focusFirstInvalid\(CLINIC_FIELD_ORDER/],
     "src/components/profile/MyProfile.jsx": [/aria-describedby=\{errors\.name \? "my-profile-name-error" : undefined\}/, /focusFirstInvalid\(\["name", "phone"\]/],
     "src/pages/admin/AiInventoryAnalytics.jsx": [/\{\.\.\.a11y\("leadTimeDays"\)\}/, /getElementById\(ids\[checked\.field\]\)\?\.focus\(\)/],
-    "src/pages/admin/Inventory.jsx": [/aria-invalid=\{correctErrorField === "quantity" \? "true" : undefined\}/, /getElementById\(pre\.field === "reason" \? "inv-correct-reason" : "inv-correct-input"\)\?\.focus\(\)/],
+    "src/pages/admin/Inventory.jsx": [/aria-invalid=\{correctErrorField === "quantity" \? "true" : undefined\}/, /pre\.field === "reason" \? "inv-correct-reason" : pre\.field === "reasonCode" \? "inv-correct-code" : "inv-correct-input"[\s\S]{0,40}\?\.focus\(\)/, /aria-invalid=\{correctErrorField === "reasonCode" \? "true" : undefined\}/],
   };
   for (const [p, patterns] of Object.entries(forms)) {
     const src = read(p);
