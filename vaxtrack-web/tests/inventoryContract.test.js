@@ -47,6 +47,11 @@ const CALLABLE_NAMES = [
   "finalizeRiderDispatch", // the whole forming trip: loading → in_transit
   "confirmRiderReturnToHub", // returning_to_hub → available_at_hub
   "recheckRiderTripStates", // repair: re-derive named Riders' trip state from their orders (never frees one)
+  // Admin Rider recovery (functions/src/riderRecoveryOps.js) — Admin only. The
+  // preview reads; apply confirms a return or (staging/demo only) puts a trip
+  // that never left back in the queue. Reservations and stock are never touched.
+  "previewRiderRecovery",
+  "applyRiderRecovery",
 ];
 
 test("the callables are the only inventory-affecting entry points", () => {
@@ -128,6 +133,21 @@ test("the callables are the only inventory-affecting entry points", () => {
     }
     assert.match(reconcile, /applyNext\(tx, db, FieldValue, view, riderUid, next\)/);
     assert.match(writer, /tx\.update\(db\.collection\(ORDERS\)\.doc\(id\), \{ dispatchTripId: tripId, updatedAt: stamp \}\)/);
+  }
+  {
+    // The Admin recovery reads returns (custody) but never writes stock: no
+    // counter, no reservation, no return, no price — and the only order status
+    // it writes is the QA reset's pending_dispatch.
+    for (const p of ["functions/src/riderRecovery.js", "functions/src/riderRecoveryOps.js"]) {
+      const code = read(p).replace(/^\s*(\*|\/\/).*$/gm, "");
+      assert.doesNotMatch(code, /reservedQuantity|returnPendingQuantity|quarantinedQuantity|Centavos|inventoryReservations|collection\("inventory"\)/, `${p} never touches stock`);
+      const statuses = [...code.matchAll(/status:\s*"([a-z_]+)"/g)].map((m) => m[1]);
+      // `dissolved` is the unused trip record's status, not an order's.
+      assert.ok(statuses.every((s) => s === "pending_dispatch" || s === "dissolved"), `${p}: writes only ${statuses}`);
+    }
+    const ops = read("functions/src/riderRecoveryOps.js").replace(/^\s*(\*|\/\/).*$/gm, "");
+    assert.match(ops, /status: "pending_dispatch",\s*previousAssignedRiderId: riderUid,/);
+    assert.doesNotMatch(ops, /tx\.(set|update|create)\(db\.collection\(RETURNS\)/, "returns are read, never written");
   }
   for (const p of ["functions/src/deliveryTiming.js", "functions/src/deliveryTimingOps.js"]) {
     const code = read(p).replace(/^\s*(\*|\/\/).*$/gm, "");

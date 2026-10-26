@@ -465,69 +465,78 @@ async function confirmRiderReturnToHub({ db, FieldValue, uid, payload }) {
 
   return runTripTransaction(db, async (tx) => {
     const { view, cur } = await settle(tx, db, FieldValue, riderUid);
-
-    if (cur.lastConfirmedTripId === tripId && cur.tripId !== tripId) {
-      return { riderUid, tripId, state: cur.state, replayed: true };
-    }
-    if (cur.tripId !== tripId) {
-      throw new PolicyError("trip-changed", "This rider's trip changed. Refresh and try again.");
-    }
-    if (cur.state !== D.STATE.RETURNING) {
-      throw new PolicyError(
-        "trip-not-settled",
-        cur.state === D.STATE.ON_TRIP
-          ? "This rider still has orders out for delivery. Confirm their return once every order is finished."
-          : "This rider is not returning from a trip."
-      );
-    }
-    // From the orders, not the document: nothing may still be on the road.
-    if (onTheRoad(view).length > 0) {
-      throw new PolicyError("trip-not-settled", "This rider still has orders out for delivery.");
-    }
-    // Orders assigned while the Rider was out (held) become the next trip.
-    const held = cur.heldOrderIds.filter((id) => {
-      const o = view.byId.get(id);
-      return o && o.assignedRiderId === riderUid && D.PRE_DEPARTURE.includes(o.status);
-    });
-    const nextTripId = held.length > 0 ? newTripId(db) : null;
-
-    // ---- writes
-    tx.set(db.collection(D.RIDER_TRIPS).doc(tripId), {
-      status: "returned",
-      returnConfirmedAt: FieldValue.serverTimestamp(),
-      returnConfirmedByUid: uid,
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
-    tx.set(view.stateRef, {
-      state: nextTripId ? D.STATE.FORMING : D.STATE.AVAILABLE,
-      tripId: nextTripId,
-      orderIds: held,
-      heldOrderIds: [],
-      lastConfirmedTripId: tripId,
-      returnConfirmedAt: FieldValue.serverTimestamp(),
-      returnConfirmedByUid: uid,
-      departedAt: null,
-      departedByUid: null,
-      settledAt: null,
-      ...(nextTripId ? { formedAt: FieldValue.serverTimestamp(), formedByUid: uid } : {}),
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
-    if (nextTripId) {
-      tx.set(db.collection(D.RIDER_TRIPS).doc(nextTripId), {
-        riderUid,
-        status: "forming",
-        orderIds: held,
-        source: "held-legacy-orders",
-        createdAt: FieldValue.serverTimestamp(),
-        createdByUid: uid,
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-      for (const id of held) {
-        tx.update(db.collection(ORDERS).doc(id), { dispatchTripId: nextTripId, updatedAt: FieldValue.serverTimestamp() });
-      }
-    }
-    return { riderUid, tripId, state: nextTripId ? D.STATE.FORMING : D.STATE.AVAILABLE, nextTripId, replayed: false };
+    return confirmReturnInTransaction(tx, { db, FieldValue, uid, riderUid, tripId, view, cur });
   });
+}
+
+/**
+ * The return decision and its writes, after `settle` (or the recovery's own
+ * reads and re-derivation) in the same transaction. Writes only — the caller
+ * has finished reading. Shared by the Dispatcher callable and the Admin
+ * recovery (riderRecoveryOps.js), so both confirm a return identically.
+ */
+function confirmReturnInTransaction(tx, { db, FieldValue, uid, riderUid, tripId, view, cur }) {
+  if (cur.lastConfirmedTripId === tripId && cur.tripId !== tripId) {
+    return { riderUid, tripId, state: cur.state, replayed: true };
+  }
+  if (cur.tripId !== tripId) {
+    throw new PolicyError("trip-changed", "This rider's trip changed. Refresh and try again.");
+  }
+  if (cur.state !== D.STATE.RETURNING) {
+    throw new PolicyError(
+      "trip-not-settled",
+      cur.state === D.STATE.ON_TRIP
+        ? "This rider still has orders out for delivery. Confirm their return once every order is finished."
+        : "This rider is not returning from a trip."
+    );
+  }
+  // From the orders, not the document: nothing may still be on the road.
+  if (onTheRoad(view).length > 0) {
+    throw new PolicyError("trip-not-settled", "This rider still has orders out for delivery.");
+  }
+  // Orders assigned while the Rider was out (held) become the next trip.
+  const held = cur.heldOrderIds.filter((id) => {
+    const o = view.byId.get(id);
+    return o && o.assignedRiderId === riderUid && D.PRE_DEPARTURE.includes(o.status);
+  });
+  const nextTripId = held.length > 0 ? newTripId(db) : null;
+
+  // ---- writes
+  tx.set(db.collection(D.RIDER_TRIPS).doc(tripId), {
+    status: "returned",
+    returnConfirmedAt: FieldValue.serverTimestamp(),
+    returnConfirmedByUid: uid,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  tx.set(view.stateRef, {
+    state: nextTripId ? D.STATE.FORMING : D.STATE.AVAILABLE,
+    tripId: nextTripId,
+    orderIds: held,
+    heldOrderIds: [],
+    lastConfirmedTripId: tripId,
+    returnConfirmedAt: FieldValue.serverTimestamp(),
+    returnConfirmedByUid: uid,
+    departedAt: null,
+    departedByUid: null,
+    settledAt: null,
+    ...(nextTripId ? { formedAt: FieldValue.serverTimestamp(), formedByUid: uid } : {}),
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  if (nextTripId) {
+    tx.set(db.collection(D.RIDER_TRIPS).doc(nextTripId), {
+      riderUid,
+      status: "forming",
+      orderIds: held,
+      source: "held-legacy-orders",
+      createdAt: FieldValue.serverTimestamp(),
+      createdByUid: uid,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    for (const id of held) {
+      tx.update(db.collection(ORDERS).doc(id), { dispatchTripId: nextTripId, updatedAt: FieldValue.serverTimestamp() });
+    }
+  }
+  return { riderUid, tripId, state: nextTripId ? D.STATE.FORMING : D.STATE.AVAILABLE, nextTripId, replayed: false };
 }
 
 // ------------------------------------------------------------------ reconcile (trigger + repair)
@@ -619,6 +628,11 @@ module.exports = {
   reconcileRider,
   reconcileRiderOnOrderWrite,
   tripRelevant,
+  // The Admin recovery (riderRecoveryOps.js) decides on the same state.
+  applyNext,
+  fromStored,
+  onTheRoad,
+  confirmReturnInTransaction,
   MAX_TRIP_ORDERS,
   MAX_RECHECK_RIDERS,
   // Exported for the retry tests.
