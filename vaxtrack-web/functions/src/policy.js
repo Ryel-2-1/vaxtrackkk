@@ -881,6 +881,14 @@ function evaluateBatch({ inventoryId, data, requested, expectedUnitPriceCentavos
     });
   }
 
+  // A voided batch was a mistaken entry: it is kept as a record, never quoted.
+  if (isBatchVoided(data)) {
+    throw new PolicyError("batch-voided", "That batch was voided and can no longer be ordered.", {
+      inventoryId,
+      batchId: data.batchId ?? null,
+    });
+  }
+
   const onHand = readStockInteger(data.quantity);
   if (!onHand.ok) {
     throw new PolicyError(
@@ -1077,6 +1085,24 @@ const USABLE_STATUSES = Object.freeze(["ok", "low", "stable", "warning", "availa
 function isUsableStatus(status) {
   if (typeof status !== "string") return false;
   return USABLE_STATUSES.includes(status.trim().toLowerCase());
+}
+
+/**
+ * A batch an Admin voided as a mistaken entry (inventoryRemoval.js). It stays
+ * as an audit record but is never quoted, allocated or counted as stock.
+ * Only the server sets `voided` (firestore.rules).
+ */
+function isBatchVoided(data) {
+  return data?.voided === true;
+}
+
+/**
+ * A vaccine product an Admin archived (inventoryRemoval.js): refused for NEW
+ * orders and new stock; existing orders, reservations and batches are untouched.
+ * Only the server sets `archived` (firestore.rules).
+ */
+function isVaccineArchived(data) {
+  return data?.archived === true;
 }
 
 function stringOrNull(value) {
@@ -1378,6 +1404,8 @@ module.exports = {
   isExpired,
   normalizeRequestedDeliveryDate,
   isUsableStatus,
+  isBatchVoided,
+  isVaccineArchived,
   readStockInteger,
   readReservedQuantity,
   validateLineQuantity,

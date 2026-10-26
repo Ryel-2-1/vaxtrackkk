@@ -166,7 +166,8 @@ function SalesRepDashboard() {
   useEffect(() => {
     const unsubscribe = subscribeInventory(
       (raw) => {
-        setInventory(raw.map(normalizeInventoryRow));
+        // A voided batch (an Admin's record of a mistaken entry) is not stock.
+        setInventory(raw.filter((item) => item.voided !== true).map(normalizeInventoryRow));
         setInvLoading(false);
         setInvError("");
       },

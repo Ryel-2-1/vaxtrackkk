@@ -143,7 +143,12 @@ test("the reference time is always explicit — no helper reads the clock", () =
 test("all three surfaces derive from the shared helper", () => {
   for (const [name, src] of [["Inventory", INV], ["Dashboard", DASH], ["SalesRepInventory", SRI]]) {
     assert.match(src, /from "\.\.\/\.\.\/services\/expiry"/, `${name} must use the shared helper`);
-    assert.match(src, /deriveExpiryCondition\(/, `${name} must derive the condition`);
+    // The Dashboard derives it through countExpiringOrExpiredBatches, which
+    // calls the same helper (and leaves voided batches out).
+    const derives = name === "Dashboard"
+      ? /countExpiringOrExpiredBatches\(/.test(src) && /deriveExpiryCondition\(/.test(read("src/services/inventoryRemovalModel.js"))
+      : /deriveExpiryCondition\(/.test(src);
+    assert.ok(derives, `${name} must derive the condition`);
     // The clock is read once per snapshot, in the subscription callback.
     assert.match(src, /manilaToday\(Date\.now\(\)\)/, `${name} must resolve one date per snapshot`);
   }

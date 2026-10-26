@@ -102,8 +102,10 @@ function AddStock() {
     () =>
       subscribeVaccines(
         (docs) => {
+          // An archived vaccine takes no new stock (the server refuses it);
+          // it is restored from Inventory → Manage vaccines first.
           setVaccines(
-            [...docs].sort(
+            docs.filter((v) => v.archived !== true).sort(
               (a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0)
             )
           );

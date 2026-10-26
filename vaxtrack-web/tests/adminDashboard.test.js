@@ -155,7 +155,10 @@ test("no KPI states a verdict its field cannot support", () => {
   // tests/expiryStatus.test.js for the derivation and its boundaries.
   assert.equal(/Stock healthy/.test(CODE), false);
   assert.match(SRC, /label: "Expiring or expired stock"/);
-  assert.match(SRC, /deriveExpiryCondition\(b, today\)/);
+  // Counted by the shared helper, which derives each batch's condition from
+  // its expiry date (and leaves voided batches out — adminDashboardExpiringStock).
+  assert.match(SRC, /countExpiringOrExpiredBatches\(batches, manilaToday\(Date\.now\(\)\)\)/);
+  assert.match(read("src/services/inventoryRemovalModel.js"), /deriveExpiryCondition\(b, todayIso\)/);
   // And nothing is called missing: the figure is delayed plus cancelled.
   assert.equal(/missing/i.test(CODE), false, "no order is described as missing");
   assert.match(SRC, /label: "Delayed \/ cancelled"/);

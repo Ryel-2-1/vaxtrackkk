@@ -40,6 +40,7 @@ const {
   assertOnlyOrderIdPayload,
   DELAYED_NOT_COMPLETABLE_MESSAGE,
   HOME_ADDRESS_ID,
+  isVaccineArchived,
 } = require("./policy");
 const { RIDER_LOCATIONS, evaluateDeliveryGeofence } = require("./deliveryGeofence");
 const { readPriceConvention } = require("./pricingConfig");
@@ -53,6 +54,7 @@ const {
   summarizeAllocation,
   unitsByBatch,
   allocateProducts,
+  usageMark,
 } = require("./allocation");
 const {
   OUTBOX,
@@ -359,6 +361,19 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
         vaccineSnaps.set(vaccineId, await tx.get(db.collection(VACCINES).doc(vaccineId)));
       }
     }
+    // An ARCHIVED product is refused for new orders here, on the server — the
+    // catalog hiding it is only a convenience. Read in this transaction, so an
+    // archive that commits first always wins. Existing orders are untouched.
+    for (const vSnap of vaccineSnaps.values()) {
+      if (vSnap.exists && isVaccineArchived(vSnap.data())) {
+        const name = typeof vSnap.data().vaccineName === "string" && vSnap.data().vaccineName.trim()
+          ? vSnap.data().vaccineName.trim()
+          : "This vaccine";
+        throw new PolicyError("vaccine-archived", `${name} has been archived and can no longer be ordered.`, {
+          vaccineId: vSnap.id,
+        });
+      }
+    }
     const lineVat = evaluated.map((e, index) => {
       const batch = invSnaps[index].exists ? invSnaps[index].data() : null;
       const vSnap = batch ? vaccineSnaps.get(batch.vaccineId) : null;
@@ -534,6 +549,15 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
 
     // ---- writes (continued) ----
     tx.set(orderRef, orderData);
+    // Each quoted batch is now referenced by an order line, so it can never be
+    // voided (allocation.usageMark). Once per batch; later quotes write nothing.
+    const marked = new Set();
+    invSnaps.forEach((snap) => {
+      if (marked.has(snap.id)) return;
+      marked.add(snap.id);
+      const mark = usageMark(snap.data(), FieldValue, "order_quote");
+      if (Object.keys(mark).length > 0) tx.update(snap.ref, mark);
+    });
     createPreparedReceipt(tx, preparedReceipt);
     createPreparedEvents(tx, { FieldValue, prepared: preparedHistory });
     // The pricing audits, in this same transaction — so an order exists with

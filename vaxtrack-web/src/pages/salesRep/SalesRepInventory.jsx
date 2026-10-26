@@ -13,6 +13,7 @@ import {
   Search,
 } from "lucide-react";
 import { subscribeInventory } from "../../services/inventoryService";
+import { subscribeVaccines } from "../../services/vaccineCatalogService";
 import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
 import { liveErrorMessage } from "../../services/liveDataErrors";
 
@@ -41,6 +42,7 @@ function normalizeStock(raw, todayIso) {
   const { level, label, daysRemaining } = deriveExpiryCondition(raw, todayIso);
   return {
     id: raw.id,
+    vaccineId: typeof raw.vaccineId === "string" ? raw.vaccineId : null,
     batchId: raw.batchId || raw.id,
     name: raw.vaccineName || "Unknown Vaccine",
     type: raw.vaccineType || "Other",
@@ -55,7 +57,9 @@ function normalizeStock(raw, todayIso) {
 }
 
 function SalesRepInventory() {
-  const [inventory, setInventory] = useState([]);
+  const [stocks, setStocks] = useState([]);
+  // Archived vaccine products: their batches are not offered to Med Reps.
+  const [archivedIds, setArchivedIds] = useState(() => new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -71,7 +75,8 @@ function SalesRepInventory() {
         // One Manila date per snapshot, resolved where the data arrives so no
         // render reads the clock.
         const today = manilaToday(Date.now());
-        setInventory(raw.map((item) => normalizeStock(item, today)));
+        // A voided batch was a mistaken entry: never shown as stock here.
+        setStocks(raw.filter((item) => item.voided !== true).map((item) => normalizeStock(item, today)));
         setLoading(false);
         setError("");
       },
@@ -82,6 +87,20 @@ function SalesRepInventory() {
     );
     return () => unsubscribe();
   }, []);
+
+  useEffect(
+    () =>
+      subscribeVaccines(
+        (docs) => setArchivedIds(new Set(docs.filter((v) => v.archived === true).map((v) => v.id))),
+        // Without the catalog nothing is hidden; ordering still refuses archived products.
+        () => setArchivedIds(new Set())
+      ),
+    []
+  );
+  const inventory = useMemo(
+    () => stocks.filter((stock) => !archivedIds.has(stock.vaccineId)),
+    [stocks, archivedIds]
+  );
 
   const vaccineTypes = useMemo(() => {
     const types = new Set(inventory.map((s) => s.type));

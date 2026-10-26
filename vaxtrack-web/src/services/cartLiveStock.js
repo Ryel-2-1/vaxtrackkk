@@ -27,6 +27,8 @@ export function cartBatchIds(items) {
  *           available (loading or failed) — then the lines are returned as
  *           they were.
  * [todayIso] Manila 'YYYY-MM-DD', read where the snapshot arrived.
+ * [vaccinesById] live vaccine products by id (Map), when known — an archived
+ *           product blocks its lines, as the server refuses it at checkout.
  *
  * Each returned line adds:
  *   live              true when a current batch was found
@@ -40,7 +42,7 @@ export function cartBatchIds(items) {
  *   stockShortNow     the line fitted the stock the rep saw but no longer fits
  *                     (part of it would now be backordered)
  */
-export function liveCartLines(items, batches, todayIso) {
+export function liveCartLines(items, batches, todayIso, vaccinesById = null) {
   const quiet = { live: false, livePriceCentavos: null, priceChanged: false, batchGone: false, liveBlockedReason: null, stockShortNow: false };
   if (!Array.isArray(batches)) {
     return items.map((item) => ({ ...item, ...quiet, cartAvailable: item.availableNow }));
@@ -51,7 +53,10 @@ export function liveCartLines(items, batches, todayIso) {
     if (!batch) {
       return { ...item, ...quiet, cartAvailable: item.availableNow, batchGone: Boolean(item.inventoryId) };
     }
-    const eligibility = evaluateBatchEligibility(batch, todayIso);
+    // An archived vaccine blocks its lines here as the server would at checkout.
+    const eligibility = evaluateBatchEligibility(batch, todayIso, {
+      vaccine: vaccinesById?.get?.(batch.vaccineId) ?? null,
+    });
     const available = eligibility.availableQuantity;
     const liveAvailable = Number.isInteger(available) && available >= 0 ? available : null;
     const livePriceCentavos = readPriceCentavos(batch.sellingPriceCentavos);
