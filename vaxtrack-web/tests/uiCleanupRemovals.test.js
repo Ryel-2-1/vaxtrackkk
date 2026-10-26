@@ -103,16 +103,18 @@ test("Order Tracking has no Contact Driver button or fake handler", () => {
   assert.equal(/^\s*Phone,\s*$/m.test(tracking), false, "the Phone icon import must be removed");
 });
 
-test("Order Tracking keeps a real, accessibly-labelled Share button", () => {
-  assert.ok(tracking.includes("handleShare"), "the share handler remains");
-  assert.match(tracking, /navigator\.clipboard\.writeText/, "share uses real clipboard behaviour");
-  assert.match(tracking, /className="share-btn"/, "the share button remains");
-  assert.match(
-    tracking,
-    /aria-label="Copy tracking details to clipboard"/,
-    "the icon-only share button has an accessible label"
-  );
-  assert.match(tracking, /title="Copy tracking details"/, "the share button has a title");
+test("Order Tracking has no New Order or Share button; order creation stays on Request Order", () => {
+  for (const token of ["+ New Order", "handleShare", "share-btn", "Share2", "navigator.clipboard", "tracking-v2-side-actions"]) {
+    assert.ok(!tracking.includes(token), `${token} must be gone from Order Tracking`);
+  }
+  // The tabs, status filter, search and panel close still work as before.
+  assert.match(tracking, /onClick=\{\(\) => handleTabChange\("active"\)\}/);
+  assert.match(tracking, /onClick=\{\(\) => handleTabChange\("history"\)\}/);
+  assert.match(tracking, /onChange=\{\(event\) => setStatusFilter\(event\.target\.value\)\}/);
+  assert.match(tracking, /onChange=\{\(event\) => setSearchTerm\(event\.target\.value\)\}/);
+  assert.match(tracking, /onClick=\{\(\) => selectOrder\(""\)\}/);
+  // The Med Rep still creates orders from Request Order, reachable from the sidebar.
+  assert.match(read("src/pages/salesRep/SalesRepShell.jsx"), /to="\/sales-rep\/request-order"/);
 });
 
 test("Order Tracking keeps destination approval, rider info and delivery status", () => {
@@ -174,4 +176,29 @@ test("removed temperature CSS has no live JSX dependency, and the rules are gone
     false,
     ".progress-card.temp CSS must be gone"
   );
+});
+
+// ------------------------------------------- Med Rep revisions (2026-10-27)
+
+test("the Med Rep Dashboard has no Quick actions card; its destinations stay in the sidebar", () => {
+  const dashboard = stripComments(read("src/pages/salesRep/SalesRepDashboard.jsx"));
+  for (const token of ["Quick actions", "quickActions", "srd-action", "Track shipment", "View alerts"]) {
+    assert.ok(!dashboard.includes(token), `${token} must be gone from the Dashboard`);
+  }
+  const shell = read("src/pages/salesRep/SalesRepShell.jsx");
+  for (const route of ["/sales-rep/request-order", "/sales-rep/order-tracking", "/sales-rep/alerts"]) {
+    assert.ok(shell.includes(`to="${route}"`), `${route} stays in the sidebar`);
+  }
+});
+
+test("Med Rep Inventory rows lead with the vaccine name, not an icon", () => {
+  const row = inventory.slice(inventory.indexOf('<div className="stock-name">'));
+  assert.match(row, /^<div className="stock-name">\s*<div>\s*<strong>\{stock\.name\}<\/strong>\s*<small>\{stock\.manufacturer\} · \{stock\.type\}<\/small>/);
+  assert.equal(/<span><PackageCheck/.test(inventory), false);
+});
+
+test("Order Confirmation has no Return to Catalog; tracking stays one click away", () => {
+  const confirmation = read("src/pages/salesRep/SalesRepOrderConfirmation.jsx");
+  assert.equal(confirmation.includes("Return to Catalog"), false);
+  assert.match(confirmation, /onClick=\{\(\) => navigate\("\/sales-rep\/order-tracking"\)\}/);
 });

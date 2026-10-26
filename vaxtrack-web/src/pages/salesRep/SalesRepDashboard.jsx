@@ -4,11 +4,9 @@ import {
   AlertTriangle,
   ArrowRight,
   CalendarDays,
-  ClipboardList,
   Loader2,
   Package,
   Plus,
-  Truck,
 } from "lucide-react";
 import { subscribeSalesRepOrders } from "../../services/orderService";
 import { subscribeInventory } from "../../services/inventoryService";
@@ -19,6 +17,7 @@ import {
 import {
   addMonths,
   countsByDate,
+  isInMonth,
   manilaToday,
   monthOf,
   ordersOnDate,
@@ -202,8 +201,25 @@ function SalesRepDashboard() {
     [orders, selectedDate]
   );
 
-  const goPrevMonth = () => setView((v) => addMonths(v.year, v.month, -1));
-  const goNextMonth = () => setView((v) => addMonths(v.year, v.month, 1));
+  // Moving to another month (arrows or the month/year pickers) keeps the
+  // selected day only if it is in that month; otherwise the selection is
+  // cleared, so the details never describe a day the grid is not showing.
+  const showMonth = (next) => {
+    setView(next);
+    if (selectedDate && !isInMonth(selectedDate, next)) setSelectedDate("");
+  };
+  const goPrevMonth = () => showMonth(addMonths(view.year, view.month, -1));
+  const goNextMonth = () => showMonth(addMonths(view.year, view.month, 1));
+  const jumpToMonth = (year, month) => showMonth({ year, month });
+
+  // Picking a day — including a dimmed day of the previous or next month —
+  // also brings that day's month into view, so the grid always shows the
+  // selected day and the details beside it.
+  const selectPlannerDate = (iso) => {
+    setSelectedDate(iso);
+    const m = monthOf(iso);
+    if (m) setView(m);
+  };
 
   // A date can be viewed at any time, but only today-or-later can be scheduled —
   // the same floor the checkout field and the Cloud Function enforce.
@@ -223,27 +239,6 @@ function SalesRepDashboard() {
     () => inventory.filter((r) => r.watch).slice(0, 5),
     [inventory]
   );
-
-  const quickActions = [
-    {
-      label: "Request order",
-      text: "Create a vaccine request",
-      route: "/sales-rep/request-order",
-      icon: <ClipboardList size={16} />,
-    },
-    {
-      label: "Track shipment",
-      text: "Check delivery status and ETA",
-      route: "/sales-rep/order-tracking",
-      icon: <Truck size={16} />,
-    },
-    {
-      label: "View alerts",
-      text: "Review order and delivery alerts",
-      route: "/sales-rep/alerts",
-      icon: <AlertTriangle size={16} />,
-    },
-  ];
 
   const isLoading = ordersLoading || invLoading;
 
@@ -323,9 +318,10 @@ function SalesRepDashboard() {
                 today={today}
                 counts={planCounts}
                 selectedDate={selectedDate}
-                onSelectDate={setSelectedDate}
+                onSelectDate={selectPlannerDate}
                 onPrevMonth={goPrevMonth}
                 onNextMonth={goNextMonth}
+                onJumpToMonth={jumpToMonth}
                 ariaLabel="Delivery planner calendar"
               />
 
@@ -518,32 +514,6 @@ function SalesRepDashboard() {
                   ))}
                 </div>
               )}
-            </div>
-
-            <div className="srd-card">
-              <div className="srd-card-head">
-                <div>
-                  <h2>Quick actions</h2>
-                </div>
-              </div>
-
-              <div className="srd-actions">
-                {quickActions.map((a) => (
-                  <button
-                    key={a.label}
-                    type="button"
-                    className="srd-action"
-                    onClick={() => navigate(a.route)}
-                  >
-                    <span className="srd-action-icon">{a.icon}</span>
-                    <div>
-                      <strong>{a.label}</strong>
-                      <small>{a.text}</small>
-                    </div>
-                    <ArrowRight size={15} />
-                  </button>
-                ))}
-              </div>
             </div>
           </aside>
         </section>

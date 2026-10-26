@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   CalendarClock,
   CheckCircle2,
-  ClipboardList,
   Copy,
   FileText,
   MapPin,
@@ -153,11 +152,6 @@ function SalesRepOrderConfirmation() {
       <button onClick={() => navigate("/sales-rep/order-tracking")}>
         <Truck size={16} />
         Track Order Status
-      </button>
-
-      <button className="outline" onClick={() => navigate("/sales-rep/request-order")}>
-        <ClipboardList size={16} />
-        Return to Catalog
       </button>
     </div>
   );

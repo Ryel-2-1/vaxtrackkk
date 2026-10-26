@@ -35,6 +35,12 @@ export function monthOf(iso) {
   return { year: d.getUTCFullYear(), month: d.getUTCMonth() };
 }
 
+/** Whether an ISO date falls in the given {year, month}; false for a non-date. */
+export function isInMonth(iso, { year, month }) {
+  const m = monthOf(iso);
+  return m !== null && m.year === year && m.month === month;
+}
+
 /** Human month heading, e.g. "September 2026". */
 export function monthLabel(year, month) {
   return new Date(Date.UTC(year, month, 1)).toLocaleDateString("en-US", {
@@ -46,6 +52,31 @@ export function monthLabel(year, month) {
 
 /** Short weekday headers, Sunday first (matches the en-US grids used elsewhere). */
 export const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** Month names for a month picker, indexed by the 0-based month. */
+export const MONTH_LABELS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+/**
+ * The years a month/year picker offers: a few around `today`'s year, always
+ * stretched to include the year on screen so the arrows can never move the view
+ * to a year the picker cannot show. Contiguous and ascending.
+ *
+ * @param {number} viewYear
+ * @param {string} today  ISO 'YYYY-MM-DD'
+ * @param {{ before?: number, after?: number }} [opts]
+ * @returns {number[]}
+ */
+export function pickerYears(viewYear, today, { before = 2, after = 3 } = {}) {
+  const base = monthOf(today)?.year ?? viewYear;
+  const first = Math.min(base - before, viewYear);
+  const last = Math.max(base + after, viewYear);
+  const years = [];
+  for (let y = first; y <= last; y += 1) years.push(y);
+  return years;
+}
 
 /**
  * A fixed six-row (42-cell) month grid, Sunday-first, as weeks of day cells.

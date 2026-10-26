@@ -397,10 +397,10 @@ test("success appears only after the authoritative write", () => {
     const s = src.indexOf(success);
     assert.ok(w !== -1 && s !== -1 && s > w, `${p}: success must follow the awaited write`);
   }
-  // A failed clipboard copy is never reported as "ready".
+  // Order Tracking no longer copies anything, so it claims nothing is "ready".
   const tracking = read("src/pages/salesRep/SalesRepOrderTracking.jsx");
   assert.equal(/ready to share/i.test(tracking), false);
-  assert.match(tracking, /couldn't be copied/);
+  assert.equal(/navigator\.clipboard/.test(tracking), false);
 });
 
 test("destructive and hard-to-reverse actions confirm, naming the target and the consequence", () => {

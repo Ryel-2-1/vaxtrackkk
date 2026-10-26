@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   Box,
@@ -9,7 +8,6 @@ import {
   MapPin,
   PackageCheck,
   Search,
-  Share2,
   Truck,
 } from "lucide-react";
 import { subscribeSalesRepOrders } from "../../services/orderService";
@@ -207,8 +205,6 @@ function normalizeOrder(raw) {
 }
 
 function SalesRepOrderTracking() {
-  const navigate = useNavigate();
-
   const [orders, setOrders] = useState([]);
   // The signed-out case is decided during the first render rather than in a
   // mount effect that immediately called setState (which
@@ -335,23 +331,6 @@ function SalesRepOrderTracking() {
     setSelectedOrderId(id);
   };
 
-  const handleShare = async () => {
-    if (!selectedOrder) return;
-
-    const text = `${selectedOrder.orderNumber} - ${selectedOrder.destination} (${selectedOrder.status})`;
-
-    try {
-      await navigator.clipboard.writeText(text);
-      showToast("Tracking details copied to the clipboard.", "success");
-    } catch {
-      // Nothing was copied — never report it as ready.
-      showToast(
-        `The tracking details couldn't be copied. Copy them manually: ${text}`,
-        "warning"
-      );
-    }
-  };
-
   if (loading) {
     return (
       <>
@@ -398,14 +377,6 @@ function SalesRepOrderTracking() {
         <section className="tracking-layout tracking-v2-layout">
           <div className="tracking-left">
             <div className="tracking-toolbar tracking-v2-toolbar">
-              <button
-                type="button"
-                className="primary"
-                onClick={() => navigate("/sales-rep/request-order")}
-              >
-                + New Order
-              </button>
-
               <div className="tracking-v2-tabs">
                 <button
                   type="button"
@@ -495,18 +466,6 @@ function SalesRepOrderTracking() {
                 <p>
                   {selectedOrder.priority === "Urgent" ? "Urgent" : "Standard"} · {selectedOrder.date}
                 </p>
-
-                <div className="tracking-v2-side-actions">
-                  <button
-                    type="button"
-                    className="share-btn"
-                    onClick={handleShare}
-                    aria-label="Copy tracking details to clipboard"
-                    title="Copy tracking details"
-                  >
-                    <Share2 size={16} />
-                  </button>
-                </div>
 
                 <h3>Delivery Status</h3>
                 <div className="tracking-v2-status-strip">

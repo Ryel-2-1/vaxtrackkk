@@ -441,23 +441,31 @@ aside.salesrep-sidebar .salesrep-logout {
    dark column stretch to the flex row's full height, with a
    viewport floor via 100vh/100dvh. Desktop only — below 768px the
    sidebar is the fixed bottom nav bar, which must stay untouched. */
+/* Superseded 2026-10-27: the wrapper is now `overflow: clip`, which is NOT
+   a scroll container, so sticky works against the window again. The rail
+   stays in view while the page scrolls: one viewport tall, pinned to the
+   top. Its own content never scrolls the page; below ~350px of height the
+   rail itself scrolls so Logout is still reachable. */
 @media (min-width: 769px) {
   aside.salesrep-sidebar {
-    position: static !important;
-    height: auto !important;
-    min-height: 100vh !important;
-    min-height: 100dvh !important;
-    align-self: stretch !important;
+    position: sticky !important;
+    top: 0 !important;
+    align-self: flex-start !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    min-height: 0 !important;
+    max-height: 100dvh !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
   }
 }
 
-/* Nav takes the remaining space; logout stays pinned to the bottom.
-   (Reinforces the shell-robustness rules in §5 now that the column
-   height is driven by the flex row rather than a fixed 100vh.) */
+/* Nav takes the remaining space and scrolls inside the rail; logout stays
+   pinned to the bottom. */
 @media (min-width: 769px) {
   aside.salesrep-sidebar .salesrep-nav {
     flex: 1 1 auto !important;
-    min-height: 0 !important;
+    min-height: 84px !important;
     overflow-y: auto !important;
   }
   aside.salesrep-sidebar .salesrep-logout {
@@ -1091,99 +1099,46 @@ aside.salesrep-sidebar .salesrep-logout {
   }
 }
 
-/* Place Order: the per-line statutory (SC/PWD) discount — its own row under
-   the price, never mixed into the negotiated price. */
-.salesrep-main .place-v2-price-discount {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
-  min-width: 0;
+/* Inventory: the vaccine column starts with the name now that the leading
+   package icon is gone. It inherited `text-align: center` from the old
+   checkbox-column rules in SalesRep.css, which centred each name by its own
+   length; align it, and its header, to the left edge instead. */
+.salesrep-main .inventory-v2-table th:first-child,
+.salesrep-main .inventory-v2-table td:first-child {
+  text-align: left !important;
 }
 
-.salesrep-main .place-v2-price-discount label {
-  flex: 1 1 100%;
-  color: var(--gray-900);
-  font-size: 13px;
-  font-weight: 600;
+/* Alerts › Order Details: the close (X) button. It set a white background
+   but no text colour, so the icon (stroke = currentColor) took the browser's
+   default ButtonText — white whenever the OS is in dark mode, because index.css
+   still declares `color-scheme: light dark`. White on white: an empty box.
+   An explicit colour fixes it in both schemes; the global 46px button
+   min-height is also opted out so the box is the intended 34px square. */
+.salesrep-page .alerts-v2-modal-head button {
+  min-height: 34px !important;
+  padding: 0 !important;
+  color: var(--gray-700) !important;
+  flex: 0 0 auto;
 }
 
-.salesrep-main .place-v2-price-discount select {
-  flex: 1 1 220px;
-  min-width: 0;
-  min-height: 40px !important;
-  padding: 0 10px;
-  border: 1px solid var(--gray-300);
-  border-radius: var(--radius-control);
-  background: #ffffff !important;
-  color: var(--gray-900);
-  font: inherit;
-  font-size: 14px;
+.salesrep-page .alerts-v2-modal-head button:hover {
+  background: var(--gray-50) !important;
+  border-color: var(--gray-300) !important;
+  color: var(--gray-900) !important;
 }
 
-.salesrep-main .place-v2-price-discount select:focus-visible {
+.salesrep-page .alerts-v2-modal-head button:focus-visible {
   outline: 2px solid var(--green-600);
-  outline-offset: 1px;
+  outline-offset: 2px;
 }
 
-.salesrep-main .place-v2-price-discount .place-v2-price-input {
-  flex: 1 1 160px;
+/* On a short phone the dialog ran past the bottom of the screen (the
+   backdrop does not scroll), hiding Close Details. It now fits the viewport
+   and scrolls inside only when it must. */
+.salesrep-page .alerts-v2-modal {
+  max-height: calc(100dvh - 40px) !important;
+  overflow-y: auto !important;
 }
-
-.salesrep-main .place-v2-discount-tag {
-  display: block;
-  margin-top: 4px;
-  color: var(--warning-text);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-
-/* Place Order: the Med Rep's eligibility attestation for a discounted line.
-   The checkbox opts out of the global 46px input reset in styles.css. */
-.salesrep-main .place-v2-eligibility {
-  flex: 1 1 100%;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: 4px 10px;
-  margin-top: 4px;
-  padding: 10px 12px;
-  border: 1px solid var(--gray-200);
-  border-radius: var(--radius-control);
-  background: var(--gray-50);
-}
-
-.salesrep-main .place-v2-eligibility input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  min-height: 18px !important;
-  margin: 1px 0 0;
-  padding: 0;
-  accent-color: var(--green-700);
-}
-
-.salesrep-main .place-v2-eligibility label {
-  flex: none;
-  color: var(--gray-900);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
-.salesrep-main .place-v2-eligibility-note,
-.salesrep-main .place-v2-eligibility .place-v2-price-error {
-  grid-column: 2;
-  margin: 0;
-}
-
-.salesrep-main .place-v2-eligibility-note {
-  color: var(--gray-600);
-  font-size: 12px;
-  line-height: 1.4;
-}
-
 
 /* Logout failure, shown beside the button on the dark sidebar (never a
    browser alert). Light text on the green surface; an icon-free sentence. */
@@ -1492,25 +1447,13 @@ aside.salesrep-sidebar .salesrep-logout-error {
    Measured at 1440 / 1280×720 / 768 / 375 px.
    ============================================================ */
 
-/* Dashboard top bar: a fixed 310px search beside the title ran 142px off a
-   phone screen. Below 640px the search takes its own line. */
+/* Top bar below 640px: the title and the bell may wrap onto two lines
+   rather than run off a phone screen. */
 @media (max-width: 640px) {
   .salesrep-page header.salesrep-topbar {
     flex-wrap: wrap !important;
     row-gap: 8px;
     height: auto !important;
-  }
-  /* Only a top bar that HAS the search gives it a line of its own; on
-     pages without it the bell stays beside the title. */
-  .salesrep-page .salesrep-topbar-right:has(.salesrep-global-search) {
-    flex: 1 1 100% !important;
-    min-width: 0 !important;
-  }
-  .salesrep-page .salesrep-topbar-right .salesrep-global-search {
-    flex: 1 1 0% !important;
-    width: auto !important;
-    min-width: 0 !important;
-    max-width: none !important;
   }
 }
 

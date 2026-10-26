@@ -366,7 +366,6 @@ function SalesRepInventory() {
                 <tr key={stock.id}>
                   <td>
                     <div className="stock-name">
-                      <span><PackageCheck size={16} /></span>
                       <div>
                         <strong>{stock.name}</strong>
                         <small>{stock.manufacturer} · {stock.type}</small>

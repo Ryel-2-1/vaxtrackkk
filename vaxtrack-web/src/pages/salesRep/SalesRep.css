@@ -242,7 +242,7 @@
 .inventory-table-card { overflow: hidden; }
 .inventory-filter-row { display: flex; gap: 10px; padding: 16px 18px; background: #eef4ff; border-bottom: 1px solid #d6e1f2; }
 .inventory-filter-row button { height: 36px; border: 1px solid #c7d5ea; background: #fff; border-radius: 7px; padding: 0 14px; font-weight: 600; color: #334155; display: inline-flex; align-items: center; gap: 7px; }
-.stock-name { display: flex; align-items: center; gap: 12px; } .stock-name span { width: 34px; height: 34px; border-radius: 7px; background: #eaf2ff; color: #2563eb; display: grid; place-items: center; } .stock-name small, .salesrep-inventory-table small { display: block; color: #64748b; font-size: 11px; }
+.stock-name { display: flex; align-items: center; gap: 12px; } .stock-name small, .salesrep-inventory-table small { display: block; color: #64748b; font-size: 11px; }
 .batch-chip { background: var(--gray-100); padding: 12px 16px; border-radius: 6px; color: var(--gray-600); font-weight: 700; }
 .status-chip { border-radius: 999px; padding: 8px 12px; font-size: 11px; font-weight: 700; text-transform: none; }
 .status-chip.critical { background: var(--danger-bg); color: var(--danger-text); } .status-chip.warning { background: var(--warning-bg); color: var(--warning-text); } .status-chip.stable { background: var(--success-bg); color: var(--success-text); }
@@ -283,7 +283,7 @@
 .confirmation-card h3 { text-align: left; margin: 24px 24px 10px; }
 .confirm-item { display: flex; align-items: center; gap: 12px; margin: 0 24px; padding: 14px 0; border-bottom: 1px solid #e2e8f0; text-align: left; } .confirm-item > span { width: 34px; height: 34px; border-radius: 7px; background: #eaf2ff; color: #2563eb; display: grid; place-items: center; } .confirm-item div:last-child { margin-left: auto; text-align: right; } .confirm-item p { margin: 3px 0 0; color: #64748b; font-size: 11px; }
 .confirmation-details { display: grid; grid-template-columns: 1fr 1fr; margin: 28px 24px; gap: 20px; text-align: left; } .confirmation-details span { display: block; color: #64748b; text-transform: uppercase; font-size: 11px; margin-bottom: 6px; }
-.confirmation-actions { display: flex; gap: 12px; margin: 0 24px 16px; } .confirmation-actions button { flex: 1; height: 44px; border-radius: 7px; border: 0; background: #0057d8; color: #fff; font-weight: 700; } .confirmation-actions button.outline { background: #fff; color: #0057d8; border: 1px solid #0057d8; }
+.confirmation-actions { display: flex; gap: 12px; margin: 0 24px 16px; } .confirmation-actions button { flex: 1; height: 44px; border-radius: 7px; border: 0; background: #0057d8; color: #fff; font-weight: 700; }
 .pdf-link { display: block; color: #64748b; font-size: 12px; margin: 12px 0; } .confirmation-card > small { display: block; color: #94a3b8; font-size: 10px; margin: 0 24px 24px; }
 
 .tracking-header { height: 58px; display: flex; align-items: center; gap: 18px; border-bottom: 1px solid #d6e1f2; } .tracking-header div:first-child { display: flex; align-items: center; gap: 14px; } .tracking-header h1 { margin: 0; font-size: 18px; } .tracking-header .salesrep-search { margin-left: auto; }
@@ -293,7 +293,6 @@
 .track-progress { width: 64px; height: 5px; background: var(--gray-200); border-radius: 999px; } .track-progress span { display: block; height: 100%; background: var(--green-700); border-radius: 999px; }
 .draft-footer { margin-top: 30px; border: 1px solid #c7d5ea; border-radius: 12px; background: #fff; display: flex; align-items: center; gap: 22px; padding: 18px 24px; } .draft-footer svg { color: #0057d8; } .draft-footer p { margin: 4px 0 0; color: #475569; } .draft-footer button { margin-left: auto; width: 140px; height: 48px; border: 0; border-radius: 9px; background: #0057d8; color: #fff; font-weight: 700; }
 .tracking-side { border-left: 1px solid #d6e1f2; padding: 24px 16px; } .tracking-side-title { display: flex; justify-content: space-between; align-items: center; } .tracking-side-title h2 { margin: 0; } .tracking-side-title button { border: 0; background: transparent; font-size: 22px; } .tracking-side > p { color: #475569; margin: 4px 0 14px; }
-.share-btn { width: 34px; height: 38px; margin-left: 6px; border: 1px solid #c7d5ea; border-radius: 7px; background: #fff; }
 .tracking-side h3 { color: #475569; text-transform: uppercase; font-size: 12px; margin-top: 24px; }
 .mini-map { height: 145px; border-radius: 9px; background: linear-gradient(135deg, #334155, #8ab4c4); position: relative; overflow: hidden; } .mini-map span { position: absolute; left: 12px; bottom: 12px; background: #fff; color: #0057d8; border-radius: 999px; padding: 6px 10px; font-size: 10px; font-weight: 700; }
 .order-content { display: flex; align-items: center; gap: 12px; border: 1px solid #c7d5ea; border-radius: 9px; padding: 12px; margin-bottom: 10px; } .order-content svg { color: #2563eb; } .order-content p { margin: 3px 0 0; font-size: 11px; color: #64748b; } .order-content b { margin-left: auto; }
@@ -2660,45 +2659,6 @@
    Add this at the VERY BOTTOM of SalesRep.css
 ========================================================= */
 
-.salesrep-global-search {
-  position: relative !important;
-  width: 310px !important;
-  max-width: 310px !important;
-  flex: 0 0 310px !important;
-  height: 38px !important;
-  box-sizing: border-box !important;
-  overflow: hidden !important;
-  background: #ffffff !important;
-  border: 1px solid #d6e1f2 !important;
-  border-radius: 10px !important;
-}
-
-.salesrep-global-search input {
-  min-width: 0 !important;
-  flex: 1 1 auto !important;
-  width: 100% !important;
-  height: 100% !important;
-  border: 0 !important;
-  outline: 0 !important;
-  box-shadow: none !important;
-  background: transparent !important;
-  padding: 0 !important;
-  margin: 0 !important;
-}
-
-.salesrep-search-clear {
-  width: 24px !important;
-  height: 24px !important;
-  border: 0 !important;
-  border-radius: 999px !important;
-  background: #eef4ff !important;
-  color: #64748b !important;
-  display: grid !important;
-  place-items: center !important;
-  cursor: pointer !important;
-  flex: 0 0 24px !important;
-}
-
 .salesrep-notification-wrap {
   position: relative !important;
   display: inline-flex !important;
@@ -2857,12 +2817,6 @@
 }
 
 @media (max-width: 768px) {
-  .salesrep-global-search {
-    width: 170px !important;
-    max-width: 44vw !important;
-    flex: 0 0 170px !important;
-  }
-
   .salesrep-notification-dropdown {
     position: fixed !important;
     top: 64px !important;
@@ -2870,14 +2824,6 @@
     left: 12px !important;
     width: auto !important;
     max-width: none !important;
-  }
-}
-
-@media (max-width: 430px) {
-  .salesrep-global-search {
-    width: 140px !important;
-    max-width: 40vw !important;
-    flex: 0 0 140px !important;
   }
 }
 
@@ -5910,21 +5856,6 @@
   flex-wrap: wrap !important;
 }
 
-.tracking-v2-toolbar > button.primary {
-  height: 46px !important;
-  border-radius: 10px !important;
-  padding: 0 22px !important;
-  background: var(--green-700) !important;
-  color: #ffffff !important;
-  border: 0 !important;
-  font-weight: 700 !important;
-  cursor: pointer !important;
-}
-
-.tracking-v2-toolbar > button.primary:hover {
-  background: var(--green-800) !important;
-}
-
 .tracking-v2-tabs {
   background: var(--gray-100) !important;
   border-radius: 10px !important;
@@ -6161,25 +6092,6 @@
   cursor: pointer !important;
 }
 
-.tracking-v2-side-actions {
-  display: flex !important;
-  justify-content: flex-end !important;
-  gap: 8px !important;
-  margin: 12px 0 20px !important;
-}
-
-.tracking-v2-side-actions .share-btn {
-  width: 40px !important;
-  height: 44px !important;
-  margin: 0 !important;
-  border: 1px solid #c7d5ea !important;
-  border-radius: 10px !important;
-  background: #ffffff !important;
-  display: grid !important;
-  place-items: center !important;
-  cursor: pointer !important;
-}
-
 .tracking-v2-status-strip {
   margin-top: 10px !important;
   border: var(--border-card) !important;
@@ -6360,7 +6272,6 @@
     align-items: stretch !important;
   }
 
-  .tracking-v2-toolbar > button.primary,
   .tracking-v2-tabs,
   .tracking-v2-status-filter,
   .tracking-v2-status-filter select {
@@ -6398,34 +6309,6 @@
   line-height: 1 !important;
   display: grid !important;
   place-items: center !important;
-}
-
-/* Contact Driver was removed — the lone Share button aligns to the right. */
-.tracking-v2-side-actions {
-  display: flex !important;
-  justify-content: flex-end !important;
-  gap: 10px !important;
-  align-items: center !important;
-}
-
-.tracking-v2-side-actions .share-btn {
-  width: 44px !important;
-  height: 44px !important;
-  min-width: 44px !important;
-  border: 1px solid #c7d5ea !important;
-  border-radius: 10px !important;
-  background: #ffffff !important;
-  color: var(--green-700) !important;
-  display: grid !important;
-  place-items: center !important;
-  margin: 0 !important;
-  padding: 0 !important;
-}
-
-.tracking-v2-side-actions .share-btn svg {
-  width: 17px !important;
-  height: 17px !important;
-  display: block !important;
 }
 
 /* Fix All Status dropdown size and focus ring */
@@ -7185,72 +7068,6 @@
   color: var(--danger-text);
   background: var(--danger-bg);
   border-color: var(--danger-border);
-}
-
-/* ---------- quick actions ---------- */
-
-.srd-actions {
-  display: flex;
-  flex-direction: column;
-  padding: 6px 0;
-}
-
-.srd-action {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  padding: 10px 20px;
-  background: transparent !important;
-  border: none !important;
-  border-bottom: 1px solid var(--gray-100) !important;
-  cursor: pointer;
-  text-align: left;
-  font-family: var(--font-ui) !important;
-  transition: background 120ms ease;
-}
-
-.srd-action:last-child {
-  border-bottom: none !important;
-}
-
-.srd-action:hover {
-  background: var(--green-50) !important;
-}
-
-.srd-action-icon {
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  border-radius: var(--radius-control);
-  background: var(--green-100);
-  color: var(--green-800);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.srd-action > div {
-  flex: 1;
-}
-
-.srd-action strong {
-  display: block;
-  font-size: 13px !important;
-  font-weight: 600 !important;
-  color: var(--gray-900) !important;
-}
-
-.srd-action small {
-  display: block;
-  font-size: 12px !important;
-  color: var(--gray-500) !important;
-  margin-top: 1px;
-}
-
-.srd-action > svg {
-  color: var(--gray-400, #9ca3af);
-  flex-shrink: 0;
 }
 
 /* ---------- empty states ---------- */

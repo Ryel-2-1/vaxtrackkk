@@ -37,8 +37,11 @@ import { focusFirstInvalid } from "../../services/formValidation";
  * organization are shown read-only because an administrator manages them.
  * Nothing here is stored only in the browser, and nothing claims to be saved
  * until Firestore has accepted the write.
+ *
+ * `showEmployeeId={false}` leaves the Employee ID row out of Account details
+ * (the Med Rep page). Display only: the stored field is untouched.
  */
-export default function MyProfile() {
+export default function MyProfile({ showEmployeeId = true }) {
   const { uid, profile: raw, loading, error } = useOwnProfile();
   // The editable fields, following the live profile while untouched; once
   // edited, a change made in another session is flagged instead of applied.
@@ -235,10 +238,12 @@ export default function MyProfile() {
                   <span className={`my-profile-status ${stored.statusKey}`}>{stored.statusLabel}</span>
                 </dd>
               </div>
-              <div>
-                <dt>Employee ID</dt>
-                <dd>{stored.employeeId || "—"}</dd>
-              </div>
+              {showEmployeeId && (
+                <div>
+                  <dt>Employee ID</dt>
+                  <dd>{stored.employeeId || "—"}</dd>
+                </div>
+              )}
               {showOrganization && (
                 <div>
                   <dt>Organization</dt>
@@ -247,8 +252,9 @@ export default function MyProfile() {
               )}
             </dl>
             <p className="my-profile-note">
-              Your email, role, status, employee ID and organization are managed by
-              your administrator.
+              {showEmployeeId
+                ? "Your email, role, status, employee ID and organization are managed by your administrator."
+                : "Your email, role, status, and organization are managed by your administrator."}
             </p>
           </section>
 
