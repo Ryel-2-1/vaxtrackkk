@@ -59,11 +59,12 @@ class _IdleTimer implements Timer {
 
 void main() {
   Future<RiderTrackingController> controllerWith(WidgetTester tester, LocationAccess access,
-      {List<TrackedOrder>? orders, bool notifications = true, bool delivers = true}) async {
+      {List<TrackedOrder>? orders, bool notifications = true, bool delivers = true, String? tripState}) async {
     final c = RiderTrackingController(
       source: _Source(access, notifications: notifications, delivers: delivers),
       store: _Store(),
       startTimer: (_, _) => _IdleTimer(),
+      tripStateFor: tripState == null ? null : (_) => Stream.value(tripState),
     );
     final stream = StreamController<List<TrackedOrder>>();
     c.attach('r1', stream.stream);
@@ -144,6 +145,31 @@ void main() {
     expect(find.textContaining(TrackingStatusBanner.notificationsHiddenMessage), findsOneWidget);
     expect(find.textContaining('Sharing your location'), findsNothing);
     expect(find.text('App settings'), findsOneWidget);
+  });
+
+  testWidgets('returning to the hub: says so, with no delivery count and no route claim', (tester) async {
+    await controllerWith(tester, LocationAccess.granted, orders: const [], tripState: 'returning_to_hub');
+    expect(find.textContaining(TrackingStatusBanner.returningMessage), findsOneWidget);
+    expect(find.textContaining('active delivery'), findsNothing);
+    expect(find.text('App settings'), findsOneWidget, reason: 'the same background guidance applies');
+  });
+
+  testWidgets('returning, no position yet: says sharing is STARTING', (tester) async {
+    await controllerWith(tester, LocationAccess.granted, orders: const [], tripState: 'returning_to_hub', delivers: false);
+    expect(find.textContaining(TrackingStatusBanner.returningStartingMessage), findsOneWidget);
+    expect(find.textContaining(TrackingStatusBanner.returningMessage), findsNothing);
+  });
+
+  testWidgets('return confirmed (available_at_hub): the banner is gone', (tester) async {
+    await controllerWith(tester, LocationAccess.granted, orders: const [], tripState: 'available_at_hub');
+    expect(find.byType(Card), findsNothing);
+  });
+
+  test('the returning message promises nothing about arrival and names how it stops', () {
+    const text = TrackingStatusBanner.returningMessage;
+    expect(text, contains('until your return is confirmed'));
+    expect(text, contains('No delivery is active'));
+    expect(text.toLowerCase().contains('arrived'), isFalse);
   });
 
   test('the notifications-off message never promises that location is still shared', () {

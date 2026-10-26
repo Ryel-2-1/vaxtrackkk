@@ -33,12 +33,12 @@ function DispatcherTrackingOverview({
   availableCount,
 }) {
   const nowMs = useNow();
-  const { locations, deviations, error, deviationError, retry } = useRiderTrackingFeeds();
+  const { locations, deviations, tripStates, error, deviationError, retry } = useRiderTrackingFeeds();
   const ridersById = useMemo(() => Object.fromEntries((riders || []).map((r) => [r.uid, r])), [riders]);
 
   const fleet = useMemo(
-    () => (orders && locations ? buildFleet({ orders, locations, deviations, riders: ridersById, nowMs }) : []),
-    [orders, locations, deviations, ridersById, nowMs],
+    () => (orders && locations ? buildFleet({ orders, locations, deviations, riders: ridersById, tripStates, nowMs }) : []),
+    [orders, locations, deviations, ridersById, tripStates, nowMs],
   );
   const view = trackingOverviewState({ error, orders, locations, fleet });
   const { rows, moreLabel } = trackingOverviewRows(fleet, nowMs);
@@ -84,7 +84,7 @@ function DispatcherTrackingOverview({
 
         {view === "empty" && (
           <div className="dto-state">
-            <p>No riders are currently on delivery.</p>
+            <p>No riders are currently on delivery or returning to the hub.</p>
             <Link className="dto-open" to={LIVE_TRACKING_ROUTE}>
               <Navigation size={15} aria-hidden="true" />
               Open Live Tracking
@@ -107,7 +107,7 @@ function DispatcherTrackingOverview({
             </div>
 
             <div className="dto-list-col">
-              <h3 className="dto-h">Riders on delivery</h3>
+              <h3 className="dto-h">Riders on delivery or returning</h3>
               <ul className="dto-list">
                 {rows.map((r) => (
                   <li key={r.uid} className="dto-row">

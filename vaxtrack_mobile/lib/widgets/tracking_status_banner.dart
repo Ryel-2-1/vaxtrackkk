@@ -47,6 +47,13 @@ class TrackingStatusBanner extends StatelessWidget {
       'notifications in App settings for reliable delivery tracking.';
 
   /// Shown until the first position has actually been received.
+  /// No active delivery; the server says the trip is returning to the hub.
+  static const String returningMessage =
+      'Returning to the hub — sharing your location until your return is confirmed. '
+      'No delivery is active and no route is monitored.';
+  static const String returningStartingMessage =
+      'Returning to the hub — starting location sharing; your position is not shared yet.';
+
   static String startingMessage(int deliveries) =>
       'Starting location sharing for $deliveries active '
       'deliver${deliveries == 1 ? 'y' : 'ies'} — your position is not shared yet.';
@@ -62,13 +69,15 @@ class TrackingStatusBanner extends StatelessWidget {
             return const SizedBox.shrink();
           case TrackingStatus.tracking:
           case TrackingStatus.navigating:
+          case TrackingStatus.returningToHub:
+            final returning = status == TrackingStatus.returningToHub;
             if (!controller.sharingConfirmed) {
               // Asked for, but no position yet: never shown as sharing.
               return _card(
                 icon: Icons.schedule,
                 color: Colors.orange.shade800,
                 text: [
-                  startingMessage(controller.activeOrderIds.length),
+                  returning ? returningStartingMessage : startingMessage(controller.activeOrderIds.length),
                   if (controller.lastError == kNoFixYetMessage) kNoFixYetMessage,
                   if (!controller.notificationsAllowed) notificationsHiddenMessage,
                 ].join('\n'),
@@ -78,10 +87,12 @@ class TrackingStatusBanner extends StatelessWidget {
                 ],
               );
             }
-            final sharing = status == TrackingStatus.navigating
-                ? 'Navigating a delivery — sharing your location (route monitoring on).'
-                : 'Sharing your location for ${controller.activeOrderIds.length} active '
-                    'deliver${controller.activeOrderIds.length == 1 ? 'y' : 'ies'}.';
+            final sharing = returning
+                ? returningMessage
+                : status == TrackingStatus.navigating
+                    ? 'Navigating a delivery — sharing your location (route monitoring on).'
+                    : 'Sharing your location for ${controller.activeOrderIds.length} active '
+                        'deliver${controller.activeOrderIds.length == 1 ? 'y' : 'ies'}.';
             return _card(
               icon: Icons.my_location,
               color: AppColors.primary,

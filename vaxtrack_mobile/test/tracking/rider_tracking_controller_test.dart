@@ -64,6 +64,7 @@ class FakeStore implements TrackingStore {
   final List<(String, String)> started = [];
   final List<(String, String)> endedSessions = [];
   Completer<void>? hold; // when set, writeLocation waits (offline)
+  Completer<void>? holdEnded; // when set, writeEnded / endSession wait (offline sign-out)
   bool failStart = false;
   String? serverSession; // a session the SERVER still holds as navigating
 
@@ -82,7 +83,10 @@ class FakeStore implements TrackingStore {
   }
 
   @override
-  Future<void> writeEnded({required String riderUid, required DateTime at}) async => ended.add(at);
+  Future<void> writeEnded({required String riderUid, required DateTime at}) async {
+    if (holdEnded != null) await holdEnded!.future;
+    ended.add(at);
+  }
 
   @override
   Future<void> startSession({required String riderUid, required String orderId, required String sessionId}) async {
@@ -91,8 +95,10 @@ class FakeStore implements TrackingStore {
   }
 
   @override
-  Future<void> endSession({required String riderUid, required String sessionId, required String reason}) async =>
-      endedSessions.add((sessionId, reason));
+  Future<void> endSession({required String riderUid, required String sessionId, required String reason}) async {
+    if (holdEnded != null) await holdEnded!.future;
+    endedSessions.add((sessionId, reason));
+  }
 }
 
 /// Manual timers: the first-fix watchdog fires only when a test says so.
@@ -260,14 +266,14 @@ void main() {
   group('navigation', () {
     test('start is refused before in transit and does not open a session', () async {
       await emit([order('o1', 'assigned')]);
-      final error = await c.startNavigation('o1');
+      final error = await c.startNavigation('o1', authUid: rider);
       expect(error, 'Navigation starts once the delivery is in transit.');
       expect(store.started, isEmpty);
     });
 
     test('start opens a session and switches to navigating; writes carry the session', () async {
       await emit([order('o1', 'in_transit')]);
-      expect(await c.startNavigation('o1'), isNull);
+      expect(await c.startNavigation('o1', authUid: rider), isNull);
       expect(c.status, TrackingStatus.navigating);
       expect(store.started.single.$1, 'o1');
       expect(source.streamsOpened.last, TrackingMode.navigating);
@@ -279,16 +285,16 @@ void main() {
     test('a failed session start leaves tracking unchanged', () async {
       await emit([order('o1', 'in_transit')]);
       store.failStart = true;
-      expect(await c.startNavigation('o1'), isNotNull);
+      expect(await c.startNavigation('o1', authUid: rider), isNotNull);
       expect(c.navigation, isNull);
       expect(c.status, TrackingStatus.tracking);
     });
 
     test('starting another order replaces the route (one session per rider)', () async {
       await emit([order('o1', 'in_transit'), order('o2', 'in_transit')]);
-      await c.startNavigation('o1');
+      await c.startNavigation('o1', authUid: rider);
       final first = c.navigation!.sessionId;
-      await c.startNavigation('o2');
+      await c.startNavigation('o2', authUid: rider);
       expect(c.navigation!.orderId, 'o2');
       expect(c.navigation!.sessionId, isNot(first));
       expect(store.started.map((s) => s.$1), ['o1', 'o2']);
@@ -296,14 +302,14 @@ void main() {
 
     test('starting the same order twice is a no-op', () async {
       await emit([order('o1', 'in_transit')]);
-      await c.startNavigation('o1');
-      await c.startNavigation('o1');
+      await c.startNavigation('o1', authUid: rider);
+      await c.startNavigation('o1', authUid: rider);
       expect(store.started, hasLength(1));
     });
 
     test('Stop ends the session as rider_stopped and keeps tracking', () async {
       await emit([order('o1', 'in_transit')]);
-      await c.startNavigation('o1');
+      await c.startNavigation('o1', authUid: rider);
       final sid = c.navigation!.sessionId;
       await c.stopNavigation();
       expect(store.endedSessions.single, (sid, kEndReasonRiderStopped));
@@ -312,7 +318,7 @@ void main() {
 
     test('the navigated order completing ends the session', () async {
       await emit([order('o1', 'in_transit')]);
-      await c.startNavigation('o1');
+      await c.startNavigation('o1', authUid: rider);
       await emit([order('o1', 'delivered')]);
       expect(store.endedSessions.single.$2, kEndReasonTrackingStopped);
       expect(c.navigation, isNull);
@@ -322,7 +328,7 @@ void main() {
 
   test('sign-out ends navigation and tracking and clears coordinates', () async {
     await emit([order('o1', 'in_transit')]);
-    await c.startNavigation('o1');
+    await c.startNavigation('o1', authUid: rider);
     await sendFix(fix(0));
     await c.shutdown(reason: kEndReasonSignedOut);
     expect(store.endedSessions.single.$2, kEndReasonSignedOut);
@@ -366,7 +372,7 @@ void main() {
 
     test('a navigating session also survives locking', () async {
       await emit([order('o1', 'in_transit')]);
-      await c.startNavigation('o1');
+      await c.startNavigation('o1', authUid: rider);
       await lifecycle(AppLifecycleState.paused);
       expect(source.streaming, isTrue);
       expect(c.status, TrackingStatus.navigating);
@@ -375,7 +381,7 @@ void main() {
 
     test('switching tracking <-> navigation replaces the stream: never two at once', () async {
       await emit([order('o1', 'in_transit')]);
-      await c.startNavigation('o1');
+      await c.startNavigation('o1', authUid: rider);
       expect(source.activeStreams, 1);
       expect(source.opened.first.hasListener, isFalse, reason: 'the tracking stream was cancelled first');
       await c.stopNavigation();
@@ -418,7 +424,7 @@ void main() {
 
     test('sharing started in the foreground keeps running in the background', () async {
       await emit([order('o1', 'in_transit')]);
-      await c.startNavigation('o1');
+      await c.startNavigation('o1', authUid: rider);
       await c.setForeground(false);
       expect(source.streaming, isTrue);
       await sendFix(fix(0));
@@ -517,7 +523,7 @@ void main() {
       await emit([order('o1', 'in_transit')]);
       await sendFix(fix(0));
       expect(c.sharingConfirmed, isTrue);
-      await c.startNavigation('o1');
+      await c.startNavigation('o1', authUid: rider);
       expect(c.sharingConfirmed, isFalse, reason: 'new stream, nothing saved on it yet');
       await sendFix(fix(15)); // past the navigation minimum write interval
       expect(c.sharingConfirmed, isTrue);
@@ -538,7 +544,7 @@ void main() {
 
     test('sign-out cancels every timer and stream', () async {
       await emit([order('o1', 'in_transit')]);
-      await c.startNavigation('o1');
+      await c.startNavigation('o1', authUid: rider);
       await c.shutdown(reason: kEndReasonSignedOut);
       expect(timers.active, isEmpty);
       expect(source.activeStreams, 0);
@@ -584,14 +590,14 @@ void main() {
 
     test('a session this app starts after sign-in is never ended by the leftover check', () async {
       await emit([order('o1', 'in_transit')]);
-      await c.startNavigation('o1');
+      await c.startNavigation('o1', authUid: rider);
       expect(store.endedSessions, isEmpty);
       expect(c.navigation, isNotNull);
     });
 
     test('a DELAYED order keeps its running navigation, and Stop still ends it', () async {
       await emit([order('o1', 'in_transit')]);
-      await c.startNavigation('o1');
+      await c.startNavigation('o1', authUid: rider);
       final sid = c.navigation!.sessionId;
       await emit([order('o1', 'delayed')]);
       expect(c.navigation?.sessionId, sid, reason: 'delayed is still navigable');
@@ -611,7 +617,7 @@ void main() {
       ]) {
         store.endedSessions.clear();
         await emit([order('o1', 'in_transit')]);
-        await c.startNavigation('o1');
+        await c.startNavigation('o1', authUid: rider);
         final sid = c.navigation!.sessionId;
         await emit(next);
         expect(store.endedSessions, [(sid, kEndReasonTrackingStopped)], reason: '${next.first.status}/${next.first.assignedRiderId}');
@@ -648,6 +654,257 @@ void main() {
       await emit([order('o1', 'in_transit')]);
       await sendFix(fix(0, acc: 500));
       expect(store.writes, isEmpty);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // "Sign in to start navigation" for a SIGNED-IN rider (the field bug).
+  // HomeScreen attaches in initState and shuts tracking down in dispose; the
+  // controller is app-wide. attach() runs at once, shutdown() is queued — so a
+  // teardown requested BEFORE a newer attach could still run AFTER it and
+  // clear the newer attachment.
+  group('an old teardown never clears a newer attachment', () {
+    test('screen remount: old dispose, then new initState (same frame)', () async {
+      await emit([order('o1', 'in_transit')]);
+      final orders2 = StreamController<List<TrackedOrder>>();
+      unawaited(c.shutdown(reason: kEndReasonTrackingStopped)); // old HomeScreen.dispose
+      c.attach(rider, orders2.stream); // new HomeScreen.initState
+      orders2.add([order('o1', 'in_transit')]);
+      await pumpEventQueue();
+      await c.idle;
+      expect(await c.startNavigation('o1', authUid: rider), isNull);
+      expect(c.navigation?.orderId, 'o1');
+    });
+
+    test('screen remount: new initState runs before the old dispose', () async {
+      final oldClaim = c.attach(rider, orders.stream); // the mounted HomeScreen's claim
+      await emit([order('o1', 'in_transit')]);
+      await c.startNavigation('o1', authUid: rider);
+      final session = c.navigation!.sessionId;
+      final orders2 = StreamController<List<TrackedOrder>>();
+      c.attach(rider, orders2.stream); // new HomeScreen.initState
+      unawaited(c.detach(oldClaim)); // old HomeScreen.dispose releases ONLY its own claim
+      orders2.add([order('o1', 'in_transit')]);
+      await pumpEventQueue();
+      await c.idle;
+      expect(c.navigation?.sessionId, session, reason: 'the navigation session survives the remount');
+      expect(store.endedSessions, isEmpty);
+      expect(await c.startNavigation('o1', authUid: rider), isNull);
+    });
+
+    test('a genuine sign-out requested AFTER an attach does tear it down', () async {
+      await emit([order('o1', 'in_transit')]);
+      final orders2 = StreamController<List<TrackedOrder>>();
+      c.attach(rider, orders2.stream);
+      unawaited(c.shutdown(reason: kEndReasonSignedOut)); // AuthService.signOut
+      orders2.add([order('o1', 'in_transit')]);
+      await pumpEventQueue();
+      await c.idle;
+      expect(c.readinessFor(rider), NavigationReadiness.loading, reason: 'detached by the sign-out');
+      expect(await c.startNavigation('o1', authUid: null), kSignInToNavigateMessage);
+      expect(store.started, isEmpty, reason: 'never starts for a signed-out rider');
+    });
+
+    test('offline sign-out still finishing when the rider signs straight back in', () async {
+      await emit([order('o1', 'in_transit')]);
+      await c.startNavigation('o1', authUid: rider);
+      store.holdEnded = Completer<void>(); // ending the session cannot reach the server
+      unawaited(c.shutdown(reason: kEndReasonSignedOut)); // AuthService.signOut (gives up after 5 s)
+      await pumpEventQueue();
+      final orders2 = StreamController<List<TrackedOrder>>();
+      c.attach(rider, orders2.stream); // signed in again
+      orders2.add([order('o1', 'in_transit')]);
+      await pumpEventQueue();
+      store.holdEnded!.complete(); // the old sign-out finally finishes
+      store.holdEnded = null;
+      await pumpEventQueue();
+      await c.idle;
+      expect(await c.startNavigation('o1', authUid: rider), isNull, reason: 'the new sign-in stays attached');
+    });
+  });
+  // ------------------------------------------------------------------
+  // Return to the hub: after the last delivery the server's trip state
+  // (riderDispatchStates) keeps location sharing on — with no order and no
+  // navigation — until the return is confirmed (available_at_hub) or the
+  // rider signs out. Arrival is never inferred on the device.
+  group('returning to the hub (server trip state)', () {
+    late FakeSource hs;
+    late FakeStore hstore;
+    late RiderTrackingController h;
+    late StreamController<List<TrackedOrder>> ho;
+    late StreamController<String?> trip;
+
+    setUp(() {
+      hs = FakeSource();
+      hstore = FakeStore();
+      ho = StreamController<List<TrackedOrder>>();
+      trip = StreamController<String?>();
+      h = RiderTrackingController(
+        source: hs,
+        store: hstore,
+        clock: () => t0.add(const Duration(hours: 1)),
+        startTimer: FakeTimers().start,
+        tripStateFor: (_) => trip.stream,
+      );
+      h.attach(rider, ho.stream);
+    });
+
+    Future<void> orders(List<TrackedOrder> list) async {
+      ho.add(list);
+      await pumpEventQueue();
+      await h.idle;
+    }
+
+    Future<void> tripState(String? s) async {
+      trip.add(s);
+      await pumpEventQueue();
+      await h.idle;
+    }
+
+    Future<void> fixAt(int s) async {
+      hs.current!.add(fix(s));
+      await pumpEventQueue();
+    }
+
+    test('last delivery done, trip returning: sharing continues with no order and no navigation', () async {
+      await tripState('on_trip');
+      await orders([order('o1', 'in_transit')]);
+      await h.startNavigation('o1', authUid: rider);
+      expect(h.status, TrackingStatus.navigating);
+      await tripState('returning_to_hub');
+      await orders([order('o1', 'delivered')]);
+      expect(h.status, TrackingStatus.returningToHub);
+      expect(h.mode, TrackingMode.returning);
+      expect(h.returningToHub, isTrue);
+      expect(h.activeOrderIds, isEmpty);
+      expect(h.navigation, isNull, reason: 'order navigation and route monitoring end');
+      expect(hstore.endedSessions.single.$2, kEndReasonTrackingStopped);
+      expect(hstore.ended, isEmpty, reason: 'coordinates are NOT cleared while returning');
+      expect(hs.activeStreams, 1, reason: 'one stream, still running');
+      expect(hs.streamsOpened.last, TrackingMode.returning, reason: 'the notification says returning to the hub');
+      await fixAt(3600);
+      final w = hstore.writes.last;
+      expect([w.orderId, w.sessionId], [null, null], reason: 'no active order id, no session');
+    });
+
+    test('race: the last order finishes BEFORE the trip state settles — sharing never stops in between', () async {
+      await tripState('on_trip');
+      await orders([order('o1', 'in_transit')]);
+      await fixAt(0);
+      final ended = hstore.ended.length;
+      // The order write arrives first; the trip still says on_trip.
+      await orders([order('o1', 'delivered')]);
+      expect(h.status, TrackingStatus.returningToHub);
+      expect(hs.activeStreams, 1);
+      expect(hstore.ended.length, ended, reason: 'nothing cleared during the gap');
+      // Then the trip settles.
+      await tripState('returning_to_hub');
+      expect(h.status, TrackingStatus.returningToHub);
+      expect(hs.activeStreams, 1);
+      expect(hstore.ended.length, ended);
+    });
+
+    test('race the other way: the trip state settles while the last order still looks active', () async {
+      await tripState('on_trip');
+      await orders([order('o1', 'in_transit')]);
+      await tripState('returning_to_hub');
+      expect(h.status, TrackingStatus.tracking, reason: 'the active order still decides');
+      await orders([order('o1', 'delivered')]);
+      expect(h.status, TrackingStatus.returningToHub);
+    });
+
+    test('an authorized return confirmation (available_at_hub) stops sharing and clears coordinates', () async {
+      await tripState('returning_to_hub');
+      await orders([order('o1', 'delivered')]);
+      await fixAt(10);
+      expect(hs.activeStreams, 1);
+      await tripState('available_at_hub');
+      expect(h.status, TrackingStatus.idle);
+      expect(hs.activeStreams, 0);
+      expect(hstore.ended, hasLength(1), reason: 'coordinates cleared');
+    });
+
+    test('sign-out while returning stops sharing and clears coordinates', () async {
+      await tripState('returning_to_hub');
+      await orders(const []);
+      await fixAt(10);
+      await h.shutdown(reason: kEndReasonSignedOut);
+      expect(hs.activeStreams, 0);
+      expect(hstore.ended, hasLength(1));
+      trip.add('returning_to_hub'); // a late event after sign-out
+      await pumpEventQueue();
+      await h.idle;
+      expect(hs.activeStreams, 0, reason: 'nothing restarts after sign-out');
+    });
+
+    test('no trip state, an unknown one, or an unreadable one with no active order: nothing is shared', () async {
+      await orders(const []);
+      expect(h.status, TrackingStatus.idle);
+      for (final s in [null, 'available_at_hub', 'trip_forming', 'something_else']) {
+        await tripState(s);
+        expect(h.status, TrackingStatus.idle, reason: '$s');
+        expect(hs.activeStreams, 0, reason: '$s');
+      }
+      await tripState('returning_to_hub');
+      expect(hs.activeStreams, 1);
+      trip.addError(StateError('permission-denied'));
+      await pumpEventQueue();
+      await h.idle;
+      expect(h.status, TrackingStatus.idle, reason: 'never shares on a guess');
+      expect(hs.activeStreams, 0);
+    });
+
+    test('a new delivery while returning switches back to delivery tracking', () async {
+      await tripState('returning_to_hub');
+      await orders(const []);
+      expect(h.status, TrackingStatus.returningToHub);
+      await orders([order('o2', 'assigned')]);
+      expect(h.status, TrackingStatus.tracking);
+      expect(h.activeOrderIds, ['o2']);
+    });
+
+    test('the switch to returning in the background keeps the running stream (Android cannot restart it there)', () async {
+      await tripState('on_trip');
+      await orders([order('o1', 'in_transit')]);
+      await h.setForeground(false);
+      await orders([order('o1', 'delivered')]);
+      expect(hs.activeStreams, 1, reason: 'not stopped');
+      expect(hs.streamsOpened, [TrackingMode.tracking], reason: 'no restart from the background');
+      expect(h.status, TrackingStatus.returningToHub);
+      await h.setForeground(true);
+      expect(hs.streamsOpened.last, TrackingMode.returning, reason: 'its returning notification once in the foreground');
+      expect(hs.activeStreams, 1);
+    });
+
+    test('startup: a trip state that arrives before the deliveries never starts "returning" on its own', () async {
+      await tripState('on_trip');
+      expect(h.status, isNot(TrackingStatus.returningToHub));
+      expect(hs.streamsOpened, isEmpty, reason: 'deliveries not loaded: no active order is not yet known');
+      await orders([order('o1', 'in_transit')]);
+      expect(hs.streamsOpened, [TrackingMode.tracking], reason: 'no returning→tracking flicker');
+    });
+
+    test('deliveries unreadable: the trip state alone never shares', () async {
+      final h2o = StreamController<List<TrackedOrder>>();
+      final h2s = FakeSource();
+      final h2 = RiderTrackingController(
+        source: h2s,
+        store: FakeStore(),
+        clock: () => t0,
+        startTimer: FakeTimers().start,
+        tripStateFor: (_) => Stream.value('returning_to_hub'),
+      );
+      h2.attach(rider, h2o.stream);
+      h2o.addError(StateError('permission-denied'));
+      await pumpEventQueue();
+      await h2.idle;
+      expect(h2s.streamsOpened, isEmpty);
+      h2.dispose();
+    });
+
+    test('returning writes use the ordinary tracking cadence, never the navigating one', () async {
+      expect(kWriteCadence[TrackingMode.returning]!.minInterval, kWriteCadence[TrackingMode.tracking]!.minInterval);
+      expect(kWriteCadence[TrackingMode.returning]!.heartbeat, kWriteCadence[TrackingMode.tracking]!.heartbeat);
     });
   });
 }

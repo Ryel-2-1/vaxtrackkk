@@ -5590,6 +5590,40 @@ async function main() {
       );
     });
 
+    await check("PTR-HUB a rider returning to the hub shares with no active order; nothing else widens", async () => {
+      // The trip is over (server state returning_to_hub) and no Med Rep is indexed.
+      let savedTrip = null;
+      await testEnv.withSecurityRulesDisabled(async (ctx) => {
+        const f = ctx.firestore();
+        const prev = await getDoc(doc(f, "riderDispatchStates", riderUid));
+        savedTrip = prev.exists() ? prev.data() : null;
+        await setDoc(doc(f, "riderDispatchStates", riderUid), { riderUid, state: "returning_to_hub", tripId: "tripHub", orderIds: ["trkDone"] });
+        await deleteDoc(doc(f, "riderLocationViewers", riderUid));
+      });
+      await assertSucceeds(getDoc(doc(rider, "riderDispatchStates", riderUid)), "the app reads its own trip state");
+      await assertSucceeds(setDoc(myLoc, loc({ activeOrderId: null, navigationSessionId: null })));
+      // The rules check only that an activeOrderId is the rider's own order, not
+      // that it is still active; the app sends none while returning (pinned in
+      // rider_tracking_controller_test.dart). Another rider's order stays refused.
+      await assertFails(setDoc(myLoc, loc({ activeOrderId: "trkOtherRiders" })));
+      for (const ctx of [admin, dispatcher]) {
+        await assertSucceeds(getDoc(doc(ctx, "riderLocations", riderUid)));
+        await assertSucceeds(getDocs(collection(ctx, "riderDispatchStates")));
+      }
+      await assertFails(getDoc(doc(salesRep, "riderLocations", riderUid)), "no Med Rep sees a returning rider");
+      await assertFails(updateDoc(doc(rider, "riderDispatchStates", riderUid), { state: "available_at_hub" }), "the rider cannot mark itself back");
+      // Return confirmed: the app clears the coordinates.
+      await assertSucceeds(setDoc(myLoc, loc({
+        trackingState: "ended", latitude: null, longitude: null, accuracyMeters: null, headingDegrees: null, speedMps: null,
+      })));
+      await testEnv.withSecurityRulesDisabled(async (ctx) => {
+        const f = ctx.firestore();
+        if (savedTrip) await setDoc(doc(f, "riderDispatchStates", riderUid), savedTrip);
+        else await deleteDoc(doc(f, "riderDispatchStates", riderUid));
+        await setDoc(doc(f, "riderLocationViewers", riderUid), { riderUid, viewerUids: [salesRepUid], activeOrderIds: ["trkMoving"] });
+      });
+    });
+
     await check("PTR8 two Med Reps on one rider each read it; dropping one leaves the other; dropping both ends access", async () => {
       const setIndex = (viewerUids) => testEnv.withSecurityRulesDisabled((ctx) =>
         setDoc(doc(ctx.firestore(), "riderLocationViewers", riderUid), { riderUid, viewerUids, activeOrderIds: ["trkMoving", "trkRep2"] })

@@ -25,6 +25,19 @@ void main() {
       });
     }
 
+    test('returning: a visible, ongoing notification that says it is returning to the hub', () {
+      final s = androidTrackingSettings(TrackingMode.returning);
+      final n = s.foregroundNotificationConfig!;
+      expect(n.setOngoing, isTrue);
+      expect(n.enableWakeLock, isTrue);
+      expect(n.notificationTitle, contains('returning to the hub'));
+      expect(n.notificationText, contains('Returning to the hub'));
+      expect(n.notificationText, contains('return is confirmed'));
+      expect(n.notificationText.toLowerCase().contains('delivery'), isFalse, reason: 'no delivery is active');
+      expect(s.accuracy, LocationAccuracy.medium, reason: 'battery-friendly, like general tracking');
+      expect(s.intervalDuration, const Duration(seconds: 15));
+    });
+
     test('general tracking stays the battery-friendly request', () {
       final s = androidTrackingSettings(TrackingMode.tracking);
       expect(s.accuracy, LocationAccuracy.medium);
@@ -41,6 +54,9 @@ void main() {
   test('the wake lock does not change how often anything is written', () {
     final tracking = kWriteCadence[TrackingMode.tracking]!;
     final navigating = kWriteCadence[TrackingMode.navigating]!;
+    final returning = kWriteCadence[TrackingMode.returning]!;
+    expect([returning.minInterval, returning.heartbeat, returning.minDistanceMeters],
+        [tracking.minInterval, tracking.heartbeat, tracking.minDistanceMeters]);
     expect([tracking.minInterval, tracking.heartbeat, tracking.minDistanceMeters],
         [const Duration(seconds: 30), const Duration(minutes: 2), 50]);
     expect([navigating.minInterval, navigating.heartbeat, navigating.minDistanceMeters],

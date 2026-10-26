@@ -55,6 +55,23 @@ export const MARKER_LABELS = Object.freeze({
   unavailable: "Location Unavailable",
 });
 
+/**
+ * A Rider whose trip is over (every order settled) but whose return to the hub
+ * a Dispatcher has not confirmed yet: riderDispatchStates/{uid}.state, written
+ * by the server only (functions/src/riderDispatch.js). The rider app keeps
+ * sharing location until that confirmation. Arrival is NEVER inferred here —
+ * not from coordinates, not from a missing or stale marker.
+ */
+export const TRIP_STATE_RETURNING = "returning_to_hub";
+export const RETURNING_TO_HUB_LABEL = "Returning to hub";
+export const RETURNING_MONITORING_TEXT = "Not monitored — no active delivery";
+
+/** The server trip state of a rider: tripStates is a Map or a plain object of state docs. */
+export function tripStateOf(tripStates, uid) {
+  const doc = typeof tripStates?.get === "function" ? tripStates.get(uid) : tripStates?.[uid];
+  return typeof doc?.state === "string" ? doc.state : null;
+}
+
 export const DEVIATION_LABELS = Object.freeze({
   not_navigating: "Not navigating",
   route_unavailable: "Route not available",
@@ -176,9 +193,11 @@ export function formatAge(ms, nowMs) {
 /**
  * Riders the Admin / Dispatcher fleet map shows: every rider with at least one
  * tracked order, with their active orders, joined to location + deviation
- * state + rider profile. Sorted most-urgent first, then by name.
+ * state + rider profile — plus every rider the server says is returning to
+ * the hub (tripStates), even with no active order. Sorted most-urgent first,
+ * then by name.
  */
-export function buildFleet({ orders, locations, deviations, riders, nowMs }) {
+export function buildFleet({ orders, locations, deviations, riders, tripStates = null, nowMs }) {
   const byRider = new Map();
   for (const order of orders || []) {
     const uid = order?.assignedRiderId;
@@ -186,10 +205,19 @@ export function buildFleet({ orders, locations, deviations, riders, nowMs }) {
     if (!byRider.has(uid)) byRider.set(uid, []);
     byRider.get(uid).push(order);
   }
+  const tripUids = typeof tripStates?.keys === "function" ? [...tripStates.keys()] : Object.keys(tripStates || {});
+  for (const uid of tripUids) {
+    if (typeof uid === "string" && uid !== "" && !byRider.has(uid) && tripStateOf(tripStates, uid) === TRIP_STATE_RETURNING) {
+      byRider.set(uid, []);
+    }
+  }
   const fleet = [];
   for (const [uid, riderOrders] of byRider) {
     const location = locations?.[uid] ?? null;
-    const deviation = deviations?.[uid] ?? null;
+    // Returning with no active order: there is no route to monitor, so a
+    // leftover deviation document is ignored rather than shown as live.
+    const returningToHub = riderOrders.length === 0;
+    const deviation = returningToHub ? null : deviations?.[uid] ?? null;
     const profile = riders?.[uid] ?? null;
     const name =
       profile?.fullName || profile?.name || profile?.displayName ||
@@ -209,7 +237,8 @@ export function buildFleet({ orders, locations, deviations, riders, nowMs }) {
       locationAtMs: locationTimeMs(location),
       accuracyMeters: Number.isFinite(location?.accuracyMeters) ? location.accuracyMeters : null,
       deviation: deviationDisplayState(deviation),
-      deviationText: deviationText(deviation),
+      deviationText: returningToHub ? RETURNING_MONITORING_TEXT : deviationText(deviation),
+      returningToHub,
       // Distance at the last deviation transition (the server stores anchors,
       // not a per-fix distance), so it is labelled as such — never as live.
       deviationDistanceMeters: Number.isFinite(deviation?.distanceAtTransitionMeters) ? deviation.distanceAtTransitionMeters : null,
@@ -232,6 +261,12 @@ export function countByState(fleet) {
 
 /** How many riders the dashboard overview lists before "+ N more riders". */
 export const OVERVIEW_RIDER_LIMIT = 3;
+
+/** Riders with an active delivery, and riders returning to the hub. */
+export function fleetCounts(fleet) {
+  const returning = (fleet || []).filter((r) => r.returningToHub).length;
+  return { onDelivery: (fleet || []).length - returning, returning };
+}
 
 /** Uids of riders carrying at least one active (tracked) order. */
 export function riderUidsOnDelivery(orders) {
@@ -290,7 +325,8 @@ export function trackingOverviewRows(fleet, nowMs, limit = OVERVIEW_RIDER_LIMIT)
       name: r.name,
       state: r.state,
       label: MARKER_LABELS[r.state],
-      deliveryLabel: `${count} ${count === 1 ? "delivery" : "deliveries"}`,
+      deliveryLabel: r.returningToHub ? RETURNING_TO_HUB_LABEL : `${count} ${count === 1 ? "delivery" : "deliveries"}`,
+      returningToHub: Boolean(r.returningToHub),
       orderNumbers: r.orders.map((o) => o.orderNumber).join(", "),
       age: formatAge(r.locationAtMs, nowMs),
     };

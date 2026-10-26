@@ -6,7 +6,10 @@ import 'dart:math' as math;
 ///  * [tracking]   at least one active delivery — balanced, infrequent writes;
 ///  * [navigating] Start Navigation for one order — frequent writes, so the
 ///                 server's 3-minute deviation rule always has fresh samples.
-enum TrackingMode { off, tracking, navigating }
+/// off: nothing shared. tracking: active deliveries. navigating: one delivery
+/// with route monitoring. returning: no active delivery, the trip is heading
+/// back to the hub (no order, no route monitoring).
+enum TrackingMode { off, tracking, navigating, returning }
 
 /// One GPS fix, reduced to what the tracking contract stores.
 class LocationFix {
@@ -66,6 +69,13 @@ class WriteCadence {
 /// writes rarely and only on real movement.
 const Map<TrackingMode, WriteCadence> kWriteCadence = {
   TrackingMode.tracking: WriteCadence(
+    minInterval: Duration(seconds: 30),
+    heartbeat: Duration(minutes: 2),
+    minDistanceMeters: 50,
+  ),
+  // Same battery profile as ordinary tracking: the Dispatcher sees where the
+  // Rider is on the way back; nothing is monitored against a route.
+  TrackingMode.returning: WriteCadence(
     minInterval: Duration(seconds: 30),
     heartbeat: Duration(minutes: 2),
     minDistanceMeters: 50,
