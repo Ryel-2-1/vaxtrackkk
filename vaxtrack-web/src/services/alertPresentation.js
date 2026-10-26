@@ -99,7 +99,38 @@ export function withoutIds(text, raw) {
 const TITLES = Object.freeze({
   route_deviation: { active: "Route deviation", resolved: "Route deviation resolved" },
   delivery_delay: { active: "Delivery running late", resolved: "Late delivery resolved" },
+  rider_location_stale: { active: "Rider location not updating", resolved: "Rider location updating again" },
 });
+
+const STALE_MINUTES = 10;
+
+/** The stale-location sentence (mirror of the server's staleAlertText — parity-tested). */
+export function staleLocationText({ status, riderName, minutes, resolutionReason }) {
+  const rider = nameOr(riderName, "The rider");
+  if (status === "resolved") {
+    if (resolutionReason === "location_updating") return `${rider}'s location is updating again.`;
+    return `${rider}'s trip has ended, so location monitoring stopped.`;
+  }
+  const mins = Number.isFinite(minutes) && minutes >= STALE_MINUTES ? Math.floor(minutes) : STALE_MINUTES;
+  return `${rider}'s location hasn't updated for ${mins} minutes during a delivery trip. ` +
+    "Check that the rider app is open and has signal.";
+}
+
+/** How a late-delivery alert ended, by the server's resolution reason. */
+function lateResolvedText(reason, code) {
+  const order = code ? `Order ${code}` : "This order";
+  if (reason === "delivered") return `${order} was delivered.`;
+  if (reason === "delivery_failed") return `${order} was reported as a failed delivery.`;
+  if (reason === "cancelled") return `${order} was cancelled.`;
+  return `The late delivery alert for ${code ? `Order ${code}` : "this order"} was resolved.`;
+}
+
+/** The fleet map focused on the Rider, for the viewer's role. */
+function riderPathFor(raw, role) {
+  const riderId = typeof raw?.riderId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(raw.riderId) ? raw.riderId : null;
+  const base = role === "admin" ? "/admin/live-tracking" : "/dispatcher/live-tracking";
+  return riderId ? `${base}?rider=${encodeURIComponent(riderId)}` : base;
+}
 
 /** The screen that acts on an order-linked alert, for the viewer's role. */
 function pathFor(raw, role) {
@@ -118,6 +149,7 @@ export function presentAlert(raw, { role = "admin", nowMs = Date.now(), fallback
   const resolved = raw?.status === "resolved";
   const type = raw?.type;
   const orderLinked = type === "route_deviation" || type === "delivery_delay";
+  const riderLinked = type === "rider_location_stale";
   const rider = nameOr(raw?.riderName, null);
   const code = orderCodeOf(raw?.orderNumber);
   const createdMs = millisOf(raw?.createdAt) ?? millisOf(raw?.lastDetectedAt);
@@ -137,8 +169,17 @@ export function presentAlert(raw, { role = "admin", nowMs = Date.now(), fallback
   } else if (type === "delivery_delay") {
     title = TITLES.delivery_delay[resolved ? "resolved" : "active"];
     message = resolved
-      ? `The late delivery alert for ${code ? `Order ${code}` : "this order"} was resolved.`
+      ? lateResolvedText(raw.resolutionReason, code)
       : withoutIds(nameOr(raw.message, "A delivery passed its expected arrival and grace period."), raw);
+  } else if (type === "rider_location_stale") {
+    // Rebuilt from the stored fields, never shown from `message`.
+    title = TITLES.rider_location_stale[resolved ? "resolved" : "active"];
+    message = staleLocationText({
+      status: resolved ? "resolved" : "active",
+      riderName: raw.riderName,
+      minutes: raw.staleMinutesAtDetection,
+      resolutionReason: raw.resolutionReason,
+    });
   } else {
     title = withoutIds(nameOr(raw?.title, fallbackTitle), raw);
     message = withoutIds(nameOr(raw?.message, ""), raw);
@@ -148,7 +189,7 @@ export function presentAlert(raw, { role = "admin", nowMs = Date.now(), fallback
     ? `Resolved ${friendlyTime(resolvedMs, nowMs)}`
     : friendlyTime(createdMs, nowMs);
   const meta = [
-    orderLinked && rider ? `Rider: ${rider}` : null,
+    (orderLinked || riderLinked) && rider ? `Rider: ${rider}` : null,
     orderLinked && code ? `Order: ${code}` : null,
     when,
   ].filter(Boolean);
@@ -157,6 +198,14 @@ export function presentAlert(raw, { role = "admin", nowMs = Date.now(), fallback
   if (orderLinked) {
     details.push({ label: "Rider", value: rider ?? "Not recorded" });
     details.push({ label: "Order", value: nameOr(raw?.orderNumber, "Not recorded") });
+  }
+  if (riderLinked) {
+    details.push({ label: "Rider", value: rider ?? "Not recorded" });
+    if (Number.isInteger(raw?.orderCount) && raw.orderCount > 0) {
+      details.push({ label: "Orders on the trip", value: String(raw.orderCount) });
+    }
+    const lastFixMs = millisOf(raw?.lastFixAt);
+    details.push({ label: "Last location update", value: lastFixMs !== null ? friendlyTime(lastFixMs, nowMs) : "None since the trip left" });
   }
   if (type === "route_deviation") {
     const distance = formatDistanceMeters(raw.distanceMeters);
@@ -176,7 +225,7 @@ export function presentAlert(raw, { role = "admin", nowMs = Date.now(), fallback
     metaText: meta.join(" · "),
     details,
     actionLabel: ALERT_ACTION_LABEL,
-    path: orderLinked ? pathFor(raw, role) : null,
+    path: orderLinked ? pathFor(raw, role) : riderLinked ? riderPathFor(raw, role) : null,
     searchText: [title, message, rider, raw?.orderNumber].filter(Boolean).join(" ").toLowerCase(),
   };
 }

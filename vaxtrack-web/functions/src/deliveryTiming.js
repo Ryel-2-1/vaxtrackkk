@@ -184,6 +184,22 @@ function timingAlertId(orderId, epoch) {
   return `delivery_delay_${orderId}_e${Number.isInteger(epoch) && epoch > 0 ? epoch : 0}`;
 }
 
+/**
+ * The dispatch attempt a status event ENDS, or null. An attempt ends when the
+ * order leaves the clock-running lifecycles (delivered, failed, cancelled, or
+ * anything else). Named from `after` — the ending write's OWN snapshot, whose
+ * timingEpoch is still the attempt it closed — never from the order as stored
+ * when the event is processed, so a late-delivered end of an earlier attempt
+ * can never reach a newer attempt's alert.
+ *   { epoch, reason }  reason: "delivered" | "delivery_failed" | "cancelled" | "left_transit"
+ */
+function endedTimingAttempt(event, after) {
+  if (!event || !TIMED_LIFECYCLES.includes(event.from) || TIMED_LIFECYCLES.includes(event.to)) return null;
+  if (!after || after.timingContractVersion == null || !Number.isInteger(after.timingEpoch)) return null;
+  const reason = ["delivered", "delivery_failed", "cancelled"].includes(event.to) ? event.to : "left_transit";
+  return { epoch: after.timingEpoch, reason };
+}
+
 /** Whole minutes `nowMs` is past `fromMs`; never negative. */
 function minutesLate(fromMs, nowMs) {
   return Math.max(0, Math.floor((nowMs - fromMs) / 60000));
@@ -204,5 +220,6 @@ module.exports = {
   sameDispatchAttempt,
   timingDecision,
   timingAlertId,
+  endedTimingAttempt,
   minutesLate,
 };

@@ -122,7 +122,36 @@ async function recordStatusEvent({ db, orderId, eventId, event, at, after = null
       timing = timingOps().timingFieldsOnDispatch({ dispatched: after, dispatchedAt: at, current, Timestamp });
     }
 
+    // The attempt this event ENDS (delivered, failed, cancelled …): its late
+    // alert, if one was raised and is still open, is resolved now. Named from
+    // the ending write's own snapshot, so a late trigger of an earlier attempt
+    // can never resolve a newer attempt's alert (deliveryTiming.endedTimingAttempt).
+    let lateAlert = null;
+    const ended = FieldValue ? require("./deliveryTiming").endedTimingAttempt(event, after) : null;
+    if (ended) {
+      let alertId;
+      try {
+        alertId = require("./deliveryTiming").timingAlertId(orderId, ended.epoch);
+      } catch {
+        alertId = null; // an id that could never have carried an alert
+      }
+      if (alertId) {
+        const ref = db.collection("alerts").doc(alertId);
+        const snap = await tx.get(ref);
+        if (snap.exists && snap.get("status") === "active") lateAlert = { ref, reason: ended.reason };
+      }
+    }
+
     tx.create(eventRef, { ...event, at, eventId });
+    if (lateAlert) {
+      tx.update(lateAlert.ref, {
+        status: "resolved",
+        resolvedAt: FieldValue.serverTimestamp(),
+        resolutionReason: lateAlert.reason,
+        resolvedBy: "server",
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
 
     // One update of the order carries every field this event sets.
     const orderUpdate = {};
@@ -137,7 +166,12 @@ async function recordStatusEvent({ db, orderId, eventId, event, at, after = null
       stampedFirstDispatch = true;
     }
     if (Object.keys(orderUpdate).length > 0) tx.update(orderRef, orderUpdate);
-    return { recorded: true, stampedFirstDispatch, timingStatus: timing ? timing.timingStatus : null };
+    return {
+      recorded: true,
+      stampedFirstDispatch,
+      timingStatus: timing ? timing.timingStatus : null,
+      lateAlertResolved: lateAlert ? lateAlert.reason : null,
+    };
   });
 }
 

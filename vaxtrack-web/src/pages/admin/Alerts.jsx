@@ -43,6 +43,11 @@ const TYPE_MAP = {
     iconKey: "truck",
     recommendation: "Monitor ETA and notify the receiving clinic if delay continues.",
   },
+  rider_location_stale: {
+    display: "Location Not Updating",
+    iconKey: "pin",
+    recommendation: "Call the rider and check that the VaxTrack app is open, signed in and has signal.",
+  },
   delivery_completed: {
     display: "Delivery Completed",
     iconKey: "check",
@@ -217,8 +222,9 @@ function Alerts() {
 
   // Open alerts per category — every count is of ACTIVE alerts, and reads "—"
   // until the alerts have loaded. The server raises route deviations
-  // (functions/src/riderTracking.js) and late deliveries
-  // (functions/src/deliveryTimingOps.js); nothing raises low-stock alerts yet,
+  // (functions/src/riderTracking.js), late deliveries
+  // (functions/src/deliveryTimingOps.js) and stale rider locations
+  // (functions/src/riderLocationStaleOps.js); nothing raises low-stock alerts yet,
   // so that category says so instead of claiming "0 active".
   const activeOfType = (display) =>
     alerts.filter((alert) => alert.status !== "resolved" && alert.type === display).length;
@@ -226,6 +232,7 @@ function Alerts() {
     route: kpi(activeOfType("Route Deviation")),
     inventory: kpi(activeOfType("Low Stock")),
     delivery: kpi(activeOfType("Delayed Delivery")),
+    location: kpi(activeOfType("Location Not Updating")),
   };
   const inventoryAlertsExist = alerts.some((alert) => alert.type === "Low Stock");
 
@@ -469,6 +476,17 @@ function Alerts() {
                   type="green"
                   onClick={() => {
                     setSearchTerm("Delayed Delivery");
+                    setSeverityFilter("all");
+                  }}
+                />
+
+                <CategoryItem
+                  icon={<MapPin size={18} />}
+                  title="Location Not Updating"
+                  count={`${categoryCounts.location} active`}
+                  type="red"
+                  onClick={() => {
+                    setSearchTerm("Location Not Updating");
                     setSeverityFilter("all");
                   }}
                 />
@@ -724,6 +742,7 @@ function getAlertIcon(iconKey) {
   if (iconKey === "route") return <Route size={17} />;
   if (iconKey === "package") return <Package size={17} />;
   if (iconKey === "truck") return <Truck size={17} />;
+  if (iconKey === "pin") return <MapPin size={17} />;
   if (iconKey === "check") return <CheckCircle2 size={17} />;
   return <AlertTriangle size={17} />;
 }

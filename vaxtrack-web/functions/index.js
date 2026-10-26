@@ -69,6 +69,7 @@ const orderHistoryOutbox = require("./src/orderHistoryOutbox");
 const riderTrackingOps = require("./src/riderTrackingOps");
 const deliveryTimingOps = require("./src/deliveryTimingOps");
 const riderDispatchOps = require("./src/riderDispatchOps");
+const riderLocationStaleOps = require("./src/riderLocationStaleOps");
 const riderRecoveryOps = require("./src/riderRecoveryOps");
 const { qaResetConfig } = require("./src/riderRecovery");
 
@@ -668,6 +669,16 @@ exports.trackRiderLocation = onDocumentWritten(
     });
     // Ids and outcome only — never coordinates.
     if (result.event) logger.info("route-deviation-transition", { riderUid: event.params.riderUid, event: result.event });
+    // A fresh fix ends an open stale-location incident at once (one read when
+    // there is none). Never allowed to fail or retry the deviation work above:
+    // the 5-minute sweep resolves it anyway.
+    try {
+      await riderLocationStaleOps.resolveStaleOnFix({
+        db, FieldValue, Timestamp: admin.firestore.Timestamp, riderUid: event.params.riderUid, now: new Date(),
+      });
+    } catch (error) {
+      logger.warn("stale-location resolve deferred", { errorType: error?.constructor?.name ?? typeof error });
+    }
   }
 );
 
@@ -726,13 +737,31 @@ exports.syncRiderTrackingOnOrderWrite = onDocumentWritten(
 // never blocks proof or completion; the first "delayed" records one history
 // event and one alert. Each processed order leaves the due set, so a backlog
 // drains oldest-first; overlapping or retried runs are no-ops.
+// Operational alerts, every 5 minutes: late deliveries (the dispatch-frozen
+// ETA + grace) and stale rider locations (src/riderLocationStaleOps.js). Two
+// independent passes: a failure in one never skips the other, and each is
+// retried by the next run (both decide from the documents as stored then).
 exports.evaluateDeliveryTiming = onSchedule(
   { schedule: "every 5 minutes", timeZone: "Asia/Manila" },
   async () => {
-    const counts = await deliveryTimingOps.evaluateDeliveryTimingRun({
-      db, FieldValue, Timestamp: admin.firestore.Timestamp, now: new Date(),
-    });
-    if (counts.scanned > 0) logger.info("delivery-timing", counts);
+    const now = new Date();
+    const Timestamp = admin.firestore.Timestamp;
+    let failed = null;
+    try {
+      const counts = await deliveryTimingOps.evaluateDeliveryTimingRun({ db, FieldValue, Timestamp, now });
+      if (counts.scanned > 0) logger.info("delivery-timing", counts);
+    } catch (error) {
+      failed = error;
+      logger.error("delivery-timing pass failed", { errorType: error?.constructor?.name ?? typeof error });
+    }
+    try {
+      const counts = await riderLocationStaleOps.evaluateStaleLocationsRun({ db, FieldValue, Timestamp, now });
+      if (counts.riders > 0) logger.info("stale-locations", counts);
+    } catch (error) {
+      failed = failed ?? error;
+      logger.error("stale-locations pass failed", { errorType: error?.constructor?.name ?? typeof error });
+    }
+    if (failed) throw failed;
   }
 );
 

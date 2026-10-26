@@ -1933,9 +1933,36 @@ service cloud.firestore {
     // trackRiderLocation Cloud Function decides deviation and writes them
     // (functions/src/riderTrackingOps.js). No rider may create, change or read
     // one — a client can never forge or clear a deviation decision.
+    //
+    // The same holds for every SERVER-DECIDED alert — route deviation, late
+    // delivery (deliveryTimingOps.js) and stale rider location
+    // (riderLocationStaleOps.js): no client, Admin included, creates, rewrites
+    // or deletes one. An Admin may only acknowledge it — mark it read, or
+    // resolve it — which is all the Alerts page writes (alertService.js).
+    function serverAlertTypes() {
+      return ['route_deviation', 'delivery_delay', 'rider_location_stale'];
+    }
+    function isAlertAcknowledgement() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'status'])
+        && request.resource.data.get('read', false) is bool
+        && (request.resource.data.get('status', null) == resource.data.get('status', null)
+          || request.resource.data.get('status', null) == 'resolved');
+    }
     match /alerts/{id} {
       allow get, list: if isAdmin() || isDispatcher();
-      allow create, update, delete: if isAdmin();
+      allow create: if isAdmin() && !(request.resource.data.get('type', null) in serverAlertTypes());
+      allow update: if isAdmin() && (
+        resource.data.get('type', null) in serverAlertTypes()
+          ? isAlertAcknowledgement()
+          : !(request.resource.data.get('type', null) in serverAlertTypes()));
+      allow delete: if isAdmin() && !(resource.data.get('type', null) in serverAlertTypes());
+    }
+
+    // Stale-location watches (riderLocationStaleOps.js): the server's own
+    // per-Rider bookkeeping (trip, departure anchor, stale or not). Written and
+    // read only by Cloud Functions; the alerts above are what people see.
+    match /riderLocationWatches/{riderUid} {
+      allow read, write: if false;
     }
 
     // ---------------- invoices (admin only) ----------------

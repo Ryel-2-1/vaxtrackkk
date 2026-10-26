@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import KpiCard from "../ui/KpiCard";
 import { useNow } from "../useRiderLiveLocation";
 import FleetMap from "./FleetMap";
@@ -96,7 +97,13 @@ function LiveTrackingPanel() {
   const [riders, setRiders] = useState({});
   const [ordersError, setOrdersError] = useState(null);
   const [filter, setFilter] = useState("all");
-  const [selectedUid, setSelectedUid] = useState(null);
+  // A stale-location alert links here as ?rider=<uid>: that Rider starts
+  // selected. Only an id-shaped value is accepted; nothing is rendered from it.
+  const [searchParams] = useSearchParams();
+  const [selectedUid, setSelectedUid] = useState(() => {
+    const linked = searchParams.get("rider");
+    return typeof linked === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(linked) ? linked : null;
+  });
   // Rider locations + server deviation state (shared with the dashboard overview).
   const { locations, deviations, error: feedError, deviationError, retry: retryFeeds } = useRiderTrackingFeeds();
   const error = ordersError || feedError;
