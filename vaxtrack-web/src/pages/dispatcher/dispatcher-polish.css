@@ -509,3 +509,25 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
 .dispatcher-main .shp-table tbody tr.shp-row-focus td:first-child {
   box-shadow: inset 3px 0 0 var(--green-600) !important;
 }
+
+/* ============================================================
+   Dashboard queue: keep the Action column in view (2026-10-23)
+   The table needs ~980px, so below that it scrolls sideways inside its card
+   and the Assign Rider button sat off-screen (774px window: at x≈1000).
+   Pin the last column to the right edge of the scroll box; the other
+   columns still scroll under it.
+   ============================================================ */
+.dispatcher-main .dispatcher-dash-table th:last-child,
+.dispatcher-main .dispatcher-dash-table td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: #ffffff;
+  box-shadow: -8px 0 8px -8px rgba(15, 23, 42, 0.18);
+}
+.dispatcher-main .dispatcher-dash-table th:last-child {
+  background: var(--gray-50);
+}
+.dispatcher-main .dispatcher-dash-table tbody tr:hover td:last-child {
+  background: var(--green-50);
+}

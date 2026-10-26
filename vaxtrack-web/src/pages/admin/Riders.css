@@ -989,3 +989,16 @@
   font-size: 13px;
   line-height: 1.45;
 }
+
+/* Shown when the delivery, trip or location feed could not be read: the
+   figures then read "—" rather than a made-up zero. */
+.riders-activity-note {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--warning-border, var(--gray-200));
+  border-radius: var(--radius-control);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 13px;
+  line-height: 1.45;
+}

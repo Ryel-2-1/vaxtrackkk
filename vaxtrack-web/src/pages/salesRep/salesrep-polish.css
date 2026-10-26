@@ -1198,3 +1198,803 @@ aside.salesrep-sidebar .salesrep-logout-error {
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
+
+/* ============================================================
+   Layout fit pass (2026-10-22): Available vaccines
+   Cards were 329px tall in two 358px columns — two vaccines per
+   1366×768 screen — and long status badges ran out of the card.
+   Each vaccine is now one compact row with the same fields: name,
+   batch and chips | available stock and unit price | quantity and
+   the action. Below 900px the action drops under the figures;
+   on a phone each vaccine stacks in one readable column.
+   ============================================================ */
+.salesrep-page .request-v2-product-grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 8px !important;
+}
+.salesrep-page .request-v2-product-card.rq-item {
+  display: grid !important;
+  /* The action column is capped: a blocked batch carries its full reason on
+     the button, and an `auto` column grew to fit it on one line, starving
+     the name and figures. The reason wraps inside the button instead. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) minmax(258px, 282px);
+  grid-template-areas:
+    "name   figures actions"
+    "batch  figures actions"
+    "chips  chips   chips"
+    "reason reason  reason";
+  grid-template-rows: auto 1fr auto auto;
+  align-items: start;
+  gap: 2px 16px;
+  min-width: 0;
+  padding: 10px 14px !important;
+}
+/* The name, batch and chips are placed on the row grid directly, so the
+   chips can run the full width under them instead of stacking in a narrow
+   name column. */
+.salesrep-page .rq-item-main {
+  display: contents;
+}
+.salesrep-page .rq-item-main > h2 {
+  grid-area: name;
+}
+.salesrep-page .rq-item-main > .rq-item-batch {
+  grid-area: batch;
+}
+.salesrep-page .rq-item-main > .rq-item-chips {
+  grid-area: chips;
+}
+.salesrep-page .request-v2-product-card.rq-item h2 {
+  margin: 0 !important;
+  font-size: 15px !important;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.salesrep-page .rq-item-batch {
+  margin: 1px 0 0 !important;
+  color: var(--gray-600) !important;
+  font-size: 12px !important;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+/* The legacy card head had min-height: 34px; chips are 20px. (Page CSS is
+   lazy-loaded after this layer, so a tie in specificity would lose: the
+   extra .rq-item outranks `.request-v2-product-card .product-card-top`.) */
+.salesrep-page .rq-item .rq-item-chips {
+  min-height: 0 !important;
+  display: flex !important;
+  flex-wrap: wrap;
+  justify-content: flex-start !important;
+  gap: 4px 6px !important;
+  margin: 4px 0 0 !important;
+}
+.salesrep-page .rq-item .product-type,
+.salesrep-page .rq-item .stock,
+.salesrep-page .rq-item .product-vat {
+  margin: 0 !important;
+  max-width: 100%;
+  min-height: 0 !important;
+  padding: 2px 8px !important;
+  font-size: 11px !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+.salesrep-page .rq-item .stock.blocked {
+  background: var(--warning-bg) !important;
+  color: var(--warning-text) !important;
+}
+.salesrep-page .request-v2-product-card.rq-item .product-meta {
+  grid-area: figures;
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 14px;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  min-width: 0;
+}
+.salesrep-page .rq-item .product-meta strong {
+  font-size: 15px !important;
+  font-variant-numeric: tabular-nums;
+}
+/* Label and figure share a line ("Available stock 191"); the explanatory
+   note sits under them. */
+.salesrep-page .rq-item .product-meta span {
+  display: inline !important;
+  margin: 0 6px 0 0 !important;
+  padding: 0 !important;
+  background: none !important;
+  font-size: 11px !important;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.salesrep-page .rq-item .product-meta > div {
+  min-width: 0;
+}
+.salesrep-page .rq-item .product-meta strong {
+  display: inline-block !important;
+  max-width: 100%;
+  margin: 0 !important;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.salesrep-page .rq-item .product-meta small {
+  display: block;
+  margin-top: 1px;
+  font-size: 11px !important;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.salesrep-page .rq-item .qty-control {
+  flex: 0 0 auto;
+}
+.salesrep-page .rq-item .qty-control button {
+  width: 26px !important;
+  min-width: 26px !important;
+}
+.salesrep-page .rq-item .request-v2-actions {
+  grid-area: actions;
+  align-self: center;
+  display: flex !important;
+  align-items: center;
+  gap: 8px !important;
+  margin: 0 !important;
+  min-width: 0;
+}
+.salesrep-page .rq-item .request-v2-actions > button {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.2;
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+}
+/* Narrower catalog (container < 880px, whatever the viewport — a 1366px
+   screen with the cart beside it has a ~740px catalog): the name and batch
+   share their lines with the quantity and action; chips, then stock and
+   price, run full width under them. Every field stays visible. */
+@container rqcat (max-width: 879px) {
+  .salesrep-page .request-v2-product-card.rq-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "name    actions"
+      "batch   actions"
+      "chips   chips"
+      "figures figures"
+      "reason  reason";
+    grid-template-rows: auto auto auto auto auto;
+    gap: 2px 12px;
+    padding: 8px 12px !important;
+  }
+  .salesrep-page .rq-item .request-v2-actions {
+    align-self: start;
+  }
+  .salesrep-page .rq-item .request-v2-actions > button {
+    flex: 0 1 auto;
+    max-width: 170px;
+    height: 36px !important;
+    min-height: 36px !important;
+    font-size: 13px !important;
+  }
+  .salesrep-page .rq-item .qty-control {
+    height: 36px !important;
+  }
+  .salesrep-page .rq-item .rq-item-chips {
+    margin-top: 4px !important;
+  }
+  .salesrep-page .request-v2-product-card.rq-item .product-meta {
+    margin-top: 2px !important;
+    /* Content-sized: the stock note keeps one line beside the price.
+       (!important: legacy .product-meta { 1fr 1fr !important }.) */
+    grid-template-columns: auto auto !important;
+    justify-content: start;
+    column-gap: 28px;
+  }
+  .salesrep-page .rq-item .product-meta > div {
+    text-align: left !important;
+  }
+  /* Stock details continue the figure line ("0 · 7 on hand · 7 reserved or
+     held") when it fits; otherwise the whole note moves to the next line
+     (inline-block, so it never splits mid-phrase). */
+  .salesrep-page .rq-item .product-meta small {
+    display: inline-block !important;
+    margin: 0 0 0 6px !important;
+  }
+  .salesrep-page .rq-item .product-meta small::before {
+    content: "· ";
+  }
+  .salesrep-page .request-v2-tabs > button {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-height: 34px !important;
+    height: 34px !important;
+    padding: 0 14px !important;
+  }
+}
+/* Phone: the price sits beside the name and batch, stock gets the full
+   width (its note fits one line), and the action takes one compact line.
+   The figures block is flattened so stock and price place separately. */
+@container rqcat (max-width: 440px) {
+  .salesrep-page .request-v2-product-card.rq-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "name    price"
+      "batch   price"
+      "chips   chips"
+      "stock   stock"
+      "actions actions"
+      "reason  reason";
+    gap: 2px 10px;
+  }
+  .salesrep-page .request-v2-product-card.rq-item .product-meta {
+    display: contents !important;
+  }
+  .salesrep-page .rq-item .product-meta > div:first-child {
+    grid-area: stock;
+    margin-top: 6px;
+    text-align: left !important;
+  }
+  .salesrep-page .rq-item .product-meta > div:last-child {
+    grid-area: price;
+    align-self: start;
+    text-align: right !important;
+  }
+  .salesrep-page .rq-item .product-meta > div:last-child span {
+    display: block !important;
+    margin: 0 !important;
+  }
+  .salesrep-page .rq-item .product-meta > div:last-child strong {
+    white-space: nowrap;
+    overflow-wrap: normal;
+  }
+  .salesrep-page .rq-item .request-v2-actions {
+    margin-top: 8px !important;
+  }
+  .salesrep-page .rq-item .request-v2-actions > button {
+    flex: 1 1 auto;
+    max-width: none;
+  }
+}
+.salesrep-page .request-v2-tabs {
+  flex-wrap: wrap;
+  align-items: center;
+}
+.salesrep-page .rq-price-convention {
+  /* Beside the tabs when there is room (wrapping to two short lines), under
+     them when there is not — never clipped. */
+  flex: 1 1 200px;
+  min-width: 0;
+  text-align: right;
+  margin: 0 0 0 auto !important;
+  color: var(--gray-600) !important;
+  font-size: 12px !important;
+  line-height: 1.35;
+}
+/* The header grid sized its search column to the search box (420px), which
+   ran 54px out of the catalog at 1280px. Both columns can shrink now, and
+   the search moves under the title when the catalog is narrow. */
+.salesrep-page .request-v2-header {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 420px) !important;
+  gap: 10px 16px !important;
+}
+.salesrep-page .request-v2-header .request-v2-search {
+  min-width: 0 !important;
+}
+@media (max-width: 1100px) {
+  .salesrep-page .request-v2-header {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/* ============================================================
+   Layout fit pass (2026-10-22): other Med Rep screens
+   Measured at 1440 / 1280×720 / 768 / 375 px.
+   ============================================================ */
+
+/* Dashboard top bar: a fixed 310px search beside the title ran 142px off a
+   phone screen. Below 640px the search takes its own line. */
+@media (max-width: 640px) {
+  .salesrep-page header.salesrep-topbar {
+    flex-wrap: wrap !important;
+    row-gap: 8px;
+    height: auto !important;
+  }
+  /* Only a top bar that HAS the search gives it a line of its own; on
+     pages without it the bell stays beside the title. */
+  .salesrep-page .salesrep-topbar-right:has(.salesrep-global-search) {
+    flex: 1 1 100% !important;
+    min-width: 0 !important;
+  }
+  .salesrep-page .salesrep-topbar-right .salesrep-global-search {
+    flex: 1 1 0% !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+  }
+}
+
+/* Inventory: the batch table (min-width 720px) sat in a card with
+   overflow: hidden, so on a phone its right-hand columns could not be
+   reached. It scrolls sideways inside the card now. */
+.salesrep-page .inventory-table-card {
+  overflow-x: auto !important;
+}
+/* A bare 1fr column could not shrink below its content (9px overflow). */
+.salesrep-page .inventory-v2-summary {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+@media (min-width: 1101px) {
+  .salesrep-page .inventory-v2-summary {
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) !important;
+  }
+}
+.salesrep-page .inventory-v2-summary > * {
+  min-width: 0;
+}
+/* Vaccine-type names were cut to 110px even with room to spare. */
+.salesrep-page .hbar-label {
+  flex: 0 1 clamp(110px, 32%, 260px) !important;
+  width: auto !important;
+  min-width: 72px;
+}
+/* A very large total (staging carries 100,000,000,001,560 doses) squeezed
+   the bar to 0px on a phone; the figure may wrap, the bar keeps a width. */
+.salesrep-page .hbar-track {
+  min-width: 40px;
+}
+@media (max-width: 560px) {
+  .salesrep-page .hbar-qty {
+    flex: 0 1 auto !important;
+    min-width: 0 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+    text-align: right;
+  }
+}
+/* Page numbers wrap instead of running 138px out of the footer. */
+.salesrep-page .salesrep-pagination-row > div {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+/* Order tracking: a fixed-layout table gave Status 89px for a 136px
+   "Pending Dispatch" badge (it spilled into Progress) and order numbers
+   134px. The columns now fit their content; the table scrolls on a phone. */
+.salesrep-page .tracking-v2-table {
+  min-width: 730px !important;
+}
+.salesrep-page .tracking-v2-table td:first-child strong {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* !important only to out-rank the legacy `width: 16% !important` columns. */
+.salesrep-page .tracking-v2-table th:nth-child(1) {
+  width: 240px !important;
+}
+.salesrep-page .tracking-v2-table th:nth-child(2) {
+  width: auto !important;
+}
+.salesrep-page .tracking-v2-table th:nth-child(3) {
+  width: 104px !important;
+}
+.salesrep-page .tracking-v2-table th:nth-child(4) {
+  width: 156px !important;
+}
+.salesrep-page .tracking-v2-table th:nth-child(5) {
+  width: 124px !important;
+}
+.salesrep-page .tracking-v2-table th {
+  white-space: nowrap;
+}
+
+/* Inventory "All Status" / expiry filters: each select sits inside a 42px
+   bordered label, but the global 46px control minimum made the select 46px,
+   so it overhung the label's border by 2px at top and bottom — the
+   overlapping borders. The select now fills its label exactly. */
+.salesrep-page .inventory-v2-selects label > select {
+  min-height: 0 !important;
+  height: 100% !important;
+  align-self: stretch;
+}
+
+/* ============================================================
+   Phone / small-tablet navigation (≤768px) — 2026-10-22
+   Below 769px the Med Rep sidebar is meant to be a bottom navigation
+   bar (SalesRep.css), but a later `!important` block kept it a
+   250px × 100vh sticky column, which the block-level page stacked
+   ABOVE the content: every Med Rep page started a full screen down.
+   Restored as one row of icon + label items (seven pages and Logout)
+   that scrolls sideways if it does not fit, with the page padded so
+   nothing sits behind it.
+   ============================================================ */
+@media (max-width: 768px) {
+  /* #root outranks the lazy-loaded `.salesrep-page { padding: 0 !important }`. */
+  #root .salesrep-page {
+    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .salesrep-page > aside.salesrep-sidebar {
+    position: fixed !important;
+    top: auto !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    z-index: 1000;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    height: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
+    min-height: 0 !important;
+    flex-direction: row !important;
+    align-items: stretch !important;
+    gap: 2px !important;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px)) !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .salesrep-page > aside.salesrep-sidebar .salesrep-brand,
+  .salesrep-page > aside.salesrep-sidebar .m-role-chip,
+  .salesrep-page > aside.salesrep-sidebar .m-profile,
+  .salesrep-page > aside.salesrep-sidebar .salesrep-profile {
+    display: none !important;
+  }
+  .salesrep-page > aside.salesrep-sidebar .salesrep-nav {
+    display: flex !important;
+    flex-direction: row !important;
+    flex: 1 0 auto !important;
+    gap: 2px !important;
+    height: auto !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+  .salesrep-page > aside.salesrep-sidebar .salesrep-nav a,
+  .salesrep-page > aside.salesrep-sidebar .salesrep-logout {
+    flex: 1 0 64px !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    gap: 2px !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 4px 6px !important;
+    font-size: 10.5px !important;
+    line-height: 1.15 !important;
+    white-space: nowrap !important;
+    text-align: center;
+  }
+  .salesrep-page > aside.salesrep-sidebar .salesrep-nav a svg,
+  .salesrep-page > aside.salesrep-sidebar .salesrep-logout svg {
+    width: 18px;
+    height: 18px;
+    flex: none;
+  }
+}
+
+/* A blocked batch: why it cannot be ordered, one full-width line. */
+.salesrep-page .rq-item .rq-item-reason {
+  grid-area: reason;
+  margin: 4px 0 0 !important;
+  color: var(--warning-text) !important;
+  font-size: 12px !important;
+  line-height: 1.35;
+}
+
+/* ============================================================
+   Request Order: catalog + Quick Cart layout (2026-10-22)
+   The catalog was capped (layout max 1280px) beside a 320px cart, and each
+   row's action column was 186px for a ~95px quantity control AND the
+   button, so "Add as future order" wrapped to three lines. The empty cart
+   also filled 520px. Below 1200px the legacy layout dropped the cart AFTER
+   all 32 vaccines.
+   Now: the catalog takes the remaining width beside a 312px sticky cart;
+   below 1101px there is no side column — "View cart (n)" opens the same cart
+   in a portaled drawer (CART_SIDE_MIN_WIDTH in SalesRepRequestOrder.jsx).
+   Selectors carry an extra class: SalesRep.css is lazy-loaded after this
+   layer, so an equal-specificity !important tie would lose.
+   ============================================================ */
+
+/* The catalog is a size container: each vaccine row picks its layout from the
+   catalog width it actually has, not from the viewport. */
+.salesrep-page .request-v2-layout > .request-catalog {
+  container: rqcat / inline-size;
+}
+
+/* ---- sticky needs non-scrolling ancestors ----
+   `overflow-x: hidden` on .salesrep-page (SalesRep.css) and on body/#root
+   (styles.css) makes each a scroll container that never scrolls (the window
+   does), so the cart's position: sticky was inert — the legacy cart already
+   scrolled away. `clip` still clips sideways but creates no scroll
+   container. Scoped to Med Rep pages; other roles keep the global rule. */
+body:has(> #root > .salesrep-page),
+#root:has(> .salesrep-page),
+#root > .salesrep-page {
+  overflow-x: clip !important;
+  overflow-y: visible !important;
+}
+
+/* ---- page controls: less space between title, search, filters, list ---- */
+.salesrep-page .request-catalog .request-v2-header {
+  margin: 0 0 12px !important;
+}
+.salesrep-page .request-catalog .request-v2-header p {
+  margin-top: 2px !important;
+}
+.salesrep-page .request-catalog .request-v2-tabs {
+  margin: 0 0 10px !important;
+  gap: 8px !important;
+}
+.salesrep-page .request-catalog .request-v2-tabs > button {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 0 16px !important;
+}
+
+/* ---- the row's action: room for the quantity control and a readable label ---- */
+.salesrep-page .rq-item .request-v2-actions > button {
+  min-width: 150px;
+  max-width: 190px;
+  padding-left: 10px !important;
+  padding-right: 10px !important;
+  font-size: 13px !important;
+  line-height: 1.2 !important;
+  text-align: center;
+  white-space: normal;
+}
+.salesrep-page .rq-item .request-v2-actions .qty-control {
+  flex: 0 0 auto;
+}
+
+/* ---- wide screens: catalog | 312px sticky cart ---- */
+@media (min-width: 1101px) {
+  .salesrep-page .request-order-layout.request-v2-layout {
+    grid-template-columns: minmax(0, 1fr) 312px !important;
+    gap: 20px !important;
+    max-width: none !important;
+    align-items: start !important;
+  }
+  .salesrep-page .request-order-layout aside.rq-cart-side {
+    /* Fills its 312px column (legacy .quick-cart was fixed at 300px). */
+    width: 100% !important;
+    max-width: none !important;
+    position: sticky !important;
+    top: 76px !important;
+    align-self: start !important;
+    min-height: 0 !important;
+    max-height: calc(100vh - 92px);
+    max-height: calc(100dvh - 92px);
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+  }
+  /* An empty cart uses only the height it needs. */
+  .salesrep-page .request-order-layout aside.rq-cart-side .empty-cart {
+    flex: 0 0 auto !important;
+    padding: 18px 12px !important;
+  }
+  /* A populated cart scrolls its lines; totals and checkout stay visible. */
+  .salesrep-page .request-order-layout aside.rq-cart-side .request-v2-cart-items {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    max-height: none !important; /* legacy 240px cap; the cart itself is capped */
+    overflow-y: auto !important;
+  }
+  .salesrep-page .request-order-layout aside.rq-cart-side .cart-footer {
+    flex: 0 0 auto !important;
+  }
+  .salesrep-page .rq-cart-toggle {
+    display: none !important;
+  }
+}
+
+/* ---- narrower screens: no side column; the cart opens in a drawer ---- */
+@media (max-width: 1100px) {
+  .salesrep-page .request-order-layout.request-v2-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .salesrep-page .request-order-layout aside.rq-cart-side {
+    display: none !important;
+  }
+}
+/* "View cart" in the catalog's own toolbar: hidden by default (wide screens
+   have the side cart; phones have the floating control). */
+.salesrep-page .rq-cart-bar {
+  display: none;
+}
+/* Tablet / small laptop: a sticky toolbar above the list, so the control
+   never floats over a vaccine row. */
+@media (min-width: 769px) and (max-width: 1100px) {
+  .salesrep-page .rq-cart-toggle {
+    display: none !important;
+  }
+  .salesrep-page .rq-cart-bar {
+    position: sticky;
+    top: 0; /* the Med Rep top bar scrolls away; this pins to the viewport top */
+    z-index: 5;
+    display: flex;
+    justify-content: flex-end;
+    margin: 0 0 8px;
+    padding: 6px 0;
+    background: var(--rq-bar-bg, #f5f7ff);
+  }
+  .salesrep-page .rq-cart-bar .rq-cart-bar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: auto !important;
+    height: 38px !important;
+    min-height: 38px !important;
+    padding: 0 16px !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    background: var(--green-700) !important;
+    color: #ffffff !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    cursor: pointer;
+  }
+  .salesrep-page .rq-cart-bar .rq-cart-bar-btn:focus-visible {
+    outline: 3px solid var(--green-200, #a7d7bf);
+    outline-offset: 2px;
+  }
+}
+/* Phones: a floating control above the bottom navigation bar. */
+@media (max-width: 768px) {
+  /* Room so the last vaccine is never under the floating control. */
+  .salesrep-page .request-catalog {
+    padding-bottom: 72px;
+  }
+  .salesrep-page .rq-cart-toggle {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 1001; /* above the Med Rep bottom bar (1000), below dialogs */
+    display: inline-flex !important;
+    align-items: center;
+    gap: 8px;
+    height: 44px !important;
+    min-height: 44px !important;
+    padding: 0 18px !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    background: var(--green-700) !important;
+    color: #ffffff !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    box-shadow: var(--shadow-float, 0 8px 24px rgba(15, 23, 42, 0.18)) !important;
+    cursor: pointer;
+  }
+  .salesrep-page .rq-cart-toggle:focus-visible {
+    outline: 3px solid var(--green-200, #a7d7bf);
+    outline-offset: 2px;
+  }
+}
+@media (max-width: 768px) {
+  /* Above the bottom navigation bar, never on top of it. */
+  .salesrep-page .rq-cart-toggle {
+    bottom: calc(64px + 12px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ---- messages: a fixed status toast, so adding a vaccine never pushes the
+   list down (the old banner above the list moved every row by ~58px) ---- */
+.salesrep-page .rq-notice-region {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1002; /* above "View cart" and the bottom bar, below the drawer */
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.salesrep-page .rq-notice-region .rq-notice-toast {
+  pointer-events: auto;
+  max-width: 560px;
+  min-height: 44px !important;
+  margin: 0 !important;
+  padding: 8px 8px 8px 14px !important;
+  box-shadow: var(--shadow-float, 0 8px 24px rgba(15, 23, 42, 0.18)) !important;
+  line-height: 1.35;
+}
+.salesrep-page .rq-notice-region .rq-notice-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  margin-left: auto;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: var(--radius-control) !important;
+  background: transparent !important;
+  color: inherit !important;
+  cursor: pointer;
+}
+@media (max-width: 768px) {
+  /* Above the floating "View cart" control and the bottom bar. */
+  .salesrep-page .rq-notice-region {
+    bottom: calc(64px + 12px + 44px + 12px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ---- the drawer (portaled; covers the viewport, bottom bar included) ---- */
+.salesrep-page .rq-cart-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(17, 24, 39, 0.45);
+}
+.salesrep-page .rq-cart-backdrop .rq-cart-drawer {
+  position: relative !important;
+  top: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  width: min(380px, 100vw) !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 16px !important;
+  border-radius: 0 !important;
+  background: #ffffff !important;
+  box-shadow: var(--shadow-float, -8px 0 24px rgba(15, 23, 42, 0.18)) !important;
+  overflow: hidden !important;
+}
+.salesrep-page .rq-cart-drawer .quick-cart-title {
+  min-height: 40px;
+  padding-right: 52px !important; /* clear of the Close button (beats legacy padding !important) */
+}
+.salesrep-page .rq-cart-drawer .request-v2-cart-items {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow-y: auto !important;
+}
+.salesrep-page .rq-cart-drawer .empty-cart {
+  flex: 0 0 auto !important;
+  padding: 18px 12px !important;
+}
+.salesrep-page .rq-cart-drawer .cart-footer {
+  flex: 0 0 auto !important;
+  margin-top: auto;
+}
+.salesrep-page .rq-cart-drawer .rq-cart-close {
+  position: absolute;
+  top: 18px; /* centred on the 40px title row below the 16px padding */
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  padding: 0 !important;
+  border: 1px solid var(--gray-200) !important;
+  border-radius: var(--radius-control) !important;
+  background: #ffffff !important;
+  color: var(--gray-900) !important;
+  cursor: pointer;
+}
+/* Phone: a bottom sheet instead of a side panel. */
+@media (max-width: 480px) {
+  .salesrep-page .rq-cart-backdrop {
+    align-items: flex-end;
+  }
+  .salesrep-page .rq-cart-backdrop .rq-cart-drawer {
+    width: 100vw !important;
+    height: auto !important;
+    max-height: 85vh !important;
+    max-height: 85dvh !important;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)) !important;
+    border-radius: 16px 16px 0 0 !important;
+  }
+}

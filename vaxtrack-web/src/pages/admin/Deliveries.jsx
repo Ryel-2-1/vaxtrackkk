@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -18,6 +18,7 @@ import { ORDER_STATUSES, STATUS_LABELS } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
 import TimingIndicator from "../../components/ui/TimingIndicator";
 import KpiCard from "../../components/ui/KpiCard";
+import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 import { subscribeOrderStatusEvents } from "../../services/statusEventService";
 import { kpiValue, liveErrorMessage } from "../../services/liveDataErrors";
@@ -35,7 +36,9 @@ function normalizeDelivery(raw) {
 
   return {
     uid: raw.id,
-    id: raw.orderNumber || raw.id.slice(0, 10).toUpperCase(),
+    // The order number people use. A shortened document id looked like a real
+    // reference; an order without a number says so instead.
+    id: raw.orderNumber || "No order number",
     rider: riderName,
     initials,
     // `vehicle`, `plate`, `temp` and `region` were read here. NOTHING has ever
@@ -584,18 +587,26 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
     [delivery.uid]
   );
   const historyLoaded = history.orderId === delivery.uid;
+  // A modal drawer: focus moves in, Tab stays inside, Escape closes, and
+  // focus returns to the row that opened it.
+  const drawerRef = useRef(null);
+  useDialogFocus({ dialogRef: drawerRef, onDismiss: onClose });
 
   return (
     <div className="mdl-drawer-backdrop" onMouseDown={onClose}>
       <aside
         className="mdl-drawer"
+        ref={drawerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mdl-drawer-title"
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="mdl-drawer-head">
           <div>
             <div className="mdl-drawer-title-row">
-              <h2>{delivery.id}</h2>
+              <h2 id="mdl-drawer-title">{delivery.id}</h2>
               <StatusBadge statusKey={delivery.statusKey} />
             </div>
             <TimingIndicator order={delivery} />

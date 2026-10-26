@@ -138,7 +138,9 @@ export function historyRow(order, receipt = null) {
     createdAtMs: toMillis(order.createdAt) ?? toMillis(receipt?.orderCreatedAt),
     doctor: order.doctorName || receipt?.doctorName || "",
     clinic: order.clinicName || order.destinationName || receipt?.clinicName || "",
-    medRep: receipt?.medRepName || receipt?.medRepEmail || "",
+    // A name snapshot when one was stored; the page then resolves the uid
+    // through the Med Rep directory. Never the uid itself.
+    medRep: receipt?.medRepName || receipt?.medRepEmail || order.salesRepName || order.createdByEmail || "",
     medRepUid: order.createdByUid || receipt?.medRepUid || null,
     priority: String(order.priority || receipt?.priority || "").toLowerCase() === "urgent" ? "Urgent" : "Standard",
     stage,

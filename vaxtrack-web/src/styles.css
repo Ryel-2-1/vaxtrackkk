@@ -5001,7 +5001,10 @@ body {
 .alerts-main {
   flex: 1 !important;
   min-width: 0 !important;
-  width: calc(100vw - 280px) !important;
+  /* Was calc(100vw - 280px): the width of a fixed 280px sidebar that no
+     longer exists. With the off-canvas drawer it left Admin Deliveries 95px
+     wide on a phone. flex: 1 already fills the content column. */
+  width: auto !important;
   max-width: none !important;
   margin: 0 !important;
   text-align: left !important;
@@ -5459,8 +5462,12 @@ th {
   letter-spacing: 0.035em;
 }
 
+/* Cells take their table's size. The 15px default still reaches tables that
+   declare none (through `table` above), but a component that sizes its own
+   table (`.ohx-table { font-size: 13px }` …) is no longer overruled cell by
+   cell — that mismatch is what made references and dates wrap. */
 td {
-  font-size: 15px;
+  font-size: inherit;
   color: var(--vt-text);
 }
 
@@ -5807,17 +5814,23 @@ textarea {
   border-radius: 12px !important;
 }
 
-th {
+/* Scoped to tables with no class of their own (like the button rule above).
+   As bare `th`/`td` selectors these !important rules overrode every
+   component table's own sizing — Invoices, Order History, Clinics, Shipments
+   and the rest rendered 16px cells with 18px padding whatever their CSS said,
+   so order numbers, dates and actions wrapped in cramped columns. Classed
+   tables now get the sizes their own stylesheets declare. */
+table:not([class]) th {
   font-size: 14px !important;
   font-weight: 700 !important;
 }
 
-td {
+table:not([class]) td {
   font-size: 16px !important;
 }
 
-th,
-td {
+table:not([class]) th,
+table:not([class]) td {
   padding: 18px 16px !important;
 }
 

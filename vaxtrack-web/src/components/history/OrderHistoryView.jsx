@@ -144,6 +144,10 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
     );
   }, [isAdmin]);
 
+  // uid → name from the Med Rep directory the filter already loads, for orders
+  // that carry no name snapshot (every order placed before receipts existed).
+  const medRepLabel = useMemo(() => new Map(medReps.map((m) => [m.uid, m.label])), [medReps]);
+
   // Grows the live window by a page; the rows already shown stay on screen
   // until the larger window arrives.
   const loadMore = () => {
@@ -368,7 +372,13 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
                     {row.priority === "Urgent" && <span className="ohx-chip ohx-chip-danger">Urgent</span>}
                   </td>
                   <td className="tnum">{formatDateTime(row.createdAtMs)}</td>
-                  {isAdmin && <td>{row.medRep || <span className="ohx-muted">{row.medRepUid || "—"}</span>}</td>}
+                  {isAdmin && (
+                    <td>
+                      {row.medRep || medRepLabel.get(row.medRepUid) || (
+                        <span className="ohx-muted">{medRepsError ? "Couldn't load name" : "Not recorded"}</span>
+                      )}
+                    </td>
+                  )}
                   <td>
                     <span>{row.doctor || "—"}</span>
                     <small className="ohx-muted">{row.clinic}</small>

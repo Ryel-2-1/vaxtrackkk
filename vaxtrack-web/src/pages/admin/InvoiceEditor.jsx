@@ -53,6 +53,7 @@ import {
 } from "../../services/invoiceCallables";
 import { parseAdjustmentPesosToCentavos } from "../../services/money";
 import AppConfirmDialog from "../../components/ui/ConfirmDialog";
+import { orderPhrase, orderReference } from "../../services/orderLabel";
 import "./Invoices.css";
 
 function formatCurrency(value) {
@@ -1180,7 +1181,7 @@ function InvoiceEditor() {
       {confirmIssue && (
         <AppConfirmDialog
           title="Mark invoice as issued?"
-          target={`Invoice ${invoice?.invoiceNumber || "draft"} · ${order?.orderNumber || orderId} · Total due ${formatCurrency(
+          target={`Invoice ${invoice?.invoiceNumber || "draft"} · ${orderReference(order, "order without a number")} · Total due ${formatCurrency(
             totals.grandTotal
           )}`}
           consequence="It will be locked and can no longer be edited."
@@ -1196,7 +1197,7 @@ function InvoiceEditor() {
       {confirmLeave && (
         <AppConfirmDialog
           title="Leave without saving?"
-          target={`Invoice ${invoice?.invoiceNumber || "draft"} for order ${order?.orderNumber || orderId}`}
+          target={`Invoice ${invoice?.invoiceNumber || "draft"} for ${orderPhrase(order)}`}
           consequence="Your unsaved changes to this invoice will be lost. The last saved draft is kept."
           confirmLabel="Leave without saving"
           cancelLabel="Keep editing"

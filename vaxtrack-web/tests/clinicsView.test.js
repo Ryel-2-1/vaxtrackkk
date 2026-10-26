@@ -203,7 +203,11 @@ test("missing fields render '—', never a made-up default", () => {
   assert.equal(full.locationVerified, true);
   // The page no longer invents "Unassigned" / "No delivery yet" for missing fields.
   assert.match(CODE, /area: raw\.area \|\| "—",/);
-  assert.match(CODE, /lastDelivery: raw\.lastDelivery \|\| "—",/);
+  // Last delivery comes from the delivered orders (services/clinicDeliveries.js),
+  // never from the registration-time placeholder stored on the clinic.
+  assert.match(CODE, /lastDelivery: "—",/);
+  assert.equal(CODE.includes("raw.lastDelivery"), false, "the stored placeholder is not shown as a fact");
+  assert.match(CODE, /lastDeliveryText\(lastDeliveryMs\(index, c\)\)/);
 });
 
 test("the grid card shows the list's information and the same actions; placeholders stay disabled", () => {

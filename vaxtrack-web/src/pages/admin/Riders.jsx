@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CircleHelp,
   PhoneCall,
@@ -7,16 +7,26 @@ import {
   X,
 } from "lucide-react";
 import { subscribeRiders, updateRiderStatus } from "../../services/riderService";
+import { subscribeDeliveries } from "../../services/deliveryService";
+import { subscribeRiderDispatchStates } from "../../services/riderDispatchService";
+import { subscribeAllRiderLocations } from "../../services/riderTrackingService";
+import { fleetOnTime, ordersByRider, riderActivity } from "../../services/riderActivity";
+import { formatRate } from "../../services/deliveryMetrics";
+import useMinuteClock from "../../components/useMinuteClock";
 import KpiCard from "../../components/ui/KpiCard";
 import { kpiValue, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
+import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import { ToastRegion } from "../../components/ui/Feedback";
 import { useToast } from "../../components/ui/useToast";
 import RiderRecoveryPanel from "./RiderRecoveryPanel";
 import "./Riders.css";
 
 const UI_STATUS_MAP = {
-  approved: { uiStatus: "standby", statusText: "Standby" },
+  // "Active" is the ACCOUNT state. Whether an approved Rider is at the hub or
+  // out on a trip comes from the server trip state (shown separately) — an
+  // approved Rider on a trip is not "standby".
+  approved: { uiStatus: "standby", statusText: "Active" },
   pending: { uiStatus: "offduty", statusText: "Pending Approval" },
   pending_approval: { uiStatus: "offduty", statusText: "Pending Approval" },
   disabled: { uiStatus: "offduty", statusText: "Off Duty" },
@@ -60,15 +70,12 @@ function normalizeRider(raw) {
     statusRaw,
     status: mapped.uiStatus,
     statusText: mapped.statusText,
-    assignment: mapped.uiStatus === "standby" ? "Available at Hub" : mapped.statusText,
-    currentDelivery: "None",
-    lastActive: "—",
-    onTimeRate: "—",
-    routeCompliance: "—",
-    deliveriesToday: 0,
-    location: raw.location || "—",
   };
 }
+
+// Shown in place of a figure while its data is loading or could not be read —
+// never a made-up zero.
+const NOT_LOADED = "—";
 
 /**
  * What each rider status change means, said in the confirmation before it is
@@ -143,6 +150,50 @@ function Riders() {
     return () => unsubscribe();
   }, []);
 
+  // Delivery figures, trip state and location — read-only. Until a feed has
+  // answered (or if it fails) its figures show "—" and a note says why.
+  const [orders, setOrders] = useState(null);
+  const [tripStates, setTripStates] = useState(null);
+  const [locations, setLocations] = useState(null);
+  const [activityError, setActivityError] = useState("");
+  const nowMs = useMinuteClock();
+  useEffect(() => {
+    const fail = (what) => (error) => {
+      logSafeError(`Riders ${what}`, error);
+      setActivityError(liveErrorMessage(error, what));
+    };
+    const unsubs = [
+      subscribeDeliveries(setOrders, fail("delivery figures")),
+      subscribeRiderDispatchStates(setTripStates, fail("trip status")),
+      subscribeAllRiderLocations(setLocations, fail("rider locations")),
+    ];
+    return () => unsubs.forEach((u) => u());
+  }, []);
+
+  const activityByUid = useMemo(() => {
+    const byRider = ordersByRider(orders || []);
+    const map = new Map();
+    for (const rider of riders) {
+      map.set(rider.uid, riderActivity({
+        rider,
+        orders: byRider.get(rider.uid) || [],
+        tripState: tripStates?.get(rider.uid),
+        location: locations?.[rider.uid],
+        nowMs,
+      }));
+    }
+    return map;
+  }, [riders, orders, tripStates, locations, nowMs]);
+  const ordersReady = orders !== null;
+  const fleet = useMemo(() => fleetOnTime(orders || []), [orders]);
+
+  // What the row and the dialog show for a Rider's trip / account state.
+  const assignmentOf = (rider) => {
+    const trip = activityByUid.get(rider.uid)?.trip;
+    if (!trip) return rider.statusText;
+    return tripStates === null ? NOT_LOADED : trip.label;
+  };
+
   // A status change is asked first, in a dialog that names the rider and the
   // consequence. The write runs from that dialog: one request however often
   // Confirm is pressed, success only after the write, and on failure the
@@ -169,7 +220,7 @@ function Riders() {
   const filteredRiders = useMemo(() => {
     return riders.filter((rider) => {
       const searchValue =
-        `${rider.name} ${rider.displayId} ${rider.vehicle} ${rider.statusText} ${rider.assignment}`.toLowerCase();
+        `${rider.name} ${rider.displayId} ${rider.vehicle} ${rider.statusText}`.toLowerCase();
       const matchesSearch = searchValue.includes(searchTerm.toLowerCase());
       const matchesStatus =
         statusFilter === "all" || rider.status === statusFilter;
@@ -177,7 +228,11 @@ function Riders() {
     });
   }, [riders, searchTerm, statusFilter]);
 
-  const standbyCount = riders.filter((r) => r.status === "standby").length;
+  // At the hub = approved AND the server trip state says back at the hub.
+  // A Rider whose trip state is not confirmed yet is not counted as available.
+  const atHubCount = riders.filter(
+    (r) => r.status === "standby" && activityByUid.get(r.uid)?.trip?.key === "available"
+  ).length;
   const offDutyCount = riders.filter((r) => r.status === "offduty").length;
 
   return (
@@ -230,11 +285,10 @@ function Riders() {
           />
 
           <KpiCard
-            label="Standby"
-            value={kpiValue(standbyCount, kpiState)}
-            context="Available for assignment"
+            label="At the hub"
+            value={tripStates === null || activityError ? NOT_LOADED : kpiValue(atHubCount, kpiState)}
+            context="Approved riders ready for a new trip"
             tone="success"
-            onClick={() => setStatusFilter("standby")}
           />
 
           <KpiCard
@@ -247,8 +301,14 @@ function Riders() {
 
           <KpiCard
             label="On-time rate"
-            value="—"
-            context="Delivery data not yet available"
+            value={ordersReady && !activityError ? formatRate(fleet.rate) : NOT_LOADED}
+            context={
+              !ordersReady || activityError
+                ? "Delivery figures not loaded"
+                : fleet.measured
+                  ? `${fleet.onTime} of ${fleet.measured} measured deliveries on or before the requested date`
+                  : "No measured deliveries yet"
+            }
             tone="neutral"
           />
         </section>
@@ -267,7 +327,7 @@ function Riders() {
             className={statusFilter === "standby" ? "active" : ""}
             onClick={() => setStatusFilter("standby")}
           >
-            Standby
+            Active
           </button>
 
           <button
@@ -289,60 +349,23 @@ function Riders() {
             </div>
           </div>
 
+          {activityError && (
+            <p className="riders-activity-note" role="status">
+              {activityError} Trip, delivery and location figures show “—” until they load.
+            </p>
+          )}
+
           <div className="riders-list">
             {filteredRiders.map((rider) => (
-              <article
+              <RiderRow
                 key={rider.uid}
-                className={`rider-row ${rider.status}`}
-                onClick={() => setSelectedRider(rider)}
-              >
-                <div className="rider-main-info">
-                  <div className={`rider-avatar ${rider.status}`}>
-                    {rider.initials}
-                  </div>
-
-                  <div>
-                    <h3>{rider.name}</h3>
-                    <p>
-                      {rider.vehicle} • ID: {rider.displayId}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="rider-assignment-box">
-                  <strong>{rider.statusText}</strong>
-                  <p>{rider.assignment}</p>
-                  <small>Last active: {rider.lastActive}</small>
-                </div>
-
-                <div className="rider-performance">
-                  <span>Today</span>
-                  <strong>{rider.deliveriesToday}</strong>
-                  <small>deliveries</small>
-                </div>
-
-                <div className="rider-performance">
-                  <span>On-Time</span>
-                  <strong>{rider.onTimeRate}</strong>
-                  <small>rate</small>
-                </div>
-
-                <div
-                  className="rider-actions"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <span className={`rider-status-pill ${rider.status}`}>
-                    {rider.statusText}
-                  </span>
-
-                  <button
-                    type="button"
-                    onClick={() => setSelectedRider(rider)}
-                  >
-                    Details
-                  </button>
-                </div>
-              </article>
+                rider={rider}
+                activity={activityByUid.get(rider.uid)}
+                assignment={assignmentOf(rider)}
+                figuresReady={ordersReady && !activityError}
+                locationReady={locations !== null && !activityError}
+                onSelect={setSelectedRider}
+              />
             ))}
 
             {loading && (
@@ -382,6 +405,16 @@ function Riders() {
       {selectedRider && (
         <RiderDetailsModal
           rider={selectedRider}
+          details={(() => {
+            const a = activityByUid.get(selectedRider.uid);
+            const ready = ordersReady && !activityError;
+            return {
+              assignment: assignmentOf(selectedRider),
+              currentOrders: !ready ? NOT_LOADED : a?.currentOrders.length ? a.currentOrders.join(", ") : "None",
+              lastLocation: locations === null || activityError ? NOT_LOADED : a?.lastLocation,
+              onTime: ready ? a?.onTimeText : NOT_LOADED,
+            };
+          })()}
           onClose={() => setSelectedRider(null)}
           onOffDuty={() => requestStatusChange(selectedRider, "offDuty")}
           onApprove={() => requestStatusChange(selectedRider, "approve")}
@@ -410,8 +443,75 @@ function Riders() {
   );
 }
 
+/** One Rider in the personnel list. Figures read "—" until their data loads. */
+function RiderRow({ rider, activity, assignment, figuresReady, locationReady, onSelect }) {
+  return (
+    <article
+      className={`rider-row ${rider.status}`}
+      onClick={() => onSelect(rider)}
+    >
+      <div className="rider-main-info">
+        <div className={`rider-avatar ${rider.status}`}>
+          {rider.initials}
+        </div>
+
+        <div>
+          <h3>{rider.name}</h3>
+          <p>
+            {rider.vehicle} • ID: {rider.displayId}
+          </p>
+        </div>
+      </div>
+
+      <div className="rider-assignment-box">
+        <strong>{rider.statusText}</strong>
+        {activity?.trip && <p>{assignment}</p>}
+        <small>
+          Last location update:{" "}
+          {locationReady ? activity?.lastLocation : NOT_LOADED}
+        </small>
+      </div>
+
+      <div className="rider-performance">
+        <span>Delivered today</span>
+        <strong>{figuresReady ? activity?.deliveredToday ?? 0 : NOT_LOADED}</strong>
+        <small>{figuresReady && activity?.deliveredToday === 1 ? "order" : "orders"}</small>
+      </div>
+
+      <div className="rider-performance">
+        <span>On-time</span>
+        <strong>{figuresReady ? formatRate(activity?.onTime.rate) : NOT_LOADED}</strong>
+        <small>
+          {!figuresReady
+            ? "not loaded"
+            : activity?.onTime.measured
+              ? `${activity.onTime.onTime} of ${activity.onTime.measured}`
+              : "not measured yet"}
+        </small>
+      </div>
+
+      <div
+        className="rider-actions"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span className={`rider-status-pill ${rider.status}`}>
+          {rider.statusText}
+        </span>
+
+        <button
+          type="button"
+          onClick={() => onSelect(rider)}
+        >
+          Details
+        </button>
+      </div>
+    </article>
+  );
+}
+
 function RiderDetailsModal({
   rider,
+  details,
   onClose,
   onOffDuty,
   onApprove,
@@ -422,10 +522,20 @@ function RiderDetailsModal({
     rider.statusRaw === "pending" || rider.statusRaw === "pending_approval";
   const isApproved = rider.statusRaw === "approved";
   const isDisabled = rider.statusRaw === "disabled";
+  // Focus moves in on open, Tab stays inside, Escape closes, and focus goes
+  // back to the row that opened it.
+  const dialogRef = useRef(null);
+  useDialogFocus({ dialogRef, onDismiss: onClose });
 
   return (
     <div className="riders-modal-backdrop">
-      <div className="riders-modal">
+      <div
+        className="riders-modal"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rider-details-title"
+      >
         <button type="button" className="riders-modal-close" onClick={onClose} aria-label="Close">
           <X size={18} />
         </button>
@@ -434,7 +544,7 @@ function RiderDetailsModal({
           {rider.initials}
         </div>
 
-        <h2>{rider.name}</h2>
+        <h2 id="rider-details-title">{rider.name}</h2>
         <p>
           ID: {rider.displayId} • {rider.vehicle}
         </p>
@@ -446,18 +556,18 @@ function RiderDetailsModal({
           </div>
 
           <div>
-            <span>Current Delivery</span>
-            <strong>{rider.currentDelivery}</strong>
+            <span>Current orders</span>
+            <strong>{details.currentOrders}</strong>
           </div>
 
           <div>
-            <span>Current Assignment</span>
-            <strong>{rider.assignment}</strong>
+            <span>Trip</span>
+            <strong>{details.assignment}</strong>
           </div>
 
           <div>
-            <span>Location</span>
-            <strong>{rider.location}</strong>
+            <span>Last location update</span>
+            <strong>{details.lastLocation}</strong>
           </div>
 
           <div>
@@ -466,13 +576,15 @@ function RiderDetailsModal({
           </div>
 
           <div>
-            <span>On-Time Rate</span>
-            <strong>{rider.onTimeRate}</strong>
+            <span>On-time rate</span>
+            <strong>{details.onTime}</strong>
           </div>
 
           <div>
-            <span>Route Compliance</span>
-            <strong>{rider.routeCompliance}</strong>
+            {/* No route-compliance figure is computed anywhere yet; the live
+                deviation state is on Live Tracking. Said plainly, not "—". */}
+            <span>Route compliance</span>
+            <strong>Not measured yet</strong>
           </div>
         </div>
 

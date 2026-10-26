@@ -1818,7 +1818,10 @@
 .salesrep-main {
   flex: 1 !important;
   min-width: 0 !important;
-  width: calc(100vw - 250px) !important;
+  /* Was calc(100vw - 250px): a fixed 250px sidebar. Below 769px the sidebar
+     is a bottom bar (not a column), and this left a Med Rep phone page 145px
+     wide. flex: 1 already fills the column beside the sidebar. */
+  width: auto !important;
   max-width: none !important;
   margin: 0 !important;
   padding: 0 32px 44px !important;
@@ -2048,7 +2051,7 @@
   }
 
   .salesrep-main {
-    width: calc(100vw - 230px) !important;
+    width: auto !important; /* was calc(100vw - 230px); see above */
     padding: 0 24px 40px !important;
   }
 

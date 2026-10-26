@@ -14,6 +14,7 @@ import {
   readTerritory,
   uniqueIds,
 } from "../../services/territory";
+import { orderDestination, orderReference } from "../../services/orderLabel";
 
 /**
  * Admin → Staff Directory → Manage territory, for one Med Rep.
@@ -328,7 +329,7 @@ export default function MedRepTerritoryDialog({ person, live, onClose, onSaved }
                 {confirmingOrders.length} open order{confirmingOrders.length === 1 ? " uses" : "s use"} a destination outside the new territory.
               </strong>
               <p>
-                {confirmingOrders.slice(0, 3).map((o) => o.orderNumber || o.id).join(", ")}
+                {confirmingOrders.slice(0, 3).map((o) => orderReference(o, orderDestination(o) || "an order without a number")).join(", ")}
                 {confirmingOrders.length > 3 ? ` and ${confirmingOrders.length - 3} more` : ""}. They
                 will not be changed or cancelled; only new orders follow the new territory.
               </p>

@@ -9,6 +9,8 @@
 // server decides route deviation (riderDeviationStates/{uid}) and raises the
 // alert. Nothing here writes.
 
+import { orderReference } from "./orderLabel.js";
+
 /** A rider is tracked while assigned to at least one order in these statuses. */
 export const TRACKED_ORDER_STATUSES = Object.freeze(["assigned", "loading", "in_transit", "delayed"]);
 
@@ -199,7 +201,8 @@ export function buildFleet({ orders, locations, deviations, riders, nowMs }) {
       name,
       phone: profile?.phone || profile?.contactNumber || riderOrders.find((o) => o.assignedRiderPhone)?.assignedRiderPhone || null,
       orders: riderOrders
-        .map((o) => ({ id: o.id, orderNumber: o.orderNumber || o.id, clinicName: o.clinicName || null, status: normalizeStatus(o.status ?? o.rawStatus) }))
+        // orderNumber is display text on the map and panels: never the document id.
+        .map((o) => ({ id: o.id, orderNumber: orderReference(o, "Order without a number"), clinicName: o.clinicName || null, status: normalizeStatus(o.status ?? o.rawStatus) }))
         .sort((a, b) => String(a.orderNumber).localeCompare(String(b.orderNumber))),
       location,
       latLng: locationLatLng(location),

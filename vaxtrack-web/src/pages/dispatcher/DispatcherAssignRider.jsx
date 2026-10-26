@@ -36,6 +36,7 @@ import useManilaDayNow from "../../components/useManilaDayNow";
 import StatusBadge from "../../components/ui/StatusBadge";
 import "./DispatcherAssignRider.css";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
+import { createSingleFlight } from "../../services/singleFlight";
 
 function initialsOf(name) {
   return (
@@ -91,6 +92,10 @@ function DispatcherAssignRider() {
   // to <body>; it is handed back once React has re-enabled it.
   const recheckButtonRef = useRef(null);
   const recheckHadFocus = useRef(false);
+  // One server call per re-check, however many clicks reach the handler before
+  // React re-renders the disabled button (a disabled button is not a guard).
+  const recheckFlight = useRef(null);
+  if (recheckFlight.current === null) recheckFlight.current = createSingleFlight();
   useEffect(() => {
     if (rechecking || !recheckHadFocus.current) return;
     recheckHadFocus.current = false;
@@ -192,23 +197,29 @@ function DispatcherAssignRider() {
   const approvedRiders = riders.filter((r) => r.status === "approved");
   const tripOf = (uid) => riderTripStatus(tripStates.get(uid));
   const selectedRider = approvedRiders.find((r) => r.uid === selectedRiderId) || null;
-  const recheckTrips = async () => {
-    if (rechecking || approvedRiders.length === 0) return;
-    recheckHadFocus.current = document.activeElement === recheckButtonRef.current;
-    setRechecking(true);
-    setRecheckNote(null);
-    try {
-      const results = await recheckRiderTripStatesOnServer(approvedRiders.map((r) => r.uid));
-      setRecheckNote(describeRecheck(results));
-    } catch (error) {
-      logSafeError("Re-check trip status", error);
-      setRecheckNote({
-        text: friendlyErrorMessage(error, "Trip status could not be re-checked. Nothing was changed — please try again."),
-        tone: "error",
-      });
-    } finally {
-      setRechecking(false);
-    }
+  // The corrected states arrive through the live riderDispatchStates listener
+  // above (subscribeRiderDispatchStates → tripStates), so the Rider list
+  // refreshes itself once the server has re-derived them.
+  const recheckTrips = () => {
+    if (recheckFlight.current.busy || approvedRiders.length === 0) return;
+    const riderUids = approvedRiders.map((r) => r.uid);
+    recheckFlight.current.run(async () => {
+      recheckHadFocus.current = document.activeElement === recheckButtonRef.current;
+      setRechecking(true);
+      setRecheckNote(null);
+      try {
+        const results = await recheckRiderTripStatesOnServer(riderUids);
+        setRecheckNote(describeRecheck(results));
+      } catch (error) {
+        logSafeError("Re-check trip status", error);
+        setRecheckNote({
+          text: friendlyErrorMessage(error, "Trip status could not be re-checked. Nothing was changed — please try again."),
+          tone: "error",
+        });
+      } finally {
+        setRechecking(false);
+      }
+    });
   };
   // A Rider who left while the dialog was open is no longer selectable.
   const selectedRiderOut = !!selectedRider && !tripOf(selectedRider.uid).assignable;
@@ -456,25 +467,29 @@ function DispatcherAssignRider() {
               </div>
             </div>
 
-            <div className="arq-riders-head">
-              <h3 className="arq-dialog-sub">Available riders</h3>
-              <button
-                type="button"
-                ref={recheckButtonRef}
-                className="arq-recheck"
-                onClick={recheckTrips}
-                disabled={rechecking || saving || ridersLoading || approvedRiders.length === 0}
-              >
-                <RefreshCw size={13} className={rechecking ? "spin" : undefined} aria-hidden="true" />
-                {rechecking ? "Re-checking…" : "Re-check trip status"}
-              </button>
-            </div>
-            <div aria-live="polite">
-              {recheckNote && (
-                <p className={`arq-recheck-note ${recheckNote.tone}`} role={recheckNote.tone === "error" ? "alert" : "status"}>
-                  {recheckNote.text}
-                </p>
-              )}
+            {/* Sticky at the top of the dialog's scroll area, so the re-check
+                stays in reach however long the Rider list below it is. */}
+            <div className="arq-riders-bar">
+              <div className="arq-riders-head">
+                <h3 className="arq-dialog-sub">Available riders</h3>
+                <button
+                  type="button"
+                  ref={recheckButtonRef}
+                  className="arq-recheck"
+                  onClick={recheckTrips}
+                  disabled={rechecking || saving || ridersLoading || approvedRiders.length === 0}
+                >
+                  <RefreshCw size={13} className={rechecking ? "spin" : undefined} aria-hidden="true" />
+                  {rechecking ? "Re-checking…" : "Re-check trip status"}
+                </button>
+              </div>
+              <div aria-live="polite">
+                {recheckNote && (
+                  <p className={`arq-recheck-note ${recheckNote.tone}`} role={recheckNote.tone === "error" ? "alert" : "status"}>
+                    {recheckNote.text}
+                  </p>
+                )}
+              </div>
             </div>
             {ridersLoading ? (
               <div className="ar-state">

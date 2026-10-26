@@ -357,3 +357,173 @@ aside.inventory-sidebar select {
 .inventory-page .settings-v3-search input:focus-visible {
   outline: none !important;
 }
+
+/* ============================================================
+   Layout fit pass (2026-10-22)
+   Findings measured at 1440 / 1280×720 / 768 / 375 px. Scoped to
+   .inventory-page; `!important` only where a legacy !important
+   rule (styles.css / per-page CSS) would otherwise win.
+   Two shared causes were fixed at their source in styles.css:
+   bare th/td !important sizing, and a calc(100vw - 280px) page
+   width left over from a fixed 280px sidebar.
+   ============================================================ */
+
+/* ---- Inventory: filter row, stock overview, pagination ---- */
+/* The expiry select asked for 40px but the global 46px control
+   minimum won, so it stood taller than the 40px chips beside it. */
+.inventory-page .v2-inventory-filters .v2-expiry-select {
+  min-height: 40px !important;
+}
+.inventory-page .v2-inventory-filters {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+/* A bare 1fr column cannot shrink below its content, so on a phone a
+   long dose total pushed all three cards 22px past the screen edge. */
+@media (max-width: 1100px) {
+  .inventory-page .v2-hub-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+.inventory-page .v2-hub-card {
+  min-width: 0;
+}
+/* Vaccine-type names were cut to 110px even with room to spare; the
+   label now takes up to a third of the row (full name stays in the
+   title attribute), and the quantity sizes to its figure. */
+.inventory-page .v2-stock-row-label {
+  flex: 0 1 clamp(110px, 32%, 260px);
+  min-width: 72px;
+}
+.inventory-page .v2-stock-row-track {
+  min-width: 40px;
+}
+.inventory-page .v2-stock-row-qty {
+  flex: 0 0 auto;
+  min-width: 85px;
+  font-variant-numeric: tabular-nums;
+}
+/* Eleven page buttons ran 264px off a phone screen (and 35px past
+   the footer on a tablet). They wrap now. */
+.inventory-page .v2-pagination,
+.inventory-page .clinics-v2-pagination div {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.inventory-page .v2-inventory-footer {
+  flex-wrap: wrap;
+}
+
+/* ---- Invoices queue: references, dates, headings, actions ---- */
+.inventory-page .inv-table th,
+.inventory-page .inv-order-id {
+  white-space: nowrap;
+}
+.inventory-page .inv-table th,
+.inventory-page .inv-table td {
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+}
+.inventory-page .inv-table th:first-child,
+.inventory-page .inv-table td:first-child {
+  padding-left: 14px !important;
+}
+/* Below 1400px the decorative icon in the row action gives its width to
+   the columns; the label carries the meaning. */
+@media (max-width: 1400px) {
+  .inventory-page .inv-row-actions .inv-btn svg {
+    display: none;
+  }
+}
+.inventory-page .inv-table td {
+  padding-top: 12px !important;
+  padding-bottom: 12px !important;
+}
+.inventory-page .inv-order-id {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.inventory-page .inv-cell-nowrap {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.inventory-page .inv-qty {
+  display: block;
+  margin-top: 2px;
+  color: var(--gray-600);
+  font-size: 12px;
+}
+/* The priority select inherited the global 15px / 46px control size. */
+.inventory-page .inv-priority-select {
+  min-height: 32px !important;
+  font-size: 13px !important;
+}
+.inventory-page .inv-row-actions {
+  flex-wrap: nowrap;
+}
+.inventory-page .inv-row-actions .inv-btn {
+  white-space: nowrap;
+}
+
+/* ---- Clinics: grid view and row actions ---- */
+/* auto-fill kept empty tracks, so with two clinics a third, blank
+   column sat on the right; auto-fit lets the cards use the row. */
+.inventory-page .clinics-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+}
+.inventory-page .clinic-card {
+  max-width: 720px;
+}
+/* Email and location are the long values: give them the full row
+   instead of a ~128px half column. */
+.inventory-page .clinic-card-fields .clinic-card-field-wide {
+  grid-column: 1 / -1;
+}
+.inventory-page .clinic-card-fields dd {
+  overflow-wrap: anywhere;
+}
+.inventory-page .clinic-row-actions button {
+  white-space: nowrap;
+}
+/* The pager row had a fixed 54px height, so wrapped numbers spilled. */
+.inventory-page .clinics-v2-pagination {
+  height: auto !important;
+  min-height: 54px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+/* ---- Deliveries on a phone ---- */
+@media (max-width: 560px) {
+  .inventory-page .mdl-header {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .inventory-page .mdl-header-note {
+    max-width: none;
+    text-align: left;
+  }
+  .inventory-page .deliveries-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+}
+/* A very large dose total (staging carries 100,000,000,001,560) is
+   allowed to wrap on a phone rather than run past its card. */
+@media (max-width: 560px) {
+  .inventory-page .v2-stock-row-qty {
+    flex: 0 1 auto;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+/* KPI cards in one row share a height. */
+.inventory-page .deliveries-summary-grid {
+  align-items: stretch;
+}
+.inventory-page .deliveries-summary-grid > * {
+  height: 100%;
+}
