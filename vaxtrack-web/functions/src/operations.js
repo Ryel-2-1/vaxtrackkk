@@ -789,16 +789,17 @@ async function cancelOrderTransaction({ db, FieldValue, uid, email, orderId, rea
     // admin disposition, not here).
     let alreadyReturned = !legacy && reservation?.status === "returned";
 
-    // A version-2 failed delivery whose units are STILL reserved (reported by
-    // an older Rider build; the compatibility trigger has not settled it yet)
-    // goes through the same return-pending settlement as every failure — its
-    // units came back unchecked, so they are never released straight to
-    // available. Version-1 failed orders keep their original behaviour.
+    // A failed delivery whose units are STILL reserved goes through the same
+    // return-pending settlement as every failure: the vials went out with a
+    // rider and came back unchecked, so they are never released straight to
+    // available. Version 2: reported by an older Rider build before the
+    // compatibility trigger settled it. Version 1: failed under the old design,
+    // which kept a failure's stock reserved — nothing proves those vials are
+    // back on the shelf, so they are inspected like any other return.
     let failureSettlement = null;
     if (
       !legacy &&
       order.status === "delivery_failed" &&
-      order.allocationVersion === ALLOCATION_VERSION_BACKORDER &&
       reservation?.status === "reserved"
     ) {
       failureSettlement = await settleFailureReturn(tx, {
