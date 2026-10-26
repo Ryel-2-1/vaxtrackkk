@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
-  Bell,
   CheckCircle2,
   Clock,
   Loader2,
@@ -12,6 +11,7 @@ import {
   Search,
   ShoppingCart,
   Trash2,
+  X,
 } from "lucide-react";
 import { subscribeInventory } from "../../services/inventoryService";
 import { subscribeVaccines } from "../../services/vaccineCatalogService";
@@ -34,6 +34,8 @@ import {
   estimateBackorders,
 } from "../../services/backorder";
 import { liveErrorMessage } from "../../services/liveDataErrors";
+import DialogLayer from "../../components/ui/DialogLayer";
+import { useDialogFocus } from "../../components/ui/useDialogFocus";
 
 
 
@@ -120,7 +122,28 @@ function SalesRepRequestOrder() {
   const [stockFilter, setStockFilter] = useState("all");
   const [quantities, setQuantities] = useState({});
   const [cart, setCart] = useState([]);
-  const [notice, setNotice] = useState("");
+  // A message for the rep. Shown as a fixed status toast (never above the
+  // list), so adding a vaccine cannot push the catalog down. Add confirmations
+  // fade on their own; anything that needs action stays until dismissed.
+  const [noticeState, setNoticeState] = useState({ text: "", transient: false });
+  const notice = noticeState.text;
+  const setNotice = (text, { transient = false } = {}) => setNoticeState({ text, transient });
+  useEffect(() => {
+    if (!noticeState.transient || !noticeState.text) return undefined;
+    const timer = window.setTimeout(() => setNoticeState({ text: "", transient: false }), 6000);
+    return () => window.clearTimeout(timer);
+  }, [noticeState]);
+  // Below CART_SIDE_MIN_WIDTH the cart is not a side column: it opens from the
+  // "View cart" button as a portaled drawer (never after all the vaccines).
+  const [cartOpen, setCartOpen] = useState(false);
+  useEffect(() => {
+    if (!cartOpen || typeof window === "undefined" || !window.matchMedia) return undefined;
+    const wide = window.matchMedia(`(min-width: ${CART_SIDE_MIN_WIDTH}px)`);
+    const close = () => { if (wide.matches) setCartOpen(false); };
+    close();
+    wide.addEventListener("change", close);
+    return () => wide.removeEventListener("change", close);
+  }, [cartOpen]);
   // The raw inventory documents and the reference date the catalog was derived
   // against, kept so a cart line can be re-checked with reconcileCartLine when
   // live inventory changes under it. The clock is read once here, in the data
@@ -267,7 +290,8 @@ function SalesRepRequestOrder() {
     setNotice(
       product.backorderOnly
         ? `${product.name} added as a future order — it is out of stock, so dispatch waits until stock arrives and is reserved.`
-        : `${product.name} added to quick cart.`
+        : `${product.name} added to quick cart.`,
+      { transient: true }
     );
   };
 
@@ -336,6 +360,18 @@ function SalesRepRequestOrder() {
     );
   }
 
+  const cartPanel = {
+    cartLines,
+    backorderEstimates,
+    removeFromCart,
+    cartTotal,
+    storageSlots,
+    cartHasBackorder,
+    hasBlockedCartLine,
+    blockedCartLines,
+    placeOrder,
+  };
+
   return (
     <>
       <section className="request-order-layout request-v2-layout">
@@ -372,32 +408,53 @@ function SalesRepRequestOrder() {
             >
               In Stock Only
             </button>
+
+            {/* Said once for the whole list rather than under every price:
+                the convention is the same for every vaccine. */}
+            <p className="rq-price-convention">Unit prices are per vial · VAT-inclusive for VATable products.</p>
           </div>
 
-          {notice && (
-            <div className="request-v2-notice">
-              <CheckCircle2 size={16} />
-              <span>{notice}</span>
-            </div>
-          )}
+          {/* Tablet / small laptop (769–1100px): "View cart" lives in a sticky
+              toolbar above the list, so it never floats over a vaccine row.
+              Phones use the floating control below instead. */}
+          <div className="rq-cart-bar">
+            <button
+              type="button"
+              className="rq-cart-bar-btn"
+              onClick={() => setCartOpen(true)}
+              aria-haspopup="dialog"
+              aria-expanded={cartOpen}
+            >
+              <ShoppingCart size={16} aria-hidden="true" />
+              View cart ({cart.length})
+            </button>
+          </div>
 
           <div className="product-grid request-v2-product-grid">
             {filteredProducts.length > 0 ? (
               filteredProducts.map((product) => (
-                <div className="product-card request-v2-product-card" key={product.inventoryId}>
-                  <div className="product-card-top">
-                    <span className="product-type">{product.category}</span>
-                    <span className={getStockClass(product.status)}>{product.status}</span>
+                <div className="product-card request-v2-product-card rq-item" key={product.inventoryId}>
+                  {/* A compact row: who/what on the left, the two figures in
+                      the middle, quantity and the action on the right — so a
+                      laptop screen shows several vaccines, not two. */}
+                  <div className="rq-item-main">
+                    <h2>{product.name}</h2>
+                    <p className="rq-item-batch">Batch: {product.sku}</p>
+                    <div className="product-card-top rq-item-chips">
+                      <span className="product-type">{product.category}</span>
+                      {/* A blocked batch says so briefly here; the specific
+                          reason is on its disabled action button. */}
+                      <span className={getStockClass(product.status, product.orderable)}>
+                        {!product.orderable ? "Can't order yet" : product.backorderOnly ? "Out of stock" : product.status}
+                      </span>
+                      <span
+                        className={`product-vat ${product.vatClassification ? "" : "unclassified"}`}
+                        aria-label={`VAT classification: ${product.vatLabel}`}
+                      >
+                        {product.vatLabel}
+                      </span>
+                    </div>
                   </div>
-                  <span
-                    className={`product-vat ${product.vatClassification ? "" : "unclassified"}`}
-                    aria-label={`VAT classification: ${product.vatLabel}`}
-                  >
-                    {product.vatLabel}
-                  </span>
-
-                  <h2>{product.name}</h2>
-                  <p>Batch: {product.sku}</p>
 
                   <div className="product-meta">
                     <div>
@@ -413,7 +470,7 @@ function SalesRepRequestOrder() {
                       <small>
                         {product.available === null
                           ? "needs migration"
-                          : `of ${product.onHand ?? 0} on hand · ${Math.max((product.onHand ?? 0) - product.available, 0)} reserved or on hold`}
+                          : `${product.onHand ?? 0} on hand · ${Math.max((product.onHand ?? 0) - product.available, 0)} reserved or held`}
                       </small>
                     </div>
 
@@ -423,11 +480,7 @@ function SalesRepRequestOrder() {
                           never adds VAT on top of this figure. */}
                       <span>Unit Price</span>
                       <strong>{product.priceLabel}</strong>
-                      <small>
-                        {product.unitPriceCentavos === null
-                          ? "not priced yet"
-                          : "per vial · VAT-inclusive for VATable products"}
-                      </small>
+                      {product.unitPriceCentavos === null && <small>not priced yet</small>}
                     </div>
 
                   </div>
@@ -458,23 +511,23 @@ function SalesRepRequestOrder() {
                       className={!product.orderable ? "disabled" : ""}
                       onClick={() => addToCart(product)}
                       disabled={!product.orderable}
+                      aria-describedby={!product.orderable ? `rq-reason-${product.inventoryId}` : undefined}
                     >
-                      {!product.orderable ? (
-                        <>
-                          <Bell size={15} />
-                          {/* The real reason, not a blanket "out of stock":
-                              expired, unmigrated and unpriced batches are
-                              different problems with different owners. */}
-                          {product.blockedReason}
-                        </>
-                      ) : (
-                        <>
-                          <ShoppingCart size={15} />
-                          {product.backorderOnly ? "Add as future order" : "Add to Order"}
-                        </>
-                      )}
+                      {/* Short labels, no icon: the out-of-stock chip already
+                          says why, and the action must stay readable. */}
+                      {!product.orderable ? "Unavailable" : product.backorderOnly ? "Add future order" : "Add to Order"}
                     </button>
                   </div>
+                  {/* The real reason, not a blanket "out of stock": expired,
+                      unmigrated and unpriced batches are different problems
+                      with different owners. A full-width line in the row (and
+                      the disabled button's description), rather than a
+                      sentence squeezed into the button. */}
+                  {!product.orderable && (
+                    <p className="rq-item-reason" id={`rq-reason-${product.inventoryId}`}>
+                      {product.blockedReason}
+                    </p>
+                  )}
                 </div>
               ))
             ) : (
@@ -487,93 +540,203 @@ function SalesRepRequestOrder() {
           </div>
         </div>
 
-        <aside className="quick-cart request-v2-cart">
-          <div className="quick-cart-title">
-            <h2>Quick Cart</h2>
-            <span>{cart.length}</span>
-          </div>
-
-          {cart.length === 0 ? (
-            <div className="empty-cart">
-              <ShoppingCart size={38} />
-              <p>
-                No items added yet.
-                <br />
-                Select vaccines from the catalog.
-              </p>
-            </div>
-          ) : (
-            <div className="request-v2-cart-items">
-              {cartLines.map((item) => (
-                <div
-                  className={`request-v2-cart-item${item.ok ? "" : " request-v2-cart-item-blocked"}`}
-                  key={item.inventoryId}
-                >
-                  <div>
-                    <strong>{item.name}</strong>
-                    <p>{item.sku}</p>
-                    <span>{item.quantity.toLocaleString()} {item.quantity === 1 ? "vial" : "vials"}</span>
-                    {/* A specific reason in words, not conveyed by colour alone,
-                        so the rep knows exactly which batch to fix. */}
-                    {item.ok && (backorderEstimates.get(item.inventoryId) || 0) > 0 && (
-                      <span className="request-v2-cart-backorder">
-                        <Clock size={12} /> About {backorderEstimates.get(item.inventoryId).toLocaleString()} may wait for stock
-                      </span>
-                    )}
-                    {!item.ok && (
-                      <span className="request-v2-cart-issue" role="alert">
-                        <AlertTriangle size={12} /> {item.issue}
-                      </span>
-                    )}
-                  </div>
-
-                  <button type="button" onClick={() => removeFromCart(item.inventoryId)}>
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="cart-footer">
-  <p>
-    Total Vials: <strong>{cartTotal.toLocaleString()}</strong>
-  </p>
-
-  <p>
-    Storage Slots: <strong>{storageSlots}</strong>
-  </p>
-
-  {cartHasBackorder && (
-    <p className="request-v2-cart-backorder-note">
-      Part of this order is a future order. Whatever is in stock is reserved now;
-      the rest is reserved automatically as stock arrives, in priority order.
-      The order is dispatched only once every item is fully reserved — no
-      delivery date is guaranteed until then.
-    </p>
-  )}
-
-  {hasBlockedCartLine && (
-    <p className="request-v2-cart-blocked-note" role="alert">
-      Remove or update the highlighted {blockedCartLines.length === 1 ? "batch" : "batches"} to continue.
-    </p>
-  )}
-
-  <button
-    type="button"
-    onClick={placeOrder}
-    disabled={cart.length === 0 || hasBlockedCartLine}
-  >
-    Continue to Checkout
-  </button>
-</div>
+        {/* Wide screens: the cart sits beside the catalog (sticky). It is
+            hidden below CART_SIDE_MIN_WIDTH, where the drawer below takes over. */}
+        <aside className="quick-cart request-v2-cart rq-cart-side" aria-labelledby="rq-cart-title">
+          <QuickCartPanel headingId="rq-cart-title" {...cartPanel} />
         </aside>
       </section>
+
+      {/* Phones (≤768px): a floating control opens the same cart in a
+          portaled drawer, so it is never pushed below every vaccine. The
+          control is portaled too: inside the transformed route container a
+          fixed element would scroll away with the page. */}
+      <DialogLayer scope="salesrep-page salesrep-main">
+        {/* Always mounted so screen readers announce each new message. */}
+        <div className="rq-notice-region" role="status" aria-live="polite">
+          {notice && (
+            <div className="request-v2-notice rq-notice-toast">
+              <CheckCircle2 size={16} aria-hidden="true" />
+              <span>{notice}</span>
+              <button type="button" className="rq-notice-close" onClick={() => setNotice("")} aria-label="Dismiss message">
+                <X size={14} aria-hidden="true" />
+              </button>
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          className="rq-cart-toggle"
+          onClick={() => setCartOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={cartOpen}
+        >
+          <ShoppingCart size={16} aria-hidden="true" />
+          View cart ({cart.length})
+        </button>
+      </DialogLayer>
+      {cartOpen && (
+        <DialogLayer scope="salesrep-page salesrep-main">
+          <CartDrawer onClose={() => setCartOpen(false)}>
+            <QuickCartPanel headingId="rq-cart-drawer-title" {...cartPanel} />
+          </CartDrawer>
+        </DialogLayer>
+      )}
     </>
   );
 }
 
-function getStockClass(status) {
+/** The width at which the cart becomes a side column (salesrep-polish.css). */
+const CART_SIDE_MIN_WIDTH = 1101;
+
+/**
+ * The cart's contents: lines, totals and Continue to Checkout. Rendered in the
+ * side column on wide screens and inside CartDrawer on narrower ones — the
+ * same component, so the two can never drift apart.
+ */
+function QuickCartPanel({
+  headingId,
+  cartLines,
+  backorderEstimates,
+  removeFromCart,
+  cartTotal,
+  storageSlots,
+  cartHasBackorder,
+  hasBlockedCartLine,
+  blockedCartLines,
+  placeOrder,
+}) {
+  // The pressed Remove button disappears with its line, which would drop
+  // keyboard focus to the page. Move it first to the neighbouring line's
+  // Remove button, or to the cart heading once the cart is empty.
+  const removeLine = (event, inventoryId) => {
+    const panel = event.currentTarget.closest(".request-v2-cart");
+    const buttons = [...(panel?.querySelectorAll(".request-v2-cart-item > button") ?? [])];
+    const at = buttons.indexOf(event.currentTarget);
+    const next = buttons[at + 1] || buttons[at - 1] || panel?.querySelector(`#${headingId}`);
+    next?.focus({ preventScroll: true });
+    removeFromCart(inventoryId);
+  };
+
+  return (
+    <>
+      <div className="quick-cart-title">
+        <h2 id={headingId} tabIndex={-1}>Quick Cart</h2>
+        <span aria-label={`${cartLines.length} ${cartLines.length === 1 ? "item" : "items"} in cart`}>{cartLines.length}</span>
+      </div>
+
+      {cartLines.length === 0 ? (
+        <div className="empty-cart">
+          <ShoppingCart size={28} aria-hidden="true" />
+          <p>
+            No items added yet.
+            <br />
+            Select vaccines from the catalog.
+          </p>
+        </div>
+      ) : (
+        <div className="request-v2-cart-items">
+          {cartLines.map((item) => (
+            <div
+              className={`request-v2-cart-item${item.ok ? "" : " request-v2-cart-item-blocked"}`}
+              key={item.inventoryId}
+            >
+              <div>
+                <strong>{item.name}</strong>
+                <p>{item.sku}</p>
+                <span>{item.quantity.toLocaleString()} {item.quantity === 1 ? "vial" : "vials"}</span>
+                {/* A specific reason in words, not conveyed by colour alone,
+                    so the rep knows exactly which batch to fix. */}
+                {item.ok && (backorderEstimates.get(item.inventoryId) || 0) > 0 && (
+                  <span className="request-v2-cart-backorder">
+                    <Clock size={12} /> About {backorderEstimates.get(item.inventoryId).toLocaleString()} may wait for stock
+                  </span>
+                )}
+                {!item.ok && (
+                  <span className="request-v2-cart-issue" role="alert">
+                    <AlertTriangle size={12} /> {item.issue}
+                  </span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={(event) => removeLine(event, item.inventoryId)}
+                aria-label={`Remove ${item.name} (batch ${item.sku}) from the cart`}
+              >
+                <Trash2 size={15} aria-hidden="true" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="cart-footer">
+        <p>
+          Total Vials: <strong>{cartTotal.toLocaleString()}</strong>
+        </p>
+
+        <p>
+          Storage Slots: <strong>{storageSlots}</strong>
+        </p>
+
+        {cartHasBackorder && (
+          <p className="request-v2-cart-backorder-note">
+            Part of this order is a future order. Whatever is in stock is reserved now;
+            the rest is reserved automatically as stock arrives, in priority order.
+            The order is dispatched only once every item is fully reserved — no
+            delivery date is guaranteed until then.
+          </p>
+        )}
+
+        {hasBlockedCartLine && (
+          <p className="request-v2-cart-blocked-note" role="alert">
+            Remove or update the highlighted {blockedCartLines.length === 1 ? "batch" : "batches"} to continue.
+          </p>
+        )}
+
+        <button
+          type="button"
+          onClick={placeOrder}
+          disabled={cartLines.length === 0 || hasBlockedCartLine}
+        >
+          Continue to Checkout
+        </button>
+      </div>
+    </>
+  );
+}
+
+/**
+ * The cart below CART_SIDE_MIN_WIDTH: a portaled drawer (DialogLayer), so it
+ * covers the viewport even inside the transformed route container. Focus moves
+ * in, Tab stays inside, Escape and Close dismiss it, page scroll is locked, and
+ * focus returns to "View cart" (useDialogFocus).
+ */
+function CartDrawer({ onClose, children }) {
+  const drawerRef = useRef(null);
+  useDialogFocus({ dialogRef: drawerRef, onDismiss: onClose });
+  return (
+    <div className="rq-cart-backdrop" onMouseDown={onClose}>
+      <div
+        ref={drawerRef}
+        className="request-v2-cart rq-cart-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rq-cart-drawer-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <button type="button" className="rq-cart-close" onClick={onClose} aria-label="Close cart">
+          <X size={18} aria-hidden="true" />
+        </button>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function getStockClass(status, orderable = true) {
+  if (!orderable) return "stock blocked";
   if (status === FUTURE_ORDER_LABEL) return "stock future";
   if (status === "Out of Stock") return "stock out";
   if (status === "Low Stock") return "stock low";

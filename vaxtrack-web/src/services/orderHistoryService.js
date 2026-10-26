@@ -179,7 +179,9 @@ export async function fetchOrdersByIds(orderIds) {
 /** Admin: Med Reps, for the Med Rep filter (bounded like every query here). */
 export const MED_REP_LIMIT = 500;
 
-const medRepOption = (u) => ({ uid: u.id, label: u.name || u.fullName || u.displayName || u.email || u.id });
+// The label is what people read in the filter; a uid is never one of them.
+export const UNNAMED_MED_REP = "Unnamed Med Rep";
+const medRepOption = (u) => ({ uid: u.id, label: u.name || u.fullName || u.displayName || u.email || UNNAMED_MED_REP });
 
 /** Admin: the same Med Rep list, LIVE — a rep added meanwhile appears in the filter. */
 export function subscribeMedReps(callback, onError) {
@@ -197,6 +199,6 @@ export async function fetchMedReps() {
   const snap = await getDocs(query(collection(db, "users"), where("role", "==", "salesrep"), limit(MED_REP_LIMIT)));
   return snap.docs
     .map(withId)
-    .map((u) => ({ uid: u.id, label: u.name || u.fullName || u.displayName || u.email || u.id }))
+    .map(medRepOption)
     .sort((a, b) => a.label.localeCompare(b.label));
 }

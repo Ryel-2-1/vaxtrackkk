@@ -160,7 +160,10 @@ test("the Firestore document id cannot be shadowed by a stored field", () => {
   assert.ok(spreadAt !== -1 && idAt > spreadAt, "the id must be assigned last");
   // The page keeps the real id separate from the display label.
   assert.match(PAGE, /uid: raw\.id,/);
-  assert.match(PAGE, /id: raw\.orderNumber \|\| raw\.id\.slice\(0, 10\)\.toUpperCase\(\),/);
+  // The display reference is the order number; a shortened document id is
+  // never passed off as one.
+  assert.match(PAGE, /id: raw\.orderNumber \|\| "No order number",/);
+  assert.equal(PAGE.includes("raw.id.slice"), false);
 });
 
 test("no rider, vehicle, location, ETA, proof or temperature is invented", () => {

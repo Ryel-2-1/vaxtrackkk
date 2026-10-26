@@ -80,8 +80,10 @@ test("the dialog keeps its irreversible warning and adds the stock sentence; the
   const page = read("src/pages/dispatcher/DispatcherShipments.jsx");
   assert.match(page, /be cancelled\. This cannot be undone\. \{cancelStockEffect\(order\.statusKey, loadingCustodyConfirmed\(order\)\)\}/);
   // The success message follows what the server did, not the dialog's copy.
-  assert.match(page, /result\?\.returnedForCheck\s*\?\s*`Order \$\{order\.orderNumber \|\| order\.id\} cancelled\. Its vials are held as a return for an Admin to inspect\.`/);
-  assert.match(page, /: result\?\.released\s*\?\s*`Order \$\{order\.orderNumber \|\| order\.id\} cancelled\. Its reservation was released for other orders\.`/);
+  // The order is named by its number (or destination), never its document id.
+  assert.match(page, /result\?\.returnedForCheck\s*\?\s*`\$\{capitalizedOrderPhrase\(order\)\} cancelled\. Its vials are held as a return for an Admin to inspect\.`/);
+  assert.match(page, /: result\?\.released\s*\?\s*`\$\{capitalizedOrderPhrase\(order\)\} cancelled\. Its reservation was released for other orders\.`/);
+  assert.equal(page.includes("order.orderNumber || order.id"), false);
 });
 
 // ---------------------------------------------------------------- recording by quantity

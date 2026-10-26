@@ -93,10 +93,14 @@ function buildQueueRow(order, invoice) {
   const statusKey = normalizeStatusKey(getOrderStatusValue(order));
   return {
     orderId: order.id,
-    orderNumber: order.orderNumber || order.id.slice(0, 10).toUpperCase(),
-    clinicName: order.clinicName || order.clinic || "—",
+    // A shortened document id looked like a real order reference; an order
+    // without a number now says so.
+    orderNumber: order.orderNumber || "No order number",
+    clinicName: order.clinicName || order.destinationName || order.clinic || "—",
     clinicId: order.clinicId || null,
-    salesRepName: order.salesRepName || order.createdByEmail || "—",
+    // A stored snapshot when there is one; otherwise the page resolves
+    // salesRepUid through the Med Rep directory (null = not stored here).
+    salesRepName: order.salesRepName || order.createdByEmail || null,
     salesRepUid: order.createdByUid || null,
     salesRepEmail: order.createdByEmail || null,
     orderDate: order.createdAt || null,

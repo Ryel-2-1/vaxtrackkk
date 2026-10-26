@@ -68,6 +68,34 @@ export function deviationAlertText({ status, riderName, orderNumber, distanceMet
     `The deviation has continued for at least ${DEVIATION_MINUTES} minutes.`;
 }
 
+// A Firestore auto id (20) or Firebase Auth uid (28): letters and digits only.
+const ID_TOKEN = /\b(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{20}(?:[A-Za-z0-9]{8})?\b/g;
+
+/**
+ * Stored alert text with identifiers replaced by what a reader understands:
+ * the alert's own order / rider / delivery ids become the order code or
+ * rider name (or "this order" / "the rider"), and any other id-shaped token
+ * becomes "a record". Server wording that carries no id is unchanged.
+ */
+export function withoutIds(text, raw) {
+  if (typeof text !== "string" || text === "") return text;
+  const code = orderCodeOf(raw?.orderNumber);
+  const usable = (id) => typeof id === "string" && id.length >= 8;
+  let out = text;
+  for (const id of [raw?.orderId, raw?.deliveryId]) {
+    if (!usable(id)) continue;
+    if (code) {
+      out = out.split(id).join(code);
+    } else {
+      // "Order <id> is late" → "This order is late", not "Order this order".
+      out = out.split(`Order ${id}`).join("This order").split(`order ${id}`).join("this order").split(id).join("this order");
+    }
+  }
+  if (usable(raw?.riderId)) out = out.split(raw.riderId).join(nameOr(raw?.riderName, "the rider"));
+  if (usable(raw?.id)) out = out.split(raw.id).join("this alert");
+  return out.replace(ID_TOKEN, "a record");
+}
+
 const TITLES = Object.freeze({
   route_deviation: { active: "Route deviation", resolved: "Route deviation resolved" },
   delivery_delay: { active: "Delivery running late", resolved: "Late delivery resolved" },
@@ -110,10 +138,10 @@ export function presentAlert(raw, { role = "admin", nowMs = Date.now(), fallback
     title = TITLES.delivery_delay[resolved ? "resolved" : "active"];
     message = resolved
       ? `The late delivery alert for ${code ? `Order ${code}` : "this order"} was resolved.`
-      : nameOr(raw.message, "A delivery passed its expected arrival and grace period.");
+      : withoutIds(nameOr(raw.message, "A delivery passed its expected arrival and grace period."), raw);
   } else {
-    title = nameOr(raw?.title, fallbackTitle);
-    message = nameOr(raw?.message, "");
+    title = withoutIds(nameOr(raw?.title, fallbackTitle), raw);
+    message = withoutIds(nameOr(raw?.message, ""), raw);
   }
 
   const when = resolved && resolvedMs !== null

@@ -215,15 +215,19 @@ function Alerts() {
 
   const kpi = (count) => (loading || loadError ? "—" : count);
 
+  // Open alerts per category — every count is of ACTIVE alerts, and reads "—"
+  // until the alerts have loaded. The server raises route deviations
+  // (functions/src/riderTracking.js) and late deliveries
+  // (functions/src/deliveryTimingOps.js); nothing raises low-stock alerts yet,
+  // so that category says so instead of claiming "0 active".
+  const activeOfType = (display) =>
+    alerts.filter((alert) => alert.status !== "resolved" && alert.type === display).length;
   const categoryCounts = {
-    route: alerts.filter(
-      (alert) => alert.status !== "resolved" && alert.type === "Route Deviation"
-    ).length,
-    inventory: alerts.filter(
-      (alert) => alert.status !== "resolved" && alert.type === "Low Stock"
-    ).length,
-    delivery: alerts.filter((alert) => alert.type.includes("Delivery")).length,
+    route: kpi(activeOfType("Route Deviation")),
+    inventory: kpi(activeOfType("Low Stock")),
+    delivery: kpi(activeOfType("Delayed Delivery")),
   };
+  const inventoryAlertsExist = alerts.some((alert) => alert.type === "Low Stock");
 
   return (
     <>
@@ -432,7 +436,7 @@ function Alerts() {
             <div className="alerts-panel-card">
               <div className="alerts-panel-header">
                 <h2>Alert Categories</h2>
-                <p>System areas being monitored</p>
+                <p>Open alerts by type</p>
               </div>
 
               <div className="alert-category-stack">
@@ -450,7 +454,7 @@ function Alerts() {
                 <CategoryItem
                   icon={<Package size={18} />}
                   title="Inventory Warning"
-                  count={`${categoryCounts.inventory} active`}
+                  count={inventoryAlertsExist ? `${categoryCounts.inventory} active` : "No automatic stock alerts yet"}
                   type="blue"
                   onClick={() => {
                     setSearchTerm("Low Stock");
@@ -460,11 +464,11 @@ function Alerts() {
 
                 <CategoryItem
                   icon={<Truck size={18} />}
-                  title="Delivery Status"
-                  count={`${categoryCounts.delivery} updates`}
+                  title="Late Delivery"
+                  count={`${categoryCounts.delivery} active`}
                   type="green"
                   onClick={() => {
-                    setSearchTerm("Delivery");
+                    setSearchTerm("Delayed Delivery");
                     setSeverityFilter("all");
                   }}
                 />

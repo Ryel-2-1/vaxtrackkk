@@ -29,6 +29,7 @@ import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../serv
 import { UserMessageError } from "../../services/userMessageError";
 import { ToastRegion } from "../../components/ui/Feedback";
 import { useToast } from "../../components/ui/useToast";
+import { capitalizedOrderPhrase, orderNumberPhrase, orderPhrase, orderReference } from "../../services/orderLabel";
 
 // A local status-label copy used to live here for the status-change toasts.
 // Those toasts are gone with the Delivered/Delay/Resume actions, and the
@@ -216,7 +217,7 @@ function DispatcherShipments() {
         order.id, doctorAddressId, reason, order.destinationRevision ?? 0
       );
       closeCorrectionDialog();
-      showToast(`Destination change requested for ${order.orderNumber || order.id}. Awaiting Med Rep approval.`, "success");
+      showToast(`Destination change requested for ${orderPhrase(order)}. Awaiting Med Rep approval.`, "success");
     } finally {
       setUpdating("");
     }
@@ -232,7 +233,7 @@ function DispatcherShipments() {
       closeReassignDialog();
       const state = result?.allocationState;
       showToast(
-        `Order ${order.orderNumber || order.id} is back in the dispatch queue${
+        `${capitalizedOrderPhrase(order)} is back in the dispatch queue${
           state === "fully_reserved"
             ? " and fully reserved — assign a rider from the dashboard."
             : state
@@ -268,10 +269,10 @@ function DispatcherShipments() {
         // Worded from what the SERVER did (returnedForCheck / released), not
         // from the dialog's possibly stale copy of the order.
         result?.returnedForCheck
-          ? `Order ${order.orderNumber || order.id} cancelled. Its vials are held as a return for an Admin to inspect.`
+          ? `${capitalizedOrderPhrase(order)} cancelled. Its vials are held as a return for an Admin to inspect.`
           : result?.released
-            ? `Order ${order.orderNumber || order.id} cancelled. Its reservation was released for other orders.`
-            : `Order ${order.orderNumber || order.id} cancelled.`,
+            ? `${capitalizedOrderPhrase(order)} cancelled. Its reservation was released for other orders.`
+            : `${capitalizedOrderPhrase(order)} cancelled.`,
         "success"
       );
     } catch (err) {
@@ -546,7 +547,7 @@ function ReassignFailedOrderDialog({ order, onDismiss, onConfirm }) {
         </div>
 
         <p id={descId} className="shp-dialog-desc">
-          Order {order.orderNumber || order.id} for {order.clinicName || "this clinic"} failed
+          {orderNumberPhrase(order)} for {order.clinicName || "this clinic"} failed
           {order.deliveryFailureReason ? `: "${order.deliveryFailureReason}"` : "."} Its stock
           was returned to the warehouse for an Admin to check. Returning the order to the dispatch
           queue reserves stock for it again in its original priority position; it can be assigned
@@ -688,7 +689,7 @@ function CancelOrderDialog({ order, onDismiss, onConfirm }) {
         </div>
 
         <p id={descId} className="shp-dialog-desc">
-          Order {order.orderNumber || order.id} for {order.clinicName || "this clinic"} will
+          {orderNumberPhrase(order)} for {order.clinicName || "this clinic"} will
           be cancelled. This cannot be undone. {cancelStockEffect(order.statusKey, loadingCustodyConfirmed(order))}
         </p>
 
@@ -752,7 +753,7 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
 
   const riderName = order.assignedRiderName || "Unassigned";
   const riderPhone = order.assignedRiderPhone || "";
-  const orderNum = order.orderNumber || order.id;
+  const orderNum = orderReference(order, "No order number");
   const vaccine = order.vaccineName || "—";
   const clinic = order.clinicName || "—";
   const address = order.clinicAddress || "";

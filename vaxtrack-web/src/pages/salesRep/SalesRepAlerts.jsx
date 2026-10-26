@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle,
@@ -15,6 +15,9 @@ import {
 } from "../../services/deliveryService";
 import { auth } from "../../firebase";
 import { liveErrorMessage } from "../../services/liveDataErrors";
+import { useDialogFocus } from "../../components/ui/useDialogFocus";
+import DialogLayer from "../../components/ui/DialogLayer";
+import { orderDestination, orderReference } from "../../services/orderLabel";
 
 function deriveAlertFromOrder(order) {
   const rawStatus = getOrderStatusValue(order);
@@ -28,7 +31,8 @@ function deriveAlertFromOrder(order) {
   let body;
 
   const clinic = order.clinicName || "Unknown Clinic";
-  const orderNum = order.orderNumber || order.id;
+  // The order number, else where it goes — never the document id.
+  const orderNum = orderReference(order, orderDestination(order) || "Order without a number");
   const vaccine = order.vaccineName || "Vaccine order";
 
   switch (statusKey) {
@@ -304,53 +308,13 @@ function SalesRepAlerts() {
         )}
       </section>
 
+      {/* Portaled: the Med Rep page sits in a transformed route container,
+          which made the fixed backdrop cover the whole long page and put the
+          dialog off-screen. The layer re-applies the role scope classes. */}
       {selectedAlert && (
-        <div className="alerts-v2-modal-backdrop" onClick={() => setSelectedAlert(null)}>
-          <div className="alerts-v2-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="alerts-v2-modal-head">
-              <div>
-                <span>{selectedAlert.orderNumber}</span>
-                <h2>{selectedAlert.title}</h2>
-              </div>
-              <button type="button" onClick={() => setSelectedAlert(null)}>
-                <X size={18} />
-              </button>
-            </div>
-
-            <p>{selectedAlert.body}</p>
-
-            <div className="alerts-v2-modal-details">
-              <div>
-                <span>Severity</span>
-                <strong>{selectedAlert.tag}</strong>
-              </div>
-              <div>
-                <span>Priority</span>
-                <strong>{selectedAlert.priority}</strong>
-              </div>
-              <div>
-                <span>Clinic</span>
-                <strong>{selectedAlert.location}</strong>
-              </div>
-              <div>
-                <span>Time</span>
-                <strong>{selectedAlert.time}</strong>
-              </div>
-              <div>
-                <span>Vaccine</span>
-                <strong>{selectedAlert.vaccineName}</strong>
-              </div>
-              <div>
-                <span>Quantity</span>
-                <strong>{selectedAlert.quantity.toLocaleString()} vials</strong>
-              </div>
-            </div>
-
-            <button type="button" onClick={() => setSelectedAlert(null)}>
-              Close Details
-            </button>
-          </div>
-        </div>
+        <DialogLayer scope="salesrep-page salesrep-main">
+          <AlertDetailsDialog alert={selectedAlert} onClose={() => setSelectedAlert(null)} />
+        </DialogLayer>
       )}
     </>
   );
@@ -386,6 +350,68 @@ function AlertCard({ alert, isHistory, onViewDetails }) {
       <div className="alert-actions">
         <button type="button" onClick={onViewDetails}>
           View Details
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** One alert's details. A modal: focus moves in, Tab stays inside, Escape
+    closes, and focus returns to the card that opened it. */
+function AlertDetailsDialog({ alert, onClose }) {
+  const dialogRef = useRef(null);
+  useDialogFocus({ dialogRef, onDismiss: onClose });
+  return (
+    <div className="alerts-v2-modal-backdrop" onClick={onClose}>
+      <div
+        className="alerts-v2-modal"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sr-alert-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="alerts-v2-modal-head">
+          <div>
+            <span>{alert.orderNumber}</span>
+            <h2 id="sr-alert-title">{alert.title}</h2>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close details">
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
+
+        <p>{alert.body}</p>
+
+        <div className="alerts-v2-modal-details">
+          <div>
+            <span>Severity</span>
+            <strong>{alert.tag}</strong>
+          </div>
+          <div>
+            <span>Priority</span>
+            <strong>{alert.priority}</strong>
+          </div>
+          <div>
+            <span>Clinic</span>
+            <strong>{alert.location}</strong>
+          </div>
+          <div>
+            <span>Time</span>
+            <strong>{alert.time}</strong>
+          </div>
+          <div>
+            <span>Vaccine</span>
+            <strong>{alert.vaccineName}</strong>
+          </div>
+          <div>
+            <span>Quantity</span>
+            <strong>{alert.quantity.toLocaleString()} vials</strong>
+          </div>
+        </div>
+
+        <button type="button" onClick={onClose}>
+          Close Details
         </button>
       </div>
     </div>

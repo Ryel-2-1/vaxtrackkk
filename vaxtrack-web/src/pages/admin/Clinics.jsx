@@ -34,9 +34,12 @@ import {
   subscribeDoctors,
 } from "../../services/doctorService";
 import { subscribeDoctorAddresses } from "../../services/doctorAddressService";
+import { subscribeDeliveries } from "../../services/deliveryService";
+import { lastDeliveryIndex, lastDeliveryMs, lastDeliveryText } from "../../services/clinicDeliveries";
 import KpiCard from "../../components/ui/KpiCard";
 import { Notice, ToastRegion } from "../../components/ui/Feedback";
 import StaleEditNotice from "../../components/ui/StaleEditNotice";
+import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import { useLiveDraft } from "../../components/useLiveDraft";
 import { useToast } from "../../components/ui/useToast";
 import { errorIdFor, fieldA11y, focusFirstInvalid, hasErrors } from "../../services/formValidation";
@@ -98,7 +101,9 @@ function normalizeClinic(raw) {
     status,
     statusLabel: STATUS_LABEL[status],
     note: STATUS_NOTE[status],
-    lastDelivery: raw.lastDelivery || "—",
+    // Filled in from the orders (services/clinicDeliveries.js). The stored
+    // `lastDelivery` field is a registration-time placeholder nothing updates.
+    lastDelivery: "—",
     initials,
     contactTone: raw.contactTone || "blue",
     // Canonical coordinates (top-level `latitude`/`longitude` numbers), read
@@ -243,7 +248,22 @@ function useLinkedDoctorsForClinic(
 }
 
 function Clinics() {
-  const [clinics, setClinics] = useState([]);
+  const [baseClinics, setClinics] = useState([]);
+  // Delivered orders give each clinic its real last delivery date. Until they
+  // load (or if they cannot be read) the column reads "—", never a guess.
+  const [deliveredOrders, setDeliveredOrders] = useState(null);
+  useEffect(() => {
+    const unsubscribe = subscribeDeliveries(setDeliveredOrders, (error) => {
+      logSafeError("Clinic last delivery", error);
+      setDeliveredOrders(null);
+    });
+    return () => unsubscribe();
+  }, []);
+  const clinics = useMemo(() => {
+    if (deliveredOrders === null) return baseClinics;
+    const index = lastDeliveryIndex(deliveredOrders);
+    return baseClinics.map((c) => ({ ...c, lastDelivery: lastDeliveryText(lastDeliveryMs(index, c)) }));
+  }, [baseClinics, deliveredOrders]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1028,11 +1048,11 @@ function ClinicCard({ clinic, onDetails, onManageLocation }) {
             <dt>Phone</dt>
             <dd>{card.phone}</dd>
           </div>
-          <div>
+          <div className="clinic-card-field-wide">
             <dt>Email</dt>
             <dd>{card.email}</dd>
           </div>
-          <div>
+          <div className="clinic-card-field-wide">
             <dt>Location</dt>
             <dd>{card.location}</dd>
           </div>
@@ -1333,10 +1353,20 @@ function ClinicDetailsModal({ clinic, onClose }) {
   const linkedDoctors = clinic.linkedDoctors || [];
   const linkedDoctorsLoading = clinic.linkedDoctorsLoading === true;
   const linkedDoctorsError = clinic.linkedDoctorsError || "";
+  // Like the other clinic dialogs: focus moves in, Tab stays inside, Escape
+  // closes, focus returns to the row or card that opened it.
+  const dialogRef = useRef(null);
+  useDialogFocus({ dialogRef, onDismiss: onClose });
 
   return (
     <div className="clinics-modal-backdrop">
-      <div className="clinics-modal clinics-details-modal">
+      <div
+        className="clinics-modal clinics-details-modal"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="clinic-details-title"
+      >
         <button
           type="button"
           className="clinics-modal-close"
@@ -1350,7 +1380,7 @@ function ClinicDetailsModal({ clinic, onClose }) {
           <Building2 size={24} />
         </div>
 
-        <h2>{clinic.name}</h2>
+        <h2 id="clinic-details-title">{clinic.name}</h2>
         <p>
           Clinic ID: {clinic.id} • {clinic.area}
         </p>

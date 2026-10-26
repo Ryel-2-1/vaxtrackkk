@@ -68,9 +68,66 @@ test("the outcome sentence: corrected, up to date, and riders that could not be 
 
 test("Assign Rider offers the re-check for the riders it lists, and shows the outcome", () => {
   const page = read("src/pages/dispatcher/DispatcherAssignRider.jsx");
-  assert.match(page, /recheckRiderTripStatesOnServer\(approvedRiders\.map\(\(r\) => r\.uid\)\)/);
-  assert.match(page, /setRecheckNote\(describeRecheck\(results\)\)/);
+  // 1. The control exists, labelled, with its loading state.
+  assert.match(page, /className="arq-recheck"\s*onClick=\{recheckTrips\}/);
   assert.match(page, /\{rechecking \? "Re-checking…" : "Re-check trip status"\}/);
   assert.match(page, /disabled=\{rechecking \|\| saving \|\| ridersLoading \|\| approvedRiders\.length === 0\}/);
-  assert.match(page, /friendlyErrorMessage\(error, "Trip status could not be re-checked\./);
+  // 2. It calls the existing Part B service — no backend logic of its own, no direct writes.
+  assert.match(page, /import \{ recheckRiderTripStatesOnServer, subscribeRiderDispatchStates \} from "\.\.\/\.\.\/services\/riderDispatchService";/);
+  assert.match(page, /const riderUids = approvedRiders\.map\(\(r\) => r\.uid\);/);
+  assert.match(page, /await recheckRiderTripStatesOnServer\(riderUids\)/);
+  assert.equal(/\b(setDoc|updateDoc|addDoc|writeBatch|runTransaction)\(/.test(page), false, "the page writes nothing to Firestore");
+  // 4. Success: the friendly summary, and the corrected states arrive through
+  //    the live trip-state listener that feeds the Rider list.
+  assert.match(page, /setRecheckNote\(describeRecheck\(results\)\)/);
+  assert.match(page, /subscribeRiderDispatchStates\(setTripStates,/);
+  assert.match(page, /const tripOf = \(uid\) => riderTripStatus\(tripStates\.get\(uid\)\);/);
+  // 5. Failure: a friendly sentence, logged safely — never the raw error.
+  assert.match(page, /logSafeError\("Re-check trip status", error\);/);
+  assert.match(page, /friendlyErrorMessage\(error, "Trip status could not be re-checked\. Nothing was changed — please try again\."\)/);
+  assert.equal(/setRecheckNote\(\{[^}]*error\.message/.test(page), false);
+});
+
+test("a re-check runs once however many clicks arrive before the button disables", async () => {
+  const page = read("src/pages/dispatcher/DispatcherAssignRider.jsx");
+  // 3. The guard is synchronous and outside render (the disabled button is not one).
+  assert.match(page, /import \{ createSingleFlight \} from "\.\.\/\.\.\/services\/singleFlight";/);
+  assert.match(page, /if \(recheckFlight\.current\.busy \|\| approvedRiders\.length === 0\) return;/);
+  assert.match(page, /recheckFlight\.current\.run\(async \(\) => \{/);
+  // …and that guard really does collapse a burst into one call.
+  const { createSingleFlight } = await import("../src/services/singleFlight.js");
+  const flight = createSingleFlight();
+  let calls = 0;
+  let release;
+  const action = () => {
+    calls += 1;
+    return new Promise((r) => {
+      release = r;
+    });
+  };
+  const a = flight.run(action);
+  const b = flight.run(action);
+  const c = flight.run(action);
+  assert.equal(calls, 1);
+  assert.ok(a === b && b === c);
+  release();
+  await a;
+  flight.run(() => {
+    calls += 1;
+  });
+  assert.equal(calls, 2, "the next click after it settles runs again");
+});
+
+test("the re-check stays in reach above a long Rider list", () => {
+  // 6. It lives in a sticky bar that is a direct child of the dialog's scroll
+  //    area and comes BEFORE the list — never below it.
+  const page = read("src/pages/dispatcher/DispatcherAssignRider.jsx");
+  const bar = page.indexOf('<div className="arq-riders-bar">');
+  const button = page.indexOf('className="arq-recheck"');
+  const list = page.indexOf('className="ar-rider-list arq-riders"');
+  const actions = page.indexOf('className="arq-dialog-actions"');
+  assert.ok(bar > 0 && bar < button && button < list && list < actions, "bar → button → list → Cancel/Confirm");
+  const css = read("src/pages/dispatcher/DispatcherAssignRider.css");
+  assert.match(css, /\.arq-dialog \{[^}]*max-height: calc\(100vh - 32px\);\s*overflow-y: auto;/, "the dialog scrolls internally");
+  assert.match(css, /\.arq-riders-bar \{\s*position: sticky;\s*top: 0;\s*z-index: 2;[^}]*background: #ffffff;/);
 });

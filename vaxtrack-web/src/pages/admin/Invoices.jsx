@@ -15,6 +15,7 @@ import {
   updateInvoicePriority,
   vatClassificationLabel,
 } from "../../services/invoiceService";
+import { subscribeMedReps } from "../../services/orderHistoryService";
 import { toCsv, downloadCsv } from "../../utils/csv";
 import KpiCard from "../../components/ui/KpiCard";
 import { friendlyErrorMessage, kpiValue, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
@@ -66,7 +67,18 @@ function isToday(ms) {
 function Invoices() {
   const navigate = useNavigate();
 
-  const [rows, setRows] = useState([]);
+  const [queueRows, setRows] = useState([]);
+  // Most orders carry no Med Rep name snapshot, only the uid that placed them:
+  // the name comes from the Med Rep directory, never the uid itself.
+  const [medReps, setMedReps] = useState(null);
+  useEffect(() => subscribeMedReps(setMedReps, () => setMedReps(null)), []);
+  const rows = useMemo(() => {
+    const labels = new Map((medReps || []).map((m) => [m.uid, m.label]));
+    return queueRows.map((r) => ({
+      ...r,
+      salesRepName: r.salesRepName || labels.get(r.salesRepUid) || "Not recorded",
+    }));
+  }, [queueRows, medReps]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const { toast, showToast, dismissToast } = useToast();
@@ -322,9 +334,8 @@ function Invoices() {
                   <th>Order ID</th>
                   <th>Customer / clinic</th>
                   <th>Med Rep</th>
-                  <th>Date Order</th>
-                  <th>Qty</th>
-                  <th>Amount</th>
+                  <th>Order date</th>
+                  <th>Amount · qty</th>
                   <th>Invoice status</th>
                   <th>Priority</th>
                   <th>Action</th>
@@ -338,11 +349,16 @@ function Invoices() {
                     </td>
                     <td>{r.clinicName}</td>
                     <td>{r.salesRepName}</td>
-                    <td>{formatDate(r.orderDate)}</td>
-                    <td>
-                      {r.totalQuantity.toLocaleString()} {r.unit}
+                    <td className="inv-cell-nowrap">{formatDate(r.orderDate)}</td>
+                    {/* Amount and quantity describe the same order line; one
+                        column keeps the queue readable at laptop widths. The
+                        CSV export keeps them as separate columns. */}
+                    <td className="inv-cell-nowrap">
+                      <span className="inv-amount">{formatCurrency(r.amount)}</span>
+                      <small className="inv-qty">
+                        {r.totalQuantity.toLocaleString()} {r.unit}
+                      </small>
                     </td>
-                    <td>{formatCurrency(r.amount)}</td>
                     <td>
                       <StatusBadge status={r.invoiceStatus} />
                     </td>

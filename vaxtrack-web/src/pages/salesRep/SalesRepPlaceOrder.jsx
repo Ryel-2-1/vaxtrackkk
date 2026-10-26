@@ -64,6 +64,7 @@ import { manilaToday, validateRequestedDate } from "../../services/requestedDate
 import { formatCentavos, readPriceCentavos } from "../../services/money";
 import { PRODUCT_VAT_LABELS, readVatClassification } from "../../services/vatClassification";
 import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
+import DialogLayer from "../../components/ui/DialogLayer";
 
 /**
  * A server error code turned into something a rep can act on.
@@ -1214,7 +1215,11 @@ function SalesRepPlaceOrder() {
         </aside>
       </section>
 
+      {/* Portaled: inside the transformed route container a fixed backdrop
+          covered the whole long page, so a dialog opened from Finalize could
+          sit off-screen. Behaviour (focus, Escape, confirm) is unchanged. */}
       {confirmOpen && (
+        <DialogLayer scope="salesrep-page salesrep-main">
         <ReconfirmDialog
           doctorName={selectedDoctor?.name ?? ""}
           destination={selectedDestination ? `${selectedDestination.name}${selectedDestination.address ? ` — ${selectedDestination.address}` : ""}` : ""}
@@ -1227,6 +1232,7 @@ function SalesRepPlaceOrder() {
             handleFinalizeOrder();
           }}
         />
+        </DialogLayer>
       )}
     </>
   );

@@ -41,6 +41,7 @@ import MonthCalendar from "../ui/MonthCalendar";
 import { useDialogFocus } from "../ui/useDialogFocus";
 import AdminDialogLayer from "../admin/AdminDialogLayer";
 import StatusBadge from "../ui/StatusBadge";
+import { capitalizedOrderPhrase, orderDestination, orderReference } from "../../services/orderLabel";
 import "./DeliveryCalendar.css";
 
 /**
@@ -105,7 +106,7 @@ function EventCard({ order, now, medRep, isAdmin, onReschedule }) {
   return (
     <li className={`dcal-event${urgent ? " dcal-event-urgent" : ""}`} aria-labelledby={titleId}>
       <div className="dcal-event-head">
-        <strong id={titleId} className="dcal-event-id">{order.orderNumber || order.id}</strong>
+        <strong id={titleId} className="dcal-event-id">{orderReference(order, orderDestination(order) || "Order without a number")}</strong>
         <span className={`dcal-priority${urgent ? " dcal-priority-urgent" : ""}`}>
           {urgent ? <AlertTriangle size={12} aria-hidden="true" /> : null}
           {priorityLabel(order)}
@@ -221,7 +222,7 @@ function RescheduleDialog({ order, todayIso, onClose, onSaved }) {
 
         <div id="dcal-dialog-desc" className="dcal-dialog-desc">
           <p>
-            <strong>{order.orderNumber || order.id}</strong> · currently {scheduleLabel(order)}
+            <strong>{orderReference(order, orderDestination(order) || "Order without a number")}</strong> · currently {scheduleLabel(order)}
           </p>
           {originalRequestNote(order) ? <p>{originalRequestNote(order)}</p> : null}
           {dispatched ? (
@@ -372,7 +373,7 @@ function DeliveryCalendar({ role }) {
     setEditing(null);
     triggerRef.current = null;
     const moved = { ...order, requestedDeliveryDate: result?.requestedDeliveryDate, scheduledDeliveryTime: result?.scheduledDeliveryTime };
-    setNotice(`${order.orderNumber || order.id} is now scheduled for ${scheduleLabel(moved)}.`);
+    setNotice(`${capitalizedOrderPhrase(order)} is now scheduled for ${scheduleLabel(moved)}.`);
     const target = result?.requestedDeliveryDate;
     if (target) {
       setSelectedDate(target);

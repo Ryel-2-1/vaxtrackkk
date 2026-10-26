@@ -15,6 +15,8 @@
  * fills in "delayed by N minutes".
  */
 
+import { orderDestination, orderReference } from "./orderLabel.js";
+
 export const TIMING_LABELS = Object.freeze({
   on_time: "On time",
   at_risk: "At risk",
@@ -199,7 +201,8 @@ export function missingEtaWarning(orders) {
   const n = missing.length;
   return {
     count: n,
-    orderLabels: missing.map((o) => o.orderNumber || o.id),
+    // What the Dispatcher reads: the order number, else where it goes.
+    orderLabels: missing.map((o) => orderReference(o, orderDestination(o) || "an order without a number")),
     text: `${n} order${n === 1 ? " has" : "s have"} no valid route ETA. Automatic arrival timing will be unavailable for ${
       n === 1 ? "it" : "them"} on this dispatch. You can still dispatch; generate a route first if you want timing.`,
   };

@@ -8,6 +8,7 @@ import {
   subscribeDestinationCorrections,
 } from "../../services/destinationCorrectionService";
 import { friendlyErrorMessage } from "../../services/liveDataErrors";
+import { orderNumberPhrase } from "../../services/orderLabel";
 
 export default function DestinationCorrectionDialog({ order, onDismiss, onConfirm }) {
   const [addresses, setAddresses] = useState([]);
@@ -129,7 +130,7 @@ export default function DestinationCorrectionDialog({ order, onDismiss, onConfir
             disabled={submitting} onClick={onDismiss}><X size={16} aria-hidden="true" /></button>
         </div>
         <p id="correct-destination-desc" className="shp-dialog-desc">
-          Order {order.orderNumber || order.id} · {order.clinicName || order.destinationName}
+          {orderNumberPhrase(order, "Order without a number")} · {order.clinicName || order.destinationName}
           {order.clinicAddress ? ` — ${order.clinicAddress}` : ""}. Only this doctor's linked addresses are available.
           The current destination and route stay in place until the Med Rep who placed this order approves.
         </p>

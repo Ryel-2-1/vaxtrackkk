@@ -132,7 +132,11 @@ test("the Finalize Dispatch warning names the orders without an ETA and never bl
   assert.deepEqual([one.count, one.orderLabels], [1, ["VT-2"]]);
   assert.match(one.text, /^1 order has no valid route ETA\. Automatic arrival timing will be unavailable for it on this dispatch\. You can still dispatch/);
   const two = missingEtaWarning([routed({ routePolyline: null }), routed({ id: "o3", orderNumber: undefined, routeDurationSeconds: 0 })]);
-  assert.deepEqual([two.count, two.orderLabels], [2, ["VT-1", "o3"]]);
+  // An order without a number is named by where it goes, else described —
+  // never by its document id ("o3").
+  assert.deepEqual([two.count, two.orderLabels], [2, ["VT-1", "an order without a number"]]);
+  const named = missingEtaWarning([routed({ id: "o4", orderNumber: undefined, clinicName: "Clinic Four", routePolyline: null })]);
+  assert.deepEqual(named.orderLabels, ["Clinic Four"]);
   assert.match(two.text, /^2 orders have no valid route ETA\. Automatic arrival timing will be unavailable for them/);
   assert.equal(missingEtaWarning([]), null);
 });

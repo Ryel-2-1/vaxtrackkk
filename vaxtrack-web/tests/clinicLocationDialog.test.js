@@ -430,10 +430,16 @@ test("ManageLocationModal keyboard behaviour is unchanged", () => {
   );
 });
 
-test("ClinicDetailsModal gains no dialog machinery", () => {
+test("ClinicDetailsModal gains no discard machinery — only the shared dialog focus", () => {
   const details = componentSource("ClinicDetailsModal");
+  // Read-only: nothing to discard, so none of the registration dialog's
+  // unsaved-changes protection belongs here.
   assert.doesNotMatch(details, /requestClose/);
   assert.doesNotMatch(details, /addEventListener/);
   assert.doesNotMatch(details, /confirmingDiscard/);
-  assert.doesNotMatch(details, /aria-modal/);
+  // It is still a modal: announced as one, with focus moved in, kept inside
+  // and returned on close by the shared hook (not hand-rolled key handling).
+  assert.match(details, /role="dialog"/);
+  assert.match(details, /aria-modal="true"/);
+  assert.match(details, /useDialogFocus\(\{ dialogRef, onDismiss: onClose \}\)/);
 });

@@ -341,14 +341,26 @@
   white-space: normal;
 }
 
-/* "Re-check trip status": recovery for a status left stale by a missed update. */
+/* "Re-check trip status": recovery for a status left stale by a missed update.
+   The heading row is sticky inside the dialog's own scroll area (.arq-dialog),
+   so with a long Rider list the control is never scrolled out of reach — it
+   used to sit above the list and vanish once the list was scrolled. */
+.arq-riders-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 8px 0 6px;
+  border-bottom: 1px solid var(--gray-100, #f3f4f6);
+  background: #ffffff;
+}
+
 .arq-riders-head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin: 4px 20px 0;
+  margin: 0 20px;
 }
 
 .arq-riders-head .arq-dialog-sub {

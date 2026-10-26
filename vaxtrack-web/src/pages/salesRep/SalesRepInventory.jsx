@@ -422,7 +422,7 @@ function SalesRepInventory() {
 function HBar({ label, qty, barWidth, tone }) {
   return (
     <div className="hbar-row">
-      <span className="hbar-label">{label}</span>
+      <span className="hbar-label" title={label}>{label}</span>
       <div className="hbar-track">
         <div className={`hbar-fill ${tone}`} style={{ width: `${barWidth}%` }} />
       </div>
