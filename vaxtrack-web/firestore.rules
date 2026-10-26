@@ -746,10 +746,16 @@ service cloud.firestore {
     // no client, Admin included, may write either move or any assignment
     // identity field (clientOrderWriteIsAllowed). A Rider resuming a delayed
     // delivery (delayed → in_transit) is unaffected.
+    //
+    // Nor may a client put a trip's order back in the queue (assigned/loading
+    // → pending_dispatch): that leaves it "pending" yet still attached to its
+    // Rider and trip. Only the Admin recovery callable (applyRiderRecovery)
+    // does it, after checking custody, navigation and returns.
     function writesServerOnlyDispatch() {
       return (statusChanged()
         && (nextStatus() == 'assigned'
-            || (priorStatus() == 'loading' && nextStatus() == 'in_transit')))
+            || (priorStatus() == 'loading' && nextStatus() == 'in_transit')
+            || (nextStatus() == 'pending_dispatch' && priorStatus() in ['assigned', 'loading'])))
         || leavesTheRoadDirectly();
     }
 
@@ -1835,6 +1841,12 @@ service cloud.firestore {
     }
     match /riderTrips/{tripId} {
       allow get, list: if isAdmin() || isDispatcher();
+      allow write: if false;
+    }
+    // Admin Rider recovery audit (functions/src/riderRecoveryOps.js): created
+    // only by the applyRiderRecovery callable, never changed. Admins read it.
+    match /riderRecoveryAudits/{auditId} {
+      allow get, list: if isAdmin();
       allow write: if false;
     }
     // Server-maintained Med Rep visibility index — used ONLY by the rules above.

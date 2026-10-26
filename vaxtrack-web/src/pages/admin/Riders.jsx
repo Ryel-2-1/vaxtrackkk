@@ -12,6 +12,7 @@ import { kpiValue, liveErrorMessage, logSafeError } from "../../services/liveDat
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import { ToastRegion } from "../../components/ui/Feedback";
 import { useToast } from "../../components/ui/useToast";
+import RiderRecoveryPanel from "./RiderRecoveryPanel";
 import "./Riders.css";
 
 const UI_STATUS_MAP = {
@@ -541,6 +542,8 @@ function RiderDetailsModal({
           Viewing a rider's route and calling them from VaxTrack aren't available yet. Use Live Tracking
           for positions and the rider's registered phone number to call.
         </p>
+
+        {rider.uid && <RiderRecoveryPanel riderUid={rider.uid} riderName={rider.name} />}
       </div>
     </div>
   );

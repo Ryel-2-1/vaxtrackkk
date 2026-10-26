@@ -2708,6 +2708,51 @@ async function main() {
     });
   });
 
+  // Admin Rider recovery (functions/src/riderRecoveryOps.js). Putting a trip's
+  // orders back in the queue and freeing the Rider is the applyRiderRecovery
+  // callable's alone — it checks custody, navigation and returns in the same
+  // transaction. No browser does any part of it directly, Admin included.
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const fdb = ctx.firestore();
+    await setDoc(doc(fdb, "orders", "rrcAssigned"), {
+      orderNumber: "VT-RRC-A", status: "assigned", assignedRiderId: otherRiderUid, dispatchTripId: "tripB",
+      createdByUid: salesRepUid, requestedDeliveryDate: FIXTURE_DELIVERY_DATE,
+    });
+    await setDoc(doc(fdb, "riderRecoveryAudits", "qa_reset_x"), { action: "qa_reset", riderUid: otherRiderUid, reason: "QA" });
+  });
+
+  await check("RRC1 no client requeues a Rider's trip, frees the Rider or writes a recovery audit directly", async () => {
+    const allowed = [];
+    const deny = async (label, request) => {
+      try {
+        await assertFails(request);
+      } catch {
+        allowed.push(label);
+      }
+    };
+    for (const [name, db] of Object.entries({ admin, dispatcher, rider })) {
+      for (const id of ["rrcAssigned", "tripLoading"]) {
+        // Back to the queue with the Rider still attached (the corrupt half-reset)…
+        await deny(`${name}: ${id} → pending_dispatch`, updateDoc(doc(db, "orders", id), {
+          status: "pending_dispatch", statusUpdatedAt: serverTimestamp(), statusUpdatedByUid: adminUid, updatedAt: serverTimestamp(),
+        }));
+        // …or detached from the Rider and the trip.
+        await deny(`${name}: ${id} unassign`, updateDoc(doc(db, "orders", id), {
+          status: "pending_dispatch", assignedRiderId: null, dispatchTripId: deleteField(), updatedAt: serverTimestamp(),
+        }));
+      }
+      await deny(`${name}: rider → available`, updateDoc(doc(db, "riderDispatchStates", otherRiderUid), { state: "available_at_hub", tripId: null, orderIds: [] }));
+      await deny(`${name}: trip → dissolved`, setDoc(doc(db, "riderTrips", "tripB"), { riderUid: otherRiderUid, status: "dissolved", orderIds: [] }));
+      await deny(`${name}: forge audit`, setDoc(doc(db, "riderRecoveryAudits", `forged-${name}`), { action: "qa_reset", riderUid: otherRiderUid }));
+      await deny(`${name}: edit audit`, updateDoc(doc(db, "riderRecoveryAudits", "qa_reset_x"), { reason: "changed" }));
+      await deny(`${name}: delete audit`, deleteDoc(doc(db, "riderRecoveryAudits", "qa_reset_x")));
+    }
+    if (allowed.length > 0) throw new Error(`allowed: ${allowed.join("; ")}`);
+    // The audit is for Admins to read; nobody else.
+    await assertSucceeds(getDoc(doc(admin, "riderRecoveryAudits", "qa_reset_x")));
+    for (const db of [dispatcher, rider, salesRep, anon]) await assertFails(getDoc(doc(db, "riderRecoveryAudits", "qa_reset_x")));
+  });
+
   // ---------------------------------------------------------------- allocation (version 2)
   //
   // Backorder-aware orders (functions/src/allocation.js). The server computes

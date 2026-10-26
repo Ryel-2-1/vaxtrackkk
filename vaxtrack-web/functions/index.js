@@ -68,6 +68,8 @@ const orderHistoryOutbox = require("./src/orderHistoryOutbox");
 const riderTrackingOps = require("./src/riderTrackingOps");
 const deliveryTimingOps = require("./src/deliveryTimingOps");
 const riderDispatchOps = require("./src/riderDispatchOps");
+const riderRecoveryOps = require("./src/riderRecoveryOps");
+const { qaResetConfig } = require("./src/riderRecovery");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -202,6 +204,11 @@ function toHttpsError(error, context) {
       "trip-full": "failed-precondition",
       // The trip moved underneath the caller — refresh, then retry.
       "trip-changed": "aborted",
+      // Admin Rider recovery (riderRecoveryOps.js).
+      "recovery-stale": "aborted",
+      "recovery-blocked": "failed-precondition",
+      "recovery-too-large": "failed-precondition",
+      "qa-reset-disabled": "permission-denied",
     };
     const httpsCode = map[error.code] ?? "invalid-argument";
     return new HttpsError(httpsCode, error.message, {
@@ -403,6 +410,34 @@ exports.confirmRiderReturnToHub = callable(
 exports.recheckRiderTripStates = callable(
   "recheckRiderTripStates",
   ({ db, FieldValue, uid, data }) => riderDispatchOps.recheckRiderTripStates({ db, FieldValue, uid, payload: data })
+);
+
+// Admin Rider recovery (src/riderRecoveryOps.js): a read-only preview, then
+// confirm_return or qa_reset against that preview's version.
+//
+// QA trip reset is STAGING/DEMO ONLY and fails closed: it needs BOTH an allowed
+// project id (never production) AND QA_RIDER_RESET_ENABLED=true in
+// functions/.env.<projectId>, read at deploy. A browser setting decides nothing.
+const RIDER_QA_RESET = qaResetConfig({
+  projectId: process.env.GCLOUD_PROJECT || (() => {
+    try {
+      return JSON.parse(process.env.FIREBASE_CONFIG || "{}").projectId;
+    } catch {
+      return null;
+    }
+  })(),
+  flag: process.env.QA_RIDER_RESET_ENABLED,
+});
+
+exports.previewRiderRecovery = callable(
+  "previewRiderRecovery",
+  ({ db, uid, data }) => riderRecoveryOps.previewRiderRecovery({ db, uid, payload: data, config: RIDER_QA_RESET })
+);
+
+exports.applyRiderRecovery = callable(
+  "applyRiderRecovery",
+  ({ db, FieldValue, uid, email, data }) =>
+    riderRecoveryOps.applyRiderRecovery({ db, FieldValue, uid, email, payload: data, config: RIDER_QA_RESET })
 );
 
 exports.getReservationProvenance = callable(

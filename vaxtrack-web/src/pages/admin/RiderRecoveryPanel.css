@@ -1,0 +1,211 @@
+/* Admin → Riders → Rider details → Rider recovery (RiderRecoveryPanel.jsx). */
+
+/* The details modal has no height limit of its own; with this section it can
+   be taller than the screen, so it scrolls instead of being cut off. Scoped to
+   modals that contain the panel, so Riders.css is unchanged. */
+.riders-modal:has(.rrp) {
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+}
+
+.rrp {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--gray-200);
+  text-align: left;
+}
+
+.rrp-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.rrp-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.rrp-recheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rrp-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px 16px;
+  margin: 14px 0 0;
+}
+
+.rrp-facts div {
+  min-width: 0;
+}
+
+.rrp-facts dt {
+  font-size: 12px;
+  color: var(--gray-600);
+}
+
+.rrp-facts dd {
+  margin: 2px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-900);
+  overflow-wrap: anywhere;
+}
+
+.rrp-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+}
+
+.rrp-muted {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--gray-600);
+}
+
+.rrp-muted p {
+  margin: 0 0 4px;
+}
+
+.rrp-note {
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--warning-bg, #fff7e6);
+  color: var(--warning-text, #8a5300);
+  font-size: 13px;
+}
+
+.rrp-notice {
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.rrp-notice-success {
+  background: var(--green-50);
+  color: var(--green-800);
+}
+
+.rrp-notice-error {
+  background: var(--danger-bg, #fdecec);
+  color: var(--danger-text, #a61b1b);
+}
+
+.rrp-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.rrp-orders {
+  margin-top: 14px;
+}
+
+.rrp-orders h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-700, #374151);
+}
+
+.rrp-orders ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--gray-200);
+  border-radius: 10px;
+}
+
+.rrp-orders li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 4px 12px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.rrp-orders li + li {
+  border-top: 1px solid var(--gray-200);
+}
+
+.rrp-order-number {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.rrp-order-blocker {
+  grid-column: 1 / -1;
+  color: var(--danger-text, #a61b1b);
+}
+
+.rrp-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 16px;
+  margin-top: 16px;
+}
+
+.rrp-action button {
+  width: 100%;
+}
+
+.rrp-blockers {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.rrp-blockers li {
+  margin-bottom: 2px;
+}
+
+/* Inside the (portaled) confirmation dialog. */
+.rrp-reason {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 12px;
+  text-align: left;
+}
+
+.rrp-reason label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.rrp-reason textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: 8px 10px;
+  border: 1px solid var(--gray-300, #d1d5db);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 14px;
+  resize: vertical;
+}
+
+.rrp-reason textarea:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 1px;
+}
+
+@media (max-width: 640px) {
+  .rrp-orders li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
