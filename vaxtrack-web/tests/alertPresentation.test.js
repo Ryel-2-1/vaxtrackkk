@@ -314,12 +314,17 @@ test("Admin Deliveries opens the drawer for an alert's ?order= link", () => {
   assert.match(page, /next\.delete\("order"\);/);
 });
 
-test("alert authorization is unchanged: Admin/Dispatcher read, Admin writes", () => {
+test("alert authorization: Admin/Dispatcher read; Admin writes its own alerts but only acknowledges server-decided ones", () => {
+  // Behaviour is proven in tests/firestore.rules.test.js (OPS1); this pins the shape.
   const rules = read("firestore.rules");
   const block = /match \/alerts\/\{id\} \{([\s\S]*?)\n\s*\}/.exec(rules);
   assert.ok(block, "alerts rule block");
   assert.equal(
     block[1].trim().replace(/\s+/g, " "),
-    "allow get, list: if isAdmin() || isDispatcher(); allow create, update, delete: if isAdmin();"
+    "allow get, list: if isAdmin() || isDispatcher(); " +
+      "allow create: if isAdmin() && !(request.resource.data.get('type', null) in serverAlertTypes()); " +
+      "allow update: if isAdmin() && ( resource.data.get('type', null) in serverAlertTypes() " +
+      "? isAlertAcknowledgement() : !(request.resource.data.get('type', null) in serverAlertTypes())); " +
+      "allow delete: if isAdmin() && !(resource.data.get('type', null) in serverAlertTypes());"
   );
 });

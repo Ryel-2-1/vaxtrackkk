@@ -6220,6 +6220,63 @@ async function main() {
     for (const ctx of [admin, dispatcher, salesRep]) await assertFails(updateDoc(eventRef(ctx), { eventType: "x" }));
   });
 
+  // ================= Operational alerts: server-decided, Admin-acknowledged =================
+  //
+  // Route deviation, late delivery and stale rider location are decided by
+  // Cloud Functions. No client — Admin included — creates, rewrites or
+  // deletes one; an Admin may only mark it read or resolve it (the two writes
+  // the Alerts page makes). The stale-location watch is server-only.
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const f = ctx.firestore();
+    for (const [id, type] of [["opsDeviation", "route_deviation"], ["opsLate", "delivery_delay"], ["opsStale", "rider_location_stale"]]) {
+      await setDoc(doc(f, "alerts", id), { type, status: "active", read: false, severity: "warning", riderId: riderUid, riderName: "Rider", message: "server text" });
+    }
+    await setDoc(doc(f, "alerts", "opsGeneric"), { status: "active", title: "Generic", read: false });
+    await setDoc(doc(f, "riderLocationWatches", riderUid), { riderUid, tripId: "tripA", status: "stale", active: true });
+  });
+
+  await check("OPS1 no client forges, rewrites, reopens or deletes a server-decided alert; Admin may mark read and resolve", async () => {
+    const allowed = [];
+    const deny = async (label, request) => {
+      try {
+        await assertFails(request);
+      } catch {
+        allowed.push(label);
+      }
+    };
+    for (const [name, ctx] of Object.entries({ admin, dispatcher, rider, salesRep })) {
+      for (const type of ["route_deviation", "delivery_delay", "rider_location_stale"]) {
+        await deny(`${name}: create ${type}`, setDoc(doc(ctx, "alerts", `forged_${type}_${name}`), { type, status: "active", read: false }));
+      }
+      for (const id of ["opsDeviation", "opsLate", "opsStale"]) {
+        await deny(`${name}: rewrite ${id}`, updateDoc(doc(ctx, "alerts", id), { message: "Rider is fine", riderName: "Someone" }));
+        await deny(`${name}: retype ${id}`, updateDoc(doc(ctx, "alerts", id), { type: "note" }));
+        await deny(`${name}: delete ${id}`, deleteDoc(doc(ctx, "alerts", id)));
+        await deny(`${name}: resolve with forged fields ${id}`, updateDoc(doc(ctx, "alerts", id), { status: "resolved", resolutionReason: "location_updating", resolvedBy: "server" }));
+      }
+      // A generic alert cannot be turned into a server-decided one.
+      if (name !== "admin") await deny(`${name}: generic`, updateDoc(doc(ctx, "alerts", "opsGeneric"), { read: true }));
+      await deny(`${name}: generic → stale`, updateDoc(doc(ctx, "alerts", "opsGeneric"), { type: "rider_location_stale" }));
+      await deny(`${name}: read watch`, getDoc(doc(ctx, "riderLocationWatches", riderUid)));
+      await deny(`${name}: write watch`, setDoc(doc(ctx, "riderLocationWatches", riderUid), { status: "watching" }));
+    }
+    if (allowed.length > 0) throw new Error(`allowed: ${allowed.join("; ")}`);
+
+    // What the Alerts page does still works, and an Admin cannot un-resolve.
+    for (const id of ["opsDeviation", "opsLate", "opsStale"]) {
+      await assertSucceeds(updateDoc(doc(admin, "alerts", id), { read: true }));
+      await assertSucceeds(updateDoc(doc(admin, "alerts", id), { status: "resolved" }));
+      await assertFails(updateDoc(doc(admin, "alerts", id), { status: "active" }));
+      await assertFails(updateDoc(doc(admin, "alerts", id), { read: "yes" }));
+    }
+    // Admin's own generic alerts keep working as before (P3).
+    await assertSucceeds(updateDoc(doc(admin, "alerts", "opsGeneric"), { read: true, title: "Edited" }));
+    await assertSucceeds(deleteDoc(doc(admin, "alerts", "opsGeneric")));
+    // Dispatcher and Admin still read them all.
+    await assertSucceeds(getDoc(doc(dispatcher, "alerts", "opsStale")));
+    await assertSucceeds(getDocs(query(collection(admin, "alerts"), where("status", "==", "active"))));
+  });
+
   // ================= Admin inventory removal controls =================
   //
   // Archive/restore, void, quarantine and disposal are server callables only
