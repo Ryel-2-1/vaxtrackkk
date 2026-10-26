@@ -2919,6 +2919,18 @@ async function main() {
     }
   });
 
+  // Cancellation custody is decided by cancelOrderWithInventoryRelease alone:
+  // not even an Admin can cancel, or forge the return-pending outcome, directly.
+  await check("Nlock2b an admin cannot cancel directly or forge a cancellation's custody outcome", async () => {
+    for (const id of ["lcLoading3", "lcTransit", "lcDelayed"]) {
+      await assertFails(updateDoc(doc(admin, "orders", id), {
+        status: "cancelled", cancelReason: "Clinic closed", cancelledAt: serverTimestamp(), ...audit(adminUid),
+      }));
+      await assertFails(updateDoc(doc(admin, "orders", id), { allocationStatus: "returned", pendingReturnId: `${id}_cancel` }));
+      await assertFails(updateDoc(doc(admin, "orders", id), { allocationStatus: "released", releasedAt: serverTimestamp(), releasedByUid: adminUid }));
+    }
+  });
+
   // ---- dispatcher: forbidden ----
 
   await check("Nlc1 dispatcher cannot skip loading (assigned → in_transit)", async () => {

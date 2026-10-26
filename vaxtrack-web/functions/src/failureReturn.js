@@ -10,11 +10,13 @@
  *   settleClientReportedFailure the compatibility trigger for Rider builds that
  *                               still write `delivery_failed` directly
  *   requeueFailedOrder          if the trigger has not run yet
- *   cancelOrderWithInventoryRelease  likewise, for allocation-version-2 orders;
+ *   cancelOrderWithInventoryRelease  likewise, for a failed order still
+ *                               reserved (version 1 or 2);
  *                               and (kind "cancelled_after_dispatch") for an
- *                               order cancelled while In Transit or Delayed —
- *                               the vials are with the rider, so they come back
- *                               through the same Admin check as a failure.
+ *                               order cancelled while In Transit or Delayed, or
+ *                               Loading once confirmed as loaded — the vials
+ *                               were handled, so they come back through the
+ *                               same Admin check as a failure.
  *
  * Whichever runs first moves the units; the reservation becomes `returned`, so
  * every later caller sees nothing left to move. That is what makes the paths
