@@ -29,6 +29,16 @@ import {
   optimizeTrip,
 } from "../../services/routeService";
 import StatusBadge from "../../components/ui/StatusBadge";
+import { manilaTime } from "../../services/deliveryTiming";
+import { requestedArrivalLabel, requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
+
+/** Epoch ms of a Firestore Timestamp / Date / number, or null. */
+function millisOf(value) {
+  if (value == null) return null;
+  if (typeof value.toMillis === "function") return value.toMillis();
+  if (value instanceof Date) return value.getTime();
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
 
 // Computed once — whether an ORS key is configured for this build.
 const ROUTE_CONFIGURED = isRouteServiceConfigured();
@@ -691,7 +701,8 @@ function DispatcherGeofence() {
                                   s.order.orderNumber ||
                                   s.order.id}
                               </strong>
-                              <small>ETA {s.order.stopEtaText || "—"}</small>
+                              <small>Est. arrival {s.order.stopEtaText || "—"}</small>
+                              <small>Requested: {requestedArrivalLabel(requestedArrivalOf(s.order))}</small>
                             </div>
                           </li>
                         ))}
@@ -826,6 +837,23 @@ function DispatcherGeofence() {
                           <span>Destination</span>
                           <strong>{selected.clinicName || "—"}</strong>
                           {selected.clinicAddress && <p>{selected.clinicAddress}</p>}
+                        </div>
+                      </div>
+
+                      {/* Requested arrival (the Med Rep's), the arrival
+                          estimated when the trip left (frozen at dispatch), and
+                          when it actually left — three different things. */}
+                      <div className="geo3-info-row">
+                        <Clock3 size={15} />
+                        <div>
+                          <span>Requested arrival</span>
+                          <strong>{requestedScheduleLabel(selected.requestedDeliveryDate, requestedArrivalOf(selected))}</strong>
+                          {millisOf(selected.expectedArrivalAt) !== null && (
+                            <p>Estimated arrival at dispatch: {manilaTime(millisOf(selected.expectedArrivalAt))}</p>
+                          )}
+                          {millisOf(selected.dispatchedAt) !== null && (
+                            <p>Left the hub: {manilaTime(millisOf(selected.dispatchedAt))}</p>
+                          )}
                         </div>
                       </div>
 

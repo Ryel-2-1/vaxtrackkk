@@ -25,6 +25,7 @@ import {
 } from "../../services/orderHistory.js";
 import { subscribeAllocationEvents, subscribeOrder } from "../../services/orderHistoryService";
 import { liveErrorKind, liveErrorMessage } from "../../services/liveDataErrors";
+import { requestedArrivalLabel, requestedArrivalOf } from "../../services/requestedArrival.js";
 
 /**
  * One order's history, in three clearly separate parts:
@@ -102,6 +103,8 @@ function Receipt({ receipt, events, eventsLoading, canPrint }) {
         <Field label="Clinic / destination">{receipt.clinicName || receipt.destinationName}</Field>
         <Field label="Delivery address">{receipt.deliveryAddress}</Field>
         <Field label="Requested delivery">{date}</Field>
+        {/* As accepted; a receipt from before requested times reads as any time that day. */}
+        <Field label="Requested arrival">{requestedArrivalLabel(requestedArrivalOf(receipt))}</Field>
         <Field label="Priority">{receipt.priority || DASH}</Field>
       </dl>
       <div className="ohx-table-wrap">
@@ -199,6 +202,7 @@ function CurrentSummary({ order, events }) {
         <Field label="Delivery address">{order.deliveryAddress || order.clinicAddress}</Field>
         <Field label="Priority">{order.priority}</Field>
         <Field label="Requested delivery">{order.requestedDeliveryDate || "Not specified"}</Field>
+        <Field label="Requested arrival">{requestedArrivalLabel(requestedArrivalOf(order))}</Field>
       </dl>
       <div className="ohx-table-wrap">
         <table className="ohx-table">

@@ -42,6 +42,7 @@ import { useDialogFocus } from "../ui/useDialogFocus";
 import AdminDialogLayer from "../admin/AdminDialogLayer";
 import StatusBadge from "../ui/StatusBadge";
 import { capitalizedOrderPhrase, orderDestination, orderReference } from "../../services/orderLabel";
+import { requestedArrivalLabel, requestedArrivalOf } from "../../services/requestedArrival";
 import "./DeliveryCalendar.css";
 
 /**
@@ -124,6 +125,9 @@ function EventCard({ order, now, medRep, isAdmin, onReschedule }) {
       {original ? <p className="dcal-event-original">{original}</p> : null}
 
       <dl className="dcal-fields">
+        {/* The Med Rep's requested ARRIVAL at the destination — separate from
+            any time an Admin schedule sets above. */}
+        <Field label="Requested arrival" value={requestedArrivalLabel(requestedArrivalOf(order))} />
         <Field label="Doctor" value={where.doctor} />
         <Field label="Clinic" value={where.clinic} />
         <Field label="Location" value={where.location} />

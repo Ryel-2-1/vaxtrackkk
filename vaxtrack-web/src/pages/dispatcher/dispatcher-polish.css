@@ -531,3 +531,11 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
 .dispatcher-main .dispatcher-dash-table tbody tr:hover td:last-child {
   background: var(--green-50);
 }
+
+/* Requested arrival at the destination, under the requested date in the
+   dispatch queues (services/requestedArrival.js). */
+.dispatcher-main .dispatcher-dash-table .dispatcher-dash-arrival {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--gray-700, #374151);
+}

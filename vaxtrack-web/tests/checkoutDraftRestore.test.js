@@ -16,6 +16,9 @@ import {
   submitOrderDraft,
 } from "../src/services/orderDraftRequest.js";
 
+// A selection saved with no requested time reads as any time within the day.
+const ANY_TIME_FORM = { mode: "any_time", start: "", end: "", time: "" };
+
 /**
  * Checkout restoration after a refresh.
  *
@@ -104,7 +107,7 @@ test("3. a refresh restores the saved doctor and date", () => {
   const storage = withCart();
   saveCheckoutSelection(storage, UID, { doctorId: "docA", doctorAddressId: "clinicX", requestedDeliveryDate: "2026-10-04" });
   const { initial } = openCheckout(reload(storage));
-  assert.deepEqual(initial, { doctorId: "docA", doctorAddressId: "clinicX", requestedDeliveryDate: "2026-10-04" });
+  assert.deepEqual(initial, { doctorId: "docA", doctorAddressId: "clinicX", requestedDeliveryDate: "2026-10-04", requestedArrival: ANY_TIME_FORM });
 });
 
 test("4. the destination stays pending until that doctor's options load", () => {
@@ -135,7 +138,7 @@ test("6. a destination belonging to another doctor is not restored", () => {
   // A destination is never kept without its doctor in the saved draft either.
   assert.deepEqual(
     normalizeCheckoutSelection({ doctorId: "", doctorAddressId: "clinicX", requestedDeliveryDate: "" }),
-    { doctorId: "", doctorAddressId: "", requestedDeliveryDate: "" }
+    { doctorId: "", doctorAddressId: "", requestedDeliveryDate: "", requestedArrival: ANY_TIME_FORM }
   );
 });
 
@@ -218,7 +221,7 @@ test("10. changing doctors clears the destination from the saved draft", () => {
   saveCheckoutSelection(storage, UID, { doctorId: "docA", doctorAddressId: "clinicX", requestedDeliveryDate: "2026-10-04" });
   // handleDoctorChange: destination "" and no pending restore → the page saves "".
   saveCheckoutSelection(storage, UID, { doctorId: "docB", doctorAddressId: "", requestedDeliveryDate: "2026-10-04" });
-  assert.deepEqual(stored(storage).checkout, { doctorId: "docB", doctorAddressId: "", requestedDeliveryDate: "2026-10-04" });
+  assert.deepEqual(stored(storage).checkout, { doctorId: "docB", doctorAddressId: "", requestedDeliveryDate: "2026-10-04", requestedArrival: ANY_TIME_FORM });
   // Clearing the doctor clears the destination too, whatever the page passes.
   saveCheckoutSelection(storage, UID, { doctorId: "", doctorAddressId: "clinicX", requestedDeliveryDate: "2026-10-04" });
   assert.equal(stored(storage).checkout.doctorAddressId, "");
@@ -294,7 +297,7 @@ test("14. the idempotency key is untouched by draft saves, and a pending attempt
   const fresh = reload(storage);
   assert.equal(loadPendingAttempt(fresh, UID).requestId, idBefore);
   const { initial } = openCheckout(fresh);
-  assert.deepEqual(initial, { doctorId: "docA", doctorAddressId: "clinicX", requestedDeliveryDate: "2026-10-04" });
+  assert.deepEqual(initial, { doctorId: "docA", doctorAddressId: "clinicX", requestedDeliveryDate: "2026-10-04", requestedArrival: ANY_TIME_FORM });
 });
 
 test("the selection is the rep's own and survives rebuilding the cart", () => {
@@ -305,10 +308,10 @@ test("the selection is the rep's own and survives rebuilding the cart", () => {
   assert.equal(saveCheckoutSelection(storage, OTHER, { doctorId: "x", doctorAddressId: "", requestedDeliveryDate: "" }), false);
   // "Add more items" rebuilds the cart from the catalog; the selection stays.
   saveCartDraft(storage, UID, { items: [...CART.items, { inventoryId: "inv2", quantity: 1 }] });
-  assert.deepEqual(stored(storage).checkout, { doctorId: "docA", doctorAddressId: "home", requestedDeliveryDate: "2026-10-04" });
+  assert.deepEqual(stored(storage).checkout, { doctorId: "docA", doctorAddressId: "home", requestedDeliveryDate: "2026-10-04", requestedArrival: ANY_TIME_FORM });
   // A fresh planner date wins for the date only.
   const { initial } = openCheckout(reload(storage), { plannedDate: "2026-10-09" });
-  assert.deepEqual(initial, { doctorId: "docA", doctorAddressId: "home", requestedDeliveryDate: "2026-10-09" });
+  assert.deepEqual(initial, { doctorId: "docA", doctorAddressId: "home", requestedDeliveryDate: "2026-10-09", requestedArrival: ANY_TIME_FORM });
 });
 
 // ------------------------------------------------- the page uses all of this

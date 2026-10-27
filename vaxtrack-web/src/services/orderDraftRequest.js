@@ -1,4 +1,5 @@
 import { UserMessageError } from "./userMessageError.js";
+import { EMPTY_ARRIVAL_FORM, arrivalKey, arrivalPayloadOf, normalizeArrivalForm } from "./requestedArrival.js";
 
 /**
  * The Med Rep order draft: a user-scoped cart, and the request ID + submission
@@ -198,7 +199,12 @@ export function saveCartDraft(storage, uid, draft) {
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_ID_LENGTH = 200;
-const EMPTY_SELECTION = Object.freeze({ doctorId: "", doctorAddressId: "", requestedDeliveryDate: "" });
+const EMPTY_SELECTION = Object.freeze({
+  doctorId: "",
+  doctorAddressId: "",
+  requestedDeliveryDate: "",
+  requestedArrival: EMPTY_ARRIVAL_FORM,
+});
 
 /**
  * A real calendar date in exact 'YYYY-MM-DD' form, else "". Compared as
@@ -237,6 +243,9 @@ export function normalizeCheckoutSelection(value) {
     doctorId,
     doctorAddressId: doctorId ? documentIdOrBlank(value.doctorAddressId) : "",
     requestedDeliveryDate: exactDateOnly(value.requestedDeliveryDate),
+    // The requested arrival as last entered (mode + its own times only);
+    // absent in drafts saved before it existed, which read as any time.
+    requestedArrival: normalizeArrivalForm(value.requestedArrival),
   };
 }
 
@@ -274,10 +283,13 @@ export function initialCheckoutSelection({ attempt = null, saved = null, planned
       doctorId: attempt.doctorId,
       doctorAddressId: attempt.doctorAddressId,
       requestedDeliveryDate: attempt.requestedDeliveryDate ?? "",
+      requestedArrival: attempt.requestedArrival ?? null,
     });
   }
   const base = normalizeCheckoutSelection(saved) ?? { ...EMPTY_SELECTION };
   const planned = exactDateOnly(plannedDate);
+  // The planner hands over a DATE only; a requested time already entered for
+  // the previous date stays as it was (a time of day, on whichever date is set).
   return planned ? { ...base, requestedDeliveryDate: planned } : base;
 }
 
@@ -370,6 +382,9 @@ export function canonicalSubmission(submission) {
     doctorId: String(submission?.doctorId ?? ""),
     doctorAddressId: String(submission?.doctorAddressId ?? ""),
     requestedDeliveryDate: typeof date === "string" && date.trim() !== "" ? date.trim() : null,
+    // The requested arrival as sent: the chosen mode and only its own times.
+    // An attempt saved before this existed had none, which is any time.
+    requestedArrival: arrivalPayloadOf(normalizeArrivalForm(submission?.requestedArrival ?? null)),
     priority: submission?.priority === "Urgent" ? "Urgent" : "Standard",
     deliveryInstructions:
       typeof submission?.deliveryInstructions === "string" ? submission.deliveryInstructions.trim() : "",
@@ -388,6 +403,7 @@ export function diffSubmission(saved, current) {
   if (a.doctorId !== b.doctorId) changed.push("doctor");
   if (a.doctorAddressId !== b.doctorAddressId) changed.push("destination");
   if (a.requestedDeliveryDate !== b.requestedDeliveryDate) changed.push("requested date");
+  if (arrivalKey(a.requestedArrival) !== arrivalKey(b.requestedArrival)) changed.push("requested time");
   if (a.priority !== b.priority) changed.push("priority");
   if (a.deliveryInstructions !== b.deliveryInstructions) changed.push("instructions");
 

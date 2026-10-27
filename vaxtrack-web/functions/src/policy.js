@@ -501,6 +501,9 @@ const ALLOWED_CREATE_KEYS = Object.freeze([
   // re-validates it (normalizeRequestedDeliveryDate); without it on the
   // allowlist the strict shape check below rejects the whole order.
   "requestedDeliveryDate",
+  // Optional requested arrival at the destination (requestedArrival.js),
+  // validated by operations.js against the requested date and the server clock.
+  "requestedArrival",
 ]);
 
 function validateDocumentId(value, message) {
@@ -1167,8 +1170,18 @@ function settleBatch({ inventoryId, data, quantity, mode }) {
  * order — and a genuinely different order (other batch, other quantity, other
  * Doctor, or other destination) cannot reuse a request id.
  */
-function canonicalRequestFingerprint({ uid, doctorId, doctorAddressId, items }) {
+function canonicalRequestFingerprint({ uid, doctorId, doctorAddressId, items, schedule }) {
   const canonical = JSON.stringify({
+    // Version 2 request keys also bind the requested ARRIVAL: the same request
+    // id resubmitted with another arrival preference is a different order, not
+    // a replay. The requested date stays outside the fingerprint, as before (a
+    // same-key retry with another date replays the original; the checkout's
+    // attempt snapshot refuses such a retry before it is sent). Absent
+    // (version 1, every request key written before) leaves the canonical form
+    // — and so the hash — exactly as it was.
+    ...(schedule === undefined
+      ? {}
+      : { schedule: { requestedArrival: schedule.requestedArrival ?? null } }),
     uid,
     doctorId: doctorId ?? null,
     doctorAddressId: doctorAddressId ?? null,

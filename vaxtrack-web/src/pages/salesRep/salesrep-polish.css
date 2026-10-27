@@ -648,6 +648,104 @@ aside.salesrep-sidebar .salesrep-logout {
   box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
 }
 
+/* Requested delivery time (optional arrival at the destination). Same field
+   language as the date above; !important only against the global control
+   resets in styles.css (46px min-height, white input background). */
+.salesrep-page .arrival-field {
+  margin: 14px 0 0;
+  padding: 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  min-width: 0;
+}
+.salesrep-page .arrival-field legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-700, #374151);
+}
+.salesrep-page .arrival-optional {
+  font-weight: 400;
+  color: var(--gray-600);
+}
+.salesrep-page .arrival-help {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--gray-600);
+}
+.salesrep-page .arrival-mode,
+.salesrep-page .arrival-time {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gray-700, #374151);
+}
+.salesrep-page .arrival-times {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.salesrep-page .arrival-field select,
+.salesrep-page .arrival-field input[type="time"] {
+  width: 100%;
+  height: 40px;
+  min-height: 40px !important;
+  padding: 8px 10px;
+  border: 1px solid var(--gray-500);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--gray-900, #111827);
+  background: #fff !important;
+}
+.salesrep-page .arrival-field select:focus,
+.salesrep-page .arrival-field input[type="time"]:focus {
+  outline: none;
+  border-color: var(--green-600, #16a34a);
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
+}
+.salesrep-page .arrival-field [aria-invalid="true"] {
+  border-color: var(--danger-text, #b91c1c);
+}
+.salesrep-page .arrival-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--danger-text, #b91c1c);
+}
+.salesrep-page .arrival-summary {
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--green-800, #166534);
+}
+.salesrep-page .arrival-clear {
+  margin-top: 8px;
+  min-height: 32px !important;
+  padding: 4px 10px;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--gray-700, #374151);
+  font-size: 12px;
+  font-weight: 600;
+}
+.salesrep-main .place-v2-confirm-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+.salesrep-main .place-v2-confirm-schedule span {
+  color: var(--gray-600);
+}
+
 /* Checkout territory messages (Med Rep territory). */
 .salesrep-main .checkout-territory-empty,
 .salesrep-main .checkout-territory-notice {

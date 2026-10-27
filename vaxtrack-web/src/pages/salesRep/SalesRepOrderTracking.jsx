@@ -17,6 +17,7 @@ import {
 } from "../../services/deliveryService";
 import { auth } from "../../firebase";
 import { originalRequestNote, scheduleLabel } from "../../services/deliverySchedule";
+import { requestedArrivalLabel, requestedArrivalOf } from "../../services/requestedArrival";
 import {
   reviewOrderDestinationChange,
   subscribeDestinationCorrections,
@@ -170,6 +171,9 @@ function normalizeOrder(raw) {
     priority: raw.priority || "Standard",
     instructions: raw.deliveryInstructions || "",
     requestedDeliveryDate: raw.requestedDeliveryDate || null,
+    // When the delivery was requested to ARRIVE at the destination on that
+    // date (absent on older orders: any time that day).
+    requestedArrival: requestedArrivalOf(raw),
     // Server-evaluated delivery timing, secondary to the lifecycle status.
     timingStatus: raw.timingStatus ?? null,
     expectedArrivalAt: raw.expectedArrivalAt ?? null,
@@ -542,6 +546,7 @@ function SalesRepOrderTracking() {
                       {originalRequestNote(selectedOrder) ? "Delivery schedule" : "Requested delivery date"}
                     </strong>
                     <p className="tnum">{scheduleLabel(selectedOrder)}</p>
+                    <p>Requested arrival: {requestedArrivalLabel(selectedOrder.requestedArrival)}</p>
                     {originalRequestNote(selectedOrder) && <p>{originalRequestNote(selectedOrder)}</p>}
                   </div>
                 </div>

@@ -100,6 +100,10 @@ export async function createOrderWithReservation({
   // (`requested-date-required`, operations.js). Omitting it here once silently
   // dropped every requested date, so orders arrived undated.
   requestedDeliveryDate,
+  // Optional requested arrival at the destination on that date
+  // (services/requestedArrival.js). Forwarded for the same reason: dropping it
+  // here would turn every timed request into "any time" without a word.
+  requestedArrival,
 }) {
   try {
     const result = await callables().create({
@@ -109,6 +113,7 @@ export async function createOrderWithReservation({
       priority,
       deliveryInstructions,
       requestedDeliveryDate,
+      ...(requestedArrival ? { requestedArrival } : {}),
       items: items.map((item) => ({
         inventoryId: item.inventoryId,
         quantity: item.quantity,

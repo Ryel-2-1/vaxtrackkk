@@ -37,6 +37,7 @@ import StatusBadge from "../../components/ui/StatusBadge";
 import "./DispatcherAssignRider.css";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { createSingleFlight } from "../../services/singleFlight";
+import { requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
 
 function initialsOf(name) {
   return (
@@ -464,6 +465,10 @@ function DispatcherAssignRider() {
                   <MapPin size={13} /> {selectedOrder.clinicName || "—"}
                 </strong>
                 {selectedOrder.clinicAddress && <p>{selectedOrder.clinicAddress}</p>}
+              </div>
+              <div className="ar-order-row">
+                <span>Requested arrival</span>
+                <strong>{requestedScheduleLabel(selectedOrder.requestedDeliveryDate, requestedArrivalOf(selectedOrder))}</strong>
               </div>
             </div>
 

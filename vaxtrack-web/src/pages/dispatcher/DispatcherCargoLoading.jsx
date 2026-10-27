@@ -33,6 +33,8 @@ import { subscribeRiders } from "../../services/riderService";
 import { confirmRiderReturnToHub, subscribeRiderDispatchStates } from "../../services/riderDispatchService";
 import { cargoGroupDispatch, ridersReturningToHub } from "../../services/riderTrip";
 import DispatcherDialogLayer from "./DispatcherDialogLayer";
+import DeparturePlanner from "../../components/dispatch/DeparturePlanner";
+import { requestedArrivalLabel, requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
 import "./CargoLoading.css";
 
 // Loading-state badge shown on each rider card. Text + icon (not colour alone)
@@ -533,6 +535,11 @@ function RiderCard({
                   </span>
                   {order.batchId ? ` · Batch ${order.batchId}` : ""}
                 </small>
+                {/* When the order is needed AT the destination — a request
+                    for planning, not an estimate or a departure time. */}
+                <small className="cl-order-request">
+                  Requested arrival: {requestedScheduleLabel(order.requestedDeliveryDate, requestedArrivalOf(order))}
+                </small>
                 {!schedule.eligible && (
                   <>
                     {schedule.code === SCHEDULED_DATE_NOT_REACHED && (
@@ -568,6 +575,8 @@ function RiderCard({
           );
         })}
       </div>
+
+      {!dispatched && <DeparturePlanner orders={group.orders} riderName={group.rider.name} />}
 
       {!tripHold.canFinalize && !dispatched ? (
         <p className="cl-hint">{tripHold.reason}</p>
@@ -640,6 +649,7 @@ function PrintSheet({ group, dispatcher, printedAt }) {
             <th>Clinic &amp; Address</th>
             <th>Vaccine</th>
             <th>Batch ID</th>
+            <th>Requested arrival</th>
             <th>Qty</th>
             <th>Loaded</th>
           </tr>
@@ -658,6 +668,7 @@ function PrintSheet({ group, dispatcher, printedAt }) {
                 </td>
                 <td>{order.vaccineName || "—"}</td>
                 <td>{order.batchId || "—"}</td>
+                <td>{requestedArrivalLabel(requestedArrivalOf(order))}</td>
                 <td>
                   {(order.quantity || 0).toLocaleString()} {order.unit || "doses"}
                 </td>

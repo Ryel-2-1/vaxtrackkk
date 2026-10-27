@@ -446,6 +446,8 @@ function buildOrderReceipt({
     destinationAreaId: orderFields.destinationAreaId ?? null,
     requestedDeliveryDate: orderFields.requestedDeliveryDate ?? null,
     requestedDeliveryTime: orderFields.scheduledDeliveryTime ?? null,
+    // The Med Rep's requested arrival exactly as accepted (requestedArrival.js).
+    requestedArrival: orderFields.requestedArrival ?? null,
     priority: orderFields.priority,
     deliveryInstructions: orderFields.deliveryInstructions ?? "",
     lines,
@@ -524,6 +526,8 @@ function buildReconstructedReceipt(orderId, order) {
     destinationAreaId: order.destinationAreaId ?? null,
     requestedDeliveryDate: order.requestedDeliveryDate ?? null,
     requestedDeliveryTime: order.scheduledDeliveryTime ?? null,
+    // As the order records it, or null for an order placed before it existed.
+    requestedArrival: order.requestedArrival ?? null,
     priority: order.priority ?? null,
     deliveryInstructions: order.deliveryInstructions ?? "",
     lines,

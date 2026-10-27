@@ -684,6 +684,11 @@ service cloud.firestore {
         // scheduleEvents entry. No client may author or edit any of them.
         'scheduledDeliveryTime', 'originalRequestedDeliveryDate', 'scheduleRevision',
         'scheduleUpdatedAt', 'scheduleUpdatedByUid', 'scheduleChangeReason',
+        // The Med Rep's requested arrival at the destination
+        // (functions/src/requestedArrival.js), validated and written only by
+        // createOrderWithReservation. A client — Admin included — may neither
+        // author it on a repair-created order nor restate it afterwards.
+        'requestedArrival',
         // Stamped once by the status-history trigger (functions/src/statusEvents.js)
         // from the commit time of the first move into in_transit. It is the start
         // of the true delivery duration, so no client may author or move it.

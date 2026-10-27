@@ -4620,6 +4620,45 @@ async function main() {
     await assertSucceeds(updateDoc(doc(admin, "orders", "schFields"), { deliveryInstructions: "Gate 2" }));
   });
 
+  // The Med Rep's requested arrival is written only by createOrderWithReservation.
+  await check("SCH1b no client can author, change or clear the requested arrival, Admin included", async () => {
+    // Its own approved Med Rep: the shared one is left disabled by Prole1.
+    const ownerUid = "schArrivalRep";
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "users", ownerUid), { role: "salesrep", status: "approved", email: "arr@x.com" })
+    );
+    const owner = testEnv.authenticatedContext(ownerUid).firestore();
+    await seedSched("schArrival", {
+      createdByUid: ownerUid,
+      requestedDeliveryDate: schedTomorrow,
+      requestedArrival: { version: 1, mode: "before", time: "10:00" },
+    });
+    const writes = [
+      { requestedArrival: { version: 1, mode: "exact", time: "10:00" } },
+      { requestedArrival: { version: 1, mode: "any_time" } },
+      { requestedArrival: null },
+      { requestedArrival: deleteField() },
+    ];
+    for (const db of [admin, dispatcher, owner, rider]) {
+      for (const data of writes) {
+        await assertFails(updateDoc(doc(db, "orders", "schArrival"), data));
+      }
+    }
+    // An Admin repair-create may not carry one either...
+    await assertFails(setDoc(doc(admin, "orders", "schArrivalCreate"), {
+      createdByUid: salesRepUid, status: "pending_dispatch", requestedDeliveryDate: schedTomorrow,
+      requestedArrival: { version: 1, mode: "exact", time: "10:00" },
+    }));
+    // ...while the same create without it, and unrelated Admin edits, still work.
+    await assertSucceeds(setDoc(doc(admin, "orders", "schArrivalCreate"), {
+      createdByUid: salesRepUid, status: "pending_dispatch", requestedDeliveryDate: schedTomorrow,
+    }));
+    await assertSucceeds(updateDoc(doc(admin, "orders", "schArrival"), { deliveryInstructions: "Gate 2" }));
+    // Reads are unchanged: the owning Med Rep and the Dispatcher see it.
+    await assertSucceeds(getDoc(doc(owner, "orders", "schArrival")));
+    await assertSucceeds(getDoc(doc(dispatcher, "orders", "schArrival")));
+  });
+
   await check("SCH2 schedule history: Admin and Dispatcher read it, nobody writes it", async () => {
     await seedSched("schHist", { requestedDeliveryDate: schedTomorrow, assignedRiderId: riderUid });
     const eventPath = ["orders", "schHist", "scheduleEvents", "e1"];

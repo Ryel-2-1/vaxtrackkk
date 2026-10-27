@@ -58,6 +58,14 @@ import {
   territoryDestinationOptions,
 } from "../../services/territory";
 import { manilaToday, validateRequestedDate } from "../../services/requestedDate";
+import {
+  arrivalPayloadOf,
+  normalizeArrivalForm,
+  normalizeRequestedArrival,
+  requestedArrivalLabel,
+  requestedScheduleLabel,
+} from "../../services/requestedArrival";
+import RequestedArrivalField from "../../components/schedule/RequestedArrivalField";
 import { formatCentavos, readPriceCentavos } from "../../services/money";
 import { PRODUCT_VAT_LABELS, readVatClassification } from "../../services/vatClassification";
 import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
@@ -377,6 +385,23 @@ function SalesRepPlaceOrder() {
   const [instructions, setInstructions] = useState(restored?.deliveryInstructions ?? "");
   // Exact 'YYYY-MM-DD' text, never parsed into a Date, so it cannot shift.
   const [requestedDate, setRequestedDate] = useState(initialCheckout.requestedDeliveryDate);
+  // Optional requested ARRIVAL at the destination on that date (mode + only
+  // the times it needs). Restored like the date: from a pending attempt's
+  // snapshot, else the saved draft; any time within the day otherwise.
+  const [arrival, setArrival] = useState(() => normalizeArrivalForm(initialCheckout.requestedArrival));
+  // Set by Finalize when the arrival is refused (incomplete, reversed, passed…);
+  // cleared by the next edit.
+  const [arrivalError, setArrivalError] = useState(null);
+  const handleArrivalChange = (next) => {
+    setArrival(next);
+    setArrivalError(null);
+  };
+  // Shape problems are shown as soon as both times exist (a reversed or equal
+  // window); a missing time is reported only when the rep tries to continue.
+  // "Already passed" needs the clock and is checked at Finalize.
+  const arrivalShape = normalizeRequestedArrival(arrivalPayloadOf(arrival), { requestedDeliveryDate: null });
+  const shownArrivalError = arrivalError ?? (arrivalShape.ok || arrivalShape.incomplete ? null : arrivalShape);
+  const arrivalSummary = arrivalShape.ok ? `Requested: ${requestedArrivalLabel(arrivalShape.value)}` : "";
   const [urgent, setUrgent] = useState(restored?.priority === "Urgent");
   const [message, setMessage] = useState(
     pendingAttempt
@@ -550,8 +575,9 @@ function SalesRepPlaceOrder() {
       doctorId: doctorSelectValue,
       doctorAddressId: draftDestinationId,
       requestedDeliveryDate: requestedDate,
+      requestedArrival: arrival,
     });
-  }, [uid, doctorSelectValue, draftDestinationId, requestedDate]);
+  }, [uid, doctorSelectValue, draftDestinationId, requestedDate, arrival]);
 
   const filteredItems = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -716,6 +742,21 @@ function SalesRepPlaceOrder() {
       return;
     }
 
+    // Optional requested arrival on that date, checked by the same rules the
+    // server applies (requestedArrival.js) — including a time already past
+    // today. Nothing is adjusted: a refused request is shown, never rewritten.
+    const arrivalCheck = normalizeRequestedArrival(arrivalPayloadOf(arrival), {
+      requestedDeliveryDate: requestedCheck.value,
+      now: new Date(),
+    });
+    if (!arrivalCheck.ok) {
+      submittingRef.current = false;
+      setConfirmOpen(false);
+      setArrivalError(arrivalCheck);
+      setMessage(`Check the requested delivery time: ${arrivalCheck.message}`);
+      return;
+    }
+
     // The draft is scoped to the signed-in Med Rep, so there must be one.
     // Refused here, before any id is generated or anything is sent.
     if (!uid) {
@@ -742,6 +783,7 @@ function SalesRepPlaceOrder() {
       priority: urgent ? "Urgent" : "Standard",
       deliveryInstructions: instructions.trim(),
       requestedDeliveryDate: requestedCheck.value,
+      requestedArrival: arrivalCheck.value,
       // Per line: the reviewed standard, the agreed UNIT price and (only when
       // negotiated) its reason. No total and no VAT figure is ever sent.
       items: items.map((item) => ({
@@ -782,6 +824,8 @@ function SalesRepPlaceOrder() {
             // Required: validateRequestedDate has refused a blank date above,
             // and the server refuses one again (requested-date-required).
             requestedDeliveryDate: requestedCheck.value,
+            // When it is needed AT THE DESTINATION; the server re-validates it.
+            requestedArrival: submission.requestedArrival,
             items: submission.items,
           });
           if (typeof created?.orderId !== "string" || created.orderId === "") {
@@ -1088,7 +1132,7 @@ function SalesRepPlaceOrder() {
             <textarea
               value={instructions}
               onChange={(event) => setInstructions(event.target.value)}
-              placeholder="Add special handling notes, gate codes, or delivery window preferences..."
+              placeholder="Add special handling notes or gate codes..."
             />
 
             <label className="place-v2-date-label" htmlFor="place-requested-date">
@@ -1104,6 +1148,14 @@ function SalesRepPlaceOrder() {
               min={manilaToday()}
               value={requestedDate}
               onChange={(event) => setRequestedDate(event.target.value)}
+            />
+
+            <RequestedArrivalField
+              value={arrival}
+              onChange={handleArrivalChange}
+              problem={shownArrivalError}
+              disabled={saving}
+              summary={arrivalSummary}
             />
 
             <label className="urgent-row place-v2-urgent-row">
@@ -1133,6 +1185,11 @@ function SalesRepPlaceOrder() {
             <p>
               Priority
               <strong>{urgent ? "Urgent" : "Standard"}</strong>
+            </p>
+
+            <p>
+              Requested arrival
+              <strong>{arrivalShape.ok ? requestedArrivalLabel(arrivalShape.value) : arrivalShape.incomplete ? "Incomplete" : "Check the time"}</strong>
             </p>
 
             {/* The VAT breakdown of the AGREED prices. VAT is extracted from
@@ -1199,6 +1256,7 @@ function SalesRepPlaceOrder() {
           destination={selectedDestination ? `${selectedDestination.name}${selectedDestination.address ? ` — ${selectedDestination.address}` : ""}` : ""}
           lines={reviewLines}
           summary={priceSummary}
+          schedule={arrivalShape.ok ? requestedScheduleLabel(requestedDate, arrivalShape.value) : ""}
           saving={saving}
           onCancel={() => setConfirmOpen(false)}
           onConfirm={() => {
@@ -1483,7 +1541,7 @@ function VatBreakdown({ summary }) {
  * line with its classification, standard vs agreed price and reason where
  * negotiated, the totals and the final total.
  */
-function ReconfirmDialog({ doctorName, destination, lines, summary, saving, onCancel, onConfirm }) {
+function ReconfirmDialog({ doctorName, destination, lines, summary, schedule, saving, onCancel, onConfirm }) {
   const focusFirst = useCallback((node) => node?.focus(), []);
   return (
     <div className="place-v2-confirm-backdrop">
@@ -1503,6 +1561,12 @@ function ReconfirmDialog({ doctorName, destination, lines, summary, saving, onCa
           <strong>{doctorName}</strong>
           <span>{destination}</span>
         </p>
+        {schedule && (
+          <p className="place-v2-confirm-schedule">
+            <span>Requested delivery (arrival at the destination)</span>
+            <strong>{schedule}</strong>
+          </p>
+        )}
         <ul className="place-v2-confirm-lines">
           {lines.map(({ item, vatClassification, price }) => (
             <li key={item.sku}>

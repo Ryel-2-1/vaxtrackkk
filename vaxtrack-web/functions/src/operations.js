@@ -69,6 +69,7 @@ const {
   createPreparedReceipt,
 } = require("./orderHistory");
 const { materializeInitialHistory } = require("./orderHistoryOutbox");
+const { normalizeRequestedArrival } = require("./requestedArrival");
 const {
   priceOrderLine,
   summarizeAgreement,
@@ -202,8 +203,24 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
     payload?.requestedDeliveryDate,
     now
   );
+  // Optional requested arrival at the destination on that date
+  // (requestedArrival.js). Refused here too, before anything is read or written.
+  const requestedArrival = normalizeRequestedArrival(payload?.requestedArrival, {
+    requestedDeliveryDate,
+    now,
+  });
 
+  // Version 2 binds the requested arrival as well. A request key
+  // written before version 2 is still compared on what it recorded, so a
+  // retry that was already in flight replays rather than being refused.
   const fingerprint = canonicalRequestFingerprint({
+    uid,
+    doctorId,
+    doctorAddressId,
+    items,
+    schedule: { requestedArrival },
+  });
+  const legacyFingerprint = canonicalRequestFingerprint({
     uid,
     doctorId,
     doctorAddressId,
@@ -226,7 +243,8 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
     const keySnap = await tx.get(keyRef);
     if (keySnap.exists) {
       const prior = keySnap.data();
-      if (prior.fingerprint !== fingerprint) {
+      const expected = prior.fingerprintVersion === 2 ? fingerprint : legacyFingerprint;
+      if (prior.fingerprint !== expected) {
         throw new PolicyError(
           "idempotency-conflict",
           "This checkout was already submitted with different contents. Start a new order."
@@ -463,6 +481,10 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
       // already refused a missing or invalid one.
       requestedDeliveryDate,
       items: allocationLines,
+      // When the delivery is needed at the destination on that date — never a
+      // departure time, an estimate or a promise. Always written, any_time
+      // included, so a new order states it rather than leaving it implied.
+      requestedArrival,
       // ---- immutable price snapshot ----
       //
       // What this clinic was quoted, at this instant, in integers. A later
@@ -610,6 +632,7 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
     tx.set(keyRef, {
       uid,
       fingerprint,
+      fingerprintVersion: 2,
       orderId: orderRef.id,
       orderNumber,
       createdAt: FieldValue.serverTimestamp(),
