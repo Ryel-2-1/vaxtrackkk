@@ -149,12 +149,14 @@ test("the confirmation is built from the stored order's requested arrival", () =
 test("checkout: optional field, validated before review, sent with the order", () => {
   const page = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
   assert.match(page, /<RequestedArrivalField\s+value=\{arrival\}\s+onChange=\{handleArrivalChange\}/);
-  assert.match(page, /const arrivalCheck = normalizeRequestedArrival\(arrivalPayloadOf\(arrival\), \{\s*requestedDeliveryDate: requestedCheck\.value,\s*now: new Date\(\),\s*\}\);/);
+  assert.match(page, /const recovering = Boolean\(uid && loadPendingAttempt\(localStorage, uid\)\);/);
+  assert.match(page, /const \{ date: requestedCheck, arrival: arrivalCheck \} = validateCheckoutSchedule\(\{/);
+  assert.match(page, /requestedArrival: arrivalPayloadOf\(arrival\),\s*recovering,/);
   assert.match(page, /requestedArrival: arrivalCheck\.value,/, "in the retry snapshot");
   assert.match(page, /requestedArrival: submission\.requestedArrival,/, "and in the callable payload");
   assert.match(page, /schedule=\{arrivalShape\.ok \? requestedScheduleLabel\(requestedDate, arrivalShape\.value\) : ""\}/, "shown in the final review");
   // The reconfirmation dialog is opened only after the arrival check passes.
-  assert.ok(page.indexOf("const arrivalCheck =") < page.indexOf("setConfirmOpen(true)"));
+  assert.ok(page.indexOf("arrival: arrivalCheck") < page.indexOf("setConfirmOpen(true)"));
   const field = read("src/components/schedule/RequestedArrivalField.jsx");
   assert.match(field, /Requested delivery time <span className="arrival-optional">\(optional\)<\/span>/);
   assert.match(field, /not\s+when the rider leaves the hub/);
@@ -167,9 +169,11 @@ test("server: validated at the creation boundary, stored, on the receipt, and cl
   const ops = read("functions/src/operations.js");
   assert.match(ops, /const requestedArrival = normalizeRequestedArrival\(payload\?\.requestedArrival, \{/);
   assert.ok(ops.indexOf("normalizeRequestedArrival(payload") < ops.indexOf("canonicalRequestFingerprint({"));
-  assert.match(ops, /schedule: \{ requestedArrival \},/);
-  assert.match(ops, /const expected = prior\.fingerprintVersion === 2 \? fingerprint : legacyFingerprint;/);
-  assert.match(ops, /fingerprintVersion: 2,/);
+  assert.match(ops, /schedule: \{ requestedDeliveryDate, requestedArrival \},/);
+  assert.match(ops, /const expected = version === 3 \? fingerprint : version === 2 \? arrivalFingerprint : version === 1 \? legacyFingerprint : null;/);
+  assert.match(ops, /fingerprintVersion: 3,/);
+  assert.ok(ops.indexOf("if (keySnap.exists)") < ops.indexOf("normalizeRequestedDeliveryDate(requestedDeliveryDate, now)"), "replay before temporal rejection");
+  assert.match(ops, /original\.requestedDeliveryDate !== requestedDeliveryDate/);
   assert.match(ops, /items: allocationLines,\s*\/\/[\s\S]*?requestedArrival,/);
   const history = read("functions/src/orderHistory.js");
   assert.match(history, /requestedArrival: orderFields\.requestedArrival \?\? null,/);

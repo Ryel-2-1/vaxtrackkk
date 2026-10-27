@@ -1172,16 +1172,16 @@ function settleBatch({ inventoryId, data, quantity, mode }) {
  */
 function canonicalRequestFingerprint({ uid, doctorId, doctorAddressId, items, schedule }) {
   const canonical = JSON.stringify({
-    // Version 2 request keys also bind the requested ARRIVAL: the same request
-    // id resubmitted with another arrival preference is a different order, not
-    // a replay. The requested date stays outside the fingerprint, as before (a
-    // same-key retry with another date replays the original; the checkout's
-    // attempt snapshot refuses such a retry before it is sent). Absent
-    // (version 1, every request key written before) leaves the canonical form
-    // — and so the hash — exactly as it was.
+    // No schedule reproduces v1; arrival alone reproduces v2. New v3 keys bind
+    // BOTH date and arrival. Keep the older canonical forms byte-for-byte so
+    // requests already committed by an older server can still be recovered.
     ...(schedule === undefined
       ? {}
-      : { schedule: { requestedArrival: schedule.requestedArrival ?? null } }),
+      : { schedule: {
+        ...(Object.hasOwn(schedule, "requestedDeliveryDate")
+          ? { requestedDeliveryDate: schedule.requestedDeliveryDate } : {}),
+        requestedArrival: schedule.requestedArrival ?? null,
+      } }),
     uid,
     doctorId: doctorId ?? null,
     doctorAddressId: doctorAddressId ?? null,
@@ -1274,7 +1274,7 @@ function hasServerPricing(orderData) {
  * comparing it against the same manilaDateString the catalog uses keeps one
  * definition of "today".
  */
-function normalizeRequestedDeliveryDate(value, now) {
+function normalizeRequestedDeliveryDate(value, now, { allowPast = false } = {}) {
   if (
     value === undefined ||
     value === null ||
@@ -1292,7 +1292,10 @@ function normalizeRequestedDeliveryDate(value, now) {
       "The requested delivery date is not a valid date."
     );
   }
-  if (iso < manilaDateString(now)) {
+  // Structural validation is also used to compare a recovery request. Only an
+  // existing idempotency key can replay a past date; NEW writes repeat this
+  // check with the default, strict clock rule inside the transaction.
+  if (!allowPast && iso < manilaDateString(now)) {
     throw new PolicyError(
       "invalid-requested-date",
       "The requested delivery date cannot be in the past."

@@ -113,7 +113,7 @@ function arrivalBounds(spec) {
  * PolicyError. `requestedDeliveryDate` is the already-validated order date and
  * `now` the server's clock: a time that has already passed today is refused.
  */
-function normalizeRequestedArrival(value, { requestedDeliveryDate, now }) {
+function normalizeRequestedArrival(value, { requestedDeliveryDate, now, validateFuture = true }) {
   if (value === undefined || value === null) return { ...ANY_TIME };
   if (typeof value !== "object" || Array.isArray(value)) {
     refuse("The requested delivery time was malformed.");
@@ -156,7 +156,7 @@ function normalizeRequestedArrival(value, { requestedDeliveryDate, now }) {
   // A request for today whose latest acceptable minute has already gone by
   // could never be met; it is refused rather than quietly moved.
   const clock = manilaClock(now);
-  if (spec.mode !== "any_time" && requestedDeliveryDate === clock.date) {
+  if (validateFuture && spec.mode !== "any_time" && requestedDeliveryDate === clock.date) {
     const bounds = arrivalBounds(spec);
     if (!bounds || bounds[1] < clock.minute) {
       refuse("That requested time has already passed today. Choose a later time or another day.", "requested-arrival-passed");

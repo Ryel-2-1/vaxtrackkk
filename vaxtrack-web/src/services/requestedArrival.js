@@ -119,7 +119,7 @@ function readTime(value) {
  * @returns {{ok: true, value: object} | {ok: false, code: string, field: string, message: string}}
  *   `field` names the input to point at: "mode", "start", "end" or "time".
  */
-export function normalizeRequestedArrival(value, { requestedDeliveryDate = null, now = new Date() } = {}) {
+export function normalizeRequestedArrival(value, { requestedDeliveryDate = null, now = new Date(), validateFuture = true } = {}) {
   if (value === undefined || value === null) return { ok: true, value: { ...ANY_TIME } };
   if (typeof value !== "object" || Array.isArray(value)) return fail("The requested delivery time was malformed.");
   const mode = value.mode;
@@ -164,7 +164,7 @@ export function normalizeRequestedArrival(value, { requestedDeliveryDate = null,
   }
 
   const clock = manilaClock(now);
-  if (spec.mode !== "any_time" && requestedDeliveryDate === clock.date) {
+  if (validateFuture && spec.mode !== "any_time" && requestedDeliveryDate === clock.date) {
     const bounds = arrivalBounds(spec);
     if (!bounds || bounds[1] < clock.minute) {
       return fail(

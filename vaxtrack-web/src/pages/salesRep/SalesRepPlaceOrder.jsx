@@ -58,6 +58,7 @@ import {
   territoryDestinationOptions,
 } from "../../services/territory";
 import { manilaToday, validateRequestedDate } from "../../services/requestedDate";
+import { checkoutScheduleErrorMessage, validateCheckoutSchedule } from "../../services/checkoutSchedule";
 import {
   arrivalPayloadOf,
   normalizeArrivalForm,
@@ -78,9 +79,11 @@ import DialogLayer from "../../components/ui/DialogLayer";
  * step where the right next action is not obvious from the message alone.
  */
 const ORDER_FAILURE_MESSAGE =
-  "We couldn't place the order. Your cart and entries are still here — check your connection and try again.";
+  "We couldn't confirm the order. Your cart and entries are still here. Check Order Tracking before trying again.";
 
 function messageForCallableError(error) {
+  const scheduleMessage = checkoutScheduleErrorMessage(error?.code);
+  if (scheduleMessage) return scheduleMessage;
   switch (error?.code) {
     case "insufficient-stock": {
       const info = error.info;
@@ -732,23 +735,22 @@ function SalesRepPlaceOrder() {
       return;
     }
 
-    // Optional booking date. Blank is fine; a present date must be valid and not
-    // in the past. The server re-validates, but checking here tells the rep at
-    // once rather than after a round trip.
-    const requestedCheck = validateRequestedDate(requestedDate);
+    // New requests need a future-valid schedule. A durable earlier attempt
+    // must be recoverable even after its time/day passes. submitOrderDraft
+    // still refuses changed contents, and the server re-checks NEW keys.
+    const recovering = Boolean(uid && loadPendingAttempt(localStorage, uid));
+    const { date: requestedCheck, arrival: arrivalCheck } = validateCheckoutSchedule({
+      requestedDeliveryDate: requestedDate,
+      requestedArrival: arrivalPayloadOf(arrival),
+      recovering,
+    });
     if (!requestedCheck.ok) {
       submittingRef.current = false;
       setMessage(requestedCheck.message);
       return;
     }
 
-    // Optional requested arrival on that date, checked by the same rules the
-    // server applies (requestedArrival.js) — including a time already past
-    // today. Nothing is adjusted: a refused request is shown, never rewritten.
-    const arrivalCheck = normalizeRequestedArrival(arrivalPayloadOf(arrival), {
-      requestedDeliveryDate: requestedCheck.value,
-      now: new Date(),
-    });
+    // Nothing is adjusted: a refused request is shown, never rewritten.
     if (!arrivalCheck.ok) {
       submittingRef.current = false;
       setConfirmOpen(false);
@@ -774,8 +776,9 @@ function SalesRepPlaceOrder() {
       return;
     }
 
-    // Everything the rep is submitting — including priority, instructions and
-    // the requested date, which the server fingerprint ignores. It is saved
+    // Everything the rep is submitting — including priority and instructions,
+    // which are protected by the local snapshot. The server's v3 fingerprint
+    // also binds the requested date AND time. The snapshot is saved
     // with the request id before the call, and a retry must match it.
     const submission = {
       doctorId: selectedDoctor.id,

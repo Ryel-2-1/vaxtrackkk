@@ -196,29 +196,31 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
 
   const requestId = validateRequestId(payload?.requestId);
   const { doctorId, doctorAddressId, items } = validateCreatePayload(payload);
-  // Required booking date. Validated here (before any read/write) so a missing,
-  // invalid or past date fails fast without touching stock or the idempotency
-  // record — an undated order could never be dispatched, so it is never made.
+  // Parse the immutable request before looking up its key. A committed order
+  // must remain recoverable after its requested time/day passes. Clock checks
+  // apply only to NEW keys, inside the transaction, before any write.
   const requestedDeliveryDate = normalizeRequestedDeliveryDate(
     payload?.requestedDeliveryDate,
-    now
+    now,
+    { allowPast: true }
   );
-  // Optional requested arrival at the destination on that date
-  // (requestedArrival.js). Refused here too, before anything is read or written.
   const requestedArrival = normalizeRequestedArrival(payload?.requestedArrival, {
     requestedDeliveryDate,
     now,
+    validateFuture: false,
   });
 
-  // Version 2 binds the requested arrival as well. A request key
-  // written before version 2 is still compared on what it recorded, so a
-  // retry that was already in flight replays rather than being refused.
+  // v3 binds both date and arrival. Older keys retain their original hash;
+  // their unbound schedule is also checked against the committed order below.
   const fingerprint = canonicalRequestFingerprint({
     uid,
     doctorId,
     doctorAddressId,
     items,
-    schedule: { requestedArrival },
+    schedule: { requestedDeliveryDate, requestedArrival },
+  });
+  const arrivalFingerprint = canonicalRequestFingerprint({
+    uid, doctorId, doctorAddressId, items, schedule: { requestedArrival },
   });
   const legacyFingerprint = canonicalRequestFingerprint({
     uid,
@@ -243,8 +245,9 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
     const keySnap = await tx.get(keyRef);
     if (keySnap.exists) {
       const prior = keySnap.data();
-      const expected = prior.fingerprintVersion === 2 ? fingerprint : legacyFingerprint;
-      if (prior.fingerprint !== expected) {
+      const version = prior.fingerprintVersion ?? 1;
+      const expected = version === 3 ? fingerprint : version === 2 ? arrivalFingerprint : version === 1 ? legacyFingerprint : null;
+      if (!expected || prior.fingerprint !== expected) {
         throw new PolicyError(
           "idempotency-conflict",
           "This checkout was already submitted with different contents. Start a new order."
@@ -259,16 +262,34 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
       // back to the client's own expectation, which is the exact figure the
       // whole boundary exists to stop anyone trusting.
       const priorSnap = await tx.get(db.collection(ORDERS).doc(prior.orderId));
+      if (!priorSnap.exists) {
+        throw new PolicyError("order-not-found", "The original order could not be recovered. Check Order Tracking and contact an administrator before placing another order.");
+      }
+      const original = priorSnap.data();
+      const originalArrival = normalizeRequestedArrival(original.requestedArrival, {
+        requestedDeliveryDate: original.requestedDeliveryDate, now, validateFuture: false,
+      });
+      if (original.requestedDeliveryDate !== requestedDeliveryDate ||
+          JSON.stringify(originalArrival) !== JSON.stringify(requestedArrival)) {
+        throw new PolicyError("idempotency-conflict", "This checkout was already submitted with a different delivery date or time. Check Order Tracking before starting another order.");
+      }
       return {
         orderId: prior.orderId,
         orderNumber: prior.orderNumber,
         replayed: true,
+        requestedDeliveryDate: original.requestedDeliveryDate,
+        requestedArrival: originalArrival,
         pricing: pricingFromOrder(priorSnap.exists ? priorSnap.data() : null),
         destination: destinationFromOrder(
           priorSnap.exists ? priorSnap.data() : null
         ),
       };
     }
+
+    // No committed order exists under this key: past requests are still
+    // refused. The caller cannot opt out of these checks through its payload.
+    normalizeRequestedDeliveryDate(requestedDeliveryDate, now);
+    normalizeRequestedArrival(requestedArrival, { requestedDeliveryDate, now });
 
     const doctorSnap = await tx.get(doctorRef);
     const doctorAddressSnap = await tx.get(doctorAddressRef);
@@ -632,7 +653,7 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
     tx.set(keyRef, {
       uid,
       fingerprint,
-      fingerprintVersion: 2,
+      fingerprintVersion: 3,
       orderId: orderRef.id,
       orderNumber,
       createdAt: FieldValue.serverTimestamp(),
@@ -647,6 +668,8 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
       orderId: orderRef.id,
       orderNumber,
       replayed: false,
+      requestedDeliveryDate,
+      requestedArrival,
       productKeys: allocationSummary.backorderedProductKeys,
       destination: destination.response,
       pricing: {

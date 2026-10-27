@@ -34,6 +34,10 @@ import { confirmRiderReturnToHub, subscribeRiderDispatchStates } from "../../ser
 import { cargoGroupDispatch, ridersReturningToHub } from "../../services/riderTrip";
 import DispatcherDialogLayer from "./DispatcherDialogLayer";
 import DeparturePlanner from "../../components/dispatch/DeparturePlanner";
+
+// The requested-arrival contract ships independently of this unfinished,
+// manually-entered travel-time planner. Opt in only for local evaluation.
+const DEPARTURE_PLANNER_ENABLED = import.meta.env?.VITE_DEPARTURE_PLANNER_ENABLED === "true";
 import { requestedArrivalLabel, requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
 import "./CargoLoading.css";
 
@@ -576,7 +580,7 @@ function RiderCard({
         })}
       </div>
 
-      {!dispatched && <DeparturePlanner orders={group.orders} riderName={group.rider.name} />}
+      {DEPARTURE_PLANNER_ENABLED && !dispatched && <DeparturePlanner orders={group.orders} riderName={group.rider.name} />}
 
       {!tripHold.canFinalize && !dispatched ? (
         <p className="cl-hint">{tripHold.reason}</p>

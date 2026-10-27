@@ -219,7 +219,8 @@ test("the planner UI is planning only and never reuses a stale entry", () => {
   // The plan is recomputed from the live orders on every render.
   assert.match(ui, /const plan = planDeparture\(\{/);
   const cargo = readFileSync(new URL("../src/pages/dispatcher/DispatcherCargoLoading.jsx", import.meta.url), "utf8");
-  assert.match(cargo, /\{!dispatched && <DeparturePlanner orders=\{group\.orders\} riderName=\{group\.rider\.name\} \/>\}/);
+  assert.match(cargo, /const DEPARTURE_PLANNER_ENABLED = import\.meta\.env\?\.VITE_DEPARTURE_PLANNER_ENABLED === "true";/);
+  assert.match(cargo, /\{DEPARTURE_PLANNER_ENABLED && !dispatched && <DeparturePlanner orders=\{group\.orders\} riderName=\{group\.rider\.name\} \/>\}/);
 });
 
 test("with a stop for another day, the interval is labelled as covering only the other stops", () => {

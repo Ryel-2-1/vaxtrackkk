@@ -18,8 +18,8 @@ import { EMPTY_ARRIVAL_FORM, arrivalKey, arrivalPayloadOf, normalizeArrivalForm 
  *    cannot be verified, nothing is sent: an ID that cannot survive a refresh
  *    is exactly the defect being fixed, so there is no memory-only fallback.
  *  - A retry is allowed only when the checkout still matches the saved
- *    attempt. The server's fingerprint ignores priority, instructions and the
- *    requested date, so a changed retry would be silently replayed as the
+ *    attempt. The server's fingerprint ignores priority and instructions,
+ *    so a changed retry would be silently replayed as the
  *    ORIGINAL order; it is refused here instead, and the ID is never rotated
  *    except by the rep's explicit discard.
  *  - Confirmed success clears the cart, the ID and the snapshot together.
@@ -352,8 +352,8 @@ export function updateCartDraftLines(storage, uid, lines) {
 
 /**
  * The canonical form of everything the rep submits — every field they can see
- * and change, including the three the server fingerprint ignores (priority,
- * instructions, requested date). Lines are sorted so order does not matter.
+ * and change, including priority and instructions (not server-fingerprinted).
+ * Lines are sorted so order does not matter.
  */
 export function canonicalSubmission(submission) {
   const items = (Array.isArray(submission?.items) ? submission.items : [])

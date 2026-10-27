@@ -145,3 +145,19 @@ test("fingerprint v2 binds the requested arrival; omitting it reproduces the ver
   assert.notEqual(exact10, canonicalRequestFingerprint(schedule({ version: 1, mode: "exact", time: "10:01" })), "a changed time is a different request");
   assert.notEqual(exact10, canonicalRequestFingerprint(schedule({ version: 1, mode: "any_time" })), "any time differs from a timed request");
 });
+
+test("fingerprint v3 binds date and arrival without changing either older hash", () => {
+  const base = { uid: "u", doctorId: "d", doctorAddressId: "home", items: [{ inventoryId: "b1", quantity: 2 }] };
+  const requestedArrival = { version: 1, mode: "exact", time: "10:00" };
+  const fp = (date) => canonicalRequestFingerprint({ ...base, schedule: { requestedDeliveryDate: date, requestedArrival } });
+  assert.equal(fp(TODAY), fp(TODAY));
+  assert.notEqual(fp(TODAY), fp(LATER));
+  assert.notEqual(fp(TODAY), canonicalRequestFingerprint({ ...base, schedule: { requestedArrival } }));
+  assert.notEqual(fp(TODAY), canonicalRequestFingerprint(base));
+});
+
+test("recovery parsing skips only the clock, not arrival validation", () => {
+  const options = { requestedDeliveryDate: TODAY, now: NOW, validateFuture: false };
+  assert.equal(normalizeRequestedArrival({ mode: "exact", time: "08:00" }, options).time, "08:00");
+  assert.throws(() => normalizeRequestedArrival({ mode: "exact", time: "25:00" }, options), (e) => e.code === "invalid-requested-arrival");
+});

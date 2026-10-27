@@ -111,7 +111,9 @@ test("each mode is stored canonically on the order and its receipt", async () =>
     assert.equal(o.scheduledDeliveryTime, undefined, "the Admin schedule field is not written");
     assert.deepEqual((await receipt(r.orderId)).requestedArrival, stored, "receipt snapshot");
     const key = (await db.collection("orderRequestKeys").get()).docs.find((d) => d.data().orderId === r.orderId).data();
-    assert.equal(key.fingerprintVersion, 2);
+    assert.equal(key.fingerprintVersion, 3);
+    assert.deepEqual(r.requestedArrival, stored, "response confirms the stored preference");
+    assert.equal(r.requestedDeliveryDate, LATER);
   }
 });
 
@@ -161,10 +163,7 @@ test("a retry with the same preference replays; a changed preference under the s
   }
   assert.equal(await size("orders"), 1);
   assert.deepEqual((await order(first.orderId)).requestedArrival, { version: 1, mode: "before", time: "11:00" });
-  // The date keeps its existing contract: outside the fingerprint, so a
-  // same-key retry with another date replays the original, date unchanged.
-  const otherDay = await create({ ...payload, requestedDeliveryDate: "2026-10-16" });
-  assert.equal(otherDay.orderId, first.orderId);
+  assert.equal(await codeOf(create({ ...payload, requestedDeliveryDate: "2026-10-16" })), "idempotency-conflict");
   assert.equal((await order(first.orderId)).requestedDeliveryDate, LATER);
 });
 
@@ -179,7 +178,8 @@ test("a request key written before version 2 still replays an unchanged retry", 
   const replay = await create(payload);
   assert.equal(replay.orderId, first.orderId);
   assert.equal(replay.replayed, true);
-  // A version-1 key cannot tell schedules apart (as before): items still must match.
+  // Its older hash still protects the items; schedule fields are compared
+  // against the original stored order rather than silently ignored.
   const otherItems = { ...payload, items: [ITEMS[1]] };
   assert.equal(await codeOf(create(otherItems)), "idempotency-conflict");
   assert.equal(await size("orders"), 1);
@@ -199,4 +199,49 @@ test("pricing, VAT, negotiation and reservations are unchanged by the preference
   // A negotiated line without its reason is still refused, preference or not.
   const noReason = [{ ...ITEMS[0], negotiationReason: "" }, ITEMS[1]];
   assert.notEqual(await codeOf(create(payloadOf({ items: noReason, requestedArrival: { mode: "exact", time: "11:00" } }))), null);
+});
+
+test("a committed timed request replays after cutoff and the next day; a NEW stale request writes nothing", async () => {
+  await seed();
+  const payload = payloadOf({ requestedDeliveryDate: TODAY, requestedArrival: { mode: "exact", time: "10:01" } });
+  const first = await create(payload);
+  const reserved = (await db.collection("inventory").doc("vat").get()).data().reservedQuantity;
+  for (const now of [new Date("2026-10-11T03:00:00Z"), new Date("2026-10-11T16:01:00Z")]) {
+    const replay = await ops.createOrderWithReservation({ db, FieldValue, uid: SR, now, payload });
+    assert.equal(replay.orderId, first.orderId);
+    assert.equal(replay.replayed, true);
+    assert.deepEqual(replay.requestedArrival, first.requestedArrival);
+    assert.equal(replay.requestedDeliveryDate, TODAY);
+    assert.equal(await codeOf(ops.createOrderWithReservation({ db, FieldValue, uid: SR, now, payload: { ...payload, requestId: rid() } })), now.getTime() < new Date("2026-10-11T16:00:00Z").getTime() ? "requested-arrival-passed" : "invalid-requested-date");
+  }
+  assert.equal(await size("orders"), 1);
+  assert.equal(await size("orderRequestKeys"), 1);
+  assert.equal(await size("inventoryReservations"), 1);
+  assert.equal((await db.collection("inventory").doc("vat").get()).data().reservedQuantity, reserved);
+});
+
+test("v1 and v2 recovery compares unbound schedule fields with the original order", async () => {
+  await seed();
+  for (const version of [1, 2]) {
+    const payload = payloadOf({ requestedArrival: { mode: "exact", time: "11:00" } });
+    const first = await create(payload);
+    const args = { uid: SR, doctorId: DOCTOR, doctorAddressId: CLINIC, items: ITEMS };
+    if (version === 2) args.schedule = { requestedArrival: { version: 1, mode: "exact", time: "11:00" } };
+    await db.collection("orderRequestKeys").doc(`${SR}__${payload.requestId}`).update({ fingerprintVersion: version, fingerprint: canonicalRequestFingerprint(args) });
+    assert.equal((await create(payload)).orderId, first.orderId);
+    assert.equal(await codeOf(create({ ...payload, requestedDeliveryDate: "2026-10-16" })), "idempotency-conflict");
+    assert.equal(await codeOf(create({ ...payload, requestedArrival: { mode: "any_time" } })), "idempotency-conflict");
+  }
+  assert.equal(await size("orders"), 2);
+});
+
+test("simultaneous first submissions reserve once and preserve one schedule", async () => {
+  await seed();
+  const payload = payloadOf({ requestedArrival: { mode: "window", start: "10:00", end: "12:00" } });
+  const results = await Promise.all([create(payload), create(payload), create(payload)]);
+  assert.equal(new Set(results.map((r) => r.orderId)).size, 1);
+  assert.equal(results.filter((r) => !r.replayed).length, 1);
+  assert.equal(await size("orders"), 1);
+  assert.equal((await db.collection("inventory").doc("vat").get()).data().reservedQuantity, 2);
+  for (const r of results) assert.deepEqual(r.requestedArrival, { version: 1, mode: "window", start: "10:00", end: "12:00" });
 });
