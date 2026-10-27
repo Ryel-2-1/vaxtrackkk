@@ -361,15 +361,6 @@ function SalesRepOrderTracking() {
             <h2>Deliveries overview</h2>
             <p>Monitor active deliveries, shipment progress, and completed orders.</p>
           </div>
-
-          <div className="tracking-v2-search">
-            <Search size={15} />
-            <input
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Search order ID, clinic, vaccine, or status..."
-            />
-          </div>
         </div>
 
         <ToastRegion toast={toast} onDismiss={dismissToast} />
@@ -393,6 +384,15 @@ function SalesRepOrderTracking() {
                 >
                   History
                 </button>
+              </div>
+
+              <div className="tracking-v2-search">
+                <Search size={15} />
+                <input
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  placeholder="Search order ID, clinic, vaccine, or status..."
+                />
               </div>
 
               <label className="tracking-v2-status-filter">

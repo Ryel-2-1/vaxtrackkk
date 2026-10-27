@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CalendarDays,
@@ -11,11 +11,14 @@ import {
   PackageCheck,
   RotateCcw,
   Search,
+  X,
 } from "lucide-react";
 import { subscribeInventory } from "../../services/inventoryService";
 import { subscribeVaccines } from "../../services/vaccineCatalogService";
 import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
 import { liveErrorMessage } from "../../services/liveDataErrors";
+import { abbreviateBatchId } from "../../services/batchIdDisplay";
+import "../../components/ui/feedback.css";
 
 // The derived expiry levels, in the order a rep cares about them. These are
 // labels from the shared helper, not values of the stored `status` field.
@@ -25,6 +28,10 @@ const rowsPerPage = 5;
 /* `getDaysUntilExpiry` was deleted: it measured from local midnight, while the
    server and every other surface use a date-only Manila cutoff. The days now
    come from the shared helper, alongside the level they belong to. */
+
+function formatNumber(value) {
+  return Number(value || 0).toLocaleString();
+}
 
 function formatExpiry(dateStr) {
   if (!dateStr) return "—";
@@ -196,8 +203,6 @@ function SalesRepInventory() {
     setPage(1);
   };
 
-  const formatNumber = (value) => Number(value || 0).toLocaleString();
-
   if (loading) {
     return (
       <>
@@ -349,53 +354,42 @@ function SalesRepInventory() {
           )}
         </div>
 
-        <table className="salesrep-inventory-table inventory-v2-table">
-          <thead>
-            <tr>
-              <th>Vaccine name</th>
-              <th>Batch ID</th>
-              <th>Expiry date</th>
-              <th>Remaining qty</th>
-              <th>Status</th>
-            </tr>
-          </thead>
+        {/* Only the current page is rendered. Rows have one fixed height (each
+            cell's content is bounded to fit it, see salesrep-polish.css), and a
+            paged result reserves a full page, so a short last page leaves the
+            pager where it was. One page or none keeps its natural height. */}
+        <div
+          className={`inventory-v2-table-region${totalPages > 1 ? " is-paged" : ""}`}
+          style={{ "--inv-page-rows": rowsPerPage }}
+        >
+          <table className="salesrep-inventory-table inventory-v2-table">
+            <thead>
+              <tr>
+                <th>Vaccine name</th>
+                <th>Batch ID</th>
+                <th>Expiry date</th>
+                <th>Remaining qty</th>
+                <th>Status</th>
+              </tr>
+            </thead>
 
-          <tbody>
-            {visibleStocks.length > 0 ? (
-              visibleStocks.map((stock) => (
-                <tr key={stock.id}>
-                  <td>
-                    <div className="stock-name">
-                      <div>
-                        <strong>{stock.name}</strong>
-                        <small>{stock.manufacturer} · {stock.type}</small>
-                      </div>
+            <tbody>
+              {visibleStocks.length > 0 ? (
+                visibleStocks.map((stock) => <StockRow key={stock.id} stock={stock} />)
+              ) : (
+                <tr>
+                  <td colSpan="5">
+                    <div className="inventory-empty-state">
+                      <PackageCheck size={28} />
+                      <strong>No batches found</strong>
+                      <p>Try changing the search term, vaccine type, status, or expiry filter.</p>
                     </div>
                   </td>
-                  <td><span className="batch-chip">{stock.batchId}</span></td>
-                  <td>
-                    <strong>{stock.expiryDate}</strong>
-                    {stock.daysRemaining !== Infinity && (
-                      <small>{stock.daysRemaining} Days Remaining</small>
-                    )}
-                  </td>
-                  <td>{formatNumber(stock.quantity)}</td>
-                  <td><span className={`status-chip ${stock.statusLower}`}>• {stock.status}</span></td>
                 </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan="5">
-                  <div className="inventory-empty-state">
-                    <PackageCheck size={28} />
-                    <strong>No batches found</strong>
-                    <p>Try changing the search term, vaccine type, status, or expiry filter.</p>
-                  </div>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+            </tbody>
+          </table>
+        </div>
 
         <div className="salesrep-pagination-row right inventory-v2-pagination">
           <p>
@@ -406,10 +400,11 @@ function SalesRepInventory() {
           <div>
             <button
               type="button"
+              aria-label="Previous page"
               disabled={currentPage === 1}
               onClick={() => setPage((value) => Math.max(value - 1, 1))}
             >
-              <ChevronLeft size={15} />
+              <ChevronLeft size={15} aria-hidden="true" />
             </button>
 
             {Array.from({ length: totalPages }, (_, index) => (
@@ -417,6 +412,7 @@ function SalesRepInventory() {
                 key={index + 1}
                 type="button"
                 className={currentPage === index + 1 ? "active" : ""}
+                aria-current={currentPage === index + 1 ? "page" : undefined}
                 onClick={() => setPage(index + 1)}
               >
                 {index + 1}
@@ -425,15 +421,94 @@ function SalesRepInventory() {
 
             <button
               type="button"
+              aria-label="Next page"
               disabled={currentPage === totalPages}
               onClick={() => setPage((value) => Math.min(value + 1, totalPages))}
             >
-              <ChevronRight size={15} />
+              <ChevronRight size={15} aria-hidden="true" />
             </button>
           </div>
         </div>
       </section>
     </>
+  );
+}
+
+function StockRow({ stock }) {
+  // The name and its manufacturer · type line are clamped to keep the row at
+  // its fixed height, so the name opens the full values in a small modal
+  // dialog: a button, so keyboard and touch reach it, and nothing depends on
+  // hover or a title tooltip. Escape, Close or a tap on the backdrop closes
+  // it, the page underneath stays inert meanwhile (a tap outside never lands
+  // on what is behind it), and focus returns to the name.
+  const detailsRef = useRef(null);
+  // A press that starts on the backdrop; a text selection dragged out of the
+  // panel also ends with a click on the dialog, and must not close it.
+  const pressedBackdrop = useRef(false);
+  const abbreviatedBatchId = abbreviateBatchId(stock.batchId);
+  return (
+    <tr>
+      <td>
+        <div className="stock-name">
+          <button
+            type="button"
+            className="stock-name-trigger"
+            aria-haspopup="dialog"
+            onClick={() => detailsRef.current?.showModal()}
+          >
+            <strong>{stock.name}</strong>
+            <small>{stock.manufacturer} · {stock.type}</small>
+          </button>
+          <dialog
+            ref={detailsRef}
+            className="stock-name-popover"
+            aria-label={`${stock.name} details`}
+            onPointerDown={(event) => {
+              pressedBackdrop.current = event.target === event.currentTarget;
+            }}
+            onClick={(event) => {
+              // The panel fills the dialog, so only the backdrop targets it.
+              if (pressedBackdrop.current && event.target === event.currentTarget) event.currentTarget.close();
+              pressedBackdrop.current = false;
+            }}
+          >
+            <div className="stock-name-popover-panel">
+              <div className="stock-name-popover-head">
+                <strong>{stock.name}</strong>
+                <form method="dialog">
+                  <button type="submit" className="stock-name-popover-close" aria-label="Close details">
+                    <X size={16} aria-hidden="true" />
+                  </button>
+                </form>
+              </div>
+              <dl>
+                <div><dt>Manufacturer</dt><dd>{stock.manufacturer}</dd></div>
+                <div><dt>Vaccine type</dt><dd>{stock.type}</dd></div>
+                <div><dt>Batch ID</dt><dd>{stock.batchId}</dd></div>
+              </dl>
+            </div>
+          </dialog>
+        </div>
+      </td>
+      <td>
+        {abbreviatedBatchId ? (
+          <span className="batch-chip is-abbreviated">
+            <span aria-hidden="true">{abbreviatedBatchId}</span>
+            <span className="m-visually-hidden">{stock.batchId}</span>
+          </span>
+        ) : (
+          <span className="batch-chip">{stock.batchId}</span>
+        )}
+      </td>
+      <td className="inventory-expiry-cell">
+        <strong>{stock.expiryDate}</strong>
+        {stock.daysRemaining !== Infinity && (
+          <small>{stock.daysRemaining} Days Remaining</small>
+        )}
+      </td>
+      <td className="inventory-qty-cell">{formatNumber(stock.quantity)}</td>
+      <td><span className={`status-chip ${stock.statusLower}`}>• {stock.status}</span></td>
+    </tr>
   );
 }
 
