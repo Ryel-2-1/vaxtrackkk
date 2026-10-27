@@ -18,6 +18,7 @@ import { ORDER_STATUSES, STATUS_LABELS } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
 import TimingIndicator from "../../components/ui/TimingIndicator";
 import KpiCard from "../../components/ui/KpiCard";
+import OrderCancellationAction from "../../components/orders/OrderCancellationAction";
 import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 import { subscribeOrderStatusEvents } from "../../services/statusEventService";
 import { kpiValue, liveErrorMessage } from "../../services/liveDataErrors";
@@ -35,6 +36,7 @@ function normalizeDelivery(raw) {
 
   return {
     uid: raw.id,
+    cancellationOrder: raw,
     id: raw.orderNumber || raw.id.slice(0, 10).toUpperCase(),
     rider: riderName,
     initials,
@@ -131,7 +133,9 @@ function Deliveries() {
   const linkedDelivery = linkedOrderId
     ? deliveryList.find((d) => d.uid === linkedOrderId) ?? null
     : null;
-  const openDelivery = selectedDelivery ?? linkedDelivery;
+  const openDelivery = selectedDelivery
+    ? deliveryList.find((delivery) => delivery.uid === selectedDelivery.uid) ?? null
+    : linkedDelivery;
   const closeDelivery = () => {
     setSelectedDelivery(null);
     if (linkedOrderId) {
@@ -229,7 +233,7 @@ function Deliveries() {
             {/* Was "Monitor and route active cold-chain shipments." Admin does
                 not route anything and this page performs no cold-chain
                 measurement; it reads the orders collection. */}
-            <p>Read-only view of every order and its current status.</p>
+            <p>Review every order and its current status. Eligible orders can be cancelled before loading.</p>
           </div>
 
           {/* A "New delivery" button stood here and raised a toast explaining
@@ -613,6 +617,7 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
         </header>
 
         <div className="mdl-drawer-body">
+          <OrderCancellationAction key={delivery.uid} order={delivery.cancellationOrder} scope="inventory-page" />
           <section className="mdl-drawer-section">
             <h3>Destination</h3>
             <div className="mdl-drawer-row">

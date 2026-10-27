@@ -1,0 +1,15 @@
+.order-cancellation-action { margin: 12px 0; }
+.order-cancellation-action > p { font-size: 13px; line-height: 1.5; }
+.order-cancellation-dialog .m-dialog {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: calc(100dvh - 32px);
+}
+.order-cancellation-dialog .m-dialog-head { flex: none; }
+.order-cancellation-dialog .m-dialog-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+.order-cancellation-dialog .m-dialog form { min-height: 0; flex: 1 1 auto; overflow: hidden; }
+.order-cancellation-dialog .m-dialog-fields { min-height: 0; overflow-y: auto; }
+.order-cancellation-dialog .m-dialog-fields > * { display: block; margin: 0 0 10px; }
+.order-cancellation-dialog .m-dialog-fields p { font-size: 13px; line-height: 1.5; }
+.order-cancellation-dialog .m-dialog-actions { flex: none; }

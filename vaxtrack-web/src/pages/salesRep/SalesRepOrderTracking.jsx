@@ -32,6 +32,7 @@ import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 import AllocationSummary from "../../components/ui/AllocationSummary";
 import { describeAllocation } from "../../services/backorder";
+import OrderCancellationAction from "../../components/orders/OrderCancellationAction";
 
 function mapTrackingLabel(statusKey) {
   switch (statusKey) {
@@ -155,6 +156,7 @@ function normalizeOrder(raw) {
 
   return {
     id: raw.id,
+    cancellationOrder: raw,
     orderNumber: raw.orderNumber || raw.id,
     destination: raw.clinicName || "Unknown Clinic",
     city: raw.clinicAddress || "—",
@@ -514,6 +516,7 @@ function SalesRepOrderTracking() {
                   <span>Rider: {selectedOrder.driverName}</span>
                 </div>
                 <TimingIndicator order={selectedOrder} />
+                <OrderCancellationAction key={selectedOrder.id} order={selectedOrder.cancellationOrder} scope="salesrep-page" />
 
                 {selectedOrder.changeRequest && (
                   <section className="tracking-destination-request" aria-label="Destination change request">

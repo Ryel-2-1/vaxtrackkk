@@ -31,6 +31,8 @@ export default function ConfirmDialog({
   onCancel,
   validate,
   children,
+  className = "",
+  scrollFields = false,
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -68,7 +70,7 @@ export default function ConfirmDialog({
   };
 
   return (
-    <div className="m-dialog-backdrop" onMouseDown={() => !busy && onCancel()}>
+    <div className={`m-dialog-backdrop ${className}`.trim()} onMouseDown={() => !busy && onCancel()}>
       <div
         ref={dialogRef}
         className="m-dialog"
@@ -102,7 +104,7 @@ export default function ConfirmDialog({
         </div>
 
         <form onSubmit={confirm} noValidate>
-          {children}
+          {scrollFields ? <div className="m-dialog-fields">{children}</div> : children}
           {error && (
             <p id={errorId} className="m-dialog-error" role="alert">
               {error}
