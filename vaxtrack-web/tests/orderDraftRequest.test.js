@@ -13,6 +13,14 @@ import {
   loadCartDraft,
   saveCartDraft,
   updateCartDraftLines,
+  restoreCatalogCart,
+  mergeCartBatch,
+  saveCatalogCart,
+  saveCheckoutSelection,
+  loadCheckoutSelection,
+  saveCheckoutReview,
+  loadCheckoutReview,
+  initialCheckoutReview,
   canonicalSubmission,
   diffSubmission,
   loadPendingAttempt,
@@ -406,6 +414,186 @@ test("write-through never recreates a cart cleared by a confirmed order", () => 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const PLACE = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
 const REQUEST = read("src/pages/salesRep/SalesRepRequestOrder.jsx");
+
+// =================================================== Add More Items round trip
+
+test("Add More Items restores existing batch lines, merges a new batch, and keeps checkout details", () => {
+  const storage = new MemoryStorage();
+  const original = { inventoryId: "inv1", sku: "SAME-LABEL", name: "Original", quantity: 3, unitPriceCentavos: 50000, stock: 12 };
+  saveCartDraft(storage, UID_A, cart([original]));
+  const selection = {
+    doctorId: "doc1", doctorAddressId: "clinic1", requestedDeliveryDate: "2026-10-28",
+    requestedArrival: { mode: "window", start: "10:00", end: "11:00", time: "" },
+  };
+  saveCheckoutSelection(storage, UID_A, selection);
+  const review = {
+    priority: "Urgent", deliveryInstructions: "Call reception; keep this note.",
+    negotiation: { inv1: { agreedInput: "450.00", reason: "Clinic agreement" } },
+  };
+  saveCheckoutReview(storage, UID_A, review);
+  const restored = restoreCatalogCart(reload(storage), UID_A);
+  assert.deepEqual(restored, [original]);
+  const more = { inventoryId: "inv2", sku: "SAME-LABEL", name: "Other batch", unitPriceCentavos: 12000 };
+  const merged = mergeCartBatch(restored, more, 2, 999);
+  assert.equal(saveCatalogCart(storage, UID_A, merged), true);
+  // Continue to Checkout uses saveCartDraft too; it must not drop review fields.
+  saveCartDraft(storage, UID_A, { items: merged, totalVials: 5, storageSlots: 2 });
+  assert.deepEqual(restoreCatalogCart(reload(storage), UID_A), [original, { ...more, quantity: 2 }]);
+  assert.deepEqual(loadCheckoutSelection(storage, UID_A), selection);
+  assert.deepEqual(loadCheckoutReview(storage, UID_A), review);
+  assert.equal(loadCartDraft(storage, UID_A).draft.totalVials, 5);
+});
+
+test("re-adding the same batch adds quantity up to the limit, never silently accepting a new price", () => {
+  const old = { inventoryId: "a", sku: "BATCH", quantity: 3, unitPriceCentavos: 50000, stock: 8 };
+  const changedQuote = { inventoryId: "a", sku: "BATCH", unitPriceCentavos: 80000, stock: 2 };
+  assert.deepEqual(mergeCartBatch([old], changedQuote, 2, 10), [{ ...old, quantity: 5 }]);
+  assert.deepEqual(mergeCartBatch([old], changedQuote, 20, 10), [{ ...old, quantity: 10 }]);
+  assert.equal(old.quantity, 3, "input array/line is not mutated");
+});
+
+test("same display label does not merge distinct batches or their negotiated prices", () => {
+  const storage = new MemoryStorage();
+  const lines = [
+    { inventoryId: "a", sku: "SAME", quantity: 1 },
+    { inventoryId: "b", sku: "SAME", quantity: 2 },
+  ];
+  saveCatalogCart(storage, UID_A, lines);
+  saveCheckoutReview(storage, UID_A, { negotiation: {
+    a: { agreedInput: "12.00", reason: "A" }, b: { agreedInput: "23.00", reason: "B" },
+  } });
+  assert.equal(mergeCartBatch(lines, { inventoryId: "b" }, 1, 99)[0].quantity, 1);
+  assert.deepEqual(loadCheckoutReview(storage, UID_A).negotiation, {
+    a: { agreedInput: "12.00", reason: "A" }, b: { agreedInput: "23.00", reason: "B" },
+  });
+});
+
+test("catalog additions and removals survive refresh, including an explicitly emptied cart", () => {
+  const storage = new MemoryStorage();
+  saveCatalogCart(storage, UID_A, [{ inventoryId: "a", quantity: 2 }, { inventoryId: "b", quantity: 3 }]);
+  let lines = restoreCatalogCart(reload(storage), UID_A);
+  saveCatalogCart(storage, UID_A, lines.filter((line) => line.inventoryId !== "a"));
+  assert.deepEqual(restoreCatalogCart(reload(storage), UID_A), [{ inventoryId: "b", quantity: 3 }]);
+  saveCatalogCart(storage, UID_A, []);
+  lines = restoreCatalogCart(reload(storage), UID_A);
+  assert.deepEqual(lines, []);
+  assert.equal(loadCartDraft(storage, UID_A).draft.totalVials, 0);
+});
+
+test("catalog save retains incomplete price input and reason for normal checkout validation", () => {
+  const storage = new MemoryStorage();
+  saveCartDraft(storage, UID_A, cart());
+  saveCheckoutReview(storage, UID_A, { negotiation: { inv1: { agreedInput: "", reason: "not finished" } } });
+  saveCatalogCart(storage, UID_A, restoreCatalogCart(storage, UID_A));
+  const restored = initialCheckoutReview({ saved: loadCheckoutReview(reload(storage), UID_A) });
+  assert.deepEqual(restored.negotiation.inv1, { agreedInput: "", reason: "not finished" });
+});
+
+test("Reset to standard and removing/re-adding a batch cannot resurrect its old negotiated price", () => {
+  const storage = new MemoryStorage();
+  const line = { inventoryId: "inv1", quantity: 2 };
+  saveCartDraft(storage, UID_A, cart([line]));
+  saveCheckoutReview(storage, UID_A, { negotiation: { inv1: { agreedInput: "90.00", reason: "old" } } });
+  saveCheckoutReview(storage, UID_A, { negotiation: { inv1: {} } });
+  assert.deepEqual(loadCheckoutReview(storage, UID_A).negotiation.inv1, {});
+  saveCheckoutReview(storage, UID_A, { negotiation: { inv1: { agreedInput: "90.00", reason: "old" } } });
+  saveCatalogCart(storage, UID_A, []);
+  saveCatalogCart(storage, UID_A, [line]);
+  assert.deepEqual(loadCheckoutReview(storage, UID_A).negotiation, {});
+});
+
+test("another Med Rep cannot inherit cart lines, review fields, or priority", () => {
+  const storage = new MemoryStorage();
+  saveCartDraft(storage, UID_A, cart());
+  saveCheckoutReview(storage, UID_A, { priority: "Urgent", deliveryInstructions: "A only", negotiation: { inv1: { agreedInput: "9" } } });
+  assert.deepEqual(restoreCatalogCart(storage, UID_B), []);
+  assert.deepEqual(loadCheckoutReview(storage, UID_B), { priority: "Standard", deliveryInstructions: "", negotiation: {} });
+  saveCatalogCart(storage, UID_B, [{ inventoryId: "other", quantity: 1 }]);
+  assert.equal(restoreCatalogCart(storage, UID_A)[0].inventoryId, "inv1");
+  assert.equal(loadCheckoutReview(storage, UID_B).deliveryInstructions, "");
+});
+
+test("checkout review writes cannot recreate a confirmed draft or write under a foreign owner", () => {
+  const storage = new MemoryStorage();
+  assert.equal(saveCheckoutReview(storage, UID_A, { priority: "Urgent" }), false);
+  storage.setItem(cartStorageKey(UID_B), JSON.stringify({ ...cart(), ownerUid: UID_A }));
+  assert.equal(saveCheckoutReview(storage, UID_B, { priority: "Urgent" }), false);
+  saveCatalogCart(storage, UID_B, [{ inventoryId: "b", quantity: 1 }]);
+  assert.equal(loadCheckoutReview(storage, UID_B).priority, "Standard");
+});
+
+test("a pending attempt restores its own agreed prices and fields instead of newer draft values", () => {
+  const pending = submission({ priority: "Urgent", items: [
+    { inventoryId: "a", agreedUnitPriceCentavos: 12345, expectedUnitPriceCentavos: 20000, negotiationReason: "Original deal" },
+  ] });
+  assert.deepEqual(initialCheckoutReview({ attempt: pending, saved: { priority: "Standard", negotiation: { a: { agreedInput: "999" } } } }), {
+    priority: "Urgent", deliveryInstructions: "Leave at reception",
+    negotiation: { a: { agreedInput: "123.45", reason: "Original deal" } },
+  });
+});
+
+test("adding more keeps an unresolved request byte-for-byte; a changed retry is still refused before the callable", async () => {
+  const storage = new MemoryStorage();
+  const sent = recorder(new Error("reply lost"));
+  saveCartDraft(storage, UID_A, cart());
+  const original = submission({ items: [{ inventoryId: "inv1", quantity: 2, expectedUnitPriceCentavos: 50000 }] });
+  await assert.rejects(submitOrderDraft({ storage, uid: UID_A, submission: original, submit: sent.submit }));
+  const attemptBefore = storage.getItem(attemptStorageKey(UID_A));
+  const merged = mergeCartBatch(restoreCatalogCart(storage, UID_A), { inventoryId: "inv2", unitPriceCentavos: 12000 }, 1, 999);
+  saveCatalogCart(storage, UID_A, merged);
+  saveCheckoutReview(storage, UID_A, { deliveryInstructions: "edited" });
+  assert.equal(storage.getItem(attemptStorageKey(UID_A)), attemptBefore);
+  let calls = 0;
+  await assert.rejects(submitOrderDraft({
+    storage, uid: UID_A, submission: { ...original, items: [...original.items, { inventoryId: "inv2", quantity: 1 }] },
+    submit: async () => { calls++; },
+  }), (error) => error.details?.changedFields.includes("items"));
+  assert.equal(calls, 0);
+  assert.equal(storage.getItem(attemptStorageKey(UID_A)), attemptBefore);
+});
+
+test("a confirmed retry clears draft/review and later review effects cannot resurrect them", async () => {
+  const storage = new MemoryStorage();
+  saveCartDraft(storage, UID_A, cart());
+  saveCheckoutReview(storage, UID_A, { priority: "Urgent" });
+  await submitOrderDraft({ storage, uid: UID_A, submission: submission(), submit: recorder().submit });
+  assert.equal(saveCheckoutReview(storage, UID_A, { priority: "Urgent" }), false);
+  assert.deepEqual(restoreCatalogCart(storage, UID_A), []);
+  assert.equal(loadPendingAttempt(storage, UID_A), null);
+});
+
+test("storage failure refuses catalog persistence and preserves the last durable cart", () => {
+  const storage = new MemoryStorage();
+  saveCartDraft(storage, UID_A, cart());
+  const failing = new FailingWriteStorage();
+  failing.map = storage.map;
+  assert.equal(saveCatalogCart(failing, UID_A, [{ inventoryId: "new", quantity: 1 }]), false);
+  assert.equal(restoreCatalogCart(storage, UID_A)[0].inventoryId, "inv1");
+  assert.equal(saveCatalogCart(new NonDurableStorage(), UID_A, []), false);
+});
+
+test("an explicitly accepted standard price survives checkout navigation, without rewriting batch metadata", () => {
+  const storage = new MemoryStorage();
+  saveCartDraft(storage, UID_A, cart([{ inventoryId: "inv1", quantity: 1, unitPriceCentavos: 100, sku: "KEEP", stock: 4 }]));
+  updateCartDraftLines(storage, UID_A, [{ inventoryId: "inv1", quantity: 3, expectedUnitPriceCentavos: 200, availableNow: 2 }]);
+  assert.deepEqual(restoreCatalogCart(storage, UID_A), [{ inventoryId: "inv1", quantity: 3, unitPriceCentavos: 200, sku: "KEEP", stock: 2 }]);
+});
+
+test("both pages wire restoration, durable navigation, and batch-id pricing without resetting attempts", () => {
+  assert.match(REQUEST, /<RequestOrderCart key=\{uid \?\? "signed-out"\} uid=\{uid\}/);
+  assert.match(REQUEST, /useState\(\(\) => restoreCatalogCart\(localStorage, uid\)\)/);
+  const commit = REQUEST.slice(REQUEST.indexOf("const commitCart ="), REQUEST.indexOf("useEffect", REQUEST.indexOf("const commitCart =")));
+  assert.ok(commit.indexOf("saveCatalogCart") < commit.indexOf("setCart(next)"));
+  assert.match(REQUEST, /mergeCartBatch\(cartRef.current, product, quantity, MAX_LINE_QUANTITY\)/);
+  assert.match(PLACE, /onClick=\{handleAddMoreItems\}/);
+  const addMore = PLACE.slice(PLACE.indexOf("const handleAddMoreItems ="), PLACE.indexOf("const filteredItems", PLACE.indexOf("const handleAddMoreItems =")));
+  for (const helper of ["updateCartDraftLines", "saveCheckoutSelection", "saveCheckoutReview"]) assert.match(addMore, new RegExp(helper));
+  assert.match(addMore, /if \(!saved\) \{[\s\S]*?return;[\s\S]*?navigate\("\/sales-rep\/request-order"\)/);
+  assert.doesNotMatch(addMore, /discardOrderAttempt|submitOrderDraft|createOrderWithReservation/);
+  assert.match(PLACE, /negotiation\[item.inventoryId\]/);
+  assert.match(PLACE, /reviewByBatch.get\(item.inventoryId\)/);
+  assert.doesNotMatch(PLACE, /reviewBySku|negotiation\[item.sku\]/);
+});
 
 test("Request Order saves the cart only under the signed-in user", () => {
   assert.match(REQUEST, /if \(!saveCartDraft\(localStorage, uid, orderDraft\)\) \{/);

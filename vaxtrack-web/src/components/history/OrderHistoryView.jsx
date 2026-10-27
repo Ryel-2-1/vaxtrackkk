@@ -18,6 +18,7 @@ import {
   subscribeOrderHistoryWindow,
 } from "../../services/orderHistoryService";
 import OrderHistoryDetail from "./OrderHistoryDetail";
+import RequestedArrivalNote from "../schedule/RequestedArrivalNote";
 import "./OrderHistory.css";
 import { liveErrorMessage } from "../../services/liveDataErrors";
 
@@ -370,6 +371,7 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
                       {row.reference}
                     </button>
                     {row.priority === "Urgent" && <span className="ohx-chip ohx-chip-danger">Urgent</span>}
+                    <RequestedArrivalNote order={row.order} />
                   </td>
                   <td className="tnum">{formatDateTime(row.createdAtMs)}</td>
                   {isAdmin && (

@@ -26,6 +26,7 @@ import { auth } from "../../firebase";
 import KpiCard from "../../components/ui/KpiCard";
 import MonthCalendar from "../../components/ui/MonthCalendar";
 import StatusBadge from "../../components/ui/StatusBadge";
+import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
 import { kpiValue, liveErrorMessage } from "../../services/liveDataErrors";
 
 // The key the planner leaves for the checkout page to pick up, so a day chosen
@@ -147,6 +148,8 @@ function SalesRepDashboard() {
             statusKey,
             date: formatDate(o.createdAt),
             requestedDeliveryDate: o.requestedDeliveryDate || null,
+            originalRequestedDeliveryDate: o.originalRequestedDeliveryDate ?? null,
+            requestedArrival: o.requestedArrival ?? null,
           };
         });
         setOrders(normalized);
@@ -355,6 +358,7 @@ function SalesRepDashboard() {
                             <div className="srd-planner-row-main">
                               <strong>{o.orderNumber}</strong>
                               <small>{o.clinicName}</small>
+                              <RequestedArrivalNote order={o} />
                             </div>
                             <StatusBadge statusKey={o.statusKey} />
                           </div>
@@ -443,6 +447,7 @@ function SalesRepDashboard() {
                       >
                         <td>
                           <span className="srd-order-id">{o.orderNumber}</span>
+                          <RequestedArrivalNote order={o} />
                         </td>
                         <td>{o.clinicName}</td>
                         <td>

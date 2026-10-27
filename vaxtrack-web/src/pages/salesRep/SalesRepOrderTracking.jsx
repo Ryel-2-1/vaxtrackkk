@@ -18,6 +18,7 @@ import {
 import { auth } from "../../firebase";
 import { originalRequestNote, scheduleLabel } from "../../services/deliverySchedule";
 import { requestedArrivalLabel, requestedArrivalOf } from "../../services/requestedArrival";
+import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
 import {
   reviewOrderDestinationChange,
   subscribeDestinationCorrections,
@@ -649,6 +650,7 @@ function TrackingRow({ selected, order, onSelect }) {
       <td>
         <strong>{order.destination}</strong>
         <small>{order.vaccineName}</small>
+        <RequestedArrivalNote order={order} />
         {order.allocation?.tracked && !order.allocation.fullyReserved && (
           <small>
             Waiting for stock — {order.allocation.reserved.toLocaleString()} of{" "}

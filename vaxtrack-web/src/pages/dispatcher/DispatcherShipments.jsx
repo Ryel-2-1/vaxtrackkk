@@ -18,6 +18,7 @@ import {
 } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
 import TimingIndicator from "../../components/ui/TimingIndicator";
+import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
 import KpiCard from "../../components/ui/KpiCard";
 import {
   dispatchEligibility,
@@ -765,6 +766,7 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
     <tr ref={rowRef} className={`${isDelayed ? "shp-row-delayed" : ""}${focused ? " shp-row-focus" : ""}`} aria-current={focused ? "true" : undefined}>
       <td>
         <span className="shp-order-id">{orderNum}</span>
+        <RequestedArrivalNote order={order} />
       </td>
       <td>
         <div className="shp-cell">

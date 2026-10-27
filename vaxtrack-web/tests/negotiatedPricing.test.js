@@ -276,7 +276,7 @@ test("each line edits its agreed price; checkout offers no SC/PWD discount entry
   // One money input per line: the agreed unit price. No total input.
   assert.equal((PAGE.match(/inputMode="decimal"/g) || []).length, 1);
   // Reset clears the price and its reason.
-  assert.match(CODE, /delete rest\.agreedInput;\s*delete rest\.reason;\s*return \{ \.\.\.current, \[sku\]: rest \};/);
+  assert.match(CODE, /delete rest\.agreedInput;\s*delete rest\.reason;\s*return \{ \.\.\.current, \[inventoryId\]: rest \};/);
   assert.match(PAGE, /Reset to standard price/);
 });
 
@@ -302,7 +302,7 @@ test("with no discount entry, a checkout line is reviewed and sent at its agreed
     expectedUnitPriceCentavos: 12500, agreedUnitPriceCentavos: 11000, negotiationReason: "deal",
   });
   // The request line is still built from the reviewed price.
-  assert.match(CODE, /\.\.\.negotiatedRequestLine\(item, reviewBySku\.get\(item\.sku\)\.price\)/);
+  assert.match(CODE, /\.\.\.negotiatedRequestLine\(item, reviewByBatch\.get\(item\.inventoryId\)\.price\)/);
 });
 
 test("the summary shows negotiated subtotal, VAT and the final total", () => {

@@ -1,5 +1,6 @@
 import { UserMessageError } from "./userMessageError.js";
 import { EMPTY_ARRIVAL_FORM, arrivalKey, arrivalPayloadOf, normalizeArrivalForm } from "./requestedArrival.js";
+import { centavosToInputValue } from "./money.js";
 
 /**
  * The Med Rep order draft: a user-scoped cart, and the request ID + submission
@@ -177,6 +178,7 @@ export function loadCartDraft(storage, uid) {
 export function saveCartDraft(storage, uid, draft) {
   const key = cartStorageKey(uid);
   const existing = parseJson(safeGet(storage, key));
+  const owned = isCartDraft(existing) && existing.ownerUid === uid ? existing : {};
   const kept =
     !(draft && "checkout" in draft) && isCartDraft(existing) && existing.ownerUid === uid
       ? normalizeCheckoutSelection(existing.checkout)
@@ -184,8 +186,84 @@ export function saveCartDraft(storage, uid, draft) {
   return persistVerified(
     storage,
     key,
-    JSON.stringify({ ...draft, ...(kept ? { checkout: kept } : {}), ownerUid: uid })
+    JSON.stringify({ ...owned, ...draft, ...(kept ? { checkout: kept } : {}), ownerUid: uid })
   );
+}
+
+/** Restore the owner's exact batch lines, not a fresh quote from the catalog. */
+export function restoreCatalogCart(storage, uid) {
+  if (!uid) return [];
+  return (loadCartDraft(storage, uid).draft?.items ?? []).map((item) => ({ ...item }));
+}
+
+/** Add by document identity; never replace an existing line's quote or metadata. */
+export function mergeCartBatch(items, product, quantity, maxQuantity) {
+  const existing = items.some((item) => item.inventoryId === product.inventoryId);
+  return existing
+    ? items.map((item) => item.inventoryId === product.inventoryId
+      ? { ...item, quantity: Math.min(item.quantity + quantity, maxQuantity) }
+      : item)
+    : [...items, { ...product, quantity: Math.min(quantity, maxQuantity) }];
+}
+
+/** Persist catalog edits before updating the screen or leaving the catalog. */
+export function saveCatalogCart(storage, uid, items) {
+  const review = loadCheckoutReview(storage, uid);
+  const ids = new Set(items.map((item) => item.inventoryId));
+  return saveCartDraft(storage, uid, {
+    items,
+    totalVials: items.reduce((sum, item) => sum + item.quantity, 0),
+    storageSlots: items.length,
+    checkoutReview: {
+      ...review,
+      negotiation: Object.fromEntries(Object.entries(review.negotiation).filter(([id]) => ids.has(id))),
+    },
+  });
+}
+
+// Editable review fields belong to the cart, never the immutable request key.
+// Preserve raw input (including incomplete/invalid text) so navigation cannot
+// silently reset a price to standard. Normal validation still runs at submit.
+function normalizeCheckoutReview(value) {
+  const negotiation = Object.fromEntries(
+    Object.entries(value?.negotiation ?? {}).filter(([id, entry]) =>
+      documentIdOrBlank(id) && entry && typeof entry === "object"
+    ).map(([id, entry]) => [id, {
+      ...(typeof entry.agreedInput === "string" ? { agreedInput: entry.agreedInput } : {}),
+      ...(typeof entry.reason === "string" ? { reason: entry.reason } : {}),
+    }])
+  );
+  return {
+    priority: value?.priority === "Urgent" ? "Urgent" : "Standard",
+    deliveryInstructions: typeof value?.deliveryInstructions === "string" ? value.deliveryInstructions : "",
+    negotiation,
+  };
+}
+
+export function loadCheckoutReview(storage, uid) {
+  const draft = parseJson(safeGet(storage, cartStorageKey(uid)));
+  return normalizeCheckoutReview(isCartDraft(draft) && draft.ownerUid === uid ? draft.checkoutReview : null);
+}
+
+/** An unresolved submission restores its agreed prices, never a new quote. */
+export function initialCheckoutReview({ attempt = null, saved = null } = {}) {
+  if (!attempt) return normalizeCheckoutReview(saved);
+  const negotiation = Object.fromEntries((attempt.items ?? []).map((item) => [item.inventoryId, {
+    agreedInput: centavosToInputValue(item.agreedUnitPriceCentavos ?? item.expectedUnitPriceCentavos),
+    reason: item.negotiationReason ?? "",
+  }]));
+  return normalizeCheckoutReview({ ...attempt, negotiation });
+}
+
+/** Never recreate a confirmed/cleared draft, or touch an outstanding attempt. */
+export function saveCheckoutReview(storage, uid, value) {
+  const key = cartStorageKey(uid);
+  const draft = parseJson(safeGet(storage, key));
+  if (!isCartDraft(draft) || draft.ownerUid !== uid) return false;
+  const review = normalizeCheckoutReview(value);
+  const ids = new Set(draft.items.map((item) => item.inventoryId));
+  review.negotiation = Object.fromEntries(Object.entries(review.negotiation).filter(([id]) => ids.has(id)));
+  return persistVerified(storage, key, JSON.stringify({ ...draft, checkoutReview: review }));
 }
 
 // ------------------------------------------- the editable checkout selection
@@ -330,12 +408,21 @@ export function updateCartDraftLines(storage, uid, lines) {
   const wanted = new Map();
   for (const line of lines ?? []) {
     if (line && typeof line.inventoryId === "string" && line.inventoryId) {
-      wanted.set(line.inventoryId, line.quantity);
+      wanted.set(line.inventoryId, line);
     }
   }
   const items = draft.items
     .filter((item) => wanted.has(item.inventoryId))
-    .map((item) => ({ ...item, quantity: wanted.get(item.inventoryId) }));
+    .map((item) => {
+      const line = wanted.get(item.inventoryId);
+      return {
+        ...item,
+        quantity: line.quantity,
+        ...(Object.hasOwn(line, "expectedUnitPriceCentavos")
+          ? { unitPriceCentavos: line.expectedUnitPriceCentavos } : {}),
+        ...(Object.hasOwn(line, "availableNow") ? { stock: line.availableNow } : {}),
+      };
+    });
   return persistVerified(
     storage,
     key,

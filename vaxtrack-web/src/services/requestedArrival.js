@@ -294,3 +294,16 @@ export function requestedScheduleLabel(dateIso, spec) {
   const arrival = requestedArrivalLabel(spec);
   return date ? `${date} · ${arrival}` : arrival;
 }
+
+/** Read-only order-row wording. Never substitutes a route ETA for a request. */
+export function orderArrivalNote(order) {
+  // An Admin reschedule is an operational commitment, not a rewrite of what
+  // the Med Rep originally requested. Existing schedule controls show it apart.
+  const date = formatRequestedDate(order?.originalRequestedDeliveryDate)
+    || formatRequestedDate(order?.requestedDeliveryDate);
+  const check = normalizeRequestedArrival(order?.requestedArrival, { validateFuture: false });
+  if (!check.ok) return "Requested arrival: unavailable — check order";
+  if (!date && check.value.mode === "any_time") return "Requested arrival: not specified";
+  const label = requestedArrivalLabel(check.value);
+  return `Requested arrival: ${date ? `${date} · ` : ""}${label} (PHT)`;
+}

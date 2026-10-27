@@ -15,13 +15,17 @@ import { useNavigate } from "react-router-dom";
 import { createOrderWithReservation } from "../../services/inventoryCallables";
 import {
   UNAUTHENTICATED_MESSAGE,
+  STORAGE_UNAVAILABLE_MESSAGE,
   discardOrderAttempt,
   initialCheckoutSelection,
+  initialCheckoutReview,
   loadCartDraft,
   loadCheckoutSelection,
+  loadCheckoutReview,
   loadPendingAttempt,
   resolveRestoredDestination,
   saveCheckoutSelection,
+  saveCheckoutReview,
   submitOrderDraft,
   updateCartDraftLines,
 } from "../../services/orderDraftRequest";
@@ -216,6 +220,10 @@ function SalesRepPlaceOrder() {
     uid ? loadPendingAttempt(localStorage, uid) : null
   );
   const restored = pendingAttempt?.submission ?? null;
+  const [initialReview] = useState(() => initialCheckoutReview({
+    attempt: restored,
+    saved: uid ? loadCheckoutReview(localStorage, uid) : null,
+  }));
 
   /**
    * What checkout reopens with: a pending attempt's snapshot, else the rep's
@@ -295,13 +303,13 @@ function SalesRepPlaceOrder() {
   // with no entry is at its standard price. Nothing here is a total: every
   // figure is derived from quantity × unit price in integer centavos, and the
   // server recomputes all of it from the batch it re-reads.
-  const [negotiation, setNegotiation] = useState({});
+  const [negotiation, setNegotiation] = useState(initialReview.negotiation);
   const reviewLines = useMemo(() => {
     const batchById = new Map((liveStock.batches || []).map((b) => [b.id, b]));
     return displayItems.map((item) => {
       const vaccine = catalog.byId.get(batchById.get(item.inventoryId)?.vaccineId);
       const vatClassification = readVatClassification(vaccine?.vatClassification) ?? item.vatClassification ?? null;
-      const entry = negotiation[item.sku] || {};
+      const entry = negotiation[item.inventoryId] || {};
       return {
         item,
         catalogSku: typeof vaccine?.internalSku === "string" && vaccine.internalSku.trim() ? vaccine.internalSku.trim() : null,
@@ -322,25 +330,25 @@ function SalesRepPlaceOrder() {
   }, [displayItems, liveStock, catalog, negotiation]);
   const priceSummary = summarizeReviewVat(reviewLines.map((l) => l.price));
   const pricingCheck = reviewProblems(reviewLines.map((l) => l.price));
-  const reviewBySku = new Map(reviewLines.map((l) => [l.item.sku, l]));
-  const setAgreedInput = (sku, agreedInput) =>
-    setNegotiation((current) => ({ ...current, [sku]: { ...current[sku], agreedInput } }));
-  const setNegotiationReason = (sku, reason) =>
-    setNegotiation((current) => ({ ...current, [sku]: { ...current[sku], reason } }));
+  const reviewByBatch = new Map(reviewLines.map((l) => [l.item.inventoryId, l]));
+  const setAgreedInput = (inventoryId, agreedInput) =>
+    setNegotiation((current) => ({ ...current, [inventoryId]: { ...current[inventoryId], agreedInput } }));
+  const setNegotiationReason = (inventoryId, reason) =>
+    setNegotiation((current) => ({ ...current, [inventoryId]: { ...current[inventoryId], reason } }));
   // Reset to standard price: the PRICE follows the standard again and its
   // reason is dropped.
-  const resetToStandard = (sku) =>
+  const resetToStandard = (inventoryId) =>
     setNegotiation((current) => {
-      const rest = { ...(current[sku] || {}) };
+      const rest = { ...(current[inventoryId] || {}) };
       delete rest.agreedInput;
       delete rest.reason;
-      return { ...current, [sku]: rest };
+      return { ...current, [inventoryId]: rest };
     });
   // A removed line takes its price and reason with it.
-  const clearLinePricing = (sku) =>
+  const clearLinePricing = (inventoryId) =>
     setNegotiation((current) => {
       const next = { ...current };
-      delete next[sku];
+      delete next[inventoryId];
       return next;
     });
   /** The reconfirmation dialog is open. Nothing is sent until it is confirmed. */
@@ -385,7 +393,7 @@ function SalesRepPlaceOrder() {
     destinationLoadErrors.clinics || destinationLoadErrors.doctors || destinationLoadErrors.addresses || "";
   const setSourceError = (source, message) =>
     setDestinationLoadErrors((prev) => (prev[source] === message ? prev : { ...prev, [source]: message }));
-  const [instructions, setInstructions] = useState(restored?.deliveryInstructions ?? "");
+  const [instructions, setInstructions] = useState(initialReview.deliveryInstructions);
   // Exact 'YYYY-MM-DD' text, never parsed into a Date, so it cannot shift.
   const [requestedDate, setRequestedDate] = useState(initialCheckout.requestedDeliveryDate);
   // Optional requested ARRIVAL at the destination on that date (mode + only
@@ -405,7 +413,14 @@ function SalesRepPlaceOrder() {
   const arrivalShape = normalizeRequestedArrival(arrivalPayloadOf(arrival), { requestedDeliveryDate: null });
   const shownArrivalError = arrivalError ?? (arrivalShape.ok || arrivalShape.incomplete ? null : arrivalShape);
   const arrivalSummary = arrivalShape.ok ? `Requested: ${requestedArrivalLabel(arrivalShape.value)}` : "";
-  const [urgent, setUrgent] = useState(restored?.priority === "Urgent");
+  const [urgent, setUrgent] = useState(initialReview.priority === "Urgent");
+  useEffect(() => {
+    if (uid) saveCheckoutReview(localStorage, uid, {
+      priority: urgent ? "Urgent" : "Standard",
+      deliveryInstructions: instructions,
+      negotiation,
+    });
+  }, [uid, urgent, instructions, negotiation]);
   const [message, setMessage] = useState(
     pendingAttempt
       ? "An earlier attempt of this order may already have been placed. Its details were restored — finalize again unchanged to safely recover it, or check Order Tracking."
@@ -582,6 +597,32 @@ function SalesRepPlaceOrder() {
     });
   }, [uid, doctorSelectValue, draftDestinationId, requestedDate, arrival]);
 
+  // Flush every edited field before leaving. Failure keeps checkout open;
+  // navigation never discards/rotates an unresolved submission's request id.
+  const handleAddMoreItems = () => {
+    if (!uid) {
+      setMessage(UNAUTHENTICATED_MESSAGE);
+      return;
+    }
+    const saved = updateCartDraftLines(localStorage, uid, items)
+      && saveCheckoutSelection(localStorage, uid, {
+        doctorId: doctorSelectValue,
+        doctorAddressId: draftDestinationId,
+        requestedDeliveryDate: requestedDate,
+        requestedArrival: arrival,
+      })
+      && saveCheckoutReview(localStorage, uid, {
+        priority: urgent ? "Urgent" : "Standard",
+        deliveryInstructions: instructions,
+        negotiation,
+      });
+    if (!saved) {
+      setMessage(STORAGE_UNAVAILABLE_MESSAGE);
+      return;
+    }
+    navigate("/sales-rep/request-order");
+  };
+
   const filteredItems = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
     return displayItems.filter(
@@ -600,10 +641,10 @@ function SalesRepPlaceOrder() {
   );
 
 
-  const handleQuantityChange = (sku, action) => {
+  const handleQuantityChange = (inventoryId, action) => {
     setItems((current) =>
       current.map((item) => {
-        if (item.sku !== sku) return item;
+        if (item.inventoryId !== inventoryId) return item;
         const nextQuantity =
           action === "increase" ? item.quantity + 1 : Math.max(item.quantity - 1, 1);
         return { ...item, quantity: nextQuantity };
@@ -611,9 +652,9 @@ function SalesRepPlaceOrder() {
     );
   };
 
-  const handleRemoveItem = (sku) => {
-    setItems((current) => current.filter((item) => item.sku !== sku));
-    clearLinePricing(sku);
+  const handleRemoveItem = (inventoryId) => {
+    setItems((current) => current.filter((item) => item.inventoryId !== inventoryId));
+    clearLinePricing(inventoryId);
   };
 
   // Discarding a pending attempt is the ONLY way its request id is ever
@@ -792,7 +833,7 @@ function SalesRepPlaceOrder() {
       items: items.map((item) => ({
         inventoryId: item.inventoryId,
         quantity: Number(item.quantity),
-        ...negotiatedRequestLine(item, reviewBySku.get(item.sku).price),
+        ...negotiatedRequestLine(item, reviewByBatch.get(item.inventoryId).price),
       })),
     };
 
@@ -918,7 +959,7 @@ function SalesRepPlaceOrder() {
             <button
               type="button"
               className="place-v2-add-more"
-              onClick={() => navigate("/sales-rep/request-order")}
+              onClick={handleAddMoreItems}
             >
               <PackagePlus size={15} />
               Add More Items
@@ -997,14 +1038,14 @@ function SalesRepPlaceOrder() {
                 {filteredItems.length > 0 ? (
                   filteredItems.map((item) => (
                     <OrderRow
-                      key={item.sku}
+                      key={item.inventoryId}
                       item={item}
-                      price={reviewBySku.get(item.sku)?.price}
+                      price={reviewByBatch.get(item.inventoryId)?.price}
                       review={lineReview(item)}
                       onAccept={() => handleAcceptLine(item)}
-                      onDecrease={() => handleQuantityChange(item.sku, "decrease")}
-                      onIncrease={() => handleQuantityChange(item.sku, "increase")}
-                      onRemove={() => handleRemoveItem(item.sku)}
+                      onDecrease={() => handleQuantityChange(item.inventoryId, "decrease")}
+                      onIncrease={() => handleQuantityChange(item.inventoryId, "increase")}
+                      onRemove={() => handleRemoveItem(item.inventoryId)}
                     />
                   ))
                 ) : (
@@ -1392,12 +1433,12 @@ function PriceReview({
       </div>
       <ul className="place-v2-price-lines">
         {lines.map(({ item, catalogSku, vatClassification, agreedText, reasonText, price }) => {
-          const inputId = `agreed-${item.sku}`;
-          const reasonId = `reason-${item.sku}`;
-          const errorId = `agreed-error-${item.sku}`;
+          const inputId = `agreed-${item.inventoryId}`;
+          const reasonId = `reason-${item.inventoryId}`;
+          const errorId = `agreed-error-${item.inventoryId}`;
           const flagged = price.priceNegotiated;
           return (
-            <li key={item.sku} className={`place-v2-price-line${flagged ? " negotiated" : ""}`}>
+            <li key={item.inventoryId} className={`place-v2-price-line${flagged ? " negotiated" : ""}`}>
               <div className="place-v2-price-product">
                 <strong>{item.name}</strong>
                 <span className="place-v2-price-meta">
@@ -1444,13 +1485,13 @@ function PriceReview({
                     disabled={disabled}
                     aria-invalid={price.priceError ? "true" : "false"}
                     aria-describedby={price.priceError ? errorId : undefined}
-                    onChange={(event) => onAgreedChange(item.sku, event.target.value)}
+                    onChange={(event) => onAgreedChange(item.inventoryId, event.target.value)}
                   />
                 </div>
                 <button
                   type="button"
                   className="place-v2-reset-btn"
-                  onClick={() => onReset(item.sku)}
+                  onClick={() => onReset(item.inventoryId)}
                   disabled={disabled || (!price.priceNegotiated && !price.priceError)}
                   aria-label={`Reset ${item.name} to the standard price`}
                 >
@@ -1473,7 +1514,7 @@ function PriceReview({
                     value={reasonText}
                     disabled={disabled}
                     aria-invalid={price.reasonError ? "true" : "false"}
-                    onChange={(event) => onReasonChange(item.sku, event.target.value)}
+                    onChange={(event) => onReasonChange(item.inventoryId, event.target.value)}
                     placeholder="e.g. Volume agreement with the clinic"
                   />
                   {price.reasonError && (
@@ -1572,7 +1613,7 @@ function ReconfirmDialog({ doctorName, destination, lines, summary, schedule, sa
         )}
         <ul className="place-v2-confirm-lines">
           {lines.map(({ item, vatClassification, price }) => (
-            <li key={item.sku}>
+            <li key={item.inventoryId}>
               <div>
                 <strong>{item.name}</strong>
                 <span>

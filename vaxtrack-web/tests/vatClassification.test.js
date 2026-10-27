@@ -85,7 +85,7 @@ test("10 · the Med Rep never sends a VAT field; the server snapshots the produc
   const checkout = code("src/pages/salesRep/SalesRepPlaceOrder.jsx");
   // Per line: identity, quantity and the negotiated-pricing fields only —
   // the reviewed standard, the agreed unit price and a reason. No VAT field.
-  assert.match(checkout, /items: items\.map\(\(item\) => \(\{\s*inventoryId: item\.inventoryId,\s*quantity: Number\(item\.quantity\),\s*\.\.\.negotiatedRequestLine\(item, reviewBySku\.get\(item\.sku\)\.price\),\s*\}\)\)/);
+  assert.match(checkout, /items: items\.map\(\(item\) => \(\{\s*inventoryId: item\.inventoryId,\s*quantity: Number\(item\.quantity\),\s*\.\.\.negotiatedRequestLine\(item, reviewByBatch\.get\(item\.inventoryId\)\.price\),\s*\}\)\)/);
   const line = read("src/services/negotiatedPricing.js");
   const fn = line.slice(line.indexOf("export function negotiatedRequestLine"));
   assert.equal(/vat/i.test(fn), false, "the request line carries no VAT field");

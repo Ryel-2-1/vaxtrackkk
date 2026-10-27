@@ -42,6 +42,7 @@ function millisOf(value) {
 
 // Computed once — whether an ORS key is configured for this build.
 const ROUTE_CONFIGURED = isRouteServiceConfigured();
+const ROUTE_TIMING_NOTICE = "Route generation does not yet enforce requested arrival times. Check each order's requested window separately.";
 
 // DOM-based marker (no image assets) — Leaflet's default icon PNGs break under
 // bundlers, and a divIcon lets the marker use Meridian green via CSS.
@@ -626,6 +627,7 @@ function DispatcherGeofence() {
                       </p>
                     ) : (
                       <>
+                        <p className="geo3-live-route-sub">{ROUTE_TIMING_NOTICE}</p>
                         <button
                           type="button"
                           className="geo3-live-route-btn"
@@ -716,6 +718,7 @@ function DispatcherGeofence() {
                     </p>
                   ) : (
                     <>
+                      <p className="geo3-live-route-sub">{ROUTE_TIMING_NOTICE}</p>
                       <button
                         type="button"
                         className="geo3-live-route-btn"

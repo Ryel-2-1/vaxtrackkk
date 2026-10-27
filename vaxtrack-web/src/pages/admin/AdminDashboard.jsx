@@ -11,6 +11,7 @@ import { manilaToday } from "../../services/expiry";
 import { countExpiringOrExpiredBatches } from "../../services/inventoryRemovalModel";
 import { ORDER_STATUSES } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
+import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
 import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { presentAlert } from "../../services/alertPresentation";
 
@@ -141,6 +142,9 @@ function AdminDashboard() {
             clinicName: o.clinicName || "—",
             vaccineName: o.vaccineName || "—",
             statusKey: o.statusKey,
+            requestedDeliveryDate: o.requestedDeliveryDate ?? null,
+            originalRequestedDeliveryDate: o.originalRequestedDeliveryDate ?? null,
+            requestedArrival: o.requestedArrival ?? null,
             time: formatRelativeTime(o.createdAt),
           }))
         );
@@ -460,6 +464,7 @@ function AdminDashboard() {
                   <tr key={o.id} onClick={() => navigate("/admin/deliveries")}>
                     <td>
                       <span className="adx-order-id">{o.orderNumber}</span>
+                      <RequestedArrivalNote order={o} />
                     </td>
                     <td>{o.clinicName}</td>
                     <td>{o.vaccineName}</td>

@@ -21,6 +21,9 @@ import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
 import {
   STORAGE_UNAVAILABLE_MESSAGE,
   UNAUTHENTICATED_MESSAGE,
+  mergeCartBatch,
+  restoreCatalogCart,
+  saveCatalogCart,
   saveCartDraft,
 } from "../../services/orderDraftRequest";
 import { auth } from "../../firebase";
@@ -111,6 +114,12 @@ function normalizeProduct(raw, todayIso) {
    reference time explicitly instead of reading the clock itself. */
 
 function SalesRepRequestOrder() {
+  const uid = auth.currentUser?.uid ?? null;
+  // Account changes remount all cart state; no previous user's lines leak.
+  return <RequestOrderCart key={uid ?? "signed-out"} uid={uid} />;
+}
+
+function RequestOrderCart({ uid }) {
   const navigate = useNavigate();
 
   const [catalog, setCatalog] = useState([]);
@@ -122,13 +131,27 @@ function SalesRepRequestOrder() {
   const [searchTerm, setSearchTerm] = useState("");
   const [stockFilter, setStockFilter] = useState("all");
   const [quantities, setQuantities] = useState({});
-  const [cart, setCart] = useState([]);
+  const [cart, setCart] = useState(() => restoreCatalogCart(localStorage, uid));
+  const cartRef = useRef(cart);
   // A message for the rep. Shown as a fixed status toast (never above the
   // list), so adding a vaccine cannot push the catalog down. Add confirmations
   // fade on their own; anything that needs action stays until dismissed.
   const [noticeState, setNoticeState] = useState({ text: "", transient: false });
   const notice = noticeState.text;
   const setNotice = (text, { transient = false } = {}) => setNoticeState({ text, transient });
+  const commitCart = (next) => {
+    if (!uid) {
+      setNotice(UNAUTHENTICATED_MESSAGE);
+      return false;
+    }
+    if (!saveCatalogCart(localStorage, uid, next)) {
+      setNotice(STORAGE_UNAVAILABLE_MESSAGE);
+      return false;
+    }
+    cartRef.current = next;
+    setCart(next);
+    return true;
+  };
   useEffect(() => {
     if (!noticeState.transient || !noticeState.text) return undefined;
     const timer = window.setTimeout(() => setNoticeState({ text: "", transient: false }), 6000);
@@ -284,17 +307,8 @@ function SalesRepRequestOrder() {
 
     const quantity = quantities[product.inventoryId] || 1;
 
-    setCart((current) => {
-      const existing = current.find((item) => item.inventoryId === product.inventoryId);
-      if (existing) {
-        return current.map((item) =>
-          item.inventoryId === product.inventoryId
-            ? { ...item, quantity: Math.min(item.quantity + quantity, MAX_LINE_QUANTITY) }
-            : item
-        );
-      }
-      return [...current, { ...product, quantity }];
-    });
+    const next = mergeCartBatch(cartRef.current, product, quantity, MAX_LINE_QUANTITY);
+    if (!commitCart(next)) return;
 
     setNotice(
       product.backorderOnly
@@ -305,7 +319,7 @@ function SalesRepRequestOrder() {
   };
 
   const removeFromCart = (key) => {
-    setCart((current) => current.filter((item) => item.inventoryId !== key));
+    commitCart(cartRef.current.filter((item) => item.inventoryId !== key));
   };
 
   const placeOrder = () => {

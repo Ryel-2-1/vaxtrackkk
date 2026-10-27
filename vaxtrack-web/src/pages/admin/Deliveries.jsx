@@ -17,6 +17,7 @@ import {
 import { ORDER_STATUSES, STATUS_LABELS } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
 import TimingIndicator from "../../components/ui/TimingIndicator";
+import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
 import KpiCard from "../../components/ui/KpiCard";
 import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import LiveDeliveryMap from "../../components/LiveDeliveryMap";
@@ -66,6 +67,9 @@ function normalizeDelivery(raw) {
     riderPhone: raw.assignedRiderPhone || "",
     instructions: raw.deliveryInstructions || "",
     createdAt: raw.createdAt || null,
+    requestedDeliveryDate: raw.requestedDeliveryDate ?? null,
+    originalRequestedDeliveryDate: raw.originalRequestedDeliveryDate ?? null,
+    requestedArrival: raw.requestedArrival ?? null,
     assignedAt: raw.assignedAt || null,
     statusUpdatedAt: raw.statusUpdatedAt || null,
     statusUpdatedByEmail: raw.statusUpdatedByEmail || "",
@@ -458,6 +462,7 @@ function Deliveries() {
                   >
                     <td>
                       <span className="mdl-td-order">{delivery.id}</span>
+                      <RequestedArrivalNote order={delivery} />
                     </td>
 
                     <td>
@@ -610,6 +615,7 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
               <StatusBadge statusKey={delivery.statusKey} />
             </div>
             <TimingIndicator order={delivery} />
+            <RequestedArrivalNote order={delivery} />
             <p>{delivery.destination}</p>
           </div>
 

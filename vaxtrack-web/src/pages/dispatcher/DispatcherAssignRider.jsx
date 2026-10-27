@@ -38,6 +38,7 @@ import "./DispatcherAssignRider.css";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { createSingleFlight } from "../../services/singleFlight";
 import { requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
+import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
 
 function initialsOf(name) {
   return (
@@ -382,7 +383,10 @@ function DispatcherAssignRider() {
                       {o.dateKind === "today" && <span className="arq-tag">Due today</span>}
                     </div>
                     <p className="arq-row-meta">
-                      <span title={o.clinicName}>{o.clinicName || "—"}</span>
+                      <span title={o.clinicName}>
+                        {o.clinicName || "—"}
+                        <RequestedArrivalNote order={o} />
+                      </span>
                       <span>
                         {o.vaccineName || "—"} · <span className="tnum">{o.quantity || 0}</span> {o.unit || "vials"}
                       </span>
