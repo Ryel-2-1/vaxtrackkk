@@ -65,6 +65,37 @@ const String kNoFixYetMessage =
     'Location sharing has not started yet — no position has been received. '
     'VaxTrack is retrying. Check that location is on.';
 
+/// Start Navigation was refused because Firebase Auth says no one is signed in.
+const String kSignInToNavigateMessage = 'Sign in to start navigation.';
+
+/// Signed in, but the rider's deliveries have not loaded yet (first launch,
+/// or the app just came back): never a reason to tell them to sign in.
+const String kDeliveriesLoadingMessage = 'Your deliveries are still loading. Try again in a moment.';
+
+/// Signed in, but the deliveries could not be read.
+const String kDeliveriesUnreadableMessage = 'Your deliveries could not be loaded. Check your connection and try again.';
+
+/// An owner's claim on the controller (HomeScreen's, via TrackingSessionScope).
+/// Releasing an OLD claim never touches a newer one: a remounted screen, or a
+/// rider who signed straight back in, keeps the attachment it just made.
+class TrackingAttachment {
+  final String riderUid;
+  final int generation;
+  const TrackingAttachment._(this.riderUid, this.generation);
+}
+
+/// Whether Start Navigation can act for the signed-in rider right now.
+enum NavigationReadiness {
+  /// Firebase Auth has no user: navigation never starts.
+  signedOut,
+
+  /// Signed in; the controller is (re)attaching or the deliveries are loading.
+  loading,
+
+  /// Signed in, attached to that rider, deliveries loaded.
+  ready,
+}
+
 /// The one navigation route the rider is following.
 class ActiveNavigation {
   final String orderId;
@@ -92,15 +123,33 @@ class RiderTrackingController extends ChangeNotifier {
     DateTime Function()? clock,
     Timer Function(Duration, void Function())? startTimer,
     this.firstFixTimeout = const Duration(seconds: 45),
+    Stream<List<TrackedOrder>> Function(String riderUid)? ordersFor,
+    this.ordersLoadTimeout = const Duration(seconds: 10),
+    Stream<String?> Function(String riderUid)? tripStateFor,
   })  : _source = source,
         _store = store,
         _clock = clock ?? DateTime.now,
-        _startTimer = startTimer ?? Timer.new;
+        _startTimer = startTimer ?? Timer.new,
+        _ordersFor = ordersFor,
+        _tripStateFor = tripStateFor;
 
   final TrackingLocationSource _source;
   final TrackingStore _store;
   final DateTime Function() _clock;
   final Timer Function(Duration, void Function()) _startTimer;
+
+  /// The signed-in rider's deliveries, for re-attaching when Start Navigation
+  /// finds the controller detached from them (never for anyone else).
+  final Stream<List<TrackedOrder>> Function(String riderUid)? _ordersFor;
+
+  /// How long Start Navigation waits for the deliveries to load.
+  final Duration ordersLoadTimeout;
+
+  /// The server-owned trip state of the rider (riderDispatchStates/{uid}.state).
+  /// Without it the app behaves as before: no active order → nothing shared.
+  final Stream<String?> Function(String riderUid)? _tripStateFor;
+  StreamSubscription<String?>? _tripStateSub;
+  String? _tripState;
   final LocationWritePolicy _policy = LocationWritePolicy();
 
   /// A stream that has produced no position by then is restarted (one stream
@@ -113,6 +162,13 @@ class RiderTrackingController extends ChangeNotifier {
   int _restartsWithoutFix = 0;
 
   String? _riderUid;
+  // Bumped by every attach. A teardown runs only while the generation it was
+  // asked for is still current (see TrackingAttachment).
+  int _generation = 0;
+  // Completed with true by the first deliveries snapshot of the current
+  // subscription, false on a read error.
+  Completer<bool>? _ordersReady;
+  bool _ordersLoadedOk = false;
   StreamSubscription<List<TrackedOrder>>? _ordersSub;
   StreamSubscription<LocationFix>? _fixSub;
   TrackingMode _streamMode = TrackingMode.off;
@@ -143,6 +199,18 @@ class RiderTrackingController extends ChangeNotifier {
   String? get lastError => _lastError;
   bool get isSharing => _fixSub != null;
 
+  /// The server's trip state as last read (null: unknown or none).
+  String? get tripState => _tripState;
+
+  // The current subscription delivered its deliveries (not an error).
+  bool get _deliveriesKnown {
+    final ready = _ordersReady;
+    return _ordersSub != null && ready != null && ready.isCompleted && _ordersLoadedOk;
+  }
+
+  /// Sharing with no active order because the trip is heading back to the hub.
+  bool get returningToHub => _plan.returningToHub;
+
   /// True only once the running stream has actually produced a position. The
   /// UI never says "sharing" before that.
   bool get sharingConfirmed => _fixSub != null && _writtenOnStream == _streamGeneration;
@@ -165,9 +233,39 @@ class RiderTrackingController extends ChangeNotifier {
         if (value) await _reconcile();
       });
 
-  /// Begin following [riderUid]'s assigned orders. Idempotent per rider.
-  void attach(String riderUid, Stream<List<TrackedOrder>> orders) {
-    if (_disposed) return;
+  /// Begin following [riderUid]'s assigned orders, and return the caller's
+  /// claim on the controller. Idempotent per rider: a second attach for the
+  /// same rider keeps the running subscription, stream and navigation — it only
+  /// supersedes the older claim, so that claim's later [detach] does nothing.
+  TrackingAttachment? attach(String riderUid, Stream<List<TrackedOrder>> orders) {
+    if (_disposed) return null;
+    _generation++;
+    final claim = TrackingAttachment._(riderUid, _generation);
+    _subscribe(riderUid, orders);
+    return claim;
+  }
+
+  /// Release [claim]. Ignored when a newer attach has happened since (a
+  /// remounted screen, a rider who signed back in): an old screen's teardown
+  /// can never clear the attachment a newer one depends on.
+  Future<void> detach(TrackingAttachment? claim, {String reason = kEndReasonTrackingStopped}) {
+    if (claim == null) return Future<void>.value();
+    return _serialize(() => _teardown(reason, claim.generation));
+  }
+
+  /// Whether Start Navigation can act for [authUid] (Firebase Auth's current
+  /// user, read by the caller) right now.
+  NavigationReadiness readinessFor(String? authUid) {
+    final uid = authUid?.trim() ?? '';
+    if (uid.isEmpty) return NavigationReadiness.signedOut;
+    final ready = _ordersReady;
+    if (_riderUid != uid || _ordersSub == null || ready == null || !ready.isCompleted) {
+      return NavigationReadiness.loading;
+    }
+    return NavigationReadiness.ready;
+  }
+
+  void _subscribe(String riderUid, Stream<List<TrackedOrder>> orders) {
     if (_riderUid == riderUid && _ordersSub != null) return;
     _riderUid = riderUid;
     // A navigation session this app instance did not start is one left behind
@@ -175,16 +273,52 @@ class RiderTrackingController extends ChangeNotifier {
     // ever monitored for a route the rider is not following.
     _serialize(_endLeftoverSession);
     _ordersSub?.cancel();
+    _tripStateSub?.cancel();
+    _tripStateSub = null;
+    _tripState = null;
+    final tripStateFor = _tripStateFor;
+    if (tripStateFor != null) {
+      _tripStateSub = tripStateFor(riderUid).listen(
+        (state) {
+          _tripState = state;
+          _serialize(_reconcile);
+        },
+        // Unreadable: treated as unknown — with no active order that means off
+        // (never sharing on a guess). Active deliveries are unaffected.
+        onError: (Object e) {
+          _tripState = null;
+          _serialize(_reconcile);
+        },
+      );
+    }
+    final ready = Completer<bool>();
+    _ordersReady = ready;
+    _ordersLoadedOk = false;
     _ordersSub = orders.listen(
       (list) {
         _orders = list;
+        _ordersLoadedOk = true;
+        if (!ready.isCompleted) ready.complete(true);
         _serialize(_reconcile);
       },
       onError: (Object e) {
         _lastError = 'Could not read your deliveries.';
+        if (!ready.isCompleted) ready.complete(false);
         _notify();
       },
     );
+  }
+
+  /// Waits (bounded) for the current subscription's first deliveries snapshot.
+  /// null = loaded; otherwise the message to show.
+  Future<String?> _awaitDeliveries() async {
+    final ready = _ordersReady;
+    if (ready == null) return kDeliveriesLoadingMessage;
+    final loaded = ready.isCompleted
+        ? await ready.future
+        : await ready.future.timeout(ordersLoadTimeout, onTimeout: () => false);
+    if (loaded) return null;
+    return ready.isCompleted ? kDeliveriesUnreadableMessage : kDeliveriesLoadingMessage;
   }
 
   /// The rider agreed to the explanation: show the system prompt.
@@ -209,14 +343,34 @@ class RiderTrackingController extends ChangeNotifier {
 
   /// Start Navigation for [orderId]. Replaces any route already navigated.
   /// Returns null on success, or a message why it could not start.
-  Future<String?> startNavigation(String orderId) async {
+  ///
+  /// [authUid] is Firebase Auth's current user, read by the caller at the
+  /// moment of the tap — the authority on who is signed in. Signed out: never
+  /// starts. Signed in: the controller must be attached to THAT rider with
+  /// their deliveries loaded (re-attaching if a lifecycle race detached it);
+  /// assignment is then checked against those server-read deliveries.
+  Future<String?> startNavigation(String orderId, {required String? authUid}) async {
+    final signedIn = authUid?.trim() ?? '';
+    if (signedIn.isEmpty) return kSignInToNavigateMessage;
+    if (_disposed) return kDeliveriesLoadingMessage;
+    if (_riderUid != signedIn || _ordersSub == null) {
+      final ordersFor = _ordersFor;
+      if (ordersFor == null) return kDeliveriesLoadingMessage;
+      // Re-attach the signed-in rider under the CURRENT claim (no new
+      // generation), so the owner's own release still tears it down.
+      _subscribe(signedIn, ordersFor(signedIn));
+    }
+    final loading = await _awaitDeliveries();
+    if (loading != null) return loading;
+
     String? error;
     await _serialize(() async {
-      final uid = _riderUid;
-      if (uid == null) {
-        error = 'Sign in to start navigation.';
+      if (_riderUid != signedIn) {
+        // Torn down or switched while waiting (e.g. a genuine sign-out).
+        error = kDeliveriesLoadingMessage;
         return;
       }
+      final uid = signedIn;
       TrackedOrder? order;
       for (final o in _orders) {
         if (o.id == orderId) order = o;
@@ -248,18 +402,34 @@ class RiderTrackingController extends ChangeNotifier {
       });
 
   /// Sign-out / app teardown: end navigation and tracking, clear the stored
-  /// coordinates, and stop following the rider's orders.
-  Future<void> shutdown({String reason = kEndReasonSignedOut}) => _serialize(() async {
-        await _ordersSub?.cancel();
-        _ordersSub = null;
-        await _endNavigation(reason);
-        await _stopStream(writeEnded: true);
-        _orders = const [];
-        _plan = const TrackingPlan(mode: TrackingMode.off, activeOrderIds: [], endNavigation: false);
-        _status = TrackingStatus.idle;
-        _riderUid = null;
-        _notify();
-      });
+  /// coordinates, and stop following the rider's orders — for the attachment
+  /// current when sign-out was ASKED for. A rider who signed straight back in
+  /// (while an offline sign-out was still finishing) keeps the new attachment.
+  Future<void> shutdown({String reason = kEndReasonSignedOut}) {
+    final generation = _generation;
+    return _serialize(() => _teardown(reason, generation));
+  }
+
+  Future<void> _teardown(String reason, int generation) async {
+    if (generation != _generation) return; // a newer attachment owns the controller
+    final uid = _riderUid;
+    await _ordersSub?.cancel();
+    _ordersSub = null;
+    _ordersReady = null;
+    await _tripStateSub?.cancel();
+    _tripStateSub = null;
+    _tripState = null;
+    await _endNavigation(reason, uid: uid);
+    await _stopStream(writeEnded: true, uid: uid);
+    // Re-attached while the cleanup above was waiting on the network: the
+    // newer attachment's subscription, orders and rider stay as they are.
+    if (generation != _generation) return;
+    _orders = const [];
+    _plan = const TrackingPlan(mode: TrackingMode.off, activeOrderIds: [], endNavigation: false);
+    _status = TrackingStatus.idle;
+    _riderUid = null;
+    _notify();
+  }
 
   // ---------------------------------------------------------------- internals
 
@@ -277,10 +447,13 @@ class RiderTrackingController extends ChangeNotifier {
   Future<void> _reconcile() async {
     final uid = _riderUid;
     if (uid == null) return;
-    _plan = planTracking(riderUid: uid, orders: _orders, navigatingOrderId: _navigation?.orderId);
+    // "Returning" means no active delivery, which is only known once the
+    // deliveries have loaded: until then the trip state is not consulted.
+    final tripState = _deliveriesKnown ? _tripState : null;
+    _plan = planTracking(riderUid: uid, orders: _orders, navigatingOrderId: _navigation?.orderId, tripState: tripState);
     if (_plan.endNavigation) {
       await _endNavigation(kEndReasonTrackingStopped);
-      _plan = planTracking(riderUid: uid, orders: _orders);
+      _plan = planTracking(riderUid: uid, orders: _orders, tripState: tripState);
     }
     if (_plan.mode == TrackingMode.off) {
       await _stopStream(writeEnded: true);
@@ -313,7 +486,11 @@ class RiderTrackingController extends ChangeNotifier {
       // Otherwise the running stream keeps its settings until the app is in
       // the foreground; write cadence already follows the current mode.
     }
-    _status = _plan.mode == TrackingMode.navigating ? TrackingStatus.navigating : TrackingStatus.tracking;
+    _status = switch (_plan.mode) {
+      TrackingMode.navigating => TrackingStatus.navigating,
+      TrackingMode.returning => TrackingStatus.returningToHub,
+      _ => TrackingStatus.tracking,
+    };
     _notify();
   }
 
@@ -367,7 +544,7 @@ class RiderTrackingController extends ChangeNotifier {
     }
   }
 
-  Future<void> _stopStream({required bool writeEnded}) async {
+  Future<void> _stopStream({required bool writeEnded, String? uid}) async {
     final hadStream = _fixSub != null;
     _firstFixTimer?.cancel();
     _firstFixTimer = null;
@@ -377,10 +554,10 @@ class RiderTrackingController extends ChangeNotifier {
     _streamMode = TrackingMode.off;
     _pendingFix = null;
     _policy.reset();
-    final uid = _riderUid;
-    if (writeEnded && uid != null && (hadStream || _wroteSinceStart)) {
+    final target = uid ?? _riderUid;
+    if (writeEnded && target != null && (hadStream || _wroteSinceStart)) {
       try {
-        await _store.writeEnded(riderUid: uid, at: _clock());
+        await _store.writeEnded(riderUid: target, at: _clock());
       } catch (_) {
         // Best effort: the server's retention purge removes an idle location.
       }
@@ -388,13 +565,13 @@ class RiderTrackingController extends ChangeNotifier {
     _wroteSinceStart = false;
   }
 
-  Future<void> _endNavigation(String reason) async {
+  Future<void> _endNavigation(String reason, {String? uid}) async {
     final nav = _navigation;
-    final uid = _riderUid;
+    final target = uid ?? _riderUid;
     _navigation = null;
-    if (nav == null || uid == null) return;
+    if (nav == null || target == null) return;
     try {
-      await _store.endSession(riderUid: uid, sessionId: nav.sessionId, reason: reason);
+      await _store.endSession(riderUid: target, sessionId: nav.sessionId, reason: reason);
     } catch (_) {
       // The server also ends sessions whose order stopped being navigable.
     }
@@ -470,6 +647,8 @@ class RiderTrackingController extends ChangeNotifier {
     _fixSub = null;
     _ordersSub?.cancel();
     _ordersSub = null;
+    _tripStateSub?.cancel();
+    _tripStateSub = null;
     super.dispose();
   }
 

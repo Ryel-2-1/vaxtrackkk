@@ -70,6 +70,50 @@ void main() {
     });
   });
 
+  group('planTracking: returning to the hub (server trip state)', () {
+    test('no active order + returning_to_hub → returning, with no order ids', () {
+      final p = planTracking(riderUid: rider, orders: [order('o1', 'delivered')], tripState: 'returning_to_hub');
+      expect(p.mode, TrackingMode.returning);
+      expect(p.returningToHub, isTrue);
+      expect(p.activeOrderIds, isEmpty);
+    });
+
+    test('race: last order terminal while the trip still says on_trip → still returning (never off)', () {
+      final p = planTracking(riderUid: rider, orders: [order('o1', 'delivered')], tripState: 'on_trip');
+      expect(p.mode, TrackingMode.returning);
+    });
+
+    test('the navigated order finishing while returning ends navigation', () {
+      final p = planTracking(
+        riderUid: rider,
+        orders: [order('o1', 'delivered')],
+        navigatingOrderId: 'o1',
+        tripState: 'returning_to_hub',
+      );
+      expect(p.endNavigation, isTrue);
+      expect(p.mode, TrackingMode.returning);
+    });
+
+    test('available, forming, unknown or missing trip state with no active order → off', () {
+      for (final s in [null, 'available_at_hub', 'trip_forming', 'returned', '']) {
+        final p = planTracking(riderUid: rider, orders: const [], tripState: s);
+        expect(p.mode, TrackingMode.off, reason: '$s');
+        expect(p.returningToHub, isFalse, reason: '$s');
+      }
+    });
+
+    test('an active order always wins over the trip state', () {
+      final p = planTracking(riderUid: rider, orders: [order('o2', 'assigned')], tripState: 'returning_to_hub');
+      expect(p.mode, TrackingMode.tracking);
+      expect(p.returningToHub, isFalse);
+    });
+
+    test('another rider\'s order does not count as active', () {
+      final p = planTracking(riderUid: rider, orders: [order('o1', 'in_transit', to: 'riderB')], tripState: 'returning_to_hub');
+      expect(p.mode, TrackingMode.returning);
+    });
+  });
+
   group('navigationEligibility', () {
     test('allowed for an assigned in-transit order, with or without a route', () {
       expect(navigationEligibility(order: order('o1', 'in_transit'), riderUid: rider, routeAvailable: true).canStart,

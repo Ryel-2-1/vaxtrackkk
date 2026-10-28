@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { MARKER_LABELS } from "../../services/riderTracking";
+import { MARKER_LABELS, RETURNING_TO_HUB_LABEL } from "../../services/riderTracking";
 import "./LiveTracking.css";
 
 /**
@@ -80,7 +80,7 @@ function FleetMap({ riders, selectedUid = null, onSelect, className = "ltp-map" 
       if (!r.latLng) continue;
       seen.add(r.uid);
       const icon = markerIcon(r.state, r.uid === selectedUid);
-      const tip = `${escapeHtml(r.name)} — ${escapeHtml(MARKER_LABELS[r.state])}`;
+      const tip = `${escapeHtml(r.name)} — ${escapeHtml(MARKER_LABELS[r.state])}${r.returningToHub ? ` · ${escapeHtml(RETURNING_TO_HUB_LABEL)}` : ""}`;
       let m = markers.get(r.uid);
       if (!m) {
         m = L.marker(r.latLng, { icon, keyboard: true, title: r.name }).addTo(map);

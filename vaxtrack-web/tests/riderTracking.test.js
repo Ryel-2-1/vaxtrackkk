@@ -325,7 +325,7 @@ test("the fleet panel handles loading, permission, error and empty states", () =
   assert.match(panel, /Loading live tracking/);
   assert.match(panel, /You do not have access to live tracking\./);
   assert.match(panel, /Live tracking could not be loaded\./);
-  assert.match(panel, /No rider has an active delivery right now\./);
+  assert.match(panel, /No rider has an active delivery or is returning to the hub right now\./);
   assert.match(panel, /Route-deviation status could not be loaded; positions are still live\./);
 });
 

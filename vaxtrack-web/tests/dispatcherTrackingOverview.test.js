@@ -58,7 +58,7 @@ test("overview state: permission and errors are never shown as empty; loading sh
 test("each state renders its exact message, compactly; the map mounts only when there are positions", () => {
   assert.match(VIEW, /You do not have permission to view live Rider locations\./);
   assert.match(VIEW, /Live Rider locations could not be loaded\.[\s\S]*onClick=\{retry\}[\s\S]*Try again/);
-  assert.match(VIEW, /No riders are currently on delivery\./);
+  assert.match(VIEW, /No riders are currently on delivery or returning to the hub\./);
   assert.match(VIEW, /Waiting for Rider location updates\.[\s\S]*keep location sharing active/);
   assert.match(VIEW, /view === "live" \? \(\s*<FleetMap riders=\{mapRiders\}/);
   assert.match(VIEW, /const mapRiders = useMemo\(\(\) => fleet\.filter\(\(r\) => r\.latLng\)/);
