@@ -2,6 +2,7 @@
 // mean an inherited GCLOUD_PROJECT or credentials file can never select cloud.
 import { createRequire } from "node:module";
 import { MOTORCYCLE_QA_PROJECT } from "../src/services/motorcycleQaConfig.js";
+import { ROUTING_DEFAULTS, SUGGESTED_HUB } from "../src/services/routingSettings.js";
 const require = createRequire(new URL("../functions/package.json", import.meta.url));
 process.env.FIRESTORE_EMULATOR_HOST = "127.0.0.1:8289";
 process.env.FIREBASE_AUTH_EMULATOR_HOST = "127.0.0.1:9097";
@@ -46,6 +47,34 @@ try {
       lastLocation: new GeoPoint(14.329, 121.081),
     });
   }
+
+  // Departure planning (Cargo Loading): the hub, and requested arrivals set
+  // relative to NOW so the scenario is always live. Stop 2 must be reached
+  // first — before now + 45 min — even though stop 1 is the shorter ride
+  // from the hub; stop 1 asks for a window an hour and a half out.
+  await db.doc("operationsSettings/routing").set({
+    hubName: SUGGESTED_HUB.name, hubLatitude: SUGGESTED_HUB.latitude, hubLongitude: SUGGESTED_HUB.longitude,
+    serviceMinutes: ROUTING_DEFAULTS.serviceMinutes, trafficBufferPercent: ROUTING_DEFAULTS.trafficBufferPercent,
+    longWaitMinutes: ROUTING_DEFAULTS.longWaitMinutes, updatedAt: now, updatedByUid: "motorcycle-qa-admin",
+  });
+  const manila = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(new Date());
+  const part = (type) => manila.find((p) => p.type === type).value;
+  const today = `${part("year")}-${part("month")}-${part("day")}`;
+  const nowMinute = Number(part("hour")) * 60 + Number(part("minute"));
+  const clockAt = (minute) => {
+    const m = Math.min(minute, 23 * 60 + 59);
+    return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  };
+  await db.doc("orders/motorcycle-qa-1").update({
+    requestedDeliveryDate: today,
+    requestedArrival: { version: 1, mode: "window", start: clockAt(nowMinute + 90), end: clockAt(nowMinute + 120) },
+  });
+  await db.doc("orders/motorcycle-qa-2").update({
+    requestedDeliveryDate: today,
+    requestedArrival: { version: 1, mode: "before", time: clockAt(nowMinute + 45) },
+  });
   console.log("Local motorcycle QA fixtures ready (demo-vaxtrack-motorcycle).");
   console.log("Portal accounts: dispatcher@motorcycle.test, admin@motorcycle.test, salesrep@motorcycle.test");
   console.log(`Local test password: ${password}`);

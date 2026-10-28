@@ -23,6 +23,7 @@ import { staffActionsFor, staffStatusOf } from "../../services/staffAccount";
 import { canManageTerritory, readTerritory } from "../../services/territory";
 import MedRepTerritoryDialog from "./MedRepTerritoryDialog";
 import MyProfile from "../../components/profile/MyProfile";
+import RoutingSettings from "./RoutingSettings";
 // The invoice issuer is a constant in the invoice model, not a stored setting.
 import { COMPANY_NAME } from "../../services/invoiceModel";
 
@@ -108,6 +109,8 @@ function Settings() {
                 ? "Manage organization details and system-wide logistics rules."
                 : activeTab === "profile"
                   ? "Your own account: name, phone and password."
+                  : activeTab === "routing"
+                    ? "The hub riders depart from, and the defaults for planning departures."
                   : "Manage personnel, permissions, branches, and registration requests."}
             </p>
           </div>
@@ -116,7 +119,7 @@ function Settings() {
               invented toasts ("Last settings update: Today, 6:18 PM.") —
               nothing records settings notifications, update times or a
               security state — so they were removed. */}
-          {activeTab !== "profile" && (
+          {activeTab !== "profile" && activeTab !== "routing" && (
             <div className="settings-v3-actions">
               <div className="settings-v3-search">
                 <Search size={15} />
@@ -153,6 +156,14 @@ function Settings() {
 
           <button
             type="button"
+            className={activeTab === "routing" ? "active" : ""}
+            onClick={() => setActiveTab("routing")}
+          >
+            Routing
+          </button>
+
+          <button
+            type="button"
             className={activeTab === "profile" ? "active" : ""}
             onClick={() => setActiveTab("profile")}
           >
@@ -164,6 +175,8 @@ function Settings() {
           <GeneralSettings searchTerm={searchTerm} showToast={showToast} />
         ) : activeTab === "profile" ? (
           <MyProfile />
+        ) : activeTab === "routing" ? (
+          <RoutingSettings showToast={showToast} />
         ) : (
           <UserManagement searchTerm={searchTerm} showToast={showToast} />
         )}

@@ -209,3 +209,32 @@ test("refreshing one route cannot relabel the other route's legacy geometry", ()
   assert.match(savedRouteDescription({ ...single, ...motorcycleRouteMetadata(verified, true) }, true), /^Motorcycle route/);
   assert.equal(motorcycleRequest().costing, "motorcycle");
 });
+
+// ---------------------------------------------------------------- departure planning (time-aware)
+
+test("travel matrix: one motorcycle request, every pair, unreachable kept as Infinity", async () => {
+  const c = client([matrix([[0, 300, 420], [310, 0, null], [400, 500, 0]])]);
+  const seconds = await c.travelMatrix([A, B, C]);
+  assert.equal(c.calls.length, 1);
+  assert.match(c.calls[0].url, /sources_to_targets$/);
+  assert.equal(c.calls[0].body.costing, "motorcycle");
+  assert.deepEqual(c.calls[0].body.sources, c.calls[0].body.targets);
+  assert.deepEqual(seconds, [[0, 300, 420], [310, 0, Infinity], [400, 500, 0]]);
+  await rejectsCode(() => client([]).travelMatrix([A]), "route-invalid-stops");
+  await rejectsCode(() => client([]).travelMatrix([A, [99, 0]]), "route-invalid-stops");
+});
+
+test("a planned trip is routed in the Dispatcher's order — never reordered — with the motorcycle checks", async () => {
+  const c = client([route([A, C, B], [30, 40], [1, 2])]);
+  const r = await c.routeThroughStops(A, [{ orderId: "c", latLng: C }, { orderId: "b", latLng: B }]);
+  assert.equal(c.calls.length, 1, "no matrix, no reordering");
+  assert.deepEqual(c.calls[0].body.locations.map(p => [p.lat, p.lon]), [A, C, B]);
+  assert.deepEqual(r.legArrivals, [30, 70]);
+  assert.equal(r.provider, ROUTE_PROVIDER);
+  assert.equal(r.profile, ROUTE_PROFILE);
+  assert.deepEqual(motorcycleRouteMetadata(r, true).tripRouteProfile, ROUTE_PROFILE, "saveable as a motorcycle trip");
+  const restricted = route([A, C, B], [30, 40], [1, 2]);
+  restricted.trip.legs[1].summary.has_highway = true;
+  await rejectsCode(() => client([restricted]).routeThroughStops(A, [{ orderId: "c", latLng: C }, { orderId: "b", latLng: B }]), "route-restricted");
+  await rejectsCode(() => client([]).routeThroughStops(A, [{ orderId: "c", latLng: C }, { orderId: "c", latLng: B }]), "route-invalid-stops");
+});

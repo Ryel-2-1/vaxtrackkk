@@ -1768,6 +1768,33 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ---------------- routing settings (src/services/routingSettings.js) ----------------
+    // ONE document, operationsSettings/routing: the hub every planned trip
+    // departs from, plus the planning defaults. Admin writes it; Dispatcher
+    // reads it to plan departures. Exact field set and ranges, so the planner
+    // never reads a value the Admin form could not have saved.
+    function validRoutingSettings() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['hubName', 'hubLatitude', 'hubLongitude', 'serviceMinutes',
+          'trafficBufferPercent', 'longWaitMinutes', 'updatedAt', 'updatedByUid'])
+        && d.keys().hasAll(['hubName', 'hubLatitude', 'hubLongitude', 'serviceMinutes',
+          'trafficBufferPercent', 'longWaitMinutes', 'updatedAt', 'updatedByUid'])
+        && d.hubName is string && d.hubName.size() > 0 && d.hubName.size() <= 80
+        && d.hubLatitude is number && d.hubLatitude >= -90 && d.hubLatitude <= 90
+        && d.hubLongitude is number && d.hubLongitude >= -180 && d.hubLongitude <= 180
+        && d.serviceMinutes is int && d.serviceMinutes >= 0 && d.serviceMinutes <= 120
+        && d.trafficBufferPercent is int && d.trafficBufferPercent >= 0 && d.trafficBufferPercent <= 100
+        && d.longWaitMinutes is int && d.longWaitMinutes >= 5 && d.longWaitMinutes <= 240
+        && d.updatedAt == request.time
+        && d.updatedByUid == request.auth.uid;
+    }
+    match /operationsSettings/{settingId} {
+      allow get: if isAdmin() || isDispatcher();
+      allow list: if false;
+      allow create, update: if isAdmin() && settingId == 'routing' && validRoutingSettings();
+      allow delete: if false;
+    }
+
     // ---------------- rider live tracking (functions/src/riderTracking.js) ----------------
     //
     // riderLocations/{riderUid}: ONE replaceable current-location doc per rider.

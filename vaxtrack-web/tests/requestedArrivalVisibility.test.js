@@ -98,8 +98,15 @@ test("all newly covered web rows use one shared, wrapping arrival note", () => {
   assert.doesNotMatch(css, /(?:^|\n)\s*(?:position|min-width|height):/);
 });
 
-test("single-stop routing and multi-stop optimization disclose their time-window limitation", () => {
+test("Geofence routing is time-aware and says what it does with requested arrival times", () => {
   const page = read("src/pages/dispatcher/DispatcherGeofence.jsx");
-  assert.match(page, /Route generation does not yet enforce requested arrival times/);
-  assert.equal((page.match(/\{ROUTE_TIMING_NOTICE\}/g) ?? []).length, 2);
+  // Single route: the arrival is checked against the request (with the traffic buffer).
+  assert.match(page, /the arrival is checked against the requested time/);
+  assert.match(page, /arrivalCheck\(selected, new Date\(genAt\.getTime\(\) \+ buffered \* 60000\)\)/);
+  // Re-optimize: the shared time-aware planner, from the live position, departure = now.
+  assert.match(page, /Re-optimize plans from the rider's live position now, ordering stops to meet requested arrival times, and replaces the saved trip/);
+  assert.match(page, /const result = planTrip\(\{[\s\S]*fixedDeparture: clock\.minute,[\s\S]*slackMinutes: DEADLINE_SLACK_MINUTES,/);
+  assert.equal(/optimizeTrip\(/.test(page), false, "the shortest-ride-only optimizer is no longer used here");
+  assert.equal((page.match(/\{ROUTE_TIMING_NOTICE\}/g) ?? []).length, 1);
+  assert.equal((page.match(/\{TRIP_TIMING_NOTICE\}/g) ?? []).length, 1);
 });

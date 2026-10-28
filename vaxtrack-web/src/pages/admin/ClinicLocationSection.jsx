@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import "./ClinicLocationSection.css";
 import { MapPin } from "lucide-react";
 import {
   DEFAULT_GEOFENCE_RADIUS_M,
@@ -46,6 +47,9 @@ function ClinicLocationSection({
   helpText = "Click the map to place this clinic's pin, or drag it to adjust. This location is reused for dispatch routing and delivery arrival monitoring, so place it on the building entrance riders should reach.",
   mapAriaLabel = "Clinic location picker. Click the map to place the pin, or use the latitude and longitude fields below.",
   emptyMessage = "No pin placed yet. This clinic can still be saved — it will show as Needs location until a pin is added.",
+  // The routing hub reuses this picker: a pin only, no arrival radius.
+  heading = "Location and service area",
+  showRadius = true,
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -88,7 +92,9 @@ function ClinicLocationSection({
     parsedRadius !== null &&
     parsedRadius >= MIN_GEOFENCE_RADIUS_M &&
     parsedRadius <= MAX_GEOFENCE_RADIUS_M;
-  const radiusForCircle = !radiusProvided
+  const radiusForCircle = !showRadius
+    ? null
+    : !radiusProvided
     ? DEFAULT_GEOFENCE_RADIUS_M
     : radiusInRange
       ? parsedRadius
@@ -208,7 +214,7 @@ function ClinicLocationSection({
   return (
     <section className="clinic-loc" aria-labelledby={`${idPrefix}-heading`}>
       <div className="clinic-loc-head">
-        <h4 id={`${idPrefix}-heading`}>Location and service area</h4>
+        <h4 id={`${idPrefix}-heading`}>{heading}</h4>
         <span
           className={`clinic-loc-state ${hasPin ? "is-set" : "is-unset"}`}
         >
@@ -270,6 +276,7 @@ function ClinicLocationSection({
           )}
         </label>
 
+        {showRadius && (
         <label htmlFor={radiusId}>
           Arrival radius (m)
           <input
@@ -301,6 +308,7 @@ function ClinicLocationSection({
             </small>
           )}
         </label>
+        )}
       </div>
 
       {radiusPreviewHidden && (

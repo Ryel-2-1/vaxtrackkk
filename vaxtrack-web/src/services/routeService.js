@@ -334,6 +334,32 @@ export function createMotorcycleRouteService({
     }), points.length - 1);
   }
   return {
+    // Motorcycle travel seconds between every pair of points (Infinity when a
+    // pair is unreachable). One request; reordering stops reuses it.
+    async travelMatrix(points) {
+      if (!Array.isArray(points) || points.length < 2 || !points.every(validLocation)) throw fail("route-invalid-stops");
+      const locations = points.map(location);
+      const data = await request("sources_to_targets", {
+        ...motorcycleRequest(),
+        sources: locations,
+        targets: locations
+      });
+      return parseMotorcycleMatrix(data, points.length);
+    },
+    // The route through stops in the order given (the Dispatcher's plan), not
+    // reordered. `legArrivals` are cumulative riding seconds to each stop.
+    async routeThroughStops(start, stops) {
+      if (!Array.isArray(stops) || stops.length < 1 || stops.some(s => typeof s?.orderId !== "string" || !s.orderId.trim() || !validLocation(s.latLng)) || new Set(stops.map(s => s.orderId)).size !== stops.length) throw fail("route-invalid-stops");
+      const route = await routeThrough([start, ...stops.map(s => s.latLng)]);
+      return {
+        polyline: route.polyline,
+        distanceMeters: route.distanceMeters,
+        durationSeconds: route.durationSeconds,
+        provider: route.provider,
+        profile: route.profile,
+        legArrivals: route.arrivals
+      };
+    },
     async fetchRoute(start, destination) {
       const route = await routeThrough([start, destination]);
       return {
@@ -374,6 +400,8 @@ export function createMotorcycleRouteService({
 const service = createMotorcycleRouteService();
 export const fetchRoute = (...args) => service.fetchRoute(...args);
 export const optimizeTrip = (...args) => service.optimizeTrip(...args);
+export const fetchTravelMatrix = (...args) => service.travelMatrix(...args);
+export const routeThroughStops = (...args) => service.routeThroughStops(...args);
 // Pure compatibility helpers for old response fixtures, not route generation.
 export function parseOptimizedJobOrder(response) {
   const steps = response?.routes?.[0]?.steps;

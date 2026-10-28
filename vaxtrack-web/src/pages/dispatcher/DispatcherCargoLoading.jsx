@@ -34,10 +34,14 @@ import { confirmRiderReturnToHub, subscribeRiderDispatchStates } from "../../ser
 import { cargoGroupDispatch, ridersReturningToHub } from "../../services/riderTrip";
 import DispatcherDialogLayer from "./DispatcherDialogLayer";
 import DeparturePlanner from "../../components/dispatch/DeparturePlanner";
+import { subscribeRoutingSettings } from "../../services/routingSettingsService";
+import { routingSettingsOf } from "../../services/routingSettings";
 
-// The requested-arrival contract ships independently of this unfinished,
-// manually-entered travel-time planner. Opt in only for local evaluation.
-const DEPARTURE_PLANNER_ENABLED = import.meta.env?.VITE_DEPARTURE_PLANNER_ENABLED === "true";
+// The departure planner (requested arrivals + motorcycle travel times) is
+// switched on per build with VITE_DEPARTURE_PLANNER_ENABLED=true, and always
+// in the loopback-only motorcycle-QA mode.
+const DEPARTURE_PLANNER_ENABLED =
+  import.meta.env?.VITE_DEPARTURE_PLANNER_ENABLED === "true" || import.meta.env?.MODE === "motorcycle-qa";
 import { requestedArrivalLabel, requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
 import "./CargoLoading.css";
 
@@ -110,6 +114,17 @@ function DispatcherCargoLoading() {
   const [confirmReturn, setConfirmReturn] = useState(null); // { riderUid, tripId, name, ... }
   const [printGroup, setPrintGroup] = useState(null); // group being printed
   const { toast, showToast, dismissToast } = useToast();
+  // Hub + planning defaults for the departure planner (Admin → Settings → Routing).
+  // null while loading; an unreadable document plans with no hub, never a guessed one.
+  const [routing, setRouting] = useState(null);
+
+  useEffect(() => {
+    if (!DEPARTURE_PLANNER_ENABLED) return undefined;
+    return subscribeRoutingSettings(
+      (docData) => setRouting(routingSettingsOf(docData)),
+      () => setRouting(routingSettingsOf(null))
+    );
+  }, []);
 
   // Live subscription to rider loading groups.
   useEffect(() => {
@@ -374,6 +389,7 @@ function DispatcherCargoLoading() {
                   onPrint={() => setPrintGroup(group)}
                   onFinalize={() => setConfirmGroup(group)}
                   tripHold={cargoGroupDispatch(tripStates.get(group.riderId))}
+                  routing={routing}
                 />
               ))}
             </div>
@@ -447,6 +463,7 @@ function RiderCard({
   onPrint,
   onFinalize,
   tripHold = { canFinalize: true, reason: "" },
+  routing = null,
 }) {
   const badge = loadingBadge(group, dispatched);
   // Orders assigned before the schedule guard existed may still sit here ahead
@@ -580,7 +597,7 @@ function RiderCard({
         })}
       </div>
 
-      {DEPARTURE_PLANNER_ENABLED && !dispatched && <DeparturePlanner orders={group.orders} riderName={group.rider.name} />}
+      {DEPARTURE_PLANNER_ENABLED && !dispatched && <DeparturePlanner orders={group.orders} riderName={group.rider.name} routing={routing} />}
 
       {!tripHold.canFinalize && !dispatched ? (
         <p className="cl-hint">{tripHold.reason}</p>

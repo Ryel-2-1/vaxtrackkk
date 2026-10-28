@@ -211,7 +211,10 @@ test("missing fields render '—', never a made-up default", () => {
 });
 
 test("the grid card shows the list's information and the same actions; placeholders stay disabled", () => {
-  const card = /function ClinicCard\(\{ clinic, onDetails, onManageLocation \}\) \{([\s\S]*?)\n\}/.exec(CODE)[1];
+  const card = /function ClinicCard\(\{ clinic, onDetails, onManageLocation, onManageAccess, reach \}\) \{([\s\S]*?)\n\}/.exec(CODE)[1];
+  // Manage access (who can order here) is in both views too.
+  assert.match(card, />\s*Manage access\s*</);
+  assert.match(card, /<ReachChip reach=\{reach\} \/>/);
   for (const label of ["Contact person", "Phone", "Email", "Location", "Area", "Last delivery"]) {
     assert.match(card, new RegExp(`<dt>${label}</dt>`), label);
   }

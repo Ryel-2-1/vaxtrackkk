@@ -206,21 +206,39 @@ test("the plan is deterministic", () => {
   assert.deepEqual(plan([A, B_EXACT]), plan([A, B_EXACT]));
 });
 
-test("the planner UI is planning only and never reuses a stale entry", () => {
+test("the planner UI saves only the trip route on 'Use this plan', and never reuses a stale entry", () => {
   const ui = readFileSync(new URL("../src/components/dispatch/DeparturePlanner.jsx", import.meta.url), "utf8");
-  // No writes, no callables, no dispatch: it imports only the pure planner,
-  // the arrival helpers, icons and its stylesheet.
+  // Its only write is the trip route + planned arrivals (saveRiderTripRoute),
+  // and only from "Use this plan". No direct Firestore writes, no callables,
+  // no dispatch, no status or loading change, no browser storage.
   const imports = [...ui.matchAll(/from "([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(imports.sort(), ["../../services/departurePlanner", "../../services/requestedArrival", "lucide-react", "react"].sort());
-  assert.equal(/setDoc|updateDoc|addDoc|httpsCallable|finalizeRiderDispatch|updateOrderLoadedState|localStorage|sessionStorage/.test(ui), false);
+  assert.deepEqual(imports.sort(), [
+    "../../services/departurePlanner", "../../services/liveDataErrors", "../../services/orderService",
+    "../../services/requestedArrival", "../../services/routeService", "../../services/timeAwareRouting",
+    "lucide-react", "react",
+  ].sort());
+  assert.match(ui, /import \{ saveOrderRoute, saveRiderTripRoute \} from "\.\.\/\.\.\/services\/orderService";/);
+  assert.match(ui, /import \{ fetchRoute, fetchTravelMatrix, routeThroughStops \} from "\.\.\/\.\.\/services\/routeService";/);
+  // One save helper: a trip for several stops, the order's own route for one.
+  assert.equal((ui.match(/saveRiderTripRoute\(/g) || []).length, 1, "one trip save call site");
+  assert.equal((ui.match(/saveOrderRoute\(/g) || []).length, 1, "one single-route save call site");
+  assert.match(ui, /async function saveRoute\(ordered, plannedEtas\) \{/);
+  assert.match(ui, /await saveRiderTripRoute\(\{ \.\.\.route, stops: plannedEtas \}\);/);
+  assert.match(ui, /async function usePlan\(\) \{[\s\S]*?await saveRoute\(sequenced, etas\);/);
+  // Plan trip saves on its own only when every requested arrival is met; otherwise it waits for "Save anyway".
+  assert.match(ui, /if \(!result\.allMet && !force\) \{\s*setAutoResult\(\{ \.\.\.result, saved: false \}\);\s*return;\s*\}\s*await saveRoute\(ordered, result\.etas\);/);
+  assert.equal(/setDoc|updateDoc|addDoc|httpsCallable|finalizeRiderDispatch|updateOrderLoadedState|updateOrderStatus|localStorage|sessionStorage/.test(ui), false);
   // Entries are keyed by order AND destination revision; legs by both ends.
   assert.match(ui, /const keyOf = \(order\) => `\$\{order\.id\}@\$\{Number\.isInteger\(order\.destinationRevision\)/);
   assert.match(ui, /const legKey = \(index\) => `\$\{index === 0 \? "hub" : keyOf\(sequenced\[index - 1\]\)\}>\$\{keyOf\(sequenced\[index\]\)\}`;/);
   // The plan is recomputed from the live orders on every render.
   assert.match(ui, /const plan = planDeparture\(\{/);
   const cargo = readFileSync(new URL("../src/pages/dispatcher/DispatcherCargoLoading.jsx", import.meta.url), "utf8");
-  assert.match(cargo, /const DEPARTURE_PLANNER_ENABLED = import\.meta\.env\?\.VITE_DEPARTURE_PLANNER_ENABLED === "true";/);
-  assert.match(cargo, /\{DEPARTURE_PLANNER_ENABLED && !dispatched && <DeparturePlanner orders=\{group\.orders\} riderName=\{group\.rider\.name\} \/>\}/);
+  // On per build (VITE_DEPARTURE_PLANNER_ENABLED=true), or in the loopback-only QA mode.
+  assert.match(cargo, /const DEPARTURE_PLANNER_ENABLED =\s*import\.meta\.env\?\.VITE_DEPARTURE_PLANNER_ENABLED === "true" \|\| import\.meta\.env\?\.MODE === "motorcycle-qa";/);
+  assert.match(cargo, /\{DEPARTURE_PLANNER_ENABLED && !dispatched && <DeparturePlanner orders=\{group\.orders\} riderName=\{group\.rider\.name\} routing=\{routing\} \/>\}/);
+  // The routing settings are read only when the planner is on.
+  assert.match(cargo, /if \(!DEPARTURE_PLANNER_ENABLED\) return undefined;\s*return subscribeRoutingSettings\(/);
 });
 
 test("with a stop for another day, the interval is labelled as covering only the other stops", () => {

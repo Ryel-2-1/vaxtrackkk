@@ -5557,6 +5557,48 @@ async function main() {
     await assertFails(updateDoc(doc(admin, "inventory", "invAdmin"), { reservedQuantity: 5 }));
   });
 
+  // ---------------- routing settings (hub + planning defaults) ----------------
+  {
+    const routingRef = (ctx, id = "routing") => doc(ctx, "operationsSettings", id);
+    const routing = (over = {}) => ({
+      hubName: "Puremart Zapote", hubLatitude: 14.3123223, hubLongitude: 121.0848667,
+      serviceMinutes: 10, trafficBufferPercent: 15, longWaitMinutes: 30,
+      updatedAt: serverTimestamp(), updatedByUid: adminUid, ...over,
+    });
+
+    await check("PRS1 Admin saves and updates the routing settings; Admin and Dispatcher read them", async () => {
+      await assertSucceeds(setDoc(routingRef(admin), routing()));
+      await assertSucceeds(setDoc(routingRef(admin), routing({ serviceMinutes: 12, trafficBufferPercent: 20 })));
+      await assertSucceeds(getDoc(routingRef(admin)));
+      await assertSucceeds(getDoc(routingRef(dispatcher)));
+    });
+
+    await check("NRS1 nobody else writes them, nobody lists them, and only Admin/Dispatcher read them", async () => {
+      for (const ctx of [dispatcher, salesRep, rider, anon]) {
+        await assertFails(setDoc(routingRef(ctx), routing()));
+      }
+      for (const ctx of [salesRep, rider, anon]) await assertFails(getDoc(routingRef(ctx)));
+      await assertFails(getDocs(collection(admin, "operationsSettings")));
+      await assertFails(deleteDoc(routingRef(admin)));
+    });
+
+    await check("NRS2 only the 'routing' document, with exact fields, ranges, server time and the saver's uid", async () => {
+      await assertFails(setDoc(routingRef(admin, "other"), routing()));
+      for (const bad of [
+        routing({ hubName: "" }), routing({ hubName: "x".repeat(81) }), routing({ hubLatitude: 91 }),
+        routing({ hubLongitude: "121" }), routing({ serviceMinutes: 10.5 }), routing({ serviceMinutes: 121 }),
+        routing({ trafficBufferPercent: -1 }), routing({ trafficBufferPercent: 101 }), routing({ longWaitMinutes: 4 }),
+        routing({ updatedAt: Timestamp.fromMillis(Date.now()) }), routing({ updatedByUid: dispatcherUid }),
+        routing({ extra: true }),
+      ]) {
+        await assertFails(setDoc(routingRef(admin), bad));
+      }
+      const missing = routing();
+      delete missing.longWaitMinutes;
+      await assertFails(setDoc(routingRef(admin), missing));
+    });
+  }
+
   // ---------------- rider live tracking ----------------
   {
     const trkOtherRep = testEnv.authenticatedContext(otherSalesRepUid).firestore();

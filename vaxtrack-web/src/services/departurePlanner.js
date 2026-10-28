@@ -77,7 +77,7 @@ function dateIssueOf(requestedDate, planDate) {
  * One stop's constraint for the plan day.
  * @returns {{bounds: [number, number] | null, dateIssue: null|"passed"|"later"|"missing", spec: object}}
  */
-function constraintOf(stop, planDate) {
+export function constraintOf(stop, planDate) {
   const spec = requestedArrivalOf(stop);
   const dateIssue = dateIssueOf(stop.requestedDeliveryDate, planDate);
   return { spec, dateIssue, bounds: dateIssue ? null : arrivalBounds(spec) };
@@ -87,7 +87,7 @@ function constraintOf(stop, planDate) {
  * Walk the route from departure minute D. Pure; `constraints[i]` from constraintOf.
  * Every stop gets an outcome: ok | early | late | unknown | date.
  */
-function walk(stops, constraints, departure, allowWaiting) {
+export function walk(stops, constraints, departure, allowWaiting) {
   let clock = departure; // minute the Rider leaves the previous point, or null once unknown
   let totalWait = 0;
   let totalDeviation = 0;
@@ -156,6 +156,23 @@ function walk(stops, constraints, departure, allowWaiting) {
   return { rows, totalWait, totalDeviation, unmet, unknown };
 }
 
+/**
+ * Minutes to spare before the tightest deadline in a walk: window ends and
+ * "before" cutoffs only (an exact time has no slack by definition; any time
+ * has no deadline). Infinity when no stop has a deadline or a known start.
+ */
+export function minSlackOf(w, constraints) {
+  let min = Infinity;
+  w.rows.forEach((r, i) => {
+    const c = constraints[i];
+    if (!c.bounds || r.serviceStart === null || (c.spec.mode !== "window" && c.spec.mode !== "before")) return;
+    // A window's end is the last good minute; "before" is measured to the cutoff itself.
+    const deadline = c.spec.mode === "before" ? c.bounds[1] + 1 : c.bounds[1];
+    min = Math.min(min, deadline - r.serviceStart);
+  });
+  return min;
+}
+
 /** Contiguous [from, to] runs of a sorted list of minutes. */
 function runsOf(minutes) {
   const runs = [];
@@ -175,11 +192,15 @@ function runsOf(minutes) {
  * @param {number|null} input.nowMinute    the current Manila minute when planDate is today; null for a later day
  * @param {boolean} [input.allowWaiting]   the Rider may wait at a stop until it can be served
  * @param {number|null} [input.departureMinute]  the Dispatcher's planned departure, if any
+ * @param {number|null} [input.longWaitMinutes]  a single wait longer than this is flagged (cold chain)
+ * @param {number} [input.slackMinutes]  preferred minutes to spare before each window/"before" deadline;
+ *   among departures that meet every request, one that keeps this slack wins over less waiting
+ * @param {string|null} [input.travelNote]  replaces the generic traffic warning (e.g. Valhalla + buffer)
  * @param {Array<{id: string, label?: string, requestedDeliveryDate: string,
  *   requestedArrival?: object, travelMinutes: number|string|null,
  *   serviceMinutes: number|string|null}>} input.stops  in visiting order
  */
-export function planDeparture({ planDate, nowMinute = null, allowWaiting = false, departureMinute = null, stops = [] }) {
+export function planDeparture({ planDate, nowMinute = null, allowWaiting = false, departureMinute = null, longWaitMinutes = null, travelNote = null, slackMinutes = 0, stops = [] }) {
   const constraints = stops.map((s) => constraintOf(s, planDate));
   const missing = [];
   stops.forEach((s, i) => {
@@ -209,7 +230,11 @@ export function planDeparture({ planDate, nowMinute = null, allowWaiting = false
       if (fixableUnmet === 0) feasibleAll.push(d);
       if (d < earliestAllowed) continue;
       if (fixableUnmet === 0) {
-        if (!best || w.totalWait < best.totalWait) best = { d, totalWait: w.totalWait };
+        // Keep the preferred slack before deadlines first, then the least waiting, then the earliest.
+        const shortfall = Math.max(0, slackMinutes - minSlackOf(w, constraints));
+        if (!best || shortfall < best.shortfall || (shortfall === best.shortfall && w.totalWait < best.totalWait)) {
+          best = { d, totalWait: w.totalWait, shortfall };
+        }
       } else if (!fallback || w.totalDeviation < fallback.totalDeviation) {
         fallback = { d, totalDeviation: w.totalDeviation };
       }
@@ -263,7 +288,15 @@ export function planDeparture({ planDate, nowMinute = null, allowWaiting = false
   const conflicts = rows.filter((r) => r.outcome === "early" || r.outcome === "late" || r.outcome === "date");
   // A planned departure already behind the clock cannot be followed as entered.
   const departureInPast = planned !== null && Number.isInteger(nowMinute) && planned < nowMinute;
-  const warnings = [PLAN_WARNINGS.destinationHours, PLAN_WARNINGS.hubHours, PLAN_WARNINGS.traffic];
+  const warnings = [PLAN_WARNINGS.destinationHours, PLAN_WARNINGS.hubHours, travelNote || PLAN_WARNINGS.traffic];
+  // A long wait keeps vaccines in the cooler box: shown, never hidden in a total.
+  if (Number.isInteger(longWaitMinutes)) {
+    rows.forEach((r, i) => {
+      if (r.wait > longWaitMinutes) {
+        warnings.unshift(`Stop ${i + 1} (${r.label || "destination"}) waits ${r.wait} min — over ${longWaitMinutes} min with vaccines in the cooler box.`);
+      }
+    });
+  }
   if (departureInPast) {
     warnings.unshift(`The planned departure, ${formatMinute(planned)}, has already passed.`);
   }
@@ -274,6 +307,12 @@ export function planDeparture({ planDate, nowMinute = null, allowWaiting = false
   }
   if (windowRuns > 1) {
     warnings.unshift("Departures that meet these requests fall in more than one separate interval; the earliest is shown.");
+  }
+  if (slackMinutes > 0 && run && run.unmet === 0) {
+    const spare = minSlackOf(run, constraints);
+    if (Number.isFinite(spare) && spare < slackMinutes) {
+      warnings.unshift(`Only ${spare} min to spare before a requested deadline — less than the preferred ${slackMinutes} min.`);
+    }
   }
 
   let status;
@@ -300,6 +339,9 @@ export function planDeparture({ planDate, nowMinute = null, allowWaiting = false
     conflicts,
     missing,
     totalWait: run ? run.totalWait : 0,
+    // Minutes to spare before the tightest window/"before" deadline at the
+    // evaluated departure (null when no such deadline is known).
+    minSlack: run && Number.isFinite(minSlackOf(run, constraints)) ? minSlackOf(run, constraints) : null,
     warnings,
     objective: PLAN_OBJECTIVE,
   };
