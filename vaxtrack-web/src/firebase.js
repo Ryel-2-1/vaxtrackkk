@@ -1,14 +1,22 @@
 import { initializeApp } from "firebase/app";
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "firebase/app-check";
-import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getAuth, connectAuthEmulator } from "firebase/auth";
+import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
+import { getFunctions, connectFunctionsEmulator } from "firebase/functions";
+import { getStorage, connectStorageEmulator } from "firebase/storage";
+import { motorcycleQaConfig } from "./services/motorcycleQaConfig.js";
 
 // Firebase config is read from Vite env vars (.env / .env.local / .env.<mode>),
 // never hardcoded — so development, staging, and production can point at
 // different Firebase projects without any code change. Copy `.env.example` to
 // `.env` and fill in the values (Firebase console -> Project settings -> SDK
 // setup). `.env` is gitignored; only `.env.example` is committed.
-const firebaseConfig = {
+const localQa = motorcycleQaConfig({
+  mode: import.meta.env.MODE,
+  dev: import.meta.env.DEV,
+  hostname: globalThis.location?.hostname,
+});
+const firebaseConfig = localQa ?? {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
@@ -51,7 +59,7 @@ const app = initializeApp(firebaseConfig);
 // Local development: set VITE_APPCHECK_DEBUG=true to make the SDK print a debug
 // token in the browser console; register it once in the Firebase console.
 const appCheckSiteKey = import.meta.env.VITE_APPCHECK_RECAPTCHA_SITE_KEY;
-if (appCheckSiteKey) {
+if (appCheckSiteKey && !localQa) {
   if (import.meta.env.DEV && import.meta.env.VITE_APPCHECK_DEBUG === "true") {
     globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
   }
@@ -63,6 +71,15 @@ if (appCheckSiteKey) {
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+if (localQa) {
+  connectAuthEmulator(auth, "http://127.0.0.1:9097");
+  connectFirestoreEmulator(db, "127.0.0.1", 8289);
+  // This route-only fixture does not run callables or uploads. Point them at
+  // local ports too, so unrelated controls fail locally instead of calling cloud.
+  connectFunctionsEmulator(getFunctions(app, "asia-southeast1"), "127.0.0.1", 5009);
+  connectStorageEmulator(getStorage(app), "127.0.0.1", 9197);
+}
 
 if (import.meta.env.PROD) {
   import("firebase/analytics").then(({ getAnalytics, isSupported }) => {

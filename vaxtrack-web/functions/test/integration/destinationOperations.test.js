@@ -103,9 +103,11 @@ test("approval invalidates the order's own route, its trip place, and the trip r
   const unrelated = "destination-other-trip";
   await seed(id);
   const trip = { tripId: "trip-A", tripStopCount: 2, tripPolyline: "old-trip", tripDistanceMeters: 5000,
+    tripRouteProvider: "valhalla", tripRouteProfile: "motorcycle-no-expressways-v1",
     tripDurationSeconds: 900, tripGeneratedAt: FieldValue.serverTimestamp(), stopEtaSeconds: 300, stopEtaText: "2:00 PM" };
   await db.collection("orders").doc(id).update({ ...trip, stopSequence: 1, routeGeneratedAt: FieldValue.serverTimestamp(),
-    routeDistanceMeters: 900, routeDurationSeconds: 120, routeEtaText: "1:00 PM" });
+    routeDistanceMeters: 900, routeDurationSeconds: 120, routeEtaText: "1:00 PM",
+    routeProfile: "motorcycle-no-expressways-v1" });
   await db.collection("orders").doc(sibling).set({ ...trip, stopSequence: 2, status: "assigned",
     routePolyline: "sibling-own-route", createdByUid: OTHER });
   await db.collection("orders").doc(unrelated).set({ ...trip, tripId: "trip-B", stopSequence: 1, status: "assigned", createdByUid: OTHER });

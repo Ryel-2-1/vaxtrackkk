@@ -557,7 +557,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
   }
 
   Widget _routeCard() {
-    // Show the live Google Map when we have anything to plot: clinic
+    // Show the OpenStreetMap view when we have anything to plot: clinic
     // coordinates and/or a rider location. Otherwise fall back to the text
     // route summary so coord-less orders still work.
     final hasRiderLoc = d.lastLocation != null;
@@ -587,6 +587,14 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
               ),
               const SizedBox(height: 12),
               if (d.hasRoute) ...[_etaCard(), const SizedBox(height: 12)],
+              if (d.routePolyline != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    d.routeDescription(),
+                    style: const TextStyle(fontSize: 12, color: AppColors.textLight),
+                  ),
+                ),
               _destinationRow(),
               if (!d.hasRoute)
                 Padding(

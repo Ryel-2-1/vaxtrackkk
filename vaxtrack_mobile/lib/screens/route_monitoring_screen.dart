@@ -270,6 +270,13 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
           children: [
             // Permission / location-off states, with their recovery actions.
             TrackingStatusBanner(controller: riderTracking),
+            if (_routeAvailable)
+              _note(
+                Icons.two_wheeler,
+                widget.delivery.routeDescription(
+                  trip: widget.delivery.isOnTrip && widget.delivery.tripPolyline != null,
+                ),
+              ),
             if (routeNote != null)
               _note(Icons.alt_route, 'Route not available — $routeNote, so route deviation is not monitored. Ask dispatch to generate the route.'),
             if (_navigatingThis) _statusRow(display),

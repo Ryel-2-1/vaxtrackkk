@@ -1,6 +1,5 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   parseOptimizedJobOrder,
   cumulativeLegSeconds,
@@ -63,20 +62,8 @@ test("cumulativeLegSeconds tolerates missing/junk durations and non-arrays", () 
 
 // ------------------------------------------------------------- travel profile
 
-test("internal routing stays on a motor-vehicle profile (ORS has no two-wheeler)", () => {
-  // Riders ride motorcycles. The Rider app's Google Maps hand-off asks for
-  // two-wheeler mode, but the route/ETA saved here comes from OpenRouteService,
-  // whose only profiles are driving-car, driving-hgv, cycling-*, foot-* and
-  // wheelchair. There is no motorcycle profile to switch to, and a cycling
-  // profile would be a pedal-bike route — so driving-car is the closest honest
-  // match. If this provider ever moves to the Google Routes API, the request
-  // should use travelMode TWO_WHEELER and show the motorcycle beta warning.
-  const src = readFileSync(
-    new URL("../src/services/routeService.js", import.meta.url),
-    "utf8"
-  );
-  assert.match(src, /\/v2\/directions\/driving-car"/, "directions profile");
-  assert.match(src, /profile: "driving-car"/, "optimization vehicle profile");
-  assert.equal(/cycling/.test(src), false, "never a bicycle profile");
-  assert.equal(/TWO_WHEELER|two-wheeler/.test(src), false, "no unsupported mode is sent");
+test("motorcycle generation has a distinct saved profile", async () => {
+  const { ROUTE_PROVIDER, ROUTE_PROFILE } = await import("../src/services/routeService.js");
+  assert.equal(ROUTE_PROVIDER, "valhalla");
+  assert.equal(ROUTE_PROFILE, "motorcycle-no-expressways-v1");
 });

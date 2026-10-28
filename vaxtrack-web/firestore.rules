@@ -457,16 +457,16 @@ service cloud.firestore {
         'delayReason', 'delayedAt', 'deliveredAt', 'dispatchedAt',
         'dispatchedByEmail', 'dispatchedByUid', 'isLoaded', 'loadedAt',
         'loadedByEmail', 'loadedByUid', 'loadingFinalizedAt',
-        // Route + ETA (OpenRouteService) — written by the Geofence "Generate
+        // Route + ETA — written by the Geofence "Generate
         // route & ETA" action. Dispatcher-only; set at generation, not by riders.
         'routeDistanceMeters', 'routeDurationSeconds', 'routeEtaText',
-        'routeGeneratedAt', 'routePolyline', 'routeProvider',
+        'routeGeneratedAt', 'routePolyline', 'routeProvider', 'routeProfile',
         'routeDestinationRevision',
-        // Multi-stop trip optimization (OpenRouteService /optimization) — the
+        // Multi-stop motorcycle trip optimization — the
         // rider's whole-trip route + this order's place in it. Dispatcher-only;
         // set when the trip is optimized, never by riders.
         'tripId', 'tripStopCount', 'tripPolyline', 'tripDistanceMeters',
-        'tripDurationSeconds', 'tripGeneratedAt',
+        'tripDurationSeconds', 'tripGeneratedAt', 'tripRouteProvider', 'tripRouteProfile',
         'stopSequence', 'stopEtaSeconds', 'stopEtaText',
         'startedAt',
         'status', 'statusUpdatedAt', 'statusUpdatedByEmail', 'statusUpdatedByUid',
@@ -1145,7 +1145,7 @@ service cloud.firestore {
     function routeFields() {
       return [
         'routeDistanceMeters', 'routeDurationSeconds', 'routeEtaText',
-        'routeGeneratedAt', 'routePolyline', 'routeProvider',
+        'routeGeneratedAt', 'routePolyline', 'routeProvider', 'routeProfile',
         'routeDestinationRevision', 'updatedAt'
       ];
     }
@@ -1168,7 +1168,7 @@ service cloud.firestore {
     function tripFields() {
       return [
         'tripId', 'tripStopCount', 'tripPolyline', 'tripDistanceMeters',
-        'tripDurationSeconds', 'tripGeneratedAt',
+        'tripDurationSeconds', 'tripGeneratedAt', 'tripRouteProvider', 'tripRouteProfile',
         'stopSequence', 'stopEtaSeconds', 'stopEtaText',
         'routeProvider', 'updatedAt'
       ];

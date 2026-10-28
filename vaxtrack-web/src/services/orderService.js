@@ -22,6 +22,7 @@ import {
   WorkflowError,
 } from "./orderWorkflow";
 import { UserMessageError } from "./userMessageError.js";
+import { motorcycleRouteMetadata } from "./routeMetadata.js";
 import { logSafeError } from "./liveDataErrors.js";
 import { listenLive } from "./liveSnapshot.js";
 
@@ -365,7 +366,7 @@ export async function cancelOrderByDispatcher(orderId, reason) {
 }
 
 // Persist a generated route + ETA onto an order (Dispatcher Geofence,
-// OpenRouteService). Only these route fields (+ updatedAt) are written, so the
+// motorcycle routing). Only these route fields (+ updatedAt) are written, so the
 // dispatcher rule allowlist (`dispatcherOrderFields`) permits it. `route` comes
 // from routeService.fetchRoute plus a computed `etaText`.
 export async function saveOrderRoute(orderId, route, destinationRevision = 0) {
@@ -375,6 +376,7 @@ export async function saveOrderRoute(orderId, route, destinationRevision = 0) {
     throw new UserMessageError("Refresh the destination before generating a route.");
   }
 
+  const metadata = motorcycleRouteMetadata(route);
   const orderRef = doc(db, ORDERS_COLLECTION, orderId);
   return updateDoc(orderRef, {
     routePolyline: route.polyline,
@@ -382,7 +384,7 @@ export async function saveOrderRoute(orderId, route, destinationRevision = 0) {
     routeDurationSeconds: Number(route.durationSeconds) || 0,
     routeEtaText: route.etaText || "",
     routeGeneratedAt: serverTimestamp(),
-    routeProvider: "openrouteservice",
+    ...metadata,
     // Rules compare this to the order's current revision. A route fetched for
     // old coordinates cannot be written after a destination correction.
     routeDestinationRevision: destinationRevision,
@@ -416,6 +418,7 @@ export async function saveRiderTripRoute(trip) {
   if (stops.length < 2) {
     throw new Error("A trip needs at least two stops.");
   }
+  const metadata = motorcycleRouteMetadata(trip, true);
   const tripId = trip.tripId || crypto.randomUUID();
   const stopCount = stops.length;
   const distanceMeters = Number(trip.distanceMeters) || 0;
@@ -434,7 +437,7 @@ export async function saveRiderTripRoute(trip) {
       stopEtaSeconds: Number(stop.etaSeconds) || 0,
       stopEtaText: stop.etaText || "",
       tripGeneratedAt: serverTimestamp(),
-      routeProvider: "openrouteservice",
+      ...metadata,
       updatedAt: serverTimestamp(),
     });
   }

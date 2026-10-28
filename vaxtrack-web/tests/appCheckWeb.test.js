@@ -11,7 +11,9 @@ const firebase = read("src/firebase.js");
 
 test("App Check starts only with a site key, and before Auth and Firestore", () => {
   assert.match(firebase, /import \{ initializeAppCheck, ReCaptchaEnterpriseProvider \} from "firebase\/app-check";/);
-  assert.match(firebase, /const appCheckSiteKey = import\.meta\.env\.VITE_APPCHECK_RECAPTCHA_SITE_KEY;\s*\nif \(appCheckSiteKey\) \{/);
+  // Only the loopback-only demo mode skips attestation; normal development,
+  // staging and production still initialize App Check when a key is present.
+  assert.match(firebase, /const appCheckSiteKey = import\.meta\.env\.VITE_APPCHECK_RECAPTCHA_SITE_KEY;\s*\nif \(appCheckSiteKey && !localQa\) \{/);
   assert.match(firebase, /provider: new ReCaptchaEnterpriseProvider\(appCheckSiteKey\)/);
   assert.match(firebase, /isTokenAutoRefreshEnabled: true/);
   const appCheckAt = firebase.indexOf("initializeAppCheck(app");

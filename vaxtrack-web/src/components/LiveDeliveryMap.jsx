@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { MapPin } from "lucide-react";
+import { savedRouteDescription } from "../services/routeMetadata.js";
 import {
   decodePolyline,
   formatDistance,
@@ -371,6 +372,7 @@ function LiveDeliveryMap({ order, tripStops = NO_STOPS, showDeviation = false })
           </div>
         )}
 
+        {(hasTrip || hasRoute) && <p className="ldm-muted">{savedRouteDescription(order, hasTrip)}</p>}
         {hasTrip ? (
           <div className="ldm-route">
             <span>

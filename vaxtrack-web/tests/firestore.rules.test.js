@@ -908,6 +908,27 @@ async function main() {
     }));
   });
 
+  await check("P13m dispatcher saves separate motorcycle provenance for single and trip routes", async () => {
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordRider1"), {
+      routePolyline: "motorcycle-single", routeGeneratedAt: "motorcycle-t",
+      routeProvider: "valhalla", routeProfile: "motorcycle-no-expressways-v1",
+      routeDestinationRevision: 0, updatedAt: "motorcycle-t",
+    }));
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordRider1"), {
+      tripPolyline: "motorcycle-trip", tripGeneratedAt: "motorcycle-trip-t",
+      tripRouteProvider: "valhalla", tripRouteProfile: "motorcycle-no-expressways-v1",
+      updatedAt: "motorcycle-trip-t",
+    }));
+    for (const actor of [rider, salesRep]) {
+      await assertFails(updateDoc(doc(actor, "orders", "ordRider1"), {
+        routeProfile: "forged", updatedAt: "forged-t",
+      }));
+      await assertFails(updateDoc(doc(actor, "orders", "ordRider1"), {
+        tripRouteProfile: "forged", updatedAt: "forged-t",
+      }));
+    }
+  });
+
   await check("P13a order owner and dispatcher can read server-written correction history", async () => {
     await assertSucceeds(getDoc(doc(salesRep, "orders", "ordCorrected", "destinationCorrections", "revision-1")));
     await assertSucceeds(getDoc(doc(dispatcher, "orders", "ordCorrected", "destinationCorrections", "revision-1")));

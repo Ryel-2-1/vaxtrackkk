@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:motorcycle-qa": "vite --mode motorcycle-qa --host 127.0.0.1 --port 5191 --strictPort",
+    "qa:motorcycle:emulators": "firebase emulators:start --only auth,firestore --project demo-vaxtrack-motorcycle --config firebase.motorcycle-qa.json",
+    "qa:motorcycle:seed": "node scripts/seedMotorcycleQa.mjs",
     "build": "vite build",
     "build:staging": "vite build --mode staging",
     "build:production": "vite build --mode production",

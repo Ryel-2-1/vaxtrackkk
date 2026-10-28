@@ -20,6 +20,7 @@ const ORDER_ROUTE_FIELDS = Object.freeze([
   "routeEtaText",
   "routeGeneratedAt",
   "routeProvider",
+  "routeProfile",
   "routeDestinationRevision",
 ]);
 
@@ -31,6 +32,8 @@ const TRIP_ROUTE_FIELDS = Object.freeze([
   "tripDistanceMeters",
   "tripDurationSeconds",
   "tripGeneratedAt",
+  "tripRouteProvider",
+  "tripRouteProfile",
   "stopSequence",
   "stopEtaSeconds",
   "stopEtaText",

@@ -29,6 +29,7 @@ import {
   optimizeTrip,
 } from "../../services/routeService";
 import StatusBadge from "../../components/ui/StatusBadge";
+import { savedRouteDescription } from "../../services/routeMetadata.js";
 import { manilaTime } from "../../services/deliveryTiming";
 import { requestedArrivalLabel, requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
 
@@ -40,7 +41,7 @@ function millisOf(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-// Computed once — whether an ORS key is configured for this build.
+// Computed once — whether a valid motorcycle routing endpoint is configured.
 const ROUTE_CONFIGURED = isRouteServiceConfigured();
 const ROUTE_TIMING_NOTICE = "Route generation does not yet enforce requested arrival times. Check each order's requested window separately.";
 
@@ -613,7 +614,7 @@ function DispatcherGeofence() {
 
                     {hasStoredRoute && (
                       <p className="geo3-live-route-sub">
-                        Driving route via OpenRouteService
+                        {savedRouteDescription(selected)}
                         {genAt
                           ? ` · generated ${formatRelativeTime(selected.routeGeneratedAt)}`
                           : ""}
@@ -627,7 +628,12 @@ function DispatcherGeofence() {
                       </p>
                     ) : (
                       <>
-                        <p className="geo3-live-route-sub">{ROUTE_TIMING_NOTICE}</p>
+                        <p className="geo3-live-route-sub">Motorcycle routing for the below-400 cc fleet. Routes flagged as using highways, toll roads or ferries are rejected. {ROUTE_TIMING_NOTICE}</p>
+                        {hasTrip && riderStops.length >= 2 && (
+                          <p className="geo3-live-route-sub">
+                            The map shows the saved multi-stop trip. Use Re-optimize route below to refresh that trip.
+                          </p>
+                        )}
                         <button
                           type="button"
                           className="geo3-live-route-btn"
@@ -671,6 +677,7 @@ function DispatcherGeofence() {
 
                   {hasTrip && (
                     <>
+                      <p className="geo3-live-route-sub">{savedRouteDescription(selected, true)}</p>
                       <div className="geo3-live-route-metrics">
                         <div>
                           <small>Total distance</small>
