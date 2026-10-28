@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import { subscribeSalesRepOrders } from "../../services/orderService";
 import { subscribeInventory } from "../../services/inventoryService";
+import { subscribeVaccines } from "../../services/vaccineCatalogService";
+import { useInventoryVisibility } from "../../components/useInventoryVisibility";
 import {
   normalizeStatusKey,
   getOrderStatusValue,
@@ -97,6 +99,7 @@ function normalizeInventoryRow(raw) {
 
   return {
     id: raw.id,
+    vaccineId: raw.vaccineId,
     vaccine: raw.vaccineName || "Unknown vaccine",
     batchId: raw.batchId || raw.id,
     quantity: qty,
@@ -119,6 +122,10 @@ function SalesRepDashboard() {
   const ordersError = uid ? ordersErrorState : "Not logged in.";
 
   const [inventory, setInventory] = useState([]);
+  const [rawInventory, setRawInventory] = useState([]);
+  const [vaccines, setVaccines] = useState([]);
+  const inactiveIds = useInventoryVisibility(vaccines, rawInventory);
+  useEffect(() => subscribeVaccines(setVaccines, () => setVaccines([])), []);
   const [invLoading, setInvLoading] = useState(true);
   const [invError, setInvError] = useState("");
 
@@ -168,6 +175,7 @@ function SalesRepDashboard() {
   useEffect(() => {
     const unsubscribe = subscribeInventory(
       (raw) => {
+        setRawInventory(raw);
         // A voided batch (an Admin's record of a mistaken entry) is not stock.
         setInventory(raw.filter((item) => item.voided !== true).map(normalizeInventoryRow));
         setInvLoading(false);
@@ -239,8 +247,8 @@ function SalesRepDashboard() {
   };
 
   const stockToWatch = useMemo(
-    () => inventory.filter((r) => r.watch).slice(0, 5),
-    [inventory]
+    () => inventory.filter((r) => r.watch && !inactiveIds.has(r.vaccineId)).slice(0, 5),
+    [inventory, inactiveIds]
   );
 
   const isLoading = ordersLoading || invLoading;

@@ -479,17 +479,17 @@ test("pages re-evaluate at Manila midnight rather than on a server job", () => {
   const hook = read("src/components/useManilaDayNow.js");
   assert.match(hook, /nextManilaMidnightMs\(now\)/);
   // No scheduled Cloud Function re-evaluates dispatch eligibility. The only
-  // scheduled exports are the rider-tracking retention purge and the delivery
-  // timing evaluator; neither reads a delivery schedule or an order's dispatch
+  // scheduled exports are inventory list housekeeping, rider-tracking retention
+  // and the delivery timing evaluator; none reads an order's dispatch
   // eligibility (the evaluator reads only the timing baseline frozen at
   // dispatch).
   const index = read("functions/index.js");
   assert.equal(/pubsub\.schedule/.test(index), false);
   assert.deepEqual(
     [...index.matchAll(/exports\.(\w+) = onSchedule\(/g)].map((m) => m[1]).sort(),
-    ["evaluateDeliveryTiming", "purgeRiderTrackingData"]
+    ["evaluateDeliveryTiming", "purgeRiderTrackingData", "reviewInventoryVisibility"]
   );
-  for (const p of ["functions/src/deliveryTiming.js", "functions/src/deliveryTimingOps.js"]) {
+  for (const p of ["functions/src/deliveryTiming.js", "functions/src/deliveryTimingOps.js", "functions/src/inventoryVisibility.js", "functions/src/inventoryVisibilityOps.js"]) {
     const code = read(p).replace(/^\s*(\*|\/\/).*$/gm, "");
     assert.doesNotMatch(code, /requestedDeliveryDate|scheduledDeliveryTime|dispatchEligibility/, p);
   }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/delivery.dart';
 import '../theme/app_theme.dart';
 import 'order_number_text.dart';
+import 'requested_arrival_text.dart';
 
 /// One delivery on the Rider Dashboard.
 ///
@@ -46,6 +47,8 @@ class DashboardDeliveryCard extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(d.clinicName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              RequestedArrivalText(delivery: d),
               if (d.isOnTrip) ...[
                 const SizedBox(height: 6),
                 _tripStopChip(d),

@@ -703,7 +703,7 @@ function allocationEvents({ orderId, before, update, productKey, source, newInve
 }
 
 /** Cancellation: reserved units released; any backordered units no longer awaited. */
-function cancellationEvent({ orderId, order, reservationItems, uid }) {
+function cancellationEvent({ orderId, order, reservationItems, uid, actorRole = "dispatcher" }) {
   const grouped = slicesByLine(reservationItems, order.items);
   const batches = grouped.flatMap((g) => g.batches.map((b) => ({ ...b, lineIndex: g.lineIndex })));
   const released = batches.reduce((s, b) => s + b.quantity, 0);
@@ -731,7 +731,7 @@ function cancellationEvent({ orderId, order, reservationItems, uid }) {
       order: { ...order, items: items.map((l) => ({ ...l, reservedQuantity: 0, backorderedQuantity: 0 })) },
       eventType: released > 0 ? EVENT_TYPES.RESERVATION_RELEASED : EVENT_TYPES.BACKORDER_CANCELLED,
       sourceOperation: "cancelOrderWithInventoryRelease",
-      actor: actorOf(uid, "dispatcher"),
+      actor: actorOf(uid, actorRole),
       lines,
       batches,
       quantityChanged: released,

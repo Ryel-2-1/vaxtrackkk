@@ -645,6 +645,9 @@ service cloud.firestore {
         'allocationVersion', 'allocationStatus', 'inventoryReconciliation',
         'reservedAt', 'reservedByUid', 'consumedAt', 'consumedByUid',
         'releasedAt', 'releasedByUid',
+        // Cancellation attribution/scope is authored by the settlement callable.
+        'cancelledByUid', 'cancelledByRole', 'cancelledFromStatus',
+        'cancellationScope', 'statusUpdatedByRole',
         // Backorder-aware allocation (functions/src/allocation.js). The lines
         // carry each item's reserved/backordered split and the price + VAT
         // snapshot; the queue fields decide who gets stock next. All computed
@@ -1005,6 +1008,12 @@ service cloud.firestore {
     function vaccineArchiveFields() {
       return ['archived', 'archivedAt', 'archivedByUid', 'archivedByEmail', 'archiveReason',
               'restoredAt', 'restoredByUid', 'restoredByEmail', 'restoreReason'];
+    }
+
+    // Server observations for automatic LIST housekeeping, not manual archive.
+    function vaccineVisibilityFields() {
+      return ['inventoryVisibilityVersion', 'inventoryStockState',
+              'inventoryEmptySince', 'inventoryPositiveEvidenceAt'];
     }
 
     // ---------------- rider assignment (workflow checkpoint 1) ----------------
@@ -1615,7 +1624,15 @@ service cloud.firestore {
       // which run on the Admin SDK and are not subject to these rules.
       allow update: if clientOrderWriteIsAllowed()
         && (
-        isAdmin()
+        // Admin cancellation is a callable too. Never let an Admin erase
+        // custody or regress lifecycle first to make a handled order eligible.
+        (isAdmin() && !changedKeys().hasAny([
+          'status', 'isLoaded', 'loadedAt', 'loadedByUid', 'loadedByEmail',
+          'dispatchedAt', 'dispatchedByUid', 'dispatchedByEmail',
+          'loadingFinalizedAt', 'startedAt', 'deliveryFailedAt', 'deliveryFailedByUid',
+          'deliveredAt', 'proofOfDeliveryUrl', 'proofOfDeliveryPath', 'proofSubmittedAt', 'proofSubmittedByUid',
+          'invoiceUrl', 'invoicePath', 'invoiceSubmittedAt', 'invoiceSubmittedByUid', 'departedAt', 'departedByUid'
+        ]))
         || (
           isDispatcher()
           && changedKeys().hasOnly(dispatcherOrderFields())
@@ -1861,13 +1878,19 @@ service cloud.firestore {
       allow read: if isApprovedUser();
       allow create: if isAdmin()
         && isProductVatClassification(request.resource.data.get('vatClassification', null))
-        && !request.resource.data.keys().hasAny(vaccineArchiveFields());
+        && !request.resource.data.keys().hasAny(vaccineArchiveFields())
+        && !request.resource.data.keys().hasAny(vaccineVisibilityFields());
       allow update: if isAdmin() && vaccineVatChangeValid()
         // Archive / restore only through setVaccineArchived (audited, server).
-        && !changedKeys().hasAny(vaccineArchiveFields());
+        && !changedKeys().hasAny(vaccineArchiveFields())
+        && !changedKeys().hasAny(vaccineVisibilityFields());
       // No hard delete: orders, batches and history reference the product.
       // A product that should no longer be ordered is ARCHIVED instead.
       allow delete: if false;
+    }
+    // Cursor for the bounded daily visibility observer: no client access.
+    match /inventoryVisibilityMaintenance/{id} {
+      allow read, write: if false;
     }
     // Admin inventory removal audit (functions/src/inventoryRemoval.js):
     // archive/restore, void, quarantine and disposal. Written only by those

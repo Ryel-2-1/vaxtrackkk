@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../utils/order_workflow.dart';
 import '../utils/proof_validation.dart';
+import '../utils/requested_arrival.dart';
 
 class Delivery {
   final String id;
@@ -23,6 +24,10 @@ class Delivery {
   final String statusLabel;
   final String? region;
   final String? deliveryInstructions;
+  /// Original destination-arrival preference, read only. Not the route ETA.
+  final String? requestedDeliveryDate;
+  final String? originalRequestedDeliveryDate;
+  final RequestedArrival requestedArrival;
   final String? assignedRiderId;
   final String? assignedRiderName;
   final String? proofOfDeliveryUrl;
@@ -104,6 +109,9 @@ class Delivery {
     required this.statusLabel,
     this.region,
     this.deliveryInstructions,
+    this.requestedDeliveryDate,
+    this.originalRequestedDeliveryDate,
+    this.requestedArrival = const RequestedArrival.anyTime(),
     this.assignedRiderId,
     this.assignedRiderName,
     this.proofOfDeliveryUrl,
@@ -163,6 +171,10 @@ class Delivery {
       statusLabel: _statusLabel(normalizedStatus),
       region: data['region'],
       deliveryInstructions: data['deliveryInstructions'],
+      requestedDeliveryDate: _nonBlank(data['requestedDeliveryDate']),
+      originalRequestedDeliveryDate:
+          _nonBlank(data['originalRequestedDeliveryDate']),
+      requestedArrival: RequestedArrival.fromFirestore(data['requestedArrival']),
       assignedRiderId: data['assignedRiderId'],
       assignedRiderName: data['assignedRiderName'],
       proofOfDeliveryUrl: data['proofOfDeliveryUrl'],
@@ -209,6 +221,14 @@ class Delivery {
   /// This order is part of an optimized multi-stop trip (has a place in the
   /// visiting order the dispatcher generated).
   bool get isOnTrip => tripId != null && (stopSequence ?? 0) > 0;
+
+  String get requestedArrivalLabel => requestedArrivalScheduleLabel(
+        arrival: requestedArrival,
+        requestedDeliveryDate: requestedDeliveryDate,
+        originalRequestedDeliveryDate: originalRequestedDeliveryDate,
+      );
+
+  String get requestedArrivalNote => 'Requested arrival: $requestedArrivalLabel';
 
   /// True when the order carries finite clinic coordinates.
   bool get hasClinicCoords => clinicLat != null && clinicLng != null;

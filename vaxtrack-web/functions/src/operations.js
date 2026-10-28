@@ -46,6 +46,7 @@ const { RIDER_LOCATIONS, evaluateDeliveryGeofence } = require("./deliveryGeofenc
 const { readPriceConvention } = require("./pricingConfig");
 const { deliveryEvidenceProblem } = require("./deliveryEvidence");
 const { statusUpdatedByEmailValue } = require("./attribution");
+const { potentiallyCancellable } = require("./preDepartureCancellation");
 const { settleFailureReturn, RETURN_SOURCES } = require("./failureReturn");
 const {
   ALLOCATION_VERSION_BACKORDER,
@@ -790,7 +791,7 @@ function destinationFromOrder(order) {
  */
 async function cancelOrderWithInventoryRelease({ db, FieldValue, uid, email = null, orderId, reason, now = new Date() }) {
   const result = await cancelOrderTransaction({ db, FieldValue, uid, email, orderId, reason });
-  const { releasedProductKeys = [], ...response } = result;
+  const { releasedProductKeys = [], actorRole, ...response } = result;
   // Released stock goes straight to the next waiting order, by priority.
   let reallocated = [];
   if (releasedProductKeys.length > 0) {
@@ -800,7 +801,7 @@ async function cancelOrderWithInventoryRelease({ db, FieldValue, uid, email = nu
         FieldValue,
         productKeys: releasedProductKeys,
         now,
-        source: { operation: "cancelOrderWithInventoryRelease", triggeredBy: { uid, role: "dispatcher" } },
+        source: { operation: "cancelOrderWithInventoryRelease", triggeredBy: { uid, role: actorRole } },
       });
     } catch (error) {
       console.error("cancelOrderWithInventoryRelease: reallocation deferred", { orderId, code: error?.code ?? null });
@@ -810,8 +811,9 @@ async function cancelOrderWithInventoryRelease({ db, FieldValue, uid, email = nu
 }
 
 async function cancelOrderTransaction({ db, FieldValue, uid, email, orderId, reason }) {
-  const userData = await loadUser(db, uid);
-  requireRole(userData, "dispatcher");
+  if (typeof uid !== "string" || !uid || uid.includes("/")) {
+    throw new PolicyError("unauthenticated", "Please sign in before cancelling an order.");
+  }
   if (typeof orderId !== "string" || orderId.trim() === "" || orderId.includes("/")) {
     throw new PolicyError("invalid-payload", "That order could not be identified.");
   }
@@ -821,17 +823,35 @@ async function cancelOrderTransaction({ db, FieldValue, uid, email, orderId, rea
   const reservationRef = db.collection(RESERVATIONS).doc(orderId);
 
   return db.runTransaction(async (tx) => {
+    // Read approval/role in this transaction too: revocation races must retry.
+    const userSnap = await tx.get(db.collection(USERS).doc(uid));
+    const userData = userSnap.exists ? userSnap.data() : null;
+    const actorRole = typeof userData?.role === "string" ? userData.role.trim().toLowerCase() : "";
+    if (!userData) throw new PolicyError("profile-missing", "Your account profile could not be found.");
+    if (!["admin", "salesrep", "dispatcher"].includes(actorRole)) {
+      throw new PolicyError("wrong-role", "Your account is not allowed to cancel orders.");
+    }
+    requireRole(userData, actorRole);
     const orderSnap = await tx.get(orderRef);
     if (!orderSnap.exists) {
       throw new PolicyError("order-not-found", "That order no longer exists.");
     }
     const order = orderSnap.data();
+    // Ownership is the creation transaction's field, never an email or payload.
+    // Check BEFORE replay so another Med Rep cannot probe a cancelled order.
+    if (actorRole === "salesrep" && order.createdByUid !== uid) {
+      throw new PolicyError("not-order-owner", "You can only cancel orders you placed.");
+    }
     const reservationSnap = await tx.get(reservationRef);
     const reservation = reservationSnap.exists ? reservationSnap.data() : null;
 
     // Idempotent replay: already cancelled AND already settled means the first
     // call succeeded. Return it without releasing a second time.
     if (order.status === "cancelled") {
+      if (actorRole !== "dispatcher" && (order.cancellationScope !== "pre_departure" ||
+          reservation?.status !== "released" || reservation.settlementType !== "cancelled")) {
+        throw new PolicyError("cancellation-not-eligible", "This order is already closed. Refresh its details before continuing.");
+      }
       // `returned`: a failed delivery whose units were already in
       // return-pending when it was cancelled — that cancel moved no stock, so
       // a retry has nothing to do either.
@@ -842,6 +862,27 @@ async function cancelOrderTransaction({ db, FieldValue, uid, email, orderId, rea
         "reservation-already-settled",
         "This order is cancelled but its stock was already settled differently."
       );
+    }
+
+    if (actorRole !== "dispatcher") {
+      if (!potentiallyCancellable(order) || reservation?.status !== "reserved" || reservation.orderId !== orderId ||
+          !Array.isArray(reservation.items) || reservation.items.some((item) =>
+            typeof item?.inventoryId !== "string" || !item.inventoryId || item.inventoryId.includes("/") ||
+            !Number.isSafeInteger(item.quantity) || item.quantity <= 0)) {
+        throw new PolicyError("cancellation-not-eligible",
+          "This order cannot be cancelled here. Loading, departure or stock custody is already recorded, or needs review. Contact the Dispatcher or Admin.");
+      }
+      // A forming trip is the only trustworthy pre-departure assignment. Read
+      // it alongside the order so Finalize Dispatch conflicts with this cancel.
+      if (order.dispatchTripId) {
+        const tripSnap = await tx.get(db.collection("riderTrips").doc(order.dispatchTripId));
+        const trip = tripSnap.exists ? tripSnap.data() : null;
+        if (!trip || trip.status !== "forming" || trip.riderUid !== order.assignedRiderId ||
+            !Array.isArray(trip.orderIds) || !trip.orderIds.includes(orderId) ||
+            trip.departedAt != null || trip.departedByUid != null) {
+          throw new PolicyError("cancellation-not-eligible", "This rider's trip has departed or needs review. Refresh the order and contact the Dispatcher.");
+        }
+      }
     }
 
     if (!CANCELLABLE_FROM.includes(order.status)) {
@@ -946,7 +987,7 @@ async function cancelOrderTransaction({ db, FieldValue, uid, email, orderId, rea
     // History, READ phase: the release (or withdrawn backorder), create-only.
     // A retried cancel replays above and never reaches this.
     const preparedHistory = !legacy && !alreadyReturned
-      ? await prepareEvents(tx, { db, events: [cancellationEvent({ orderId, order, reservationItems: reservation.items, uid })] })
+      ? await prepareEvents(tx, { db, events: [cancellationEvent({ orderId, order, reservationItems: reservation.items, uid, actorRole })] })
       : [];
 
     // ---- writes ----
@@ -956,8 +997,13 @@ async function cancelOrderTransaction({ db, FieldValue, uid, email, orderId, rea
       status: "cancelled",
       cancelReason,
       cancelledAt: FieldValue.serverTimestamp(),
+      cancelledByUid: uid,
+      cancelledByRole: actorRole,
+      cancelledFromStatus: order.status,
+      cancellationScope: actorRole === "dispatcher" ? "dispatcher" : "pre_departure",
       statusUpdatedAt: FieldValue.serverTimestamp(),
       statusUpdatedByUid: uid,
+      statusUpdatedByRole: actorRole,
       // Written with the uid, so Activity never shows the previous writer
       // (see attribution.js).
       statusUpdatedByEmail: statusUpdatedByEmailValue(email, FieldValue),
@@ -1016,6 +1062,7 @@ async function cancelOrderTransaction({ db, FieldValue, uid, email, orderId, rea
       replayed: false,
       legacy,
       releasedProductKeys: [...releasedProductKeys],
+      actorRole,
     };
   });
 }

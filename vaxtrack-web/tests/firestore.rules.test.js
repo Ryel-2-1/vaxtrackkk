@@ -19,6 +19,7 @@ import {
   assertFails,
 } from "@firebase/rules-unit-testing";
 import { readFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import {
   doc,
   getDoc,
@@ -39,7 +40,10 @@ import {
   writeBatch,
 } from "firebase/firestore";
 
-const PROJECT_ID = "vaxtrack-rules-test";
+// Each invocation owns its fixtures and uploaded rules, even if a second test
+// process accidentally connects to the same emulator. The strict variant stays
+// in the same run's namespace; never use a live Firebase project here.
+const PROJECT_ID = `demo-vt-rules-${randomBytes(4).toString("hex")}`;
 // A valid, already-reached Manila delivery date for fixture orders.
 const FIXTURE_DELIVERY_DATE = "2026-01-01";
 // The loading custody audit a Cargo Loading confirmation left on a seeded
@@ -2975,6 +2979,24 @@ async function main() {
       }));
       await assertFails(updateDoc(doc(admin, "orders", id), { allocationStatus: "returned", pendingReturnId: `${id}_cancel` }));
       await assertFails(updateDoc(doc(admin, "orders", id), { allocationStatus: "released", releasedAt: serverTimestamp(), releasedByUid: adminUid }));
+    }
+  });
+
+  await check("PRECANCEL clients cannot forge cancellation scope, clear custody, regress lifecycle or release stock", async () => {
+    for (const actor of [admin, dispatcher, salesRep, rider]) {
+      await assertFails(updateDoc(doc(actor, "orders", "lcPending"), {
+        status: "cancelled", cancelReason: "Available items first", cancelledAt: serverTimestamp(),
+      }));
+      await assertFails(updateDoc(doc(actor, "orders", "lcPending"), {
+        cancelledByUid: adminUid, cancelledByRole: "admin", cancellationScope: "pre_departure", cancelledFromStatus: "pending_dispatch",
+      }));
+      await assertFails(updateDoc(doc(actor, "orders", "lcLoading3"), {
+        loadedAt: deleteField(), loadedByUid: deleteField(), loadedByEmail: deleteField(), isLoaded: false,
+      }));
+      await assertFails(updateDoc(doc(actor, "orders", "lcLoading3"), { status: "assigned" }));
+    }
+    for (const field of ["dispatchedAt", "loadingFinalizedAt", "startedAt", "deliveryFailedAt", "proofOfDeliveryUrl", "invoiceUrl"]) {
+      await assertFails(updateDoc(doc(admin, "orders", "lcTransit"), { [field]: "forged" }));
     }
   });
 
@@ -6413,6 +6435,72 @@ async function main() {
       await assertFails(setDoc(doc(ctx, "inventoryAuditEvents", "forged"), { action: "stock_disposed", quantity: 1 }));
       await assertFails(updateDoc(doc(ctx, "inventoryAuditEvents", "stock_admin1_req"), { quantity: 0 }));
       await assertFails(deleteDoc(doc(ctx, "inventoryAuditEvents", "stock_admin1_req")));
+    }
+  });
+
+  // Automatic empty-inventory visibility is server-observed, not client-authored.
+  // These cases own their users: earlier role-transition cases deliberately
+  // mutate shared actors, so a new read test must not assume their final state.
+  const visibilityRoles = ["admin", "dispatcher", "salesrep", "rider"];
+  const visibilityActors = Object.fromEntries(visibilityRoles.map((role) => [
+    role, testEnv.authenticatedContext(`visibility_${role}`).firestore(),
+  ]));
+  const visibilityAdmin = visibilityActors.admin;
+  const visibilityPending = testEnv.authenticatedContext("visibility_pending").firestore();
+  const visibilityDisabled = testEnv.authenticatedContext("visibility_disabled").firestore();
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    for (const role of visibilityRoles) {
+      await setDoc(doc(ctx.firestore(), "users", `visibility_${role}`), { role, status: "approved" });
+    }
+    await setDoc(doc(ctx.firestore(), "users", "visibility_pending"), { role: "salesrep", status: "pending" });
+    await setDoc(doc(ctx.firestore(), "users", "visibility_disabled"), { role: "admin", status: "disabled" });
+    await setDoc(doc(ctx.firestore(), "vaccines", "visibilityVac"), {
+      vaccineName: "Visibility", internalSku: "VIS-1", vatClassification: "vatable",
+      inventoryVisibilityVersion: 1, inventoryStockState: "empty",
+      inventoryEmptySince: Timestamp.fromDate(new Date("2026-01-01T00:00:00Z")),
+      inventoryPositiveEvidenceAt: null,
+    });
+    await setDoc(doc(ctx.firestore(), "inventoryVisibilityMaintenance", "catalog"), { afterId: "v1" });
+  });
+  await check("VIS1 Admin cannot forge or clear observation fields, even while creating a vaccine", async () => {
+    for (const [field, value] of Object.entries({ inventoryVisibilityVersion: 1, inventoryStockState: "in_stock",
+      inventoryEmptySince: serverTimestamp(), inventoryPositiveEvidenceAt: serverTimestamp() })) {
+      await assertFails(setDoc(doc(visibilityAdmin, "vaccines", "visibilityForged"), {
+        vaccineName: "Forged", internalSku: "VIS-F", vatClassification: "vatable", [field]: value,
+      }));
+      await assertFails(updateDoc(doc(visibilityAdmin, "vaccines", "visibilityVac"), { [field]: value === 1 ? 2 : value }));
+      await assertFails(updateDoc(doc(visibilityAdmin, "vaccines", "visibilityVac"), { [field]: deleteField() }));
+    }
+    await assertSucceeds(updateDoc(doc(visibilityAdmin, "vaccines", "visibilityVac"), { vaccineName: "Renamed" }));
+    await assertSucceeds(setDoc(doc(visibilityAdmin, "vaccines", "visibilityNew"), {
+      vaccineName: "New", internalSku: "VIS-N", vatClassification: "vatable",
+    }));
+  });
+  await check("VIS2 approved users can read visibility metadata but never write it or access the sweep cursor", async () => {
+    for (const [role, ctx] of Object.entries(visibilityActors)) {
+      try {
+        await assertSucceeds(getDoc(doc(ctx, "vaccines", "visibilityVac")));
+        // Includes Admin: no role may forge an observation.
+        await assertFails(updateDoc(doc(ctx, "vaccines", "visibilityVac"), { inventoryStockState: "in_stock" }));
+      } catch (error) {
+        throw new Error(`VIS2 ${role} approved read / server-field protection: ${error.message}`, { cause: error });
+      }
+    }
+    for (const [role, ctx] of [["pending", visibilityPending], ["disabled", visibilityDisabled], ["anonymous", anon]]) {
+      try {
+        await assertFails(getDoc(doc(ctx, "vaccines", "visibilityVac")));
+      } catch (error) {
+        throw new Error(`VIS2 ${role} denied catalog read: ${error.message}`, { cause: error });
+      }
+    }
+    for (const [role, ctx] of [...Object.entries(visibilityActors), ["pending", visibilityPending], ["disabled", visibilityDisabled], ["anonymous", anon]]) {
+      try {
+        await assertFails(getDoc(doc(ctx, "inventoryVisibilityMaintenance", "catalog")));
+        await assertFails(setDoc(doc(ctx, "inventoryVisibilityMaintenance", "catalog"), { afterId: null }));
+        await assertFails(deleteDoc(doc(ctx, "inventoryVisibilityMaintenance", "catalog")));
+      } catch (error) {
+        throw new Error(`VIS2 ${role} server-only cursor: ${error.message}`, { cause: error });
+      }
     }
   });
 

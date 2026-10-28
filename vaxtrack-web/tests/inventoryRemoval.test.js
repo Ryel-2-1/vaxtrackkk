@@ -31,6 +31,17 @@ const server = createRequire(import.meta.url)("../functions/src/inventoryRemoval
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const TODAY = "2026-10-05";
 
+test("inventory status badges never inherit the package icon's fixed square", () => {
+  const css = read("src/pages/admin/Inventory.css");
+  const page = read("src/pages/admin/Inventory.jsx");
+  assert.match(css, /\.v2-vaccine-cell > span\s*\{[^}]*width: 36px;[^}]*height: 36px;/);
+  assert.doesNotMatch(css, /\.v2-vaccine-cell\s+span\s*\{/);
+  assert.match(css, /\.inventory-page \.inv-tag\s*\{[^}]*max-width: 100%;[^}]*white-space: normal;[^}]*overflow-wrap: break-word;[^}]*word-break: normal;/);
+  for (const label of ["Voided", "Vaccine archived", "Inactive — long-empty stock"]) {
+    assert.ok(page.includes(label), `${label} must stay visible as a status label`);
+  }
+});
+
 const batch = (over = {}) => ({
   id: "inv1",
   vaccineId: "vacA",
@@ -161,7 +172,7 @@ test("Med Rep pages hide voided batches and archived vaccines from new ordering"
   assert.match(place, /liveCartLines\(items, liveStock\.batches, liveStock\.todayIso, catalog\.byId\)/);
   const inventory = read("src/pages/salesRep/SalesRepInventory.jsx");
   assert.match(inventory, /raw\.filter\(\(item\) => item\.voided !== true\)/);
-  assert.match(inventory, /stocks\.filter\(\(stock\) => !archivedIds\.has\(stock\.vaccineId\)\)/);
+  assert.match(inventory, /stocks\.filter\(\(stock\) => !archivedIds\.has\(stock\.vaccineId\) && \(showInactive \|\| !inactiveIds\.has\(stock\.vaccineId\)\)\)/);
   assert.match(read("src/pages/admin/AddStock.jsx"), /docs\.filter\(\(v\) => v\.archived !== true\)/);
 });
 
@@ -173,7 +184,8 @@ test("Admin Inventory keeps voided batches as records and never deletes anything
   for (const src of [page, dialogs]) {
     assert.equal(/deleteDoc|from ["']firebase\/firestore["']/.test(src), false, "no direct Firestore access, no delete");
   }
-  assert.match(page, /stockBatches = useMemo\(\(\) => inventory\.filter\(\(i\) => !i\.voided\)/, "voided batches are not stock in the figures");
+  assert.match(page, /stockBatches = useMemo\(\(\) => listedInventory\.filter\(\(i\) => !i\.voided\)/, "voided batches are not stock in the figures");
+  assert.match(page, /showInactive \? inventory : inventory\.filter/, "inactive records remain accessible without restoring a manual archive");
   assert.match(page, /className="inv-tag inv-tag-voided"/, "but stay visible, tagged, in the table");
   assert.match(page, /item\.outOfStock && <small className="inv-out-of-stock">\{OUT_OF_STOCK_LABEL\}/);
   // Every destructive dialog explains its consequence before the action.

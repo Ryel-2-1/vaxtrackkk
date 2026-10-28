@@ -1052,8 +1052,8 @@ test("authorization", async (t) => {
     assert.equal(await codeOf(create("ghost_uid", [{ inventoryId: "good", quantity: 1, expectedUnitPriceCentavos: PRICE }])), "profile-missing");
   });
 
-  await t.test("cancellation requires an APPROVED dispatcher", async () => {
-    assert.equal(await codeOf(cancel(SR, r.orderId)), "wrong-role");
+  await t.test("post-departure cancellation still requires an APPROVED dispatcher", async () => {
+    assert.equal(await codeOf(cancel(SR, r.orderId)), "cancellation-not-eligible");
     assert.equal(await codeOf(cancel(RIDER, r.orderId)), "wrong-role");
     assert.equal(await codeOf(cancel(DISP_DISABLED, r.orderId)), "not-approved");
   });

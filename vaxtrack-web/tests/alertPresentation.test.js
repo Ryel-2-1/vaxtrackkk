@@ -308,7 +308,9 @@ test("Admin Deliveries opens the drawer for an alert's ?order= link", () => {
   const page = read("src/pages/admin/Deliveries.jsx");
   assert.match(page, /const linkedOrderId = searchParams\.get\("order"\) \|\| "";/);
   assert.match(page, /deliveryList\.find\(\(d\) => d\.uid === linkedOrderId\)/);
-  assert.match(page, /const openDelivery = selectedDelivery \?\? linkedDelivery;/);
+  // Keep a manually opened drawer on the current order, including after a
+  // concurrent loading confirmation or cancellation.
+  assert.match(page, /const openDelivery = selectedDelivery\s*\? deliveryList\.find\(\(delivery\) => delivery\.uid === selectedDelivery\.uid\) \?\? null\s*: linkedDelivery;/);
   assert.match(page, /\{openDelivery && \(\s*<DeliveryModal\s*delivery=\{openDelivery\}/);
   // Closing drops the parameter so the drawer does not reopen.
   assert.match(page, /next\.delete\("order"\);/);

@@ -14,6 +14,8 @@ import {
   X,
 } from "lucide-react";
 import { subscribeInventory } from "../../services/inventoryService";
+import { useInventoryVisibility } from "../../components/useInventoryVisibility";
+import InventoryVisibilityToggle from "../../components/inventory/InventoryVisibilityToggle";
 import { subscribeVaccines } from "../../services/vaccineCatalogService";
 import { applyVatToCatalogProduct } from "../../services/vatClassification";
 import { formatCentavos, readPriceCentavos } from "../../services/money";
@@ -173,6 +175,7 @@ function RequestOrderCart({ uid }) {
   // live inventory changes under it. The clock is read once here, in the data
   // callback — never in a render.
   const [rawInventory, setRawInventory] = useState([]);
+  const [showInactive, setShowInactive] = useState(false);
   const [catalogTodayIso, setCatalogTodayIso] = useState(() => manilaToday(Date.now()));
 
   useEffect(() => {
@@ -218,14 +221,16 @@ function RequestOrderCart({ uid }) {
   }, []);
 
   const vaccinesById = useMemo(() => new Map((vaccines || []).map((v) => [v.id, v])), [vaccines]);
+  const inactiveIds = useInventoryVisibility(vaccines, rawInventory);
   const products = useMemo(
     () =>
       catalog
         // Voided batches and archived vaccines are not new-order choices at
         // all — hidden, not shown disabled. They stay in Admin Inventory.
         .filter((product) => !product.voided && !vaccinesById.get(product.vaccineId)?.archived)
+        .filter((product) => showInactive || !inactiveIds.has(product.vaccineId))
         .map((product) => applyVatToCatalogProduct(product, vaccinesById)),
-    [catalog, vaccinesById]
+    [catalog, vaccinesById, inactiveIds, showInactive]
   );
 
   const filteredProducts = useMemo(() => {
@@ -275,7 +280,8 @@ function RequestOrderCart({ uid }) {
     [cart, rawById, catalogTodayIso, vaccinesById]
   );
 
-  const backorderEstimates = useMemo(() => estimateBackorders(cart, products), [cart, products]);
+  // Display-only housekeeping must never change a saved cart's stock estimate.
+  const backorderEstimates = useMemo(() => estimateBackorders(cart, catalog), [cart, catalog]);
   const cartHasBackorder = cart.some((item) => (backorderEstimates.get(item.inventoryId) || 0) > 0);
 
   const blockedCartLines = cartLines.filter((line) => !line.ok);
@@ -415,6 +421,8 @@ function RequestOrderCart({ uid }) {
             </div>
           </div>
 
+          <InventoryVisibilityToggle checked={showInactive} onChange={setShowInactive}
+            count={[...inactiveIds].filter((id) => !vaccinesById.get(id)?.archived).length} />
           <div className="request-v2-tabs">
             <button
               type="button"

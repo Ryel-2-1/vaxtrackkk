@@ -537,6 +537,16 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
             if (d.itemSummaries.length > 1)
               _infoRow(Icons.list_alt, 'Items', d.itemSummaries.join('\n')),
             _infoRow(Icons.flag, 'Priority', d.priority),
+            _infoRow(
+              Icons.schedule,
+              'Requested arrival',
+              d.requestedArrivalLabel,
+            ),
+            const Text(
+              'Arrival at the destination, in Philippine time. '
+              'A request for planning, not a guaranteed ETA.',
+              style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+            ),
             if (d.region != null) _infoRow(Icons.map, 'Region', d.region!),
             if (d.deliveryInstructions != null)
               _infoRow(Icons.notes, 'Instructions', d.deliveryInstructions!),

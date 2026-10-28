@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { subscribeInventory } from "../../services/inventoryService";
 import { subscribeVaccines } from "../../services/vaccineCatalogService";
+import { useInventoryVisibility } from "../../components/useInventoryVisibility";
+import InventoryVisibilityToggle from "../../components/inventory/InventoryVisibilityToggle";
 import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
 import { liveErrorMessage } from "../../services/liveDataErrors";
 import { abbreviateBatchId } from "../../services/batchIdDisplay";
@@ -65,6 +67,9 @@ function normalizeStock(raw, todayIso) {
 
 function SalesRepInventory() {
   const [stocks, setStocks] = useState([]);
+  const [rawInventory, setRawInventory] = useState([]);
+  const [vaccines, setVaccines] = useState([]);
+  const [showInactive, setShowInactive] = useState(false);
   // Archived vaccine products: their batches are not offered to Med Reps.
   const [archivedIds, setArchivedIds] = useState(() => new Set());
   const [loading, setLoading] = useState(true);
@@ -79,6 +84,7 @@ function SalesRepInventory() {
   useEffect(() => {
     const unsubscribe = subscribeInventory(
       (raw) => {
+        setRawInventory(raw);
         // One Manila date per snapshot, resolved where the data arrives so no
         // render reads the clock.
         const today = manilaToday(Date.now());
@@ -98,15 +104,19 @@ function SalesRepInventory() {
   useEffect(
     () =>
       subscribeVaccines(
-        (docs) => setArchivedIds(new Set(docs.filter((v) => v.archived === true).map((v) => v.id))),
+        (docs) => {
+          setVaccines(docs);
+          setArchivedIds(new Set(docs.filter((v) => v.archived === true).map((v) => v.id)));
+        },
         // Without the catalog nothing is hidden; ordering still refuses archived products.
-        () => setArchivedIds(new Set())
+        () => { setVaccines([]); setArchivedIds(new Set()); }
       ),
     []
   );
+  const inactiveIds = useInventoryVisibility(vaccines, rawInventory);
   const inventory = useMemo(
-    () => stocks.filter((stock) => !archivedIds.has(stock.vaccineId)),
-    [stocks, archivedIds]
+    () => stocks.filter((stock) => !archivedIds.has(stock.vaccineId) && (showInactive || !inactiveIds.has(stock.vaccineId))),
+    [stocks, archivedIds, inactiveIds, showInactive]
   );
 
   const vaccineTypes = useMemo(() => {
@@ -225,7 +235,7 @@ function SalesRepInventory() {
     );
   }
 
-  if (inventory.length === 0) {
+  if (stocks.length === 0) {
     return (
       <>
         <div className="inventory-loading-state">
@@ -286,6 +296,8 @@ function SalesRepInventory() {
       </section>
 
       <section className="salesrep-card inventory-table-card inventory-v2-table-card">
+        <InventoryVisibilityToggle checked={showInactive} count={[...inactiveIds].filter((id) => !archivedIds.has(id)).length}
+          onChange={(value) => { setShowInactive(value); setPage(1); }} />
         <div className="inventory-v2-toolbar">
           <div className="inventory-search-box">
             <Search size={16} />
