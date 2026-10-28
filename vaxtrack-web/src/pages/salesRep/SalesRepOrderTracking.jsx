@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   Box,
@@ -9,7 +8,6 @@ import {
   MapPin,
   PackageCheck,
   Search,
-  Share2,
   Truck,
 } from "lucide-react";
 import { subscribeSalesRepOrders } from "../../services/orderService";
@@ -19,6 +17,8 @@ import {
 } from "../../services/deliveryService";
 import { auth } from "../../firebase";
 import { originalRequestNote, scheduleLabel } from "../../services/deliverySchedule";
+import { requestedArrivalLabel, requestedArrivalOf } from "../../services/requestedArrival";
+import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
 import {
   reviewOrderDestinationChange,
   subscribeDestinationCorrections,
@@ -32,6 +32,7 @@ import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 import AllocationSummary from "../../components/ui/AllocationSummary";
 import { describeAllocation } from "../../services/backorder";
+import OrderCancellationAction from "../../components/orders/OrderCancellationAction";
 
 function mapTrackingLabel(statusKey) {
   switch (statusKey) {
@@ -155,6 +156,7 @@ function normalizeOrder(raw) {
 
   return {
     id: raw.id,
+    cancellationOrder: raw,
     orderNumber: raw.orderNumber || raw.id,
     destination: raw.clinicName || "Unknown Clinic",
     city: raw.clinicAddress || "—",
@@ -172,6 +174,9 @@ function normalizeOrder(raw) {
     priority: raw.priority || "Standard",
     instructions: raw.deliveryInstructions || "",
     requestedDeliveryDate: raw.requestedDeliveryDate || null,
+    // When the delivery was requested to ARRIVE at the destination on that
+    // date (absent on older orders: any time that day).
+    requestedArrival: requestedArrivalOf(raw),
     // Server-evaluated delivery timing, secondary to the lifecycle status.
     timingStatus: raw.timingStatus ?? null,
     expectedArrivalAt: raw.expectedArrivalAt ?? null,
@@ -186,6 +191,10 @@ function normalizeOrder(raw) {
     clinicLat: raw.clinicLat,
     clinicLng: raw.clinicLng,
     routePolyline: raw.routePolyline || "",
+    routeProvider: raw.routeProvider ?? null,
+    routeProfile: raw.routeProfile ?? null,
+    tripRouteProvider: raw.tripRouteProvider ?? null,
+    tripRouteProfile: raw.tripRouteProfile ?? null,
     routeDistanceMeters: raw.routeDistanceMeters,
     routeDurationSeconds: raw.routeDurationSeconds,
     routeEtaText: raw.routeEtaText || "",
@@ -207,8 +216,6 @@ function normalizeOrder(raw) {
 }
 
 function SalesRepOrderTracking() {
-  const navigate = useNavigate();
-
   const [orders, setOrders] = useState([]);
   // The signed-out case is decided during the first render rather than in a
   // mount effect that immediately called setState (which
@@ -335,23 +342,6 @@ function SalesRepOrderTracking() {
     setSelectedOrderId(id);
   };
 
-  const handleShare = async () => {
-    if (!selectedOrder) return;
-
-    const text = `${selectedOrder.orderNumber} - ${selectedOrder.destination} (${selectedOrder.status})`;
-
-    try {
-      await navigator.clipboard.writeText(text);
-      showToast("Tracking details copied to the clipboard.", "success");
-    } catch {
-      // Nothing was copied — never report it as ready.
-      showToast(
-        `The tracking details couldn't be copied. Copy them manually: ${text}`,
-        "warning"
-      );
-    }
-  };
-
   if (loading) {
     return (
       <>
@@ -382,15 +372,6 @@ function SalesRepOrderTracking() {
             <h2>Deliveries overview</h2>
             <p>Monitor active deliveries, shipment progress, and completed orders.</p>
           </div>
-
-          <div className="tracking-v2-search">
-            <Search size={15} />
-            <input
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Search order ID, clinic, vaccine, or status..."
-            />
-          </div>
         </div>
 
         <ToastRegion toast={toast} onDismiss={dismissToast} />
@@ -398,14 +379,6 @@ function SalesRepOrderTracking() {
         <section className="tracking-layout tracking-v2-layout">
           <div className="tracking-left">
             <div className="tracking-toolbar tracking-v2-toolbar">
-              <button
-                type="button"
-                className="primary"
-                onClick={() => navigate("/sales-rep/request-order")}
-              >
-                + New Order
-              </button>
-
               <div className="tracking-v2-tabs">
                 <button
                   type="button"
@@ -422,6 +395,15 @@ function SalesRepOrderTracking() {
                 >
                   History
                 </button>
+              </div>
+
+              <div className="tracking-v2-search">
+                <Search size={15} />
+                <input
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  placeholder="Search order ID, clinic, vaccine, or status..."
+                />
               </div>
 
               <label className="tracking-v2-status-filter">
@@ -496,33 +478,26 @@ function SalesRepOrderTracking() {
                   {selectedOrder.priority === "Urgent" ? "Urgent" : "Standard"} · {selectedOrder.date}
                 </p>
 
-                <div className="tracking-v2-side-actions">
-                  <button
-                    type="button"
-                    className="share-btn"
-                    onClick={handleShare}
-                    aria-label="Copy tracking details to clipboard"
-                    title="Copy tracking details"
-                  >
-                    <Share2 size={16} />
-                  </button>
-                </div>
-
                 <h3>Delivery Status</h3>
                 <div className="tracking-v2-status-strip">
                   <StatusBadge statusKey={selectedOrder.statusKey} label={selectedOrder.status} />
                   <span>Rider: {selectedOrder.driverName}</span>
                 </div>
                 <TimingIndicator order={selectedOrder} />
+                <OrderCancellationAction key={selectedOrder.id} order={selectedOrder.cancellationOrder} scope="salesrep-page" />
 
                 {selectedOrder.changeRequest && (
                   <section className="tracking-destination-request" aria-label="Destination change request">
                     <h3>Destination change requested</h3>
-                    <p>The Dispatcher requested a change for this order. Review it before the address changes.</p>
+                    <p>
+                      {selectedOrder.changeRequest.refresh
+                        ? "Same address, corrected point: the clinic's pin or entrance details were corrected after this order was placed. Approving moves this order to the corrected point the rider must reach."
+                        : "The Dispatcher requested a change for this order. Review it before the address changes."}
+                    </p>
                     <dl>
                       <dt>Current destination</dt>
                       <dd>{selectedOrder.destination} — {selectedOrder.city}</dd>
-                      <dt>Proposed destination</dt>
+                      <dt>{selectedOrder.changeRequest.refresh ? "Proposed (corrected point)" : "Proposed destination"}</dt>
                       <dd>{selectedOrder.changeRequest.proposed?.displayName || "Unknown"} — {selectedOrder.changeRequest.proposed?.address || "Unknown"}</dd>
                       <dt>Reason</dt>
                       <dd>{selectedOrder.changeRequest.reason}</dd>
@@ -583,6 +558,7 @@ function SalesRepOrderTracking() {
                       {originalRequestNote(selectedOrder) ? "Delivery schedule" : "Requested delivery date"}
                     </strong>
                     <p className="tnum">{scheduleLabel(selectedOrder)}</p>
+                    <p>Requested arrival: {requestedArrivalLabel(selectedOrder.requestedArrival)}</p>
                     {originalRequestNote(selectedOrder) && <p>{originalRequestNote(selectedOrder)}</p>}
                   </div>
                 </div>
@@ -685,6 +661,7 @@ function TrackingRow({ selected, order, onSelect }) {
       <td>
         <strong>{order.destination}</strong>
         <small>{order.vaccineName}</small>
+        <RequestedArrivalNote order={order} />
         {order.allocation?.tracked && !order.allocation.fullyReserved && (
           <small>
             Waiting for stock — {order.allocation.reserved.toLocaleString()} of{" "}

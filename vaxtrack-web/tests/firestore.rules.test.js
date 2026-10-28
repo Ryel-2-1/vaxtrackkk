@@ -19,6 +19,7 @@ import {
   assertFails,
 } from "@firebase/rules-unit-testing";
 import { readFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import {
   doc,
   getDoc,
@@ -39,7 +40,10 @@ import {
   writeBatch,
 } from "firebase/firestore";
 
-const PROJECT_ID = "vaxtrack-rules-test";
+// Each invocation owns its fixtures and uploaded rules, even if a second test
+// process accidentally connects to the same emulator. The strict variant stays
+// in the same run's namespace; never use a live Firebase project here.
+const PROJECT_ID = `demo-vt-rules-${randomBytes(4).toString("hex")}`;
 // A valid, already-reached Manila delivery date for fixture orders.
 const FIXTURE_DELIVERY_DATE = "2026-01-01";
 // The loading custody audit a Cargo Loading confirmation left on a seeded
@@ -902,6 +906,27 @@ async function main() {
       routeProvider: "openrouteservice",
       updatedAt: "t",
     }));
+  });
+
+  await check("P13m dispatcher saves separate motorcycle provenance for single and trip routes", async () => {
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordRider1"), {
+      routePolyline: "motorcycle-single", routeGeneratedAt: "motorcycle-t",
+      routeProvider: "valhalla", routeProfile: "motorcycle-no-expressways-v1",
+      routeDestinationRevision: 0, updatedAt: "motorcycle-t",
+    }));
+    await assertSucceeds(updateDoc(doc(dispatcher, "orders", "ordRider1"), {
+      tripPolyline: "motorcycle-trip", tripGeneratedAt: "motorcycle-trip-t",
+      tripRouteProvider: "valhalla", tripRouteProfile: "motorcycle-no-expressways-v1",
+      updatedAt: "motorcycle-trip-t",
+    }));
+    for (const actor of [rider, salesRep]) {
+      await assertFails(updateDoc(doc(actor, "orders", "ordRider1"), {
+        routeProfile: "forged", updatedAt: "forged-t",
+      }));
+      await assertFails(updateDoc(doc(actor, "orders", "ordRider1"), {
+        tripRouteProfile: "forged", updatedAt: "forged-t",
+      }));
+    }
   });
 
   await check("P13a order owner and dispatcher can read server-written correction history", async () => {
@@ -2978,6 +3003,24 @@ async function main() {
     }
   });
 
+  await check("PRECANCEL clients cannot forge cancellation scope, clear custody, regress lifecycle or release stock", async () => {
+    for (const actor of [admin, dispatcher, salesRep, rider]) {
+      await assertFails(updateDoc(doc(actor, "orders", "lcPending"), {
+        status: "cancelled", cancelReason: "Available items first", cancelledAt: serverTimestamp(),
+      }));
+      await assertFails(updateDoc(doc(actor, "orders", "lcPending"), {
+        cancelledByUid: adminUid, cancelledByRole: "admin", cancellationScope: "pre_departure", cancelledFromStatus: "pending_dispatch",
+      }));
+      await assertFails(updateDoc(doc(actor, "orders", "lcLoading3"), {
+        loadedAt: deleteField(), loadedByUid: deleteField(), loadedByEmail: deleteField(), isLoaded: false,
+      }));
+      await assertFails(updateDoc(doc(actor, "orders", "lcLoading3"), { status: "assigned" }));
+    }
+    for (const field of ["dispatchedAt", "loadingFinalizedAt", "startedAt", "deliveryFailedAt", "proofOfDeliveryUrl", "invoiceUrl"]) {
+      await assertFails(updateDoc(doc(admin, "orders", "lcTransit"), { [field]: "forged" }));
+    }
+  });
+
   // ---- dispatcher: forbidden ----
 
   await check("Nlc1 dispatcher cannot skip loading (assigned → in_transit)", async () => {
@@ -4620,6 +4663,45 @@ async function main() {
     await assertSucceeds(updateDoc(doc(admin, "orders", "schFields"), { deliveryInstructions: "Gate 2" }));
   });
 
+  // The Med Rep's requested arrival is written only by createOrderWithReservation.
+  await check("SCH1b no client can author, change or clear the requested arrival, Admin included", async () => {
+    // Its own approved Med Rep: the shared one is left disabled by Prole1.
+    const ownerUid = "schArrivalRep";
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "users", ownerUid), { role: "salesrep", status: "approved", email: "arr@x.com" })
+    );
+    const owner = testEnv.authenticatedContext(ownerUid).firestore();
+    await seedSched("schArrival", {
+      createdByUid: ownerUid,
+      requestedDeliveryDate: schedTomorrow,
+      requestedArrival: { version: 1, mode: "before", time: "10:00" },
+    });
+    const writes = [
+      { requestedArrival: { version: 1, mode: "exact", time: "10:00" } },
+      { requestedArrival: { version: 1, mode: "any_time" } },
+      { requestedArrival: null },
+      { requestedArrival: deleteField() },
+    ];
+    for (const db of [admin, dispatcher, owner, rider]) {
+      for (const data of writes) {
+        await assertFails(updateDoc(doc(db, "orders", "schArrival"), data));
+      }
+    }
+    // An Admin repair-create may not carry one either...
+    await assertFails(setDoc(doc(admin, "orders", "schArrivalCreate"), {
+      createdByUid: salesRepUid, status: "pending_dispatch", requestedDeliveryDate: schedTomorrow,
+      requestedArrival: { version: 1, mode: "exact", time: "10:00" },
+    }));
+    // ...while the same create without it, and unrelated Admin edits, still work.
+    await assertSucceeds(setDoc(doc(admin, "orders", "schArrivalCreate"), {
+      createdByUid: salesRepUid, status: "pending_dispatch", requestedDeliveryDate: schedTomorrow,
+    }));
+    await assertSucceeds(updateDoc(doc(admin, "orders", "schArrival"), { deliveryInstructions: "Gate 2" }));
+    // Reads are unchanged: the owning Med Rep and the Dispatcher see it.
+    await assertSucceeds(getDoc(doc(owner, "orders", "schArrival")));
+    await assertSucceeds(getDoc(doc(dispatcher, "orders", "schArrival")));
+  });
+
   await check("SCH2 schedule history: Admin and Dispatcher read it, nobody writes it", async () => {
     await seedSched("schHist", { requestedDeliveryDate: schedTomorrow, assignedRiderId: riderUid });
     const eventPath = ["orders", "schHist", "scheduleEvents", "e1"];
@@ -5475,6 +5557,48 @@ async function main() {
     await assertFails(updateDoc(doc(admin, "inventory", "invAdmin"), { reservedQuantity: 5 }));
   });
 
+  // ---------------- routing settings (hub + planning defaults) ----------------
+  {
+    const routingRef = (ctx, id = "routing") => doc(ctx, "operationsSettings", id);
+    const routing = (over = {}) => ({
+      hubName: "Puremart Zapote", hubLatitude: 14.3123223, hubLongitude: 121.0848667,
+      serviceMinutes: 10, trafficBufferPercent: 15, longWaitMinutes: 30,
+      updatedAt: serverTimestamp(), updatedByUid: adminUid, ...over,
+    });
+
+    await check("PRS1 Admin saves and updates the routing settings; Admin and Dispatcher read them", async () => {
+      await assertSucceeds(setDoc(routingRef(admin), routing()));
+      await assertSucceeds(setDoc(routingRef(admin), routing({ serviceMinutes: 12, trafficBufferPercent: 20 })));
+      await assertSucceeds(getDoc(routingRef(admin)));
+      await assertSucceeds(getDoc(routingRef(dispatcher)));
+    });
+
+    await check("NRS1 nobody else writes them, nobody lists them, and only Admin/Dispatcher read them", async () => {
+      for (const ctx of [dispatcher, salesRep, rider, anon]) {
+        await assertFails(setDoc(routingRef(ctx), routing()));
+      }
+      for (const ctx of [salesRep, rider, anon]) await assertFails(getDoc(routingRef(ctx)));
+      await assertFails(getDocs(collection(admin, "operationsSettings")));
+      await assertFails(deleteDoc(routingRef(admin)));
+    });
+
+    await check("NRS2 only the 'routing' document, with exact fields, ranges, server time and the saver's uid", async () => {
+      await assertFails(setDoc(routingRef(admin, "other"), routing()));
+      for (const bad of [
+        routing({ hubName: "" }), routing({ hubName: "x".repeat(81) }), routing({ hubLatitude: 91 }),
+        routing({ hubLongitude: "121" }), routing({ serviceMinutes: 10.5 }), routing({ serviceMinutes: 121 }),
+        routing({ trafficBufferPercent: -1 }), routing({ trafficBufferPercent: 101 }), routing({ longWaitMinutes: 4 }),
+        routing({ updatedAt: Timestamp.fromMillis(Date.now()) }), routing({ updatedByUid: dispatcherUid }),
+        routing({ extra: true }),
+      ]) {
+        await assertFails(setDoc(routingRef(admin), bad));
+      }
+      const missing = routing();
+      delete missing.longWaitMinutes;
+      await assertFails(setDoc(routingRef(admin), missing));
+    });
+  }
+
   // ---------------- rider live tracking ----------------
   {
     const trkOtherRep = testEnv.authenticatedContext(otherSalesRepUid).firestore();
@@ -5588,6 +5712,40 @@ async function main() {
       await testEnv.withSecurityRulesDisabled((ctx) =>
         setDoc(doc(ctx.firestore(), "riderLocationViewers", riderUid), { riderUid, viewerUids: [salesRepUid], activeOrderIds: ["trkMoving"] })
       );
+    });
+
+    await check("PTR-HUB a rider returning to the hub shares with no active order; nothing else widens", async () => {
+      // The trip is over (server state returning_to_hub) and no Med Rep is indexed.
+      let savedTrip = null;
+      await testEnv.withSecurityRulesDisabled(async (ctx) => {
+        const f = ctx.firestore();
+        const prev = await getDoc(doc(f, "riderDispatchStates", riderUid));
+        savedTrip = prev.exists() ? prev.data() : null;
+        await setDoc(doc(f, "riderDispatchStates", riderUid), { riderUid, state: "returning_to_hub", tripId: "tripHub", orderIds: ["trkDone"] });
+        await deleteDoc(doc(f, "riderLocationViewers", riderUid));
+      });
+      await assertSucceeds(getDoc(doc(rider, "riderDispatchStates", riderUid)), "the app reads its own trip state");
+      await assertSucceeds(setDoc(myLoc, loc({ activeOrderId: null, navigationSessionId: null })));
+      // The rules check only that an activeOrderId is the rider's own order, not
+      // that it is still active; the app sends none while returning (pinned in
+      // rider_tracking_controller_test.dart). Another rider's order stays refused.
+      await assertFails(setDoc(myLoc, loc({ activeOrderId: "trkOtherRiders" })));
+      for (const ctx of [admin, dispatcher]) {
+        await assertSucceeds(getDoc(doc(ctx, "riderLocations", riderUid)));
+        await assertSucceeds(getDocs(collection(ctx, "riderDispatchStates")));
+      }
+      await assertFails(getDoc(doc(salesRep, "riderLocations", riderUid)), "no Med Rep sees a returning rider");
+      await assertFails(updateDoc(doc(rider, "riderDispatchStates", riderUid), { state: "available_at_hub" }), "the rider cannot mark itself back");
+      // Return confirmed: the app clears the coordinates.
+      await assertSucceeds(setDoc(myLoc, loc({
+        trackingState: "ended", latitude: null, longitude: null, accuracyMeters: null, headingDegrees: null, speedMps: null,
+      })));
+      await testEnv.withSecurityRulesDisabled(async (ctx) => {
+        const f = ctx.firestore();
+        if (savedTrip) await setDoc(doc(f, "riderDispatchStates", riderUid), savedTrip);
+        else await deleteDoc(doc(f, "riderDispatchStates", riderUid));
+        await setDoc(doc(f, "riderLocationViewers", riderUid), { riderUid, viewerUids: [salesRepUid], activeOrderIds: ["trkMoving"] });
+      });
     });
 
     await check("PTR8 two Med Reps on one rider each read it; dropping one leaves the other; dropping both ends access", async () => {
@@ -6374,6 +6532,72 @@ async function main() {
       await assertFails(setDoc(doc(ctx, "inventoryAuditEvents", "forged"), { action: "stock_disposed", quantity: 1 }));
       await assertFails(updateDoc(doc(ctx, "inventoryAuditEvents", "stock_admin1_req"), { quantity: 0 }));
       await assertFails(deleteDoc(doc(ctx, "inventoryAuditEvents", "stock_admin1_req")));
+    }
+  });
+
+  // Automatic empty-inventory visibility is server-observed, not client-authored.
+  // These cases own their users: earlier role-transition cases deliberately
+  // mutate shared actors, so a new read test must not assume their final state.
+  const visibilityRoles = ["admin", "dispatcher", "salesrep", "rider"];
+  const visibilityActors = Object.fromEntries(visibilityRoles.map((role) => [
+    role, testEnv.authenticatedContext(`visibility_${role}`).firestore(),
+  ]));
+  const visibilityAdmin = visibilityActors.admin;
+  const visibilityPending = testEnv.authenticatedContext("visibility_pending").firestore();
+  const visibilityDisabled = testEnv.authenticatedContext("visibility_disabled").firestore();
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    for (const role of visibilityRoles) {
+      await setDoc(doc(ctx.firestore(), "users", `visibility_${role}`), { role, status: "approved" });
+    }
+    await setDoc(doc(ctx.firestore(), "users", "visibility_pending"), { role: "salesrep", status: "pending" });
+    await setDoc(doc(ctx.firestore(), "users", "visibility_disabled"), { role: "admin", status: "disabled" });
+    await setDoc(doc(ctx.firestore(), "vaccines", "visibilityVac"), {
+      vaccineName: "Visibility", internalSku: "VIS-1", vatClassification: "vatable",
+      inventoryVisibilityVersion: 1, inventoryStockState: "empty",
+      inventoryEmptySince: Timestamp.fromDate(new Date("2026-01-01T00:00:00Z")),
+      inventoryPositiveEvidenceAt: null,
+    });
+    await setDoc(doc(ctx.firestore(), "inventoryVisibilityMaintenance", "catalog"), { afterId: "v1" });
+  });
+  await check("VIS1 Admin cannot forge or clear observation fields, even while creating a vaccine", async () => {
+    for (const [field, value] of Object.entries({ inventoryVisibilityVersion: 1, inventoryStockState: "in_stock",
+      inventoryEmptySince: serverTimestamp(), inventoryPositiveEvidenceAt: serverTimestamp() })) {
+      await assertFails(setDoc(doc(visibilityAdmin, "vaccines", "visibilityForged"), {
+        vaccineName: "Forged", internalSku: "VIS-F", vatClassification: "vatable", [field]: value,
+      }));
+      await assertFails(updateDoc(doc(visibilityAdmin, "vaccines", "visibilityVac"), { [field]: value === 1 ? 2 : value }));
+      await assertFails(updateDoc(doc(visibilityAdmin, "vaccines", "visibilityVac"), { [field]: deleteField() }));
+    }
+    await assertSucceeds(updateDoc(doc(visibilityAdmin, "vaccines", "visibilityVac"), { vaccineName: "Renamed" }));
+    await assertSucceeds(setDoc(doc(visibilityAdmin, "vaccines", "visibilityNew"), {
+      vaccineName: "New", internalSku: "VIS-N", vatClassification: "vatable",
+    }));
+  });
+  await check("VIS2 approved users can read visibility metadata but never write it or access the sweep cursor", async () => {
+    for (const [role, ctx] of Object.entries(visibilityActors)) {
+      try {
+        await assertSucceeds(getDoc(doc(ctx, "vaccines", "visibilityVac")));
+        // Includes Admin: no role may forge an observation.
+        await assertFails(updateDoc(doc(ctx, "vaccines", "visibilityVac"), { inventoryStockState: "in_stock" }));
+      } catch (error) {
+        throw new Error(`VIS2 ${role} approved read / server-field protection: ${error.message}`, { cause: error });
+      }
+    }
+    for (const [role, ctx] of [["pending", visibilityPending], ["disabled", visibilityDisabled], ["anonymous", anon]]) {
+      try {
+        await assertFails(getDoc(doc(ctx, "vaccines", "visibilityVac")));
+      } catch (error) {
+        throw new Error(`VIS2 ${role} denied catalog read: ${error.message}`, { cause: error });
+      }
+    }
+    for (const [role, ctx] of [...Object.entries(visibilityActors), ["pending", visibilityPending], ["disabled", visibilityDisabled], ["anonymous", anon]]) {
+      try {
+        await assertFails(getDoc(doc(ctx, "inventoryVisibilityMaintenance", "catalog")));
+        await assertFails(setDoc(doc(ctx, "inventoryVisibilityMaintenance", "catalog"), { afterId: null }));
+        await assertFails(deleteDoc(doc(ctx, "inventoryVisibilityMaintenance", "catalog")));
+      } catch (error) {
+        throw new Error(`VIS2 ${role} server-only cursor: ${error.message}`, { cause: error });
+      }
     }
   });
 

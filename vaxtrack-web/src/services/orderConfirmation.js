@@ -39,6 +39,9 @@ export function buildConfirmationFromOrder(order, { replayed = false } = {}) {
     clinicName: order.clinicName ?? order.destinationName ?? null,
     clinicAddress: order.clinicAddress ?? order.deliveryAddress ?? null,
     requestedDeliveryDate: order.requestedDeliveryDate ?? null,
+    // The requested arrival at the destination as the server stored it; null
+    // on an order placed before it existed (read as any time that day).
+    requestedArrival: order.requestedArrival ?? null,
     priority: order.priority ?? null,
     deliveryInstructions: order.deliveryInstructions ?? "",
     items: items.map((item, index) => ({

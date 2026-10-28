@@ -20,6 +20,7 @@ import {
   updateClinicLocation,
   readClinicLocation,
   validateClinicLocation,
+  validateEntranceDetails,
   MIN_GEOFENCE_RADIUS_M,
   MAX_GEOFENCE_RADIUS_M,
 } from "../../services/clinicService";
@@ -45,6 +46,11 @@ import { useToast } from "../../components/ui/useToast";
 import { errorIdFor, fieldA11y, focusFirstInvalid, hasErrors } from "../../services/formValidation";
 import ClinicLocationSection from "./ClinicLocationSection";
 import DoctorAddressesPanel from "./DoctorAddressesPanel";
+import { ClinicAccessFields, ClinicAccessResults, ManageAccessModal } from "./ClinicAccess";
+import useDoctorAddressLinks from "./useDoctorAddressLinks";
+import { subscribeUsers } from "../../services/userService";
+import { activeDoctorLinks, approvedMedReps, clinicReach, planClinicAccess, reachLabel } from "../../services/clinicAccess";
+import { applyClinicAccess } from "../../services/clinicAccessService";
 import { friendlyErrorMessage, kpiValue, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import {
   CLINIC_VIEWS,
@@ -110,6 +116,11 @@ function normalizeClinic(raw) {
     // backward-compatibly: pre-radius clinics report the 300 m default, and a
     // clinic with no pin reports hasCoordinates: false rather than a fake one.
     locationInfo: readClinicLocation(raw),
+    // Med Reps and doctors can only be linked to a clinic with a verified pin.
+    locationVerified: raw.locationVerified === true,
+    // The pin was confirmed as the entrance riders use (Manage location).
+    entranceConfirmed: raw.entranceConfirmed === true,
+    accessNotes: typeof raw.accessNotes === "string" ? raw.accessNotes : "",
     // Preserve whether the raw stored location passes the write contract. The
     // normalized radius alone cannot distinguish a missing radius (valid,
     // defaults to 300 m) from malformed legacy data (invalid).
@@ -129,7 +140,7 @@ const CLINIC_REQUIRED_FIELDS = [
   ["phone", "Enter a phone number."],
   ["location", "Enter the clinic address."],
 ];
-const CLINIC_FIELD_ORDER = ["name", "contact", "phone", "email", "location", "areaId", "latitude", "longitude", "geofenceRadiusM"];
+const CLINIC_FIELD_ORDER = ["name", "contact", "phone", "email", "location", "areaId", "latitude", "longitude", "geofenceRadiusM", "entranceConfirmed", "accessNotes"];
 const CLINIC_FIELD_IDS = {
   name: "new-clinic-name",
   contact: "new-clinic-contact",
@@ -140,6 +151,8 @@ const CLINIC_FIELD_IDS = {
   latitude: "new-clinic-lat",
   longitude: "new-clinic-lng",
   geofenceRadiusM: "new-clinic-radius",
+  entranceConfirmed: "new-clinic-entrance",
+  accessNotes: "new-clinic-access-notes",
 };
 
 const EMPTY_CLINIC = {
@@ -155,6 +168,8 @@ const EMPTY_CLINIC = {
   latitude: "",
   longitude: "",
   geofenceRadiusM: "",
+  entranceConfirmed: false,
+  accessNotes: "",
 };
 
 const NO_LINKED_DOCTORS = Object.freeze({ doctors: [], loading: false, error: "" });
@@ -295,6 +310,38 @@ function Clinics() {
   // focus to when the dialog closes.
   const [managedClinic, setManagedClinic] = useState(null);
   const manageTriggerRef = useRef(null);
+  // "Who can order here": the clinic whose Med Reps/doctors are being managed,
+  // and the selections made while registering a new clinic.
+  const [accessClinic, setAccessClinic] = useState(null);
+  const accessTriggerRef = useRef(null);
+  const [newClinicAccess, setNewClinicAccess] = useState({ repUids: [], doctorIds: [] });
+  const [newClinicResults, setNewClinicResults] = useState(null);
+  const [users, setUsers] = useState([]);
+  useEffect(
+    () =>
+      subscribeUsers(setUsers, (error) => {
+        logSafeError("Clinic access: users", error);
+        setUsers([]);
+      }),
+    []
+  );
+  const medReps = useMemo(() => approvedMedReps(users), [users]);
+  const { addressesByDoctor, ready: linksReady } = useDoctorAddressLinks(doctors);
+  const doctorLinks = useMemo(() => activeDoctorLinks(addressesByDoctor), [addressesByDoctor]);
+  const reachOf = (clinic) =>
+    linksReady ? reachLabel(clinicReach({ id: clinic.firestoreId, areaId: clinic.areaId }, medReps, doctorLinks, doctors)) : null;
+
+  const openManageAccess = (clinic, triggerEl) => {
+    accessTriggerRef.current = triggerEl;
+    setAccessClinic(clinic);
+  };
+  const closeManageAccess = useCallback(() => {
+    setAccessClinic(null);
+    if (accessTriggerRef.current) {
+      accessTriggerRef.current.focus();
+      accessTriggerRef.current = null;
+    }
+  }, []);
   // The control that opened the registration dialog, so focus can be handed
   // back to it on dismissal.
   const newClinicTriggerRef = useRef(null);
@@ -364,6 +411,8 @@ function Clinics() {
     setShowNewClinicModal(false);
     setNewClinicErrors({});
     setNewClinic(EMPTY_CLINIC);
+    setNewClinicAccess({ repUids: [], doctorIds: [] });
+    setNewClinicResults(null);
     // Return focus to the button that opened the dialog. Without this, focus
     // falls back to <body> and a keyboard user restarts from the top of the
     // page — the dialog declares aria-modal, so it owed them that focus back.
@@ -371,7 +420,7 @@ function Clinics() {
       newClinicTriggerRef.current.focus();
       newClinicTriggerRef.current = null;
     }
-  }, []);
+  }, [setNewClinicAccess, setNewClinicResults]);
 
   const handleSaveLocation = async (clinic, draft) => {
     // subscribeClinics remains the source of truth — no local clinic list
@@ -490,6 +539,9 @@ function Clinics() {
     if (enteredLocation) {
       const check = validateClinicLocation(newClinic);
       if (!check.ok) Object.assign(fieldErrors, check.errors);
+      // A pin is saved only with the entrance confirmation.
+      const entrance = validateEntranceDetails(newClinic);
+      if (!entrance.ok) Object.assign(fieldErrors, entrance.errors);
     }
     if (hasErrors(fieldErrors)) {
       setNewClinicErrors({ ...fieldErrors, form: "Check the highlighted fields. Nothing was saved." });
@@ -509,7 +561,7 @@ function Clinics() {
       }
 
       const clinicId = `CLN-${Math.floor(1000 + Math.random() * 8999)}`;
-      await addClinic({
+      const clinicRef = await addClinic({
         clinicId,
         name: newClinic.name,
         location: newClinic.location,
@@ -523,13 +575,50 @@ function Clinics() {
         latitude: newClinic.latitude,
         longitude: newClinic.longitude,
         geofenceRadiusM: newClinic.geofenceRadiusM,
+        entranceConfirmed: newClinic.entranceConfirmed,
+        accessNotes: newClinic.accessNotes,
       });
 
+      // "Who can order here": link the ticked Med Reps and doctors now. Each link
+      // is its own transaction after the clinic exists; a failed link never
+      // undoes the registration and is reported so it can be retried from
+      // Manage access.
+      const name = newClinic.name.trim();
+      const wantsLinks = newClinicAccess.repUids.length > 0 || newClinicAccess.doctorIds.length > 0;
+      const pinned = String(newClinic.latitude).trim() !== "" && String(newClinic.longitude).trim() !== "";
+      let results = [];
+      if (wantsLinks && pinned && clinicRef?.id) {
+        const plan = planClinicAccess({
+          clinic: { id: clinicRef.id, areaId: selectedArea.id, locationVerified: true },
+          medReps,
+          selectedRepUids: newClinicAccess.repUids,
+          doctors,
+          addressesByDoctor: {},
+          selectedDoctorIds: newClinicAccess.doctorIds,
+        });
+        results = await applyClinicAccess(clinicRef.id, plan);
+      }
+      const failed = results.filter((r) => !r.ok);
+      if (failed.length > 0) {
+        // Keep the dialog open on the results: the clinic IS registered.
+        setNewClinicResults(results);
+        setNewClinicErrors({
+          form: `${name} has been registered, but ${failed.length} link${failed.length === 1 ? "" : "s"} could not be saved. Close this and use Manage access on the clinic to retry.`,
+        });
+        setCurrentPage(1);
+        return;
+      }
       // Same dismissal path as Escape/Cancel/close, so a successful
       // registration also resets the draft and hands focus back to the opener.
       closeNewClinic();
       setCurrentPage(1);
-      showToast(`${newClinic.name.trim()} has been registered.`, "success");
+      const count = (kind, one) => {
+        const n = results.filter((r) => r.kind === kind).length;
+        return n ? `${n} ${one}${n === 1 ? "" : "s"}` : "";
+      };
+      const linkedParts = [count("rep-add", "Med Rep"), count("doctor-link", "doctor")].filter(Boolean);
+      const linked = linkedParts.length ? ` Linked ${linkedParts.join(" and ")}.` : "";
+      showToast(`${name} has been registered.${linked}`, "success");
     } catch (error) {
       logSafeError("Register clinic", error);
       // The dialog stays open with everything the admin typed.
@@ -775,6 +864,7 @@ function Clinics() {
                       <div>
                         <strong>{clinic.name}</strong>
                         <small>ID: {clinic.id}</small>
+                        <ReachChip reach={reachOf(clinic)} />
                       </div>
                     </div>
                   </td>
@@ -795,6 +885,9 @@ function Clinics() {
                           ? "Location verified"
                           : "Needs location"}
                       </span>
+                      {clinic.locationInfo.hasCoordinates && !clinic.entranceConfirmed && (
+                        <span className="clinic-reach-chip warn">Entrance not confirmed</span>
+                      )}
                     </div>
                   </td>
 
@@ -847,6 +940,12 @@ function Clinics() {
                       >
                         Manage location
                       </button>
+                      <button
+                        type="button"
+                        onClick={(e) => openManageAccess(clinic, e.currentTarget)}
+                      >
+                        Manage access
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -861,6 +960,8 @@ function Clinics() {
                   clinic={clinic}
                   onDetails={() => setSelectedClinic(clinic)}
                   onManageLocation={(trigger) => openManageLocation(clinic, trigger)}
+                  onManageAccess={(trigger) => openManageAccess(clinic, trigger)}
+                  reach={reachOf(clinic)}
                 />
               ))}
             </ul>
@@ -972,6 +1073,23 @@ function Clinics() {
           onClose={closeNewClinic}
           onSubmit={handleCreateClinic}
           saving={saving}
+          medReps={medReps}
+          doctors={doctors}
+          access={newClinicAccess}
+          onAccessChange={setNewClinicAccess}
+          accessResults={newClinicResults}
+        />
+      )}
+
+      {accessClinic && (
+        <ManageAccessModal
+          clinic={clinics.find((c) => c.firestoreId === accessClinic.firestoreId) ?? accessClinic}
+          medReps={medReps}
+          doctors={doctors}
+          addressesByDoctor={addressesByDoctor}
+          linksReady={linksReady}
+          orders={deliveredOrders}
+          onClose={closeManageAccess}
         />
       )}
 
@@ -1022,7 +1140,13 @@ function Clinics() {
  * location. A missing value reads "—". Clicking the card body opens Details,
  * as clicking a List row does; the buttons are the keyboard path.
  */
-function ClinicCard({ clinic, onDetails, onManageLocation }) {
+/** "2 Med Reps · 1 doctor", or a warning that nobody can order for this clinic yet. */
+function ReachChip({ reach }) {
+  if (!reach) return null;
+  return <span className={`clinic-reach-chip ${reach.tone}`}>{reach.text}</span>;
+}
+
+function ClinicCard({ clinic, onDetails, onManageLocation, onManageAccess, reach }) {
   const card = clinicCardFields(clinic);
   const headingId = `clinic-card-${clinic.firestoreId || clinic.id}`;
   return (
@@ -1087,7 +1211,15 @@ function ClinicCard({ clinic, onDetails, onManageLocation }) {
           >
             Manage location
           </button>
+          <button
+            type="button"
+            onClick={(e) => onManageAccess(e.currentTarget)}
+            aria-label={`Manage access for ${card.name}`}
+          >
+            Manage access
+          </button>
         </div>
+        <ReachChip reach={reach} />
       </article>
     </li>
   );
@@ -1118,6 +1250,8 @@ function locationFields(clinic) {
       clinic.locationInfo.geofenceRadiusMStored ??
         clinic.locationInfo.geofenceRadiusM
     ),
+    entranceConfirmed: clinic.entranceConfirmed === true,
+    accessNotes: clinic.accessNotes || "",
   };
 }
 
@@ -1125,6 +1259,8 @@ const LOCATION_FIELD_LABELS = {
   latitude: "Latitude",
   longitude: "Longitude",
   geofenceRadiusM: "Geofence radius",
+  entranceConfirmed: "Entrance confirmation",
+  accessNotes: "Rider access notes",
 };
 
 /**
@@ -1215,8 +1351,9 @@ function ManageLocationModal({ clinic, live, onClose, onSave }) {
     e.preventDefault();
     if (savingRef.current || blocked) return;
     const check = validateClinicLocation(draft);
-    if (!check.ok) {
-      setErrors(check.errors);
+    const entrance = validateEntranceDetails(draft);
+    if (!check.ok || !entrance.ok) {
+      setErrors({ ...check.errors, ...entrance.errors });
       return;
     }
     setErrors({});
@@ -1284,6 +1421,7 @@ function ManageLocationModal({ clinic, live, onClose, onSave }) {
           <ClinicLocationSection
             value={draft}
             onChange={patchDraft}
+            showEntrance
             errors={errors}
             disabled={saving}
             idPrefix={`manage-${clinic.firestoreId}`}
@@ -1955,6 +2093,11 @@ function NewClinicModal({
   onClose,
   onSubmit,
   saving,
+  medReps = [],
+  doctors = [],
+  access = { repUids: [], doctorIds: [] },
+  onAccessChange = () => {},
+  accessResults = null,
 }) {
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   // An edited field's message clears as the admin fixes it; the others stay.
@@ -2226,10 +2369,36 @@ function NewClinicModal({
           <ClinicLocationSection
             value={newClinic}
             onChange={(patch) => setNewClinic((prev) => ({ ...prev, ...patch }))}
+            showEntrance
             errors={errors}
             disabled={saving}
             idPrefix="new-clinic"
           />
+
+          {(() => {
+            const area = areas.find((a) => a.id === newClinic.areaId);
+            const pinned = String(newClinic.latitude ?? "").trim() !== "" && String(newClinic.longitude ?? "").trim() !== "";
+            const reason = !area
+              ? "Select the clinic's area above to link Med Reps and doctors."
+              : !pinned
+                ? "Place the clinic on the map above to link Med Reps and doctors now — or link them later with Manage access."
+                : "";
+            return (
+              <ClinicAccessFields
+                idPrefix="new-clinic-access"
+                areaId={newClinic.areaId}
+                areaName={area?.name}
+                medReps={medReps}
+                doctors={doctors}
+                repUids={access.repUids}
+                doctorIds={access.doctorIds}
+                onChange={onAccessChange}
+                disabled={saving || Boolean(reason)}
+                disabledReason={reason}
+              />
+            );
+          })()}
+          <ClinicAccessResults results={accessResults} />
         </div>
 
         {/* Deliberately OUTSIDE the scrolling body, unlike the Manage-location

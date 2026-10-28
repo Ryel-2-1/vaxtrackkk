@@ -4,6 +4,7 @@ import AdminLayout from "../../components/admin/AdminLayout";
 import KpiCard from "../../components/ui/KpiCard";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import AdminDialogLayer from "../../components/admin/AdminDialogLayer";
+import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
 import { kpiValue, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { subscribeBackorderQueue, subscribePendingReturns } from "../../services/allocationService";
 import { confirmReturnDisposition } from "../../services/inventoryCallables";
@@ -427,6 +428,7 @@ function AdminAllocation() {
                       <td className="tnum">{index + 1}</td>
                       <td>
                         <strong>{order.orderNumber || order.id}</strong>
+                        <RequestedArrivalNote order={order} />
                         <small>{order.clinicName || order.destinationName || ""}</small>
                       </td>
                       <td>{String(order.priority || "").toLowerCase() === "urgent" ? "Urgent" : "Standard"}</td>

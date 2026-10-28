@@ -1,0 +1,11 @@
+{
+  "statuses": ["pending_dispatch", "assigned", "loading"],
+  "custodyFields": [
+    "loadedAt", "loadedByUid", "loadedByEmail", "dispatchedAt", "dispatchedByUid",
+    "dispatchedByEmail", "loadingFinalizedAt", "startedAt", "firstDispatchedAt",
+    "departedAt", "departedByUid", "deliveryFailedAt", "deliveryFailedByUid", "pendingReturnId",
+    "returnDisposition", "returnResolvedAt", "requeuedAt", "deliveredAt",
+    "proofOfDeliveryUrl", "proofOfDeliveryPath", "proofSubmittedAt", "proofSubmittedByUid",
+    "invoiceUrl", "invoicePath", "invoiceSubmittedAt", "invoiceSubmittedByUid"
+  ]
+}

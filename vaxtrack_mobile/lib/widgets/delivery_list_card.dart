@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/delivery.dart';
 import '../theme/app_theme.dart';
 import 'order_number_text.dart';
+import 'requested_arrival_text.dart';
 
 /// One delivery in the Deliveries screen's Active, Completed and All tabs.
 ///
@@ -62,6 +63,8 @@ class DeliveryListCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text('${d.vaccineName} · ${d.quantity} ${d.unit}',
                         style: const TextStyle(fontSize: 11, color: AppColors.textLight)),
+                    const SizedBox(height: 4),
+                    RequestedArrivalText(delivery: d),
                     const SizedBox(height: 8),
                     _statusChip(d),
                   ],

@@ -860,22 +860,15 @@ test("idempotency", async (t) => {
     assert.equal((await order(first.orderId)).requestedDeliveryDate, DELIVERY_DATE);
   });
 
-  await t.test("a replay keeps the ORIGINAL delivery date, never a retried one", async () => {
-    // The server fingerprint covers the doctor, destination and lines. The date
-    // is not in it, so a same-key retry carrying a different date replays the
-    // original order unchanged — the stored date is never overwritten. (The
-    // checkout refuses such a retry before it is sent: its saved attempt
-    // snapshot includes the date — tests/orderDraftRequest.test.js.)
+  await t.test("a changed retry date is refused and the ORIGINAL date is untouched", async () => {
     const requestId = rid();
     const base = { requestId, doctorId: DOCTOR, doctorAddressId: CLINIC, items: [{ inventoryId: "good", quantity: 2, expectedUnitPriceCentavos: PRICE }] };
     const first = await ops.createOrderWithReservation({
       db, FieldValue, uid: SR, now: NOW, payload: { ...base, requestedDeliveryDate: "2026-09-12" },
     });
-    const retry = await ops.createOrderWithReservation({
+    await assert.rejects(ops.createOrderWithReservation({
       db, FieldValue, uid: SR, now: NOW, payload: { ...base, requestedDeliveryDate: "2026-09-20" },
-    });
-    assert.equal(retry.orderId, first.orderId);
-    assert.equal(retry.replayed, true);
+    }), (e) => e.code === "idempotency-conflict");
     assert.equal((await order(first.orderId)).requestedDeliveryDate, "2026-09-12");
   });
 
@@ -1059,8 +1052,8 @@ test("authorization", async (t) => {
     assert.equal(await codeOf(create("ghost_uid", [{ inventoryId: "good", quantity: 1, expectedUnitPriceCentavos: PRICE }])), "profile-missing");
   });
 
-  await t.test("cancellation requires an APPROVED dispatcher", async () => {
-    assert.equal(await codeOf(cancel(SR, r.orderId)), "wrong-role");
+  await t.test("post-departure cancellation still requires an APPROVED dispatcher", async () => {
+    assert.equal(await codeOf(cancel(SR, r.orderId)), "cancellation-not-eligible");
     assert.equal(await codeOf(cancel(RIDER, r.orderId)), "wrong-role");
     assert.equal(await codeOf(cancel(DISP_DISABLED, r.orderId)), "not-approved");
   });

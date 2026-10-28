@@ -166,10 +166,24 @@ test("the Dispatcher page is no longer a local fake with an editable role", () =
 });
 
 test("every role's settings page renders the same My profile", () => {
-  assert.match(read("src/pages/salesRep/SalesRepSettings.jsx"), /return <MyProfile \/>;/);
+  assert.match(read("src/pages/salesRep/SalesRepSettings.jsx"), /return <MyProfile showEmployeeId=\{false\} \/>;/);
   const admin = read("src/pages/admin/Settings.jsx");
   assert.match(admin, /onClick=\{\(\) => setActiveTab\("profile"\)\}\s*\n\s*>\s*\n\s*My Profile/);
   assert.match(admin, /activeTab === "profile" \? \(\s*\n\s*<MyProfile \/>/);
+  assert.match(read("src/pages/dispatcher/DispatcherSettings.jsx"), /return <MyProfile \/>;/);
+});
+
+test("the Med Rep page hides only the Employee ID row; Admin and Dispatcher keep it", () => {
+  const page = code("src/components/profile/MyProfile.jsx");
+  // Shown unless a page opts out — Admin and Dispatcher pass nothing.
+  assert.match(page, /export default function MyProfile\(\{ showEmployeeId = true \}\)/);
+  assert.match(page, /\{showEmployeeId && \(\s*<div>\s*<dt>Employee ID<\/dt>/);
+  // The Med Rep note names exactly what an administrator manages there.
+  assert.ok(page.includes('"Your email, role, status, and organization are managed by your administrator."'));
+  assert.ok(page.includes('"Your email, role, status, employee ID and organization are managed by your administrator."'));
+  // Display only: the stored value is still read, and never written here.
+  assert.match(page, /stored\.employeeId/);
+  assert.equal(SELF_EDITABLE_FIELDS.includes("employeeId"), false);
 });
 
 test("My profile edits only name and phone, and shows the rest read-only", () => {

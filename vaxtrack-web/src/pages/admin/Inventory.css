@@ -570,7 +570,9 @@
   gap: 10px;
 }
 
-.v2-vaccine-cell span {
+/* Only the direct package-icon wrapper is a square. Nested status badges
+   must size to their text, not inherit the icon's 36px width and height. */
+.v2-vaccine-cell > span {
   width: 36px;
   flex: 0 0 36px;
   height: 36px;
@@ -1396,12 +1398,17 @@
 
 .inventory-page .inv-tag {
   display: inline-block;
+  max-width: 100%;
   margin: 4px 6px 0 0;
   padding: 1px 8px;
   border-radius: var(--radius-pill);
   font-size: 12px;
   font-weight: 600;
   line-height: 18px;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  vertical-align: middle;
 }
 .inventory-page .inv-tag-voided {
   border: 1px solid var(--gray-300);

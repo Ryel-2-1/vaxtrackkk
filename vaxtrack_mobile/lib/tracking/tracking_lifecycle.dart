@@ -31,25 +31,38 @@ class TrackingPlan {
   /// (the server also ends it, with the precise reason).
   final bool endNavigation;
 
+  /// No active order, but the server says the trip is out or returning to
+  /// the hub: location keeps being shared, with no order and no navigation.
+  final bool returningToHub;
+
   const TrackingPlan({
     required this.mode,
     required this.activeOrderIds,
     required this.endNavigation,
+    this.returningToHub = false,
   });
 }
 
 /// Decide tracking from the rider's CURRENT orders (the live assigned-orders
-/// stream) and the order being navigated, if any.
+/// stream), the order being navigated, if any, and the SERVER-OWNED trip
+/// state (riderDispatchStates/{riderUid}.state; null when unknown or absent).
 ///
-///  * no order in [kTrackedOrderStatuses] assigned to [riderUid] → off;
-///  * navigating an order still in [kNavigableOrderStatuses] → navigating;
-///  * otherwise → tracking (and a stale navigation is ended).
+///  * an order in [kTrackedOrderStatuses] assigned to [riderUid]:
+///      navigating it while still in [kNavigableOrderStatuses] → navigating;
+///      otherwise → tracking (and a stale navigation is ended);
+///  * no such order, trip state in [kHubBoundTripStates] → returning: keep
+///    sharing, no order, no navigation (a navigation is ended). on_trip is
+///    included so that the last order finishing BEFORE the trip state settles
+///    never stops sharing in between;
+///  * otherwise (available, forming with nothing assigned, unknown) → off.
 ///
-/// Opening a screen never changes this — only assignments and statuses do.
+/// Opening a screen never changes this — only assignments, statuses and the
+/// server's trip state do. Arrival at the hub is never inferred here.
 TrackingPlan planTracking({
   required String riderUid,
   required List<TrackedOrder> orders,
   String? navigatingOrderId,
+  String? tripState,
 }) {
   final mine = orders.where((o) => o.assignedRiderId == riderUid).toList();
   final active = mine
@@ -66,8 +79,9 @@ TrackingPlan planTracking({
       }
     }
   }
+  final returning = active.isEmpty && kHubBoundTripStates.contains(tripState);
   final mode = active.isEmpty
-      ? TrackingMode.off
+      ? (returning ? TrackingMode.returning : TrackingMode.off)
       : navigationValid
           ? TrackingMode.navigating
           : TrackingMode.tracking;
@@ -75,6 +89,7 @@ TrackingPlan planTracking({
     mode: mode,
     activeOrderIds: active,
     endNavigation: navigatingOrderId != null && !navigationValid,
+    returningToHub: returning,
   );
 }
 
@@ -145,6 +160,10 @@ enum TrackingStatus {
 
   /// Sharing location while navigating one delivery.
   navigating,
+
+  /// No active delivery; the trip is returning to the hub. Location is shared
+  /// until a Dispatcher/Admin confirms the return (or the rider signs out).
+  returningToHub,
 
   /// Location could not be read (stream error); retry is possible.
   error,

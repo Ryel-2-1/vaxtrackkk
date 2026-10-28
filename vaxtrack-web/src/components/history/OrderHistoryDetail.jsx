@@ -25,6 +25,7 @@ import {
 } from "../../services/orderHistory.js";
 import { subscribeAllocationEvents, subscribeOrder } from "../../services/orderHistoryService";
 import { liveErrorKind, liveErrorMessage } from "../../services/liveDataErrors";
+import { requestedArrivalLabel, requestedArrivalOf } from "../../services/requestedArrival.js";
 
 /**
  * One order's history, in three clearly separate parts:
@@ -36,8 +37,9 @@ import { liveErrorKind, liveErrorMessage } from "../../services/liveDataErrors";
  *      where an allocation event proves them.
  *   3. Stock Allocation Timeline — the append-only ledger.
  *
- * Printing: the receipt prints on its own at normal browser size. A body class
- * scopes the print stylesheet to this action, so no other page is affected.
+ * Printing (Admin only — the Med Rep view has no Print receipt action): the
+ * receipt prints on its own at normal browser size. A body class scopes the
+ * print stylesheet to this action, so no other page is affected.
  */
 
 const DASH = "—";
@@ -64,7 +66,7 @@ function Field({ label, children }) {
   );
 }
 
-function Receipt({ receipt, events, eventsLoading }) {
+function Receipt({ receipt, events, eventsLoading, canPrint }) {
   const snapshot = confirmationSnapshot(events);
   const lines = receiptLines(receipt, snapshot);
   const reconstructed = receiptStatus(receipt) === "reconstructed";
@@ -79,7 +81,9 @@ function Receipt({ receipt, events, eventsLoading }) {
           <h2 id="ohx-receipt-title">1. Original {RECEIPT_TITLE}</h2>
           <p className="ohx-disclaimer">{RECEIPT_DISCLAIMER}</p>
         </div>
-        <button type="button" className="ohx-btn ohx-noprint" onClick={printReceipt}>Print receipt</button>
+        {canPrint && (
+          <button type="button" className="ohx-btn ohx-noprint" onClick={printReceipt}>Print receipt</button>
+        )}
       </header>
       {reconstructed && (
         <div className="ohx-banner ohx-banner-warning" role="note">
@@ -99,6 +103,8 @@ function Receipt({ receipt, events, eventsLoading }) {
         <Field label="Clinic / destination">{receipt.clinicName || receipt.destinationName}</Field>
         <Field label="Delivery address">{receipt.deliveryAddress}</Field>
         <Field label="Requested delivery">{date}</Field>
+        {/* As accepted; a receipt from before requested times reads as any time that day. */}
+        <Field label="Requested arrival">{requestedArrivalLabel(requestedArrivalOf(receipt))}</Field>
         <Field label="Priority">{receipt.priority || DASH}</Field>
       </dl>
       <div className="ohx-table-wrap">
@@ -196,6 +202,7 @@ function CurrentSummary({ order, events }) {
         <Field label="Delivery address">{order.deliveryAddress || order.clinicAddress}</Field>
         <Field label="Priority">{order.priority}</Field>
         <Field label="Requested delivery">{order.requestedDeliveryDate || "Not specified"}</Field>
+        <Field label="Requested arrival">{requestedArrivalLabel(requestedArrivalOf(order))}</Field>
       </dl>
       <div className="ohx-table-wrap">
         <table className="ohx-table">
@@ -324,7 +331,7 @@ export default function OrderHistoryDetail({ row, mode, medRepUid, onBack }) {
         <span className="ohx-ref">{order.orderNumber || order.id}</span>
       </h1>
       {orderError && <p className="ohx-error ohx-noprint" role="status">{orderError}</p>}
-      {row.receipt ? <Receipt receipt={row.receipt} events={events} eventsLoading={eventsLoading} /> : <LegacyNotice />}
+      {row.receipt ? <Receipt receipt={row.receipt} events={events} eventsLoading={eventsLoading} canPrint={mode === "admin"} /> : <LegacyNotice />}
       <CurrentSummary order={order} events={events} />
       <Timeline events={events} loading={eventsLoading} error={eventsError} />
     </div>

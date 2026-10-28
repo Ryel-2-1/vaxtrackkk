@@ -207,6 +207,18 @@
   border-radius: var(--radius-pill, 999px);
 }
 
+/* Trip label (server trip state) — neutral: it says nothing about position. */
+.ltp-trip-tag {
+  flex: none;
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gray-700);
+  background: var(--gray-100);
+  border-radius: var(--radius-pill, 999px);
+  white-space: nowrap;
+}
+
 .ltp-list {
   list-style: none;
   margin: 0;

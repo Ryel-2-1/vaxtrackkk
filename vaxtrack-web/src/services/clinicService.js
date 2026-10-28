@@ -10,7 +10,7 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "../firebase";
-import { validateClinicLocation } from "./clinicLocation";
+import { validateClinicLocation, validateEntranceDetails } from "./clinicLocation";
 import { UserMessageError } from "./userMessageError.js";
 import { logSafeError } from "./liveDataErrors.js";
 import { listenLive } from "./liveSnapshot.js";
@@ -22,8 +22,10 @@ export {
   DEFAULT_GEOFENCE_RADIUS_M,
   MAX_GEOFENCE_RADIUS_M,
   MIN_GEOFENCE_RADIUS_M,
+  MAX_ACCESS_NOTES_LENGTH,
   readClinicLocation,
   validateClinicLocation,
+  validateEntranceDetails,
 } from "./clinicLocation";
 
 /**
@@ -93,6 +95,8 @@ export async function addClinic({
   latitude,
   longitude,
   geofenceRadiusM,
+  entranceConfirmed,
+  accessNotes,
 }) {
   const stableAreaId = typeof areaId === "string" ? areaId.trim() : "";
   const areaName = typeof area === "string" ? area.trim() : "";
@@ -130,12 +134,18 @@ export async function addClinic({
       geofenceRadiusM,
     });
     if (!ok) throw new UserMessageError(formatLocationErrors(errors));
+    // A pin is only saved together with the entrance confirmation.
+    const entrance = validateEntranceDetails({ entranceConfirmed, accessNotes });
+    if (!entrance.ok) throw new UserMessageError(Object.values(entrance.errors).join(" "));
 
     clinic.latitude = value.latitude;
     clinic.longitude = value.longitude;
     clinic.geofenceRadiusM = value.geofenceRadiusM;
     clinic.locationVerified = true;
     clinic.locationUpdatedAt = serverTimestamp();
+    clinic.entranceConfirmed = true;
+    clinic.accessNotes = entrance.value.accessNotes;
+    clinic.entranceConfirmedAt = serverTimestamp();
   }
 
   return addDoc(collection(db, CLINICS), clinic);
@@ -144,7 +154,8 @@ export async function addClinic({
 /**
  * Update ONLY the location/geofence fields of an existing clinic.
  *
- * Scope is deliberately narrow. It writes exactly five keys, so name, contact,
+ * Scope is deliberately narrow. It writes only the location keys and the
+ * entrance confirmation (entranceConfirmed, accessNotes, entranceConfirmedAt), so name, contact,
  * address, area, status, delivery notes and every other field are preserved
  * untouched — editing a pin can never disturb clinic master data, inventory or
  * orders.
@@ -156,7 +167,7 @@ export async function addClinic({
  * values but the UI re-renders from the subscription.
  *
  * @param {string} clinicId Firestore document id
- * @param {{latitude: unknown, longitude: unknown, geofenceRadiusM?: unknown}} input
+ * @param {{latitude: unknown, longitude: unknown, geofenceRadiusM?: unknown, entranceConfirmed?: boolean, accessNotes?: string}} input
  * @returns {Promise<{latitude:number, longitude:number, geofenceRadiusM:number}>}
  */
 export async function updateClinicLocation(clinicId, input = {}) {
@@ -167,6 +178,8 @@ export async function updateClinicLocation(clinicId, input = {}) {
 
   const { ok, errors, value } = validateClinicLocation(input);
   if (!ok) throw new UserMessageError(formatLocationErrors(errors));
+  const entrance = validateEntranceDetails(input);
+  if (!entrance.ok) throw new UserMessageError(Object.values(entrance.errors).join(" "));
 
   const ref = doc(db, CLINICS, id);
   const snapshot = await getDoc(ref);
@@ -182,7 +195,10 @@ export async function updateClinicLocation(clinicId, input = {}) {
     geofenceRadiusM: value.geofenceRadiusM,
     locationVerified: true,
     locationUpdatedAt: serverTimestamp(),
+    entranceConfirmed: true,
+    accessNotes: entrance.value.accessNotes,
+    entranceConfirmedAt: serverTimestamp(),
   });
 
-  return value;
+  return { ...value, ...entrance.value };
 }

@@ -94,6 +94,9 @@ test("the callables are the only inventory-affecting entry points", () => {
   //                                history from its outbox marker (running the
   //                                same allocator first); never sets a status
   const NON_CALLABLE_EXPORTS = [
+    // List housekeeping only: observes physical stock, never moves it.
+    "observeInventoryVisibility",
+    "reviewInventoryVisibility",
     "recordOrderStatusEvent",
     "allocateOnInventoryWrite",
     "allocateOnOrderWrite",

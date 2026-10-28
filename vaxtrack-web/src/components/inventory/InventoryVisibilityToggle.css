@@ -1,0 +1,65 @@
+.inventory-visibility-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  min-width: 0;
+  margin: 12px 0;
+  color-scheme: light;
+  color: var(--color-text-secondary, #475569);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.inventory-visibility-control .inventory-visibility-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 24px;
+  margin: 0;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.inventory-visibility-control .inventory-visibility-toggle span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.inventory-visibility-control .inventory-visibility-toggle input[type="checkbox"] {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  /* The legacy global input minimum is !important (46px); a checkbox
+     must stay square even when page styles are loaded after this file. */
+  min-height: 16px !important;
+  min-width: 16px;
+  padding: 0;
+  margin: 0;
+  border-radius: 3px !important;
+  accent-color: var(--green-700, #15803d);
+}
+.inventory-visibility-control .inventory-visibility-toggle input:focus-visible {
+  outline: 2px solid var(--green-700, #15803d);
+  outline-offset: 3px;
+}
+.inventory-visibility-control p {
+  min-width: 0;
+  margin: 0;
+  padding-inline-start: 24px;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  overflow-wrap: anywhere;
+}
+
+/* These table cards own different gutters. Admin already has 18px of
+   card padding; Med Rep uses a padding-free card with a 16px toolbar. */
+.v2-inventory-table-card > .inventory-visibility-control {
+  margin: 0 0 12px;
+}
+.salesrep-main .inventory-v2-table-card > .inventory-visibility-control {
+  margin: 0;
+  padding: 14px 16px 0;
+}

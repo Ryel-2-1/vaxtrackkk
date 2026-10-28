@@ -147,6 +147,8 @@ function isUnconfirmedStockQuantity(quantity) {
 const MAX_REASON_LENGTH = 500; // identical to orderWorkflow.js / firestore.rules
 const DESTINATION_VERSION = 1;
 const HOME_ADDRESS_ID = "home";
+// Rider access notes for a clinic entrance (clinics.accessNotes); web mirror: src/services/clinicLocation.js.
+const MAX_ACCESS_NOTES_LENGTH = 300;
 const DEFAULT_GEOFENCE_RADIUS_M = 300;
 const MIN_GEOFENCE_RADIUS_M = 50;
 const MAX_GEOFENCE_RADIUS_M = 1000;
@@ -501,6 +503,9 @@ const ALLOWED_CREATE_KEYS = Object.freeze([
   // re-validates it (normalizeRequestedDeliveryDate); without it on the
   // allowlist the strict shape check below rejects the whole order.
   "requestedDeliveryDate",
+  // Optional requested arrival at the destination (requestedArrival.js),
+  // validated by operations.js against the requested date and the server clock.
+  "requestedArrival",
 ]);
 
 function validateDocumentId(value, message) {
@@ -744,6 +749,8 @@ function buildOrderDestinationSnapshot({
   let location;
   let clinicDocId = null;
   let clinicId = null;
+  let accessNotes = "";
+  let entranceConfirmed = false;
 
   if (type === "home") {
     if (relationship.kind !== HOME_ADDRESS_ID) {
@@ -789,6 +796,11 @@ function buildOrderDestinationSnapshot({
     location = validatedCoordinates(clinic);
     clinicDocId = stableAddressId;
     clinicId = cleanSnapshotText(clinic.clinicId) || null;
+    // How the rider reaches the confirmed entrance (Admin → Clinics → Manage
+    // location). Copied onto the order like the pin, so the rider sees what
+    // was true when the order was placed or last corrected.
+    accessNotes = cleanSnapshotText(clinic.accessNotes).slice(0, MAX_ACCESS_NOTES_LENGTH);
+    entranceConfirmed = clinic.entranceConfirmed === true;
 
     if (name.length < 2 || address.length < 5) {
       throw new PolicyError(
@@ -837,6 +849,9 @@ function buildOrderDestinationSnapshot({
     clinicGeofenceRadiusM: location.geofenceRadiusM,
     clinicLocationVerified: true,
     ...(clinicId ? { clinicId } : {}),
+    // Present only when set, so orders from clinics without them are unchanged.
+    ...(accessNotes ? { destinationAccessNotes: accessNotes } : {}),
+    ...(entranceConfirmed ? { destinationEntranceConfirmed: true } : {}),
   };
 
   return {
@@ -1167,8 +1182,18 @@ function settleBatch({ inventoryId, data, quantity, mode }) {
  * order — and a genuinely different order (other batch, other quantity, other
  * Doctor, or other destination) cannot reuse a request id.
  */
-function canonicalRequestFingerprint({ uid, doctorId, doctorAddressId, items }) {
+function canonicalRequestFingerprint({ uid, doctorId, doctorAddressId, items, schedule }) {
   const canonical = JSON.stringify({
+    // No schedule reproduces v1; arrival alone reproduces v2. New v3 keys bind
+    // BOTH date and arrival. Keep the older canonical forms byte-for-byte so
+    // requests already committed by an older server can still be recovered.
+    ...(schedule === undefined
+      ? {}
+      : { schedule: {
+        ...(Object.hasOwn(schedule, "requestedDeliveryDate")
+          ? { requestedDeliveryDate: schedule.requestedDeliveryDate } : {}),
+        requestedArrival: schedule.requestedArrival ?? null,
+      } }),
     uid,
     doctorId: doctorId ?? null,
     doctorAddressId: doctorAddressId ?? null,
@@ -1261,7 +1286,7 @@ function hasServerPricing(orderData) {
  * comparing it against the same manilaDateString the catalog uses keeps one
  * definition of "today".
  */
-function normalizeRequestedDeliveryDate(value, now) {
+function normalizeRequestedDeliveryDate(value, now, { allowPast = false } = {}) {
   if (
     value === undefined ||
     value === null ||
@@ -1279,7 +1304,10 @@ function normalizeRequestedDeliveryDate(value, now) {
       "The requested delivery date is not a valid date."
     );
   }
-  if (iso < manilaDateString(now)) {
+  // Structural validation is also used to compare a recovery request. Only an
+  // existing idempotency key can replay a past date; NEW writes repeat this
+  // check with the default, strict clock rule inside the transaction.
+  if (!allowPast && iso < manilaDateString(now)) {
     throw new PolicyError(
       "invalid-requested-date",
       "The requested delivery date cannot be in the past."
@@ -1397,6 +1425,7 @@ module.exports = {
   isUnconfirmedStockQuantity,
   MAX_REASON_LENGTH,
   DESTINATION_VERSION,
+  MAX_ACCESS_NOTES_LENGTH,
   HOME_ADDRESS_ID,
   PolicyError,
   manilaDateString,

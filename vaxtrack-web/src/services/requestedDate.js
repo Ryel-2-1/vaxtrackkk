@@ -35,7 +35,7 @@ export function isoDateOnly(value) {
  *   absent/blank -> refused ("Choose a delivery date for this order.")
  *   present      -> must be a real date, today (Manila) or later
  */
-export function validateRequestedDate(value, { today = manilaToday() } = {}) {
+export function validateRequestedDate(value, { today = manilaToday(), allowPast = false } = {}) {
   if (value === undefined || value === null || (typeof value === "string" && value.trim() === "")) {
     return { ok: false, message: "Choose a delivery date for this order." };
   }
@@ -43,7 +43,7 @@ export function validateRequestedDate(value, { today = manilaToday() } = {}) {
   if (iso === null) {
     return { ok: false, message: "Enter a valid delivery date." };
   }
-  if (iso < today) {
+  if (!allowPast && iso < today) {
     return { ok: false, message: "The requested date cannot be in the past." };
   }
   return { ok: true, value: iso };

@@ -120,7 +120,9 @@ test("the scheduler runs both passes, each isolated from the other's failure", (
   assert.match(job, /schedule: "every 5 minutes"/);
   assert.match(job, /try \{\s*const counts = await deliveryTimingOps\.evaluateDeliveryTimingRun/);
   assert.match(job, /try \{\s*const counts = await riderLocationStaleOps\.evaluateStaleLocationsRun/);
-  assert.equal((index.match(/onSchedule\(/g) || []).length, 2, "no new scheduled job");
+  assert.deepEqual([...index.matchAll(/exports\.(\w+) = onSchedule\(/g)].map((m) => m[1]).sort(),
+    ["evaluateDeliveryTiming", "purgeRiderTrackingData", "reviewInventoryVisibility"],
+    "inventory housekeeping has its own approval-gated job; operational alerts still share one job");
   // Each pass's failure is logged; the job rethrows only after BOTH have run.
   assert.match(job, /catch \(error\) \{\s*failed = error;\s*logger\.error\("delivery-timing pass failed"/);
   assert.match(job, /catch \(error\) \{\s*failed = failed \?\? error;\s*logger\.error\("stale-locations pass failed"/);

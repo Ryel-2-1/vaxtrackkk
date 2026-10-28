@@ -12,6 +12,13 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "--mode", "staging", "--port", "5176"],
       "port": 5176
+    },
+    {
+      "name": "vaxtrack-web-motorcycle-qa",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:motorcycle-qa"],
+      "port": 5191,
+      "url": "http://127.0.0.1:5191"
     }
   ]
 }

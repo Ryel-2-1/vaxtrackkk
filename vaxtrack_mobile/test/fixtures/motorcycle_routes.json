@@ -1,0 +1,32 @@
+{
+  "source": "Public-coordinate Valhalla motorcycle routes captured 2026-10-28; no business data",
+  "precision": 5,
+  "routes": [
+    {
+      "name": "single",
+      "polyline": "ssmvAgr_bVh@v@rCtEVp@P`@|@tBT\\b@v@_@AyABQCeAQcAOQGuAcAY[_@q@e@w@Ye@Sc@O[G_@GYCg@I_AMaAQ{@UaAm@{AKUuAqDy@oAi@cAc@kAU_A\\s@f@cAXg@MUS_@i@kAeAqB{AgDM_@`B[jDk@XIXKHGHKtA{AdBeBp@w@z@wA|AcCl@_AV[VQpAaATOz@s@FGj@e@rAiApC}Bb@_@\\YvC_CROPM~@w@VS`@]nA_A\\Wb@]`CoBvCaCTQ\\Uj@]z@qAJSPYDIx@{AjAcDbAyCVs@Pg@l@qB^}@nByEFIl@iAhAgBHSl@kCLq@Lo@\\cBvAiFrALNAc@xArEsA~@]VORGRIdAe@LQZQRKBAFIfAa@DCf@QrAe@JERGRIFC\\Mp@UGq@CO@MPMLKXK^KpBc@BAS_AYwA[sA_AcFWeC",
+      "pointCount": 140,
+      "first": [
+        14.32906,
+        121.08084
+      ],
+      "last": [
+        14.3129,
+        121.11102
+      ]
+    },
+    {
+      "name": "trip",
+      "polyline": "ssmvAgr_bVh@v@rCtEVp@P`@|@tBT\\b@v@_@AyABQCeAQcAOQGuAcAY[_@q@e@w@Ye@Sc@O[G_@GYCg@I_AMaAQ{@UaAm@{AKUuAqDy@oAi@cAkCBuGPa@aDCYIo@I]MYYc@Y[U_@]m@OUUa@a@{@IMSa@Ea@{Cn@c@}B{C`@a@HqEl@Ea@AG@FD`@pEm@`@IzCa@d@IhEm@|F{@|KaBfEo@dBeBp@w@z@wA|AcCl@_AV[VQpAaATOz@s@FGj@e@rAiApC}Bb@_@\\YvC_CROPM~@w@VS`@]nA_A\\Wb@]`CoBvCaCTQ\\Uj@]z@qAJSPYDIx@{AjAcDbAyCVs@Pg@l@qB^}@nByEFIl@iAhAgBHSl@kCLq@Lo@\\cBvAiFrALNAc@xArEsA~@]VORGRIdAe@LQZQRKBAFIfAa@DCf@QrAe@JERGRIFC\\Mp@UGq@CO@MPMLKXK^KpBc@BAS_AYwA[sA_AcFWeC",
+      "pointCount": 156,
+      "first": [
+        14.32906,
+        121.08084
+      ],
+      "last": [
+        14.3129,
+        121.11102
+      ]
+    }
+  ]
+}

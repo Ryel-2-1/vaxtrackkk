@@ -295,12 +295,12 @@ test("cancellation racing the Admin's return confirmation stays consistent eithe
 
 // -------------------------------------------------------------- authorization
 
-test("only an approved Dispatcher can cancel; every other caller is refused and nothing moves", async () => {
+test("only Dispatcher can cancel after departure; other roles are refused and nothing moves", async () => {
   await seed({ b1: { product: "pA", quantity: 10 } });
   const x = await create([["b1", 8]]);
   await setFields(x, { status: "in_transit", assignedRiderId: RIDER });
   for (const [uid, code] of [
-    [RIDER, "wrong-role"], [SR, "wrong-role"], [ADMIN, "wrong-role"],
+    [RIDER, "wrong-role"], [SR, "cancellation-not-eligible"], [ADMIN, "cancellation-not-eligible"],
     ["disp-pending", "not-approved"], ["disp-disabled", "not-approved"], ["nobody", "profile-missing"],
   ]) {
     assert.equal(await codeOf(cancel(x, uid)), code, uid);

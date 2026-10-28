@@ -1,8 +1,10 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
+  MONTH_LABELS,
   WEEKDAY_LABELS,
   buildMonthGrid,
   monthLabel,
+  pickerYears,
 } from "../../services/deliveryCalendar";
 import "./MonthCalendar.css";
 
@@ -25,6 +27,8 @@ import "./MonthCalendar.css";
  * @param {() => void} props.onPrevMonth
  * @param {() => void} props.onNextMonth
  * @param {() => void} [props.onCurrentMonth]     shows a "This month" button
+ * @param {(year: number, month: number) => void} [props.onJumpToMonth]
+ *        turns the heading into month and year pickers for a direct jump
  * @param {Object<string, number>} [props.urgentCounts] iso -> urgent orders;
  *        such days carry an extra marker (never colour alone — it is in the label)
  * @param {string} [props.caption]         small line under the header
@@ -41,12 +45,14 @@ function MonthCalendar({
   onPrevMonth,
   onNextMonth,
   onCurrentMonth,
+  onJumpToMonth,
   urgentCounts = {},
   caption,
   ariaLabel = "Delivery calendar",
 }) {
   const weeks = buildMonthGrid(year, month, today ? { today } : undefined);
   const heading = monthLabel(year, month);
+  const years = onJumpToMonth ? pickerYears(year, today || `${year}-01-01`) : [];
 
   return (
     <div className="mcal" role="group" aria-label={ariaLabel}>
@@ -60,7 +66,36 @@ function MonthCalendar({
           <ChevronLeft size={16} />
         </button>
         <div className="mcal-heading">
-          <strong>{heading}</strong>
+          {onJumpToMonth ? (
+            <div className="mcal-pickers">
+              <select
+                className="mcal-select"
+                aria-label="Month"
+                value={month}
+                onChange={(event) => onJumpToMonth(year, Number(event.target.value))}
+              >
+                {MONTH_LABELS.map((name, index) => (
+                  <option key={name} value={index}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="mcal-select"
+                aria-label="Year"
+                value={year}
+                onChange={(event) => onJumpToMonth(Number(event.target.value), month)}
+              >
+                {years.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <strong>{heading}</strong>
+          )}
           {caption ? <span className="mcal-caption">{caption}</span> : null}
         </div>
         <div className="mcal-head-actions">

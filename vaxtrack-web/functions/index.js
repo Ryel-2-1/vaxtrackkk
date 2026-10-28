@@ -63,6 +63,7 @@ const invoiceOperations = require("./src/invoiceOperations");
 const statusEvents = require("./src/statusEvents");
 const inventoryWorkflow = require("./src/inventoryWorkflow");
 const inventoryRemoval = require("./src/inventoryRemoval");
+const inventoryVisibilityOps = require("./src/inventoryVisibilityOps");
 const allocation = require("./src/allocation");
 const failureReturn = require("./src/failureReturn");
 const orderHistoryOutbox = require("./src/orderHistoryOutbox");
@@ -119,6 +120,7 @@ function toHttpsError(error, context) {
       "reservation-not-found": "failed-precondition",
       "reservation-already-settled": "failed-precondition",
       "invalid-status-transition": "failed-precondition",
+      "cancellation-not-eligible": "failed-precondition",
       // A Delayed delivery must be resumed (in transit) before proof/completion.
       "delivery-delayed": "failed-precondition",
       "proof-missing": "failed-precondition",
@@ -309,8 +311,11 @@ exports.rescheduleOrderDelivery = callable(
 
 exports.cancelOrderWithInventoryRelease = callable(
   "cancelOrderWithInventoryRelease",
-  ({ db, FieldValue, uid, email, data, now }) =>
-    operations.cancelOrderWithInventoryRelease({
+  ({ db, FieldValue, uid, email, data, now }) => {
+    if (Object.keys(data).some((key) => !["orderId", "reason"].includes(key))) {
+      throw new PolicyError("unknown-field", "Only the order and cancellation reason may be submitted.");
+    }
+    return operations.cancelOrderWithInventoryRelease({
       db,
       FieldValue,
       uid,
@@ -318,7 +323,8 @@ exports.cancelOrderWithInventoryRelease = callable(
       orderId: data.orderId,
       reason: data.reason,
       now,
-    })
+    });
+  }
 );
 
 // Rider preflight before evidence upload: inside the delivery geofence now?
@@ -503,6 +509,27 @@ exports.removeUnusableStock = callable(
 // order newly joins the queue — e.g. if a synchronous round lost a race.
 // Allocation is idempotent and writes nothing when there is nothing to do, so
 // its own writes re-triggering these are harmless no-ops.
+// Separate from allocation: list housekeeping must never block reservations.
+exports.observeInventoryVisibility = onDocumentWritten(
+  { document: "inventory/{inventoryId}", retry: true },
+  async (event) => inventoryVisibilityOps.observeInventoryWrite({
+    db, before: event.data?.before, after: event.data?.after, now: new Date(),
+  })
+);
+
+// NEW scheduled job: deploy separately with explicit staging approval.
+// Starts legacy clocks from observation; never invents historical depletion.
+exports.reviewInventoryVisibility = onSchedule(
+  { schedule: "every day 03:00", timeZone: "Asia/Manila", timeoutSeconds: 540, maxInstances: 1 },
+  async () => {
+    const result = await inventoryVisibilityOps.reviewInventoryVisibilityRun({
+      db, FieldPath: admin.firestore.FieldPath, now: new Date(),
+      logFailure: (detail) => logger.error("inventory visibility review deferred", detail),
+    });
+    logger.info("inventory visibility review", result);
+  }
+);
+
 exports.allocateOnInventoryWrite = onDocumentWritten(
   { document: "inventory/{inventoryId}", retry: true },
   async (event) => {

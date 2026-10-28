@@ -24,14 +24,41 @@ import {
   fetchRoute,
   formatDistance,
   formatDuration,
+  fetchTravelMatrix,
   formatEta,
   isRouteServiceConfigured,
-  optimizeTrip,
+  routeThroughStops,
 } from "../../services/routeService";
+import { DEADLINE_SLACK_MINUTES, arrivalCheck, bufferedMinutes, matrixMinutes, planTrip } from "../../services/timeAwareRouting";
+import { subscribeRoutingSettings } from "../../services/routingSettingsService";
+import { subscribeClinics } from "../../services/clinicService";
+import { clinicsById } from "../../services/destinationFreshness";
+import DestinationNotes from "../../components/dispatch/DestinationNotes";
+import { routingSettingsOf } from "../../services/routingSettings";
 import StatusBadge from "../../components/ui/StatusBadge";
+import { savedRouteDescription } from "../../services/routeMetadata.js";
+import { manilaTime } from "../../services/deliveryTiming";
+import { manilaClock, requestedArrivalLabel, requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
 
-// Computed once — whether an ORS key is configured for this build.
+/** Epoch ms of a Firestore Timestamp / Date / number, or null. */
+function millisOf(value) {
+  if (value == null) return null;
+  if (typeof value.toMillis === "function") return value.toMillis();
+  if (value instanceof Date) return value.getTime();
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+// Computed once — whether a valid motorcycle routing endpoint is configured.
 const ROUTE_CONFIGURED = isRouteServiceConfigured();
+// Geofence plans from the rider's live position, now. Re-optimize orders the
+// stops to meet requested arrival times (timeAwareRouting.planTrip, the same
+// logic as Cargo Loading's Plan trip, with the departure fixed at now) and
+// replaces the saved trip. A single route reports whether its arrival meets
+// the request — one stop has no order to choose.
+const ROUTE_TIMING_NOTICE =
+  "Plans from the rider's live position now: the arrival is checked against the requested time.";
+const TRIP_TIMING_NOTICE =
+  "Re-optimize plans from the rider's live position now, ordering stops to meet requested arrival times, and replaces the saved trip. To plan the departure from the hub, use Plan trip in Cargo Loading.";
 
 // DOM-based marker (no image assets) — Leaflet's default icon PNGs break under
 // bundlers, and a divIcon lets the marker use Meridian green via CSS.
@@ -314,6 +341,31 @@ function DispatcherGeofence() {
   // Synchronous guards: one routing request per click, however fast the clicks.
   const routeInFlight = useRef(false);
   const tripInFlight = useRef(false);
+  // Planning defaults (time at each stop, traffic buffer). Defaults until loaded
+  // or when unreadable — the hub is not needed here: Geofence plans from the
+  // rider's live position.
+  const [routing, setRouting] = useState(() => routingSettingsOf(null));
+  const [tripNotice, setTripNotice] = useState(null); // { riderId, allMet, text } | null
+  // Clinics, to tell when an order's saved pin is older than its clinic's
+  // (DestinationNotes). A failed read only hides that note.
+  const [clinicMap, setClinicMap] = useState(() => new Map());
+  useEffect(
+    () =>
+      subscribeClinics(
+        (list) => setClinicMap(clinicsById(list)),
+        (err) => logSafeError("Clinics for destination notes", err)
+      ),
+    []
+  );
+
+  useEffect(
+    () =>
+      subscribeRoutingSettings(
+        (docData) => setRouting(routingSettingsOf(docData)),
+        () => setRouting(routingSettingsOf(null))
+      ),
+    []
+  );
 
   useEffect(() => {
     const unsub = subscribeDeliveries(
@@ -408,6 +460,8 @@ function DispatcherGeofence() {
     tripError && selected && tripError.riderId === selected?.assignedRiderId
       ? tripError.message
       : "";
+  const activeTripNotice =
+    tripNotice && selected && tripNotice.riderId === selected?.assignedRiderId ? tripNotice : null;
   const canOptimize =
     !!getLatLng(selected?.lastLocation) && riderStops.length >= 2;
 
@@ -420,16 +474,47 @@ function DispatcherGeofence() {
     tripInFlight.current = true;
     setTripBusyRider(riderId);
     setTripError(null);
+    setTripNotice(null);
     try {
-      const stops = riderStops.map((s) => ({ orderId: s.order.id, latLng: s.latLng }));
-      const trip = await optimizeTrip(riderLL, stops);
-      const now = new Date();
-      await saveRiderTripRoute({
-        ...trip,
-        stops: trip.stops.map((s) => ({
-          ...s,
-          etaText: formatEta(now, s.etaSeconds),
+      // Time-aware from where the rider is NOW: motorcycle times from the live
+      // position (+ traffic buffer), the order that meets requested arrivals
+      // first, departure fixed at the current minute.
+      const points = [riderLL, ...riderStops.map((s) => s.latLng)];
+      const seconds = await fetchTravelMatrix(points);
+      const clock = manilaClock(new Date());
+      const result = planTrip({
+        stops: riderStops.map((s, i) => ({
+          id: s.order.id,
+          label: s.order.clinicName || s.order.orderNumber || "Destination",
+          matrixIndex: i + 1,
+          requestedDeliveryDate: s.order.requestedDeliveryDate,
+          requestedArrival: s.order.requestedArrival,
+          serviceMinutes: routing.serviceMinutes,
         })),
+        minutes: matrixMinutes(seconds, routing.trafficBufferPercent),
+        planDate: clock.date,
+        nowMinute: clock.minute,
+        fixedDeparture: clock.minute,
+        allowWaiting: true,
+        slackMinutes: DEADLINE_SLACK_MINUTES,
+        longWaitMinutes: routing.longWaitMinutes,
+      });
+      if (!result || !result.etas) {
+        throw new Error("No reachable visiting order for these stops.");
+      }
+      const byId = new Map(riderStops.map((s) => [s.order.id, s]));
+      const route = await routeThroughStops(
+        riderLL,
+        result.order.map((id) => ({ orderId: id, latLng: byId.get(id).latLng }))
+      );
+      await saveRiderTripRoute({ ...route, stops: result.etas });
+      const missed = result.plan.stops.filter((r) => r.outcome !== "ok").length;
+      setTripNotice({
+        riderId,
+        allMet: result.allMet,
+        text: result.allMet
+          ? "Re-planned from the rider's position: every requested arrival is met."
+          : `Re-planned from the rider's position: ${missed} requested arrival${missed === 1 ? "" : "s"} cannot be met from here — this is the order that misses by the least. Tell the clinic${missed === 1 ? "" : "s"} concerned.`,
       });
       // subscribeDeliveries refreshes the group's orders with the trip fields,
       // so the numbered markers + trip line + stop list redraw automatically.
@@ -600,9 +685,21 @@ function DispatcherGeofence() {
                       </div>
                     )}
 
+                    {hasStoredRoute && genAt && (() => {
+                      // The arrival with the traffic buffer, against the requested time.
+                      const buffered = bufferedMinutes(selected.routeDurationSeconds, routing.trafficBufferPercent);
+                      const check = buffered === null ? null : arrivalCheck(selected, new Date(genAt.getTime() + buffered * 60000));
+                      return check ? (
+                        <p className={check.met || check.early ? "geo3-live-route-sub" : "geo3-live-route-error"} role="status">
+                          {check.met ? "✓ " : check.early ? "" : "✗ "}
+                          {check.text} With a {routing.trafficBufferPercent}% traffic buffer.
+                        </p>
+                      ) : null;
+                    })()}
+
                     {hasStoredRoute && (
                       <p className="geo3-live-route-sub">
-                        Driving route via OpenRouteService
+                        {savedRouteDescription(selected)}
                         {genAt
                           ? ` · generated ${formatRelativeTime(selected.routeGeneratedAt)}`
                           : ""}
@@ -616,6 +713,12 @@ function DispatcherGeofence() {
                       </p>
                     ) : (
                       <>
+                        <p className="geo3-live-route-sub">Motorcycle routing for the below-400 cc fleet. Routes flagged as using highways, toll roads or ferries are rejected. {ROUTE_TIMING_NOTICE}</p>
+                        {hasTrip && riderStops.length >= 2 && (
+                          <p className="geo3-live-route-sub">
+                            The map shows the saved multi-stop trip. Use Re-optimize route below to refresh that trip.
+                          </p>
+                        )}
                         <button
                           type="button"
                           className="geo3-live-route-btn"
@@ -659,6 +762,7 @@ function DispatcherGeofence() {
 
                   {hasTrip && (
                     <>
+                      <p className="geo3-live-route-sub">{savedRouteDescription(selected, true)}</p>
                       <div className="geo3-live-route-metrics">
                         <div>
                           <small>Total distance</small>
@@ -691,7 +795,8 @@ function DispatcherGeofence() {
                                   s.order.orderNumber ||
                                   s.order.id}
                               </strong>
-                              <small>ETA {s.order.stopEtaText || "—"}</small>
+                              <small>Est. arrival {s.order.stopEtaText || "—"}</small>
+                              <small>Requested: {requestedArrivalLabel(requestedArrivalOf(s.order))}</small>
                             </div>
                           </li>
                         ))}
@@ -705,6 +810,7 @@ function DispatcherGeofence() {
                     </p>
                   ) : (
                     <>
+                      <p className="geo3-live-route-sub">{TRIP_TIMING_NOTICE}</p>
                       <button
                         type="button"
                         className="geo3-live-route-btn"
@@ -732,6 +838,14 @@ function DispatcherGeofence() {
                       )}
                       {activeTripError && (
                         <p className="geo3-live-route-error" role="alert">{activeTripError}</p>
+                      )}
+                      {activeTripNotice && (
+                        <p
+                          className={activeTripNotice.allMet ? "geo3-live-route-sub" : "geo3-live-route-error"}
+                          role="status"
+                        >
+                          {activeTripNotice.text}
+                        </p>
                       )}
                     </>
                   )}
@@ -826,6 +940,24 @@ function DispatcherGeofence() {
                           <span>Destination</span>
                           <strong>{selected.clinicName || "—"}</strong>
                           {selected.clinicAddress && <p>{selected.clinicAddress}</p>}
+                          <DestinationNotes order={selected} clinic={clinicMap.get(selected.clinicDocId)} />
+                        </div>
+                      </div>
+
+                      {/* Requested arrival (the Med Rep's), the arrival
+                          estimated when the trip left (frozen at dispatch), and
+                          when it actually left — three different things. */}
+                      <div className="geo3-info-row">
+                        <Clock3 size={15} />
+                        <div>
+                          <span>Requested arrival</span>
+                          <strong>{requestedScheduleLabel(selected.requestedDeliveryDate, requestedArrivalOf(selected))}</strong>
+                          {millisOf(selected.expectedArrivalAt) !== null && (
+                            <p>Estimated arrival at dispatch: {manilaTime(millisOf(selected.expectedArrivalAt))}</p>
+                          )}
+                          {millisOf(selected.dispatchedAt) !== null && (
+                            <p>Left the hub: {manilaTime(millisOf(selected.dispatchedAt))}</p>
+                          )}
                         </div>
                       </div>
 

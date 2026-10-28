@@ -42,7 +42,11 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
   final _mapController = MapController();
 
   late final List<LatLng> _route;
-  late final String? _uid;
+
+  /// Firebase Auth's current user, read each time it is needed — never cached
+  /// for the screen's lifetime. Auth is the authority on who is signed in; the
+  /// tracking controller decides whether it is attached to that rider yet.
+  String? get _uid => FirebaseAuth.instance.currentUser?.uid;
   Stream<Map<String, dynamic>?>? _serverState;
   bool _busy = false;
   bool _mapReady = false;
@@ -68,7 +72,6 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
   @override
   void initState() {
     super.initState();
-    _uid = FirebaseAuth.instance.currentUser?.uid;
     // The GENUINE stored route (dispatcher-saved), never a generated one.
     _route = compliancePolyline(d);
     final uid = _uid;
@@ -93,7 +96,8 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
   Future<void> _start() async {
     if (_busy) return;
     setState(() => _busy = true);
-    final error = await riderTracking.startNavigation(d.id);
+    // The uid at the moment of the tap (not when the screen opened).
+    final error = await riderTracking.startNavigation(d.id, authUid: _uid);
     if (!mounted) return;
     setState(() => _busy = false);
     if (error != null) {
@@ -270,6 +274,13 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
           children: [
             // Permission / location-off states, with their recovery actions.
             TrackingStatusBanner(controller: riderTracking),
+            if (_routeAvailable)
+              _note(
+                Icons.two_wheeler,
+                widget.delivery.routeDescription(
+                  trip: widget.delivery.isOnTrip && widget.delivery.tripPolyline != null,
+                ),
+              ),
             if (routeNote != null)
               _note(Icons.alt_route, 'Route not available — $routeNote, so route deviation is not monitored. Ask dispatch to generate the route.'),
             if (_navigatingThis) _statusRow(display),

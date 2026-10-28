@@ -26,6 +26,20 @@ const String kRiderLocationsCollection = 'riderLocations';
 const String kNavigationSessionsCollection = 'riderNavigationSessions';
 const String kDeviationStatesCollection = 'riderDeviationStates';
 
+/// The server-owned Rider trip state (functions/src/riderDispatch.js): the
+/// AUTHORITY on whether a Rider is out on a trip or returning to the hub.
+const String kRiderDispatchStatesCollection = 'riderDispatchStates';
+const String kTripStateOnTrip = 'on_trip';
+const String kTripStateReturning = 'returning_to_hub';
+const String kTripStateAvailable = 'available_at_hub';
+
+/// With no active order, a Rider keeps sharing location while the server
+/// says the trip is still out (on_trip — the moment between the last order
+/// finishing and the trip settling) or returning to the hub. Only an
+/// authorized return confirmation (→ available_at_hub) or sign-out stops it;
+/// arrival is never inferred from coordinates.
+const List<String> kHubBoundTripStates = ['on_trip', 'returning_to_hub'];
+
 /// riderLocations document contract.
 const int kLocationSchemaVersion = 1;
 const String kLocationSource = 'geolocator';

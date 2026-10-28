@@ -457,16 +457,16 @@ service cloud.firestore {
         'delayReason', 'delayedAt', 'deliveredAt', 'dispatchedAt',
         'dispatchedByEmail', 'dispatchedByUid', 'isLoaded', 'loadedAt',
         'loadedByEmail', 'loadedByUid', 'loadingFinalizedAt',
-        // Route + ETA (OpenRouteService) — written by the Geofence "Generate
+        // Route + ETA — written by the Geofence "Generate
         // route & ETA" action. Dispatcher-only; set at generation, not by riders.
         'routeDistanceMeters', 'routeDurationSeconds', 'routeEtaText',
-        'routeGeneratedAt', 'routePolyline', 'routeProvider',
+        'routeGeneratedAt', 'routePolyline', 'routeProvider', 'routeProfile',
         'routeDestinationRevision',
-        // Multi-stop trip optimization (OpenRouteService /optimization) — the
+        // Multi-stop motorcycle trip optimization — the
         // rider's whole-trip route + this order's place in it. Dispatcher-only;
         // set when the trip is optimized, never by riders.
         'tripId', 'tripStopCount', 'tripPolyline', 'tripDistanceMeters',
-        'tripDurationSeconds', 'tripGeneratedAt',
+        'tripDurationSeconds', 'tripGeneratedAt', 'tripRouteProvider', 'tripRouteProfile',
         'stopSequence', 'stopEtaSeconds', 'stopEtaText',
         'startedAt',
         'status', 'statusUpdatedAt', 'statusUpdatedByEmail', 'statusUpdatedByUid',
@@ -645,6 +645,9 @@ service cloud.firestore {
         'allocationVersion', 'allocationStatus', 'inventoryReconciliation',
         'reservedAt', 'reservedByUid', 'consumedAt', 'consumedByUid',
         'releasedAt', 'releasedByUid',
+        // Cancellation attribution/scope is authored by the settlement callable.
+        'cancelledByUid', 'cancelledByRole', 'cancelledFromStatus',
+        'cancellationScope', 'statusUpdatedByRole',
         // Backorder-aware allocation (functions/src/allocation.js). The lines
         // carry each item's reserved/backordered split and the price + VAT
         // snapshot; the queue fields decide who gets stock next. All computed
@@ -684,6 +687,11 @@ service cloud.firestore {
         // scheduleEvents entry. No client may author or edit any of them.
         'scheduledDeliveryTime', 'originalRequestedDeliveryDate', 'scheduleRevision',
         'scheduleUpdatedAt', 'scheduleUpdatedByUid', 'scheduleChangeReason',
+        // The Med Rep's requested arrival at the destination
+        // (functions/src/requestedArrival.js), validated and written only by
+        // createOrderWithReservation. A client — Admin included — may neither
+        // author it on a repair-created order nor restate it afterwards.
+        'requestedArrival',
         // Stamped once by the status-history trigger (functions/src/statusEvents.js)
         // from the commit time of the first move into in_transit. It is the start
         // of the true delivery duration, so no client may author or move it.
@@ -1002,6 +1010,12 @@ service cloud.firestore {
               'restoredAt', 'restoredByUid', 'restoredByEmail', 'restoreReason'];
     }
 
+    // Server observations for automatic LIST housekeeping, not manual archive.
+    function vaccineVisibilityFields() {
+      return ['inventoryVisibilityVersion', 'inventoryStockState',
+              'inventoryEmptySince', 'inventoryPositiveEvidenceAt'];
+    }
+
     // ---------------- rider assignment (workflow checkpoint 1) ----------------
     //
     // Who an order belongs to. Set only by the assignRiderToOrder callable (and
@@ -1131,7 +1145,7 @@ service cloud.firestore {
     function routeFields() {
       return [
         'routeDistanceMeters', 'routeDurationSeconds', 'routeEtaText',
-        'routeGeneratedAt', 'routePolyline', 'routeProvider',
+        'routeGeneratedAt', 'routePolyline', 'routeProvider', 'routeProfile',
         'routeDestinationRevision', 'updatedAt'
       ];
     }
@@ -1154,7 +1168,7 @@ service cloud.firestore {
     function tripFields() {
       return [
         'tripId', 'tripStopCount', 'tripPolyline', 'tripDistanceMeters',
-        'tripDurationSeconds', 'tripGeneratedAt',
+        'tripDurationSeconds', 'tripGeneratedAt', 'tripRouteProvider', 'tripRouteProfile',
         'stopSequence', 'stopEtaSeconds', 'stopEtaText',
         'routeProvider', 'updatedAt'
       ];
@@ -1610,7 +1624,15 @@ service cloud.firestore {
       // which run on the Admin SDK and are not subject to these rules.
       allow update: if clientOrderWriteIsAllowed()
         && (
-        isAdmin()
+        // Admin cancellation is a callable too. Never let an Admin erase
+        // custody or regress lifecycle first to make a handled order eligible.
+        (isAdmin() && !changedKeys().hasAny([
+          'status', 'isLoaded', 'loadedAt', 'loadedByUid', 'loadedByEmail',
+          'dispatchedAt', 'dispatchedByUid', 'dispatchedByEmail',
+          'loadingFinalizedAt', 'startedAt', 'deliveryFailedAt', 'deliveryFailedByUid',
+          'deliveredAt', 'proofOfDeliveryUrl', 'proofOfDeliveryPath', 'proofSubmittedAt', 'proofSubmittedByUid',
+          'invoiceUrl', 'invoicePath', 'invoiceSubmittedAt', 'invoiceSubmittedByUid', 'departedAt', 'departedByUid'
+        ]))
         || (
           isDispatcher()
           && changedKeys().hasOnly(dispatcherOrderFields())
@@ -1746,6 +1768,33 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ---------------- routing settings (src/services/routingSettings.js) ----------------
+    // ONE document, operationsSettings/routing: the hub every planned trip
+    // departs from, plus the planning defaults. Admin writes it; Dispatcher
+    // reads it to plan departures. Exact field set and ranges, so the planner
+    // never reads a value the Admin form could not have saved.
+    function validRoutingSettings() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['hubName', 'hubLatitude', 'hubLongitude', 'serviceMinutes',
+          'trafficBufferPercent', 'longWaitMinutes', 'updatedAt', 'updatedByUid'])
+        && d.keys().hasAll(['hubName', 'hubLatitude', 'hubLongitude', 'serviceMinutes',
+          'trafficBufferPercent', 'longWaitMinutes', 'updatedAt', 'updatedByUid'])
+        && d.hubName is string && d.hubName.size() > 0 && d.hubName.size() <= 80
+        && d.hubLatitude is number && d.hubLatitude >= -90 && d.hubLatitude <= 90
+        && d.hubLongitude is number && d.hubLongitude >= -180 && d.hubLongitude <= 180
+        && d.serviceMinutes is int && d.serviceMinutes >= 0 && d.serviceMinutes <= 120
+        && d.trafficBufferPercent is int && d.trafficBufferPercent >= 0 && d.trafficBufferPercent <= 100
+        && d.longWaitMinutes is int && d.longWaitMinutes >= 5 && d.longWaitMinutes <= 240
+        && d.updatedAt == request.time
+        && d.updatedByUid == request.auth.uid;
+    }
+    match /operationsSettings/{settingId} {
+      allow get: if isAdmin() || isDispatcher();
+      allow list: if false;
+      allow create, update: if isAdmin() && settingId == 'routing' && validRoutingSettings();
+      allow delete: if false;
+    }
+
     // ---------------- rider live tracking (functions/src/riderTracking.js) ----------------
     //
     // riderLocations/{riderUid}: ONE replaceable current-location doc per rider.
@@ -1856,13 +1905,19 @@ service cloud.firestore {
       allow read: if isApprovedUser();
       allow create: if isAdmin()
         && isProductVatClassification(request.resource.data.get('vatClassification', null))
-        && !request.resource.data.keys().hasAny(vaccineArchiveFields());
+        && !request.resource.data.keys().hasAny(vaccineArchiveFields())
+        && !request.resource.data.keys().hasAny(vaccineVisibilityFields());
       allow update: if isAdmin() && vaccineVatChangeValid()
         // Archive / restore only through setVaccineArchived (audited, server).
-        && !changedKeys().hasAny(vaccineArchiveFields());
+        && !changedKeys().hasAny(vaccineArchiveFields())
+        && !changedKeys().hasAny(vaccineVisibilityFields());
       // No hard delete: orders, batches and history reference the product.
       // A product that should no longer be ordered is ARCHIVED instead.
       allow delete: if false;
+    }
+    // Cursor for the bounded daily visibility observer: no client access.
+    match /inventoryVisibilityMaintenance/{id} {
+      allow read, write: if false;
     }
     // Admin inventory removal audit (functions/src/inventoryRemoval.js):
     // archive/restore, void, quarantine and disposal. Written only by those

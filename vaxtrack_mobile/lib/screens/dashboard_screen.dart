@@ -233,6 +233,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
             'Optimized order · $distance · $duration',
             style: const TextStyle(fontSize: 12, color: AppColors.textLight),
           ),
+          const SizedBox(height: 4),
+          Text(
+            stops.every((stop) => stop.isMotorcycleRoute(trip: true))
+                ? first.routeDescription(trip: true)
+                : 'Older or unverified trip. Ask dispatch to re-optimize it for this motorcycle fleet.',
+            style: const TextStyle(fontSize: 12, color: AppColors.textLight),
+          ),
           const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,

@@ -1,4 +1,6 @@
 import { UserMessageError } from "./userMessageError.js";
+import { EMPTY_ARRIVAL_FORM, arrivalKey, arrivalPayloadOf, normalizeArrivalForm } from "./requestedArrival.js";
+import { centavosToInputValue } from "./money.js";
 
 /**
  * The Med Rep order draft: a user-scoped cart, and the request ID + submission
@@ -17,8 +19,8 @@ import { UserMessageError } from "./userMessageError.js";
  *    cannot be verified, nothing is sent: an ID that cannot survive a refresh
  *    is exactly the defect being fixed, so there is no memory-only fallback.
  *  - A retry is allowed only when the checkout still matches the saved
- *    attempt. The server's fingerprint ignores priority, instructions and the
- *    requested date, so a changed retry would be silently replayed as the
+ *    attempt. The server's fingerprint ignores priority and instructions,
+ *    so a changed retry would be silently replayed as the
  *    ORIGINAL order; it is refused here instead, and the ID is never rotated
  *    except by the rep's explicit discard.
  *  - Confirmed success clears the cart, the ID and the snapshot together.
@@ -176,6 +178,7 @@ export function loadCartDraft(storage, uid) {
 export function saveCartDraft(storage, uid, draft) {
   const key = cartStorageKey(uid);
   const existing = parseJson(safeGet(storage, key));
+  const owned = isCartDraft(existing) && existing.ownerUid === uid ? existing : {};
   const kept =
     !(draft && "checkout" in draft) && isCartDraft(existing) && existing.ownerUid === uid
       ? normalizeCheckoutSelection(existing.checkout)
@@ -183,8 +186,84 @@ export function saveCartDraft(storage, uid, draft) {
   return persistVerified(
     storage,
     key,
-    JSON.stringify({ ...draft, ...(kept ? { checkout: kept } : {}), ownerUid: uid })
+    JSON.stringify({ ...owned, ...draft, ...(kept ? { checkout: kept } : {}), ownerUid: uid })
   );
+}
+
+/** Restore the owner's exact batch lines, not a fresh quote from the catalog. */
+export function restoreCatalogCart(storage, uid) {
+  if (!uid) return [];
+  return (loadCartDraft(storage, uid).draft?.items ?? []).map((item) => ({ ...item }));
+}
+
+/** Add by document identity; never replace an existing line's quote or metadata. */
+export function mergeCartBatch(items, product, quantity, maxQuantity) {
+  const existing = items.some((item) => item.inventoryId === product.inventoryId);
+  return existing
+    ? items.map((item) => item.inventoryId === product.inventoryId
+      ? { ...item, quantity: Math.min(item.quantity + quantity, maxQuantity) }
+      : item)
+    : [...items, { ...product, quantity: Math.min(quantity, maxQuantity) }];
+}
+
+/** Persist catalog edits before updating the screen or leaving the catalog. */
+export function saveCatalogCart(storage, uid, items) {
+  const review = loadCheckoutReview(storage, uid);
+  const ids = new Set(items.map((item) => item.inventoryId));
+  return saveCartDraft(storage, uid, {
+    items,
+    totalVials: items.reduce((sum, item) => sum + item.quantity, 0),
+    storageSlots: items.length,
+    checkoutReview: {
+      ...review,
+      negotiation: Object.fromEntries(Object.entries(review.negotiation).filter(([id]) => ids.has(id))),
+    },
+  });
+}
+
+// Editable review fields belong to the cart, never the immutable request key.
+// Preserve raw input (including incomplete/invalid text) so navigation cannot
+// silently reset a price to standard. Normal validation still runs at submit.
+function normalizeCheckoutReview(value) {
+  const negotiation = Object.fromEntries(
+    Object.entries(value?.negotiation ?? {}).filter(([id, entry]) =>
+      documentIdOrBlank(id) && entry && typeof entry === "object"
+    ).map(([id, entry]) => [id, {
+      ...(typeof entry.agreedInput === "string" ? { agreedInput: entry.agreedInput } : {}),
+      ...(typeof entry.reason === "string" ? { reason: entry.reason } : {}),
+    }])
+  );
+  return {
+    priority: value?.priority === "Urgent" ? "Urgent" : "Standard",
+    deliveryInstructions: typeof value?.deliveryInstructions === "string" ? value.deliveryInstructions : "",
+    negotiation,
+  };
+}
+
+export function loadCheckoutReview(storage, uid) {
+  const draft = parseJson(safeGet(storage, cartStorageKey(uid)));
+  return normalizeCheckoutReview(isCartDraft(draft) && draft.ownerUid === uid ? draft.checkoutReview : null);
+}
+
+/** An unresolved submission restores its agreed prices, never a new quote. */
+export function initialCheckoutReview({ attempt = null, saved = null } = {}) {
+  if (!attempt) return normalizeCheckoutReview(saved);
+  const negotiation = Object.fromEntries((attempt.items ?? []).map((item) => [item.inventoryId, {
+    agreedInput: centavosToInputValue(item.agreedUnitPriceCentavos ?? item.expectedUnitPriceCentavos),
+    reason: item.negotiationReason ?? "",
+  }]));
+  return normalizeCheckoutReview({ ...attempt, negotiation });
+}
+
+/** Never recreate a confirmed/cleared draft, or touch an outstanding attempt. */
+export function saveCheckoutReview(storage, uid, value) {
+  const key = cartStorageKey(uid);
+  const draft = parseJson(safeGet(storage, key));
+  if (!isCartDraft(draft) || draft.ownerUid !== uid) return false;
+  const review = normalizeCheckoutReview(value);
+  const ids = new Set(draft.items.map((item) => item.inventoryId));
+  review.negotiation = Object.fromEntries(Object.entries(review.negotiation).filter(([id]) => ids.has(id)));
+  return persistVerified(storage, key, JSON.stringify({ ...draft, checkoutReview: review }));
 }
 
 // ------------------------------------------- the editable checkout selection
@@ -198,7 +277,12 @@ export function saveCartDraft(storage, uid, draft) {
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_ID_LENGTH = 200;
-const EMPTY_SELECTION = Object.freeze({ doctorId: "", doctorAddressId: "", requestedDeliveryDate: "" });
+const EMPTY_SELECTION = Object.freeze({
+  doctorId: "",
+  doctorAddressId: "",
+  requestedDeliveryDate: "",
+  requestedArrival: EMPTY_ARRIVAL_FORM,
+});
 
 /**
  * A real calendar date in exact 'YYYY-MM-DD' form, else "". Compared as
@@ -237,6 +321,9 @@ export function normalizeCheckoutSelection(value) {
     doctorId,
     doctorAddressId: doctorId ? documentIdOrBlank(value.doctorAddressId) : "",
     requestedDeliveryDate: exactDateOnly(value.requestedDeliveryDate),
+    // The requested arrival as last entered (mode + its own times only);
+    // absent in drafts saved before it existed, which read as any time.
+    requestedArrival: normalizeArrivalForm(value.requestedArrival),
   };
 }
 
@@ -274,10 +361,13 @@ export function initialCheckoutSelection({ attempt = null, saved = null, planned
       doctorId: attempt.doctorId,
       doctorAddressId: attempt.doctorAddressId,
       requestedDeliveryDate: attempt.requestedDeliveryDate ?? "",
+      requestedArrival: attempt.requestedArrival ?? null,
     });
   }
   const base = normalizeCheckoutSelection(saved) ?? { ...EMPTY_SELECTION };
   const planned = exactDateOnly(plannedDate);
+  // The planner hands over a DATE only; a requested time already entered for
+  // the previous date stays as it was (a time of day, on whichever date is set).
   return planned ? { ...base, requestedDeliveryDate: planned } : base;
 }
 
@@ -318,12 +408,21 @@ export function updateCartDraftLines(storage, uid, lines) {
   const wanted = new Map();
   for (const line of lines ?? []) {
     if (line && typeof line.inventoryId === "string" && line.inventoryId) {
-      wanted.set(line.inventoryId, line.quantity);
+      wanted.set(line.inventoryId, line);
     }
   }
   const items = draft.items
     .filter((item) => wanted.has(item.inventoryId))
-    .map((item) => ({ ...item, quantity: wanted.get(item.inventoryId) }));
+    .map((item) => {
+      const line = wanted.get(item.inventoryId);
+      return {
+        ...item,
+        quantity: line.quantity,
+        ...(Object.hasOwn(line, "expectedUnitPriceCentavos")
+          ? { unitPriceCentavos: line.expectedUnitPriceCentavos } : {}),
+        ...(Object.hasOwn(line, "availableNow") ? { stock: line.availableNow } : {}),
+      };
+    });
   return persistVerified(
     storage,
     key,
@@ -340,8 +439,8 @@ export function updateCartDraftLines(storage, uid, lines) {
 
 /**
  * The canonical form of everything the rep submits — every field they can see
- * and change, including the three the server fingerprint ignores (priority,
- * instructions, requested date). Lines are sorted so order does not matter.
+ * and change, including priority and instructions (not server-fingerprinted).
+ * Lines are sorted so order does not matter.
  */
 export function canonicalSubmission(submission) {
   const items = (Array.isArray(submission?.items) ? submission.items : [])
@@ -370,6 +469,9 @@ export function canonicalSubmission(submission) {
     doctorId: String(submission?.doctorId ?? ""),
     doctorAddressId: String(submission?.doctorAddressId ?? ""),
     requestedDeliveryDate: typeof date === "string" && date.trim() !== "" ? date.trim() : null,
+    // The requested arrival as sent: the chosen mode and only its own times.
+    // An attempt saved before this existed had none, which is any time.
+    requestedArrival: arrivalPayloadOf(normalizeArrivalForm(submission?.requestedArrival ?? null)),
     priority: submission?.priority === "Urgent" ? "Urgent" : "Standard",
     deliveryInstructions:
       typeof submission?.deliveryInstructions === "string" ? submission.deliveryInstructions.trim() : "",
@@ -388,6 +490,7 @@ export function diffSubmission(saved, current) {
   if (a.doctorId !== b.doctorId) changed.push("doctor");
   if (a.doctorAddressId !== b.doctorAddressId) changed.push("destination");
   if (a.requestedDeliveryDate !== b.requestedDeliveryDate) changed.push("requested date");
+  if (arrivalKey(a.requestedArrival) !== arrivalKey(b.requestedArrival)) changed.push("requested time");
   if (a.priority !== b.priority) changed.push("priority");
   if (a.deliveryInstructions !== b.deliveryInstructions) changed.push("instructions");
 

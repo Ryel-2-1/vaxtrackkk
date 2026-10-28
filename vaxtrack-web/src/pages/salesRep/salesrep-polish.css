@@ -375,7 +375,8 @@ aside.salesrep-sidebar .salesrep-logout {
    reference block. */
 .salesrep-main .confirmation-card {
   max-width: 620px !important;
-  margin: 20px auto !important;
+  /* Centred receipt; its top meets the page gutter like every other page. */
+  margin: 0 auto var(--mr-section-gap) !important;
 }
 .salesrep-main .confirmation-hero {
   padding: 22px 24px 18px !important;
@@ -441,23 +442,31 @@ aside.salesrep-sidebar .salesrep-logout {
    dark column stretch to the flex row's full height, with a
    viewport floor via 100vh/100dvh. Desktop only — below 768px the
    sidebar is the fixed bottom nav bar, which must stay untouched. */
+/* Superseded 2026-10-27: the wrapper is now `overflow: clip`, which is NOT
+   a scroll container, so sticky works against the window again. The rail
+   stays in view while the page scrolls: one viewport tall, pinned to the
+   top. Its own content never scrolls the page; below ~350px of height the
+   rail itself scrolls so Logout is still reachable. */
 @media (min-width: 769px) {
   aside.salesrep-sidebar {
-    position: static !important;
-    height: auto !important;
-    min-height: 100vh !important;
-    min-height: 100dvh !important;
-    align-self: stretch !important;
+    position: sticky !important;
+    top: 0 !important;
+    align-self: flex-start !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    min-height: 0 !important;
+    max-height: 100dvh !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
   }
 }
 
-/* Nav takes the remaining space; logout stays pinned to the bottom.
-   (Reinforces the shell-robustness rules in §5 now that the column
-   height is driven by the flex row rather than a fixed 100vh.) */
+/* Nav takes the remaining space and scrolls inside the rail; logout stays
+   pinned to the bottom. */
 @media (min-width: 769px) {
   aside.salesrep-sidebar .salesrep-nav {
     flex: 1 1 auto !important;
-    min-height: 0 !important;
+    min-height: 84px !important;
     overflow-y: auto !important;
   }
   aside.salesrep-sidebar .salesrep-logout {
@@ -637,6 +646,104 @@ aside.salesrep-sidebar .salesrep-logout {
   outline: none;
   border-color: var(--green-600, #16a34a);
   box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
+}
+
+/* Requested delivery time (optional arrival at the destination). Same field
+   language as the date above; !important only against the global control
+   resets in styles.css (46px min-height, white input background). */
+.salesrep-page .arrival-field {
+  margin: 14px 0 0;
+  padding: 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  min-width: 0;
+}
+.salesrep-page .arrival-field legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-700, #374151);
+}
+.salesrep-page .arrival-optional {
+  font-weight: 400;
+  color: var(--gray-600);
+}
+.salesrep-page .arrival-help {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--gray-600);
+}
+.salesrep-page .arrival-mode,
+.salesrep-page .arrival-time {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gray-700, #374151);
+}
+.salesrep-page .arrival-times {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.salesrep-page .arrival-field select,
+.salesrep-page .arrival-field input[type="time"] {
+  width: 100%;
+  height: 40px;
+  min-height: 40px !important;
+  padding: 8px 10px;
+  border: 1px solid var(--gray-500);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--gray-900, #111827);
+  background: #fff !important;
+}
+.salesrep-page .arrival-field select:focus,
+.salesrep-page .arrival-field input[type="time"]:focus {
+  outline: none;
+  border-color: var(--green-600, #16a34a);
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
+}
+.salesrep-page .arrival-field [aria-invalid="true"] {
+  border-color: var(--danger-text, #b91c1c);
+}
+.salesrep-page .arrival-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--danger-text, #b91c1c);
+}
+.salesrep-page .arrival-summary {
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--green-800, #166534);
+}
+.salesrep-page .arrival-clear {
+  margin-top: 8px;
+  min-height: 32px !important;
+  padding: 4px 10px;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--gray-700, #374151);
+  font-size: 12px;
+  font-weight: 600;
+}
+.salesrep-main .place-v2-confirm-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+.salesrep-main .place-v2-confirm-schedule span {
+  color: var(--gray-600);
 }
 
 /* Checkout territory messages (Med Rep territory). */
@@ -1091,99 +1198,465 @@ aside.salesrep-sidebar .salesrep-logout {
   }
 }
 
-/* Place Order: the per-line statutory (SC/PWD) discount — its own row under
-   the price, never mixed into the negotiated price. */
-.salesrep-main .place-v2-price-discount {
-  grid-column: 1 / -1;
+/* Inventory: the vaccine column starts with the name now that the leading
+   package icon is gone. It inherited `text-align: center` from the old
+   checkbox-column rules in SalesRep.css, which centred each name by its own
+   length; align it, and its header, to the left edge instead. */
+.salesrep-main .inventory-v2-table th:first-child,
+.salesrep-main .inventory-v2-table td:first-child {
+  text-align: left !important;
+}
+
+/* Alerts › Order Details: the close (X) button. It set a white background
+   but no text colour, so the icon (stroke = currentColor) took the browser's
+   default ButtonText — white whenever the OS is in dark mode, because index.css
+   still declares `color-scheme: light dark`. White on white: an empty box.
+   An explicit colour fixes it in both schemes; the global 46px button
+   min-height is also opted out so the box is the intended 34px square. */
+.salesrep-page .alerts-v2-modal-head button {
+  min-height: 34px !important;
+  padding: 0 !important;
+  color: var(--gray-600) !important;
+  flex: 0 0 auto;
+}
+
+.salesrep-page .alerts-v2-modal-head button:hover {
+  background: var(--gray-50) !important;
+  border-color: var(--gray-300) !important;
+  color: var(--gray-900) !important;
+}
+
+.salesrep-page .alerts-v2-modal-head button:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+}
+
+/* On a short phone the dialog ran past the bottom of the screen (the
+   backdrop does not scroll), hiding Close Details. It now fits the viewport
+   and scrolls inside only when it must. */
+.salesrep-page .alerts-v2-modal {
+  max-height: calc(100dvh - 40px) !important;
+  overflow-y: auto !important;
+}
+
+/* ============================================================
+   Med Rep spacing standard (every page in the Med Rep shell)
+   - Outer gutter: the shell's --shell-gutter (clamp(16px, 2.4vw, 26px),
+     DESIGN.md "Content") on every side at every width, owned by ONE
+     wrapper, the route view. Pages add no top padding or margin of their own.
+   - --mr-header-gap: page heading block -> first section (16px).
+   - --mr-section-gap: between major sections (20px; 16px at <=768px).
+   Card padding and toolbar/control gaps stay with their components: they
+   have different jobs and are not forced to one number.
+   ============================================================ */
+.salesrep-page {
+  --mr-header-gap: 16px;
+  --mr-section-gap: 20px;
+}
+@media (max-width: 768px) {
+  .salesrep-page {
+    --mr-section-gap: 16px;
+  }
+}
+/* At >=1025px shell-chrome.css already pads the route view with the gutter
+   and zeroes <main>. Below that the legacy rules put the gutter on <main>
+   instead (24px sides, 0 on top), so page headings sat flush under the top
+   bar. Same owner at every width; #root and !important only to outrank the
+   eight legacy `.salesrep-main` padding rules. */
+@media (max-width: 1024px) {
+  #root .salesrep-main {
+    padding: 0 !important;
+  }
+  #root .salesrep-route-view {
+    padding: var(--shell-gutter) var(--shell-gutter) 32px !important;
+  }
+  /* The top bar lives in <main>; with <main> no longer padded it runs edge to
+     edge as on desktop, so its title takes the same gutter as the content. */
+  #root .salesrep-main > .m-topbar {
+    padding-left: var(--shell-gutter) !important;
+    padding-right: var(--shell-gutter) !important;
+  }
+}
+/* Settings uses the shared My Profile page, capped at 1120px for every role.
+   In the Med Rep shell it spans the same content column as the other pages
+   (its two-column grid is unchanged); Admin and Dispatcher keep the cap. */
+.salesrep-main .my-profile {
+  max-width: none;
+  gap: var(--mr-header-gap);
+}
+/* Order History (shared component): sections follow the Med Rep rhythm. */
+.salesrep-order-history .ohx,
+.salesrep-order-history .ohx-detail {
+  gap: var(--mr-section-gap);
+}
+
+/* ============================================================
+   Med Rep UI 1.1 · Inventory, Order Tracking, Order History, Alerts
+   Toolbars and contrast. Outlines and dividers move from gray-200 (or
+   the faint legacy blue) to gray-300, field boundaries to gray-500,
+   secondary text to gray-600. Status colours are untouched.
+   !important appears only where a legacy SalesRep.css rule carries it.
+   ============================================================ */
+
+/* ---- Inventory ---- */
+.salesrep-main .inventory-stock-chart-card,
+.salesrep-main .inventory-v2-summary .small-metric-card,
+.salesrep-main .inventory-v2-table-card {
+  border: 1px solid var(--gray-300) !important;
+}
+/* The toolbar, pill row and count bar are full-bleed bands with their own
+   inner padding; a generic 18px card padding (styles.css) inset them and
+   doubled the space above the search. One 16px gutter for every band. */
+.salesrep-main .inventory-v2-table-card {
+  padding: 0;
+}
+.salesrep-main .inventory-v2-toolbar {
+  padding: 14px 16px !important;
+  border-bottom: 1px solid var(--gray-300) !important;
+}
+.salesrep-main .inventory-type-tabs {
+  padding: 10px 16px !important;
+  border-bottom: 1px solid var(--gray-300) !important;
+}
+.salesrep-main .inventory-selected-bar {
+  padding: 0 16px !important;
+  border-bottom: 1px solid var(--gray-300) !important;
+}
+.salesrep-main .inventory-v2-table th {
+  border-bottom: 1px solid var(--gray-300) !important;
+}
+/* Pagination: only the current page is rendered. The header and every row
+   have one fixed height, and each cell's content is bounded to fit inside it
+   (the name clamps and opens a popover; dates, quantities and status never
+   wrap; batch IDs wrap to at most two lines). A paged result reserves the
+   header plus a full page of rows, so a short last page leaves the pager
+   where it was; one page or an empty result keeps its natural height.
+   The table is `table-layout: fixed` with a 720px minimum, so column widths
+   never depend on the rows shown. Sizes are px, like the type they hold, so
+   browser zoom scales them together. */
+.salesrep-main .inventory-v2-table-region {
+  --inv-head-h: 52px;
+  --inv-row-h: 77px;
+}
+.salesrep-main .inventory-v2-table-region.is-paged {
+  min-height: calc(var(--inv-head-h) + var(--inv-page-rows) * var(--inv-row-h));
+}
+/* Separate borders with no spacing: each border sits inside its cell's
+   border-box height, so a page is exactly header + rows × row height. */
+.salesrep-main .inventory-v2-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.salesrep-main .inventory-v2-table th {
+  box-sizing: border-box;
+  height: var(--inv-head-h);
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  line-height: 17px !important;
+}
+.salesrep-main .inventory-v2-table td {
+  box-sizing: border-box;
+  height: var(--inv-row-h);
+  padding: 14px 16px !important;
+  line-height: 18px !important;
+  border-top: 0 !important;
+  border-bottom: 1px solid var(--gray-300) !important;
+}
+.salesrep-main .inventory-v2-table th:first-child,
+.salesrep-main .inventory-v2-table td:first-child {
+  padding-left: 18px !important;
+}
+/* Column shares (SalesRep.css sets them with !important). At the 720px
+   minimum, Batch ID fits two lines of about 15 characters (it breaks after
+   hyphens first), Status its longest label ("No expiry date") on one line. */
+.salesrep-main .inventory-v2-table th:nth-child(1) { width: 27% !important; }
+.salesrep-main .inventory-v2-table th:nth-child(2) { width: 23% !important; }
+.salesrep-main .inventory-v2-table th:nth-child(3) { width: 17% !important; }
+.salesrep-main .inventory-v2-table th:nth-child(4) { width: 13% !important; }
+.salesrep-main .inventory-v2-table th:nth-child(5) { width: 20% !important; }
+/* Name cell: the name and manufacturer · type share three 16px lines, so a
+   one-line name leaves two for the rest; whatever does not fit ends in an
+   ellipsis and the popover holds the full values. */
+.salesrep-main .inventory-v2-table .stock-name {
+  display: block;
+}
+.salesrep-main .stock-name-trigger {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  width: 100%;
+  min-height: 0 !important;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  line-height: 16px;
+  text-align: left;
+  cursor: pointer;
+  transform: none !important;
+}
+/* Inline, top-aligned, one line-height: every line box is exactly 16px
+   whichever of the two sizes it holds. The break keeps the meta on its own line. */
+.salesrep-main .stock-name-trigger strong,
+.salesrep-main .stock-name-trigger small {
+  display: inline;
+  vertical-align: top;
+  line-height: 16px !important;
+}
+.salesrep-main .stock-name-trigger strong {
+  font-size: 13px !important;
+}
+.salesrep-main .stock-name-trigger strong::after {
+  content: "\A";
+  white-space: pre;
+}
+.salesrep-main .stock-name-trigger:hover strong,
+.salesrep-main .stock-name-trigger:focus-visible strong {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.salesrep-main .stock-name-trigger:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+}
+/* Expiry date: one line; the days-remaining note may take two. */
+.salesrep-main .inventory-expiry-cell strong {
+  display: block;
+  white-space: nowrap;
+}
+.salesrep-main .inventory-expiry-cell small {
+  line-height: 15px;
+}
+.salesrep-main .inventory-qty-cell {
+  white-space: nowrap;
+}
+/* Batch ID: up to two lines, breaking after hyphens first. Longer IDs are
+   abbreviated in the markup (start…end, full value for assistive technology
+   and in the details dialog); the two-line clamp only backs that up for IDs
+   of unusually wide characters. */
+.salesrep-main .inventory-v2-table .batch-chip {
+  display: -webkit-inline-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 6px !important;
+  line-height: 16px;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+.salesrep-main .inventory-v2-table .status-chip {
+  display: inline-block;
+  line-height: 15px;
+}
+/* Full name, manufacturer and type: a modal dialog in the top layer, so the
+   table's horizontal scroll container cannot clip it. The panel carries the
+   padding and fills the dialog, so a click on the dialog itself can only be
+   the backdrop. */
+.salesrep-main .stock-name-popover {
+  width: min(360px, calc(100vw - 32px));
+  max-width: none;
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-card);
+  background: #ffffff;
+  color: var(--gray-900);
+  box-shadow: 0 16px 40px -12px rgba(17, 24, 39, 0.35);
+  font-size: 13px;
+  line-height: 18px;
+  text-align: left;
+}
+.salesrep-main .stock-name-popover::backdrop {
+  background: rgba(17, 24, 39, 0.2);
+}
+.salesrep-main .stock-name-popover-panel {
+  padding: 16px;
+}
+.salesrep-main .stock-name-popover-head form {
+  margin: 0;
+}
+.salesrep-main .stock-name-popover-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.salesrep-main .stock-name-popover-head strong {
+  font-size: 15px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.salesrep-main .stock-name-popover-close {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  min-height: 32px !important;
+  padding: 0;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--gray-600);
+  transform: none !important;
+}
+.salesrep-main .stock-name-popover dl {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+}
+.salesrep-main .stock-name-popover dt {
+  color: var(--gray-600);
+  font-size: 12px;
+}
+.salesrep-main .stock-name-popover dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.salesrep-main .inventory-v2-table tbody tr:last-child td {
+  border-bottom: 0 !important;
+}
+.salesrep-main .inventory-card-head p,
+.salesrep-main .inventory-v2-table small,
+.salesrep-main .inventory-selected-bar > div {
+  color: var(--gray-600) !important;
+}
+.salesrep-main .inventory-search-box,
+.salesrep-main .inventory-v2-selects label {
+  border: 1px solid var(--gray-500) !important;
+}
+
+/* ---- Order Tracking ---- */
+/* The filter toolbar (tabs, search, status) stays in reach on a long list.
+   The window is the only scroll container and the shell top bar is not
+   fixed, so it pins at the top of the viewport, inside the list column.
+   Above 768px only: the phone layout makes the list column and <main>
+   scroll containers (overflow), and the stacked toolbar would cover a
+   third of the screen, so there it scrolls with the page. */
+.salesrep-main .tracking-v2-toolbar {
+  gap: 10px 12px !important;
+  margin: var(--mr-header-gap) 0 12px !important;
+  padding: 10px 12px !important;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-card);
+  background: #ffffff;
+}
+@media (min-width: 769px) {
+  .salesrep-main .tracking-v2-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    box-shadow: 0 6px 12px -10px rgba(17, 24, 39, 0.35);
+  }
+}
+.salesrep-main .tracking-v2-search,
+.salesrep-main .tracking-v2-status-filter select {
+  border: 1px solid var(--gray-500) !important;
+}
+/* Same height as the search beside it (the global control reset made it 46px). */
+.salesrep-main .tracking-v2-status-filter select {
+  height: 42px !important;
+  min-height: 42px !important;
+}
+.salesrep-main .tracking-v2-tabs {
+  border: 1px solid var(--gray-300) !important;
+}
+.salesrep-main .tracking-v2-table-wrap,
+.salesrep-main .tracking-v2-side {
+  border: 1px solid var(--gray-300) !important;
+}
+.salesrep-main .tracking-v2-table td {
+  border-top: 0 !important;
+  border-bottom: 1px solid var(--gray-300) !important;
+}
+.salesrep-main .tracking-v2-table th {
+  border-bottom: 1px solid var(--gray-300) !important;
+}
+.salesrep-main .tracking-v2-table small,
+.salesrep-main .tracking-v2-side small,
+.salesrep-main .tracking-v2-side p {
+  color: var(--gray-600) !important;
+}
+
+/* ---- Order History (shared component; Med Rep scope only) ---- */
+/* index.css still colours every h1/h2 with the scaffold's --text-h, which
+   is near-white (#f3f4f6) under a dark OS theme; the order title and the
+   section headings set no colour of their own and vanished on white. */
+.salesrep-order-history .ohx h1,
+.salesrep-order-history .ohx h2,
+.salesrep-order-history .ohx h3 {
+  color: var(--gray-900);
+}
+.salesrep-order-history .ohx-card,
+.salesrep-order-history .ohx-table-wrap,
+.salesrep-order-history .ohx-lookup,
+.salesrep-order-history .ohx-filters {
+  border-color: var(--gray-300);
+}
+.salesrep-order-history .ohx-table td,
+.salesrep-order-history .ohx-totals {
+  border-top-color: var(--gray-300);
+}
+/* Timeline entries: the outline only; the coloured left edge is the tone. */
+.salesrep-order-history .ohx-event {
+  border-top-color: var(--gray-300);
+  border-right-color: var(--gray-300);
+  border-bottom-color: var(--gray-300);
+}
+.salesrep-order-history .ohx-table th {
+  border-bottom: 1px solid var(--gray-300);
+}
+.salesrep-order-history .ohx-card > h2,
+.salesrep-order-history .ohx-receipt-head {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--gray-300);
+}
+.salesrep-order-history .ohx-muted,
+.salesrep-order-history .ohx-field dt,
+.salesrep-order-history .ohx-disclaimer,
+.salesrep-order-history .ohx-lookup label,
+.salesrep-order-history .ohx-filters label {
+  color: var(--gray-600);
+}
+.salesrep-order-history .ohx input,
+.salesrep-order-history .ohx select {
+  border-color: var(--gray-500);
+}
+
+/* ---- Alerts ---- */
+/* Lifecycle tabs, category chips and search on one toolbar row; it wraps
+   on narrow screens. The groups keep their own look so lifecycle and
+   category stay distinguishable. */
+.salesrep-main .alerts-v2-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 10px;
-  min-width: 0;
+  gap: 12px 24px;
+  margin: 0 0 var(--mr-section-gap);
 }
-
-.salesrep-main .place-v2-price-discount label {
-  flex: 1 1 100%;
-  color: var(--gray-900);
-  font-size: 13px;
-  font-weight: 600;
+.salesrep-main .alerts-v2-toolbar .alerts-v2-tabs,
+.salesrep-main .alerts-v2-toolbar .alerts-v2-filters {
+  margin: 0 !important;
 }
-
-.salesrep-main .place-v2-price-discount select {
-  flex: 1 1 220px;
-  min-width: 0;
-  min-height: 40px !important;
-  padding: 0 10px;
-  border: 1px solid var(--gray-300);
-  border-radius: var(--radius-control);
-  background: #ffffff !important;
-  color: var(--gray-900);
-  font: inherit;
-  font-size: 14px;
+.salesrep-main .alerts-v2-search {
+  border: 1px solid var(--gray-500) !important;
 }
-
-.salesrep-main .place-v2-price-discount select:focus-visible {
-  outline: 2px solid var(--green-600);
-  outline-offset: 1px;
+.salesrep-main .alerts-v2-card {
+  border-top-color: var(--gray-300) !important;
+  border-right-color: var(--gray-300) !important;
+  border-bottom-color: var(--gray-300) !important;
 }
-
-.salesrep-main .place-v2-price-discount .place-v2-price-input {
-  flex: 1 1 160px;
-}
-
-.salesrep-main .place-v2-discount-tag {
-  display: block;
-  margin-top: 4px;
-  color: var(--warning-text);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-
-/* Place Order: the Med Rep's eligibility attestation for a discounted line.
-   The checkbox opts out of the global 46px input reset in styles.css. */
-.salesrep-main .place-v2-eligibility {
-  flex: 1 1 100%;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: 4px 10px;
-  margin-top: 4px;
-  padding: 10px 12px;
-  border: 1px solid var(--gray-200);
-  border-radius: var(--radius-control);
-  background: var(--gray-50);
-}
-
-.salesrep-main .place-v2-eligibility input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  min-height: 18px !important;
-  margin: 1px 0 0;
-  padding: 0;
-  accent-color: var(--green-700);
-}
-
-.salesrep-main .place-v2-eligibility label {
-  flex: none;
-  color: var(--gray-900);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
-.salesrep-main .place-v2-eligibility-note,
-.salesrep-main .place-v2-eligibility .place-v2-price-error {
-  grid-column: 2;
-  margin: 0;
-}
-
-.salesrep-main .place-v2-eligibility-note {
-  color: var(--gray-600);
-  font-size: 12px;
-  line-height: 1.4;
-}
-
 
 /* Logout failure, shown beside the button on the dark sidebar (never a
    browser alert). Light text on the green surface; an icon-free sentence. */
@@ -1492,25 +1965,13 @@ aside.salesrep-sidebar .salesrep-logout-error {
    Measured at 1440 / 1280×720 / 768 / 375 px.
    ============================================================ */
 
-/* Dashboard top bar: a fixed 310px search beside the title ran 142px off a
-   phone screen. Below 640px the search takes its own line. */
+/* Top bar below 640px: the title and the bell may wrap onto two lines
+   rather than run off a phone screen. */
 @media (max-width: 640px) {
   .salesrep-page header.salesrep-topbar {
     flex-wrap: wrap !important;
     row-gap: 8px;
     height: auto !important;
-  }
-  /* Only a top bar that HAS the search gives it a line of its own; on
-     pages without it the bell stays beside the title. */
-  .salesrep-page .salesrep-topbar-right:has(.salesrep-global-search) {
-    flex: 1 1 100% !important;
-    min-width: 0 !important;
-  }
-  .salesrep-page .salesrep-topbar-right .salesrep-global-search {
-    flex: 1 1 0% !important;
-    width: auto !important;
-    min-width: 0 !important;
-    max-width: none !important;
   }
 }
 
@@ -1524,9 +1985,11 @@ aside.salesrep-sidebar .salesrep-logout-error {
 .salesrep-page .inventory-v2-summary {
   grid-template-columns: minmax(0, 1fr) !important;
 }
+/* Chart takes the width; the two KPI cards keep a compact column instead of
+   growing to a third of a wide screen (618px at 1920). */
 @media (min-width: 1101px) {
   .salesrep-page .inventory-v2-summary {
-    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) !important;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 340px) !important;
   }
 }
 .salesrep-page .inventory-v2-summary > * {

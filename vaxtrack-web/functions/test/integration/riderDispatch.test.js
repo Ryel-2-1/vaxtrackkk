@@ -96,6 +96,20 @@ async function rejects(promise, code) {
 
 // ------------------------------------------------------------------ assignment
 
+test("assignment clears motorcycle provenance together with the earlier rider's route", async () => {
+  await wipe();
+  await seedOrder("motorcycle-metadata", {
+    routeProvider: "valhalla", routeProfile: "motorcycle-no-expressways-v1",
+    tripPolyline: "earlier-trip", tripRouteProvider: "valhalla",
+    tripRouteProfile: "motorcycle-no-expressways-v1",
+  });
+  await assign("motorcycle-metadata", R1);
+  const assigned = await order("motorcycle-metadata");
+  for (const field of ["routePolyline", "routeProvider", "routeProfile", "tripPolyline", "tripRouteProvider", "tripRouteProfile"]) {
+    assert.equal(field in assigned, false, field + " cleared");
+  }
+});
+
 test("assignment starts ONE server trip; later orders join it before departure", async () => {
   await wipe();
   await seedOrder("o1");

@@ -537,6 +537,16 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
             if (d.itemSummaries.length > 1)
               _infoRow(Icons.list_alt, 'Items', d.itemSummaries.join('\n')),
             _infoRow(Icons.flag, 'Priority', d.priority),
+            _infoRow(
+              Icons.schedule,
+              'Requested arrival',
+              d.requestedArrivalLabel,
+            ),
+            const Text(
+              'Arrival at the destination, in Philippine time. '
+              'A request for planning, not a guaranteed ETA.',
+              style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+            ),
             if (d.region != null) _infoRow(Icons.map, 'Region', d.region!),
             if (d.deliveryInstructions != null)
               _infoRow(Icons.notes, 'Instructions', d.deliveryInstructions!),
@@ -547,7 +557,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
   }
 
   Widget _routeCard() {
-    // Show the live Google Map when we have anything to plot: clinic
+    // Show the OpenStreetMap view when we have anything to plot: clinic
     // coordinates and/or a rider location. Otherwise fall back to the text
     // route summary so coord-less orders still work.
     final hasRiderLoc = d.lastLocation != null;
@@ -577,6 +587,14 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
               ),
               const SizedBox(height: 12),
               if (d.hasRoute) ...[_etaCard(), const SizedBox(height: 12)],
+              if (d.routePolyline != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    d.routeDescription(),
+                    style: const TextStyle(fontSize: 12, color: AppColors.textLight),
+                  ),
+                ),
               _destinationRow(),
               if (!d.hasRoute)
                 Padding(
@@ -800,16 +818,32 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
       Container(width: 1, height: 34, color: AppColors.border);
 
   Widget _destinationRow() {
-    return Row(
+    final notes = d.destinationAccessNotes;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Icon(Icons.place, size: 16, color: AppColors.primary),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            d.clinicAddress.isNotEmpty ? d.clinicAddress : d.clinicName,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-          ),
+        Row(
+          children: [
+            const Icon(Icons.place, size: 16, color: AppColors.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                d.clinicAddress.isNotEmpty ? d.clinicAddress : d.clinicName,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
         ),
+        // Where to stop and how to get in, from the clinic's confirmed entrance.
+        if (notes != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 24, top: 4),
+            child: Text(
+              'Access: $notes',
+              key: const ValueKey('destination-access-notes'),
+              style: const TextStyle(fontSize: 12, color: AppColors.textLight),
+            ),
+          ),
       ],
     );
   }

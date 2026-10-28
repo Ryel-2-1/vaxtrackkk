@@ -10,10 +10,8 @@ import {
   LayoutDashboard,
   LogOut,
   MapPin,
-  Search,
   Settings,
   Truck,
-  X,
 } from "lucide-react";
 import { auth } from "../../firebase";
 import SidebarProfile from "../../components/shell/SidebarProfile";
@@ -28,23 +26,23 @@ import "./SalesRep.css";
  * <Outlet/> only. This is what stops the sidebar "resetting" on every click: it
  * no longer unmounts, so its scroll position holds and the active-link animation
  * plays only on the link that actually becomes active. The per-page chrome
- * (title, topbar title, whether the global search shows) comes from the route
- * table below, so pages render just their content.
+ * (title, topbar title) comes from the route table below, so pages render just
+ * their content. Each page keeps its own search; the top bar has none.
  */
 const ROUTE_META = {
-  "/sales-rep": { key: "dashboard", title: "Dashboard", showSearch: true },
-  "/sales-rep/inventory": { key: "inventory", title: "Inventory", showSearch: false },
-  "/sales-rep/request-order": { key: "request", title: "Request Order", showSearch: false },
-  "/sales-rep/place-order": { key: "request", title: "Checkout", showSearch: false },
-  "/sales-rep/order-confirmation": { key: "request", title: "Order Confirmation", showSearch: false },
-  "/sales-rep/order-tracking": { key: "tracking", title: "Order Tracking", showSearch: false },
-  "/sales-rep/order-history": { key: "history", title: "Order History", showSearch: false },
-  "/sales-rep/alerts": { key: "alerts", title: "Alerts", showSearch: false },
-  "/sales-rep/settings": { key: "settings", title: "Settings", showSearch: false },
+  "/sales-rep": { key: "dashboard", title: "Dashboard" },
+  "/sales-rep/inventory": { key: "inventory", title: "Inventory" },
+  "/sales-rep/request-order": { key: "request", title: "Request Order" },
+  "/sales-rep/place-order": { key: "request", title: "Checkout" },
+  "/sales-rep/order-confirmation": { key: "request", title: "Order Confirmation" },
+  "/sales-rep/order-tracking": { key: "tracking", title: "Order Tracking" },
+  "/sales-rep/order-history": { key: "history", title: "Order History" },
+  "/sales-rep/alerts": { key: "alerts", title: "Alerts" },
+  "/sales-rep/settings": { key: "settings", title: "Settings" },
 };
 
 function metaFor(pathname) {
-  return ROUTE_META[pathname] || { key: "dashboard", title: "Dashboard", showSearch: true };
+  return ROUTE_META[pathname] || { key: "dashboard", title: "Dashboard" };
 }
 
 function SalesRepShell() {
@@ -54,7 +52,6 @@ function SalesRepShell() {
   const active = meta.key;
 
   const notificationRef = useRef(null);
-  const [topSearch, setTopSearch] = useState("");
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [readNotifications, setReadNotifications] = useState(() => {
     try {
@@ -120,42 +117,6 @@ function SalesRepShell() {
       setLoggingOut(false);
     }
   };
-
-  const handleTopSearch = (event) => {
-    event.preventDefault();
-    const keyword = topSearch.trim();
-    if (!keyword) return;
-
-    const lowerKeyword = keyword.toLowerCase();
-    let targetRoute = "/sales-rep";
-
-    if (lowerKeyword.includes("request") || lowerKeyword.includes("approval")) {
-      targetRoute = "/sales-rep/request-order";
-    } else if (
-      lowerKeyword.includes("track") ||
-      lowerKeyword.includes("shipment") ||
-      lowerKeyword.includes("delivery") ||
-      lowerKeyword.includes("eta") ||
-      lowerKeyword.includes("order")
-    ) {
-      targetRoute = "/sales-rep/order-tracking";
-    } else if (
-      lowerKeyword.includes("vaccine") ||
-      lowerKeyword.includes("batch") ||
-      lowerKeyword.includes("sku") ||
-      lowerKeyword.includes("stock") ||
-      lowerKeyword.includes("inventory") ||
-      lowerKeyword.includes("expiry")
-    ) {
-      targetRoute = "/sales-rep/inventory";
-    } else if (lowerKeyword.includes("alert") || lowerKeyword.includes("warning")) {
-      targetRoute = "/sales-rep/alerts";
-    }
-
-    navigate(`${targetRoute}?search=${encodeURIComponent(keyword)}`);
-  };
-
-  const clearTopSearch = () => setTopSearch("");
 
   const markAllRead = () => {
     setReadNotifications(notifications.map((notification) => notification.id));
@@ -241,30 +202,6 @@ function SalesRepShell() {
           <h1 className="m-topbar-title">{meta.topbarTitle || meta.title}</h1>
 
           <div className="salesrep-topbar-right m-topbar-actions">
-            {meta.showSearch && (
-              <form
-                className="salesrep-search salesrep-global-search m-topbar-search"
-                onSubmit={handleTopSearch}
-              >
-                <Search size={15} />
-                <input
-                  value={topSearch}
-                  onChange={(event) => setTopSearch(event.target.value)}
-                  placeholder="Search orders, SKU..."
-                />
-                {topSearch && (
-                  <button
-                    type="button"
-                    className="salesrep-search-clear"
-                    onClick={clearTopSearch}
-                    aria-label="Clear search"
-                  >
-                    <X size={14} />
-                  </button>
-                )}
-              </form>
-            )}
-
             <div className="salesrep-notification-wrap" ref={notificationRef}>
               <button
                 type="button"

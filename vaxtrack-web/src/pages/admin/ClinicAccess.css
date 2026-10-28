@@ -1,0 +1,147 @@
+/* "Who can order here" (ClinicAccess.jsx): Register Clinic + Manage access. */
+.clinic-access {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--gray-200);
+}
+.clinic-access h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--gray-900);
+  font-size: 14px;
+}
+.clinic-access-help,
+.clinic-access-empty {
+  margin: 0;
+  color: var(--gray-600);
+  font-size: 12px;
+}
+.clinic-access-blocked {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--warning-border);
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 12px;
+}
+.clinic-access-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.clinic-access-group legend {
+  margin-bottom: 6px;
+  padding: 0;
+  color: var(--gray-700);
+  font-size: 12px;
+  font-weight: 600;
+}
+.clinic-access-group:disabled {
+  opacity: 0.6;
+}
+.clinic-access-group ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 6px;
+  max-height: 220px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.clinic-access-group li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+}
+.clinic-access-group input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 16px !important;
+  height: 16px !important;
+  min-height: 16px !important;
+  margin: 2px 0 0;
+  accent-color: var(--green-700);
+}
+.clinic-access-group label {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  font-size: 13px;
+  cursor: pointer;
+}
+.clinic-access-group label small {
+  color: var(--gray-600);
+  font-size: 12px;
+}
+.clinic-access-filter {
+  width: 100%;
+  min-height: 36px !important;
+  margin-bottom: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.clinic-access-warning {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--warning-border);
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 12px;
+}
+.clinic-access-warning p {
+  margin: 0;
+}
+.clinic-access-results {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+.clinic-access-results li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.clinic-access-results li.ok {
+  color: var(--success-text);
+}
+.clinic-access-results li.failed {
+  color: var(--danger-text);
+}
+.clinic-reach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.clinic-reach-chip.ok {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+.clinic-reach-chip.warn {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+@media (max-width: 640px) {
+  .clinic-access-group ul {
+    grid-template-columns: 1fr;
+  }
+}

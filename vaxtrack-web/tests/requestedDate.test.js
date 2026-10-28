@@ -78,7 +78,7 @@ test("Place Order validates the date and sends it in the callable payload", () =
     /import \{[^}]*validateRequestedDate[^}]*\} from "\.\.\/\.\.\/services\/requestedDate"/,
     "must import the validator"
   );
-  assert.match(src, /validateRequestedDate\(requestedDate\)/, "must validate before submit");
+  assert.match(src, /validateCheckoutSchedule\(\{\s*requestedDeliveryDate: requestedDate,/, "must validate before submit, including pending recovery");
   assert.match(src, /requestedDeliveryDate: requestedCheck\.value/, "must send it in the payload");
   // The input is a date picker bounded to today (Manila) or later.
   assert.match(src, /type="date"/);
@@ -87,7 +87,7 @@ test("Place Order validates the date and sends it in the callable payload", () =
   // The validation must gate the submit — it appears before setSaving(true).
   const handler = /const handleFinalizeOrder = async \(\) => \{[\s\S]*?\n {2}\};/.exec(src);
   assert.ok(handler, "the submit handler must exist");
-  const checkAt = handler[0].indexOf("validateRequestedDate(requestedDate)");
+  const checkAt = handler[0].indexOf("validateCheckoutSchedule({");
   const savingAt = handler[0].indexOf("setSaving(true)");
   assert.ok(checkAt !== -1 && savingAt > checkAt, "the date is validated before the submit proceeds");
 });
@@ -122,7 +122,7 @@ test("the requested date is surfaced in tracking and confirmation", () => {
 
 test("the Cloud Function requires, validates and always persists the date", () => {
   const policy = read("functions/src/policy.js");
-  assert.match(policy, /function normalizeRequestedDeliveryDate\(value, now\)/, "server validator exists");
+  assert.match(policy, /function normalizeRequestedDeliveryDate\(value, now, \{ allowPast = false \} = \{\}\)/, "server validator defaults to rejecting past dates");
   assert.match(policy, /normalizeRequestedDeliveryDate,/, "and is exported");
   assert.match(policy, /"requested-date-required"/, "a missing date has its own stable code");
 
@@ -133,6 +133,7 @@ test("the Cloud Function requires, validates and always persists the date", () =
     ops.indexOf("normalizeRequestedDeliveryDate(") < ops.indexOf("canonicalRequestFingerprint({"),
     "the date is checked before the request is fingerprinted"
   );
+  assert.ok(ops.indexOf("if (keySnap.exists)") < ops.indexOf("normalizeRequestedDeliveryDate(requestedDeliveryDate, now)"), "only a committed key can replay a past schedule");
   // Stored unconditionally beside the items (which now carry their reserved /
   // backordered split from initialAllocationLines(orderItems)).
   assert.match(ops, /\n\s*requestedDeliveryDate,\s*items: allocationLines,/, "callable always stores it");

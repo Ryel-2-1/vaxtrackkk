@@ -14,6 +14,8 @@ import {
   X,
 } from "lucide-react";
 import { subscribeInventory } from "../../services/inventoryService";
+import { useInventoryVisibility } from "../../components/useInventoryVisibility";
+import InventoryVisibilityToggle from "../../components/inventory/InventoryVisibilityToggle";
 import { subscribeVaccines } from "../../services/vaccineCatalogService";
 import { applyVatToCatalogProduct } from "../../services/vatClassification";
 import { formatCentavos, readPriceCentavos } from "../../services/money";
@@ -21,6 +23,9 @@ import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
 import {
   STORAGE_UNAVAILABLE_MESSAGE,
   UNAUTHENTICATED_MESSAGE,
+  mergeCartBatch,
+  restoreCatalogCart,
+  saveCatalogCart,
   saveCartDraft,
 } from "../../services/orderDraftRequest";
 import { auth } from "../../firebase";
@@ -111,6 +116,12 @@ function normalizeProduct(raw, todayIso) {
    reference time explicitly instead of reading the clock itself. */
 
 function SalesRepRequestOrder() {
+  const uid = auth.currentUser?.uid ?? null;
+  // Account changes remount all cart state; no previous user's lines leak.
+  return <RequestOrderCart key={uid ?? "signed-out"} uid={uid} />;
+}
+
+function RequestOrderCart({ uid }) {
   const navigate = useNavigate();
 
   const [catalog, setCatalog] = useState([]);
@@ -122,13 +133,27 @@ function SalesRepRequestOrder() {
   const [searchTerm, setSearchTerm] = useState("");
   const [stockFilter, setStockFilter] = useState("all");
   const [quantities, setQuantities] = useState({});
-  const [cart, setCart] = useState([]);
+  const [cart, setCart] = useState(() => restoreCatalogCart(localStorage, uid));
+  const cartRef = useRef(cart);
   // A message for the rep. Shown as a fixed status toast (never above the
   // list), so adding a vaccine cannot push the catalog down. Add confirmations
   // fade on their own; anything that needs action stays until dismissed.
   const [noticeState, setNoticeState] = useState({ text: "", transient: false });
   const notice = noticeState.text;
   const setNotice = (text, { transient = false } = {}) => setNoticeState({ text, transient });
+  const commitCart = (next) => {
+    if (!uid) {
+      setNotice(UNAUTHENTICATED_MESSAGE);
+      return false;
+    }
+    if (!saveCatalogCart(localStorage, uid, next)) {
+      setNotice(STORAGE_UNAVAILABLE_MESSAGE);
+      return false;
+    }
+    cartRef.current = next;
+    setCart(next);
+    return true;
+  };
   useEffect(() => {
     if (!noticeState.transient || !noticeState.text) return undefined;
     const timer = window.setTimeout(() => setNoticeState({ text: "", transient: false }), 6000);
@@ -150,6 +175,7 @@ function SalesRepRequestOrder() {
   // live inventory changes under it. The clock is read once here, in the data
   // callback — never in a render.
   const [rawInventory, setRawInventory] = useState([]);
+  const [showInactive, setShowInactive] = useState(false);
   const [catalogTodayIso, setCatalogTodayIso] = useState(() => manilaToday(Date.now()));
 
   useEffect(() => {
@@ -195,14 +221,16 @@ function SalesRepRequestOrder() {
   }, []);
 
   const vaccinesById = useMemo(() => new Map((vaccines || []).map((v) => [v.id, v])), [vaccines]);
+  const inactiveIds = useInventoryVisibility(vaccines, rawInventory);
   const products = useMemo(
     () =>
       catalog
         // Voided batches and archived vaccines are not new-order choices at
         // all — hidden, not shown disabled. They stay in Admin Inventory.
         .filter((product) => !product.voided && !vaccinesById.get(product.vaccineId)?.archived)
+        .filter((product) => showInactive || !inactiveIds.has(product.vaccineId))
         .map((product) => applyVatToCatalogProduct(product, vaccinesById)),
-    [catalog, vaccinesById]
+    [catalog, vaccinesById, inactiveIds, showInactive]
   );
 
   const filteredProducts = useMemo(() => {
@@ -252,7 +280,8 @@ function SalesRepRequestOrder() {
     [cart, rawById, catalogTodayIso, vaccinesById]
   );
 
-  const backorderEstimates = useMemo(() => estimateBackorders(cart, products), [cart, products]);
+  // Display-only housekeeping must never change a saved cart's stock estimate.
+  const backorderEstimates = useMemo(() => estimateBackorders(cart, catalog), [cart, catalog]);
   const cartHasBackorder = cart.some((item) => (backorderEstimates.get(item.inventoryId) || 0) > 0);
 
   const blockedCartLines = cartLines.filter((line) => !line.ok);
@@ -284,17 +313,8 @@ function SalesRepRequestOrder() {
 
     const quantity = quantities[product.inventoryId] || 1;
 
-    setCart((current) => {
-      const existing = current.find((item) => item.inventoryId === product.inventoryId);
-      if (existing) {
-        return current.map((item) =>
-          item.inventoryId === product.inventoryId
-            ? { ...item, quantity: Math.min(item.quantity + quantity, MAX_LINE_QUANTITY) }
-            : item
-        );
-      }
-      return [...current, { ...product, quantity }];
-    });
+    const next = mergeCartBatch(cartRef.current, product, quantity, MAX_LINE_QUANTITY);
+    if (!commitCart(next)) return;
 
     setNotice(
       product.backorderOnly
@@ -305,7 +325,7 @@ function SalesRepRequestOrder() {
   };
 
   const removeFromCart = (key) => {
-    setCart((current) => current.filter((item) => item.inventoryId !== key));
+    commitCart(cartRef.current.filter((item) => item.inventoryId !== key));
   };
 
   const placeOrder = () => {
@@ -401,6 +421,8 @@ function SalesRepRequestOrder() {
             </div>
           </div>
 
+          <InventoryVisibilityToggle checked={showInactive} onChange={setShowInactive}
+            count={[...inactiveIds].filter((id) => !vaccinesById.get(id)?.archived).length} />
           <div className="request-v2-tabs">
             <button
               type="button"

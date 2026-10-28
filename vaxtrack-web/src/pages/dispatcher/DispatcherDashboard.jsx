@@ -28,6 +28,7 @@ import { availableRiderCount } from "../../services/riderTracking";
 import { subscribeRiderDispatchStates } from "../../services/riderDispatchService";
 import { assignmentBlockReason } from "../../services/backorder";
 import { presentAlert } from "../../services/alertPresentation";
+import { requestedArrivalLabel, requestedArrivalOf } from "../../services/requestedArrival";
 
 function shortDate(iso) {
   const d = new Date(`${iso}T00:00:00.000Z`);
@@ -450,6 +451,8 @@ function DispatcherDashboard() {
                               {shortDate(dateMeta.iso)}
                             </span>
                           )}
+                          {/* Requested ARRIVAL at the destination that day. */}
+                          <p className="dispatcher-dash-arrival">{requestedArrivalLabel(requestedArrivalOf(order))}</p>
                         </td>
 
                         <td>
@@ -605,6 +608,7 @@ function ReadOnlyQueue({ id, kicker, title, note, orders, now }) {
                     ) : (
                       <span className="dispatcher-dash-date overdue">Invalid date</span>
                     )}
+                    <p className="dispatcher-dash-arrival">{requestedArrivalLabel(requestedArrivalOf(order))}</p>
                   </td>
                   <td>
                     <span

@@ -50,13 +50,16 @@ test("every role renders the same top bar, and it owns the page's one <h1>", () 
 });
 
 test("only working controls sit in the top bar", () => {
-  // Sales Rep and Dispatcher have a real global search and notification feed.
+  // Sales Rep and Dispatcher have a real notification feed.
   for (const role of ["salesrep", "dispatcher"]) {
     const src = shellCode(role);
     assert.match(src, /className="[^"]*\bm-topbar-actions\b/, role);
-    assert.match(src, /<form\s+className="[^"]*\bm-topbar-search\b[^"]*"\s+onSubmit=/, `${role}: search submits`);
     assert.match(src, /className=\{?[`"][^`"]*\bm-topbar-icon-btn\b/, `${role}: bell`);
   }
+  // Dispatcher keeps its global search. The Med Rep bar has none — it showed
+  // only on the Dashboard; every Med Rep page keeps its own search.
+  assert.match(shellCode("dispatcher"), /<form\s+className="[^"]*\bm-topbar-search\b[^"]*"\s+onSubmit=/, "dispatcher: search submits");
+  assert.doesNotMatch(shellCode("salesrep"), /m-topbar-search|handleTopSearch|showSearch/);
   // Admin has neither, so it gets the title alone — no decorative search/bell.
   const admin = shellCode("admin");
   assert.doesNotMatch(admin, /m-topbar-search|m-topbar-icon-btn|m-topbar-actions/);

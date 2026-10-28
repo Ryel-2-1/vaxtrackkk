@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { Archive, Download, Package, Plus, Search, X } from "lucide-react";
 import AdminLayout from "../../components/admin/AdminLayout";
 import { subscribeInventory } from "../../services/inventoryService";
+import { useInventoryVisibility } from "../../components/useInventoryVisibility";
+import InventoryVisibilityToggle from "../../components/inventory/InventoryVisibilityToggle";
 import {
   downloadInventoryWorkbook,
   EmptyInventoryExportError,
@@ -215,6 +217,8 @@ function Inventory() {
   const navigate = useNavigate();
 
   const [inventory, setInventory] = useState([]);
+  const [rawInventory, setRawInventory] = useState([]);
+  const [showInactive, setShowInactive] = useState(false);
   const [loading, setLoading] = useState(true);
   // A failed listener is its own state, never an empty inventory.
   const [loadError, setLoadError] = useState("");
@@ -288,6 +292,7 @@ function Inventory() {
       // The clock is never read during render, so normalization stays pure and
       // two renders of the same batch cannot disagree about what day it is.
       const today = manilaToday(Date.now());
+      setRawInventory(raw);
       setInventory(raw.map((item) => normalizeInventoryItem(item, today)));
       setLoadError("");
       setLoading(false);
@@ -480,6 +485,11 @@ function Inventory() {
     []
   );
   const vaccinesById = useMemo(() => new Map(vaccines.map((v) => [v.id, v])), [vaccines]);
+  const inactiveIds = useInventoryVisibility(catalogError ? null : vaccines, rawInventory);
+  const listedInventory = useMemo(
+    () => showInactive ? inventory : inventory.filter((item) => !inactiveIds.has(item.vaccineId)),
+    [inventory, showInactive, inactiveIds]
+  );
   const inventoryWithVat = useMemo(
     () =>
       inventory.map((item) => {
@@ -522,6 +532,7 @@ function Inventory() {
 
   const filteredVaccines = useMemo(() => {
     return inventoryWithVat.filter((item) => {
+      if (!showInactive && inactiveIds.has(item.vaccineId)) return false;
       const searchValue =
         `${item.name} ${item.type} ${item.batch} ${item.status}`.toLowerCase();
 
@@ -537,7 +548,7 @@ function Inventory() {
 
       return matchesSearch && matchesStatus && matchesExpiry;
     });
-  }, [inventoryWithVat, searchTerm, statusFilter, expiryFilter]);
+  }, [inventoryWithVat, searchTerm, statusFilter, expiryFilter, showInactive, inactiveIds]);
 
   /**
    * Download the currently filtered inventory as a real .xlsx workbook.
@@ -567,13 +578,13 @@ function Inventory() {
 
   // Voided batches are records of mistaken entries, not stock: they stay in the
   // table (tagged) but never count toward the stock figures and expiry cards.
-  const stockBatches = useMemo(() => inventory.filter((i) => !i.voided), [inventory]);
+  const stockBatches = useMemo(() => listedInventory.filter((i) => !i.voided), [listedInventory]);
   // Batches per vaccine product, for Manage vaccines.
   const batchCounts = useMemo(() => {
     const counts = new Map();
-    for (const i of stockBatches) if (i.vaccineId) counts.set(i.vaccineId, (counts.get(i.vaccineId) ?? 0) + 1);
+    for (const i of inventory) if (!i.voided && i.vaccineId) counts.set(i.vaccineId, (counts.get(i.vaccineId) ?? 0) + 1);
     return counts;
-  }, [stockBatches]);
+  }, [inventory]);
 
   const stockByType = useMemo(() => {
     if (stockBatches.length === 0) return [];
@@ -698,8 +709,8 @@ function Inventory() {
         <section className="v2-inventory-summary-grid">
           <KpiCard
             label="Total batches"
-            value={loading || loadError ? "—" : inventory.length}
-            context="Across all vaccine types"
+            value={loading || loadError ? "—" : listedInventory.length}
+            context={showInactive ? "Including inactive inventory" : "Excluding long-empty inventory"}
             tone="neutral"
             onClick={() => setStatusFilter("all")}
           />
@@ -756,6 +767,8 @@ function Inventory() {
         </section>
 
         <section className="v2-inventory-table-card">
+          <InventoryVisibilityToggle checked={showInactive} count={inactiveIds.size}
+            onChange={(value) => { setShowInactive(value); setCurrentPage(1); }} />
           <div className="v2-inventory-toolbar">
             <div className="v2-inventory-search">
               <Search size={15} />
@@ -881,6 +894,7 @@ function Inventory() {
                           <small>{item.type}</small>
                           {item.voided && <span className="inv-tag inv-tag-voided">Voided</span>}
                           {item.vaccineArchived && <span className="inv-tag inv-tag-archived">Vaccine archived</span>}
+                          {inactiveIds.has(item.vaccineId) && <span className="inv-tag">Inactive — long-empty stock</span>}
                         </div>
                       </div>
                     </td>

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VaxTrack motorcycle routing — local QA</title>
+  <style>
+    :root { font: 16px/1.5 system-ui, sans-serif; color: #183931; background: #f3f7f5; }
+    body { max-width: 1120px; margin: 24px auto; padding: 0 20px; }
+    h1 { margin-bottom: 6px; font-size: 27px; }
+    p { margin-top: 6px; }
+    .panel { background: white; border: 1px solid #d5e4dc; border-radius: 12px; padding: 18px; margin: 16px 0; }
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; }
+    button { border: 0; background: #176d53; color: white; padding: 12px 18px; border-radius: 7px; font: inherit; cursor: pointer; }
+    button:disabled { opacity: .55; cursor: wait; }
+    button:focus-visible { outline: 3px solid #d5a519; outline-offset: 3px; }
+    #map { height: 450px; border-radius: 8px; }
+    #status { min-height: 24px; margin: 12px 0 0; }
+    #status.error { color: #a42020; }
+    #metrics { display: flex; flex-wrap: wrap; gap: 20px; }
+    #metrics p { margin: 0; }
+    .muted { color: #50665f; font-size: 14px; }
+    a { color: #176d53; }
+    .point { padding: 3px 7px; border-radius: 20px; background: #176d53; color: white; border: 2px solid white; font-weight: bold; white-space: nowrap; }
+    @media (max-width: 600px) { #map { height: 350px; } body { margin: 12px auto; } }
+  </style>
+</head>
+<body>
+  <h1>Motorcycle routing — local QA</h1>
+  <p>Live Valhalla requests using public sample points near Biñan and Santa Rosa.</p>
+  <p class="muted">This preview uses the VaxTrack routing client. It does not read or write Firebase data.</p>
+  <section class="panel" aria-label="Routing tests">
+    <div class="actions">
+      <button id="single" type="button">Generate motorcycle route</button>
+      <button id="trip" type="button">Plan two-stop trip</button>
+    </div>
+    <p id="status" role="status" aria-live="polite">Ready. Choose a test; requests run only when you click.</p>
+  </section>
+  <section class="panel" aria-label="Sample route map">
+    <div id="map" aria-label="OpenStreetMap showing the sample points and generated route"></div>
+  </section>
+  <section class="panel" aria-label="Routing result">
+    <div id="metrics"><p>No route generated yet.</p></div>
+    <ol id="stops"></ol>
+    <p id="profile" class="muted"></p>
+  </section>
+  <p class="muted">Accepted routes must report motorcycle travel and no highway, toll-road or ferry sections. Travel times are estimates; this preview does not validate road signs or physical riding conditions.</p>
+  <p class="muted">The public demo service is shared and subject to <a href="https://valhalla.github.io/valhalla/start/introduction/" target="_blank" rel="noreferrer">fair-use limits</a>. Physical Rider-phone QA remains pending.</p>
+  <script type="module" src="./motorcycle-routing-qa.js"></script>
+</body>
+</html>

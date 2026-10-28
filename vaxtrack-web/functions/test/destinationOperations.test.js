@@ -212,3 +212,65 @@ test("request validation rejects stale revisions and inactive links without writ
   await rejects(fixture().request({ doctorAddressId: "clinic1" }), "destination-unchanged");
   await rejects(fixture().request({ reason: " " }), "reason-required");
 });
+
+// ---------------------------------------------------------------- refresh to the clinic's corrected pin
+
+test("same address is refused while the clinic's pin is unchanged, and allowed as a refresh once it moved", async () => {
+  await rejects(fixture().request({ doctorAddressId: "clinic1" }), "destination-unchanged");
+  const moved = { ...clinic, latitude: 14.5012, longitude: 120.9021, entranceConfirmed: true, accessNotes: "Side gate on Mabini St." };
+  const { docs, request, review } = fixture({}, { "clinics/clinic1": moved });
+  const proposed = await request({ doctorAddressId: "clinic1", reason: "Clinic pin moved to the entrance" });
+  const pending = docs.get("orders/order1");
+  assert.equal(pending.destinationChangeRequest.refresh, true);
+  assert.equal(docs.get(`orders/order1/destinationChangeRequests/${proposed.requestId}`).refresh, true);
+  assert.equal(pending.clinicLat, clinic.latitude, "nothing changes until the Med Rep approves");
+
+  await review("approve", proposed.requestId);
+  const approved = docs.get("orders/order1");
+  assert.equal(approved.doctorAddressId, "clinic1");
+  assert.deepEqual([approved.destinationLat, approved.destinationLng], [14.5012, 120.9021]);
+  assert.deepEqual([approved.clinicLat, approved.clinicLng], [14.5012, 120.9021]);
+  assert.equal(approved.destinationAccessNotes, "Side gate on Mabini St.");
+  assert.equal(approved.destinationEntranceConfirmed, true);
+  assert.equal(approved.destinationRevision, 1);
+  assert.equal(Object.hasOwn(approved, "routePolyline"), false, "the route made for the old pin is cleared");
+});
+
+test("a refresh request goes stale if the clinic pin is put back before approval", async () => {
+  const moved = { ...clinic, latitude: 14.5012 };
+  const { docs, request, review } = fixture({}, { "clinics/clinic1": moved });
+  const proposed = await request({ doctorAddressId: "clinic1" });
+  docs.set("clinics/clinic1", clinic);
+  await rejects(review("approve", proposed.requestId), "destination-request-stale");
+});
+
+test("rider access details alone are a refresh; a destination without them clears the order's copy", async () => {
+  const noted = { ...clinic, accessNotes: "Ring the buzzer at the pharmacy door", entranceConfirmed: true };
+  const withNotes = fixture({}, { "clinics/clinic1": noted });
+  const proposed = await withNotes.request({ doctorAddressId: "clinic1" });
+  await withNotes.review("approve", proposed.requestId);
+  assert.equal(withNotes.docs.get("orders/order1").destinationAccessNotes, "Ring the buzzer at the pharmacy door");
+
+  // Then corrected to the doctor's Home: the clinic's notes must not travel with it.
+  const order = withNotes.docs.get("orders/order1");
+  const toHome = fixture({ ...order, destinationRevision: 1 });
+  const homeRequest = await toHome.request({ expectedRevision: 1 });
+  await toHome.review("approve", homeRequest.requestId);
+  const home = toHome.docs.get("orders/order1");
+  assert.equal(Object.hasOwn(home, "destinationAccessNotes"), false);
+  assert.equal(Object.hasOwn(home, "destinationEntranceConfirmed"), false);
+});
+
+test("the order snapshot carries the clinic's access notes and entrance confirmation only when set", () => {
+  const plain = buildOrderDestinationSnapshot({ doctorId: "doctor1", doctorAddressId: "clinic1", doctor, relationship: { active: true }, clinic, area }).orderFields;
+  assert.equal(Object.hasOwn(plain, "destinationAccessNotes"), false);
+  assert.equal(Object.hasOwn(plain, "destinationEntranceConfirmed"), false);
+  const long = "x".repeat(400);
+  const noted = buildOrderDestinationSnapshot({
+    doctorId: "doctor1", doctorAddressId: "clinic1", doctor, relationship: { active: true }, area,
+    clinic: { ...clinic, accessNotes: `  Gate   on\nside ${long}`, entranceConfirmed: true },
+  }).orderFields;
+  assert.equal(noted.destinationAccessNotes.length, 300);
+  assert.match(noted.destinationAccessNotes, /^Gate on side x/);
+  assert.equal(noted.destinationEntranceConfirmed, true);
+});

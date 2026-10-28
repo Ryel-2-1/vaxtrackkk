@@ -15,13 +15,17 @@ import { useNavigate } from "react-router-dom";
 import { createOrderWithReservation } from "../../services/inventoryCallables";
 import {
   UNAUTHENTICATED_MESSAGE,
+  STORAGE_UNAVAILABLE_MESSAGE,
   discardOrderAttempt,
   initialCheckoutSelection,
+  initialCheckoutReview,
   loadCartDraft,
   loadCheckoutSelection,
+  loadCheckoutReview,
   loadPendingAttempt,
   resolveRestoredDestination,
   saveCheckoutSelection,
+  saveCheckoutReview,
   submitOrderDraft,
   updateCartDraftLines,
 } from "../../services/orderDraftRequest";
@@ -37,9 +41,6 @@ import { subscribeInventoryBatches } from "../../services/inventoryService";
 import { subscribeVaccinesByIds } from "../../services/vaccineCatalogService";
 import {
   NEGOTIATED_PRICE_LABEL,
-  STATUTORY_DISCOUNT_LABELS,
-  STATUTORY_DISCOUNT_TYPES,
-  ELIGIBILITY_ATTESTATION_TEXT,
   agreedInputFor,
   negotiatedRequestLine,
   priceReviewLine,
@@ -61,6 +62,15 @@ import {
   territoryDestinationOptions,
 } from "../../services/territory";
 import { manilaToday, validateRequestedDate } from "../../services/requestedDate";
+import { checkoutScheduleErrorMessage, validateCheckoutSchedule } from "../../services/checkoutSchedule";
+import {
+  arrivalPayloadOf,
+  normalizeArrivalForm,
+  normalizeRequestedArrival,
+  requestedArrivalLabel,
+  requestedScheduleLabel,
+} from "../../services/requestedArrival";
+import RequestedArrivalField from "../../components/schedule/RequestedArrivalField";
 import { formatCentavos, readPriceCentavos } from "../../services/money";
 import { PRODUCT_VAT_LABELS, readVatClassification } from "../../services/vatClassification";
 import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
@@ -73,9 +83,11 @@ import DialogLayer from "../../components/ui/DialogLayer";
  * step where the right next action is not obvious from the message alone.
  */
 const ORDER_FAILURE_MESSAGE =
-  "We couldn't place the order. Your cart and entries are still here — check your connection and try again.";
+  "We couldn't confirm the order. Your cart and entries are still here. Check Order Tracking before trying again.";
 
 function messageForCallableError(error) {
+  const scheduleMessage = checkoutScheduleErrorMessage(error?.code);
+  if (scheduleMessage) return scheduleMessage;
   switch (error?.code) {
     case "insufficient-stock": {
       const info = error.info;
@@ -208,6 +220,10 @@ function SalesRepPlaceOrder() {
     uid ? loadPendingAttempt(localStorage, uid) : null
   );
   const restored = pendingAttempt?.submission ?? null;
+  const [initialReview] = useState(() => initialCheckoutReview({
+    attempt: restored,
+    saved: uid ? loadCheckoutReview(localStorage, uid) : null,
+  }));
 
   /**
    * What checkout reopens with: a pending attempt's snapshot, else the rep's
@@ -287,74 +303,52 @@ function SalesRepPlaceOrder() {
   // with no entry is at its standard price. Nothing here is a total: every
   // figure is derived from quantity × unit price in integer centavos, and the
   // server recomputes all of it from the batch it re-reads.
-  const [negotiation, setNegotiation] = useState({});
+  const [negotiation, setNegotiation] = useState(initialReview.negotiation);
   const reviewLines = useMemo(() => {
     const batchById = new Map((liveStock.batches || []).map((b) => [b.id, b]));
     return displayItems.map((item) => {
       const vaccine = catalog.byId.get(batchById.get(item.inventoryId)?.vaccineId);
       const vatClassification = readVatClassification(vaccine?.vatClassification) ?? item.vatClassification ?? null;
-      const entry = negotiation[item.sku] || {};
+      const entry = negotiation[item.inventoryId] || {};
       return {
         item,
         catalogSku: typeof vaccine?.internalSku === "string" && vaccine.internalSku.trim() ? vaccine.internalSku.trim() : null,
         vatClassification,
         agreedText: entry.agreedInput ?? agreedInputFor(item.expectedUnitPriceCentavos),
         reasonText: entry.reason ?? "",
-        discountType: entry.discountType ?? "",
-        discountText: entry.discountInput ?? "",
-        eligibilityConfirmed: entry.eligibilityConfirmed === true,
+        // No SC/PWD discount is entered at checkout, so none is passed: the
+        // line is reviewed — and sent — at its agreed price with no discount.
         price: priceReviewLine({
           quantity: item.quantity,
           expectedUnitPriceCentavos: item.expectedUnitPriceCentavos,
           vatClassification,
           agreedInput: entry.agreedInput,
           negotiationReason: entry.reason ?? "",
-          discountType: entry.discountType ?? "",
-          discountInput: entry.discountInput ?? "",
-          eligibilityConfirmed: entry.eligibilityConfirmed === true,
         }),
       };
     });
   }, [displayItems, liveStock, catalog, negotiation]);
   const priceSummary = summarizeReviewVat(reviewLines.map((l) => l.price));
   const pricingCheck = reviewProblems(reviewLines.map((l) => l.price));
-  const reviewBySku = new Map(reviewLines.map((l) => [l.item.sku, l]));
-  const setAgreedInput = (sku, agreedInput) =>
-    setNegotiation((current) => ({ ...current, [sku]: { ...current[sku], agreedInput } }));
-  const setNegotiationReason = (sku, reason) =>
-    setNegotiation((current) => ({ ...current, [sku]: { ...current[sku], reason } }));
-  // The line's statutory (SC/PWD) discount — its own, entered separately.
-  // Choosing "No discount" clears the amount too. Any change of category
-  // clears the eligibility attestation: it was given for the old category.
-  const setDiscountType = (sku, discountType) =>
-    setNegotiation((current) => ({
-      ...current,
-      [sku]: {
-        ...current[sku],
-        discountType,
-        eligibilityConfirmed: false,
-        ...(discountType ? {} : { discountInput: "" }),
-      },
-    }));
-  const setEligibilityConfirmed = (sku, eligibilityConfirmed) =>
-    setNegotiation((current) => ({ ...current, [sku]: { ...current[sku], eligibilityConfirmed } }));
-  const setDiscountInput = (sku, discountInput) =>
-    setNegotiation((current) => ({ ...current, [sku]: { ...current[sku], discountInput } }));
+  const reviewByBatch = new Map(reviewLines.map((l) => [l.item.inventoryId, l]));
+  const setAgreedInput = (inventoryId, agreedInput) =>
+    setNegotiation((current) => ({ ...current, [inventoryId]: { ...current[inventoryId], agreedInput } }));
+  const setNegotiationReason = (inventoryId, reason) =>
+    setNegotiation((current) => ({ ...current, [inventoryId]: { ...current[inventoryId], reason } }));
   // Reset to standard price: the PRICE follows the standard again and its
-  // reason is dropped. A statutory discount on the line is a separate entry
-  // and is kept.
-  const resetToStandard = (sku) =>
+  // reason is dropped.
+  const resetToStandard = (inventoryId) =>
     setNegotiation((current) => {
-      const rest = { ...(current[sku] || {}) };
+      const rest = { ...(current[inventoryId] || {}) };
       delete rest.agreedInput;
       delete rest.reason;
-      return { ...current, [sku]: rest };
+      return { ...current, [inventoryId]: rest };
     });
-  // A removed line takes its price, reason and discount with it.
-  const clearLinePricing = (sku) =>
+  // A removed line takes its price and reason with it.
+  const clearLinePricing = (inventoryId) =>
     setNegotiation((current) => {
       const next = { ...current };
-      delete next[sku];
+      delete next[inventoryId];
       return next;
     });
   /** The reconfirmation dialog is open. Nothing is sent until it is confirmed. */
@@ -399,10 +393,34 @@ function SalesRepPlaceOrder() {
     destinationLoadErrors.clinics || destinationLoadErrors.doctors || destinationLoadErrors.addresses || "";
   const setSourceError = (source, message) =>
     setDestinationLoadErrors((prev) => (prev[source] === message ? prev : { ...prev, [source]: message }));
-  const [instructions, setInstructions] = useState(restored?.deliveryInstructions ?? "");
+  const [instructions, setInstructions] = useState(initialReview.deliveryInstructions);
   // Exact 'YYYY-MM-DD' text, never parsed into a Date, so it cannot shift.
   const [requestedDate, setRequestedDate] = useState(initialCheckout.requestedDeliveryDate);
-  const [urgent, setUrgent] = useState(restored?.priority === "Urgent");
+  // Optional requested ARRIVAL at the destination on that date (mode + only
+  // the times it needs). Restored like the date: from a pending attempt's
+  // snapshot, else the saved draft; any time within the day otherwise.
+  const [arrival, setArrival] = useState(() => normalizeArrivalForm(initialCheckout.requestedArrival));
+  // Set by Finalize when the arrival is refused (incomplete, reversed, passed…);
+  // cleared by the next edit.
+  const [arrivalError, setArrivalError] = useState(null);
+  const handleArrivalChange = (next) => {
+    setArrival(next);
+    setArrivalError(null);
+  };
+  // Shape problems are shown as soon as both times exist (a reversed or equal
+  // window); a missing time is reported only when the rep tries to continue.
+  // "Already passed" needs the clock and is checked at Finalize.
+  const arrivalShape = normalizeRequestedArrival(arrivalPayloadOf(arrival), { requestedDeliveryDate: null });
+  const shownArrivalError = arrivalError ?? (arrivalShape.ok || arrivalShape.incomplete ? null : arrivalShape);
+  const arrivalSummary = arrivalShape.ok ? `Requested: ${requestedArrivalLabel(arrivalShape.value)}` : "";
+  const [urgent, setUrgent] = useState(initialReview.priority === "Urgent");
+  useEffect(() => {
+    if (uid) saveCheckoutReview(localStorage, uid, {
+      priority: urgent ? "Urgent" : "Standard",
+      deliveryInstructions: instructions,
+      negotiation,
+    });
+  }, [uid, urgent, instructions, negotiation]);
   const [message, setMessage] = useState(
     pendingAttempt
       ? "An earlier attempt of this order may already have been placed. Its details were restored — finalize again unchanged to safely recover it, or check Order Tracking."
@@ -575,8 +593,35 @@ function SalesRepPlaceOrder() {
       doctorId: doctorSelectValue,
       doctorAddressId: draftDestinationId,
       requestedDeliveryDate: requestedDate,
+      requestedArrival: arrival,
     });
-  }, [uid, doctorSelectValue, draftDestinationId, requestedDate]);
+  }, [uid, doctorSelectValue, draftDestinationId, requestedDate, arrival]);
+
+  // Flush every edited field before leaving. Failure keeps checkout open;
+  // navigation never discards/rotates an unresolved submission's request id.
+  const handleAddMoreItems = () => {
+    if (!uid) {
+      setMessage(UNAUTHENTICATED_MESSAGE);
+      return;
+    }
+    const saved = updateCartDraftLines(localStorage, uid, items)
+      && saveCheckoutSelection(localStorage, uid, {
+        doctorId: doctorSelectValue,
+        doctorAddressId: draftDestinationId,
+        requestedDeliveryDate: requestedDate,
+        requestedArrival: arrival,
+      })
+      && saveCheckoutReview(localStorage, uid, {
+        priority: urgent ? "Urgent" : "Standard",
+        deliveryInstructions: instructions,
+        negotiation,
+      });
+    if (!saved) {
+      setMessage(STORAGE_UNAVAILABLE_MESSAGE);
+      return;
+    }
+    navigate("/sales-rep/request-order");
+  };
 
   const filteredItems = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -596,10 +641,10 @@ function SalesRepPlaceOrder() {
   );
 
 
-  const handleQuantityChange = (sku, action) => {
+  const handleQuantityChange = (inventoryId, action) => {
     setItems((current) =>
       current.map((item) => {
-        if (item.sku !== sku) return item;
+        if (item.inventoryId !== inventoryId) return item;
         const nextQuantity =
           action === "increase" ? item.quantity + 1 : Math.max(item.quantity - 1, 1);
         return { ...item, quantity: nextQuantity };
@@ -607,9 +652,9 @@ function SalesRepPlaceOrder() {
     );
   };
 
-  const handleRemoveItem = (sku) => {
-    setItems((current) => current.filter((item) => item.sku !== sku));
-    clearLinePricing(sku);
+  const handleRemoveItem = (inventoryId) => {
+    setItems((current) => current.filter((item) => item.inventoryId !== inventoryId));
+    clearLinePricing(inventoryId);
   };
 
   // Discarding a pending attempt is the ONLY way its request id is ever
@@ -731,13 +776,27 @@ function SalesRepPlaceOrder() {
       return;
     }
 
-    // Optional booking date. Blank is fine; a present date must be valid and not
-    // in the past. The server re-validates, but checking here tells the rep at
-    // once rather than after a round trip.
-    const requestedCheck = validateRequestedDate(requestedDate);
+    // New requests need a future-valid schedule. A durable earlier attempt
+    // must be recoverable even after its time/day passes. submitOrderDraft
+    // still refuses changed contents, and the server re-checks NEW keys.
+    const recovering = Boolean(uid && loadPendingAttempt(localStorage, uid));
+    const { date: requestedCheck, arrival: arrivalCheck } = validateCheckoutSchedule({
+      requestedDeliveryDate: requestedDate,
+      requestedArrival: arrivalPayloadOf(arrival),
+      recovering,
+    });
     if (!requestedCheck.ok) {
       submittingRef.current = false;
       setMessage(requestedCheck.message);
+      return;
+    }
+
+    // Nothing is adjusted: a refused request is shown, never rewritten.
+    if (!arrivalCheck.ok) {
+      submittingRef.current = false;
+      setConfirmOpen(false);
+      setArrivalError(arrivalCheck);
+      setMessage(`Check the requested delivery time: ${arrivalCheck.message}`);
       return;
     }
 
@@ -758,8 +817,9 @@ function SalesRepPlaceOrder() {
       return;
     }
 
-    // Everything the rep is submitting — including priority, instructions and
-    // the requested date, which the server fingerprint ignores. It is saved
+    // Everything the rep is submitting — including priority and instructions,
+    // which are protected by the local snapshot. The server's v3 fingerprint
+    // also binds the requested date AND time. The snapshot is saved
     // with the request id before the call, and a retry must match it.
     const submission = {
       doctorId: selectedDoctor.id,
@@ -767,12 +827,13 @@ function SalesRepPlaceOrder() {
       priority: urgent ? "Urgent" : "Standard",
       deliveryInstructions: instructions.trim(),
       requestedDeliveryDate: requestedCheck.value,
+      requestedArrival: arrivalCheck.value,
       // Per line: the reviewed standard, the agreed UNIT price and (only when
       // negotiated) its reason. No total and no VAT figure is ever sent.
       items: items.map((item) => ({
         inventoryId: item.inventoryId,
         quantity: Number(item.quantity),
-        ...negotiatedRequestLine(item, reviewBySku.get(item.sku).price),
+        ...negotiatedRequestLine(item, reviewByBatch.get(item.inventoryId).price),
       })),
     };
 
@@ -807,6 +868,8 @@ function SalesRepPlaceOrder() {
             // Required: validateRequestedDate has refused a blank date above,
             // and the server refuses one again (requested-date-required).
             requestedDeliveryDate: requestedCheck.value,
+            // When it is needed AT THE DESTINATION; the server re-validates it.
+            requestedArrival: submission.requestedArrival,
             items: submission.items,
           });
           if (typeof created?.orderId !== "string" || created.orderId === "") {
@@ -896,7 +959,7 @@ function SalesRepPlaceOrder() {
             <button
               type="button"
               className="place-v2-add-more"
-              onClick={() => navigate("/sales-rep/request-order")}
+              onClick={handleAddMoreItems}
             >
               <PackagePlus size={15} />
               Add More Items
@@ -975,14 +1038,14 @@ function SalesRepPlaceOrder() {
                 {filteredItems.length > 0 ? (
                   filteredItems.map((item) => (
                     <OrderRow
-                      key={item.sku}
+                      key={item.inventoryId}
                       item={item}
-                      price={reviewBySku.get(item.sku)?.price}
+                      price={reviewByBatch.get(item.inventoryId)?.price}
                       review={lineReview(item)}
                       onAccept={() => handleAcceptLine(item)}
-                      onDecrease={() => handleQuantityChange(item.sku, "decrease")}
-                      onIncrease={() => handleQuantityChange(item.sku, "increase")}
-                      onRemove={() => handleRemoveItem(item.sku)}
+                      onDecrease={() => handleQuantityChange(item.inventoryId, "decrease")}
+                      onIncrease={() => handleQuantityChange(item.inventoryId, "increase")}
+                      onRemove={() => handleRemoveItem(item.inventoryId)}
                     />
                   ))
                 ) : (
@@ -1010,9 +1073,6 @@ function SalesRepPlaceOrder() {
             disabled={saving}
             onAgreedChange={setAgreedInput}
             onReasonChange={setNegotiationReason}
-            onDiscountTypeChange={setDiscountType}
-            onDiscountChange={setDiscountInput}
-            onEligibilityChange={setEligibilityConfirmed}
             onReset={resetToStandard}
           />
         </div>
@@ -1116,7 +1176,7 @@ function SalesRepPlaceOrder() {
             <textarea
               value={instructions}
               onChange={(event) => setInstructions(event.target.value)}
-              placeholder="Add special handling notes, gate codes, or delivery window preferences..."
+              placeholder="Add special handling notes or gate codes..."
             />
 
             <label className="place-v2-date-label" htmlFor="place-requested-date">
@@ -1132,6 +1192,14 @@ function SalesRepPlaceOrder() {
               min={manilaToday()}
               value={requestedDate}
               onChange={(event) => setRequestedDate(event.target.value)}
+            />
+
+            <RequestedArrivalField
+              value={arrival}
+              onChange={handleArrivalChange}
+              problem={shownArrivalError}
+              disabled={saving}
+              summary={arrivalSummary}
             />
 
             <label className="urgent-row place-v2-urgent-row">
@@ -1161,6 +1229,11 @@ function SalesRepPlaceOrder() {
             <p>
               Priority
               <strong>{urgent ? "Urgent" : "Standard"}</strong>
+            </p>
+
+            <p>
+              Requested arrival
+              <strong>{arrivalShape.ok ? requestedArrivalLabel(arrivalShape.value) : arrivalShape.incomplete ? "Incomplete" : "Check the time"}</strong>
             </p>
 
             {/* The VAT breakdown of the AGREED prices. VAT is extracted from
@@ -1227,6 +1300,7 @@ function SalesRepPlaceOrder() {
           destination={selectedDestination ? `${selectedDestination.name}${selectedDestination.address ? ` — ${selectedDestination.address}` : ""}` : ""}
           lines={reviewLines}
           summary={priceSummary}
+          schedule={arrivalShape.ok ? requestedScheduleLabel(requestedDate, arrivalShape.value) : ""}
           saving={saving}
           onCancel={() => setConfirmOpen(false)}
           onConfirm={() => {
@@ -1297,8 +1371,8 @@ function OrderRow({ item, price, review, onAccept, onDecrease, onIncrease, onRem
       </td>
 
       {/* The AGREED price (the standard unless negotiated below), and the
-          line's FINAL total after any statutory discount. A figure that could
-          not be read shows a dash rather than a zero. */}
+          line's FINAL total. A figure that could not be read shows a dash
+          rather than a zero. */}
       <td className="tnum">
         {price?.agreedUnitPriceCentavos != null ? formatCentavos(price.agreedUnitPriceCentavos) : "—"}
         {price?.priceNegotiated && <small className="place-v2-negotiated-tag">{NEGOTIATED_PRICE_LABEL}</small>}
@@ -1306,11 +1380,6 @@ function OrderRow({ item, price, review, onAccept, onDecrease, onIncrease, onRem
 
       <td className="tnum">
         {price?.finalLineTotalCentavos != null ? formatAmount(price.finalLineTotalCentavos) : "—"}
-        {price?.statutoryDiscountCentavos > 0 && (
-          <small className="place-v2-discount-tag">
-            {STATUTORY_DISCOUNT_LABELS[price.statutoryDiscountType]} −{formatCentavos(price.statutoryDiscountCentavos)}
-          </small>
-        )}
       </td>
 
       <td>
@@ -1340,15 +1409,10 @@ function vatLabelFor(cls) {
 }
 
 /**
- * The final price review, per line: the standard price, an editable AGREED
- * unit price (VAT-inclusive) with its reason, and — separately — an optional
- * statutory (SC/PWD) discount for that line, by category and amount, with the
- * Med Rep's eligibility attestation. Totals are derived in integers; there is
- * no total input, and a discount never spreads to another line.
- *
- * The attestation is the Med Rep's own audited confirmation. The system does
- * not verify eligibility and collects no ID number, card photo or other
- * personal data of the customer.
+ * The final price review, per line: the standard unit price, an editable AGREED
+ * unit price (VAT-inclusive) with its reason, and the negotiated and final line
+ * totals. Totals are derived in integers; there is no total input. Checkout
+ * offers no SC/PWD discount entry, so every line is placed without one.
  */
 function PriceReview({
   lines,
@@ -1356,9 +1420,6 @@ function PriceReview({
   onAgreedChange,
   onReasonChange,
   onReset,
-  onDiscountTypeChange,
-  onDiscountChange,
-  onEligibilityChange,
 }) {
   if (lines.length === 0) return null;
   return (
@@ -1367,23 +1428,17 @@ function PriceReview({
         <h2 id="price-review-title">Final price review</h2>
         <p>
           Confirm each line&apos;s agreed unit price. Prices are VAT-inclusive for VATable products; change
-          a price only when it has been agreed with the client, and give the reason. An SC/PWD discount is
-          entered separately for the line it applies to.
+          a price only when it has been agreed with the client, and give the reason.
         </p>
       </div>
       <ul className="place-v2-price-lines">
-        {lines.map(({ item, catalogSku, vatClassification, agreedText, reasonText, discountType, discountText, eligibilityConfirmed, price }) => {
-          const inputId = `agreed-${item.sku}`;
-          const reasonId = `reason-${item.sku}`;
-          const errorId = `agreed-error-${item.sku}`;
-          const discountTypeId = `discount-type-${item.sku}`;
-          const discountId = `discount-${item.sku}`;
-          const discountErrorId = `discount-error-${item.sku}`;
-          const eligibilityId = `eligibility-${item.sku}`;
-          const eligibilityErrorId = `eligibility-error-${item.sku}`;
-          const flagged = price.priceNegotiated || price.statutoryDiscountCentavos > 0;
+        {lines.map(({ item, catalogSku, vatClassification, agreedText, reasonText, price }) => {
+          const inputId = `agreed-${item.inventoryId}`;
+          const reasonId = `reason-${item.inventoryId}`;
+          const errorId = `agreed-error-${item.inventoryId}`;
+          const flagged = price.priceNegotiated;
           return (
-            <li key={item.sku} className={`place-v2-price-line${flagged ? " negotiated" : ""}`}>
+            <li key={item.inventoryId} className={`place-v2-price-line${flagged ? " negotiated" : ""}`}>
               <div className="place-v2-price-product">
                 <strong>{item.name}</strong>
                 <span className="place-v2-price-meta">
@@ -1402,20 +1457,12 @@ function PriceReview({
                   <dd className="tnum">{formatCentavos(price.standardUnitPriceCentavos)}</dd>
                 </div>
                 <div>
-                  <dt>Standard line total</dt>
-                  <dd className="tnum">{formatCentavos(price.standardLineTotalCentavos)}</dd>
-                </div>
-                <div>
                   <dt>Negotiated line total</dt>
                   <dd className="tnum">{price.negotiatedGrossCentavos != null ? formatCentavos(price.negotiatedGrossCentavos) : "—"}</dd>
                 </div>
                 <div>
                   <dt>Price adjustment</dt>
                   <dd className="tnum">{formatAdjustment(price.negotiatedAdjustmentCentavos)}</dd>
-                </div>
-                <div>
-                  <dt>SC/PWD discount</dt>
-                  <dd className="tnum">{price.statutoryDiscountCentavos > 0 ? `−${formatCentavos(price.statutoryDiscountCentavos)}` : "None"}</dd>
                 </div>
                 <div>
                   <dt>Final line total</dt>
@@ -1438,13 +1485,13 @@ function PriceReview({
                     disabled={disabled}
                     aria-invalid={price.priceError ? "true" : "false"}
                     aria-describedby={price.priceError ? errorId : undefined}
-                    onChange={(event) => onAgreedChange(item.sku, event.target.value)}
+                    onChange={(event) => onAgreedChange(item.inventoryId, event.target.value)}
                   />
                 </div>
                 <button
                   type="button"
                   className="place-v2-reset-btn"
-                  onClick={() => onReset(item.sku)}
+                  onClick={() => onReset(item.inventoryId)}
                   disabled={disabled || (!price.priceNegotiated && !price.priceError)}
                   aria-label={`Reset ${item.name} to the standard price`}
                 >
@@ -1467,7 +1514,7 @@ function PriceReview({
                     value={reasonText}
                     disabled={disabled}
                     aria-invalid={price.reasonError ? "true" : "false"}
-                    onChange={(event) => onReasonChange(item.sku, event.target.value)}
+                    onChange={(event) => onReasonChange(item.inventoryId, event.target.value)}
                     placeholder="e.g. Volume agreement with the clinic"
                   />
                   {price.reasonError && (
@@ -1477,71 +1524,6 @@ function PriceReview({
                   )}
                 </div>
               )}
-
-              <div className="place-v2-price-discount">
-                <label htmlFor={discountTypeId}>SC/PWD discount for {item.name}</label>
-                <select
-                  id={discountTypeId}
-                  value={discountType}
-                  disabled={disabled}
-                  onChange={(event) => onDiscountTypeChange(item.sku, event.target.value)}
-                >
-                  <option value="">No discount</option>
-                  {STATUTORY_DISCOUNT_TYPES.map((type) => (
-                    <option key={type} value={type}>
-                      {STATUTORY_DISCOUNT_LABELS[type]}
-                    </option>
-                  ))}
-                </select>
-                {discountType && (
-                  <>
-                    <label htmlFor={discountId}>Discount amount for this line</label>
-                    <div className="place-v2-price-input">
-                      <span aria-hidden="true">₱</span>
-                      <input
-                        id={discountId}
-                        type="text"
-                        inputMode="decimal"
-                        autoComplete="off"
-                        value={discountText}
-                        disabled={disabled}
-                        aria-invalid={price.discountError ? "true" : "false"}
-                        aria-describedby={price.discountError ? discountErrorId : undefined}
-                        onChange={(event) => onDiscountChange(item.sku, event.target.value)}
-                        placeholder="0.00"
-                      />
-                    </div>
-                  </>
-                )}
-                {price.discountError && (
-                  <p id={discountErrorId} className="place-v2-price-error" role="alert">
-                    {price.discountError}
-                  </p>
-                )}
-                {discountType && (
-                  <div className="place-v2-eligibility">
-                    <input
-                      id={eligibilityId}
-                      type="checkbox"
-                      checked={eligibilityConfirmed}
-                      disabled={disabled}
-                      aria-invalid={price.eligibilityError ? "true" : "false"}
-                      aria-describedby={price.eligibilityError ? eligibilityErrorId : undefined}
-                      onChange={(event) => onEligibilityChange(item.sku, event.target.checked)}
-                    />
-                    <label htmlFor={eligibilityId}>{ELIGIBILITY_ATTESTATION_TEXT}</label>
-                    <p className="place-v2-eligibility-note">
-                      Your confirmation is recorded with your account and the time. The system does not check
-                      eligibility itself — do not enter ID numbers or other personal details here.
-                    </p>
-                    {price.eligibilityError && (
-                      <p id={eligibilityErrorId} className="place-v2-price-error" role="alert">
-                        {price.eligibilityError}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
             </li>
           );
         })}
@@ -1551,15 +1533,14 @@ function PriceReview({
 }
 
 /**
- * The order's figures: negotiated subtotal, the separate statutory discounts,
- * the VAT breakdown AFTER discounts, and the final total. They reconcile:
- * negotiated subtotal − statutory discounts = final total = the VAT parts.
+ * The order's figures: negotiated subtotal, the VAT breakdown and the final
+ * total. They reconcile: negotiated subtotal = final total = the VAT parts.
  */
 function VatBreakdown({ summary }) {
   if (!summary) {
     return (
       <p className="place-v2-price-note" role="status">
-        The totals appear once every line has a valid agreed price, discount and VAT classification.
+        The totals appear once every line has a valid agreed price and VAT classification.
       </p>
     );
   }
@@ -1575,12 +1556,6 @@ function VatBreakdown({ summary }) {
         <dt>Negotiated subtotal</dt>
         <dd className="tnum">{formatAmount(summary.negotiatedSubtotalCentavos)}</dd>
       </div>
-      {summary.statutoryDiscountTotalCentavos > 0 && (
-        <div>
-          <dt>Less: SC/PWD discounts</dt>
-          <dd className="tnum">−{formatCentavos(summary.statutoryDiscountTotalCentavos)}</dd>
-        </div>
-      )}
       <div>
         <dt>VATable sales (net of VAT)</dt>
         <dd className="tnum">{formatAmount(summary.vatableSalesCentavos)}</dd>
@@ -1608,9 +1583,9 @@ function VatBreakdown({ summary }) {
 /**
  * Explicit reconfirmation before the order is created: who and where, every
  * line with its classification, standard vs agreed price and reason where
- * negotiated, any SC/PWD discount by category, the totals and the final total.
+ * negotiated, the totals and the final total.
  */
-function ReconfirmDialog({ doctorName, destination, lines, summary, saving, onCancel, onConfirm }) {
+function ReconfirmDialog({ doctorName, destination, lines, summary, schedule, saving, onCancel, onConfirm }) {
   const focusFirst = useCallback((node) => node?.focus(), []);
   return (
     <div className="place-v2-confirm-backdrop">
@@ -1630,9 +1605,15 @@ function ReconfirmDialog({ doctorName, destination, lines, summary, saving, onCa
           <strong>{doctorName}</strong>
           <span>{destination}</span>
         </p>
+        {schedule && (
+          <p className="place-v2-confirm-schedule">
+            <span>Requested delivery (arrival at the destination)</span>
+            <strong>{schedule}</strong>
+          </p>
+        )}
         <ul className="place-v2-confirm-lines">
           {lines.map(({ item, vatClassification, price }) => (
-            <li key={item.sku}>
+            <li key={item.inventoryId}>
               <div>
                 <strong>{item.name}</strong>
                 <span>
@@ -1650,11 +1631,6 @@ function ReconfirmDialog({ doctorName, destination, lines, summary, saving, onCa
                   </>
                 ) : (
                   <span>{formatCentavos(price.agreedUnitPriceCentavos)} each</span>
-                )}
-                {price.statutoryDiscountCentavos > 0 && (
-                  <span className="place-v2-confirm-reason">
-                    {STATUTORY_DISCOUNT_LABELS[price.statutoryDiscountType]} discount −{formatCentavos(price.statutoryDiscountCentavos)}
-                  </span>
                 )}
                 <strong>{formatAmount(price.finalLineTotalCentavos)}</strong>
               </div>

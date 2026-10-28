@@ -1,0 +1,23 @@
+[
+  {"name":"morning window","order":{"requestedDeliveryDate":"2026-10-28","requestedArrival":{"version":1,"mode":"window","start":"10:00","end":"11:00"}},"expected":"Requested arrival: Oct 28, 2026 · Within 10:00 AM–11:00 AM (PHT)"},
+  {"name":"afternoon window","order":{"requestedDeliveryDate":"2026-10-28","requestedArrival":{"mode":"window","start":"14:00","end":"15:30"}},"expected":"Requested arrival: Oct 28, 2026 · Within 2:00 PM–3:30 PM (PHT)"},
+  {"name":"before cutoff","order":{"requestedDeliveryDate":"2026-10-28","requestedArrival":{"mode":"before","time":"09:00"}},"expected":"Requested arrival: Oct 28, 2026 · Before 9:00 AM (PHT)"},
+  {"name":"exact noon","order":{"requestedDeliveryDate":"2026-10-28","requestedArrival":{"mode":"exact","time":"12:00"}},"expected":"Requested arrival: Oct 28, 2026 · Exactly 12:00 noon (PHT)"},
+  {"name":"explicit any time","order":{"requestedDeliveryDate":"2026-10-28","requestedArrival":{"version":1,"mode":"any_time"}},"expected":"Requested arrival: Oct 28, 2026 · Within the requested day (PHT)"},
+  {"name":"legacy dated order","order":{"requestedDeliveryDate":"2026-10-28"},"expected":"Requested arrival: Oct 28, 2026 · Within the requested day (PHT)"},
+  {"name":"legacy undated order","order":{},"expected":"Requested arrival: not specified"},
+  {"name":"historical midnight","order":{"requestedDeliveryDate":"2020-01-01","requestedArrival":{"mode":"exact","time":"00:00"}},"expected":"Requested arrival: Jan 1, 2020 · Exactly 12:00 midnight (PHT)"},
+  {"name":"original request after rescheduling","order":{"requestedDeliveryDate":"2026-10-30","originalRequestedDeliveryDate":"2026-10-28","requestedArrival":{"mode":"window","start":"10:00","end":"11:00"},"scheduledDeliveryTime":"15:00","routeEtaText":"4:00 PM"},"expected":"Requested arrival: Oct 28, 2026 · Within 10:00 AM–11:00 AM (PHT)"},
+  {"name":"unknown mode","order":{"requestedArrival":{"mode":"unknown"}},"expected":"Requested arrival: unavailable — check order"},
+  {"name":"reversed window","order":{"requestedArrival":{"mode":"window","start":"11:00","end":"10:00"}},"expected":"Requested arrival: unavailable — check order"},
+  {"name":"equal window bounds","order":{"requestedArrival":{"mode":"window","start":"10:00","end":"10:00"}},"expected":"Requested arrival: unavailable — check order"},
+  {"name":"unsupported version","order":{"requestedArrival":{"version":2,"mode":"exact","time":"10:00"}},"expected":"Requested arrival: unavailable — check order"},
+  {"name":"malformed clock","order":{"requestedArrival":{"mode":"exact","time":"25:00"}},"expected":"Requested arrival: unavailable — check order"},
+  {"name":"overnight window","order":{"requestedArrival":{"mode":"window","start":"23:00","end":"01:00"}},"expected":"Requested arrival: unavailable — check order"},
+  {"name":"before midnight leaves no time","order":{"requestedArrival":{"mode":"before","time":"00:00"}},"expected":"Requested arrival: unavailable — check order"},
+  {"name":"malformed stored field","order":{"requestedArrival":"10:00"},"expected":"Requested arrival: unavailable — check order"},
+  {"name":"unexpected field","order":{"requestedArrival":{"mode":"any_time","time":"10:00"}},"expected":"Requested arrival: unavailable — check order"},
+  {"name":"invalid calendar date","order":{"requestedDeliveryDate":"2026-02-30"},"expected":"Requested arrival: not specified"},
+  {"name":"window without a recorded date","order":{"requestedArrival":{"mode":"window","start":"10:00","end":"11:00"}},"expected":"Requested arrival: Within 10:00 AM–11:00 AM (PHT)"},
+  {"name":"leap-day request","order":{"requestedDeliveryDate":"2028-02-29","requestedArrival":{"mode":"exact","time":"08:15"}},"expected":"Requested arrival: Feb 29, 2028 · Exactly 8:15 AM (PHT)"}
+]

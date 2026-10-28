@@ -1,13 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   addMonths,
   buildMonthGrid,
   countsByDate,
   groupOrdersByRequestedDate,
+  isInMonth,
   monthLabel,
+  MONTH_LABELS,
   monthOf,
   ordersOnDate,
+  pickerYears,
   WEEKDAY_LABELS,
 } from "../src/services/deliveryCalendar.js";
 
@@ -115,4 +119,69 @@ test("grouping tolerates a non-array input", () => {
   assert.equal(byDate.size, 0);
   assert.deepEqual(unscheduled, []);
   assert.deepEqual(countsByDate(undefined), {});
+});
+
+// ------------------------------------------- planner month/year navigation
+
+test("an adjacent-month day selects into its own month, across year ends both ways", () => {
+  // October 2026 shows Nov 1 as a dimmed trailing cell; choosing it moves the
+  // view to November 2026 — the planner sets the view to monthOf(selected).
+  const oct = buildMonthGrid(2026, 9, { today: "2026-10-27" }).flat();
+  const nov1 = oct.find((c) => c.iso === "2026-11-01");
+  assert.ok(nov1 && !nov1.inMonth);
+  assert.deepEqual(monthOf(nov1.iso), { year: 2026, month: 10 });
+
+  // December 2026 -> a January 2027 trailing day.
+  const dec = buildMonthGrid(2026, 11, { today: "2026-10-27" }).flat();
+  const jan = dec.find((c) => !c.inMonth && c.iso.startsWith("2027-01"));
+  assert.ok(jan);
+  assert.deepEqual(monthOf(jan.iso), { year: 2027, month: 0 });
+
+  // January 2027 -> a December 2026 leading day.
+  const janGrid = buildMonthGrid(2027, 0, { today: "2026-10-27" }).flat();
+  const decLead = janGrid.find((c) => !c.inMonth && c.iso.startsWith("2026-12"));
+  assert.ok(decLead);
+  assert.deepEqual(monthOf(decLead.iso), { year: 2026, month: 11 });
+
+  // The selected day is an in-month cell of the month it moved to.
+  const view = monthOf(nov1.iso);
+  const novGrid = buildMonthGrid(view.year, view.month, { today: "2026-10-27" }).flat();
+  assert.equal(novGrid.find((c) => c.iso === nov1.iso).inMonth, true);
+});
+
+test("the month picker lists every month and a contiguous year range that always holds the view", () => {
+  assert.equal(MONTH_LABELS.length, 12);
+  MONTH_LABELS.forEach((name, m) => assert.equal(monthLabel(2026, m), `${name} 2026`));
+
+  assert.deepEqual(pickerYears(2026, "2026-10-27"), [2024, 2025, 2026, 2027, 2028, 2029]);
+  // The arrows can leave the default range; the picker stretches to keep the view.
+  assert.deepEqual(pickerYears(2031, "2026-10-27"), [2024, 2025, 2026, 2027, 2028, 2029, 2030, 2031]);
+  assert.deepEqual(pickerYears(2020, "2026-10-27").slice(0, 2), [2020, 2021]);
+  const years = pickerYears(2031, "2026-10-27");
+  years.slice(1).forEach((y, i) => assert.equal(y, years[i] + 1));
+});
+
+test("the Med Rep planner moves to a picked day's month and offers the month/year picker", () => {
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/[^\n]*$/gm, "");
+  const page = strip(readFileSync(new URL("../src/pages/salesRep/SalesRepDashboard.jsx", import.meta.url), "utf8"));
+  assert.match(page, /const selectPlannerDate = \(iso\) => \{\s*setSelectedDate\(iso\);\s*const m = monthOf\(iso\);\s*if \(m\) setView\(m\);\s*\};/);
+  assert.match(page, /onSelectDate=\{selectPlannerDate\}/);
+  assert.match(page, /onJumpToMonth=\{jumpToMonth\}/);
+  assert.match(page, /onPrevMonth=\{goPrevMonth\}\s*onNextMonth=\{goNextMonth\}/);
+  // Arrows and pickers share one move, which drops a selection outside the new month.
+  assert.match(page, /const showMonth = \(next\) => \{\s*setView\(next\);\s*if \(selectedDate && !isInMonth\(selectedDate, next\)\) setSelectedDate\(""\);\s*\};/);
+  assert.match(page, /const goPrevMonth = \(\) => showMonth\(addMonths\(view\.year, view\.month, -1\)\);/);
+  assert.match(page, /const goNextMonth = \(\) => showMonth\(addMonths\(view\.year, view\.month, 1\)\);/);
+  assert.match(page, /const jumpToMonth = \(year, month\) => showMonth\(\{ year, month \}\);/);
+  // The Dispatcher day-view does not opt in, so its heading is unchanged.
+  const dispatcher = readFileSync(new URL("../src/components/schedule/DeliveryCalendar.jsx", import.meta.url), "utf8");
+  assert.equal(dispatcher.includes("onJumpToMonth"), false);
+});
+
+test("isInMonth decides whether a selection survives a month change", () => {
+  assert.equal(isInMonth("2026-11-01", { year: 2026, month: 10 }), true);
+  assert.equal(isInMonth("2026-11-01", { year: 2026, month: 9 }), false);
+  assert.equal(isInMonth("2026-12-31", { year: 2027, month: 11 }), false, "same month, other year");
+  assert.equal(isInMonth("", { year: 2026, month: 10 }), false);
+  assert.equal(isInMonth("nope", { year: 2026, month: 10 }), false);
 });

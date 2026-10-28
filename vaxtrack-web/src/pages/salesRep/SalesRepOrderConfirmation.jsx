@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   CalendarClock,
   CheckCircle2,
-  ClipboardList,
   Copy,
   FileText,
   MapPin,
@@ -19,6 +18,7 @@ import { withLiveLifecycle } from "../../services/orderConfirmation";
 import { STATUTORY_DISCOUNT_LABELS } from "../../services/negotiatedPricing";
 import { subscribeOrder } from "../../services/orderHistoryService";
 import { logSafeError } from "../../services/liveDataErrors.js";
+import { formatRequestedDate, requestedArrivalLabel, requestedArrivalOf } from "../../services/requestedArrival";
 
 /**
  * The confirmation shows ONLY what checkout stored after re-reading the order
@@ -74,6 +74,7 @@ function toDisplay(saved) {
     clinicName: saved.clinicName || saved.destinationName || "—",
     clinicAddress: saved.clinicAddress || "",
     requestedDeliveryDate: saved.requestedDeliveryDate || null,
+    requestedArrival: requestedArrivalOf(saved),
     deliveryInstructions: saved.deliveryInstructions?.trim() || "No delivery instructions provided.",
     priority: saved.priority || "Standard",
     items: Array.isArray(saved.items) ? saved.items : [],
@@ -153,11 +154,6 @@ function SalesRepOrderConfirmation() {
       <button onClick={() => navigate("/sales-rep/order-tracking")}>
         <Truck size={16} />
         Track Order Status
-      </button>
-
-      <button className="outline" onClick={() => navigate("/sales-rep/request-order")}>
-        <ClipboardList size={16} />
-        Return to Catalog
       </button>
     </div>
   );
@@ -261,7 +257,8 @@ function SalesRepOrderConfirmation() {
             <div>
               <CalendarClock size={17} />
               <span>Requested Delivery Date</span>
-              <strong>{order.requestedDeliveryDate}</strong>
+              <strong>{formatRequestedDate(order.requestedDeliveryDate) || order.requestedDeliveryDate}</strong>
+              <p>Arrival at the destination: {requestedArrivalLabel(order.requestedArrival)}</p>
             </div>
           )}
         </div>

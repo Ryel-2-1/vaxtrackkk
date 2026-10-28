@@ -9,6 +9,7 @@ import {
 } from "../../services/destinationCorrectionService";
 import { friendlyErrorMessage } from "../../services/liveDataErrors";
 import { orderNumberPhrase } from "../../services/orderLabel";
+import { clinicPinDrift, clinicsById } from "../../services/destinationFreshness";
 
 export default function DestinationCorrectionDialog({ order, onDismiss, onConfirm }) {
   const [addresses, setAddresses] = useState([]);
@@ -89,17 +90,26 @@ export default function DestinationCorrectionDialog({ order, onDismiss, onConfir
     if (!loadingAddresses && !loadingClinics && !loadError) selectRef.current?.focus();
   }, [loadingAddresses, loadingClinics, loadError]);
 
+  // When the clinic's pin or entrance details were corrected after this order
+  // was placed, the CURRENT address is offered too: approving it refreshes the
+  // order to the corrected point (the server allows this only if it differs).
+  const drift = useMemo(
+    () => clinicPinDrift(order, clinicsById(clinics).get(order.clinicDocId)),
+    [order, clinics]
+  );
   const options = useMemo(
     () => buildDoctorDestinationOptions(addresses, clinics)
-      .filter((item) => item.id !== order.doctorAddressId),
-    [addresses, clinics, order.doctorAddressId]
+      .filter((item) => item.id !== order.doctorAddressId || drift),
+    [addresses, clinics, order.doctorAddressId, drift]
   );
 
   const submit = async (event) => {
     event.preventDefault();
     if (submittingRef.current) return;
     if (!selected || !options.some((item) => item.id === selected)) {
-      setError("Select another active, verified address linked to this doctor.");
+      setError(drift
+        ? "Select the corrected pin or another active, verified address linked to this doctor."
+        : "Select another active, verified address linked to this doctor.");
       return;
     }
     const cleanReason = reason.trim();
@@ -141,11 +151,14 @@ export default function DestinationCorrectionDialog({ order, onDismiss, onConfir
             onChange={(event) => { setSelected(event.target.value); setError(""); }}>
             <option value="">{loadingAddresses || loadingClinics ? "Loading addresses..." : "Select another address..."}</option>
             {options.map((item) => <option key={item.id} value={item.id}>
-              {item.name} — {item.address}
+              {item.id === order.doctorAddressId
+                ? `Use the clinic's corrected pin — ${item.name} (current address)`
+                : `${item.name} — ${item.address}`}
             </option>)}
           </select>
           {!loadingAddresses && !loadingClinics && !loadError && options.length === 0 &&
             <p className="shp-muted">No other verified address is linked to this doctor.</p>}
+          {drift && <p className="shp-muted">{drift.text}</p>}
           <label htmlFor="correct-destination-reason">Reason for request</label>
           <textarea id="correct-destination-reason" value={reason} rows={3}
             maxLength={MAX_DESTINATION_REASON_LENGTH} disabled={submitting}

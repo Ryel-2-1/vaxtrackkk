@@ -5,7 +5,8 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'functions/node_modules']),
+  // Deployment archives contain generated bundles and copies of older sources.
+  globalIgnores(['dist', 'deploy', 'functions/node_modules']),
   // Cloud Functions are Node CommonJS, not browser modules. Without this they
   // lint against browser globals and every `require`/`module`/`process` reads
   // as undefined — so the trusted server boundary would go unchecked.

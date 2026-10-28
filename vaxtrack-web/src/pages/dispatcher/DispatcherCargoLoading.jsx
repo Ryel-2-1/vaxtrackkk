@@ -33,6 +33,19 @@ import { subscribeRiders } from "../../services/riderService";
 import { confirmRiderReturnToHub, subscribeRiderDispatchStates } from "../../services/riderDispatchService";
 import { cargoGroupDispatch, ridersReturningToHub } from "../../services/riderTrip";
 import DispatcherDialogLayer from "./DispatcherDialogLayer";
+import DeparturePlanner from "../../components/dispatch/DeparturePlanner";
+import { subscribeRoutingSettings } from "../../services/routingSettingsService";
+import { routingSettingsOf } from "../../services/routingSettings";
+import { subscribeClinics } from "../../services/clinicService";
+import { clinicsById } from "../../services/destinationFreshness";
+import DestinationNotes from "../../components/dispatch/DestinationNotes";
+
+// The departure planner (requested arrivals + motorcycle travel times) is
+// switched on per build with VITE_DEPARTURE_PLANNER_ENABLED=true, and always
+// in the loopback-only motorcycle-QA mode.
+const DEPARTURE_PLANNER_ENABLED =
+  import.meta.env?.VITE_DEPARTURE_PLANNER_ENABLED === "true" || import.meta.env?.MODE === "motorcycle-qa";
+import { requestedArrivalLabel, requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
 import "./CargoLoading.css";
 
 // Loading-state badge shown on each rider card. Text + icon (not colour alone)
@@ -104,6 +117,28 @@ function DispatcherCargoLoading() {
   const [confirmReturn, setConfirmReturn] = useState(null); // { riderUid, tripId, name, ... }
   const [printGroup, setPrintGroup] = useState(null); // group being printed
   const { toast, showToast, dismissToast } = useToast();
+  // Hub + planning defaults for the departure planner (Admin → Settings → Routing).
+  // null while loading; an unreadable document plans with no hub, never a guessed one.
+  const [routing, setRouting] = useState(null);
+  // Clinics, to tell when an order's saved pin is older than its clinic's
+  // (DestinationNotes). A failed read only hides that note.
+  const [clinicMap, setClinicMap] = useState(() => new Map());
+  useEffect(
+    () =>
+      subscribeClinics(
+        (list) => setClinicMap(clinicsById(list)),
+        (err) => logSafeError("Clinics for destination notes", err)
+      ),
+    []
+  );
+
+  useEffect(() => {
+    if (!DEPARTURE_PLANNER_ENABLED) return undefined;
+    return subscribeRoutingSettings(
+      (docData) => setRouting(routingSettingsOf(docData)),
+      () => setRouting(routingSettingsOf(null))
+    );
+  }, []);
 
   // Live subscription to rider loading groups.
   useEffect(() => {
@@ -368,6 +403,8 @@ function DispatcherCargoLoading() {
                   onPrint={() => setPrintGroup(group)}
                   onFinalize={() => setConfirmGroup(group)}
                   tripHold={cargoGroupDispatch(tripStates.get(group.riderId))}
+                  routing={routing}
+                  clinicMap={clinicMap}
                 />
               ))}
             </div>
@@ -441,6 +478,8 @@ function RiderCard({
   onPrint,
   onFinalize,
   tripHold = { canFinalize: true, reason: "" },
+  routing = null,
+  clinicMap = null,
 }) {
   const badge = loadingBadge(group, dispatched);
   // Orders assigned before the schedule guard existed may still sit here ahead
@@ -533,6 +572,12 @@ function RiderCard({
                   </span>
                   {order.batchId ? ` · Batch ${order.batchId}` : ""}
                 </small>
+                {/* When the order is needed AT the destination — a request
+                    for planning, not an estimate or a departure time. */}
+                <small className="cl-order-request">
+                  Requested arrival: {requestedScheduleLabel(order.requestedDeliveryDate, requestedArrivalOf(order))}
+                </small>
+                <DestinationNotes order={order} clinic={clinicMap?.get(order.clinicDocId)} />
                 {!schedule.eligible && (
                   <>
                     {schedule.code === SCHEDULED_DATE_NOT_REACHED && (
@@ -568,6 +613,8 @@ function RiderCard({
           );
         })}
       </div>
+
+      {DEPARTURE_PLANNER_ENABLED && !dispatched && <DeparturePlanner orders={group.orders} riderName={group.rider.name} routing={routing} />}
 
       {!tripHold.canFinalize && !dispatched ? (
         <p className="cl-hint">{tripHold.reason}</p>
@@ -640,6 +687,7 @@ function PrintSheet({ group, dispatcher, printedAt }) {
             <th>Clinic &amp; Address</th>
             <th>Vaccine</th>
             <th>Batch ID</th>
+            <th>Requested arrival</th>
             <th>Qty</th>
             <th>Loaded</th>
           </tr>
@@ -658,6 +706,7 @@ function PrintSheet({ group, dispatcher, printedAt }) {
                 </td>
                 <td>{order.vaccineName || "—"}</td>
                 <td>{order.batchId || "—"}</td>
+                <td>{requestedArrivalLabel(requestedArrivalOf(order))}</td>
                 <td>
                   {(order.quantity || 0).toLocaleString()} {order.unit || "doses"}
                 </td>

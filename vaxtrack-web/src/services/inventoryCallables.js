@@ -59,7 +59,7 @@ export class InventoryCallableError extends UserMessageError {
   }
 }
 
-function rethrow(error) {
+function rethrow(error, fallback = "The ordering service is unavailable right now. Your cart has been kept — please try again.") {
   const details = error?.details;
   if (details && typeof details.code === "string") {
     throw new InventoryCallableError(details.code, error.message, details.info);
@@ -74,7 +74,7 @@ function rethrow(error) {
   }
   throw new InventoryCallableError(
     "service-unavailable",
-    "The ordering service is unavailable right now. Your cart has been kept — please try again.",
+    fallback,
     null
   );
 }
@@ -100,6 +100,10 @@ export async function createOrderWithReservation({
   // (`requested-date-required`, operations.js). Omitting it here once silently
   // dropped every requested date, so orders arrived undated.
   requestedDeliveryDate,
+  // Optional requested arrival at the destination on that date
+  // (services/requestedArrival.js). Forwarded for the same reason: dropping it
+  // here would turn every timed request into "any time" without a word.
+  requestedArrival,
 }) {
   try {
     const result = await callables().create({
@@ -109,6 +113,7 @@ export async function createOrderWithReservation({
       priority,
       deliveryInstructions,
       requestedDeliveryDate,
+      ...(requestedArrival ? { requestedArrival } : {}),
       items: items.map((item) => ({
         inventoryId: item.inventoryId,
         quantity: item.quantity,
@@ -144,7 +149,7 @@ export async function cancelOrderWithInventoryRelease(orderId, reason) {
     const result = await callables().cancel({ orderId, reason });
     return result.data;
   } catch (error) {
-    return rethrow(error);
+    return rethrow(error, "Cancellation could not be confirmed. Check the order status before trying again.");
   }
 }
 

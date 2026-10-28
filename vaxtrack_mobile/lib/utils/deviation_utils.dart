@@ -8,7 +8,7 @@ import 'package:latlong2/latlong.dart';
 /// No Geolocator, Firebase, Flutter platform channels, or additional packages.
 /// All distances are returned in METRES.
 ///
-/// Geometry: an OpenRouteService driving route is a chain of short, city-scale
+/// Geometry: the saved road route is a chain of short, city-scale
 /// segments. We project every coordinate into a *local equirectangular frame*
 /// centred on the rider [point]: metres north = Δlat · (R·π/180), metres east =
 /// Δlng · (R·π/180) · cos(latitude) — i.e. east/west metres shrink toward the

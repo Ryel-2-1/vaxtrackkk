@@ -119,6 +119,7 @@ class GeolocatorLocationSource implements TrackingLocationSource {
 /// anything is written — the write policy still throttles every fix.
 AndroidSettings androidTrackingSettings(TrackingMode mode) {
   final navigating = mode == TrackingMode.navigating;
+  final returning = mode == TrackingMode.returning;
   return AndroidSettings(
     accuracy: navigating ? LocationAccuracy.high : LocationAccuracy.medium,
     // No distance filter: a stationary rider must still produce fixes, or
@@ -128,10 +129,12 @@ AndroidSettings androidTrackingSettings(TrackingMode mode) {
     distanceFilter: 0,
     intervalDuration: Duration(seconds: navigating ? 5 : 15),
     foregroundNotificationConfig: ForegroundNotificationConfig(
-      notificationTitle: 'VaxTrack: sharing location for delivery',
+      notificationTitle: returning ? 'VaxTrack: sharing location while returning to the hub' : 'VaxTrack: sharing location for delivery',
       notificationText: navigating
           ? 'Navigating an active delivery. Stops automatically when your deliveries end.'
-          : 'Active delivery assigned. Stops automatically when your deliveries end.',
+          : returning
+              ? 'Returning to the hub. Stops when your return is confirmed or you sign out.'
+              : 'Active delivery assigned. Stops automatically when your deliveries end.',
       notificationChannelName: 'Delivery location sharing',
       setOngoing: true,
       enableWakeLock: true,
@@ -306,6 +309,17 @@ class FirestoreTrackingStore implements TrackingStore {
     return id is String && id.isNotEmpty ? id : null;
   }
 
+  /// The server-owned trip state for the rider (own doc only — rules):
+  /// riderDispatchStates/{uid}.state, or null when there is no such document.
+  Stream<String?> tripState(String riderUid) => _db
+      .collection(kRiderDispatchStatesCollection)
+      .doc(riderUid)
+      .snapshots()
+      .map((s) {
+        final state = s.data()?['state'];
+        return state is String && state.isNotEmpty ? state : null;
+      });
+
   /// The server's deviation state for the rider (own doc only — rules).
   Stream<Map<String, dynamic>?> deviationState(String riderUid) => _db
       .collection(kDeviationStatesCollection)
@@ -323,8 +337,15 @@ Stream<List<TrackedOrder>> trackedOrdersFor(String riderUid, {DeliveryService? s
       );
 }
 
-/// The single app-wide controller (attached by HomeScreen, shut down on sign-out).
+/// The single app-wide controller (attached by HomeScreen, shut down on
+/// sign-out). [trackedOrdersFor] lets Start Navigation re-attach the SIGNED-IN
+/// rider to their own deliveries if a lifecycle race ever left it detached.
+final FirestoreTrackingStore _trackingStore = FirestoreTrackingStore();
 final RiderTrackingController riderTracking = RiderTrackingController(
   source: GeolocatorLocationSource(),
-  store: FirestoreTrackingStore(),
+  store: _trackingStore,
+  ordersFor: trackedOrdersFor,
+  // The server's trip state: after the last delivery, sharing continues while
+  // returning to the hub, until the return is confirmed.
+  tripStateFor: _trackingStore.tripState,
 );

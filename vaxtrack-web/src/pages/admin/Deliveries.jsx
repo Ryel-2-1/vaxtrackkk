@@ -17,7 +17,9 @@ import {
 import { ORDER_STATUSES, STATUS_LABELS } from "../../services/orderWorkflow";
 import StatusBadge from "../../components/ui/StatusBadge";
 import TimingIndicator from "../../components/ui/TimingIndicator";
+import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
 import KpiCard from "../../components/ui/KpiCard";
+import OrderCancellationAction from "../../components/orders/OrderCancellationAction";
 import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 import { subscribeOrderStatusEvents } from "../../services/statusEventService";
@@ -36,6 +38,7 @@ function normalizeDelivery(raw) {
 
   return {
     uid: raw.id,
+    cancellationOrder: raw,
     // The order number people use. A shortened document id looked like a real
     // reference; an order without a number says so instead.
     id: raw.orderNumber || "No order number",
@@ -66,6 +69,9 @@ function normalizeDelivery(raw) {
     riderPhone: raw.assignedRiderPhone || "",
     instructions: raw.deliveryInstructions || "",
     createdAt: raw.createdAt || null,
+    requestedDeliveryDate: raw.requestedDeliveryDate ?? null,
+    originalRequestedDeliveryDate: raw.originalRequestedDeliveryDate ?? null,
+    requestedArrival: raw.requestedArrival ?? null,
     assignedAt: raw.assignedAt || null,
     statusUpdatedAt: raw.statusUpdatedAt || null,
     statusUpdatedByEmail: raw.statusUpdatedByEmail || "",
@@ -87,6 +93,10 @@ function normalizeDelivery(raw) {
     clinicLat: raw.clinicLat,
     clinicLng: raw.clinicLng,
     routePolyline: raw.routePolyline || "",
+    routeProvider: raw.routeProvider ?? null,
+    routeProfile: raw.routeProfile ?? null,
+    tripRouteProvider: raw.tripRouteProvider ?? null,
+    tripRouteProfile: raw.tripRouteProfile ?? null,
     routeDistanceMeters: raw.routeDistanceMeters,
     routeDurationSeconds: raw.routeDurationSeconds,
     routeEtaText: raw.routeEtaText || "",
@@ -134,7 +144,9 @@ function Deliveries() {
   const linkedDelivery = linkedOrderId
     ? deliveryList.find((d) => d.uid === linkedOrderId) ?? null
     : null;
-  const openDelivery = selectedDelivery ?? linkedDelivery;
+  const openDelivery = selectedDelivery
+    ? deliveryList.find((delivery) => delivery.uid === selectedDelivery.uid) ?? null
+    : linkedDelivery;
   const closeDelivery = () => {
     setSelectedDelivery(null);
     if (linkedOrderId) {
@@ -232,7 +244,7 @@ function Deliveries() {
             {/* Was "Monitor and route active cold-chain shipments." Admin does
                 not route anything and this page performs no cold-chain
                 measurement; it reads the orders collection. */}
-            <p>Read-only view of every order and its current status.</p>
+            <p>Review every order and its current status. Eligible orders can be cancelled before loading.</p>
           </div>
 
           {/* A "New delivery" button stood here and raised a toast explaining
@@ -458,6 +470,7 @@ function Deliveries() {
                   >
                     <td>
                       <span className="mdl-td-order">{delivery.id}</span>
+                      <RequestedArrivalNote order={delivery} />
                     </td>
 
                     <td>
@@ -610,6 +623,7 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
               <StatusBadge statusKey={delivery.statusKey} />
             </div>
             <TimingIndicator order={delivery} />
+            <RequestedArrivalNote order={delivery} />
             <p>{delivery.destination}</p>
           </div>
 
@@ -624,6 +638,7 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
         </header>
 
         <div className="mdl-drawer-body">
+          <OrderCancellationAction key={delivery.uid} order={delivery.cancellationOrder} scope="inventory-page" />
           <section className="mdl-drawer-section">
             <h3>Destination</h3>
             <div className="mdl-drawer-row">

@@ -1235,3 +1235,48 @@
   text-align: left;
   overflow-wrap: anywhere;
 }
+
+/* Routing tab (RoutingSettings.jsx): a real, saved form. */
+.routing-settings {
+  display: grid;
+  gap: 16px;
+}
+.routing-settings .settings-form-grid label.routing-settings-wide {
+  grid-column: 1 / -1;
+}
+.routing-settings-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--info-border);
+  border-radius: 10px;
+  background: var(--info-bg);
+  color: var(--info-text);
+  font-size: 13px;
+}
+.routing-settings-notice svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+.routing-settings-hint {
+  color: var(--gray-600);
+  font-weight: 400;
+}
+.routing-settings-error {
+  margin: 0;
+  color: var(--danger-text);
+  font-size: 12px;
+  font-weight: 500;
+}
+.routing-settings-state {
+  padding: 16px;
+  color: var(--gray-600);
+}
+@media (max-width: 760px) {
+  .routing-settings .settings-form-grid,
+  .routing-settings .settings-form-grid.three {
+    grid-template-columns: 1fr;
+  }
+}
