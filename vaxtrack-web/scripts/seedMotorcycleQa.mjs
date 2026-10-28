@@ -75,6 +75,30 @@ try {
     requestedDeliveryDate: today,
     requestedArrival: { version: 1, mode: "before", time: clockAt(nowMinute + 45) },
   });
+
+  // Destination accuracy: an area, a doctor and a clinic whose pin was moved
+  // AFTER order 1 copied it (the order keeps 14.338, 121.087; the clinic is
+  // now at its entrance a few metres away). Shipments, Geofence and Cargo
+  // Loading should say the order's saved pin is out of date.
+  await db.doc("areas/motorcycle-qa-area").set({ name: "QA Laguna", active: true, createdAt: now });
+  await db.doc("clinics/motorcycle-qa-clinic").set({
+    clinicId: "CLN-QA1", name: "Sample clinic 1", location: "Synthetic test destination, Laguna",
+    areaId: "motorcycle-qa-area", area: "QA Laguna", contact: "QA Contact", phone: "0917-000-0000",
+    email: "clinic@motorcycle.test", deliveryNotes: "", status: "active", createdAt: now,
+    latitude: 14.3385, longitude: 121.0872, geofenceRadiusM: 300, locationVerified: true, locationUpdatedAt: now,
+  });
+  await db.doc("doctors/motorcycle-qa-doctor").set({ name: "Dr. QA Santos", areaId: "motorcycle-qa-area", area: "QA Laguna", active: true, createdAt: now });
+  await db.doc("doctors/motorcycle-qa-doctor/deliveryAddresses/motorcycle-qa-clinic").set({ active: true, createdAt: now, updatedAt: now });
+  await db.doc("users/motorcycle-qa-salesrep").set({
+    assignedAreaIds: ["motorcycle-qa-area"], assignedClinicIds: ["motorcycle-qa-clinic"],
+  }, { merge: true });
+  await db.doc("orders/motorcycle-qa-1").update({
+    destinationVersion: 1, doctorId: "motorcycle-qa-doctor", doctorName: "Dr. QA Santos",
+    doctorAddressId: "motorcycle-qa-clinic", destinationType: "clinic", destinationName: "Sample clinic 1",
+    deliveryAddress: "Synthetic test destination, Laguna", destinationAreaId: "motorcycle-qa-area", destinationArea: "QA Laguna",
+    destinationLat: 14.338, destinationLng: 121.087, destinationGeofenceRadiusM: 300, destinationLocationVerified: true,
+    clinicDocId: "motorcycle-qa-clinic", clinicGeofenceRadiusM: 300, clinicLocationVerified: true,
+  });
   console.log("Local motorcycle QA fixtures ready (demo-vaxtrack-motorcycle).");
   console.log("Portal accounts: dispatcher@motorcycle.test, admin@motorcycle.test, salesrep@motorcycle.test");
   console.log(`Local test password: ${password}`);

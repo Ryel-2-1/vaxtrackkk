@@ -11,6 +11,9 @@ import { cancelStockEffect } from "../../services/cancelStockEffect";
 import { loadingCustodyConfirmed } from "../../services/loadingCustody";
 import { requestOrderDestinationChange } from "../../services/destinationCorrectionService";
 import DestinationCorrectionDialog from "./DestinationCorrectionDialog";
+import { subscribeClinics } from "../../services/clinicService";
+import { clinicsById } from "../../services/destinationFreshness";
+import DestinationNotes from "../../components/dispatch/DestinationNotes";
 import {
   ACTOR_DISPATCHER,
   AWAITING_DISPATCHER_STATUSES,
@@ -124,6 +127,18 @@ function DispatcherShipments() {
     );
     return unsub;
   }, []);
+
+  // Clinics, to tell when an order's saved pin is older than its clinic's. A
+  // failed read only hides that note; shipments stay usable.
+  const [clinicMap, setClinicMap] = useState(() => new Map());
+  useEffect(
+    () =>
+      subscribeClinics(
+        (list) => setClinicMap(clinicsById(list)),
+        (err) => logSafeError("Shipments: clinics", err)
+      ),
+    []
+  );
 
   const grouped = useMemo(() => {
     const pending = orders.filter((o) => o.statusKey === "pending_dispatch");
@@ -420,6 +435,7 @@ function DispatcherShipments() {
                       onRequestCancel={openCancelDialog}
                       onRequestReassign={openReassignDialog}
                       onRequestCorrection={openCorrectionDialog}
+                      clinic={clinicMap.get(order.clinicDocId)}
                       focused={order.id === focusOrderId}
                     />
                   ))}
@@ -734,7 +750,7 @@ function CancelOrderDialog({ order, onDismiss, onConfirm }) {
   );
 }
 
-function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign, onRequestCorrection, focused = false }) {
+function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign, onRequestCorrection, clinic: clinicDoc, focused = false }) {
   const rowRef = useRef(null);
   // Opened from a notification: bring the order into view once.
   useEffect(() => {
@@ -773,6 +789,7 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
           <strong>{clinic}</strong>
           {address && <small>{address}</small>}
           {awaitingApproval && <small>Change requested — awaiting Med Rep approval</small>}
+          <DestinationNotes order={order} clinic={clinicDoc} />
         </div>
       </td>
       <td>

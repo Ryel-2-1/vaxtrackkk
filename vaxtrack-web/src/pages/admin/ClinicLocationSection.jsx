@@ -6,6 +6,7 @@ import { MapPin } from "lucide-react";
 import {
   DEFAULT_GEOFENCE_RADIUS_M,
   MAX_GEOFENCE_RADIUS_M,
+  MAX_ACCESS_NOTES_LENGTH,
   MIN_GEOFENCE_RADIUS_M,
   toFiniteNumber,
 } from "../../services/clinicLocation";
@@ -50,7 +51,12 @@ function ClinicLocationSection({
   // The routing hub reuses this picker: a pin only, no arrival radius.
   heading = "Location and service area",
   showRadius = true,
+  // Clinics: confirm the pin is at the entrance riders use, plus optional
+  // rider access notes. Moving the pin clears the confirmation.
+  showEntrance = false,
 }) {
+  const emit = (patch) =>
+    showEntrance && ("latitude" in patch || "longitude" in patch) ? onChange({ ...patch, entranceConfirmed: false }) : onChange(patch);
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
@@ -60,8 +66,8 @@ function ClinicLocationSection({
   const onChangeRef = useRef(onChange);
   const disabledRef = useRef(disabled);
   useEffect(() => {
-    onChangeRef.current = onChange;
-  }, [onChange]);
+    onChangeRef.current = emit;
+  });
   useEffect(() => {
     disabledRef.current = disabled;
   }, [disabled]);
@@ -243,7 +249,7 @@ function ClinicLocationSection({
             inputMode="decimal"
             placeholder="14.599500"
             value={value.latitude ?? ""}
-            onChange={(e) => onChange({ latitude: e.target.value })}
+            onChange={(e) => emit({ latitude: e.target.value })}
             disabled={disabled}
             aria-invalid={errors.latitude ? "true" : undefined}
             aria-describedby={errors.latitude ? `${latId}-error` : undefined}
@@ -264,7 +270,7 @@ function ClinicLocationSection({
             inputMode="decimal"
             placeholder="120.984200"
             value={value.longitude ?? ""}
-            onChange={(e) => onChange({ longitude: e.target.value })}
+            onChange={(e) => emit({ longitude: e.target.value })}
             disabled={disabled}
             aria-invalid={errors.longitude ? "true" : undefined}
             aria-describedby={errors.longitude ? `${lngId}-error` : undefined}
@@ -317,6 +323,47 @@ function ClinicLocationSection({
           {MIN_GEOFENCE_RADIUS_M} and {MAX_GEOFENCE_RADIUS_M} m. This value
           cannot be saved.
         </p>
+      )}
+
+      {showEntrance && (
+        <div className="clinic-loc-entrance">
+          <label className="clinic-loc-entrance-check" htmlFor={`${idPrefix}-entrance`}>
+            <input
+              id={`${idPrefix}-entrance`}
+              type="checkbox"
+              checked={value.entranceConfirmed === true}
+              onChange={(e) => onChange({ entranceConfirmed: e.target.checked })}
+              disabled={disabled || !hasPin}
+              aria-invalid={errors.entranceConfirmed ? "true" : undefined}
+              aria-describedby={`${idPrefix}-entrance-hint`}
+            />
+            <span>
+              The pin is at the entrance riders use — a safe place to stop, open during delivery hours and
+              reachable on foot from the road.
+            </span>
+          </label>
+          <small id={`${idPrefix}-entrance-hint`} className={errors.entranceConfirmed ? "clinic-loc-error" : "clinic-loc-hint"}>
+            {errors.entranceConfirmed ||
+              (hasPin
+                ? "Required to save a pin. Moving the pin asks for this again. Arrival is checked against this point."
+                : "Place the pin first.")}
+          </small>
+          <label htmlFor={`${idPrefix}-access-notes`}>
+            Rider access notes (optional)
+            <textarea
+              id={`${idPrefix}-access-notes`}
+              rows={2}
+              maxLength={MAX_ACCESS_NOTES_LENGTH}
+              placeholder="e.g. Side gate on Rizal St.; ring the buzzer at the pharmacy door"
+              value={value.accessNotes ?? ""}
+              onChange={(e) => onChange({ accessNotes: e.target.value })}
+              disabled={disabled}
+              aria-invalid={errors.accessNotes ? "true" : undefined}
+            />
+          </label>
+          {errors.accessNotes && <small className="clinic-loc-error">{errors.accessNotes}</small>}
+          <small className="clinic-loc-hint">Shown to the rider on new orders to this clinic.</small>
+        </div>
       )}
 
       {!hasPin && (

@@ -172,3 +172,44 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Entrance confirmation + rider access notes (clinics only). */
+.clinic-loc-entrance {
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--gray-200);
+}
+.clinic-loc-entrance-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--gray-900);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.clinic-loc-entrance-check input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 16px !important;
+  height: 16px !important;
+  min-height: 16px !important;
+  margin: 2px 0 0;
+  accent-color: var(--green-700);
+}
+.clinic-loc-entrance label:not(.clinic-loc-entrance-check) {
+  display: grid;
+  gap: 4px;
+  color: var(--gray-700);
+  font-size: 12px;
+  font-weight: 600;
+}
+.clinic-loc-entrance textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 400;
+  resize: vertical;
+}

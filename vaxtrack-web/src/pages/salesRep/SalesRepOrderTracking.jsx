@@ -489,11 +489,15 @@ function SalesRepOrderTracking() {
                 {selectedOrder.changeRequest && (
                   <section className="tracking-destination-request" aria-label="Destination change request">
                     <h3>Destination change requested</h3>
-                    <p>The Dispatcher requested a change for this order. Review it before the address changes.</p>
+                    <p>
+                      {selectedOrder.changeRequest.refresh
+                        ? "Same address, corrected point: the clinic's pin or entrance details were corrected after this order was placed. Approving moves this order to the corrected point the rider must reach."
+                        : "The Dispatcher requested a change for this order. Review it before the address changes."}
+                    </p>
                     <dl>
                       <dt>Current destination</dt>
                       <dd>{selectedOrder.destination} — {selectedOrder.city}</dd>
-                      <dt>Proposed destination</dt>
+                      <dt>{selectedOrder.changeRequest.refresh ? "Proposed (corrected point)" : "Proposed destination"}</dt>
                       <dd>{selectedOrder.changeRequest.proposed?.displayName || "Unknown"} — {selectedOrder.changeRequest.proposed?.address || "Unknown"}</dd>
                       <dt>Reason</dt>
                       <dd>{selectedOrder.changeRequest.reason}</dd>

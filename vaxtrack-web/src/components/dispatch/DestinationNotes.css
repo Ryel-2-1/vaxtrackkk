@@ -1,0 +1,16 @@
+/* DestinationNotes.jsx — an order's destination is out of date, or needs a new route. */
+.destination-note {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 4px;
+  color: var(--warning-text) !important;
+  font-size: 12px !important;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: normal;
+}
+.destination-note svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}

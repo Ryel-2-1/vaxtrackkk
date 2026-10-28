@@ -20,6 +20,7 @@ import {
   updateClinicLocation,
   readClinicLocation,
   validateClinicLocation,
+  validateEntranceDetails,
   MIN_GEOFENCE_RADIUS_M,
   MAX_GEOFENCE_RADIUS_M,
 } from "../../services/clinicService";
@@ -117,6 +118,9 @@ function normalizeClinic(raw) {
     locationInfo: readClinicLocation(raw),
     // Med Reps and doctors can only be linked to a clinic with a verified pin.
     locationVerified: raw.locationVerified === true,
+    // The pin was confirmed as the entrance riders use (Manage location).
+    entranceConfirmed: raw.entranceConfirmed === true,
+    accessNotes: typeof raw.accessNotes === "string" ? raw.accessNotes : "",
     // Preserve whether the raw stored location passes the write contract. The
     // normalized radius alone cannot distinguish a missing radius (valid,
     // defaults to 300 m) from malformed legacy data (invalid).
@@ -136,7 +140,7 @@ const CLINIC_REQUIRED_FIELDS = [
   ["phone", "Enter a phone number."],
   ["location", "Enter the clinic address."],
 ];
-const CLINIC_FIELD_ORDER = ["name", "contact", "phone", "email", "location", "areaId", "latitude", "longitude", "geofenceRadiusM"];
+const CLINIC_FIELD_ORDER = ["name", "contact", "phone", "email", "location", "areaId", "latitude", "longitude", "geofenceRadiusM", "entranceConfirmed", "accessNotes"];
 const CLINIC_FIELD_IDS = {
   name: "new-clinic-name",
   contact: "new-clinic-contact",
@@ -147,6 +151,8 @@ const CLINIC_FIELD_IDS = {
   latitude: "new-clinic-lat",
   longitude: "new-clinic-lng",
   geofenceRadiusM: "new-clinic-radius",
+  entranceConfirmed: "new-clinic-entrance",
+  accessNotes: "new-clinic-access-notes",
 };
 
 const EMPTY_CLINIC = {
@@ -162,6 +168,8 @@ const EMPTY_CLINIC = {
   latitude: "",
   longitude: "",
   geofenceRadiusM: "",
+  entranceConfirmed: false,
+  accessNotes: "",
 };
 
 const NO_LINKED_DOCTORS = Object.freeze({ doctors: [], loading: false, error: "" });
@@ -531,6 +539,9 @@ function Clinics() {
     if (enteredLocation) {
       const check = validateClinicLocation(newClinic);
       if (!check.ok) Object.assign(fieldErrors, check.errors);
+      // A pin is saved only with the entrance confirmation.
+      const entrance = validateEntranceDetails(newClinic);
+      if (!entrance.ok) Object.assign(fieldErrors, entrance.errors);
     }
     if (hasErrors(fieldErrors)) {
       setNewClinicErrors({ ...fieldErrors, form: "Check the highlighted fields. Nothing was saved." });
@@ -564,6 +575,8 @@ function Clinics() {
         latitude: newClinic.latitude,
         longitude: newClinic.longitude,
         geofenceRadiusM: newClinic.geofenceRadiusM,
+        entranceConfirmed: newClinic.entranceConfirmed,
+        accessNotes: newClinic.accessNotes,
       });
 
       // "Who can order here": link the ticked Med Reps and doctors now. Each link
@@ -872,6 +885,9 @@ function Clinics() {
                           ? "Location verified"
                           : "Needs location"}
                       </span>
+                      {clinic.locationInfo.hasCoordinates && !clinic.entranceConfirmed && (
+                        <span className="clinic-reach-chip warn">Entrance not confirmed</span>
+                      )}
                     </div>
                   </td>
 
@@ -1234,6 +1250,8 @@ function locationFields(clinic) {
       clinic.locationInfo.geofenceRadiusMStored ??
         clinic.locationInfo.geofenceRadiusM
     ),
+    entranceConfirmed: clinic.entranceConfirmed === true,
+    accessNotes: clinic.accessNotes || "",
   };
 }
 
@@ -1241,6 +1259,8 @@ const LOCATION_FIELD_LABELS = {
   latitude: "Latitude",
   longitude: "Longitude",
   geofenceRadiusM: "Geofence radius",
+  entranceConfirmed: "Entrance confirmation",
+  accessNotes: "Rider access notes",
 };
 
 /**
@@ -1331,8 +1351,9 @@ function ManageLocationModal({ clinic, live, onClose, onSave }) {
     e.preventDefault();
     if (savingRef.current || blocked) return;
     const check = validateClinicLocation(draft);
-    if (!check.ok) {
-      setErrors(check.errors);
+    const entrance = validateEntranceDetails(draft);
+    if (!check.ok || !entrance.ok) {
+      setErrors({ ...check.errors, ...entrance.errors });
       return;
     }
     setErrors({});
@@ -1400,6 +1421,7 @@ function ManageLocationModal({ clinic, live, onClose, onSave }) {
           <ClinicLocationSection
             value={draft}
             onChange={patchDraft}
+            showEntrance
             errors={errors}
             disabled={saving}
             idPrefix={`manage-${clinic.firestoreId}`}
@@ -2347,6 +2369,7 @@ function NewClinicModal({
           <ClinicLocationSection
             value={newClinic}
             onChange={(patch) => setNewClinic((prev) => ({ ...prev, ...patch }))}
+            showEntrance
             errors={errors}
             disabled={saving}
             idPrefix="new-clinic"

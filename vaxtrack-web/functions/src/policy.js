@@ -147,6 +147,8 @@ function isUnconfirmedStockQuantity(quantity) {
 const MAX_REASON_LENGTH = 500; // identical to orderWorkflow.js / firestore.rules
 const DESTINATION_VERSION = 1;
 const HOME_ADDRESS_ID = "home";
+// Rider access notes for a clinic entrance (clinics.accessNotes); web mirror: src/services/clinicLocation.js.
+const MAX_ACCESS_NOTES_LENGTH = 300;
 const DEFAULT_GEOFENCE_RADIUS_M = 300;
 const MIN_GEOFENCE_RADIUS_M = 50;
 const MAX_GEOFENCE_RADIUS_M = 1000;
@@ -747,6 +749,8 @@ function buildOrderDestinationSnapshot({
   let location;
   let clinicDocId = null;
   let clinicId = null;
+  let accessNotes = "";
+  let entranceConfirmed = false;
 
   if (type === "home") {
     if (relationship.kind !== HOME_ADDRESS_ID) {
@@ -792,6 +796,11 @@ function buildOrderDestinationSnapshot({
     location = validatedCoordinates(clinic);
     clinicDocId = stableAddressId;
     clinicId = cleanSnapshotText(clinic.clinicId) || null;
+    // How the rider reaches the confirmed entrance (Admin → Clinics → Manage
+    // location). Copied onto the order like the pin, so the rider sees what
+    // was true when the order was placed or last corrected.
+    accessNotes = cleanSnapshotText(clinic.accessNotes).slice(0, MAX_ACCESS_NOTES_LENGTH);
+    entranceConfirmed = clinic.entranceConfirmed === true;
 
     if (name.length < 2 || address.length < 5) {
       throw new PolicyError(
@@ -840,6 +849,9 @@ function buildOrderDestinationSnapshot({
     clinicGeofenceRadiusM: location.geofenceRadiusM,
     clinicLocationVerified: true,
     ...(clinicId ? { clinicId } : {}),
+    // Present only when set, so orders from clinics without them are unchanged.
+    ...(accessNotes ? { destinationAccessNotes: accessNotes } : {}),
+    ...(entranceConfirmed ? { destinationEntranceConfirmed: true } : {}),
   };
 
   return {
@@ -1413,6 +1425,7 @@ module.exports = {
   isUnconfirmedStockQuantity,
   MAX_REASON_LENGTH,
   DESTINATION_VERSION,
+  MAX_ACCESS_NOTES_LENGTH,
   HOME_ADDRESS_ID,
   PolicyError,
   manilaDateString,

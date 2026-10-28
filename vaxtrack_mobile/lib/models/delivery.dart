@@ -90,6 +90,10 @@ class Delivery {
   final String? tripRouteProvider;
   final String? tripRouteProfile;
 
+  /// How to reach the confirmed clinic entrance ("Side gate on Rizal St."),
+  /// copied onto the order with its pin. Optional; read-only for the rider.
+  final String? destinationAccessNotes;
+
   /// Server-evaluated delivery timing (functions/src/deliveryTiming.js):
   /// on_time / at_risk / delayed / unknown, with the baseline frozen at
   /// dispatch. Secondary to [status]; never blocks proof or completion.
@@ -151,6 +155,7 @@ class Delivery {
     this.tripDurationSeconds,
     this.tripRouteProvider,
     this.tripRouteProfile,
+    this.destinationAccessNotes,
     this.timingStatus,
     this.expectedArrivalAt,
     this.automaticDelayedAt,
@@ -224,6 +229,7 @@ class Delivery {
       tripDurationSeconds: _toInt(data['tripDurationSeconds']),
       tripRouteProvider: _nonBlank(data['tripRouteProvider']),
       tripRouteProfile: _nonBlank(data['tripRouteProfile']),
+      destinationAccessNotes: _nonBlank(data['destinationAccessNotes']),
       timingStatus: _nonBlank(data['timingStatus']),
       expectedArrivalAt: _toDateTime(data['expectedArrivalAt']),
       automaticDelayedAt: _toDateTime(data['automaticDelayedAt']),

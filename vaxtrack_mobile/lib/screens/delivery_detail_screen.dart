@@ -818,16 +818,32 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
       Container(width: 1, height: 34, color: AppColors.border);
 
   Widget _destinationRow() {
-    return Row(
+    final notes = d.destinationAccessNotes;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Icon(Icons.place, size: 16, color: AppColors.primary),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            d.clinicAddress.isNotEmpty ? d.clinicAddress : d.clinicName,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-          ),
+        Row(
+          children: [
+            const Icon(Icons.place, size: 16, color: AppColors.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                d.clinicAddress.isNotEmpty ? d.clinicAddress : d.clinicName,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
         ),
+        // Where to stop and how to get in, from the clinic's confirmed entrance.
+        if (notes != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 24, top: 4),
+            child: Text(
+              'Access: $notes',
+              key: const ValueKey('destination-access-notes'),
+              style: const TextStyle(fontSize: 12, color: AppColors.textLight),
+            ),
+          ),
       ],
     );
   }

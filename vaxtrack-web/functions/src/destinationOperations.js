@@ -17,8 +17,25 @@ const DESTINATION_FIELDS = [
   "destinationGeofenceRadiusM", "destinationLocationVerified",
   "clinicDocId", "clinicId", "clinicName", "clinicAddress", "clinicLat",
   "clinicLng", "clinicGeofenceRadiusM", "clinicLocationVerified",
-  "clinicLocationUpdatedAt",
+  "clinicLocationUpdatedAt", "destinationAccessNotes", "destinationEntranceConfirmed",
 ];
+// Snapshot fields that a destination without them must CLEAR (spreading the new
+// fields alone would leave the old values behind).
+const OPTIONAL_DESTINATION_FIELDS = ["clinicId", "destinationAccessNotes", "destinationEntranceConfirmed"];
+
+/**
+ * Would this proposal change where, or how, the rider arrives? Same address
+ * is allowed when the clinic's pin, radius or rider access details were
+ * corrected after the order copied them (a "refresh"); otherwise it is no change.
+ */
+function sameArrival(order, fields) {
+  const pick = (o, canonical, alias) => (Object.hasOwn(o, canonical) ? o[canonical] : o[alias]);
+  return Object.is(pick(order, "destinationLat", "clinicLat"), fields.destinationLat) &&
+    Object.is(pick(order, "destinationLng", "clinicLng"), fields.destinationLng) &&
+    Object.is(pick(order, "destinationGeofenceRadiusM", "clinicGeofenceRadiusM"), fields.destinationGeofenceRadiusM) &&
+    (order.destinationAccessNotes ?? "") === (fields.destinationAccessNotes ?? "") &&
+    (order.destinationEntranceConfirmed === true) === (fields.destinationEntranceConfirmed === true);
+}
 
 function snapshotDestination(order) {
   return Object.fromEntries(
@@ -116,24 +133,25 @@ async function requestOrderDestinationChange({ db, FieldValue, uid, payload }) {
     if (order.destinationChangeRequest) {
       throw new PolicyError("destination-request-pending", "A destination request already awaits the Med Rep's decision.");
     }
-    if (order.doctorAddressId === addressId) {
-      throw new PolicyError("destination-unchanged", "Choose a different address for this doctor.");
-    }
-
     const invoiceSnap = await tx.get(db.collection("invoices").doc(orderId));
     if (invoiceSnap.exists && invoiceSnap.data().invoiceStatus === "issued") {
       throw new PolicyError("invoice-already-issued", "An issued invoice already records this destination. Ask Admin to review the order.");
     }
     const destination = await readProposedDestination(tx, db, order, addressId);
+    // Same address: only as a refresh to the clinic's corrected pin or access details.
+    const refresh = order.doctorAddressId === addressId;
+    if (refresh && sameArrival(order, destination.orderFields)) {
+      throw new PolicyError("destination-unchanged", "This order already uses that address's current pin. Choose a different address for this doctor.");
+    }
     const stamp = FieldValue.serverTimestamp();
     tx.create(requestRef, {
       orderId, doctorId: order.doctorId, status: "pending", baseRevision: revision,
       previous: snapshotDestination(order), proposed: snapshotDestination(destination.orderFields),
-      reason, requestedByUid: uid, requestedAt: stamp,
+      refresh, reason, requestedByUid: uid, requestedAt: stamp,
     });
     tx.update(orderRef, {
       destinationChangeRequest: {
-        id: requestRef.id, baseRevision: revision,
+        id: requestRef.id, baseRevision: revision, refresh,
         proposed: destination.response, reason,
         requestedByUid: uid, requestedAt: stamp,
       },
@@ -194,8 +212,7 @@ async function reviewOrderDestinationChange({ db, FieldValue, uid, payload }) {
     assertCorrectable(order);
     const revision = revisionOf(order);
     if (revision !== request.baseRevision || revision !== order.destinationChangeRequest.baseRevision ||
-        request.doctorId !== order.doctorId ||
-        request.proposed?.doctorAddressId === order.doctorAddressId) {
+        request.doctorId !== order.doctorId) {
       throw new PolicyError("destination-request-stale", "This request no longer matches the order. Reject it and ask Dispatcher to try again.");
     }
     const invoiceSnap = await tx.get(db.collection("invoices").doc(orderId));
@@ -205,6 +222,9 @@ async function reviewOrderDestinationChange({ db, FieldValue, uid, payload }) {
     const addressId = validateDocumentId(request.proposed.doctorAddressId, "The requested address is invalid.");
     const destination = await readProposedDestination(tx, db, order, addressId);
     assertProposalStillMatches(request, destination);
+    if (request.proposed?.doctorAddressId === order.doctorAddressId && sameArrival(order, destination.orderFields)) {
+      throw new PolicyError("destination-request-stale", "This request no longer matches the order. Reject it and ask Dispatcher to try again.");
+    }
 
     // The other stops of this order's trip share one trip route, drawn through
     // the OLD location of this stop: their trip routes are stale too. (Read
@@ -226,8 +246,9 @@ async function reviewOrderDestinationChange({ db, FieldValue, uid, payload }) {
     tx.update(requestRef, { status: "approved", reviewedByUid: uid, reviewedAt: stamp });
     tx.update(orderRef, {
       ...destination.orderFields,
-      ...(!destination.orderFields.clinicId && Object.hasOwn(order, "clinicId")
-        ? { clinicId: FieldValue.delete() } : {}),
+      ...Object.fromEntries(OPTIONAL_DESTINATION_FIELDS
+        .filter((key) => !Object.hasOwn(destination.orderFields, key) && Object.hasOwn(order, key))
+        .map((key) => [key, FieldValue.delete()])),
       ...(Object.hasOwn(order, "clinicLocationUpdatedAt")
         ? { clinicLocationUpdatedAt: FieldValue.delete() } : {}),
       destinationRevision: nextRevision,
@@ -246,4 +267,4 @@ async function reviewOrderDestinationChange({ db, FieldValue, uid, payload }) {
   });
 }
 
-module.exports = { requestOrderDestinationChange, reviewOrderDestinationChange, CORRECTABLE_STATUSES };
+module.exports = { requestOrderDestinationChange, reviewOrderDestinationChange, sameArrival, CORRECTABLE_STATUSES };

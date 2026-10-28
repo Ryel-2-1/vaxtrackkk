@@ -36,6 +36,9 @@ import DispatcherDialogLayer from "./DispatcherDialogLayer";
 import DeparturePlanner from "../../components/dispatch/DeparturePlanner";
 import { subscribeRoutingSettings } from "../../services/routingSettingsService";
 import { routingSettingsOf } from "../../services/routingSettings";
+import { subscribeClinics } from "../../services/clinicService";
+import { clinicsById } from "../../services/destinationFreshness";
+import DestinationNotes from "../../components/dispatch/DestinationNotes";
 
 // The departure planner (requested arrivals + motorcycle travel times) is
 // switched on per build with VITE_DEPARTURE_PLANNER_ENABLED=true, and always
@@ -117,6 +120,17 @@ function DispatcherCargoLoading() {
   // Hub + planning defaults for the departure planner (Admin → Settings → Routing).
   // null while loading; an unreadable document plans with no hub, never a guessed one.
   const [routing, setRouting] = useState(null);
+  // Clinics, to tell when an order's saved pin is older than its clinic's
+  // (DestinationNotes). A failed read only hides that note.
+  const [clinicMap, setClinicMap] = useState(() => new Map());
+  useEffect(
+    () =>
+      subscribeClinics(
+        (list) => setClinicMap(clinicsById(list)),
+        (err) => logSafeError("Clinics for destination notes", err)
+      ),
+    []
+  );
 
   useEffect(() => {
     if (!DEPARTURE_PLANNER_ENABLED) return undefined;
@@ -390,6 +404,7 @@ function DispatcherCargoLoading() {
                   onFinalize={() => setConfirmGroup(group)}
                   tripHold={cargoGroupDispatch(tripStates.get(group.riderId))}
                   routing={routing}
+                  clinicMap={clinicMap}
                 />
               ))}
             </div>
@@ -464,6 +479,7 @@ function RiderCard({
   onFinalize,
   tripHold = { canFinalize: true, reason: "" },
   routing = null,
+  clinicMap = null,
 }) {
   const badge = loadingBadge(group, dispatched);
   // Orders assigned before the schedule guard existed may still sit here ahead
@@ -561,6 +577,7 @@ function RiderCard({
                 <small className="cl-order-request">
                   Requested arrival: {requestedScheduleLabel(order.requestedDeliveryDate, requestedArrivalOf(order))}
                 </small>
+                <DestinationNotes order={order} clinic={clinicMap?.get(order.clinicDocId)} />
                 {!schedule.eligible && (
                   <>
                     {schedule.code === SCHEDULED_DATE_NOT_REACHED && (

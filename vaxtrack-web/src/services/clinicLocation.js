@@ -156,3 +156,25 @@ export function readClinicLocation(clinic = {}) {
     locationVerified: inRange && clinic.locationVerified === true,
   };
 }
+
+/** Rider access notes for a clinic entrance; server mirror: functions/src/policy.js. */
+export const MAX_ACCESS_NOTES_LENGTH = 300;
+
+/**
+ * The entrance confirmation that accompanies every saved clinic pin: the Admin
+ * confirms the pin is at the entrance riders use (safe to stop, accessible),
+ * and may add short access notes the rider sees ("Side gate on Rizal St.,
+ * ring the buzzer"). Notes are optional; the confirmation is not.
+ */
+export function validateEntranceDetails({ entranceConfirmed, accessNotes } = {}) {
+  const errors = {};
+  if (entranceConfirmed !== true) {
+    errors.entranceConfirmed = "Confirm that the pin is at the entrance riders use.";
+  }
+  const notes = typeof accessNotes === "string" ? accessNotes.trim().replace(/\s+/g, " ") : "";
+  if (notes.length > MAX_ACCESS_NOTES_LENGTH) {
+    errors.accessNotes = `Keep rider access notes to ${MAX_ACCESS_NOTES_LENGTH} characters.`;
+  }
+  const ok = Object.keys(errors).length === 0;
+  return { ok, errors, value: ok ? { entranceConfirmed: true, accessNotes: notes } : null };
+}

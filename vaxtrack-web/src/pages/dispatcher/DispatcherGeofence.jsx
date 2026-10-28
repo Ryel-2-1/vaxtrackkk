@@ -31,6 +31,9 @@ import {
 } from "../../services/routeService";
 import { DEADLINE_SLACK_MINUTES, arrivalCheck, bufferedMinutes, matrixMinutes, planTrip } from "../../services/timeAwareRouting";
 import { subscribeRoutingSettings } from "../../services/routingSettingsService";
+import { subscribeClinics } from "../../services/clinicService";
+import { clinicsById } from "../../services/destinationFreshness";
+import DestinationNotes from "../../components/dispatch/DestinationNotes";
 import { routingSettingsOf } from "../../services/routingSettings";
 import StatusBadge from "../../components/ui/StatusBadge";
 import { savedRouteDescription } from "../../services/routeMetadata.js";
@@ -343,6 +346,17 @@ function DispatcherGeofence() {
   // rider's live position.
   const [routing, setRouting] = useState(() => routingSettingsOf(null));
   const [tripNotice, setTripNotice] = useState(null); // { riderId, allMet, text } | null
+  // Clinics, to tell when an order's saved pin is older than its clinic's
+  // (DestinationNotes). A failed read only hides that note.
+  const [clinicMap, setClinicMap] = useState(() => new Map());
+  useEffect(
+    () =>
+      subscribeClinics(
+        (list) => setClinicMap(clinicsById(list)),
+        (err) => logSafeError("Clinics for destination notes", err)
+      ),
+    []
+  );
 
   useEffect(
     () =>
@@ -926,6 +940,7 @@ function DispatcherGeofence() {
                           <span>Destination</span>
                           <strong>{selected.clinicName || "—"}</strong>
                           {selected.clinicAddress && <p>{selected.clinicAddress}</p>}
+                          <DestinationNotes order={selected} clinic={clinicMap.get(selected.clinicDocId)} />
                         </div>
                       </div>
 
