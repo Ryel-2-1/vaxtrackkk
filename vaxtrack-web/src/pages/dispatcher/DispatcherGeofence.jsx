@@ -34,11 +34,13 @@ import { subscribeRoutingSettings } from "../../services/routingSettingsService"
 import { subscribeClinics } from "../../services/clinicService";
 import { clinicsById } from "../../services/destinationFreshness";
 import DestinationNotes from "../../components/dispatch/DestinationNotes";
+import TripProgress, { StopProgressBadge } from "../../components/dispatch/TripProgress";
+import { shipmentProgress, tripProgress } from "../../services/stopProgress";
 import { routingSettingsOf } from "../../services/routingSettings";
 import StatusBadge from "../../components/ui/StatusBadge";
 import { savedRouteDescription } from "../../services/routeMetadata.js";
 import { manilaTime } from "../../services/deliveryTiming";
-import { manilaClock, requestedArrivalLabel, requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
+import { manilaClock, requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
 
 /** Epoch ms of a Firestore Timestamp / Date / number, or null. */
 function millisOf(value) {
@@ -81,10 +83,11 @@ const clinicIcon = L.divIcon({
 });
 
 // Numbered destination marker for a multi-stop trip — shows the visiting order.
-function numberedStopIcon(n) {
+function numberedStopIcon(n, state, navigating) {
+  const badge = state === "delivered" ? "✓" : navigating ? "➜" : state === "proof" ? "P" : "";
   return L.divIcon({
     className: "geo3-live-clinic-marker",
-    html: `<span class="geo3-live-stop-dot">${n}</span>`,
+    html: `<span class="geo3-live-stop-dot stop-marker-${state}${navigating ? " stop-marker-navigating" : ""}">${n}${badge ? `<span class="stop-marker-badge">${badge}</span>` : ""}</span>`,
     iconSize: [22, 22],
     iconAnchor: [11, 11],
   });
@@ -231,8 +234,12 @@ function RiderLocationMap({ lat, lng, clinicLat, clinicLng, routePolyline, stops
     stopMarkersRef.current.forEach((m) => m.remove());
     stopMarkersRef.current = [];
     for (const s of stops) {
+      const tooltip = document.createElement("span");
+      tooltip.textContent = s.description;
       stopMarkersRef.current.push(
-        L.marker([s.lat, s.lng], { icon: numberedStopIcon(s.label) }).addTo(map)
+        L.marker([s.lat, s.lng], {
+          icon: numberedStopIcon(s.label, s.state, s.navigating), title: s.description,
+        }).addTo(map).bindTooltip(tooltip)
       );
     }
 
@@ -432,16 +439,18 @@ function DispatcherGeofence() {
       .map((o) => ({ order: o, latLng: getClinicLatLng(o) }));
   }, [activeOrders, selected]);
 
-  // Once a trip is generated, its stops in visiting order (each order carries
-  // stopSequence + stopEtaText). Used for the numbered map markers and the list.
+  const progress = useMemo(
+    () => tripProgress(orders, selectedOrder, live.deviation),
+    [orders, selectedOrder, live.deviation]
+  );
+
+  // Keep completed stops visible in the current plan. Progress doesn't depend
+  // on coordinates; only the map markers require a valid destination point.
   const tripStops = useMemo(() => {
-    const tripId = selected?.tripId;
-    if (!tripId) return [];
-    return activeOrders
-      .filter((o) => o.tripId === tripId && Number.isFinite(o.stopSequence) && getClinicLatLng(o))
-      .map((o) => ({ order: o, latLng: getClinicLatLng(o) }))
-      .sort((a, b) => a.order.stopSequence - b.order.stopSequence);
-  }, [activeOrders, selected]);
+    return (progress?.stops ?? [])
+      .filter((s) => getClinicLatLng(s.order))
+      .map((s) => ({ ...s, latLng: getClinicLatLng(s.order) }));
+  }, [progress]);
 
   // Stable numbered-marker list for the map (visiting order).
   const tripStopMarkers = useMemo(
@@ -450,6 +459,9 @@ function DispatcherGeofence() {
         lat: s.latLng[0],
         lng: s.latLng[1],
         label: s.order.stopSequence,
+        state: s.state,
+        navigating: s.navigating,
+        description: `Stop ${s.order.stopSequence} · ${s.order.clinicName || "Destination"} · ${s.label}${s.navigating ? " · Navigation target" : ""}`,
       })),
     [tripStops]
   );
@@ -595,15 +607,16 @@ function DispatcherGeofence() {
         <div className="geo3-info-banner">
           <Info size={16} />
           <div>
-            <strong>Live rider tracking shows position only.</strong>
+            <strong>Follow trip progress and the Rider’s reported position.</strong>
             <p>
-              The map displays the rider&apos;s last reported location while a
-              delivery is in transit (foreground tracking). Geofence, route
-              deviation, and destination markers will activate once clinics have
-              coordinates. All data comes from Firestore.
+              Proof and delivery completion update automatically. Proof recorded
+              does not confirm departure from a stop. The GPS marker shows the
+              reported position; check its last update.
             </p>
           </div>
         </div>
+
+        <TripProgress progress={progress} riderName={selected?.assignedRiderName} selectedId={selectedId} />
 
         {selected && getLatLng(selected.lastLocation) && (() => {
           const riderLL = getLatLng(selected.lastLocation);
@@ -621,6 +634,7 @@ function DispatcherGeofence() {
                 routePolyline={hasTrip ? selected.tripPolyline : selected.routePolyline}
                 stops={hasTrip ? tripStopMarkers : NO_STOPS}
               />
+              {hasTrip && <p className="stop-progress-note">Stop markers: ✓ Delivered · P Proof recorded · ➜ Navigation target. The Rider’s position is the separate GPS dot.</p>}
               {clinicLL ? (
                 <p className="geo3-live-map-note">
                   <span className={inside ? "geo3-geofence-in" : "geo3-geofence-out"}>
@@ -782,25 +796,6 @@ function DispatcherGeofence() {
                         </div>
                       </div>
 
-                      <ol className="geo3-trip-stops">
-                        {tripStops.map((s) => (
-                          <li
-                            key={s.order.id}
-                            className={s.order.id === selected.id ? "current" : ""}
-                          >
-                            <span className="geo3-trip-seq">{s.order.stopSequence}</span>
-                            <div className="geo3-trip-stop-main">
-                              <strong>
-                                {s.order.clinicName ||
-                                  s.order.orderNumber ||
-                                  s.order.id}
-                              </strong>
-                              <small>Est. arrival {s.order.stopEtaText || "—"}</small>
-                              <small>Requested: {requestedArrivalLabel(requestedArrivalOf(s.order))}</small>
-                            </div>
-                          </li>
-                        ))}
-                      </ol>
                     </>
                   )}
 
@@ -869,6 +864,7 @@ function DispatcherGeofence() {
                 <div className="geo3-order-list">
                   {activeOrders.map((order) => {
                     const isActive = order.id === selectedId;
+                    const stop = shipmentProgress(order);
                     return (
                       <button
                         key={order.id}
@@ -881,6 +877,10 @@ function DispatcherGeofence() {
                           <StatusBadge statusKey={order.statusKey} label={order.statusLabel} />
                         </div>
                         <p>{order.clinicName || "—"}</p>
+                        <StopProgressBadge progress={stop} />
+                        {progress?.navigationTarget?.order.id === order.id && (
+                          <span className="stop-progress-nav"><Navigation size={13} aria-hidden="true" />Navigation target</span>
+                        )}
                         <small>
                           {order.assignedRiderName
                             ? `Rider: ${order.assignedRiderName}`

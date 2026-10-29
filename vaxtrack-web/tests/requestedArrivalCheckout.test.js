@@ -190,7 +190,7 @@ test("Med Rep and Dispatcher screens show the requested arrival", () => {
     ["src/pages/dispatcher/DispatcherDashboard.jsx", /dispatcher-dash-arrival">\{requestedArrivalLabel\(requestedArrivalOf\(order\)\)\}/],
     ["src/pages/dispatcher/DispatcherAssignRider.jsx", /<span>Requested arrival<\/span>/],
     ["src/pages/dispatcher/DispatcherCargoLoading.jsx", /Requested arrival: \{requestedScheduleLabel\(order\.requestedDeliveryDate, requestedArrivalOf\(order\)\)\}/],
-    ["src/pages/dispatcher/DispatcherGeofence.jsx", /Requested: \{requestedArrivalLabel\(requestedArrivalOf\(s\.order\)\)\}/],
+    ["src/components/dispatch/TripProgress.jsx", /Requested: \{requestedArrivalLabel\(requestedArrivalOf\(stop\.order\)\)\}/],
     ["src/components/schedule/DeliveryCalendar.jsx", /<Field label="Requested arrival" value=\{requestedArrivalLabel\(requestedArrivalOf\(order\)\)\} \/>/],
   ]) {
     assert.match(read(file), pattern, file);
@@ -199,7 +199,8 @@ test("Med Rep and Dispatcher screens show the requested arrival", () => {
   const geo = read("src/pages/dispatcher/DispatcherGeofence.jsx");
   assert.match(geo, /Estimated arrival at dispatch:/);
   assert.match(geo, /Left the hub:/);
-  assert.match(geo, /Est\. arrival \{s\.order\.stopEtaText/);
+  assert.match(geo, /<TripProgress progress=\{progress\}/);
+  assert.match(read("src/components/dispatch/TripProgress.jsx"), /Planned arrival \{stop\.order\.stopEtaText/);
 });
 
 test("the createOrderWithReservation wrapper forwards the requested arrival to the callable", () => {

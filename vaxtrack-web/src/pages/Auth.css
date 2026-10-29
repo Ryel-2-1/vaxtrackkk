@@ -160,6 +160,13 @@
   opacity: 0.7;
   cursor: not-allowed;
 }
+.auth-page .register-submit:disabled,
+.auth-page .register-submit:disabled:hover {
+  background: #a5b6ad !important;
+  box-shadow: none !important;
+  opacity: 1;
+  cursor: not-allowed;
+}
 
 .auth-divider {
   display: flex;
@@ -1055,6 +1062,33 @@ input[type="checkbox"]:focus {
   font-size: 12px !important;
   line-height: 1.45 !important;
   font-weight: 600 !important;
+}
+.auth-page .register-password-strength {
+  margin: 8px 0 17px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+.auth-page .register-password-strength.is-progressing { color: #92600d; }
+.auth-page .register-password-strength.is-strong { color: #166534; }
+.auth-page .register-password-meter {
+  height: 5px;
+  margin-top: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+.auth-page .register-password-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #94a3b8;
+  transition: width 160ms ease, background-color 160ms ease;
+}
+.auth-page .register-password-strength.is-progressing .register-password-meter > span { background: #d69e36; }
+.auth-page .register-password-strength.is-strong .register-password-meter > span { background: #198754; }
+@media (prefers-reduced-motion: reduce) {
+  .auth-page .register-password-meter > span { transition: none; }
 }
 
 .register-card .auth-check-row,

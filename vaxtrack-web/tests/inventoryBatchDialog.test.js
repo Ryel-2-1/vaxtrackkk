@@ -213,7 +213,7 @@ test("dialog semantics, close button and Escape are unchanged", () => {
   const head = DIALOG.slice(DIALOG.indexOf('<header className="inv-batch-head">'), DIALOG.indexOf("</header>"));
   assert.match(head, /ref=\{closeRef\}/);
   assert.match(head, /aria-label="Close batch details"/);
-  assert.match(PAGE, /onClose=\{\(\) => setSelectedVaccine\(null\)\}/);
+  assert.match(PAGE, /onClose=\{closeBatchDetails\}/);
   // The batch dialog has no backdrop-click close (it never had one); the stacked one keeps its own.
   assert.doesNotMatch(DIALOG.slice(0, DIALOG.indexOf("export function InventoryDialog")), /backdrop[^>]*onClick/);
 });

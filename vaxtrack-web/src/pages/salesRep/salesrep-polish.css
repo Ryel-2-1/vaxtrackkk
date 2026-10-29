@@ -415,17 +415,13 @@ aside.salesrep-sidebar .salesrep-logout {
    46px square by the global `button { min-height:46px !important }`
    reset, hold it compact while keeping a usable click area. The
    catalog qty steppers already carry explicit sizes; this covers
-   the cart delete + confirmation copy/print controls. */
+   the cart delete controls. */
 .salesrep-main .request-v2-cart-item button {
   min-height: 34px !important;
   height: 34px !important;
   width: 34px !important;
   border-radius: 8px !important;
 }
-.salesrep-main .confirmation-print-btn {
-  min-height: 0 !important;
-}
-
 /* ============================================================
    9 · Sidebar full-height fix + checkout nested-scroll fix
    ============================================================ */

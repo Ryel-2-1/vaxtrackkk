@@ -7,7 +7,6 @@ import {
   FileText,
   MapPin,
   PackageCheck,
-  Printer,
   Truck,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -143,10 +142,6 @@ function SalesRepOrderConfirmation() {
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     }
-  };
-
-  const handlePrint = () => {
-    window.print();
   };
 
   const actions = (
@@ -313,11 +308,6 @@ function SalesRepOrderConfirmation() {
         </div>
 
         {actions}
-
-        <button type="button" className="pdf-link confirmation-print-btn" onClick={handlePrint}>
-          <Printer size={15} />
-          Print / Save PDF Invoice
-        </button>
 
         <small>
           This confirmation is a record of order submission.{" "}

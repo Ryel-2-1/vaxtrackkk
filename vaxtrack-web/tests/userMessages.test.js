@@ -507,7 +507,7 @@ test("field validation is associated accessibly, and focus goes to the first inv
   assert.equal(validateStockCorrection({ newQuantity: -1, reason: "x" }).field, "quantity");
   assert.equal(validateStockCorrection({ newQuantity: 5, reservedQuantity: 0, reason: "" }).field, "reason");
   assert.equal(validateApplication({ name: "", email: "a@b.co" }).field, "name");
-  assert.equal(validateApplication({ name: "A", email: "a@b.co", role: "salesrep", password: "12345678", confirmPassword: "x" }).field, "confirmPassword");
+  assert.equal(validateApplication({ name: "A", email: "a@b.co", role: "salesrep", password: "StrongPass12!", confirmPassword: "x" }).field, "confirmPassword");
   assert.equal(registrationErrorField("auth/email-already-in-use"), "email");
   assert.equal(analyticsConfigPayload("v1", { leadTimeDays: "0", safetyMode: "quantity", safetyValue: "1" }).field, "leadTimeDays");
   assert.equal(analyticsConfigPayload("v1", { leadTimeDays: "5", safetyMode: "quantity", safetyValue: "-1" }).field, "safetyValue");

@@ -539,3 +539,40 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   font-size: 12px;
   color: var(--gray-700, #374151);
 }
+
+/* Read-only stop progress. Selected details, navigation target and GPS position
+   are separate signals; colour always accompanies a visible text/icon label. */
+.dispatcher-main .stop-progress { margin-bottom: 18px; padding: 18px; border: 1px solid #e2e9e5; border-radius: 14px; background: #fff; }
+.dispatcher-main .stop-progress-heading { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.dispatcher-main .stop-progress-heading > div { min-width: 0; max-width: 100%; }
+.dispatcher-main .stop-progress-heading h3 { margin: 0; }
+.dispatcher-main .stop-progress-heading p { margin: 5px 0 0; font-size: 13px; color: #52635c; white-space: normal; overflow-wrap: anywhere; }
+.dispatcher-main .stop-progress-heading .stop-progress-count { font-weight: 650; color: #176047; }
+.dispatcher-main .stop-progress-target { display: flex; align-items: flex-start; gap: 8px; margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: #eaf3ff; color: #174b7a; font-size: 14px; font-weight: 600; }
+.dispatcher-main .stop-progress-target svg { flex-shrink: 0; margin-top: 2px; }
+.dispatcher-main .stop-progress-note { font-size: 12px; color: #52635c; margin: 8px 0 14px; line-height: 1.5; }
+.dispatcher-main .stop-progress-list { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.dispatcher-main .stop-progress-item { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid #dce5df; border-radius: 10px; background: #fafcfb; min-width: 0; }
+.dispatcher-main .stop-progress-item.is-delivered { background: #f0f8f3; }
+.dispatcher-main .stop-progress-item.is-navigating { border-color: #5488ba; box-shadow: inset 3px 0 #3979b2; }
+.dispatcher-main .stop-progress-number { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: 0 0 28px; border-radius: 50%; background: #e2ece6; color: #205a43; font-weight: 700; }
+.dispatcher-main .stop-progress-details { display: flex; flex-direction: column; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
+.dispatcher-main .stop-progress-details strong { font-size: 14px; color: #203c30; white-space: normal; overflow-wrap: anywhere; }
+.dispatcher-main .stop-progress-details small { font-size: 12px; color: #52635c; }
+.dispatcher-main .stop-progress-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.dispatcher-main .stop-progress-badge, .dispatcher-main .stop-progress-nav { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; border-radius: 6px; padding: 4px 7px; font-size: 12px; line-height: 1.4; text-align: left; background: #edf0ee; color: #52635c; }
+.dispatcher-main .stop-progress-badge svg, .dispatcher-main .stop-progress-nav svg { flex-shrink: 0; }
+.dispatcher-main .stop-progress-badge.is-delivered { color: #176047; background: #dff1e6; }
+.dispatcher-main .stop-progress-badge.is-proof { color: #79520a; background: #fff1ce; }
+.dispatcher-main .stop-progress-badge.is-attention { color: #993928; background: #ffebe6; }
+.dispatcher-main .stop-progress-nav { color: #174b7a; background: #eaf3ff; }
+.dispatcher-main .geo3-order-item > .stop-progress-badge, .dispatcher-main .geo3-order-item > .stop-progress-nav { margin: 0 5px 6px 0; }
+.dispatcher-main .geo3-live-stop-dot { position: relative; }
+.dispatcher-main .stop-marker-delivered { background: #176047; box-shadow: 0 0 0 2px #176047; }
+.dispatcher-main .stop-marker-proof { background: #966509; }
+.dispatcher-main .stop-marker-navigating { box-shadow: 0 0 0 3px #3979b2; }
+.dispatcher-main .stop-marker-cancelled, .dispatcher-main .stop-marker-attention { background: #7b554c; }
+.dispatcher-main .stop-marker-badge { position: absolute; right: -12px; top: -11px; border-radius: 4px; background: #fff; color: #173a2a; padding: 2px 3px; font-size: 11px; border: 1px solid currentColor; }
+@media (max-width: 700px) {
+  .dispatcher-main .stop-progress-list { grid-template-columns: minmax(0, 1fr); }
+}

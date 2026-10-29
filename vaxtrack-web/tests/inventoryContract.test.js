@@ -58,6 +58,7 @@ const CALLABLE_NAMES = [
   "voidInventoryBatch", // a provably unused, mistaken batch → voided record
   "removeUnusableStock", // free → quarantined, or quarantined → written off
   "correctStockQuantity", // a RECORD fix: category, reason, floor, expired rule, audit
+  "updateBatchMetadata", // Admin: audited descriptive fields; no stock counters
 ];
 
 test("the callables are the only inventory-affecting entry points", () => {

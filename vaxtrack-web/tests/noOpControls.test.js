@@ -140,7 +140,7 @@ test("genuine single-batch actions are preserved", () => {
   assert.ok(awaitAt !== -1 && toastAt > awaitAt, "the toast must follow the write");
 
   // Rows still open their detail drawer.
-  assert.match(src, /onClick=\{\(\) => setSelectedVaccine\(item\)\}/);
+  assert.match(src, /onClick=\{\(\) => openBatchDetails\(item\)\}/);
 });
 
 test("no delete, status-change or stock-adjustment writer was invented", () => {

@@ -22,6 +22,7 @@ import {
   APPLICABLE_ROLES,
   buildApplicationProfile,
   mapRegistrationError,
+  passwordStrength,
   registrationErrorField,
   validateApplication,
 } from "../services/registration";
@@ -52,6 +53,7 @@ function Register() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const strength = passwordStrength(password);
   const [error, setError] = useState("");
   // The field the message belongs to (name | email | role | password |
   // confirmPassword), or null for a form-level failure.
@@ -64,8 +66,12 @@ function Register() {
     setErrorField(field);
     if (field) document.getElementById(REGISTER_FIELD_IDS[field])?.focus();
   };
-  const a11y = (field) =>
-    errorField === field ? { "aria-invalid": "true", "aria-describedby": "register-error" } : {};
+  const a11y = (field) => ({
+    ...(errorField === field ? { "aria-invalid": "true" } : {}),
+    ...((field === "password" || errorField === field)
+      ? { "aria-describedby": [field === "password" ? "register-password-strength" : null, errorField === field ? "register-error" : null].filter(Boolean).join(" ") }
+      : {}),
+  });
   const edited = (field) => {
     if (errorField === field) {
       setError("");
@@ -231,7 +237,7 @@ function Register() {
             <input
               id={REGISTER_FIELD_IDS.password}
               type={showPassword ? "text" : "password"}
-              placeholder="At least 8 characters"
+              placeholder="Create a strong password"
               value={password}
               onChange={(e) => {
                 setPassword(e.target.value);
@@ -249,6 +255,12 @@ function Register() {
             >
               {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
+          </div>
+          <div id="register-password-strength" className={`register-password-strength is-${strength.tone}`}>
+            <span aria-live="polite">{strength.label}</span>
+            <div className="register-password-meter" role="progressbar" aria-label="Password strength" aria-valuemin={0} aria-valuemax={100} aria-valuenow={strength.percent} aria-valuetext={strength.label}>
+              <span style={{ width: `${strength.percent}%` }} />
+            </div>
           </div>
 
           <label htmlFor={REGISTER_FIELD_IDS.confirmPassword}>Confirm Password</label>
@@ -275,7 +287,7 @@ function Register() {
             </div>
           )}
 
-          <button className="primary-auth-btn" type="submit" disabled={submitting}>
+          <button className="primary-auth-btn register-submit" type="submit" disabled={submitting || strength.tone !== "strong"}>
             {submitting ? "Submitting…" : "Submit Application"}
             <ArrowRight size={16} />
           </button>

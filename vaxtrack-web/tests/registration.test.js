@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import {
   APPLICABLE_ROLES,
   MIN_PASSWORD_LENGTH,
+  passwordRequirements,
+  passwordStrength,
   RIDER_VEHICLE_TYPE,
   buildApplicationProfile,
   isApplicableRole,
@@ -39,8 +41,8 @@ test("validateApplication rejects incomplete or inconsistent input", () => {
   const base = {
     name: "Jane Cruz",
     email: "jane@x.co",
-    password: "longenough1",
-    confirmPassword: "longenough1",
+    password: "StrongPass12!",
+    confirmPassword: "StrongPass12!",
     role: "salesrep",
   };
   assert.equal(validateApplication({ ...base, name: "  " }).ok, false);
@@ -59,8 +61,8 @@ test("validateApplication returns cleaned values on success", () => {
   const out = validateApplication({
     name: "  Jane   Cruz ",
     email: "  jane@x.co ",
-    password: "longenough1",
-    confirmPassword: "longenough1",
+    password: "StrongPass12!",
+    confirmPassword: "StrongPass12!",
     role: "dispatcher",
   });
   assert.equal(out.ok, true);
@@ -70,8 +72,8 @@ test("validateApplication returns cleaned values on success", () => {
 });
 
 test("the password floor is enforced at the documented length", () => {
-  const short = "a".repeat(MIN_PASSWORD_LENGTH - 1);
-  const ok = "a".repeat(MIN_PASSWORD_LENGTH);
+  const short = "Aa1!" + "x".repeat(MIN_PASSWORD_LENGTH - 5);
+  const ok = "Aa1!" + "x".repeat(MIN_PASSWORD_LENGTH - 4);
   assert.equal(
     validateApplication({
       name: "A B",
@@ -92,6 +94,33 @@ test("the password floor is enforced at the documented length", () => {
     }).ok,
     true
   );
+});
+
+test("password requires uppercase, lowercase, number and symbol", () => {
+  const base = { name: "A B", email: "a@b.co", role: "rider" };
+  for (const password of ["lowercase123!", "UPPERCASE123!", "LettersOnly!!", "Letters123456"]) {
+    const result = validateApplication({ ...base, password, confirmPassword: password });
+    assert.equal(result.ok, false, password);
+    assert.equal(result.field, "password");
+  }
+  assert.deepEqual(passwordRequirements("StrongPass12!").map((rule) => rule.met), [true, true, true, true, true]);
+  assert.equal(validateApplication({ ...base, password: "StrongPass12!", confirmPassword: "StrongPass12!" }).ok, true);
+});
+
+test("password strength grows with length and character variety, reaching full only when valid", () => {
+  assert.deepEqual(passwordStrength(""), { percent: 0, label: "Password strength", tone: "starting" });
+  assert.equal(passwordStrength("abc").label, "Weak password");
+  assert.equal(passwordStrength("Aa1!").label, "Moderate password");
+  assert.ok(passwordStrength("abc").percent < passwordStrength("abcdefgh").percent);
+  assert.ok(passwordStrength("abcdefgh").percent < passwordStrength("Abcdefgh1!").percent);
+  assert.deepEqual(passwordStrength("Abcdef1!"), { percent: 100, label: "Strong password", tone: "strong" });
+  assert.ok(passwordStrength("Aa1!").percent < 100);
+});
+
+test("Apply for Access submit stays disabled until the password is strong", () => {
+  const page = readFileSync(new URL("../src/pages/Register.jsx", import.meta.url), "utf8");
+  assert.match(page, /disabled=\{submitting \|\| strength\.tone !== "strong"\}/);
+  assert.match(page, /const check = validateApplication\(/);
 });
 
 // -------------------------------------------------------- profile construction
@@ -138,7 +167,7 @@ test("buildApplicationProfile includes phone only when given, and trims text", (
 
 test("mapRegistrationError maps the codes that matter", () => {
   assert.match(mapRegistrationError("auth/email-already-in-use"), /already exists/i);
-  assert.match(mapRegistrationError("auth/weak-password"), /at least/i);
+  assert.match(mapRegistrationError("auth/weak-password"), /rejected/i);
   assert.match(mapRegistrationError("auth/network-request-failed"), /connect|connection/i);
   assert.match(mapRegistrationError("auth/too-many-requests"), /too many/i);
   // Specific about what failed and that nothing was saved — never vague.
@@ -212,7 +241,7 @@ test("duplicate submissions are blocked by an in-flight guard", () => {
   assert.match(body, /setSubmitting\(true\)/);
   assert.match(body, /setSubmitting\(false\)/);
   assert.match(body, /\}\s*finally\s*\{/, "the flag must be cleared in finally");
-  assert.match(src, /type="submit"[\s\S]*?disabled=\{submitting\}/, "the button must disable while submitting");
+  assert.match(src, /type="submit"[\s\S]*?disabled=\{submitting \|\| strength\.tone !== "strong"\}/, "the button must disable while submitting or until the password is strong");
 });
 
 test("login links to the apply page and App routes it", () => {

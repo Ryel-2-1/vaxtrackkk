@@ -63,6 +63,7 @@ const invoiceOperations = require("./src/invoiceOperations");
 const statusEvents = require("./src/statusEvents");
 const inventoryWorkflow = require("./src/inventoryWorkflow");
 const inventoryRemoval = require("./src/inventoryRemoval");
+const batchMetadata = require("./src/batchMetadata");
 const inventoryVisibilityOps = require("./src/inventoryVisibilityOps");
 const allocation = require("./src/allocation");
 const failureReturn = require("./src/failureReturn");
@@ -390,6 +391,12 @@ exports.addStockBatchWithAllocation = callable(
   "addStockBatchWithAllocation",
   ({ db, FieldValue, uid, data, now }) =>
     inventoryWorkflow.addStockBatchWithAllocation({ db, FieldValue, uid, payload: data, now })
+);
+
+exports.updateBatchMetadata = callable(
+  "updateBatchMetadata",
+  ({ db, FieldValue, uid, email, data, now }) =>
+    batchMetadata.updateBatchMetadata({ db, FieldValue, uid, email, payload: data, now })
 );
 
 exports.reportDeliveryFailure = callable(

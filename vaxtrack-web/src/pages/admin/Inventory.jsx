@@ -15,6 +15,7 @@ import {
   WARNING_WITHIN_DAYS,
 } from "../../services/expiry";
 import { formatBatchDate, readManufacturingDate } from "../../services/stockBatchDates";
+import { saveBatchMetadata } from "../../services/batchMetadataService";
 import { setVaccineVatClassification, updateStockPrice } from "../../services/vaccineService";
 import { correctStockQuantity, newRequestId } from "../../services/inventoryRemovalService";
 import { subscribeVaccines } from "../../services/vaccineCatalogService";
@@ -210,6 +211,15 @@ function normalizeInventoryItem(raw, todayIso) {
     daysRemaining: expiryCondition.daysRemaining,
     location: raw.location || "—",
     manufacturer: raw.manufacturer || "—",
+    metadata: {
+      batchId: typeof raw.batchId === "string" ? raw.batchId : "",
+      manufacturingDate: typeof raw.manufacturingDate === "string" ? raw.manufacturingDate : "",
+      expiryDate: typeof raw.expiryDate === "string" ? raw.expiryDate : "",
+      location: typeof raw.location === "string" ? raw.location : "",
+      manufacturer: typeof raw.manufacturer === "string" ? raw.manufacturer : "",
+    },
+    arrivalRaw: typeof raw.arrivalDate === "string" ? raw.arrivalDate : "",
+    batchIdLocked: Boolean(raw.firstUsedAt) || raw.usageTracked !== true,
   };
 }
 
@@ -228,6 +238,10 @@ function Inventory() {
   const [expiryFilter, setExpiryFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedVaccine, setSelectedVaccine] = useState(null);
+  const [batchDraft, setBatchDraft] = useState(null);
+  const [batchBaseline, setBatchBaseline] = useState(null);
+  const [savingBatch, setSavingBatch] = useState(false);
+  const [batchError, setBatchError] = useState("");
   const { toast, showToast, dismissToast } = useToast();
   const [exporting, setExporting] = useState(false);
   // Vaccine catalog (VAT classification), and the drawer's classification edit.
@@ -508,6 +522,46 @@ function Inventory() {
   const drawerItem = selectedVaccine
     ? inventoryWithVat.find((item) => item.id === selectedVaccine.id) ?? selectedVaccine
     : null;
+
+  const openBatchDetails = (item) => {
+    setSelectedVaccine(item);
+    setBatchBaseline({ ...item.metadata });
+    setBatchDraft({ ...item.metadata });
+    setBatchError("");
+  };
+  const closeBatchDetails = () => {
+    if (savingBatch) return;
+    setSelectedVaccine(null);
+    setBatchDraft(null);
+    setBatchBaseline(null);
+    setBatchError("");
+  };
+  const saveBatchDetails = async () => {
+    if (!drawerItem || !batchDraft || !batchBaseline || savingBatch) return;
+    if (Object.keys(batchBaseline).every((key) => batchDraft[key]?.trim() === batchBaseline[key])) {
+      closeBatchDetails();
+      return;
+    }
+    if (!batchDraft.batchId.trim() || !batchDraft.manufacturingDate || !batchDraft.expiryDate ||
+        !batchDraft.location.trim() || !batchDraft.manufacturer.trim()) {
+      setBatchError("Complete all batch detail fields before saving.");
+      return;
+    }
+    setSavingBatch(true);
+    setBatchError("");
+    try {
+      await saveBatchMetadata({ inventoryId: drawerItem.id, expected: batchBaseline, ...batchDraft });
+      showToast("Batch details saved. Stock quantities were unchanged.", "success");
+      setSelectedVaccine(null);
+      setBatchDraft(null);
+      setBatchBaseline(null);
+    } catch (error) {
+      logSafeError("Save batch details", error);
+      setBatchError(friendlyErrorMessage(error, "Batch details could not be saved. Review the current record and try again."));
+    } finally {
+      setSavingBatch(false);
+    }
+  };
 
   const saveVatClassification = async () => {
     if (!drawerItem?.vaccineId || savingVat || !vatChoice) return;
@@ -881,7 +935,7 @@ function Inventory() {
                   <tr
                     key={item.id}
                     className={`v2-row-${item.level}`}
-                    onClick={() => setSelectedVaccine(item)}
+                    onClick={() => openBatchDetails(item)}
                   >
                     <td>
                       <div className="v2-vaccine-cell">
@@ -1033,8 +1087,15 @@ function Inventory() {
           badgeTone={drawerItem.voided ? "unknown" : drawerItem.level}
           title={drawerItem.name}
           description={`${drawerItem.type} vaccine batch details.`}
-          onClose={() => setSelectedVaccine(null)}
+          onClose={closeBatchDetails}
           footer={
+            <div className="inv-batch-footer-stack">
+            <div className="inv-batch-save-actions">
+              <button type="button" className="inv-price-cancel" onClick={closeBatchDetails} disabled={savingBatch}>Cancel</button>
+              <button type="button" className="v2-blue-action" onClick={saveBatchDetails} disabled={savingBatch || drawerItem.voided || !batchDraft || Object.keys(batchBaseline || {}).every((key) => batchDraft[key]?.trim() === batchBaseline[key])}>
+                {savingBatch ? "Saving…" : "Save Changes"}
+              </button>
+            </div>
             <div className="v2-modal-actions">
               <button
                 type="button"
@@ -1085,6 +1146,7 @@ function Inventory() {
                   means and who acts on it. "Add Stock" stays because it really
                   navigates, and the batch's price is edited from its table row. */}
             </div>
+            </div>
           }
         >
             {drawerItem.voided && (
@@ -1102,8 +1164,9 @@ function Inventory() {
             )}
             <div className="v2-modal-detail-grid">
               <div>
-                <span>Batch ID</span>
-                <strong>{drawerItem.batch}</strong>
+                <label htmlFor="inv-batch-id">Batch ID</label>
+                <input id="inv-batch-id" value={batchDraft?.batchId ?? ""} maxLength={64} disabled={savingBatch || drawerItem.voided || drawerItem.batchIdLocked} onChange={(e) => setBatchDraft((old) => ({ ...old, batchId: e.target.value }))} />
+                {drawerItem.batchIdLocked && <small>Locked after first use or where usage history is unknown.</small>}
               </div>
 
               <div>
@@ -1118,26 +1181,27 @@ function Inventory() {
                     {drawerItem.flags.join(" · ")}
                   </small>
                 )}
+                <small>Quantity changes use Correct stock or Add Stock so they are validated and logged.</small>
               </div>
 
               <div>
-                <span>Manufacturing Date</span>
-                <strong>{drawerItem.manufacturing}</strong>
+                <label htmlFor="inv-batch-manufacturing">Manufacturing Date</label>
+                <input id="inv-batch-manufacturing" type="date" value={batchDraft?.manufacturingDate ?? ""} disabled={savingBatch || drawerItem.voided} onChange={(e) => setBatchDraft((old) => ({ ...old, manufacturingDate: e.target.value }))} />
               </div>
 
               <div>
-                <span>Expiry Date</span>
-                <strong>{drawerItem.expiry}</strong>
+                <label htmlFor="inv-batch-expiry">Expiry Date</label>
+                <input id="inv-batch-expiry" type="date" value={batchDraft?.expiryDate ?? ""} disabled={savingBatch || drawerItem.voided} onChange={(e) => setBatchDraft((old) => ({ ...old, expiryDate: e.target.value }))} />
               </div>
 
               <div>
-                <span>Location</span>
-                <strong>{drawerItem.location}</strong>
+                <label htmlFor="inv-batch-location">Location</label>
+                <input id="inv-batch-location" value={batchDraft?.location ?? ""} maxLength={120} disabled={savingBatch || drawerItem.voided} onChange={(e) => setBatchDraft((old) => ({ ...old, location: e.target.value }))} />
               </div>
 
               <div>
-                <span>Manufacturer</span>
-                <strong>{drawerItem.manufacturer}</strong>
+                <label htmlFor="inv-batch-manufacturer">Manufacturer</label>
+                <input id="inv-batch-manufacturer" value={batchDraft?.manufacturer ?? ""} maxLength={120} disabled={savingBatch || drawerItem.voided} onChange={(e) => setBatchDraft((old) => ({ ...old, manufacturer: e.target.value }))} />
               </div>
 
               <div className="inv-vat-field">
@@ -1172,6 +1236,7 @@ function Inventory() {
                 )}
               </div>
             </div>
+            {batchError && <p className="inv-batch-error" role="alert">{batchError}</p>}
 
             {/* "2 reserved" is always inspectable: which orders hold it,
                 and whether those add up to the batch's counter. */}
