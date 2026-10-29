@@ -29,6 +29,7 @@ import { subscribeRiderDispatchStates } from "../../services/riderDispatchServic
 import { assignmentBlockReason } from "../../services/backorder";
 import { presentAlert } from "../../services/alertPresentation";
 import { requestedArrivalLabel, requestedArrivalOf } from "../../services/requestedArrival";
+import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 
 function shortDate(iso) {
   const d = new Date(`${iso}T00:00:00.000Z`);
@@ -43,6 +44,7 @@ function shortDate(iso) {
 
 function DispatcherDashboard() {
   const navigate = useNavigate();
+  const [queuePage, setQueuePage] = useState(1);
 
   const [pendingOrders, setPendingOrders] = useState([]);
   const [allOrders, setAllOrders] = useState([]);
@@ -201,6 +203,8 @@ function DispatcherDashboard() {
     () => [...actionable].sort(comparePending),
     [actionable]
   );
+  const currentQueuePage = Math.min(queuePage, Math.max(1, Math.ceil(sortedPending.length / PAGE_SIZE)));
+  const pagePending = sortedPending.slice((currentQueuePage - 1) * PAGE_SIZE, currentQueuePage * PAGE_SIZE);
   const sortedUpcoming = useMemo(
     () => [...upcoming].sort(comparePending),
     [upcoming]
@@ -406,7 +410,7 @@ function DispatcherDashboard() {
 
               <tbody>
                 {sortedPending.length > 0 ? (
-                  sortedPending.map((order) => {
+                  pagePending.map((order) => {
                     const priority = order.priority || "Standard";
                     const isUrgent = priority.toLowerCase() === "urgent";
                     const dateMeta = requestedDateMeta(order, today);
@@ -506,7 +510,7 @@ function DispatcherDashboard() {
           </div>
 
           <div className="dispatcher-dash-table-bottom">
-            Showing {actionable.length} pending dispatch order{actionable.length !== 1 ? "s" : ""}
+            Showing {actionable.length === 0 ? 0 : (currentQueuePage - 1) * PAGE_SIZE + 1}–{Math.min(currentQueuePage * PAGE_SIZE, actionable.length)} of {actionable.length} pending dispatch orders
             {(overdueCount > 0 || dueTodayCount > 0) && (
               <span className="dispatcher-dash-table-bottom-meta">
                 {overdueCount > 0 && (
@@ -522,6 +526,7 @@ function DispatcherDashboard() {
               </span>
             )}
           </div>
+          {sortedPending.length > PAGE_SIZE && <PageNav page={currentQueuePage} total={sortedPending.length} onPageChange={setQueuePage} label="Dispatch queue pages" />}
         </section>
 
         <ReadOnlyQueue
@@ -549,6 +554,9 @@ function DispatcherDashboard() {
 // A pending order that is NOT dispatch work yet: shown so nothing is hidden,
 // but with no dispatch control — the last column states why instead.
 function ReadOnlyQueue({ id, kicker, title, note, orders, now }) {
+  const [page, setPage] = useState(1);
+  const currentPage = Math.min(page, Math.max(1, Math.ceil(orders.length / PAGE_SIZE)));
+  const pageOrders = orders.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   if (orders.length === 0) return null;
   return (
     <section
@@ -580,7 +588,7 @@ function ReadOnlyQueue({ id, kicker, title, note, orders, now }) {
             </tr>
           </thead>
           <tbody>
-            {orders.map((order) => {
+            {pageOrders.map((order) => {
               const priority = order.priority || "Standard";
               const schedule = dispatchEligibility(order, now);
               return (
@@ -628,6 +636,7 @@ function ReadOnlyQueue({ id, kicker, title, note, orders, now }) {
           </tbody>
         </table>
       </div>
+      {orders.length > PAGE_SIZE && <PageNav page={currentPage} total={orders.length} onPageChange={setPage} label={`${title} pages`} />}
     </section>
   );
 }

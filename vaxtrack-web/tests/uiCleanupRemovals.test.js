@@ -110,8 +110,8 @@ test("Order Tracking has no New Order or Share button; order creation stays on R
   // The tabs, status filter, search and panel close still work as before.
   assert.match(tracking, /onClick=\{\(\) => handleTabChange\("active"\)\}/);
   assert.match(tracking, /onClick=\{\(\) => handleTabChange\("history"\)\}/);
-  assert.match(tracking, /onChange=\{\(event\) => setStatusFilter\(event\.target\.value\)\}/);
-  assert.match(tracking, /onChange=\{\(event\) => setSearchTerm\(event\.target\.value\)\}/);
+  assert.match(tracking, /onChange=\{\(event\) => \{ setStatusFilter\(event\.target\.value\); setPage\(1\); \}\}/);
+  assert.match(tracking, /onChange=\{\(event\) => \{ setSearchTerm\(event\.target\.value\); setPage\(1\); \}\}/);
   assert.match(tracking, /onClick=\{\(\) => selectOrder\(""\)\}/);
   // The Med Rep still creates orders from Request Order, reachable from the sidebar.
   assert.match(read("src/pages/salesRep/SalesRepShell.jsx"), /to="\/sales-rep\/request-order"/);
@@ -226,7 +226,7 @@ test("Order Tracking: the one search sits in the filter toolbar with the tabs an
   for (const part of ['className="tracking-v2-tabs"', 'className="tracking-v2-search"', 'className="tracking-v2-status-filter"']) {
     assert.ok(toolbar.includes(part), `${part} is in the toolbar`);
   }
-  assert.match(toolbar, /onChange=\{\(event\) => setSearchTerm\(event\.target\.value\)\}/);
+  assert.match(toolbar, /onChange=\{\(event\) => \{ setSearchTerm\(event\.target\.value\); setPage\(1\); \}\}/);
   assert.match(toolbar, /placeholder="Search order ID, clinic, vaccine, or status\.\.\."/);
   assert.equal(block(page, "tracking-v2-header").includes("tracking-v2-search"), false, "no search left in the header");
 });

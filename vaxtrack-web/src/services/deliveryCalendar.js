@@ -79,11 +79,10 @@ export function pickerYears(viewYear, today, { before = 2, after = 3 } = {}) {
 }
 
 /**
- * A fixed six-row (42-cell) month grid, Sunday-first, as weeks of day cells.
+ * A five- or six-row month grid, Sunday-first, as weeks of day cells.
  *
- * Six rows always, so the calendar never changes height between a 28-day
- * February that fits in five rows and a 31-day month that needs six — a jumping
- * layout is the usual bug here. Leading/trailing cells belong to the
+ * The calendar card stretches within its layout, so each month's rows share
+ * its available height. Leading/trailing cells belong to the
  * neighbouring months and are marked `inMonth: false` so the UI can dim them.
  *
  * @param {number} year
@@ -94,8 +93,10 @@ export function pickerYears(viewYear, today, { before = 2, after = 3 } = {}) {
  */
 export function buildMonthGrid(year, month, { today = manilaToday() } = {}) {
   const firstWeekday = new Date(Date.UTC(year, month, 1)).getUTCDay(); // 0=Sun
+  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const rowCount = Math.max(5, Math.ceil((firstWeekday + daysInMonth) / 7));
   const weeks = [];
-  for (let row = 0; row < 6; row += 1) {
+  for (let row = 0; row < rowCount; row += 1) {
     const week = [];
     for (let col = 0; col < 7; col += 1) {
       const offset = row * 7 + col - firstWeekday;

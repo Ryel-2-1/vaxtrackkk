@@ -4303,12 +4303,16 @@
 
 .dispatcher-dash-side-card {
   padding-bottom: 18px;
+  display: flex;
+  flex-direction: column;
 }
 
 .dispatcher-dash-op-list {
   padding: 0 18px 16px;
   display: grid;
   gap: 12px;
+  flex: 1 1 auto;
+  grid-template-rows: repeat(3, minmax(0, 1fr));
 }
 
 .dispatcher-dash-op-item {
@@ -7531,11 +7535,10 @@
 
 /* ---------- header ---------- */
 .ar-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  display: block;
   margin-bottom: 16px;
 }
+.ar-header > div { min-width: 0; }
 .ar-back {
   width: 36px;
   height: 36px;

@@ -24,7 +24,7 @@ import { useToast } from "../../components/ui/useToast";
 import "./Invoices.css";
 
 const PRIORITY_OPTIONS = ["Normal", "High", "Urgent"];
-const PAGE_SIZE = 8;
+const PAGE_SIZE = 10;
 
 function formatDate(ts) {
   if (!ts) return "—";

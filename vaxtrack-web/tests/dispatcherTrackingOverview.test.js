@@ -177,8 +177,8 @@ test("Open Live Tracking links to the existing, role-guarded Dispatcher route", 
 
 // ---------------------------------------------------------------- layout
 
-test("content-driven height: no fixed or minimum card height; the grid no longer stretches it", () => {
-  assert.match(CSS, /\.dispatcher-dash-main-grid > \.dispatcher-dash-monitor-card\.dto \{\s*align-self: start;/);
+test("dashboard monitor card stretches with its summary while the map keeps its height", () => {
+  assert.match(CSS, /\.dispatcher-dash-main-grid > \.dispatcher-dash-monitor-card\.dto \{\s*align-self: stretch;/);
   const noComments = CSS.replace(/\/\*[\s\S]*?\*\//g, "");
   // Whole property names only (not line-height).
   const heights = [...noComments.matchAll(/(?<![\w-])((?:min-|max-)?height):\s*([^;]+);/g)].map((m) => `${m[1]}: ${m[2]};`);

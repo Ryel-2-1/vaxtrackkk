@@ -38,6 +38,7 @@ import {
 import { rescheduleOrderDelivery } from "../../services/scheduleCallables";
 import useManilaDayNow from "../useManilaDayNow";
 import MonthCalendar from "../ui/MonthCalendar";
+import PageNav, { PAGE_SIZE } from "../ui/PageNav";
 import { useDialogFocus } from "../ui/useDialogFocus";
 import AdminDialogLayer from "../admin/AdminDialogLayer";
 import StatusBadge from "../ui/StatusBadge";
@@ -310,6 +311,8 @@ function DeliveryCalendar({ role }) {
   const today = manilaToday(now);
   const [view, setView] = useState(() => monthOf(today) || { year: 2026, month: 0 });
   const [selectedDate, setSelectedDate] = useState(today);
+  const [dayPage, setDayPage] = useState(1);
+  const [unscheduledPage, setUnscheduledPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [editing, setEditing] = useState(null);
@@ -351,6 +354,10 @@ function DeliveryCalendar({ role }) {
     [filtered, selectedDate]
   );
   const unscheduled = useMemo(() => unscheduledOrders(filtered), [filtered]);
+  const currentDayPage = Math.min(dayPage, Math.max(1, Math.ceil(dayOrders.length / PAGE_SIZE)));
+  const pageDayOrders = dayOrders.slice((currentDayPage - 1) * PAGE_SIZE, currentDayPage * PAGE_SIZE);
+  const currentUnscheduledPage = Math.min(unscheduledPage, Math.max(1, Math.ceil(unscheduled.length / PAGE_SIZE)));
+  const pageUnscheduled = unscheduled.slice((currentUnscheduledPage - 1) * PAGE_SIZE, currentUnscheduledPage * PAGE_SIZE);
   const dayUrgent = dayOrders.filter(isUrgent).length;
   const filtersActive = statusFilter !== "all" || priorityFilter !== "all";
 
@@ -359,7 +366,10 @@ function DeliveryCalendar({ role }) {
   const goCurrentMonth = () => {
     setView(monthOf(today) || view);
     setSelectedDate(today);
+    setDayPage(1);
   };
+
+  const selectDay = (date) => { setSelectedDate(date); setDayPage(1); };
 
   const openReschedule = (order, trigger) => {
     triggerRef.current = trigger || null;
@@ -381,6 +391,7 @@ function DeliveryCalendar({ role }) {
     const target = result?.requestedDeliveryDate;
     if (target) {
       setSelectedDate(target);
+      setDayPage(1);
       const m = monthOf(target);
       if (m) setView(m);
     }
@@ -404,7 +415,7 @@ function DeliveryCalendar({ role }) {
       <div className="dcal-filters" role="group" aria-label="Calendar filters">
         <label className="dcal-filter">
           Status
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setDayPage(1); setUnscheduledPage(1); }}>
             <option value="all">All statuses</option>
             {ORDER_STATUSES.map((s) => (
               <option key={s} value={s}>
@@ -415,7 +426,7 @@ function DeliveryCalendar({ role }) {
         </label>
         <label className="dcal-filter">
           Priority
-          <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)}>
+          <select value={priorityFilter} onChange={(e) => { setPriorityFilter(e.target.value); setDayPage(1); setUnscheduledPage(1); }}>
             {PRIORITY_FILTERS.map((p) => (
               <option key={p.value} value={p.value}>
                 {p.label}
@@ -430,6 +441,8 @@ function DeliveryCalendar({ role }) {
             onClick={() => {
               setStatusFilter("all");
               setPriorityFilter("all");
+              setDayPage(1);
+              setUnscheduledPage(1);
             }}
           >
             Clear filters
@@ -475,7 +488,7 @@ function DeliveryCalendar({ role }) {
               counts={counts}
               urgentCounts={urgent}
               selectedDate={selectedDate}
-              onSelectDate={setSelectedDate}
+              onSelectDate={selectDay}
               onPrevMonth={goPrevMonth}
               onNextMonth={goNextMonth}
               onCurrentMonth={goCurrentMonth}
@@ -485,7 +498,7 @@ function DeliveryCalendar({ role }) {
           </div>
 
           <div className="dcal-side">
-            <section className="dcal-card" aria-labelledby="dcal-day-title">
+            <section className="dcal-card dcal-day-card" aria-labelledby="dcal-day-title">
               <div className="dcal-card-head">
                 <h2 id="dcal-day-title">{selectedDate ? longDate(selectedDate) : "Select a day"}</h2>
                 <p>
@@ -506,8 +519,8 @@ function DeliveryCalendar({ role }) {
                   </p>
                 </div>
               ) : (
-                <ul className="dcal-list">
-                  {dayOrders.map((o) => (
+                <ul className="dcal-list dcal-day-list">
+                  {pageDayOrders.map((o) => (
                     <EventCard
                       key={o.id}
                       order={o}
@@ -519,6 +532,7 @@ function DeliveryCalendar({ role }) {
                   ))}
                 </ul>
               )}
+              {dayOrders.length > PAGE_SIZE && <PageNav page={currentDayPage} total={dayOrders.length} onPageChange={setDayPage} label="Selected day order pages" />}
             </section>
 
             <section className="dcal-card" aria-labelledby="dcal-unscheduled-title">
@@ -539,7 +553,7 @@ function DeliveryCalendar({ role }) {
                 </div>
               ) : (
                 <ul className="dcal-list dcal-list-scroll">
-                  {unscheduled.map((o) => (
+                  {pageUnscheduled.map((o) => (
                     <EventCard
                       key={o.id}
                       order={o}
@@ -551,6 +565,7 @@ function DeliveryCalendar({ role }) {
                   ))}
                 </ul>
               )}
+              {unscheduled.length > PAGE_SIZE && <PageNav page={currentUnscheduledPage} total={unscheduled.length} onPageChange={setUnscheduledPage} label="Unscheduled order pages" />}
             </section>
           </div>
         </div>

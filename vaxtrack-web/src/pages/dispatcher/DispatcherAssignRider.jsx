@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
-  ArrowLeft,
   Bike,
   CheckCircle2,
   Loader2,
@@ -73,7 +71,6 @@ const getRiderEmployeeId = (r) => r.employeeId || "";
  * opens its dialog, and the queue stays underneath.
  */
 function DispatcherAssignRider() {
-  const navigate = useNavigate();
   const now = useManilaDayNow();
 
   const [orders, setOrders] = useState(null); // null until the first snapshot
@@ -279,14 +276,6 @@ function DispatcherAssignRider() {
     <>
       <div className="ar-page">
         <header className="ar-header">
-          <button
-            type="button"
-            className="ar-back"
-            onClick={() => navigate("/dispatcher")}
-            aria-label="Back to dashboard"
-          >
-            <ArrowLeft size={16} />
-          </button>
           <div>
             <h2 className="disp-section-title">Rider assignment</h2>
             <p>Orders waiting for a rider · updates live</p>

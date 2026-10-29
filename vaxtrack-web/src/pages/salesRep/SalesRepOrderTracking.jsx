@@ -33,6 +33,7 @@ import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 import AllocationSummary from "../../components/ui/AllocationSummary";
 import { describeAllocation } from "../../services/backorder";
 import OrderCancellationAction from "../../components/orders/OrderCancellationAction";
+import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 
 function mapTrackingLabel(statusKey) {
   switch (statusKey) {
@@ -228,6 +229,7 @@ function SalesRepOrderTracking() {
   );
 
   const [activeTab, setActiveTab] = useState("active");
+  const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedOrderId, setSelectedOrderId] = useState("");
@@ -327,9 +329,12 @@ function SalesRepOrderTracking() {
       return matchesTab && matchesStatus && matchesSearch;
     });
   }, [activeTab, orders, searchTerm, statusFilter]);
+  const currentPage = Math.min(page, Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE)));
+  const pageOrders = filteredOrders.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
+    setPage(1);
     setStatusFilter("all");
     setSearchTerm("");
     dismissToast();
@@ -401,7 +406,7 @@ function SalesRepOrderTracking() {
                 <Search size={15} />
                 <input
                   value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
+                  onChange={(event) => { setSearchTerm(event.target.value); setPage(1); }}
                   placeholder="Search order ID, clinic, vaccine, or status..."
                 />
               </div>
@@ -410,7 +415,7 @@ function SalesRepOrderTracking() {
                 <span>Filter by Status</span>
                 <select
                   value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value)}
+                  onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }}
                 >
                   <option value="all">All Status</option>
                   <option value="pending-dispatch">Pending Dispatch</option>
@@ -437,7 +442,7 @@ function SalesRepOrderTracking() {
 
                 <tbody>
                   {filteredOrders.length > 0 ? (
-                    filteredOrders.map((order) => (
+                    pageOrders.map((order) => (
                       <TrackingRow
                         key={order.id}
                         order={order}
@@ -459,6 +464,7 @@ function SalesRepOrderTracking() {
                 </tbody>
               </table>
             </div>
+            <PageNav page={currentPage} total={filteredOrders.length} onPageChange={setPage} label="Order tracking pages" />
           </div>
 
           <aside className="tracking-side tracking-v2-side">

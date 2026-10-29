@@ -19,6 +19,7 @@ import {
 } from "../../services/orderHistoryService";
 import OrderHistoryDetail from "./OrderHistoryDetail";
 import RequestedArrivalNote from "../schedule/RequestedArrivalNote";
+import PageNav from "../ui/PageNav";
 import "./OrderHistory.css";
 import { liveErrorMessage } from "../../services/liveDataErrors";
 
@@ -63,6 +64,7 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
   const [rows, setRows] = useState([]);
   // How many of the newest orders the live window holds.
   const [windowSize, setWindowSize] = useState(HISTORY_PAGE_SIZE);
+  const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(!signedOut);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -154,6 +156,7 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
   const loadMore = () => {
     if (!hasMore || loadingMore) return;
     setLoadingMore(true);
+    setPage((current) => current + 1);
     setWindowSize((n) => n + HISTORY_PAGE_SIZE);
   };
 
@@ -185,19 +188,22 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
     const source = lookupResult ? lookupResult.rows : rows;
     return source.filter((r) => matchesHistoryFilters(r, { ...filters, dateFrom: "", dateTo: "" }));
   }, [rows, lookupResult, filters]);
+  const currentPage = Math.min(page, Math.max(1, Math.ceil(visible.length / HISTORY_PAGE_SIZE)));
+  const visiblePage = visible.slice((currentPage - 1) * HISTORY_PAGE_SIZE, currentPage * HISTORY_PAGE_SIZE);
 
   const selected = useMemo(() => {
     const all = [...(lookupResult?.rows ?? []), ...rows];
     return all.find((r) => r.id === selectedId) ?? null;
   }, [rows, lookupResult, selectedId]);
 
-  const setFilter = (key) => (e) => setFilters((f) => ({ ...f, [key]: e.target.value }));
+  const setFilter = (key) => (e) => { setFilters((f) => ({ ...f, [key]: e.target.value })); setPage(1); };
   const applyRange = (e) => {
     e.preventDefault();
     if (range.dateFrom === filters.dateFrom && range.dateTo === filters.dateTo) return;
     setLookupResult(null);
     setLoading(true);
     setWindowSize(HISTORY_PAGE_SIZE);
+    setPage(1);
     setRange({ dateFrom: filters.dateFrom, dateTo: filters.dateTo });
   };
   const changeRep = (e) => {
@@ -205,6 +211,7 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
     setLookupResult(null);
     setLoading(true);
     setWindowSize(HISTORY_PAGE_SIZE);
+    setPage(1);
     setRepFilter(e.target.value);
   };
   const shownError = signedOut ? "You must be signed in to view your order history." : error;
@@ -329,7 +336,7 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
         !loading && !shownError && (
           <>
             <p className="ohx-muted" role="status">
-              Showing {visible.length} of {rows.length} loaded order{rows.length === 1 ? "" : "s"}, newest first
+              Showing {visiblePage.length ? (currentPage - 1) * HISTORY_PAGE_SIZE + 1 : 0}–{Math.min(currentPage * HISTORY_PAGE_SIZE, visible.length)} of {visible.length} matching loaded order{visible.length === 1 ? "" : "s"}, newest first
               {range.dateFrom || range.dateTo ? ` (${range.dateFrom || "…"} to ${range.dateTo || "…"})` : ""}.
             </p>
             {loadedNotice && <p className="ohx-loaded-notice" role="note">{loadedNotice}</p>}
@@ -364,7 +371,7 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
               </tr>
             </thead>
             <tbody>
-              {visible.map((row) => (
+              {visiblePage.map((row) => (
                 <tr key={row.id}>
                   <td>
                     <button type="button" className="ohx-link ohx-ref" onClick={() => setSelectedId(row.id)}>
@@ -403,6 +410,8 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
           </table>
         </div>
       )}
+
+      {visible.length > HISTORY_PAGE_SIZE && <PageNav page={currentPage} total={visible.length} onPageChange={setPage} label="Order history pages" />}
 
       {!lookupResult && hasMore && !loading && !shownError && (
         <button type="button" className="ohx-btn ohx-more" onClick={loadMore} disabled={loadingMore}>

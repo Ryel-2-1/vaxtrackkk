@@ -75,5 +75,5 @@ test("pagination controls are unchanged and keyboard-named", () => {
   assert.match(src, /aria-label="Previous page"/);
   assert.match(src, /aria-label="Next page"/);
   assert.match(src, /aria-current=\{currentPage === index \+ 1 \? "page" : undefined\}/);
-  assert.match(src, /const rowsPerPage = 5;/);
+  assert.match(src, /const rowsPerPage = 10;/);
 });

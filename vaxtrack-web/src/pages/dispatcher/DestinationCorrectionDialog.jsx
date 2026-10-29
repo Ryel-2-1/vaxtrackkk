@@ -20,12 +20,14 @@ export default function DestinationCorrectionDialog({ order, onDismiss, onConfir
   const [loadErrorState, setLoadError] = useState("");
   const [historyError, setHistoryError] = useState("");
   const [selected, setSelected] = useState("");
+  const [addressOpen, setAddressOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const dialogRef = useRef(null);
   const selectRef = useRef(null);
+  const addressListRef = useRef(null);
   const closeButtonRef = useRef(null);
 
   // An order without a doctor has nothing to load; that state is derived
@@ -90,6 +92,10 @@ export default function DestinationCorrectionDialog({ order, onDismiss, onConfir
     if (!loadingAddresses && !loadingClinics && !loadError) selectRef.current?.focus();
   }, [loadingAddresses, loadingClinics, loadError]);
 
+  useEffect(() => {
+    if (addressOpen) addressListRef.current?.focus();
+  }, [addressOpen]);
+
   // When the clinic's pin or entrance details were corrected after this order
   // was placed, the CURRENT address is offered too: approving it refreshes the
   // order to the corrected point (the server allows this only if it differs).
@@ -146,16 +152,26 @@ export default function DestinationCorrectionDialog({ order, onDismiss, onConfir
         </p>
         <form onSubmit={submit}>
           <label htmlFor="correct-destination-address">Proposed address</label>
-          <select id="correct-destination-address" ref={selectRef} value={selected}
-            disabled={submitting || loadingAddresses || loadingClinics || !!loadError}
-            onChange={(event) => { setSelected(event.target.value); setError(""); }}>
+          <button id="correct-destination-address" type="button" ref={selectRef}
+            className="shp-address-trigger" aria-expanded={addressOpen}
+            aria-controls="correct-destination-options" aria-haspopup="listbox"
+            disabled={submitting || loadingAddresses || loadingClinics || !!loadError || options.length === 0}
+            onClick={() => setAddressOpen((open) => !open)}>
+            {loadingAddresses || loadingClinics ? "Loading addresses..." :
+              options.find((item) => item.id === selected)?.name || "Select another address..."}
+          </button>
+          {addressOpen && <select id="correct-destination-options" ref={addressListRef}
+            className="shp-address-options" size={Math.min(5, Math.max(2, options.length + 1))}
+            aria-label="Available proposed addresses" value={selected}
+            onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setAddressOpen(false); selectRef.current?.focus(); } }}
+            onChange={(event) => { setSelected(event.target.value); setError(""); setAddressOpen(false); selectRef.current?.focus(); }}>
             <option value="">{loadingAddresses || loadingClinics ? "Loading addresses..." : "Select another address..."}</option>
             {options.map((item) => <option key={item.id} value={item.id}>
               {item.id === order.doctorAddressId
                 ? `Use the clinic's corrected pin — ${item.name} (current address)`
                 : `${item.name} — ${item.address}`}
             </option>)}
-          </select>
+          </select>}
           {!loadingAddresses && !loadingClinics && !loadError && options.length === 0 &&
             <p className="shp-muted">No other verified address is linked to this doctor.</p>}
           {drift && <p className="shp-muted">{drift.text}</p>}

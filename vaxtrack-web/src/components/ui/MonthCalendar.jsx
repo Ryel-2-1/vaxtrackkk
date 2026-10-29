@@ -121,7 +121,7 @@ function MonthCalendar({
         ))}
       </div>
 
-      <div className="mcal-grid">
+      <div className="mcal-grid" style={{ "--mcal-week-count": weeks.length }}>
         {weeks.flat().map((cell) => {
           const count = counts[cell.iso] || 0;
           const urgent = urgentCounts[cell.iso] || 0;

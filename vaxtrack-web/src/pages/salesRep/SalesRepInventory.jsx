@@ -25,7 +25,7 @@ import "../../components/ui/feedback.css";
 // The derived expiry levels, in the order a rep cares about them. These are
 // labels from the shared helper, not values of the stored `status` field.
 const statusTypes = ["All", "Expired", "Expiring soon", "Expiring later", "In date", "No expiry date"];
-const rowsPerPage = 5;
+const rowsPerPage = 10;
 
 /* `getDaysUntilExpiry` was deleted: it measured from local midnight, while the
    server and every other surface use a date-only Manila cutoff. The days now

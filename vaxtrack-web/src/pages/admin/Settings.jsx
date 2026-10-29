@@ -64,7 +64,7 @@ function normalizeUser(raw) {
   };
 }
 
-const pageSize = 4;
+const pageSize = 10;
 
 /** Account status changes, each confirmed with its consequence first. */
 const ACCOUNT_ACTIONS = {

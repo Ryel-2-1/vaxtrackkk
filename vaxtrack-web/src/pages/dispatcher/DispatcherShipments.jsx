@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Loader2, Package, X } from "lucide-react";
+import { AlertTriangle, Loader2, Package, Search, X } from "lucide-react";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { MAX_CANCEL_REASON_LENGTH } from "../../services/orderService";
 import {
@@ -102,12 +102,15 @@ function formatTime(ts) {
 }
 
 function DispatcherShipments() {
+  const pageSize = 10;
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const { toast, showToast, dismissToast } = useToast();
   const [updating, setUpdating] = useState("");
   const [filterStatus, setFilterStatus] = useState("active");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(null);
   const now = useManilaDayNow();
   // A notification's link (/dispatcher/shipments?order=…) points at one order.
   const [searchParams] = useSearchParams();
@@ -175,6 +178,20 @@ function DispatcherShipments() {
     if (filterStatus === "cancelled") return grouped.cancelled;
     return orders;
   }, [filterStatus, grouped, orders]);
+
+  const matchingOrders = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return activeOrders;
+    return activeOrders.filter((order) => [
+      order.orderNumber, order.clinicName, order.clinicAddress,
+      order.vaccineName, order.assignedRiderName,
+    ].some((value) => String(value ?? "").toLowerCase().includes(query)));
+  }, [activeOrders, search]);
+  const pageCount = Math.max(1, Math.ceil(matchingOrders.length / pageSize));
+  const focusedIndex = focusOrderId ? matchingOrders.findIndex((order) => order.id === focusOrderId) : -1;
+  const initialPage = focusedIndex < 0 ? 1 : Math.floor(focusedIndex / pageSize) + 1;
+  const currentPage = Math.min(page ?? initialPage, pageCount);
+  const pageOrders = matchingOrders.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   // The order awaiting cancellation confirmation, plus the control that opened
   // the dialog so focus can be handed back to it.
@@ -384,16 +401,22 @@ function DispatcherShipments() {
                 key={f.id}
                 type="button"
                 className={`shp-segment ${filterStatus === f.id ? "active" : ""}`}
-                onClick={() => setFilterStatus(f.id)}
+                onClick={() => { setFilterStatus(f.id); setPage(1); }}
               >
                 {f.label} · {f.count}
               </button>
             ))}
           </div>
+          <label className="shp-search">
+            <Search size={16} aria-hidden="true" />
+            <span className="shp-search-label">Search shipments</span>
+            <input type="search" value={search} placeholder="Search shipments"
+              onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
+          </label>
         </div>
 
         <section className="shp-card">
-          {activeOrders.length === 0 ? (
+          {matchingOrders.length === 0 ? (
             <div className="shp-empty">
               <span className="shp-empty-icon">
                 <Package size={18} />
@@ -407,13 +430,19 @@ function DispatcherShipments() {
               ) : (
                 <>
                   <strong>No shipments match this filter</strong>
-                  <p>Try a different status filter above.</p>
+                  <p>Try a different status filter or search.</p>
                 </>
               )}
             </div>
           ) : (
             <div className="shp-table-wrap">
               <table className="shp-table">
+                <colgroup>
+                  <col style={{ width: "11%" }} /><col style={{ width: "20%" }} />
+                  <col style={{ width: "13%" }} /><col style={{ width: "11%" }} />
+                  <col style={{ width: "11%" }} /><col style={{ width: "8%" }} />
+                  <col style={{ width: "26%" }} />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Order</th>
@@ -426,7 +455,7 @@ function DispatcherShipments() {
                   </tr>
                 </thead>
                 <tbody>
-                  {activeOrders.map((order) => (
+                  {pageOrders.map((order) => (
                     <ShipmentRow
                       key={order.id}
                       order={order}
@@ -444,6 +473,16 @@ function DispatcherShipments() {
             </div>
           )}
         </section>
+        {matchingOrders.length > 0 && (
+          <nav className="shp-pagination" aria-label="Shipment pages">
+            <span>Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, matchingOrders.length)} of {matchingOrders.length}</span>
+            <div>
+              <button type="button" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>Previous</button>
+              <span>Page {currentPage} of {pageCount}</span>
+              <button type="button" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button>
+            </div>
+          </nav>
+        )}
       </div>
 
       {cancelTarget && (
@@ -581,7 +620,7 @@ function ReassignFailedOrderDialog({ order, onDismiss, onConfirm }) {
             <button type="button" className="shp-act-btn" onClick={onDismiss} ref={firstFieldRef}>
               Keep as failed
             </button>
-            <button type="submit" className="shp-act-btn primary" disabled={submitting}>
+            <button type="submit" className="shp-act-btn primary return-to-queue" disabled={submitting}>
               {submitting ? "Returning…" : "Return to queue"}
             </button>
           </div>
@@ -781,8 +820,10 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
   return (
     <tr ref={rowRef} className={`${isDelayed ? "shp-row-delayed" : ""}${focused ? " shp-row-focus" : ""}`} aria-current={focused ? "true" : undefined}>
       <td>
-        <span className="shp-order-id">{orderNum}</span>
-        <RequestedArrivalNote order={order} />
+        <div className="shp-order-content">
+          <span className="shp-order-id">{orderNum}</span>
+          <RequestedArrivalNote order={order} />
+        </div>
       </td>
       <td>
         <div className="shp-cell">
@@ -821,44 +862,47 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
         )}
       </td>
       <td className="shp-td-meta">{updated}</td>
-      <td>
+      <td className="shp-actions-cell">
         {cancellable || reassignable || legacyReturned || correctable || awaitingApproval ? (
-          <div className="shp-actions">
-            {awaitingApproval && <span className="shp-muted">Awaiting Med Rep approval</span>}
+          <div className={`shp-actions${sKey === "delivery_failed" ? " shp-actions--failed" : ""}`}>
+            {awaitingApproval && <span className="shp-muted shp-action-slot">Awaiting Med Rep approval</span>}
             {correctable && (
-              <button type="button" className="shp-act-btn" disabled={updating}
+              <button type="button" className="shp-act-btn shp-action-slot request-change" disabled={updating}
                 onClick={(e) => onRequestCorrection(order, e.currentTarget)}>
                 Request change
               </button>
             )}
+            {!correctable && !awaitingApproval && <span className="shp-action-slot shp-action-placeholder" aria-hidden="true" />}
             {legacyReturned && (
-              <span className="shp-muted">
+              <span className="shp-muted shp-action-slot">
                 Placed before future orders — its stock was returned. Cancel it and place a new order.
               </span>
             )}
             {reassignable && (
               <button
                 type="button"
-                className="shp-act-btn primary"
+                className="shp-act-btn shp-action-slot primary return-to-queue"
                 disabled={updating}
                 onClick={(e) => onRequestReassign(order, e.currentTarget)}
               >
                 Return to queue
               </button>
             )}
+            {!reassignable && !legacyReturned && <span className="shp-action-slot shp-action-placeholder" aria-hidden="true" />}
             {cancellable && (
               <button
                 type="button"
-                className="shp-act-btn danger"
+                className="shp-act-btn shp-action-slot danger"
                 disabled={updating}
                 onClick={(e) => onRequestCancel(order, e.currentTarget)}
               >
                 Cancel order
               </button>
             )}
+            {!cancellable && <span className="shp-action-slot shp-action-placeholder" aria-hidden="true" />}
           </div>
         ) : (
-          <span className="shp-muted">—</span>
+          <span className="shp-muted shp-action-dash">—</span>
         )}
       </td>
     </tr>

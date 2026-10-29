@@ -50,6 +50,61 @@
    where a role shell is mounted; the global rule is a separate clean-up. */
 #root:has(> .inventory-page, > .salesrep-page, > .dispatcher-page) {
   border-inline: 0 !important;
+  width: 100%;
+  max-width: 100% !important;
+}
+
+/* Keep the desktop rail in view while each role's main pane scrolls. The
+   shell is exactly one viewport tall, so ancestor overflow rules cannot
+   capture a sticky rail or move the whole page when content grows. */
+@media (min-width: 1025px) {
+  #root > .dispatcher-page,
+  #root > .salesrep-page {
+    height: 100vh !important;
+    height: 100dvh !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  #root > .dispatcher-page > aside.dispatcher-sidebar,
+  #root > .salesrep-page > aside.salesrep-sidebar {
+    position: sticky !important;
+    top: 0 !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    min-height: 0 !important;
+    align-self: flex-start !important;
+  }
+
+  #root > .dispatcher-page > main.dispatcher-main,
+  #root > .salesrep-page > main.salesrep-main {
+    height: 100vh !important;
+    height: 100dvh !important;
+    min-height: 0 !important;
+    overflow-y: scroll !important;
+    overflow-x: hidden !important;
+    scrollbar-gutter: stable;
+    overscroll-behavior-y: contain;
+  }
+}
+
+@media (min-width: 1001px) {
+  #root > .inventory-page {
+    height: 100vh !important;
+    height: 100dvh !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  #root > .inventory-page > main {
+    height: calc(100vh - var(--shell-topbar-height)) !important;
+    height: calc(100dvh - var(--shell-topbar-height)) !important;
+    min-height: 0 !important;
+    overflow-y: scroll !important;
+    overflow-x: hidden !important;
+    scrollbar-gutter: stable;
+    overscroll-behavior-y: contain;
+  }
 }
 
 /* ---------------------------------------------------------------
