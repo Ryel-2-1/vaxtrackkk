@@ -19,9 +19,8 @@ import { ORDER_STATUSES, STATUS_LABELS } from "../src/services/orderWorkflow.js"
  * nothing, one of them announcing a state change ("marked as reviewed") that
  * was never written; and a document with no status field became "Pending".
  *
- * Nothing was invented to replace any of it. Admin stays read-only: the page
- * performs no write, and the only action added is a tel: link built from the
- * rider phone number the order already carries.
+ * Admin stays read-only: the page performs no write, and the list only opens
+ * delivery details. Rider contact information remains visible as text.
  */
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
@@ -250,11 +249,10 @@ test("every retained action is real, and the page writes nothing", () => {
   }
   assert.equal(/onResolve|onRoute|onContact/.test(CODE), false);
 
-  // What remains: filters and selection (local view state) and a real tel: link
-  // built from the order's own field. Logout now lives in the persistent
-  // AdminShell (the sidebar it renders), not on the page.
-  assert.match(PAGE, /href=\{`tel:\$\{delivery\.riderPhone\}`\}/);
-  assert.match(PAGE, /\{delivery\.riderPhone \?/, "the link only appears with a number");
+  // Filters, selection, and View remain. The page does not offer a call action.
+  assert.match(PAGE, />\s*View\s*</);
+  assert.doesNotMatch(PAGE, /href=\{`tel:/);
+  assert.doesNotMatch(PAGE, />\s*Call\s*</);
 
   // Admin remains read-only: no write of any kind, and no local mutation of a
   // status after an action — the subscription stays authoritative.

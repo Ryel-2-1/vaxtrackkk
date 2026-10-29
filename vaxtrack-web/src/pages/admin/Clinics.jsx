@@ -687,23 +687,20 @@ function Clinics() {
         <ToastRegion toast={toast} onDismiss={dismissToast} />
 
         <header className="clinics-v2-topbar">
-          <div>
-            <p>Manage and monitor affiliated healthcare facilities.</p>
+          <div className="clinics-v2-search">
+            <Search size={15} />
+            <input
+              aria-label="Search clinics"
+              placeholder="Search clinics..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+            />
           </div>
 
           <div className="clinics-v2-top-actions">
-            <div className="clinics-v2-search">
-              <Search size={15} />
-              <input
-                placeholder="Search clinics..."
-                value={searchTerm}
-                onChange={(e) => {
-                  setSearchTerm(e.target.value);
-                  setCurrentPage(1);
-                }}
-              />
-            </div>
-
             <button
               type="button"
               className="clinics-icon-btn"

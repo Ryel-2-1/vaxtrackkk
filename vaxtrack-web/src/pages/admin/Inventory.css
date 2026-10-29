@@ -40,6 +40,36 @@
   justify-content: flex-end;
 }
 
+/* Four actions share a single control grid so the header stays balanced. */
+.inventory-action-bar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  width: 700px;
+  max-width: 100%;
+}
+.inventory-page .inventory-action {
+  width: 100%;
+  min-width: 0;
+  height: 44px;
+  justify-content: center;
+  border-radius: 9px;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.inventory-page .inventory-action:focus-visible,
+.inventory-page .vaccine-overview-toggle:focus-visible {
+  outline: 2px solid var(--green-700);
+  outline-offset: 2px;
+}
+@media (max-width: 1160px) {
+  .inventory-action-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 420px; }
+}
+@media (max-width: 620px) {
+  .inventory-action-bar { width: 100%; }
+  .inventory-page .inventory-action { white-space: normal; min-height: 44px; height: auto; padding-block: 8px; }
+}
+
 .v2-icon-action {
   width: 40px;
   height: 40px;
@@ -280,116 +310,44 @@
   font-weight: 600;
 }
 
-/* Cold and alert cards */
-
-.v2-cold-list,
-.v2-alert-summary-list {
-  display: flex;
-  flex-direction: column;
-  gap: 11px;
-  margin-top: 16px;
+/* A single expiry watch replaces the two tall duplicate summary cards. */
+.v2-hub-grid > .inventory-watch-card { grid-column: 1 / -1; }
+.inventory-watch-body { margin-top: 14px; }
+.inventory-watch-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.inventory-page .inventory-watch-filter {
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
+  min-height: 78px; min-width: 0; padding: 10px 12px;
+  border: 1px solid var(--gray-200); border-radius: 8px;
+  background: var(--gray-50); text-align: left; cursor: pointer;
+  font-family: var(--font-ui);
 }
-
-.v2-cold-list div,
-.v2-alert-summary-list div {
-  padding: 13px;
-  border-radius: 12px;
-  border: 1px solid var(--gray-200);
-  background: var(--gray-50);
+.inventory-watch-filter strong { color: var(--gray-900); font-size: 22px; line-height: 1; font-variant-numeric: tabular-nums; }
+.inventory-watch-filter span { margin-top: 6px; color: var(--gray-600); font-size: 11px; font-weight: 600; }
+.inventory-page .inventory-watch-filter.is-expired { background: var(--danger-bg); }
+.inventory-page .inventory-watch-filter.is-critical { background: var(--warning-bg); }
+.inventory-page .inventory-watch-filter.is-warning { background: #f5f8fa; }
+.inventory-page .inventory-watch-filter:hover { border-color: var(--green-700); }
+.inventory-page .inventory-watch-filter:focus-visible,
+.inventory-page .inventory-watch-row:focus-visible { outline: 2px solid var(--green-700); outline-offset: 2px; }
+.inventory-watch-list { margin-top: 14px; }
+.inventory-watch-list-title { display: block; margin-bottom: 8px; color: var(--gray-900); font-size: 12px; }
+.inventory-watch-list p { margin: 8px 0; color: var(--gray-500); font-size: 12px; }
+.inventory-watch-records { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.inventory-watch-records p { grid-column: 1 / -1; }
+.inventory-page .inventory-watch-row {
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 8px;
+  width: 100%; min-height: 82px; padding: 11px 12px;
+  border: 1px solid var(--gray-200); border-radius: 8px;
+  background: #fff; text-align: left; cursor: pointer; font-family: var(--font-ui);
 }
-
-.v2-cold-list span,
-.v2-alert-summary-list span {
-  display: block;
-  color: var(--gray-600);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.v2-cold-list strong,
-.v2-alert-summary-list strong {
-  display: block;
-  margin: 3px 0;
-  color: var(--gray-900);
-  font-size: 20px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.v2-cold-list small {
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.v2-cold-list small.critical {
-  color: #dc2626;
-}
-
-.v2-cold-list small.stable {
-  color: #15803d;
-}
-
-.v2-cold-list small.expired {
-  color: #991b1b;
-  font-weight: 700;
-}
-
-.v2-cold-list small.unknown {
-  color: var(--gray-600, #4b5563);
-}
-
-/* Flatten Critical & Expiring records into compact divided rows
-   (scoped to .v2-cold-list only — the .v2-alert-summary-list tiles keep
-   their layout). Records no longer read as cards inside a card. */
-.v2-cold-list {
-  gap: 0;
-  margin-top: 8px;
-}
-.v2-cold-list div {
-  padding: 11px 0;
-  border: 0;
-  border-bottom: 1px solid var(--gray-100);
-  border-radius: 0;
-  background: transparent;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: baseline;
-  column-gap: 12px;
-}
-.v2-cold-list div:last-child {
-  border-bottom: 0;
-}
-.v2-cold-list span {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--gray-900);
-}
-.v2-cold-list strong {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--gray-600);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.v2-cold-list small {
-  grid-column: 1 / -1;
-  margin-top: 2px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.v2-alert-summary-list .critical {
-  background: #fee2e2;
-}
-
-.v2-alert-summary-list .warning {
-  background: #fff7ed;
-}
-
-.v2-alert-summary-list .stable {
-  background: #dcfce7;
-}
+.inventory-watch-row span { min-width: 0; }
+.inventory-watch-row b { display: block; color: var(--gray-900); font-size: 12px; overflow-wrap: anywhere; }
+.inventory-watch-row small { display: block; margin-top: 2px; color: var(--gray-500); font-size: 10px; }
+.inventory-watch-row.is-expired small { color: var(--danger-text); }
+.inventory-watch-row.is-critical small { color: var(--warning-text); }
+.inventory-watch-row strong { color: var(--gray-600); font-size: 11px; font-variant-numeric: tabular-nums; }
+.inventory-page .inventory-watch-row:hover { border-color: var(--green-700); background: var(--green-50); }
+@media (max-width: 700px) { .inventory-watch-records { grid-template-columns: 1fr; } .inventory-page .inventory-watch-row { min-height: 70px; } }
 
 /* Table card */
 
@@ -565,22 +523,7 @@
 }
 
 .v2-vaccine-cell {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-/* Only the direct package-icon wrapper is a square. Nested status badges
-   must size to their text, not inherit the icon's 36px width and height. */
-.v2-vaccine-cell > span {
-  width: 36px;
-  flex: 0 0 36px;
-  height: 36px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  background: var(--green-50);
-  color: var(--green-700);
+  min-width: 0;
 }
 
 .v2-vaccine-cell > div {
@@ -662,8 +605,13 @@
 
 .v2-pagination {
   display: flex;
+  align-items: center;
   gap: 7px;
 }
+
+.v2-page-picker { display: inline-flex; align-items: center; gap: 6px; color: var(--gray-600); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.v2-page-picker select { height: 34px; min-width: 50px; padding: 0 7px; border: 1px solid var(--gray-300); border-radius: 8px; background: #fff; color: var(--gray-900); font: 600 12px var(--font-ui); cursor: pointer; }
+.v2-page-picker select:focus-visible { outline: 2px solid var(--green-700); outline-offset: 2px; }
 
 .v2-pagination button {
   height: 34px;
@@ -1007,74 +955,114 @@
   min-height: 300px !important;
 }
 
-/* Stock Overview horizontal bar list */
-.v2-stock-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 14px;
-  max-height: 260px;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-.v2-stock-row {
+/* Product counts make stock state visible without letting an oversized batch
+   dominate every bar. Exact quantities remain in the inventory table. */
+.vaccine-availability-chart {
   display: flex;
   align-items: center;
+  justify-content: center;
+  gap: clamp(32px, 6vw, 100px);
+  padding: 22px 12px 12px;
+}
+.vaccine-availability-ring {
+  display: grid;
+  place-items: center;
+  width: 196px;
+  height: 196px;
+  flex: 0 0 196px;
+  border-radius: 50%;
+}
+.vaccine-availability-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.6);
+}
+.vaccine-availability-center strong { color: var(--gray-900); font-size: 38px; line-height: 1; font-variant-numeric: tabular-nums; }
+.vaccine-availability-center span { margin-top: 4px; color: var(--gray-600); font-size: 12px; }
+.vaccine-availability-legend { width: min(100%, 410px); }
+.vaccine-availability-legend-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) minmax(80px, auto);
+  align-items: start;
   gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--gray-100);
+  color: var(--gray-700);
+  font-size: 14px;
 }
-
-.v2-stock-row-label {
-  flex: 0 0 110px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--gray-600);
+.vaccine-availability-legend-row:last-child { border-bottom: 0; }
+.inventory-page .vaccine-availability-legend-row.is-action {
+  width: 100%;
+  grid-template-columns: 12px minmax(0, 1fr) minmax(80px, auto) 15px;
+  border: 0;
+  border-bottom: 1px solid var(--gray-100);
+  border-radius: 7px;
+  background: transparent;
+  padding-inline: 0;
+  text-align: left;
+  font-family: var(--font-ui);
+  cursor: pointer;
+}
+.inventory-page .vaccine-availability-legend-row.is-action.is-stocked:hover,
+.inventory-page .vaccine-availability-legend-row.is-action.is-stocked.is-selected { background: var(--green-50); }
+.inventory-page .vaccine-availability-legend-row.is-action.is-empty:hover,
+.inventory-page .vaccine-availability-legend-row.is-action.is-empty.is-selected { background: var(--warning-bg); }
+.inventory-page .vaccine-availability-legend-row.is-action.is-review:hover,
+.inventory-page .vaccine-availability-legend-row.is-action.is-review.is-selected { background: var(--danger-bg); }
+.inventory-page .vaccine-availability-legend-row.is-action:last-child { border-bottom: 0; }
+.inventory-page .vaccine-availability-legend-row.is-action:focus-visible { outline: 2px solid var(--green-700); outline-offset: 2px; }
+.inventory-page .vaccine-availability-legend-row.is-action:disabled { cursor: default; opacity: 0.7; }
+.vaccine-availability-legend-row.is-action svg { align-self: center; color: var(--green-700); transition: transform 150ms ease; }
+.vaccine-availability-legend-row.is-action svg.is-open { transform: rotate(180deg); }
+.vaccine-availability-legend i { width: 12px; height: 12px; margin-top: 3px; border-radius: 3px; }
+.vaccine-availability-legend i.is-stocked { background: #19744f; }
+.vaccine-availability-legend i.is-empty { background: #d99024; }
+.vaccine-availability-legend i.is-review { background: #c5483f; }
+.vaccine-availability-legend span b { display: block; color: var(--gray-900); font-size: 13px; }
+.vaccine-availability-legend span small { display: block; margin-top: 2px; color: var(--gray-500); font-size: 11px; line-height: 1.3; }
+.vaccine-availability-legend strong { color: var(--gray-900); font-size: 18px; font-variant-numeric: tabular-nums; text-align: right; }
+.vaccine-availability-legend strong small { color: var(--gray-500); font-size: 11px; font-weight: 500; }
+.vaccine-available-details {
+  margin-top: 8px;
+  border: 1px solid #d5e8dc;
+  border-radius: 9px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
-
-.v2-stock-row-track {
-  flex: 1;
-  background: #f1f5f9;
-  border-radius: 6px;
-  height: 22px;
-  overflow: hidden;
+.vaccine-available-details-head,
+.vaccine-available-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
 }
-
-.v2-stock-row-fill {
-  height: 100%;
-  border-radius: 6px;
-  min-width: 4px;
-  transition: width 0.4s ease;
-}
-
-.v2-stock-row-fill.blue { background: var(--green-700); }
-.v2-stock-row-fill.green { background: var(--green-600); }
-.v2-stock-row-fill.gold { background: var(--warning-text); }
-.v2-stock-row-fill.red { background: var(--danger-text); }
-.v2-stock-row-fill.purple { background: var(--info-text); }
-
-.v2-stock-row-qty {
-  flex: 0 0 85px;
-  font-size: 13px;
-  font-weight: 700;
-  color: #0f172a;
-  text-align: right;
-  white-space: nowrap;
+.vaccine-available-details-head { background: var(--green-50); color: var(--green-800); font-size: 12px; }
+.vaccine-available-details-head span { font-weight: 600; }
+.vaccine-available-row { border-top: 1px solid var(--gray-100); }
+.vaccine-available-row:nth-child(even) { background: #f9fbfa; }
+.vaccine-available-row > div { min-width: 0; }
+.vaccine-available-row > div strong { display: block; color: var(--gray-900); font-size: 13px; overflow-wrap: anywhere; }
+.vaccine-available-row > div small { display: block; margin-top: 2px; color: var(--gray-500); font-size: 11px; }
+.vaccine-available-row > span { flex-shrink: 0; color: var(--green-800); font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.vaccine-available-row > span small { color: var(--gray-500); font-size: 11px; font-weight: 500; }
+.vaccine-overview-note { max-width: 700px; margin: 9px auto 0; color: var(--gray-500); font-size: 11px; line-height: 1.4; text-align: center; }
+@media (max-width: 680px) {
+  .vaccine-availability-chart { flex-direction: column; gap: 10px; padding-top: 18px; }
+  .vaccine-availability-ring { width: 172px; height: 172px; flex-basis: 172px; }
+  .vaccine-availability-center { width: 114px; height: 114px; }
+  .vaccine-availability-legend { max-width: 360px; }
 }
 
 .v2-stock-empty {
   margin: 14px 0 0;
   font-size: 13px;
   color: #94a3b8;
-}
-
-/* Cold Storage Status and Inventory Alerts stay below, side by side */
-.v2-cold-card,
-.v2-alert-summary-card {
-  grid-column: auto !important;
-  min-height: 250px !important;
 }
 
 /* Responsive: stack them on smaller screens */
@@ -1130,6 +1118,7 @@
 
 .v2-expiry-select {
   height: 40px !important;
+  min-width: 230px;
   border: 1px solid var(--gray-300) !important;
   background: #ffffff !important;
   border-radius: 10px !important;
@@ -1382,13 +1371,16 @@
   flex-basis: 100%;
 }
 
-/* What "On hand" means, stated once above the stock table. */
+/* Stock arithmetic stays available without occupying two lines by default. */
 .inventory-page .inv-onhand-note {
   margin: 0 0 8px;
   font-size: 12px;
   line-height: 1.45;
   color: var(--gray-600);
 }
+.inventory-page .inv-onhand-note summary { display: list-item; width: fit-content; cursor: pointer; color: var(--green-700); font-weight: 600; }
+.inventory-page .inv-onhand-note summary:focus-visible { outline: 2px solid var(--green-700); outline-offset: 2px; }
+.inventory-page .inv-onhand-note p { max-width: 1000px; margin: 6px 0 0; }
 
 /* The product catalog failed to load: VAT labels are not trustworthy. */
 .v2-catalog-notice {

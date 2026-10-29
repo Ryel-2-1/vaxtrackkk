@@ -77,7 +77,7 @@ test("Admin Inventory labels each KPI with the band it actually counts", () => {
 
   // Each card filters to the single level it counts, so figure and list agree.
   for (const level of ["expired", "critical", "warning"]) {
-    assert.match(INV, new RegExp(`setStatusFilter\\("${level}"\\)`));
+    assert.match(INV, new RegExp(`changeStatusFilter\\("${level}"\\)`));
   }
 });
 

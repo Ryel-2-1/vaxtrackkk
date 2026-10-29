@@ -1,7 +1,7 @@
 import "./AdminDashboard.css";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, ArrowRight, CheckCircle2, Package } from "lucide-react";
+import { AlertTriangle, ArrowRight, BellRing, CheckCircle2, Package, Truck } from "lucide-react";
 import AdminLayout from "../../components/admin/AdminLayout";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeAllAlerts } from "../../services/alertService";
@@ -43,6 +43,7 @@ const ALERT_TYPE_MAP = {
   stock_expiry: "warning",
   route_deviation: "critical",
   delivery_delay: "warning",
+  rider_location_stale: "warning",
 };
 
 function normalizeAlert(raw) {
@@ -57,12 +58,17 @@ function normalizeAlert(raw) {
     // as amber on nothing more than the absence of a mapping. (The old
     // `status === "resolved" ? "success"` arm was unreachable: this list is
     // filtered to unresolved alerts before it gets here.)
-    type: ALERT_TYPE_MAP[raw.type] || "unknown",
+    type: ["critical", "warning", "notice"].includes(raw.severity)
+      ? raw.severity
+      : ALERT_TYPE_MAP[raw.type] || "unknown",
     title: view.title,
     desc: view.message || raw.description || "—",
     time: formatRelativeTime(raw.createdAt),
+    createdAtMs: raw.createdAt?.toMillis?.() ?? 0,
   };
 }
+
+const ALERT_PRIORITY = { critical: 0, warning: 1, notice: 2, unknown: 3 };
 
 // Status rows shown in the delivery breakdown, in operational order.
 //
@@ -77,19 +83,19 @@ const BREAKDOWN_ORDER = ORDER_STATUSES;
 const ALERT_DOT = {
   critical: "var(--danger-text)",
   warning: "var(--warning-text)",
-  success: "var(--success-text)",
+  notice: "var(--info-text)",
 };
 
 function AdminDashboard() {
   const navigate = useNavigate();
 
   const [deliveryCount, setDeliveryCount] = useState(0);
-  const [delayedCount, setDelayedCount] = useState(0);
+  const [exceptionCount, setExceptionCount] = useState(0);
   const [criticalCount, setCriticalCount] = useState(0);
   const [riderCount, setRiderCount] = useState(0);
   const [statusBreakdown, setStatusBreakdown] = useState({});
   const [recentOrders, setRecentOrders] = useState([]);
-  const [recentAlerts, setRecentAlerts] = useState([]);
+  const [activeAlerts, setActiveAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   // Which sources failed. A failed source shows "—" / "unavailable", never a
@@ -123,11 +129,7 @@ function AdminDashboard() {
     const unsubDeliveries = subscribeDeliveries(
       (orders) => {
         setDeliveryCount(orders.length);
-        setDelayedCount(
-          orders.filter((o) => {
-            return o.statusKey === "delayed" || o.statusKey === "cancelled" || o.statusKey === "canceled";
-          }).length
-        );
+        setExceptionCount(orders.filter((o) => ["delayed", "delivery_failed"].includes(o.statusKey)).length);
         // Derived from the same orders array — no extra Firestore read.
         const breakdown = {};
         orders.forEach((o) => {
@@ -158,11 +160,11 @@ function AdminDashboard() {
     let unsubAlerts = () => {};
     try {
       unsubAlerts = subscribeAllAlerts((raw) => {
-        setRecentAlerts(
+        setActiveAlerts(
           raw
             .filter((a) => a.status !== "resolved")
-            .slice(0, 5)
             .map(normalizeAlert)
+            .sort((a, b) => ALERT_PRIORITY[a.type] - ALERT_PRIORITY[b.type] || b.createdAtMs - a.createdAtMs)
         );
         loaded.alerts = true;
         recover("alerts");
@@ -210,12 +212,7 @@ function AdminDashboard() {
 
   const ledgerCells = [
     { label: "Total orders", source: "deliveries", value: deliveryCount, note: "All deliveries", to: "/admin/deliveries", tone: "" },
-    // Was "Delayed / missing". Nothing here is missing: the figure is delayed
-    // plus cancelled orders, and a cancelled order is one somebody closed on
-    // purpose. The system does have a status for a delivery that stopped —
-    // `delivery_failed` — and calling cancelled orders "missing" both named the
-    // wrong thing and implied that status was covered when it was not.
-    { label: "Delayed / cancelled", source: "deliveries", value: delayedCount, note: delayedCount > 0 ? "Needs review" : "None flagged", to: "/admin/deliveries", tone: delayedCount > 0 ? " is-exception" : "" },
+    { label: "Delivery exceptions", source: "deliveries", value: exceptionCount, note: exceptionCount > 0 ? "Delayed or failed" : "No delayed or failed orders", to: "/admin/deliveries", tone: exceptionCount > 0 ? " is-exception" : "" },
     // Counts batches that are expired or within 30 days of expiring, worked out
     // from each batch's expiry date. It used to count the stored `status`,
     // which Add Stock stamps once at creation and nothing recomputes — so a
@@ -225,6 +222,26 @@ function AdminDashboard() {
     { label: "Expiring or expired stock", source: "inventory", value: criticalCount, note: criticalCount > 0 ? "Within 30 days or past expiry" : "None within 30 days", to: "/admin/inventory", tone: criticalCount > 0 ? " is-attention" : "" },
     { label: "Registered riders", source: "riders", value: riderCount, note: "On the platform", to: "/admin/riders", tone: "" },
   ].map((c) => (failed[c.source] ? { ...c, value: "—", note: "Unavailable", tone: "" } : c));
+
+  const operationalChecks = [
+    !failed.deliveries && exceptionCount > 0 && {
+      id: "delivery-exceptions",
+      title: `${exceptionCount} delayed or failed ${exceptionCount === 1 ? "delivery" : "deliveries"}`,
+      desc: "Review orders that need a delivery follow-up.",
+      to: "/admin/deliveries",
+      icon: Truck,
+      tone: "critical",
+    },
+    !failed.inventory && criticalCount > 0 && {
+      id: "expiring-stock",
+      title: `${criticalCount} ${criticalCount === 1 ? "batch" : "batches"} expiring or expired`,
+      desc: "Review batch dates and stock disposition.",
+      to: "/admin/inventory",
+      icon: Package,
+      tone: "warning",
+    },
+  ].filter(Boolean);
+  const hasAttention = activeAlerts.length > 0 || operationalChecks.length > 0;
 
   return (
     <AdminLayout
@@ -242,6 +259,19 @@ function AdminDashboard() {
           </div>
         </div>
       )}
+
+      <section className="adx-hero" aria-label="Dashboard overview">
+        <div>
+          <span className="adx-hero-kicker">VAXTRACK OPERATIONS</span>
+          <h2>Keep every handoff in view.</h2>
+          <p>Follow orders, stock, and delivery issues from one place.</p>
+        </div>
+        <button type="button" className="adx-hero-action" onClick={() => navigate("/admin/alerts")}>
+          <BellRing size={17} aria-hidden="true" />
+          {loading || failed.alerts ? "Open alert center" : `${activeAlerts.length} active ${activeAlerts.length === 1 ? "alert" : "alerts"}`}
+          <ArrowRight size={16} aria-hidden="true" />
+        </button>
+      </section>
 
       {/* Operational status strip — the same real KPI values presented as one
           connected ledger rather than four floating cards. */}
@@ -327,11 +357,11 @@ function AdminDashboard() {
           )}
         </div>
 
-        <aside className="adx-card">
+        <aside className="adx-card adx-attention-card">
           <div className="adx-card-head">
             <div>
-              <h2>Alerts requiring attention</h2>
-              <p>Unresolved alerts.</p>
+              <h2>Needs attention</h2>
+              <p>Active system alerts and operational checks.</p>
             </div>
             <button
               type="button"
@@ -356,30 +386,24 @@ function AdminDashboard() {
                 </div>
               ))}
             </div>
-          ) : failed.alerts ? (
-            <div className="adx-empty">
-              <span className="adx-empty-icon">
-                <AlertTriangle size={18} aria-hidden="true" />
-              </span>
-              <strong>Alerts unavailable</strong>
-              <p>See the notice above.</p>
-            </div>
-          ) : recentAlerts.length === 0 ? (
+          ) : !hasAttention && !failed.alerts && !failed.deliveries && !failed.inventory ? (
             <div className="adx-empty compact">
               <span className="adx-empty-icon success">
                 <CheckCircle2 size={18} aria-hidden="true" />
               </span>
               <strong>All clear</strong>
-              <p>No active alerts right now.</p>
+              <p>No active alerts or operational checks right now.</p>
             </div>
           ) : (
             <div className="adx-alert-list">
-              {recentAlerts.slice(0, 4).map((alert) => (
+              {failed.alerts && <p className="adx-attention-unavailable">System alerts are unavailable. See the notice above.</p>}
+              {!failed.alerts && activeAlerts.length > 0 && <p className="adx-attention-label">SYSTEM ALERTS</p>}
+              {!failed.alerts && activeAlerts.slice(0, 3).map((alert) => (
                 <button
                   key={alert.id}
                   type="button"
                   className="adx-alert-row"
-                  onClick={() => navigate("/admin/alerts")}
+                  onClick={() => navigate(`/admin/alerts?alert=${encodeURIComponent(alert.id)}`)}
                 >
                   <span
                     className="adx-alert-dot"
@@ -392,6 +416,23 @@ function AdminDashboard() {
                   <span className="adx-alert-time">{alert.time}</span>
                 </button>
               ))}
+              {operationalChecks.length > 0 && <p className="adx-attention-label">OPERATIONAL CHECKS</p>}
+              {operationalChecks.map((check) => {
+                const Icon = check.icon;
+                return (
+                  <button key={check.id} type="button" className="adx-alert-row adx-check-row" onClick={() => navigate(check.to)}>
+                    <span className={`adx-check-icon is-${check.tone}`}><Icon size={17} aria-hidden="true" /></span>
+                    <div><strong>{check.title}</strong><small>{check.desc}</small></div>
+                    <ArrowRight size={15} className="adx-check-arrow" aria-hidden="true" />
+                  </button>
+                );
+              })}
+              {(failed.deliveries || failed.inventory) && <p className="adx-attention-unavailable">Some operational checks are unavailable. See the notice above.</p>}
+              {!failed.alerts && activeAlerts.length > 3 && (
+                <button type="button" className="adx-alert-more" onClick={() => navigate("/admin/alerts")}>
+                  View all {activeAlerts.length} active alerts <ArrowRight size={14} aria-hidden="true" />
+                </button>
+              )}
             </div>
           )}
         </aside>

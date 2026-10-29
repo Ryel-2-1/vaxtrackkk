@@ -859,7 +859,7 @@
 
 .clinics-v2-topbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 22px;
   margin-bottom: 18px;
@@ -889,12 +889,11 @@
   justify-content: flex-end;
   gap: 9px;
   flex-wrap: wrap;
-  max-width: 760px;
 }
 
-/* Fixed search bar */
 .clinics-v2-search {
   width: 300px;
+  flex-shrink: 0;
   height: 42px;
   border: 1px solid var(--gray-300);
   background: #ffffff;

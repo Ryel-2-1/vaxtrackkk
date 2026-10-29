@@ -168,18 +168,19 @@ test("live add, update and remove appear in the active view without a refresh", 
   // Every snapshot replaces the page's state, and both views derive from it.
   assert.match(CODE, /\(raw\) => \{\s*setClinics\(raw\.map\(normalizeClinic\)\);/);
   // A removal that shortens the list never strands the Admin on an empty page.
-  const seven = Array.from({ length: 7 }, (_, i) => clinic({ id: `CLN-${i}`, firestoreId: `c${i}` }));
-  assert.equal(paginateClinics(seven, 3).items.length, 1);
-  const two = seven.slice(0, 2);
+  const twentyOne = Array.from({ length: 21 }, (_, i) => clinic({ id: `CLN-${i}`, firestoreId: `c${i}` }));
+  assert.equal(paginateClinics(twentyOne, 3).items.length, 1);
+  const two = twentyOne.slice(0, 2);
   const after = paginateClinics(two, 3);
-  assert.equal(after.page, 1, "page 3 of 7 clamps to the last page that exists");
+  assert.equal(after.page, 1, "page 3 of 21 clamps to the last page that exists");
   assert.equal(after.items.length, 2);
 });
 
 test("paging: one page size for both views, honest counts", () => {
-  assert.equal(CLINICS_PAGE_SIZE, 3);
-  const p = paginateClinics(LIVE, 2);
-  assert.deepEqual([p.page, p.totalPages, p.startItem, p.endItem, p.total], [2, 2, 4, 4, 4]);
+  assert.equal(CLINICS_PAGE_SIZE, 10);
+  const many = Array.from({ length: 14 }, (_, i) => clinic({ id: `CLN-${i}`, firestoreId: `c${i}` }));
+  const p = paginateClinics(many, 2);
+  assert.deepEqual([p.page, p.totalPages, p.startItem, p.endItem, p.total], [2, 2, 11, 14, 14]);
   const empty = paginateClinics([], 1);
   assert.deepEqual([empty.page, empty.totalPages, empty.startItem, empty.endItem], [1, 1, 0, 0]);
   assert.equal(paginateClinics(LIVE, 0).page, 1);

@@ -1705,14 +1705,6 @@
   color: var(--gray-700, #374151);
 }
 
-/* The rider Call control is a real `tel:` link now rather than a button that
-   reported a call it never placed, so the button styling has to cover anchors. */
-a.mdl-btn,
-a.mdl-btn:hover,
-a.mdl-btn:focus-visible {
-  text-decoration: none !important;
-}
-
 @media (max-width: 760px) {
   .mdl-header-note {
     max-width: none;

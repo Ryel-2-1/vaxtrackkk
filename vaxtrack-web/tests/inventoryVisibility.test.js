@@ -98,6 +98,7 @@ test("all intended lists share the policy; carts, checkout, Add Stock and histor
   for (const page of ["admin/Inventory", "salesRep/SalesRepInventory", "salesRep/SalesRepRequestOrder"]) {
     assert.match(read(`src/pages/${page}.jsx`), /<InventoryVisibilityToggle/);
   }
+  assert.doesNotMatch(read("src/pages/admin/Inventory.jsx"), /inactiveIds\.size > 0 \|\| showInactive/, "the Admin visibility filter stays visible at zero inactive products");
   for (const file of ["src/pages/admin/AddStock.jsx", "src/pages/salesRep/SalesRepPlaceOrder.jsx", "src/components/history/OrderHistoryView.jsx"]) {
     assert.doesNotMatch(read(file), /inactiveProductIds|useInventoryVisibility/);
   }

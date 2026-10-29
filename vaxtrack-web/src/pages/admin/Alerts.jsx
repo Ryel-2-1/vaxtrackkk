@@ -1,6 +1,6 @@
 import "./Alerts.css";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   Bell,
@@ -92,6 +92,7 @@ function normalizeAlert(raw) {
 
 function Alerts() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [alerts, setAlerts] = useState([]);
   // Loading and failure are their own states: an empty list must mean "no
   // alerts", never "not loaded yet" or "not allowed to read".
@@ -108,6 +109,7 @@ function Alerts() {
   const { toast, showToast, dismissToast } = useToast();
   const [markingAll, setMarkingAll] = useState(false);
   const markingAllRef = useRef(false);
+  const openedFromLinkRef = useRef(null);
 
   useEffect(() => {
     const unsubscribe = subscribeAllAlerts(
@@ -123,6 +125,17 @@ function Alerts() {
     );
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    const alertId = new URLSearchParams(location.search).get("alert");
+    if (!alertId || openedFromLinkRef.current === alertId || loading || loadError) return;
+    openedFromLinkRef.current = alertId;
+    const linkedAlert = alerts.find((alert) => alert.id === alertId);
+    setSelectedAlertId(alertId);
+    if (linkedAlert && !linkedAlert.read) {
+      markAlertRead(alertId).catch((error) => logSafeError("Mark alert read", error));
+    }
+  }, [location.search, alerts, loading, loadError]);
 
   const selectedAlert = selectedAlertId ? alerts.find((a) => a.id === selectedAlertId) ?? null : null;
   // Deleted while open: the dialog closes and says why, instead of showing a
@@ -306,7 +319,7 @@ function Alerts() {
           />
 
           <KpiCard
-            label="Resolved today"
+            label="Resolved alerts"
             value={kpi(resolvedCount)}
             context="Completed alerts"
             tone="success"

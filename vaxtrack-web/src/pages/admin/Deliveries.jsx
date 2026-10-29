@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   ChevronDown,
   Filter,
-  PhoneCall,
   Search,
   Truck,
   X,
@@ -506,19 +505,6 @@ function Deliveries() {
                           View
                         </button>
 
-                        {/* Was a button that raised "Contacting {rider}…" and
-                            placed no call. The order does carry the assigned
-                            rider's number, so this is now a real tel: link —
-                            and it only appears when there is a number to dial. */}
-                        {delivery.riderPhone ? (
-                          <a
-                            className="mdl-btn mdl-btn-ghost mdl-btn-sm"
-                            href={`tel:${delivery.riderPhone}`}
-                            aria-label={`Call ${delivery.rider} on ${delivery.riderPhone}`}
-                          >
-                            Call
-                          </a>
-                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -566,11 +552,7 @@ function Deliveries() {
         </section>
       </main>
 
-      {/* `onResolve`, `onContact` and `onRoute` are gone with the buttons they
-          drove. "Mark Reviewed" announced a state change nothing wrote — there
-          is no reviewed field, and Admin is a read-only view of the orders
-          collection. "View Route" promised a live route Admin has no source
-          for. "Contact Rider" is now a tel: link inside the drawer. */}
+      {/* Admin delivery details remain a read-only view of the order. */}
       {openDelivery && (
         <DeliveryModal
           delivery={openDelivery}
@@ -799,20 +781,6 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
         </div>
 
         <footer className="mdl-drawer-actions">
-          {delivery.riderPhone ? (
-            <a
-              className="mdl-btn mdl-btn-secondary"
-              href={`tel:${delivery.riderPhone}`}
-            >
-              <PhoneCall size={14} aria-hidden="true" />
-              Call {delivery.rider} on {delivery.riderPhone}
-            </a>
-          ) : (
-            <p className="mdl-drawer-note">
-              No rider phone number on this order.
-            </p>
-          )}
-
           <button type="button" className="mdl-btn mdl-btn-ghost" onClick={onClose}>
             Close
           </button>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Archive, Download, Package, Plus, Search, X } from "lucide-react";
+import { Archive, ChevronDown, Download, Package, Plus, Search, X } from "lucide-react";
 import AdminLayout from "../../components/admin/AdminLayout";
 import { subscribeInventory } from "../../services/inventoryService";
 import { useInventoryVisibility } from "../../components/useInventoryVisibility";
@@ -12,7 +12,6 @@ import {
 import {
   deriveExpiryCondition,
   manilaToday,
-  WARNING_WITHIN_DAYS,
 } from "../../services/expiry";
 import { formatBatchDate, readManufacturingDate } from "../../services/stockBatchDates";
 import { saveBatchMetadata } from "../../services/batchMetadataService";
@@ -52,6 +51,7 @@ import {
 } from "./InventoryRemovalDialogs";
 import { OUT_OF_STOCK_LABEL, removalSource } from "../../services/inventoryRemovalModel";
 import { MAX_STOCK_QUANTITY } from "../../services/orderEligibility";
+import { buildVaccineAvailabilitySummary } from "../../services/inventoryOverview";
 import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
 import {
   describePriceReconfirmation,
@@ -202,7 +202,6 @@ function normalizeInventoryItem(raw, todayIso) {
     priceNeedsReconfirm: priceNeedsReconfirmation(raw),
     flags,
     qty: raw.quantity != null ? Number(raw.quantity).toLocaleString() : "—",
-    qtyRaw: raw.quantity != null ? Number(raw.quantity) : 0,
     // `status` is the derived condition's label, `level` its key. Both used to
     // come from the stored field; every consumer of them — the chip, the drawer,
     // the filter and the KPI cards — now follows the expiry date instead.
@@ -235,7 +234,6 @@ function Inventory() {
   const [catalogError, setCatalogError] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [expiryFilter, setExpiryFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedVaccine, setSelectedVaccine] = useState(null);
   const [batchDraft, setBatchDraft] = useState(null);
@@ -317,7 +315,11 @@ function Inventory() {
     return () => unsubscribe();
   }, []);
 
-  const pageSize = 3;
+  const pageSize = 10;
+  const changeStatusFilter = (value) => {
+    setStatusFilter(value);
+    setCurrentPage(1);
+  };
 
   const openPriceDialog = (item) => {
     setPricing(item);
@@ -591,18 +593,15 @@ function Inventory() {
         `${item.name} ${item.type} ${item.batch} ${item.status}`.toLowerCase();
 
       const matchesSearch = searchValue.includes(searchTerm.toLowerCase());
-      const matchesStatus = statusFilter === "all" || item.level === statusFilter;
-
-      // Read off the row rather than recomputed, so the window filter and the
-      // level it sits beside can never be measured from two different days.
       const daysUntilExpiry = item.daysRemaining ?? Infinity;
-      const matchesExpiry =
-        expiryFilter === "all" ||
-        (daysUntilExpiry >= 0 && daysUntilExpiry <= Number(expiryFilter));
+      const matchesStatus = statusFilter === "all" ||
+        (statusFilter === "next90" && daysUntilExpiry >= 0 && daysUntilExpiry <= 90) ||
+        (statusFilter === "next180" && daysUntilExpiry >= 0 && daysUntilExpiry <= 180) ||
+        item.level === statusFilter;
 
-      return matchesSearch && matchesStatus && matchesExpiry;
+      return matchesSearch && matchesStatus;
     });
-  }, [inventoryWithVat, searchTerm, statusFilter, expiryFilter, showInactive, inactiveIds]);
+  }, [inventoryWithVat, searchTerm, statusFilter, showInactive, inactiveIds]);
 
   /**
    * Download the currently filtered inventory as a real .xlsx workbook.
@@ -640,46 +639,26 @@ function Inventory() {
     return counts;
   }, [inventory]);
 
-  const stockByType = useMemo(() => {
-    if (stockBatches.length === 0) return [];
-    const totals = {};
-    stockBatches.forEach((item) => {
-      const key = item.type !== "—" ? item.type : "Unknown";
-      totals[key] = (totals[key] || 0) + item.qtyRaw;
-    });
-    const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]);
-    const maxQty = sorted[0]?.[1] || 1;
-    const tones = ["blue", "green", "gold", "red", "purple"];
-    return sorted.map(([label, totalQty], i) => ({
-      label,
-      totalQty,
-      percentage: Math.max(4, Math.round((totalQty / maxQty) * 100)),
-      tone: tones[i % tones.length],
-    }));
-  }, [stockBatches]);
+  const availabilitySummary = useMemo(() => buildVaccineAvailabilitySummary(stockBatches), [stockBatches]);
 
   const criticalAndExpiring = useMemo(() => {
     const days = (i) => i.daysRemaining ?? Infinity;
     return stockBatches
       .filter((i) => i.level === "expired" || i.level === "critical")
       .sort((a, b) => days(a) - days(b))
-      .slice(0, 4);
+      .slice(0, 3);
   }, [stockBatches]);
 
+  const expiredCount = useMemo(
+    () => stockBatches.filter((i) => i.level === "expired").length,
+    [stockBatches]
+  );
   const criticalCount = useMemo(
     () => stockBatches.filter((i) => i.level === "critical").length,
     [stockBatches]
   );
-  const expiringSoonCount = useMemo(
-    () =>
-      stockBatches.filter((i) => {
-        const days = i.daysRemaining ?? Infinity;
-        return days >= 0 && days <= WARNING_WITHIN_DAYS;
-      }).length,
-    [stockBatches]
-  );
-  const stableCount = useMemo(
-    () => stockBatches.filter((i) => i.level === "stable").length,
+  const warningCount = useMemo(
+    () => stockBatches.filter((i) => i.level === "warning").length,
     [stockBatches]
   );
 
@@ -717,13 +696,13 @@ function Inventory() {
       title="Inventory"
       description="Real-time vaccine stock and batch status."
       actions={
-        <>
+        <div className="inventory-action-bar">
           {/* Exports the currently filtered inventory to a real .xlsx workbook.
               Disabled while loading, while a workbook is generating, or when no
               rows match — so it never produces a misleading empty file. */}
           <button
             type="button"
-            className="v2-light-action"
+            className="v2-light-action inventory-action"
             onClick={handleExport}
             disabled={loading || exporting || filteredVaccines.length === 0}
           >
@@ -732,7 +711,7 @@ function Inventory() {
           </button>
           <button
             type="button"
-            className="v2-light-action"
+            className="v2-light-action inventory-action"
             onClick={() => setManagingVaccines(true)}
             disabled={loading}
           >
@@ -741,7 +720,7 @@ function Inventory() {
           </button>
           <button
             type="button"
-            className="v2-light-action"
+            className="v2-light-action inventory-action"
             onClick={() => navigate("/admin/add-vaccine")}
           >
             <Plus size={16} aria-hidden="true" />
@@ -749,13 +728,13 @@ function Inventory() {
           </button>
           <button
             type="button"
-            className="v2-blue-action"
+            className="v2-blue-action inventory-action"
             onClick={() => navigate("/admin/add-stock")}
           >
             <Plus size={16} aria-hidden="true" />
             Add Stock
           </button>
-        </>
+        </div>
       }
     >
       <ToastRegion toast={toast} onDismiss={dismissToast} />
@@ -766,7 +745,7 @@ function Inventory() {
             value={loading || loadError ? "—" : listedInventory.length}
             context={showInactive ? "Including inactive inventory" : "Excluding long-empty inventory"}
             tone="neutral"
-            onClick={() => setStatusFilter("all")}
+            onClick={() => changeStatusFilter("all")}
           />
 
           {/* Each card counts one derived expiry level, so its figure always
@@ -782,7 +761,7 @@ function Inventory() {
             context="Past expiry date — not orderable"
             tone="danger"
             attention
-            onClick={() => setStatusFilter("expired")}
+            onClick={() => changeStatusFilter("expired")}
           />
 
           <KpiCard
@@ -790,7 +769,7 @@ function Inventory() {
             value={loading || loadError ? "—" : stockBatches.filter((i) => i.level === "critical").length}
             context="By expiry date"
             tone="warning"
-            onClick={() => setStatusFilter("critical")}
+            onClick={() => changeStatusFilter("critical")}
           />
 
           {/* The three ranges are exclusive, so each batch is counted once and
@@ -803,20 +782,22 @@ function Inventory() {
             value={loading || loadError ? "—" : stockBatches.filter((i) => i.level === "warning").length}
             context="By expiry date"
             tone="neutral"
-            onClick={() => setStatusFilter("warning")}
+            onClick={() => changeStatusFilter("warning")}
           />
         </section>
 
         <section className="v2-hub-grid">
-          <StockOverviewCard groups={stockByType} loading={loading} unavailable={Boolean(loadError)} />
+          <StockOverviewCard summary={availabilitySummary} loading={loading} unavailable={Boolean(loadError)} />
 
-          <CriticalExpiringCard batches={criticalAndExpiring} loading={loading} unavailable={Boolean(loadError)} />
-
-          <InventoryAlertCard
+          <ExpiryWatchCard
+            batches={criticalAndExpiring}
+            expired={expiredCount}
             critical={criticalCount}
-            expiringSoon={expiringSoonCount}
-            stable={stableCount}
-            loading={loading || Boolean(loadError)}
+            warning={warningCount}
+            loading={loading}
+            unavailable={Boolean(loadError)}
+            onFilter={changeStatusFilter}
+            onOpenBatch={openBatchDetails}
           />
         </section>
 
@@ -829,71 +810,25 @@ function Inventory() {
               <input
                 placeholder="Search vaccine name, batch ID, or type..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
               />
             </div>
 
             <div className="v2-inventory-filters">
-              <button
-                type="button"
-                className={statusFilter === "all" ? "active" : ""}
-                onClick={() => setStatusFilter("all")}
-              >
-                All
-              </button>
-
-              {/* One chip per derived level, so every batch is reachable —
-                  including the two the old chips had no way to show: expired,
-                  and undated. */}
-              <button
-                type="button"
-                className={statusFilter === "expired" ? "active" : ""}
-                onClick={() => setStatusFilter("expired")}
-              >
-                Expired
-              </button>
-
-              <button
-                type="button"
-                className={statusFilter === "critical" ? "active" : ""}
-                onClick={() => setStatusFilter("critical")}
-              >
-                Within 30 days
-              </button>
-
-              <button
-                type="button"
-                className={statusFilter === "warning" ? "active" : ""}
-                onClick={() => setStatusFilter("warning")}
-              >
-                Within 90 days
-              </button>
-
-              <button
-                type="button"
-                className={statusFilter === "stable" ? "active" : ""}
-                onClick={() => setStatusFilter("stable")}
-              >
-                In date
-              </button>
-
-              <button
-                type="button"
-                className={statusFilter === "unknown" ? "active" : ""}
-                onClick={() => setStatusFilter("unknown")}
-              >
-                No expiry date
-              </button>
-
               <select
                 className="v2-expiry-select"
-                value={expiryFilter}
-                onChange={(e) => setExpiryFilter(e.target.value)}
+                aria-label="Filter batches by expiry"
+                value={statusFilter}
+                onChange={(e) => changeStatusFilter(e.target.value)}
               >
-                <option value="all">Expiry: All Batches</option>
-                <option value="30">Expiry: Next 30 Days</option>
-                <option value="90">Expiry: Next 90 Days</option>
-                <option value="180">Expiry: Next 180 Days</option>
+                <option value="all">All expiry statuses</option>
+                <option value="expired">Expired</option>
+                <option value="critical">Within 30 days</option>
+                <option value="warning">31–90 days</option>
+                <option value="next90">Next 90 days</option>
+                <option value="next180">Next 180 days</option>
+                <option value="stable">In date (over 90 days)</option>
+                <option value="unknown">No valid expiry date</option>
               </select>
             </div>
           </div>
@@ -909,11 +844,10 @@ function Inventory() {
               and has not yet DELIVERED. It drops only when a delivery is
               completed, a return is written off as missing, or an Admin
               corrects it — so it includes stock out with riders. */}
-          <p className="inv-onhand-note">
-            On hand counts every unit not yet delivered, including stock reserved for orders, out with
-            riders, returned from a failed delivery and awaiting a decision, or quarantined. Available is
-            what remains for new orders.
-          </p>
+          <details className="inv-onhand-note">
+            <summary>How stock quantities are calculated</summary>
+            <p>On hand counts every unit not yet delivered, including stock reserved for orders, out with riders, returned from a failed delivery and awaiting a decision, or quarantined. Available is what remains for new orders.</p>
+          </details>
           <div className="v2-table-scroll">
             <table className="v2-vaccine-table">
               <thead>
@@ -939,10 +873,6 @@ function Inventory() {
                   >
                     <td>
                       <div className="v2-vaccine-cell">
-                        <span>
-                          <Package size={15} />
-                        </span>
-
                         <div>
                           <strong>{item.name}</strong>
                           <small>{item.type}</small>
@@ -1041,8 +971,8 @@ function Inventory() {
 
           <div className="v2-inventory-footer">
             <p>
-              Showing {startItem}–{endItem} of {filteredVaccines.length} filtered
-              batches. Full inventory count: {inventory.length} batches.
+              {startItem}–{endItem} of {filteredVaccines.length} batches
+              {filteredVaccines.length !== inventory.length && ` (from ${inventory.length} total)`}
             </p>
 
             <div className="v2-pagination">
@@ -1054,18 +984,16 @@ function Inventory() {
                 Previous
               </button>
 
-              {Array.from({ length: totalPages }, (_, index) => index + 1).map(
-                (page) => (
-                  <button
-                    key={page}
-                    type="button"
-                    className={safePage === page ? "active" : ""}
-                    onClick={() => setCurrentPage(page)}
-                  >
-                    {page}
-                  </button>
-                )
-              )}
+              <label className="v2-page-picker">
+                Page
+                <select aria-label="Inventory page" value={safePage}
+                  onChange={(e) => setCurrentPage(Number(e.target.value))}>
+                  {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
+                    <option key={page} value={page}>{page}</option>
+                  ))}
+                </select>
+                of {totalPages}
+              </label>
 
               <button
                 type="button"
@@ -1527,98 +1455,120 @@ function Inventory() {
   );
 }
 
-function StockOverviewCard({ groups, loading, unavailable }) {
+function StockOverviewCard({ summary, loading, unavailable }) {
+  const [activeCategory, setActiveCategory] = useState(null);
+  const categoryProducts = {
+    stocked: summary.availableProducts,
+    empty: summary.emptyProducts,
+    review: summary.reviewProducts,
+  };
+  const stockedEnd = summary.total > 0 ? (summary.stocked / summary.total) * 100 : 0;
+  const emptyEnd = summary.total > 0 ? ((summary.stocked + summary.empty) / summary.total) * 100 : 0;
+  const chartBackground = `conic-gradient(#19744f 0 ${stockedEnd}%, #d99024 ${stockedEnd}% ${emptyEnd}%, #c5483f ${emptyEnd}% 100%)`;
+  const segments = [
+    { key: "stocked", label: "Has available doses", detail: "At least one dated batch has stock", tone: "is-stocked", heading: "Available doses by vaccine" },
+    { key: "empty", label: "No available doses", detail: "Dated batches are empty or fully held", tone: "is-empty", heading: "Vaccines with no available doses" },
+    { key: "review", label: "Needs batch review", detail: "Expired, undated, invalid, or oversized", tone: "is-review", heading: "Vaccines needing batch review" },
+  ];
   return (
-    <div className="v2-hub-card">
+    <div className="v2-hub-card vaccine-overview">
       <div className="v2-card-head">
-        <h2>Current Stock Overview</h2>
-        <p>Total doses available by vaccine type</p>
+        <h2>Stock availability at a glance</h2>
+        <p>Vaccine products with visible batch records</p>
       </div>
 
       {loading ? (
         <p className="v2-stock-empty">Loading...</p>
       ) : unavailable ? (
         <p className="v2-stock-empty">Inventory could not be loaded.</p>
-      ) : groups.length === 0 ? (
+      ) : summary.total === 0 ? (
         <p className="v2-stock-empty">No inventory data yet. Add stock to see the overview.</p>
       ) : (
-        <div className="v2-stock-list">
-          {groups.map((g) => (
-            <div className="v2-stock-row" key={g.label}>
-              <span className="v2-stock-row-label" title={g.label}>{g.label}</span>
-              <div className="v2-stock-row-track">
-                <div className={`v2-stock-row-fill ${g.tone}`} style={{ width: `${g.percentage}%` }} />
+        <>
+          <div className="vaccine-availability-chart">
+            <div className="vaccine-availability-ring" role="img"
+              aria-label={`${summary.stocked} vaccine products have available doses, ${summary.empty} have no available doses, and ${summary.review} need batch review`}
+              style={{ background: chartBackground }}>
+              <div className="vaccine-availability-center">
+                <strong>{summary.total}</strong>
+                <span>{summary.total === 1 ? "vaccine" : "vaccines"}</span>
               </div>
-              <span className="v2-stock-row-qty">{g.totalQty.toLocaleString()} doses</span>
             </div>
-          ))}
-        </div>
+            <div className="vaccine-availability-legend">
+              {segments.map((segment) => {
+                const expanded = activeCategory === segment.key;
+                return (
+                  <button key={segment.key} type="button" className={`vaccine-availability-legend-row is-action ${segment.tone} ${expanded ? "is-selected" : ""}`}
+                    onClick={() => setActiveCategory((current) => current === segment.key ? null : segment.key)}
+                    aria-expanded={expanded}>
+                    <i className={segment.tone} aria-hidden="true" />
+                    <span><b>{segment.label}</b><small>{segment.detail}</small></span>
+                    <strong>{summary[segment.key]} <small>({Math.round((summary[segment.key] / summary.total) * 100)}%)</small></strong>
+                    <ChevronDown size={15} className={expanded ? "is-open" : ""} aria-hidden="true" />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {activeCategory && (
+            <div id="vaccine-available-details" className="vaccine-available-details">
+              <div className="vaccine-available-details-head">
+                <strong>{segments.find((segment) => segment.key === activeCategory)?.heading}</strong>
+                <span>{categoryProducts[activeCategory].length} {categoryProducts[activeCategory].length === 1 ? "product" : "products"}</span>
+              </div>
+              {categoryProducts[activeCategory].length === 0 ? (
+                <p className="vaccine-available-empty">No vaccines in this category.</p>
+              ) : <div className="vaccine-available-list">
+                {categoryProducts[activeCategory].map((product) => (
+                  <div key={product.key} className="vaccine-available-row">
+                    <div><strong>{product.name}</strong><small>{product.type}{product.reasons?.length ? ` · ${product.reasons.join(", ")}` : ""}</small></div>
+                    <span>{activeCategory === "stocked" ? product.availableDoses.toLocaleString() : activeCategory === "review" && product.availableDoses > 0 ? product.availableDoses.toLocaleString() : "0"} <small>{activeCategory === "review" && product.availableDoses > 0 ? "valid doses" : "doses"}</small></span>
+                  </div>
+                ))}
+              </div>}
+            </div>
+          )}
+          <p className="vaccine-overview-note">A flagged batch places its vaccine in Review even when another batch has valid available doses. Pricing and product visibility are checked separately before ordering.</p>
+        </>
       )}
     </div>
   );
 }
 
-function CriticalExpiringCard({ batches, loading, unavailable }) {
+function ExpiryWatchCard({ batches, expired, critical, warning, loading, unavailable, onFilter, onOpenBatch }) {
+  const summary = [
+    { key: "expired", label: "Expired", value: expired },
+    { key: "critical", label: "Within 30 days", value: critical },
+    { key: "warning", label: "31–90 days", value: warning },
+  ];
   return (
-    <div className="v2-hub-card v2-cold-card">
+    <div className="v2-hub-card inventory-watch-card">
       <div className="v2-card-head">
-        <h2>Critical &amp; Expiring</h2>
-        <p>Critical stock and batches expiring within 30 days</p>
+        <h2>Expiry watch</h2>
+        <p>Batch dates and the next records to review</p>
       </div>
-
-      <div className="v2-cold-list">
-        {loading ? (
-          <div><span>Loading...</span></div>
-        ) : unavailable ? (
-          <div><span>Inventory could not be loaded.</span></div>
-        ) : batches.length === 0 ? (
-          <div><span>No critical or near-expiry batches</span></div>
-        ) : (
-          batches.map((item) => {
-            const days = item.daysRemaining;
-            return (
-              <div key={item.id}>
-                <span>{item.name}</span>
+      <div className="inventory-watch-body">
+        <div className="inventory-watch-summary" aria-label="Expiry status filters">
+          {summary.map((item) => (
+            <button key={item.key} type="button" className={`inventory-watch-filter is-${item.key}`}
+              onClick={() => onFilter(item.key)} disabled={loading || unavailable}>
+              <strong>{loading || unavailable ? "—" : item.value}</strong>
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
+        <div className="inventory-watch-list">
+          <strong className="inventory-watch-list-title">Priority batches</strong>
+          <div className="inventory-watch-records">
+            {loading ? <p>Loading…</p> : unavailable ? <p>Inventory could not be loaded.</p> : batches.length === 0 ? (
+              <p>No expired or near-expiry batches.</p>
+            ) : batches.map((item) => (
+              <button key={item.id} type="button" className={`inventory-watch-row is-${item.level}`} onClick={() => onOpenBatch(item)}>
+                <span><b>{item.name}</b><small>Batch {item.batch} · {item.level === "expired" ? "Expired" : `${item.daysRemaining} days left`}</small></span>
                 <strong>{item.expiry}</strong>
-                <small className={item.level}>
-                  {item.level === "expired"
-                    ? "Expired"
-                    : days === null
-                      ? "No expiry date"
-                      : `${days} day${days !== 1 ? "s" : ""} left`}
-                </small>
-              </div>
-            );
-          })
-        )}
-      </div>
-    </div>
-  );
-}
-
-function InventoryAlertCard({ critical, expiringSoon, stable, loading }) {
-  const dash = "—";
-  return (
-    <div className="v2-hub-card v2-alert-summary-card">
-      <div className="v2-card-head">
-        <h2>Inventory Alerts</h2>
-        <p>Action required today</p>
-      </div>
-
-      <div className="v2-alert-summary-list">
-        <div className="critical">
-          <strong>{loading ? dash : critical}</strong>
-          <span>Critical stock</span>
-        </div>
-
-        <div className="warning">
-          <strong>{loading ? dash : expiringSoon}</strong>
-          <span>Expiring in 90 days</span>
-        </div>
-
-        <div className="stable">
-          <strong>{loading ? dash : stable}</strong>
-          <span>Stable batches</span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     </div>

@@ -11,7 +11,7 @@
 export const CLINIC_VIEWS = Object.freeze(["list", "grid"]);
 export const DEFAULT_CLINIC_VIEW = "list";
 export const CLINIC_VIEW_STORAGE_KEY = "vaxtrack.admin.clinics.view.v1";
-export const CLINICS_PAGE_SIZE = 3;
+export const CLINICS_PAGE_SIZE = 10;
 
 /** Placeholder for a value the clinic record does not have. Never invented. */
 export const MISSING = "—";

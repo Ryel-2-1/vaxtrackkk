@@ -177,19 +177,19 @@ function AddStock() {
     }
 
     if (String(quantity).trim() === "" || Number.isNaN(quantityNumber)) {
-      return failField("quantity", "Unit quantity is required.");
+      return failField("quantity", "Vial quantity is required.");
     }
 
     if (!Number.isInteger(quantityNumber)) {
-      return failField("quantity", "Quantity must be a whole number.");
+      return failField("quantity", "Vial quantity must be a whole number.");
     }
 
     if (quantityNumber <= 0) {
-      return failField("quantity", "Quantity must be greater than zero.");
+      return failField("quantity", "Vial quantity must be greater than zero.");
     }
 
     if (quantityNumber > 1000000) {
-      return failField("quantity", "Quantity is too large. Please check the encoded amount.");
+      return failField("quantity", "Vial quantity is too large. Please check the encoded amount.");
     }
 
     // A batch cannot enter inventory unpriced. Sales Rep ordering reads this
@@ -442,12 +442,12 @@ function AddStock() {
 
             <div className="two-col-form stock-controls">
               <div>
-                <label htmlFor="stock-quantity">Unit Quantity (Doses)</label>
+                <label htmlFor="stock-quantity">Unit Quantity (Vials)</label>
 
                 <div className="number-stepper">
                   <button
                     type="button"
-                    aria-label="Decrease quantity by 100"
+                    aria-label="Decrease vial quantity by 100"
                     onClick={() =>
                       setQuantity(Math.max(1, Number(quantity || 0) - 100))
                     }
@@ -468,7 +468,7 @@ function AddStock() {
 
                   <button
                     type="button"
-                    aria-label="Increase quantity by 100"
+                    aria-label="Increase vial quantity by 100"
                     onClick={() => setQuantity(Number(quantity || 0) + 100)}
                   >
                     +

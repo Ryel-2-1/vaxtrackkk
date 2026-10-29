@@ -31,11 +31,11 @@ const server = createRequire(import.meta.url)("../functions/src/inventoryRemoval
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const TODAY = "2026-10-05";
 
-test("inventory status badges never inherit the package icon's fixed square", () => {
+test("inventory names render without icon tiles while status badges remain readable", () => {
   const css = read("src/pages/admin/Inventory.css");
   const page = read("src/pages/admin/Inventory.jsx");
-  assert.match(css, /\.v2-vaccine-cell > span\s*\{[^}]*width: 36px;[^}]*height: 36px;/);
-  assert.doesNotMatch(css, /\.v2-vaccine-cell\s+span\s*\{/);
+  assert.doesNotMatch(page, /<div className="v2-vaccine-cell">\s*<span>/);
+  assert.doesNotMatch(css, /\.v2-vaccine-cell > span\s*\{/);
   assert.match(css, /\.inventory-page \.inv-tag\s*\{[^}]*max-width: 100%;[^}]*white-space: normal;[^}]*overflow-wrap: break-word;[^}]*word-break: normal;/);
   for (const label of ["Voided", "Vaccine archived", "Inactive — long-empty stock"]) {
     assert.ok(page.includes(label), `${label} must stay visible as a status label`);

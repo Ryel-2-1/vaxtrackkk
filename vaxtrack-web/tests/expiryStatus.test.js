@@ -220,12 +220,12 @@ test("the derived levels are what the surfaces label and filter by", () => {
   assert.match(INV, /label="Expiring within 30 days"/);
   // The bands are exclusive; tests/expiryRanges.test.js pins their edges.
   assert.match(INV, /label="Expiring in 31–90 days"/);
-  assert.match(INV, /setStatusFilter\("expired"\)/);
-  assert.match(INV, /setStatusFilter\("unknown"\)/);
+  assert.match(INV, /changeStatusFilter\("expired"\)/);
+  assert.match(INV, /<option value="unknown">No valid expiry date<\/option>/);
   assert.match(DASH, /label: "Expiring or expired stock"/);
-  // Every level a batch can take is reachable from the Admin filter chips.
+  // Every level a batch can take is reachable from the compact Admin filter.
   for (const level of ["expired", "critical", "warning", "stable", "unknown"]) {
-    assert.match(INV, new RegExp(`setStatusFilter\\("${level}"\\)`), `${level} must be filterable`);
+    assert.match(INV, new RegExp(`<option value="${level}">`), `${level} must be filterable`);
   }
 });
 
@@ -279,7 +279,8 @@ test("both new levels have chip styling on every surface that shows them", () =>
   for (const level of ["expired", "unknown"]) {
     assert.ok(adminCss.includes(`.v2-stock-status.${level}`), `table chip: ${level}`);
     assert.ok(adminCss.includes(`.v2-modal-badge.${level}`), `drawer badge: ${level}`);
-    assert.ok(adminCss.includes(`.v2-cold-list small.${level}`), `expiring list: ${level}`);
     assert.ok(srCss.includes(`.status-chip.${level}`), `sales rep chip: ${level}`);
   }
+  // The compact expiry watch only lists expired and near-expiry batches.
+  assert.ok(adminCss.includes(".inventory-watch-row.is-expired small"), "expiry watch: expired");
 });

@@ -482,7 +482,7 @@
   background: transparent;
   padding: 14px 18px;
   display: grid;
-  grid-template-columns: 210px minmax(0, 1fr) 90px 100px auto;
+  grid-template-columns: 210px minmax(0, 1fr) 90px 100px 260px;
   align-items: center;
   gap: 14px;
   cursor: pointer;

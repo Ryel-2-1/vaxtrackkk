@@ -102,7 +102,7 @@ test("the real sections and batch fields are preserved", () => {
   assert.match(addStock, />\s*Batch ID\s*</);
   assert.match(addStock, />\s*Arrival Date\s*</);
   assert.match(addStock, />\s*Expiry Date\s*</);
-  assert.match(addStock, />\s*Unit Quantity \(Doses\)\s*</);
+  assert.match(addStock, />\s*Unit Quantity \(Vials\)\s*</);
 });
 
 // ---------------------------------------------------------------------------
@@ -176,7 +176,7 @@ test("quantity must be a positive whole number and is not pre-filled", () => {
     /useState\(""\)/,
     "quantity must start empty rather than with an invented figure"
   );
-  assert.match(addStock, /Unit quantity is required/);
+  assert.match(addStock, /Vial quantity is required/);
   assert.match(addStock, /Number\.isInteger\(quantityNumber\)/);
   assert.match(addStock, /quantityNumber <= 0/);
 });
@@ -296,8 +296,8 @@ test("every field has an associated label", () => {
 test("messages are announced and stepper buttons are named", () => {
   assert.match(addStock, /aria-live="assertive"/);
   assert.match(addStock, /role=\{messageType === "success" \? "status" : "alert"\}/);
-  assert.match(addStock, /aria-label="Decrease quantity by 100"/);
-  assert.match(addStock, /aria-label="Increase quantity by 100"/);
+  assert.match(addStock, /aria-label="Decrease vial quantity by 100"/);
+  assert.match(addStock, /aria-label="Increase vial quantity by 100"/);
 });
 
 // ---------------------------------------------------------------------------

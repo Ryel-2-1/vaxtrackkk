@@ -342,7 +342,7 @@ function Riders() {
         <section className="riders-personnel-card">
           <div className="riders-personnel-head">
             <div>
-              <h2>Active Personnel</h2>
+              <h2>Rider accounts</h2>
               <p>
                 Showing {filteredRiders.length} of {riders.length} riders.
               </p>

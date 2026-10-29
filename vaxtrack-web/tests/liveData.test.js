@@ -819,7 +819,7 @@ test("a failed source shows its figures as unavailable, never as zero", () => {
   const admin = strip(read("src/pages/admin/AdminDashboard.jsx"));
   assert.match(admin, /failSource\("alerts", "alerts"\)/);
   assert.match(admin, /failed\[c\.source\] \? \{ \.\.\.c, value: "—", note: "Unavailable", tone: "" \} : c/);
-  assert.match(admin, /\) : failed\.alerts \? \(/, "no false 'All clear'");
+  assert.match(admin, /!hasAttention && !failed\.alerts && !failed\.deliveries && !failed\.inventory/, "no false 'All clear'");
   const disp = strip(read("src/pages/dispatcher/DispatcherDashboard.jsx"));
   assert.match(disp, /\}, fail\("pending", "the dispatch queue"\)\);/);
   assert.match(disp, /\}, fail\("alerts", "alerts"\)\);/);

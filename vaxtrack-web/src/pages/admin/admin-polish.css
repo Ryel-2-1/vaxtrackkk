@@ -388,21 +388,6 @@ aside.inventory-sidebar select {
 .inventory-page .v2-hub-card {
   min-width: 0;
 }
-/* Vaccine-type names were cut to 110px even with room to spare; the
-   label now takes up to a third of the row (full name stays in the
-   title attribute), and the quantity sizes to its figure. */
-.inventory-page .v2-stock-row-label {
-  flex: 0 1 clamp(110px, 32%, 260px);
-  min-width: 72px;
-}
-.inventory-page .v2-stock-row-track {
-  min-width: 40px;
-}
-.inventory-page .v2-stock-row-qty {
-  flex: 0 0 auto;
-  min-width: 85px;
-  font-variant-numeric: tabular-nums;
-}
 /* Eleven page buttons ran 264px off a phone screen (and 35px past
    the footer on a tablet). They wrap now. */
 .inventory-page .v2-pagination,
@@ -508,16 +493,6 @@ aside.inventory-sidebar select {
   .inventory-page .deliveries-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
-  }
-}
-/* A very large dose total (staging carries 100,000,000,001,560) is
-   allowed to wrap on a phone rather than run past its card. */
-@media (max-width: 560px) {
-  .inventory-page .v2-stock-row-qty {
-    flex: 0 1 auto;
-    min-width: 0;
-    white-space: normal;
-    overflow-wrap: anywhere;
   }
 }
 /* KPI cards in one row share a height. */
