@@ -13,6 +13,7 @@ import '../utils/google_maps_url.dart';
 import '../utils/nav_availability.dart';
 import '../utils/order_workflow.dart';
 import '../utils/route_utils.dart';
+import '../utils/trip_route.dart';
 import '../widgets/delivered_evidence_card.dart';
 import '../widgets/delivery_map.dart';
 import 'delivery_completion_coordinator.dart';
@@ -397,12 +398,22 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
   }
 
   // Hands off to the installed Google Maps app for real turn-by-turn
-  // navigation (free, no API key), in motorcycle mode. Prefers the exact clinic
-  // coordinates when the dispatcher set them; otherwise falls back to an
-  // address search (a search carries no travel mode — the rider picks it).
+  // navigation (free, no API key), in motorcycle mode. On a planned trip it
+  // opens THIS stop and then the trip's other unfinished stops, in the planned
+  // order, as Google Maps waypoints — not this stop alone. Otherwise it prefers
+  // the exact clinic coordinates; without them it falls back to an address
+  // search (a search carries no travel mode — the rider picks it).
   Future<void> _openNavigation() async {
     final Uri uri;
-    if (d.hasClinicCoords) {
+    final trip = d.isOnTrip && d.hasClinicCoords ? await _remainingTrip() : null;
+    if (!mounted) return;
+    if (trip != null && trip.stops.length > 1) {
+      uri = googleMapsMultiStopUrl(trip.stops)!;
+      _showNavSnack(trip.truncated
+          ? 'Opening the next ${trip.stops.length} stops in Google Maps (its limit). '
+              'Start navigation again from a later stop for the rest.'
+          : 'Opening ${trip.stops.length} stops in Google Maps, in the planned order.');
+    } else if (d.hasClinicCoords) {
       uri = googleMapsDestinationUrl(d.clinicLat!, d.clinicLng!);
     } else if (d.clinicAddress.isNotEmpty) {
       uri = Uri.parse(
@@ -423,6 +434,23 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
       _showNavSnack('Could not open Google Maps — no maps app is available.');
     } catch (_) {
       _showNavSnack('Could not open Google Maps on this device.');
+    }
+  }
+
+  /// The rider's trip from this stop on, read once at the tap (a cached copy is
+  /// fine). If the deliveries cannot be read in time: null, and this stop is
+  /// navigated alone rather than not at all.
+  Future<({List<Delivery> stops, bool truncated})?> _remainingTrip() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return null;
+    try {
+      final deliveries = await _deliveryService
+          .riderDeliveries(uid)
+          .first
+          .timeout(const Duration(seconds: 5));
+      return remainingTripFrom(d, deliveries);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -619,10 +647,11 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
             // delivered/cancelled show nothing here (the route summary above
             // stays as read-only history).
             if (nav.inTransit) ...[
-              // Start navigation opens THIS stop in the Google Maps app for
-              // turn-by-turn. (The whole optimized trip is launched from the
-              // dashboard route banner.) No in-app Navigation SDK, so there is
-              // no Maps-key / terms gate — one consistent nav path that works.
+              // Start navigation opens the Google Maps app for turn-by-turn:
+              // on a planned trip, THIS stop and then the trip's remaining
+              // stops in the planned order; otherwise this stop alone. No
+              // in-app Navigation SDK, so there is no Maps-key / terms gate —
+              // one consistent nav path that works.
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(

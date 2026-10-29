@@ -86,7 +86,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           final urgent = active.where((d) => d.isUrgent).toList();
           // Optimized multi-stop trip (dispatcher-generated). When present, the
           // active list is shown in visiting order and a route banner appears.
-          final tripStops = orderedTripStops(active);
+          // A failed stop is not ridden to again until it is requeued.
+          final tripStops = orderedTripStops(active.where((d) => !d.isDeliveryFailed).toList());
           final orderedActive = [...active]..sort((a, b) {
               final sa = a.isOnTrip ? (a.stopSequence ?? 9999) : 9999;
               final sb = b.isOnTrip ? (b.stopSequence ?? 9999) : 9999;
