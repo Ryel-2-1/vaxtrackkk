@@ -28,6 +28,7 @@
 const { PolicyError, isoDateOnly, manilaDateString, validateDocumentId, validateReason } = require("./policy");
 const { loadUser, requireRole } = require("./operations");
 const { ALLOCATION_VERSION_BACKORDER, allocationPriorityKey } = require("./allocation");
+const { usableThrough, assertBatchesCover, readReservedBatches } = require("./expiryGuard");
 
 const ORDERS = "orders";
 const SCHEDULE_EVENTS = "scheduleEvents";
@@ -95,6 +96,16 @@ async function rescheduleOrderDelivery({ db, FieldValue, uid, payload, now }) {
     if (previousDate === date && previousTime === time) {
       throw new PolicyError("schedule-unchanged", "That is already this order's delivery schedule.");
     }
+    // The batches already reserved must still be usable on the new date.
+    // Moving a delivery past a reserved batch's expiry is refused, not left
+    // for dispatch to discover.
+    // Read-only (expiryGuard owns the read, so this module never names stock).
+    const reserved = (await readReservedBatches(tx, db, [orderId])).get(orderId);
+    assertBatchesCover(reserved, usableThrough({ requestedDeliveryDate: date }, now), {
+      code: "reserved-batch-expires-first",
+      action: "Choose an earlier date, or cancel the order and place it again so fresh stock is reserved.",
+    });
+
     const previousRevision = Number.isSafeInteger(order.scheduleRevision) && order.scheduleRevision >= 0
       ? order.scheduleRevision
       : 0;

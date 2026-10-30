@@ -39,7 +39,7 @@ import TripProgress, { StopProgressBadge } from "../../components/dispatch/TripP
 import { shipmentProgress, tripProgress } from "../../services/stopProgress";
 import { routingSettingsOf } from "../../services/routingSettings";
 import StatusBadge from "../../components/ui/StatusBadge";
-import DialogLayer from "../../components/ui/DialogLayer";
+import DispatcherDialogLayer from "./DispatcherDialogLayer";
 import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import { savedRouteDescription } from "../../services/routeMetadata.js";
 import { manilaTime } from "../../services/deliveryTiming";
@@ -118,6 +118,16 @@ function isLocationStale(ts) {
   if (isNaN(d.getTime())) return false;
   return Date.now() - d.getTime() > STALE_LOCATION_MS;
 }
+
+// Generate route and Re-optimize plan from the rider's live fix, and the ETAs
+// they save become the timing baseline the server judges lateness against. A
+// stale or undated fix would plan from the wrong place with confidence, so
+// both need a fresh, timestamped one (checked again at click time).
+function hasFreshFix(location, ts) {
+  return !!getLatLng(location) && !!ts && !isLocationStale(ts);
+}
+const STALE_FIX_REASON =
+  "The rider's location is out of date. Wait for a fresh location update before planning from it — ETAs from an old position would be wrong.";
 
 function formatRelativeTime(ts) {
   if (!ts) return null;
@@ -342,7 +352,7 @@ function ShipmentDrawer({ onDismiss, children }) {
   useDialogFocus({ dialogRef, initialRef: closeRef, onDismiss });
 
   return (
-    <DialogLayer scope="geo3-drawer-scope">
+    <DispatcherDialogLayer>
       <div className="geo3-drawer-overlay">
         <div className="geo3-drawer-backdrop" onClick={onDismiss} aria-hidden="true" />
         <aside id="geo3-shipment-drawer" className="geo3-drawer" role="dialog" aria-modal="true" aria-labelledby="geo3-drawer-title" ref={dialogRef}>
@@ -355,7 +365,7 @@ function ShipmentDrawer({ onDismiss, children }) {
           <div className="geo3-drawer-content">{children}</div>
         </aside>
       </div>
-    </DialogLayer>
+    </DispatcherDialogLayer>
   );
 }
 
@@ -501,14 +511,20 @@ function DispatcherGeofence() {
       : "";
   const activeTripNotice =
     tripNotice && selected && tripNotice.riderId === selected?.assignedRiderId ? tripNotice : null;
-  const canOptimize =
-    !!getLatLng(selected?.lastLocation) && riderStops.length >= 2;
+  const fixIsFresh = hasFreshFix(selected?.lastLocation, selected?.lastLocationUpdate);
+  const fixIsStale = !!getLatLng(selected?.lastLocation) && !fixIsFresh;
+  const canOptimize = fixIsFresh && riderStops.length >= 2;
 
   async function handleOptimizeTrip() {
     if (!selected) return;
     const riderLL = getLatLng(selected.lastLocation);
     const riderId = selected.assignedRiderId;
     if (!riderLL || !riderId || riderStops.length < 2) return;
+    if (!hasFreshFix(selected.lastLocation, selected.lastLocationUpdate)) {
+      setTripNotice(null);
+      setTripError({ riderId, message: STALE_FIX_REASON });
+      return;
+    }
     if (tripInFlight.current) return;
     tripInFlight.current = true;
     setTripBusyRider(riderId);
@@ -577,6 +593,10 @@ function DispatcherGeofence() {
     const clinicLL = getClinicLatLng(selected);
     if (!riderLL || !clinicLL) return; // button is disabled in this case anyway
     const orderId = selected.id;
+    if (!hasFreshFix(selected.lastLocation, selected.lastLocationUpdate)) {
+      setRouteError({ orderId, message: STALE_FIX_REASON });
+      return;
+    }
     if (routeInFlight.current) return;
     routeInFlight.current = true;
     setBusyOrderId(orderId);
@@ -697,7 +717,7 @@ function DispatcherGeofence() {
                 const liveEta = genAt
                   ? formatEta(genAt, selected.routeDurationSeconds)
                   : selected.routeEtaText || "—";
-                const canGenerate = !!clinicLL; // rider location present here
+                const canGenerate = !!clinicLL && fixIsFresh; // rider location present here
                 return (
                   <div className="geo3-live-route">
                     <div className="geo3-live-route-head">
@@ -779,11 +799,13 @@ function DispatcherGeofence() {
                             ? "Refresh route"
                             : "Generate route & ETA"}
                         </button>
-                        {!canGenerate && (
+                        {!clinicLL ? (
                           <p className="geo3-live-route-sub">
                             Add clinic coordinates (Admin → Clinics) to
                             enable routing to the destination.
                           </p>
+                        ) : (
+                          !fixIsFresh && <p className="geo3-live-route-sub" role="status">{STALE_FIX_REASON}</p>
                         )}
                         {activeRouteError && (
                           <p className="geo3-live-route-error" role="alert">{activeRouteError}</p>
@@ -853,9 +875,10 @@ function DispatcherGeofence() {
                           : `Optimize route (${riderStops.length} stops)`}
                       </button>
                       {!canOptimize && (
-                        <p className="geo3-live-route-sub">
-                          Needs the rider&apos;s live location and at least two
-                          stops with clinic coordinates.
+                        <p className="geo3-live-route-sub" role="status">
+                          {fixIsStale
+                            ? STALE_FIX_REASON
+                            : "Needs the rider's live location and at least two stops with clinic coordinates."}
                         </p>
                       )}
                       {activeTripError && (

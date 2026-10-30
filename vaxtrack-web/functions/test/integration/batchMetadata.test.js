@@ -12,6 +12,32 @@ const { FieldValue } = admin.firestore;
 const now = new Date("2026-10-29T04:00:00Z");
 const base = { batchId: "LOT-1", manufacturingDate: "2026-01-01", expiryDate: "2027-01-01", location: "Shelf 1", manufacturer: "Maker" };
 
+test("an earlier expiry is refused while an open order holds the batch for a later delivery", async () => {
+  await db.doc("users/admin").set({ role: "admin", status: "approved" });
+  const lot = { ...base, batchId: "LOT-3" };
+  await db.doc("inventory/three").set({ ...lot, quantity: 10, reservedQuantity: 2, usageTracked: true });
+  await db.doc("orders/held").set({ orderNumber: "VT-HELD", status: "assigned", requestedDeliveryDate: "2026-12-15" });
+  await db.doc("inventoryReservations/held").set({
+    orderId: "held", status: "reserved", items: [{ lineIndex: 0, inventoryId: "three", quantity: 2 }], inventoryIds: ["three"],
+  });
+  const edit = (expected, expiryDate) => updateBatchMetadata({
+    db, FieldValue, uid: "admin", email: "admin@test.invalid", now,
+    payload: { inventoryId: "three", expected, ...expected, expiryDate },
+  });
+  try {
+    await assert.rejects(edit(lot, "2026-12-01"), (e) => e.code === "batch-expiry-before-reservation" && /VT-HELD/.test(e.message) && /2026-12-15/.test(e.message));
+    assert.equal((await db.doc("inventory/three").get()).data().expiryDate, "2027-01-01", "nothing changed");
+    assert.equal((await edit(lot, "2026-12-15")).changed, true, "the delivery day itself is still covered");
+    // A delivered order no longer holds stock for the future.
+    await db.doc("orders/held").update({ status: "delivered" });
+    assert.equal((await edit({ ...lot, expiryDate: "2026-12-15" }, "2026-11-15")).changed, true);
+  } finally {
+    const audits = await db.collection("inventoryAuditEvents").where("inventoryId", "==", "three").get();
+    await Promise.all(audits.docs.map((doc) => doc.ref.delete()));
+    await Promise.all(["inventory/three", "orders/held", "inventoryReservations/held"].map((path) => db.doc(path).delete()));
+  }
+});
+
 test("Admin metadata edit is atomic and audited; stock and used identity are protected", async () => {
   await db.doc("users/admin").set({ role: "admin", status: "approved" });
   await db.doc("users/rep").set({ role: "sales_rep", status: "approved" });

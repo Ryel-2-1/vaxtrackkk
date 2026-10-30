@@ -36,7 +36,7 @@ import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../serv
 import { UserMessageError } from "../../services/userMessageError";
 import { subscribeClinics } from "../../services/clinicService";
 import { subscribeDoctors } from "../../services/doctorService";
-import { subscribeDoctorAddresses } from "../../services/doctorAddressService";
+import { fetchMedRepDoctorAddresses } from "../../services/medRepDestinations";
 import { subscribeInventoryBatches } from "../../services/inventoryService";
 import { subscribeVaccinesByIds } from "../../services/vaccineCatalogService";
 import {
@@ -141,6 +141,7 @@ function messageForCallableError(error) {
 // One shared empty list, so "no addresses yet" keeps a stable identity and the
 // destination options are not rebuilt on every render.
 const EMPTY_ADDRESSES = Object.freeze([]);
+const EMPTY_BY_DOCTOR = Object.freeze({});
 
 // The confirmation is no longer assembled here from checkout state. It is
 // built from the stored order the callable named (services/orderConfirmation.js),
@@ -375,14 +376,12 @@ function SalesRepPlaceOrder() {
   const [doctors, setDoctors] = useState([]);
   const [doctorsLoading, setDoctorsLoading] = useState(true);
   const [selectedDoctorId, setSelectedDoctorId] = useState(initialCheckout.doctorId);
-  // The last address snapshot, tagged with the doctor it belongs to. Written
-  // only by the subscription's callbacks; what the page shows is derived from
-  // it below, so a doctor change never needs a synchronous reset in an effect
-  // and another doctor's addresses can never be shown for this one.
-  const [addressBook, setAddressBook] = useState({ doctorId: null, docs: [] });
-  // Every active doctor's addresses, keyed by doctor id — used only to decide
-  // which doctors this Med Rep's territory reaches.
-  const [addressesByDoctor, setAddressesByDoctor] = useState({});
+  // Every reachable doctor's destinations, keyed by doctor id, tagged with the
+  // active-doctor list they were fetched for. The server returns only links
+  // inside this Med Rep's territory — a Med Rep cannot read doctor addresses
+  // (including private Home addresses) directly. Written only by the fetch's
+  // callbacks; everything shown is derived from it below.
+  const [destinationBook, setDestinationBook] = useState({ key: null, byDoctor: {} });
   const [selectedDestinationId, setSelectedDestinationId] = useState("");
   const [clinics, setClinics] = useState([]);
   const [clinicsLoading, setClinicsLoading] = useState(true);
@@ -459,37 +458,12 @@ function SalesRepPlaceOrder() {
     return unsubscribe;
   }, []);
 
-  // Subscribe to the selected doctor's addresses. The effect only subscribes;
-  // clearing the previous doctor's addresses and destination happens in
-  // handleDoctorChange, the event that changes the doctor.
-  useEffect(() => {
-    if (!selectedDoctorId) return undefined;
-
-    const unsubscribe = subscribeDoctorAddresses(
-      selectedDoctorId,
-      (docs) => {
-        // A restored destination is NOT applied here: it is verified against
-        // this doctor's options once they (and the clinics they reference)
-        // have loaded — see resolveRestoredDestination below.
-        setAddressBook({ doctorId: selectedDoctorId, docs });
-        setSourceError("addresses", "");
-      },
-      (error) => {
-        // Loaded, with nothing usable — ends the loading state.
-        setAddressBook({ doctorId: selectedDoctorId, docs: [] });
-        setSourceError("addresses", liveErrorMessage(error, "that doctor's delivery addresses"));
-      }
-    );
-
-    return unsubscribe;
-  }, [selectedDoctorId]);
-
   // The Med Rep's own territory (Admin-assigned, read-only to them).
   const { profile: ownProfile, loading: profileLoading } = useOwnProfile();
   const territory = useMemo(() => readTerritory(ownProfile), [ownProfile]);
 
-  // Subscribe to every active doctor's addresses. The effect only subscribes;
-  // state changes come from the snapshot callbacks.
+  // Fetch the reachable destinations again whenever the active-doctor list
+  // changes. The effect only fetches; state changes come from its callbacks.
   const activeDoctorKey = doctors
     .filter((doctor) => doctor.active === true)
     .map((doctor) => doctor.id)
@@ -497,18 +471,27 @@ function SalesRepPlaceOrder() {
     .join("|");
   useEffect(() => {
     if (!activeDoctorKey) return undefined;
-    const unsubscribes = activeDoctorKey.split("|").map((doctorId) =>
-      subscribeDoctorAddresses(
-        doctorId,
-        (docs) => setAddressesByDoctor((current) => ({ ...current, [doctorId]: docs })),
-        () => setAddressesByDoctor((current) => ({ ...current, [doctorId]: [] }))
-      )
+    let current = true;
+    fetchMedRepDoctorAddresses().then(
+      (byDoctor) => {
+        if (!current) return;
+        setDestinationBook({ key: activeDoctorKey, byDoctor });
+        setSourceError("addresses", "");
+      },
+      (error) => {
+        if (!current) return;
+        logSafeError("fetchMedRepDoctorAddresses", error);
+        // Loaded, with nothing usable — ends the loading state.
+        setDestinationBook({ key: activeDoctorKey, byDoctor: {} });
+        setSourceError("addresses", liveErrorMessage(error, "doctors' delivery addresses"));
+      }
     );
-    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
+    return () => {
+      current = false;
+    };
   }, [activeDoctorKey]);
-  const territoryAddressesReady = activeDoctorKey
-    .split("|")
-    .every((doctorId) => !doctorId || doctorId in addressesByDoctor);
+  const territoryAddressesReady = !activeDoctorKey || destinationBook.key === activeDoctorKey;
+  const addressesByDoctor = activeDoctorKey ? destinationBook.byDoctor : EMPTY_BY_DOCTOR;
   // Doctors, clinics, the territory and (when one is assigned) every doctor's
   // addresses must all be loaded before the list can be trusted.
   const doctorListLoading =
@@ -517,10 +500,13 @@ function SalesRepPlaceOrder() {
     profileLoading ||
     (territory.assigned && !territoryAddressesReady);
 
-  // Derived, never stored: this doctor's addresses once their snapshot has
-  // arrived, and "loading" until it has.
-  const addressesReady = !!selectedDoctorId && addressBook.doctorId === selectedDoctorId;
-  const doctorAddresses = addressesReady ? addressBook.docs : EMPTY_ADDRESSES;
+  // Derived, never stored: this doctor's reachable destinations once the
+  // fetch has arrived, and "loading" until it has. A restored destination is
+  // verified against them — see resolveRestoredDestination below.
+  const addressesReady = !!selectedDoctorId && territoryAddressesReady;
+  const doctorAddresses = addressesReady
+    ? addressesByDoctor[selectedDoctorId] ?? EMPTY_ADDRESSES
+    : EMPTY_ADDRESSES;
   const addressesLoading = !!selectedDoctorId && !addressesReady;
 
   // A USER changing (or clearing) the doctor: the new doctor starts with no
@@ -529,7 +515,6 @@ function SalesRepPlaceOrder() {
   // Initial restoration after a refresh does not pass through here.
   const handleDoctorChange = (doctorId) => {
     setSelectedDoctorId(doctorId);
-    setAddressBook({ doctorId: null, docs: [] });
     setSelectedDestinationId("");
     setPendingRestore(null);
   };

@@ -3,7 +3,12 @@
 const { PolicyError, validateDocumentId, isoDateOnly, manilaDateString } = require("./policy");
 const { statusFromExpiry } = require("./inventoryWorkflow");
 
+const { usableThrough, reservedInventoryIds } = require("./expiryGuard");
+
 const FIELDS = ["batchId", "manufacturingDate", "expiryDate", "location", "manufacturer"];
+// Orders that hold a batch whose expiry is being edited, checked in one transaction.
+const MAX_RESERVATIONS_CHECKED = 100;
+const CLOSED_ORDER_STATUSES = new Set(["delivered", "completed", "cancelled", "canceled"]);
 
 function validateBatchMetadata(payload, now) {
   if (!payload || Object.keys(payload).some((key) => !["inventoryId", "expected", ...FIELDS].includes(key))) {
@@ -64,6 +69,30 @@ async function updateBatchMetadata({ db, FieldValue, uid, email, payload, now })
     }
     if (current.expiryDate !== input.values.expiryDate && input.values.expiryDate <= manilaDateString(now)) {
       throw new PolicyError("invalid-batch-edit", "A new expiry date must be after today.");
+    }
+    // An earlier expiry must not strand orders that already hold this batch
+    // for a later delivery: refuse rather than let dispatch find out.
+    if (current.expiryDate !== input.values.expiryDate) {
+      const holders = await tx.get(db.collection("inventoryReservations")
+        .where("inventoryIds", "array-contains", input.inventoryId)
+        .limit(MAX_RESERVATIONS_CHECKED + 1));
+      if (holders.size > MAX_RESERVATIONS_CHECKED) {
+        throw new PolicyError("batch-reservations-too-many", "Too many orders hold this batch to check the new expiry safely. Ask for support.");
+      }
+      for (const reservation of holders.docs) {
+        if (!reservedInventoryIds(reservation.data()).includes(input.inventoryId)) continue;
+        const orderSnap = await tx.get(db.collection("orders").doc(reservation.id));
+        const order = orderSnap.exists ? orderSnap.data() : null;
+        if (!order || CLOSED_ORDER_STATUSES.has(String(order.status ?? "").trim().toLowerCase())) continue;
+        const needed = usableThrough(order, now);
+        if (input.values.expiryDate < needed) {
+          const label = typeof order.orderNumber === "string" && order.orderNumber ? order.orderNumber : "An order";
+          throw new PolicyError(
+            "batch-expiry-before-reservation",
+            `${label} holds this batch for delivery on ${needed}, after the new expiry date. Reschedule or cancel that order first.`
+          );
+        }
+      }
     }
     const changed = Object.fromEntries(FIELDS.filter((key) => (current[key] ?? "") !== input.values[key]).map((key) => [key, input.values[key]]));
     if (!Object.keys(changed).length) return { inventoryId: input.inventoryId, changed: false };

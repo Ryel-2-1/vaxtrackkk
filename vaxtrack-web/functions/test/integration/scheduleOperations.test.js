@@ -204,3 +204,24 @@ test("refusals leave the order and its history untouched", async (t) => {
     assert.equal((await reschedule(ADMIN, { orderId: ids.o1, requestedDeliveryDate: "2026-10-05" })).requestedDeliveryDate, "2026-10-05");
   });
 });
+
+test("a reschedule past a reserved batch's expiry is refused; a date it still covers is fine", async () => {
+  const ids = await seed({ held: baseOrder({ allocationVersion: 2, requestedDeliveryDate: "2026-10-08" }) });
+  const batchId = `exp_${ids.held}`;
+  await db.collection("inventory").doc(batchId).set({ batchId: "LOT-EXP", quantity: 10, reservedQuantity: 2, expiryDate: "2026-10-15" });
+  await db.collection("inventoryReservations").doc(ids.held).set({
+    orderId: ids.held, status: "reserved", items: [{ lineIndex: 0, inventoryId: batchId, quantity: 2 }], inventoryIds: [batchId],
+  });
+  try {
+    await assert.rejects(
+      reschedule(ADMIN, { orderId: ids.held, requestedDeliveryDate: "2026-10-20", reason: "Clinic closed that week" }),
+      (e) => e.code === "reserved-batch-expires-first" && /LOT-EXP expires on 2026-10-15, before 2026-10-20/.test(e.message)
+    );
+    assert.equal((await order(ids.held)).requestedDeliveryDate, "2026-10-08", "nothing changed");
+    const ok = await reschedule(ADMIN, { orderId: ids.held, requestedDeliveryDate: "2026-10-15", reason: "Clinic asked for the 15th" });
+    assert.equal(ok.requestedDeliveryDate, "2026-10-15", "the expiry day itself is still covered");
+  } finally {
+    await db.collection("inventoryReservations").doc(ids.held).delete();
+    await db.collection("inventory").doc(batchId).delete();
+  }
+});

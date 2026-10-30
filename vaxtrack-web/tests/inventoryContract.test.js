@@ -33,6 +33,7 @@ const CALLABLE_NAMES = [
   "rescheduleOrderDelivery",
   "getOrderMedRepNames", // Admin/Dispatcher: read-only names for the owners of specified orders
   "getCancelledShipmentAudit", // Dispatcher: read-only cancellation actor and reservation audit
+  "listMedRepDoctorAddresses", // Med Rep: read-only, territory-filtered doctor destinations
   // Future-order allocation and failed-delivery returns. Each is one named
   // business action, role-checked on the server (functions/src/inventoryWorkflow.js).
   "addStockBatchWithAllocation", // Admin: add a batch + reserve it for waiting orders

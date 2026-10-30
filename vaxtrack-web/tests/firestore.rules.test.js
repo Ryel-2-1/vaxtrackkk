@@ -1606,13 +1606,16 @@ async function main() {
     await assertSucceeds(setDoc(doc(admin, "doctors", doctorId), validDoctor));
   });
 
-  await check("Pdoctor2 approved roles read and query doctors", async () => {
-    for (const db of [admin, dispatcher, salesRep, rider]) {
+  await check("Pdoctor2 Admin, Dispatcher and Med Rep read and query doctors", async () => {
+    for (const db of [admin, dispatcher, salesRep]) {
       await assertSucceeds(getDoc(doc(db, "doctors", doctorId)));
       await assertSucceeds(
         getDocs(query(collection(db, "doctors"), where("active", "==", true)))
       );
     }
+    // Riders never read the doctor roster.
+    await assertFails(getDoc(doc(rider, "doctors", doctorId)));
+    await assertFails(getDocs(query(collection(rider, "doctors"), where("active", "==", true))));
   });
 
   await check("Pdoctor3 admin deactivates a doctor without changing identity", async () => {
@@ -1696,10 +1699,19 @@ async function main() {
     await assertSucceeds(setDoc(addressRef(admin), validDoctorAddress));
   });
 
-  await check("Paddress2 approved roles read a doctor's delivery addresses", async () => {
-    for (const db of [admin, dispatcher, salesRep, rider]) {
+  await check("Paddress2 only Admin and Dispatcher read a doctor's delivery addresses", async () => {
+    for (const db of [admin, dispatcher]) {
       await assertSucceeds(getDoc(addressRef(db)));
       await assertSucceeds(
+        getDocs(collection(db, "doctors", doctorId, "deliveryAddresses"))
+      );
+    }
+    // A Med Rep gets territory-filtered links from listMedRepDoctorAddresses;
+    // no other role reads them (or a private Home) directly.
+    for (const db of [salesRep, rider]) {
+      await assertFails(getDoc(addressRef(db)));
+      await assertFails(getDoc(homeAddressRef(db)));
+      await assertFails(
         getDocs(collection(db, "doctors", doctorId, "deliveryAddresses"))
       );
     }
@@ -1760,9 +1772,12 @@ async function main() {
     }));
   });
 
-  await check("PaddressHome3 approved roles can read the Home destination", async () => {
-    for (const db of [admin, dispatcher, salesRep, rider]) {
+  await check("PaddressHome3 only Admin and Dispatcher read the private Home destination", async () => {
+    for (const db of [admin, dispatcher]) {
       await assertSucceeds(getDoc(homeAddressRef(db)));
+    }
+    for (const db of [salesRep, rider]) {
+      await assertFails(getDoc(homeAddressRef(db)));
     }
   });
 

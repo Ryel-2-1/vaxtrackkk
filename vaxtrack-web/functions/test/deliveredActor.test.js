@@ -160,7 +160,7 @@ function fixture() {
     "orders/legacy": loading(),
     "orders/reserved": loading({ allocationVersion: ALLOCATION_VERSION }),
     "inventoryReservations/reserved": { status: "reserved", items: [{ inventoryId: "inv1", quantity: 2 }] },
-    "inventory/inv1": { quantity: 10, reservedQuantity: 2, sellingPriceCentavos: 125000 },
+    "inventory/inv1": { quantity: 10, reservedQuantity: 2, sellingPriceCentavos: 125000, expiryDate: "2099-12-31" },
     // The Rider is at the clinic with a fresh, accurate fix (deliveryGeofence.js).
     [`riderLocations/${RIDER}`]: atClinic(),
   });
@@ -302,7 +302,7 @@ test("1/10/11/12 recorded proof + invoice: delivered, stock consumed once, one D
   // The reserved order's stock is consumed exactly once, by the rider.
   const db = await ready("reserved");
   await complete(db, "reserved");
-  assert.deepEqual(db.store.get("inventory/inv1"), { quantity: 8, reservedQuantity: 0, sellingPriceCentavos: 125000 });
+  assert.deepEqual(db.store.get("inventory/inv1"), { quantity: 8, reservedQuantity: 0, sellingPriceCentavos: 125000, expiryDate: "2099-12-31" });
   assert.equal(db.store.get("orders/reserved").consumedByUid, RIDER);
   assert.equal(db.store.get("inventoryReservations/reserved").settledByUid, RIDER);
 });
@@ -520,4 +520,17 @@ test("both callables share the attribution helper and take the token email", () 
   assert.equal(/data\.email/.test(call), false, "no email taken from the request payload");
   const ops = fs.readFileSync(path.join(__dirname, "..", "src", "operations.js"), "utf8");
   assert.equal(ops.split("statusUpdatedByEmail: statusUpdatedByEmailValue(email, FieldValue),").length - 1, 2);
+});
+
+test("a reserved batch that has expired by the time of delivery is never recorded as delivered", async () => {
+  const db = await ready("reserved");
+  // The batch expired before today (a delivery that ran past midnight, or a corrected expiry).
+  db.store.set("inventory/inv1", { ...db.store.get("inventory/inv1"), batchId: "LOT-OLD", expiryDate: "2020-01-01" });
+  const before = structuredClone(db.store.get("orders/reserved"));
+  const stock = structuredClone(db.store.get("inventory/inv1"));
+  assert.equal(await codeOf(complete(db, "reserved")), "reserved-batch-expired");
+  assert.deepEqual(db.store.get("orders/reserved"), before, "order unchanged");
+  assert.deepEqual(db.store.get("inventory/inv1"), stock, "no stock consumed");
+  assert.equal(db.store.get("inventoryReservations/reserved").status, "reserved");
+  assert.equal(events(db, "reserved").some((e) => e.to === "delivered"), false);
 });

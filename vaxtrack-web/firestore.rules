@@ -1937,13 +1937,17 @@ service cloud.firestore {
       allow delete: if false;
     }
     match /doctors/{doctorId} {
-      allow read: if isApprovedUser();
+      // The staff who order for or route to a doctor. Riders never read doctors.
+      allow read: if isAdmin() || isDispatcher() || isSalesRep();
       allow create: if isAdmin() && validNewDoctor();
       allow update: if isAdmin() && validDoctorStatusUpdate();
       allow delete: if false;
     }
     match /doctors/{doctorId}/deliveryAddresses/{addressId} {
-      allow read: if isApprovedUser();
+      // Private Home addresses live here. Admin manages them and Dispatcher
+      // corrects destinations; a Med Rep gets only the links inside their
+      // territory from the listMedRepDoctorAddresses callable, never directly.
+      allow read: if isAdmin() || isDispatcher();
       // `home` is the doctor's one private doorstep destination. Every other
       // nested document id is a linked clinic id, so clinic links stay unique.
       allow create: if isAdmin()

@@ -79,6 +79,7 @@ const {
   statutoryDiscountAuditRecord,
   statutoryDiscountAuditId,
 } = require("./negotiatedPricing");
+const { usableThrough, assertBatchesCover } = require("./expiryGuard");
 
 const ORDERS = "orders";
 const INVENTORY = "inventory";
@@ -1221,6 +1222,14 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
       const refs = perBatch.map(([inventoryId]) => db.collection(INVENTORY).doc(inventoryId));
       const snaps = [];
       for (const ref of refs) snaps.push(await tx.get(ref));
+      // A batch can expire while the order is out (a delivery that ran past
+      // midnight, a corrected expiry): an expired dose is never recorded as
+      // delivered.
+      assertBatchesCover(
+        perBatch.map(([inventoryId], index) => ({ id: inventoryId, data: snaps[index].exists ? snaps[index].data() : null })),
+        usableThrough(null, now),
+        { action: "Do not hand it over — report a delivery failure so the stock comes back for checking." }
+      );
       perBatch.forEach(([inventoryId, quantity], index) => {
         settlements.push({
           ref: refs[index],

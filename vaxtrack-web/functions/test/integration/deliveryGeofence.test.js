@@ -46,7 +46,7 @@ async function world({ order: over = {}, evidence = true } = {}) {
   await wipe();
   await ref("users", RIDER).set({ role: "rider", status: "approved" });
   await ref("users", OTHER).set({ role: "rider", status: "approved" });
-  await ref("inventory", "inv1").set({ quantity: 10, reservedQuantity: 2, sellingPriceCentavos: 125000 });
+  await ref("inventory", "inv1").set({ quantity: 10, reservedQuantity: 2, sellingPriceCentavos: 125000, expiryDate: "2099-12-31" });
   await ref("inventoryReservations", ORDER).set({ status: "reserved", items: [{ inventoryId: "inv1", quantity: 2 }] });
   await ref("orders", ORDER).set({
     orderNumber: "VT-ORD-GEO",
