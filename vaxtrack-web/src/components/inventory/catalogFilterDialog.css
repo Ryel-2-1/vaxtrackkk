@@ -1,0 +1,174 @@
+/* Portaled Med Rep dialog: scoped controls resist legacy page rules. */
+.vt-dialog-layer.salesrep-page .catalog-filter-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(15 23 42 / 48%);
+}
+.vt-dialog-layer.salesrep-page .catalog-filter-dialog {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 520px);
+  max-height: calc(100dvh - 32px);
+  min-height: 0;
+  padding: 20px;
+  overflow-y: auto;
+  border: 1px solid var(--gray-300);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 20px 55px rgb(15 23 42 / 22%);
+  color: var(--gray-900);
+  text-align: left;
+}
+.vt-dialog-layer.salesrep-page .catalog-filter-head,
+.vt-dialog-layer.salesrep-page .catalog-filter-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex: 0 0 auto;
+}
+.vt-dialog-layer.salesrep-page .catalog-filter-head h2 {
+  margin: 0 !important;
+  color: var(--gray-900) !important;
+  font-size: 20px !important;
+  line-height: 1.25;
+  font-weight: 700 !important;
+}
+.vt-dialog-layer.salesrep-page .catalog-filter-head p {
+  margin: 4px 0 0 !important;
+  color: var(--gray-600) !important;
+  font-size: 13px !important;
+}
+.vt-dialog-layer.salesrep-page .catalog-filter-close {
+  display: grid !important;
+  place-items: center;
+  flex: 0 0 36px;
+  width: 36px !important;
+  min-width: 36px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  padding: 0 !important;
+  border: 1px solid var(--gray-300) !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+  color: var(--gray-700) !important;
+}
+.vt-dialog-layer.salesrep-page .catalog-filter-field {
+  display: grid;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin-top: 16px;
+  color: var(--gray-900);
+  font-size: 13px;
+  font-weight: 600;
+}
+.vt-dialog-layer.salesrep-page .catalog-filter-field select {
+  width: 100%;
+  height: 40px !important;
+  min-height: 40px !important;
+  padding: 0 10px !important;
+  border: 1px solid var(--gray-300) !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+  color: var(--gray-900) !important;
+  font-size: 14px;
+}
+.vt-dialog-layer.salesrep-page .catalog-filter-types {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: 18px 0 0;
+  padding: 0;
+  border: 0;
+}
+.vt-dialog-layer.salesrep-page .catalog-filter-types legend {
+  margin-bottom: 8px;
+  color: var(--gray-900);
+  font-size: 13px;
+  font-weight: 600;
+}
+.vt-dialog-layer.salesrep-page .catalog-filter-types legend span,
+.vt-dialog-layer.salesrep-page .catalog-filter-types small {
+  color: var(--gray-600);
+  font-weight: 400;
+}
+.vt-dialog-layer.salesrep-page .catalog-filter-types small { display: block; margin-top: 8px; font-size: 12px; }
+.vt-dialog-layer.salesrep-page .catalog-filter-type-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 168px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 8px 2px 2px;
+  scrollbar-gutter: stable;
+}
+.vt-dialog-layer.salesrep-page .catalog-filter-type-list label {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-width: 0;
+  min-height: 36px !important;
+  margin: 0 !important;
+  padding: 7px 9px !important;
+  border: 1px solid var(--gray-300) !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+  color: var(--gray-900) !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.vt-dialog-layer.salesrep-page .catalog-filter-type-list label.is-selected {
+  border-color: var(--green-700) !important;
+  background: var(--green-50) !important;
+}
+.vt-dialog-layer.salesrep-page .catalog-filter-type-list input[type="checkbox"] {
+  appearance: auto !important;
+  flex: 0 0 16px !important;
+  width: 16px !important;
+  min-width: 16px !important;
+  height: 16px !important;
+  min-height: 16px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  accent-color: var(--green-700);
+}
+.vt-dialog-layer.salesrep-page .catalog-filter-type-list input[type="checkbox"]::after { content: none !important; }
+.vt-dialog-layer.salesrep-page .catalog-filter-actions {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--gray-200);
+}
+.vt-dialog-layer.salesrep-page .catalog-filter-actions button {
+  min-width: 0 !important;
+  min-height: 40px !important;
+  height: 40px !important;
+  padding: 0 14px !important;
+  border: 1px solid var(--gray-300) !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+  color: var(--gray-900) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  white-space: nowrap;
+}
+.vt-dialog-layer.salesrep-page .catalog-filter-actions .catalog-filter-apply {
+  border-color: var(--green-700) !important;
+  background: var(--green-700) !important;
+  color: #fff !important;
+}
+.vt-dialog-layer.salesrep-page .catalog-filter-dialog :focus-visible { outline: 2px solid var(--green-700); outline-offset: 2px; }
+@media (max-width: 440px) {
+  .vt-dialog-layer.salesrep-page .catalog-filter-dialog { padding: 16px; }
+  .vt-dialog-layer.salesrep-page .catalog-filter-type-list { grid-template-columns: 1fr; max-height: 150px; }
+}

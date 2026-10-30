@@ -207,7 +207,7 @@ test("Order Confirmation has no Return to Catalog; tracking stays one click away
 
 /** The JSX between an opening `<div className="NAME">` and its matching close. */
 const block = (src, className) => {
-  const start = src.indexOf(`<div className="${className}">`);
+  const start = src.indexOf(`<div className="${className}"`);
   assert.notEqual(start, -1, `${className} must exist`);
   let depth = 0;
   const tag = /<div\b|<\/div>/g;

@@ -174,9 +174,10 @@ test("the Med Rep planner moves to a picked day's month and offers the month/yea
   assert.match(page, /const goPrevMonth = \(\) => showMonth\(addMonths\(view\.year, view\.month, -1\)\);/);
   assert.match(page, /const goNextMonth = \(\) => showMonth\(addMonths\(view\.year, view\.month, 1\)\);/);
   assert.match(page, /const jumpToMonth = \(year, month\) => showMonth\(\{ year, month \}\);/);
-  // The Dispatcher day-view does not opt in, so its heading is unchanged.
-  const dispatcher = readFileSync(new URL("../src/components/schedule/DeliveryCalendar.jsx", import.meta.url), "utf8");
-  assert.equal(dispatcher.includes("onJumpToMonth"), false);
+  // Admin and Dispatcher share the same calendar controls as the Med Rep planner.
+  const sharedCalendar = readFileSync(new URL("../src/components/schedule/DeliveryCalendar.jsx", import.meta.url), "utf8");
+  assert.match(sharedCalendar, /onCurrentMonth=\{goCurrentMonth\}/);
+  assert.match(sharedCalendar, /onJumpToMonth=\{jumpToMonth\}/);
 });
 
 test("isInMonth decides whether a selection survives a month change", () => {

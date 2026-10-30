@@ -13,7 +13,7 @@ import { subscribeUsers } from "../../services/userService";
 import { fetchOrderMedRepNames } from "../../services/orderMedRepNames";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { ORDER_STATUSES, STATUS_LABELS } from "../../services/orderWorkflow";
-import { addMonths, manilaToday, monthOf } from "../../services/deliveryCalendar";
+import { addMonths, isInMonth, manilaToday, monthOf } from "../../services/deliveryCalendar";
 import {
   dispatchEligibility,
   isEarlyDispatchAnomaly,
@@ -381,15 +381,25 @@ function DeliveryCalendar({ role }) {
   const dayUrgent = dayOrders.filter(isUrgent).length;
   const filtersActive = statusFilter !== "all" || priorityFilter !== "all";
 
-  const goPrevMonth = () => setView((v) => addMonths(v.year, v.month, -1));
-  const goNextMonth = () => setView((v) => addMonths(v.year, v.month, 1));
+  const showMonth = (next) => {
+    setView(next);
+    if (selectedDate && !isInMonth(selectedDate, next)) setSelectedDate(null);
+    setDayPage(1);
+  };
+  const goPrevMonth = () => showMonth(addMonths(view.year, view.month, -1));
+  const goNextMonth = () => showMonth(addMonths(view.year, view.month, 1));
+  const jumpToMonth = (year, month) => showMonth({ year, month });
   const goCurrentMonth = () => {
     setView(monthOf(today) || view);
     setSelectedDate(today);
     setDayPage(1);
   };
 
-  const selectDay = (date) => { setSelectedDate(date); setDayPage(1); };
+  const selectDay = (date) => {
+    setSelectedDate(date);
+    setView(monthOf(date) || view);
+    setDayPage(1);
+  };
 
   const openReschedule = (order, trigger) => {
     triggerRef.current = trigger || null;
@@ -519,6 +529,7 @@ function DeliveryCalendar({ role }) {
               onPrevMonth={goPrevMonth}
               onNextMonth={goNextMonth}
               onCurrentMonth={goCurrentMonth}
+              onJumpToMonth={jumpToMonth}
               caption="Numbers show scheduled orders · red dot = urgent"
               ariaLabel="Delivery calendar"
             />

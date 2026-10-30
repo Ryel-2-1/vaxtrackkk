@@ -687,6 +687,26 @@ aside.salesrep-sidebar .salesrep-logout {
   gap: 10px;
   margin-top: 10px;
 }
+.salesrep-page .place-v2-side {
+  overflow-anchor: none;
+}
+.salesrep-page .place-v2-side .arrival-time-slot {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 180ms ease, margin-top 180ms ease;
+}
+.salesrep-page .place-v2-side .arrival-time-slot.is-empty {
+  grid-template-rows: 0fr;
+}
+.salesrep-page .place-v2-side .arrival-time-slot .arrival-times {
+  min-height: 0;
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .salesrep-page .place-v2-side .arrival-time-slot {
+    transition: none;
+  }
+}
 .salesrep-page .arrival-field select,
 .salesrep-page .arrival-field input[type="time"] {
   width: 100%;
@@ -1534,9 +1554,9 @@ aside.salesrep-sidebar .salesrep-logout {
 }
 
 /* ---- Order Tracking ---- */
-/* The filter toolbar (tabs, search, status) stays in reach on a long list.
+/* The filter toolbar (tabs, search, status) spans the list and details panel.
    The window is the only scroll container and the shell top bar is not
-   fixed, so it pins at the top of the viewport, inside the list column.
+   fixed, so it pins at the top of the viewport.
    Above 768px only: the phone layout makes the list column and <main>
    scroll containers (overflow), and the stacked toolbar would cover a
    third of the screen, so there it scrolls with the page. */
@@ -1552,7 +1572,7 @@ aside.salesrep-sidebar .salesrep-logout {
   .salesrep-main .tracking-v2-toolbar {
     position: sticky;
     top: 0;
-    z-index: 5;
+    z-index: 20;
     box-shadow: 0 6px 12px -10px rgba(17, 24, 39, 0.35);
   }
 }
@@ -1586,6 +1606,17 @@ aside.salesrep-sidebar .salesrep-logout {
 }
 
 /* ---- Order History (shared component; Med Rep scope only) ---- */
+@media (min-width: 769px) {
+  .salesrep-order-history .ohx-filter-dock {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding: 10px 0;
+    background: var(--gray-50);
+    box-shadow: 0 8px 14px -14px rgba(17, 24, 39, 0.5);
+  }
+}
+
 /* index.css still colours every h1/h2 with the scaffold's --text-h, which
    is near-white (#f3f4f6) under a dark OS theme; the order title and the
    section headings set no colour of their own and vanished on white. */
@@ -1631,6 +1662,23 @@ aside.salesrep-sidebar .salesrep-logout {
 }
 
 /* ---- Alerts ---- */
+@media (min-width: 769px) {
+  .salesrep-main .alerts-v2-sticky-head {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--gray-200);
+    background: var(--gray-50);
+    box-shadow: 0 8px 14px -14px rgba(17, 24, 39, 0.5);
+  }
+}
+.salesrep-main .alerts-v2-sticky-head {
+  margin-bottom: 14px;
+}
+.salesrep-main .alerts-v2-sticky-head .alerts-v2-header {
+  margin: 0 0 10px !important;
+}
 /* Lifecycle tabs, category chips and search on one toolbar row; it wraps
    on narrow screens. The groups keep their own look so lifecycle and
    category stay distinguishable. */
@@ -1639,7 +1687,7 @@ aside.salesrep-sidebar .salesrep-logout {
   flex-wrap: wrap;
   align-items: center;
   gap: 12px 24px;
-  margin: 0 0 var(--mr-section-gap);
+  margin: 0;
 }
 .salesrep-main .alerts-v2-toolbar .alerts-v2-tabs,
 .salesrep-main .alerts-v2-toolbar .alerts-v2-filters {
@@ -1652,6 +1700,52 @@ aside.salesrep-sidebar .salesrep-logout {
   border-top-color: var(--gray-300) !important;
   border-right-color: var(--gray-300) !important;
   border-bottom-color: var(--gray-300) !important;
+  padding: 14px !important;
+}
+.salesrep-main .alerts-v2-card .sales-alert-card-top {
+  gap: 6px;
+  margin-bottom: 8px !important;
+}
+.salesrep-main .alerts-v2-card .sales-alert-card-top span {
+  width: 28px;
+  height: 28px;
+  flex-basis: 28px !important;
+}
+.salesrep-main .alerts-v2-card .sales-alert-card-top small {
+  font-size: 11px;
+}
+.salesrep-main .alerts-v2-card h2 {
+  margin-bottom: 6px !important;
+  font-size: 15px !important;
+  line-height: 1.3 !important;
+  overflow-wrap: anywhere;
+}
+.salesrep-main .alerts-v2-card p {
+  margin-bottom: 8px !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+}
+.salesrep-main .alerts-v2-card .alert-location {
+  margin: 6px 0 10px !important;
+  padding: 7px 9px !important;
+  font-size: 12px;
+}
+.salesrep-main .alerts-v2-card .alert-actions button {
+  min-height: 36px !important;
+  height: 36px !important;
+  font-size: 12px !important;
+}
+@media (min-width: 1280px) {
+  .salesrep-main .alerts-v2-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 14px !important;
+  }
+}
+@media (min-width: 769px) and (max-width: 1279px) {
+  .salesrep-main .alerts-v2-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 14px !important;
+  }
 }
 
 /* Logout failure, shown beside the button on the dark sidebar (never a
@@ -2158,6 +2252,13 @@ aside.salesrep-sidebar .salesrep-logout-error {
 .salesrep-page .request-v2-layout > .request-catalog {
   container: rqcat / inline-size;
 }
+.salesrep-page .request-v2-product-grid {
+  align-content: start !important;
+  grid-auto-rows: max-content !important;
+}
+.salesrep-page .request-v2-product-card.rq-item {
+  min-height: 0 !important;
+}
 
 /* ---- sticky needs non-scrolling ancestors ----
    `overflow-x: hidden` on .salesrep-page (SalesRep.css) and on body/#root
@@ -2456,4 +2557,150 @@ body:has(> #root > .salesrep-page),
     padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)) !important;
     border-radius: 16px 16px 0 0 !important;
   }
+}
+
+/* Med Rep catalog filters share one compact toolbar control. */
+.salesrep-page .catalog-filter-trigger {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  min-height: 42px !important;
+  padding: 0 14px !important;
+  border: 1px solid var(--gray-300) !important;
+  border-radius: 10px !important;
+  background: #fff !important;
+  color: var(--green-800) !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  cursor: pointer;
+}
+.salesrep-page .catalog-filter-trigger span {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--green-100);
+  font-size: 12px;
+}
+.salesrep-page .catalog-filter-trigger:focus-visible { outline: 2px solid var(--green-700); outline-offset: 2px; }
+.salesrep-page .request-v2-tabs > .catalog-filter-trigger { min-width: 0 !important; }
+.salesrep-page .rq-table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  background: #fff;
+}
+.salesrep-page .rq-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+}
+.salesrep-page .rq-table th {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--gray-200);
+  background: var(--gray-50);
+  color: var(--gray-600);
+  font-weight: 600;
+  text-align: left;
+}
+.salesrep-page .rq-table th:nth-child(1) { width: 22%; }
+.salesrep-page .rq-table th:nth-child(2) { width: 12%; }
+.salesrep-page .rq-table th:nth-child(3) { width: 22%; }
+.salesrep-page .rq-table th:nth-child(4) { width: 13%; }
+.salesrep-page .rq-table th:nth-child(5) { width: 13%; }
+.salesrep-page .rq-table th:nth-child(6) { width: 18%; }
+.salesrep-page .rq-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--gray-200);
+  color: var(--gray-900);
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+.salesrep-page .rq-table tbody tr:last-child td { border-bottom: 0; }
+.salesrep-page .rq-table tbody tr:hover { background: var(--green-50); }
+.salesrep-page .rq-table td strong,
+.salesrep-page .rq-table td small { display: block; }
+.salesrep-page .rq-table td strong { font-size: 12px; font-weight: 600; }
+.salesrep-page .rq-table td small { margin-top: 2px; color: var(--gray-600); font-size: 11px; line-height: 1.3; }
+.salesrep-page .rq-table .rq-table-reason { color: var(--danger-text); }
+.salesrep-page .rq-table .rq-table-price { font-variant-numeric: tabular-nums; }
+.salesrep-page .rq-table-qty {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control);
+  background: #fff;
+}
+.salesrep-page .rq-table-qty button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  min-width: 26px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--gray-700);
+  cursor: pointer;
+}
+.salesrep-page .rq-table-qty button:disabled { opacity: .45; cursor: not-allowed; }
+.salesrep-page .rq-table-qty span { min-width: 28px; text-align: center; font-variant-numeric: tabular-nums; }
+.salesrep-page .rq-table-add {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--green-700);
+  border-radius: var(--radius-control);
+  background: var(--green-700);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.salesrep-page .rq-table-add:hover:not(:disabled) { background: var(--green-800); }
+.salesrep-page .rq-table-add:disabled {
+  border-color: var(--gray-300);
+  background: var(--gray-100);
+  color: var(--gray-500);
+  cursor: not-allowed;
+}
+.salesrep-page .rq-table-qty button:focus-visible,
+.salesrep-page .rq-table-add:focus-visible { outline: 2px solid var(--green-700); outline-offset: 2px; }
+.salesrep-page .rq-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px 2px;
+  color: var(--gray-600);
+  font-size: 13px;
+}
+.salesrep-page .rq-pagination > div { display: flex; align-items: center; gap: 8px; }
+.salesrep-page .rq-pagination button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--green-800);
+  cursor: pointer;
+}
+.salesrep-page .rq-pagination button:disabled { opacity: .45; cursor: not-allowed; }
+.salesrep-page .rq-pagination button:focus-visible { outline: 2px solid var(--green-700); outline-offset: 2px; }
+@media (max-width: 640px) {
+  .salesrep-page .inventory-v2-toolbar { grid-template-columns: 1fr !important; }
+  .salesrep-page .catalog-filter-trigger { justify-self: start; }
 }

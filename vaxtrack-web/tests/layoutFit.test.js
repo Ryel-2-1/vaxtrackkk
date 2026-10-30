@@ -47,38 +47,27 @@ test("Admin detail dialogs are real modals with shared focus handling", () => {
   }
 });
 
-test("the Med Rep vaccine list is compact rows with every field kept", () => {
+test("the Med Rep vaccine catalog is a compact table with every field kept", () => {
   const src = read("src/pages/salesRep/SalesRepRequestOrder.jsx");
-  assert.match(src, /className="product-card request-v2-product-card rq-item"/);
+  assert.match(src, /<table className="rq-table">/);
+  assert.equal(src.includes("rq-view-switch"), false);
   // Still shown on each row: name, batch, type, status, VAT, stock, price, quantity, action.
-  for (const piece of ["{product.name}", "Batch: {product.sku}", "{product.category}", "{product.vatLabel}", "Available Stock", "Unit Price", "changeQuantity(", "addToCart(product)"]) {
+  for (const piece of ["{product.name}", "Batch: {product.sku}", "{product.category}", "{product.vatLabel}", "Availability", "Unit price", "changeQuantity(", "addToCart(product)"]) {
     assert.ok(src.includes(piece), `the row keeps ${piece}`);
   }
-  // A blocked batch says so briefly on its chip and button; the specific reason
-  // is a full-width line in the row that also describes the disabled button.
-  assert.match(src, /\{!product\.orderable \? "Can't order yet" : product\.backorderOnly \? "Out of stock" : product\.status\}/);
+  // Blocked batches stay visible with a reason tied to the disabled action.
+  assert.match(src, /className="rq-table-reason" id=\{`rq-table-reason-\$\{product\.inventoryId\}`\}/);
   // Short action labels (no icon) so the button never needs more than two lines.
   assert.match(src, /\{!product\.orderable \? "Unavailable" : product\.backorderOnly \? "Add future order" : "Add to Order"\}/);
   assert.equal(src.includes("Add as future order"), false);
   // One compact stock line: "7 on hand · 7 reserved or held".
   assert.match(src, /`\$\{product\.onHand \?\? 0\} on hand · \$\{Math\.max\(\(product\.onHand \?\? 0\) - product\.available, 0\)\} reserved or held`/);
-  assert.match(src, /<p className="rq-item-reason" id=\{`rq-reason-\$\{product\.inventoryId\}`\}>\s*\{product\.blockedReason\}/);
-  assert.match(src, /aria-describedby=\{!product\.orderable \? `rq-reason-\$\{product\.inventoryId\}` : undefined\}/);
+  assert.match(src, /aria-describedby=\{!product\.orderable \? `rq-table-reason-\$\{product\.inventoryId\}` : undefined\}/);
   // The price convention is said once for the list.
   assert.match(src, /className="rq-price-convention">Unit prices are per vial · VAT-inclusive for VATable products\./);
   const css = read("src/pages/salesRep/salesrep-polish.css");
-  assert.match(css, /grid-template-areas:\n {4}"name {3}figures actions"/);
-  // The row layout follows the CATALOG's width (a container query), not the
-  // viewport: beside the cart a 1366px screen has a narrower list than a
-  // 1024px one with the cart in a drawer.
-  assert.match(css, /\.salesrep-page \.request-v2-layout > \.request-catalog \{\n {2}container: rqcat \/ inline-size;/);
-  // Phone: one item per row, the price beside the name, stock full width.
-  const phone = css.slice(css.indexOf("@container rqcat (max-width: 440px) {", css.indexOf("Phone: the price sits beside")));
-  assert.match(phone, /"name {4}price"\n {6}"batch {3}price"\n {6}"chips {3}chips"\n {6}"stock {3}stock"\n {6}"actions actions"\n {6}"reason {2}reason";/, "one readable item per row on a phone");
-  assert.match(phone, /\.product-meta \{\n {4}display: contents !important;/);
-  // Narrow catalog: name and batch share their lines with the action.
-  const narrow = css.slice(css.indexOf("@container rqcat (max-width: 879px) {"));
-  assert.match(narrow, /"name {4}actions"\n {6}"batch {3}actions"/);
+  assert.match(css, /\.salesrep-page \.rq-table-wrap \{[\s\S]*?overflow-x: auto;/);
+  assert.match(css, /\.salesrep-page \.rq-table \{[\s\S]*?table-layout: fixed;/);
 });
 
 test("Request Order: the cart sits beside the catalog on wide screens and opens as a portaled drawer below", () => {
@@ -146,7 +135,7 @@ test("Request Order: messages never push the vaccine list down", () => {
   const src = read("src/pages/salesRep/SalesRepRequestOrder.jsx");
   // No banner in the catalog's flow above the list (the first add moved every
   // row ~58px); an always-mounted, portaled status region instead.
-  const catalog = src.slice(src.indexOf('<div className="request-catalog">'), src.indexOf('<div className="product-grid request-v2-product-grid">'));
+  const catalog = src.slice(src.indexOf('<div className="request-catalog">'), src.indexOf('<div ref={catalogTableRef} className="rq-table-wrap"'));
   assert.ok(catalog.length > 0);
   assert.equal(catalog.includes("request-v2-notice"), false);
   assert.match(src, /<div className="rq-notice-region" role="status" aria-live="polite">\s*\{notice && \(/);

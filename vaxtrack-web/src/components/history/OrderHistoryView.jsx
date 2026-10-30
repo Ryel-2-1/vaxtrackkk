@@ -236,97 +236,99 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
         now, {isAdmin ? "see the Stock Allocation backlog." : "see Order Tracking."}
       </p>
 
-      <form className="ohx-lookup" onSubmit={runLookup} role="search" aria-label="Search all history">
-        <label>
-          <span>Search all history by</span>
-          <select value={lookup.kind} onChange={(e) => setLookup((l) => ({ ...l, kind: e.target.value }))}>
-            <option value="reference">Full order reference</option>
-            {isAdmin && <option value="sku">SKU</option>}
-            {isAdmin && <option value="batch">Batch ID</option>}
-          </select>
-        </label>
-        <input
-          type="search"
-          value={lookup.value}
-          onChange={(e) => setLookup((l) => ({ ...l, value: e.target.value }))}
-          placeholder={lookup.kind === "reference" ? "VT-ORD-…" : lookup.kind === "sku" ? "e.g. ATV-001" : "e.g. BT-3131-3131"}
-          aria-label="Exact value"
-        />
-        <button type="submit" className="ohx-btn ohx-btn-primary" disabled={lookupBusy || !lookup.value.trim()}>
-          {lookupBusy ? "Searching…" : "Search"}
-        </button>
-        {lookupResult && (
-          <button type="button" className="ohx-btn" onClick={() => setLookupResult(null)}>
-            Back to all orders
-          </button>
-        )}
-      </form>
-      {lookupError && <p className="ohx-error" role="alert">{lookupError}</p>}
-
-      <form className="ohx-filters" onSubmit={applyRange} aria-label="Filter order history">
-        <label className="ohx-filter-search">
-          <span>Filter loaded orders</span>
-          <input
-            type="search"
-            value={filters.search}
-            onChange={setFilter("search")}
-            placeholder={isAdmin ? "Reference, Med Rep, doctor, clinic or SKU" : "Reference, doctor or clinic"}
-          />
-        </label>
-        <label>
-          <span>From</span>
-          <input type="date" value={filters.dateFrom} onChange={setFilter("dateFrom")} />
-        </label>
-        <label>
-          <span>To</span>
-          <input type="date" value={filters.dateTo} onChange={setFilter("dateTo")} />
-        </label>
-        <button type="submit" className="ohx-btn">Apply dates</button>
-        <label>
-          <span>Status</span>
-          <select value={filters.stage} onChange={setFilter("stage")}>
-            <option value="">All statuses</option>
-            {STAGE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Allocation</span>
-          <select value={filters.allocationState} onChange={setFilter("allocationState")}>
-            <option value="">All allocation states</option>
-            {ALLOCATION_FILTER_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </label>
-        {isAdmin && (
+      <div className="ohx-filter-dock">
+        <form className="ohx-lookup" onSubmit={runLookup} role="search" aria-label="Search all history">
           <label>
-            <span>Priority</span>
-            <select value={filters.priority} onChange={setFilter("priority")}>
-              <option value="">All priorities</option>
-              <option value="Urgent">Urgent</option>
-              <option value="Standard">Standard</option>
+            <span>Search all history by</span>
+            <select value={lookup.kind} onChange={(e) => setLookup((l) => ({ ...l, kind: e.target.value }))}>
+              <option value="reference">Full order reference</option>
+              {isAdmin && <option value="sku">SKU</option>}
+              {isAdmin && <option value="batch">Batch ID</option>}
             </select>
           </label>
-        )}
-        {isAdmin && (
+          <input
+            type="search"
+            value={lookup.value}
+            onChange={(e) => setLookup((l) => ({ ...l, value: e.target.value }))}
+            placeholder={lookup.kind === "reference" ? "VT-ORD-…" : lookup.kind === "sku" ? "e.g. ATV-001" : "e.g. BT-3131-3131"}
+            aria-label="Exact value"
+          />
+          <button type="submit" className="ohx-btn ohx-btn-primary" disabled={lookupBusy || !lookup.value.trim()}>
+            {lookupBusy ? "Searching…" : "Search"}
+          </button>
+          {lookupResult && (
+            <button type="button" className="ohx-btn" onClick={() => setLookupResult(null)}>
+              Back to all orders
+            </button>
+          )}
+        </form>
+        {lookupError && <p className="ohx-error" role="alert">{lookupError}</p>}
+
+        <form className="ohx-filters" onSubmit={applyRange} aria-label="Filter order history">
+          <label className="ohx-filter-search">
+            <span>Filter loaded orders</span>
+            <input
+              type="search"
+              value={filters.search}
+              onChange={setFilter("search")}
+              placeholder={isAdmin ? "Reference, Med Rep, doctor, clinic or SKU" : "Reference, doctor or clinic"}
+            />
+          </label>
           <label>
-            <span>Med Rep</span>
-            <select value={repFilter} onChange={changeRep}>
-              <option value="">All Med Reps</option>
-              {medRepsError && (
-                <option value="" disabled>
-                  Med Rep list could not be loaded
-                </option>
-              )}
-              {medReps.map((m) => (
-                <option key={m.uid} value={m.uid}>{m.label}</option>
+            <span>From</span>
+            <input type="date" value={filters.dateFrom} onChange={setFilter("dateFrom")} />
+          </label>
+          <label>
+            <span>To</span>
+            <input type="date" value={filters.dateTo} onChange={setFilter("dateTo")} />
+          </label>
+          <button type="submit" className="ohx-btn">Apply dates</button>
+          <label>
+            <span>Status</span>
+            <select value={filters.stage} onChange={setFilter("stage")}>
+              <option value="">All statuses</option>
+              {STAGE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
           </label>
-        )}
-      </form>
+          <label>
+            <span>Allocation</span>
+            <select value={filters.allocationState} onChange={setFilter("allocationState")}>
+              <option value="">All allocation states</option>
+              {ALLOCATION_FILTER_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </label>
+          {isAdmin && (
+            <label>
+              <span>Priority</span>
+              <select value={filters.priority} onChange={setFilter("priority")}>
+                <option value="">All priorities</option>
+                <option value="Urgent">Urgent</option>
+                <option value="Standard">Standard</option>
+              </select>
+            </label>
+          )}
+          {isAdmin && (
+            <label>
+              <span>Med Rep</span>
+              <select value={repFilter} onChange={changeRep}>
+                <option value="">All Med Reps</option>
+                {medRepsError && (
+                  <option value="" disabled>
+                    Med Rep list could not be loaded
+                  </option>
+                )}
+                {medReps.map((m) => (
+                  <option key={m.uid} value={m.uid}>{m.label}</option>
+                ))}
+              </select>
+            </label>
+          )}
+        </form>
+      </div>
 
       {lookupResult ? (
         <p className="ohx-muted" role="status">

@@ -9,7 +9,7 @@ import {
 import "./MonthCalendar.css";
 
 /**
- * A month grid, shared by the Sales Rep planner and the Dispatcher day-view.
+ * A month grid, shared by the Med Rep planner and Admin/Dispatcher day-view.
  *
  * Presentation only: it owns no month state and does no data work. The parent
  * says which month to show and supplies per-day counts; every day is a real

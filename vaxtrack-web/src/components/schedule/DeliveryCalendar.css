@@ -130,16 +130,16 @@
 /* Keep the month and selected-day panel on one aligned row. Unscheduled work
    uses the full row below, so a short list cannot leave uneven card edges. */
 @media (min-width: 1025px) {
-  .dispatcher-main .dcal-body {
+  .dcal-body {
     --dcal-panel-height: clamp(460px, calc(100dvh - 220px), 680px);
     align-items: stretch;
   }
 
-  .dispatcher-main .dcal-side {
+  .dcal-side {
     display: contents;
   }
 
-  .dispatcher-main .dcal-calendar-card {
+  .dcal-calendar-card {
     display: flex;
     flex-direction: column;
     position: static;
@@ -147,24 +147,24 @@
     box-sizing: border-box;
   }
 
-  .dispatcher-main .dcal-day-card {
+  .dcal-day-card {
     height: var(--dcal-panel-height);
   }
 
-  .dispatcher-main .dcal-unscheduled-card {
+  .dcal-unscheduled-card {
     grid-column: 1 / -1;
   }
 
-  .dispatcher-main .dcal-calendar-card .mcal {
+  .dcal-calendar-card .mcal {
     flex: 1 1 auto;
   }
 
-  .dispatcher-main .dcal-calendar-card .mcal-grid {
+  .dcal-calendar-card .mcal-grid {
     flex: 1 1 auto;
     grid-template-rows: repeat(var(--mcal-week-count), minmax(0, 1fr));
   }
 
-  .dispatcher-main .dcal-calendar-card .mcal-day {
+  .dcal-calendar-card .mcal-day {
     aspect-ratio: auto;
     min-height: 52px;
   }
@@ -199,19 +199,19 @@
 
 /* The heading stays outside the scroll region. The card grows with a short
    list, then only the list scrolls when it reaches the viewport limit. */
-.dispatcher-main .dcal-day-card {
+.dcal-day-card {
   display: flex;
   flex-direction: column;
   min-height: 0;
   box-sizing: border-box;
 }
 
-.dispatcher-main .dcal-day-card .dcal-card-head {
+.dcal-day-card .dcal-card-head {
   flex: 0 0 auto;
 }
-.dispatcher-main .dcal-day-card .page-nav { flex: 0 0 auto; }
+.dcal-day-card .page-nav { flex: 0 0 auto; }
 
-.dispatcher-main .dcal-day-list {
+.dcal-day-list {
   min-height: 0;
   overflow-y: auto;
   scrollbar-gutter: stable;
@@ -579,13 +579,13 @@
   .dcal-calendar-card {
     position: static;
   }
-  .dispatcher-main .dcal-day-card {
+  .dcal-day-card {
     max-height: min(65dvh, 620px);
   }
 }
 
 @media (max-width: 640px) {
-  .dispatcher-main .dcal-day-card {
+  .dcal-day-card {
     max-height: min(55dvh, 480px);
   }
   .dcal-card {

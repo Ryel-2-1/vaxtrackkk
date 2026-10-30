@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  CalendarDays,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -9,7 +8,6 @@ import {
   Hourglass,
   Loader2,
   PackageCheck,
-  RotateCcw,
   Search,
   X,
 } from "lucide-react";
@@ -20,6 +18,7 @@ import InventoryVisibilityToggle from "../../components/inventory/InventoryVisib
 import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
 import { liveErrorMessage } from "../../services/liveDataErrors";
 import { abbreviateBatchId } from "../../services/batchIdDisplay";
+import CatalogFilterDialog from "../../components/inventory/CatalogFilterDialog";
 import "../../components/ui/feedback.css";
 
 // The derived expiry levels, in the order a rep cares about them. These are
@@ -76,9 +75,10 @@ function SalesRepInventory() {
   const [error, setError] = useState("");
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedType, setSelectedType] = useState("All");
+  const [selectedTypes, setSelectedTypes] = useState([]);
   const [selectedStatus, setSelectedStatus] = useState("All");
   const [expiryWindow, setExpiryWindow] = useState("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -121,7 +121,7 @@ function SalesRepInventory() {
 
   const vaccineTypes = useMemo(() => {
     const types = new Set(inventory.map((s) => s.type));
-    return ["All", ...Array.from(types).sort()];
+    return Array.from(types).sort();
   }, [inventory]);
 
   const filteredStocks = useMemo(() => {
@@ -134,7 +134,7 @@ function SalesRepInventory() {
         stock.batchId.toLowerCase().includes(query) ||
         stock.type.toLowerCase().includes(query);
 
-      const matchesType = selectedType === "All" || stock.type === selectedType;
+      const matchesType = selectedTypes.length === 0 || selectedTypes.includes(stock.type);
       const matchesStatus = selectedStatus === "All" || stock.status === selectedStatus;
       const days = stock.daysRemaining ?? Infinity;
       const matchesExpiry =
@@ -142,7 +142,7 @@ function SalesRepInventory() {
 
       return matchesSearch && matchesType && matchesStatus && matchesExpiry;
     });
-  }, [inventory, searchTerm, selectedType, selectedStatus, expiryWindow]);
+  }, [inventory, searchTerm, selectedTypes, selectedStatus, expiryWindow]);
 
   const totalPages = Math.max(1, Math.ceil(filteredStocks.length / rowsPerPage));
   const currentPage = Math.min(page, totalPages);
@@ -185,27 +185,12 @@ function SalesRepInventory() {
     }));
   }, [inventory]);
 
-  const resetFilters = () => {
-    setSearchTerm("");
-    setSelectedType("All");
-    setSelectedStatus("All");
-    setExpiryWindow("all");
+  const applyFilters = ({ types, status, expiry }) => {
+    setSelectedTypes(types);
+    setSelectedStatus(status);
+    setExpiryWindow(expiry);
     setPage(1);
-  };
-
-  const handleTypeFilter = (type) => {
-    setSelectedType(type);
-    setPage(1);
-  };
-
-  const handleStatusFilter = (event) => {
-    setSelectedStatus(event.target.value);
-    setPage(1);
-  };
-
-  const handleExpiryFilter = (event) => {
-    setExpiryWindow(event.target.value);
-    setPage(1);
+    setFiltersOpen(false);
   };
 
   const handleSearch = (event) => {
@@ -308,46 +293,10 @@ function SalesRepInventory() {
             />
           </div>
 
-          <div className="inventory-v2-selects">
-            <label>
-              <Filter size={14} />
-              <select value={selectedStatus} onChange={handleStatusFilter}>
-                {statusTypes.map((status) => (
-                  <option key={status} value={status}>
-                    {status === "All" ? "All Status" : status}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              <CalendarDays size={14} />
-              <select value={expiryWindow} onChange={handleExpiryFilter}>
-                <option value="30">Expiry: Next 30 Days</option>
-                <option value="90">Expiry: Next 90 Days</option>
-                <option value="180">Expiry: Next 180 Days</option>
-                <option value="all">All Expiry Dates</option>
-              </select>
-            </label>
-
-            <button type="button" className="inventory-reset-btn" onClick={resetFilters}>
-              <RotateCcw size={14} />
-              Reset
-            </button>
-          </div>
-        </div>
-
-        <div className="inventory-type-tabs">
-          {vaccineTypes.map((type) => (
-            <button
-              key={type}
-              type="button"
-              className={selectedType === type ? "active" : ""}
-              onClick={() => handleTypeFilter(type)}
-            >
-              {type === "All" ? "All Vaccine Types" : type}
-            </button>
-          ))}
+          <button type="button" className="catalog-filter-trigger" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog">
+            <Filter size={16} /> Advanced filters
+            {(selectedTypes.length > 0 || selectedStatus !== "All" || expiryWindow !== "all") && <span aria-label="Filters active">{selectedTypes.length + Number(selectedStatus !== "All") + Number(expiryWindow !== "all")}</span>}
+          </button>
         </div>
 
         <div className="inventory-selected-bar">
@@ -442,6 +391,17 @@ function SalesRepInventory() {
           </div>
         </div>
       </section>
+      {filtersOpen && <CatalogFilterDialog
+        title="Inventory filters"
+        types={vaccineTypes}
+        selectedTypes={selectedTypes}
+        status={selectedStatus}
+        statusOptions={statusTypes.map((value) => ({ value, label: value === "All" ? "All statuses" : value }))}
+        expiry={expiryWindow}
+        expiryOptions={[{ value: "all", label: "All expiry dates" }, { value: "30", label: "Next 30 days" }, { value: "90", label: "Next 90 days" }, { value: "180", label: "Next 180 days" }]}
+        onApply={applyFilters}
+        onClose={() => setFiltersOpen(false)}
+      />}
     </>
   );
 }

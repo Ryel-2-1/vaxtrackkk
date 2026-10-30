@@ -1,6 +1,5 @@
-/* Reusable month calendar — shared by the Sales Rep planner and the Dispatcher
-   day-view. Meridian tokens only; no role-specific selectors so it stays neutral
-   inside either shell. */
+/* Reusable month calendar for Med Rep, Admin, and Dispatcher. Meridian tokens
+   keep it neutral inside each shell. */
 
 .mcal {
   display: flex;
@@ -253,4 +252,18 @@
 .mcal-day-selected .mcal-day-urgent-dot {
   background: #fff;
   box-shadow: 0 0 0 1px var(--danger-text, #b42318);
+}
+
+@media (max-width: 560px) {
+  .mcal-head {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr) 32px;
+    grid-template-areas: "prev pick next" "today today today";
+    row-gap: 8px;
+  }
+  .mcal-head > .mcal-nav { grid-area: prev; }
+  .mcal-heading { grid-area: pick; }
+  .mcal-head-actions { display: contents; }
+  .mcal-head-actions > .mcal-nav { grid-area: next; }
+  .mcal-current { grid-area: today; justify-self: center; }
 }

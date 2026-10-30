@@ -6829,13 +6829,20 @@
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .srd-side {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-height: 0;
+}
+
+.srd-grid > .srd-card,
+.srd-side > .srd-card {
+  box-sizing: border-box;
+  height: 100%;
 }
 
 /* ---------- cards ---------- */
@@ -7105,11 +7112,68 @@
   color: var(--gray-500);
 }
 
+.srd-planner-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.srd-planner-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--gray-600);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.srd-planner-filter select {
+  width: 170px;
+  max-width: 100%;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-control);
+  background: #fff;
+  color: var(--gray-900);
+  font-size: 13px;
+}
+
+.srd-planner-filter select:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+}
+
+.srd-planner-clear {
+  align-self: flex-end;
+}
+
+.srd-planner-filter-summary {
+  margin-left: auto;
+  align-self: center;
+  color: var(--gray-500);
+  font-size: 12px;
+}
+
 .srd-planner-body {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-  gap: 20px;
-  align-items: start;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: stretch;
+  padding: 16px 20px 20px;
+}
+
+.srd-planner-calendar {
+  min-width: 0;
+}
+.srd-planner-calendar .mcal-day {
+  aspect-ratio: auto;
+  height: clamp(58px, 5.3vw, 72px);
 }
 
 .srd-planner-detail {
@@ -7117,16 +7181,22 @@
   flex-direction: column;
   gap: 12px;
   min-width: 0;
+  min-height: 0;
+  height: var(--planner-calendar-height, auto);
   border-left: 1px solid var(--gray-200);
-  padding-left: 20px;
+  padding-left: 24px;
 }
 
 .srd-planner-empty {
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 6px;
+  flex: 1;
   color: var(--gray-500);
-  padding: 8px 0;
+  padding: 16px;
+  text-align: center;
 }
 
 .srd-planner-empty strong {
@@ -7161,16 +7231,39 @@
 
 .srd-planner-none {
   margin: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 0;
   font-size: 13px;
   color: var(--gray-500);
+  text-align: center;
+}
+.srd-planner-none svg {
+  color: var(--green-700);
+  margin-bottom: 3px;
+}
+.srd-planner-none strong {
+  color: var(--gray-900);
+  font-size: 14px;
+  font-weight: 600;
+}
+.srd-planner-none span {
+  max-width: 260px;
+  line-height: 1.4;
 }
 
 .srd-planner-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 220px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .srd-planner-row {
@@ -7207,7 +7300,7 @@
 
 .srd-planner-cta {
   align-self: flex-start;
-  margin-top: 2px;
+  margin-top: auto;
 }
 
 .srd-planner-cta:disabled {
@@ -7229,18 +7322,44 @@
   }
   .srd-grid {
     grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+  .srd-grid > .srd-card,
+  .srd-side > .srd-card {
+    height: auto;
   }
   .srd-planner-body {
     grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
   }
   .srd-planner-detail {
+    height: auto;
     border-left: none;
     border-top: 1px solid var(--gray-200);
     padding-left: 0;
     padding-top: 16px;
   }
+  .srd-planner-calendar .mcal-day {
+    height: clamp(46px, 8vw, 62px);
+  }
+  .srd-planner-none,
+  .srd-planner-empty {
+    min-height: 110px;
+  }
+  .srd-planner-list {
+    max-height: 320px;
+  }
 }
-
+@media (max-width: 560px) {
+  .srd-planner-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 12px 16px;
+  }
+  .srd-planner-filter select { width: 100%; }
+  .srd-planner-clear { justify-self: start; }
+  .srd-planner-filter-summary { grid-column: 2; margin-left: 0; justify-self: end; }
+}
 /* Place Order: future-order explanation inside the dark Order Summary card. */
 .place-v2-pricing-card .place-v2-backorder-note {
   display: block !important;

@@ -232,12 +232,53 @@ function SalesRepAlerts() {
 
   return (
     <>
-      <section className="sales-alerts-header alerts-v2-header no-filter-icon">
-        <div>
-          <h2>Recent alerts</h2>
-          <p>Order status updates and delivery alerts for your orders.</p>
-        </div>
-      </section>
+      <div className="alerts-v2-sticky-head">
+        <section className="sales-alerts-header alerts-v2-header no-filter-icon">
+          <div>
+            <h2>Recent alerts</h2>
+            <p>Order status updates and delivery alerts for your orders.</p>
+          </div>
+        </section>
+
+        {/* One toolbar: lifecycle tabs, then the category chips, then search. */}
+        <div className="alerts-v2-toolbar">
+          <div className="sales-alert-tabs alerts-v2-tabs">
+            <button
+              type="button"
+              className={activeTab === "active" ? "active" : ""}
+              onClick={() => handleTabChange("active")}
+            >
+              Active ({activeAlerts.length})
+            </button>
+
+            <button
+              type="button"
+              className={activeTab === "history" ? "active" : ""}
+              onClick={() => handleTabChange("history")}
+            >
+              History ({historyAlerts.length})
+            </button>
+          </div>
+
+          <div className="sales-alert-filters alerts-v2-filters">
+            <FilterButton label={`All (${filterCounts.all})`} value="all" activeFilter={activeFilter} onClick={setActiveFilter} />
+            <FilterButton label={`Critical (${filterCounts.critical})`} value="critical" activeFilter={activeFilter} onClick={setActiveFilter} />
+            <FilterButton label={`Updates (${filterCounts.info})`} value="info" activeFilter={activeFilter} onClick={setActiveFilter} />
+            {activeTab === "history" && (
+              <FilterButton label={`Delivered (${filterCounts.success})`} value="success" activeFilter={activeFilter} onClick={setActiveFilter} />
+            )}
+          </div>
+
+          <div className="alerts-v2-search">
+            <Search size={15} />
+            <input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Search order ID, title, or clinic..."
+            />
+          </div>
+      </div>
+      </div>
 
       {message && (
         <div className="alerts-v2-toast">
@@ -248,45 +289,6 @@ function SalesRepAlerts() {
           </button>
         </div>
       )}
-
-      {/* One toolbar: lifecycle tabs, then the category chips, then search. */}
-      <div className="alerts-v2-toolbar">
-        <div className="sales-alert-tabs alerts-v2-tabs">
-          <button
-            type="button"
-            className={activeTab === "active" ? "active" : ""}
-            onClick={() => handleTabChange("active")}
-          >
-            Active ({activeAlerts.length})
-          </button>
-
-          <button
-            type="button"
-            className={activeTab === "history" ? "active" : ""}
-            onClick={() => handleTabChange("history")}
-          >
-            History ({historyAlerts.length})
-          </button>
-        </div>
-
-        <div className="sales-alert-filters alerts-v2-filters">
-          <FilterButton label={`All (${filterCounts.all})`} value="all" activeFilter={activeFilter} onClick={setActiveFilter} />
-          <FilterButton label={`Critical (${filterCounts.critical})`} value="critical" activeFilter={activeFilter} onClick={setActiveFilter} />
-          <FilterButton label={`Updates (${filterCounts.info})`} value="info" activeFilter={activeFilter} onClick={setActiveFilter} />
-          {activeTab === "history" && (
-            <FilterButton label={`Delivered (${filterCounts.success})`} value="success" activeFilter={activeFilter} onClick={setActiveFilter} />
-          )}
-        </div>
-
-        <div className="alerts-v2-search">
-          <Search size={15} />
-          <input
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="Search order ID, title, or clinic..."
-          />
-        </div>
-      </div>
 
       <section className="sales-alert-grid alerts-v2-grid">
         {filteredAlerts.length > 0 ? (

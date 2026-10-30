@@ -381,53 +381,53 @@ function SalesRepOrderTracking() {
 
         <ToastRegion toast={toast} onDismiss={dismissToast} />
 
+        <div className="tracking-toolbar tracking-v2-toolbar" role="group" aria-label="Order tracking filters">
+          <div className="tracking-v2-tabs">
+            <button
+              type="button"
+              className={activeTab === "active" ? "active" : ""}
+              onClick={() => handleTabChange("active")}
+            >
+              Active
+            </button>
+
+            <button
+              type="button"
+              className={activeTab === "history" ? "active" : ""}
+              onClick={() => handleTabChange("history")}
+            >
+              History
+            </button>
+          </div>
+
+          <div className="tracking-v2-search">
+            <Search size={15} />
+            <input
+              value={searchTerm}
+              onChange={(event) => { setSearchTerm(event.target.value); setPage(1); }}
+              placeholder="Search order ID, clinic, vaccine, or status..."
+            />
+          </div>
+
+          <label className="tracking-v2-status-filter">
+            <span>Filter by Status</span>
+            <select
+              value={statusFilter}
+              onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }}
+            >
+              <option value="all">All Status</option>
+              <option value="pending-dispatch">Pending Dispatch</option>
+              <option value="assigned">Assigned</option>
+              <option value="out-for-delivery">Out for Delivery</option>
+              <option value="delayed">Delayed</option>
+              <option value="delivered">Delivered</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </label>
+        </div>
+
         <section className="tracking-layout tracking-v2-layout">
           <div className="tracking-left">
-            <div className="tracking-toolbar tracking-v2-toolbar">
-              <div className="tracking-v2-tabs">
-                <button
-                  type="button"
-                  className={activeTab === "active" ? "active" : ""}
-                  onClick={() => handleTabChange("active")}
-                >
-                  Active
-                </button>
-
-                <button
-                  type="button"
-                  className={activeTab === "history" ? "active" : ""}
-                  onClick={() => handleTabChange("history")}
-                >
-                  History
-                </button>
-              </div>
-
-              <div className="tracking-v2-search">
-                <Search size={15} />
-                <input
-                  value={searchTerm}
-                  onChange={(event) => { setSearchTerm(event.target.value); setPage(1); }}
-                  placeholder="Search order ID, clinic, vaccine, or status..."
-                />
-              </div>
-
-              <label className="tracking-v2-status-filter">
-                <span>Filter by Status</span>
-                <select
-                  value={statusFilter}
-                  onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }}
-                >
-                  <option value="all">All Status</option>
-                  <option value="pending-dispatch">Pending Dispatch</option>
-                  <option value="assigned">Assigned</option>
-                  <option value="out-for-delivery">Out for Delivery</option>
-                  <option value="delayed">Delayed</option>
-                  <option value="delivered">Delivered</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
-              </label>
-            </div>
-
             <div className="tracking-v2-table-wrap">
               <table className="tracking-table tracking-v2-table">
                 <thead>
