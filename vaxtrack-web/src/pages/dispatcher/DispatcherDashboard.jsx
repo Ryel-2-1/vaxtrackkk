@@ -30,6 +30,7 @@ import { assignmentBlockReason } from "../../services/backorder";
 import { presentAlert } from "../../services/alertPresentation";
 import { requestedArrivalLabel, requestedArrivalOf } from "../../services/requestedArrival";
 import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
+import VaccineBreakdown from "../../components/dispatch/VaccineBreakdown";
 
 function shortDate(iso) {
   const d = new Date(`${iso}T00:00:00.000Z`);
@@ -433,7 +434,7 @@ function DispatcherDashboard() {
 
                         <td>
                           <span className="dispatcher-dash-vaccine-dot"></span>
-                          {order.vaccineName || "—"}
+                          <VaccineBreakdown order={order} />
                         </td>
 
                         <td>
@@ -602,7 +603,7 @@ function ReadOnlyQueue({ id, kicker, title, note, orders, now }) {
                     <strong>{order.clinicName || "No destination"}</strong>
                     <p>{order.clinicAddress || ""}</p>
                   </td>
-                  <td>{order.vaccineName || "—"}</td>
+                  <td><VaccineBreakdown order={order} /></td>
                   <td>
                     {order.quantity || 0} {order.unit || "vials"}
                   </td>

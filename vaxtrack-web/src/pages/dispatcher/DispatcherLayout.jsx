@@ -432,21 +432,21 @@ function DispatcherLayout() {
           drawer is open. `undefined` (not `false`) so the attribute is absent
           — and therefore inert is never in play at desktop widths. */}
       <main className="dispatcher-main" inert={navOpen || undefined}>
-        <header className="dispatcher-topbar m-topbar">
+        <header className="dispatcher-topbar m-topbar" data-shipments-topbar={active === "shipments" || undefined}>
           <h1 className="m-topbar-title">{title}</h1>
 
           {/* Search + bell grouped on the right, as in every role's top bar.
               Below 1025px the group is `display: contents`, so the existing
               tablet/phone grid still places each control individually. */}
           <div className="m-topbar-actions">
-          <form className="dispatcher-search m-topbar-search" onSubmit={handleSearchSubmit}>
+          {active !== "shipments" && <form className="dispatcher-search m-topbar-search" onSubmit={handleSearchSubmit}>
             <Search size={15} />
             <input
               placeholder="Search orders, clinics, or vaccine types..."
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
             />
-          </form>
+          </form>}
 
           <div className="dispatcher-notification-wrap">
             <button

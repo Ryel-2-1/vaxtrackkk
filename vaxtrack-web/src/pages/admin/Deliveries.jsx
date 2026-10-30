@@ -18,6 +18,7 @@ import StatusBadge from "../../components/ui/StatusBadge";
 import TimingIndicator from "../../components/ui/TimingIndicator";
 import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
 import KpiCard from "../../components/ui/KpiCard";
+import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import OrderCancellationAction from "../../components/orders/OrderCancellationAction";
 import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import LiveDeliveryMap from "../../components/LiveDeliveryMap";
@@ -132,6 +133,7 @@ function Deliveries() {
   const [loadError, setLoadError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [selectedDelivery, setSelectedDelivery] = useState(null);
   // An alert’s "Open delivery" link (/admin/deliveries?order=<order id>)
@@ -192,6 +194,8 @@ function Deliveries() {
       return matchesSearch && matchesStatus;
     });
   }, [deliveryList, searchTerm, statusFilter]);
+  const currentPage = Math.min(page, Math.max(1, Math.ceil(filteredDeliveries.length / PAGE_SIZE)));
+  const pageDeliveries = filteredDeliveries.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   // Counted per canonical status. `delivered` and `cancelled` are no longer
   // folded into "in transit" and "delayed", and `delivery_failed` — which had
@@ -459,7 +463,7 @@ function Deliveries() {
               </thead>
 
               <tbody>
-                {filteredDeliveries.map((delivery) => (
+                {pageDeliveries.map((delivery) => (
                   <tr
                     key={delivery.uid}
                     className={
@@ -549,6 +553,9 @@ function Deliveries() {
               </div>
             )}
           </div>
+          {filteredDeliveries.length > 0 && (
+            <PageNav page={currentPage} total={filteredDeliveries.length} onPageChange={setPage} label="Delivery pages" />
+          )}
         </section>
       </main>
 

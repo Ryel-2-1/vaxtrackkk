@@ -60,6 +60,7 @@ const operations = require("./src/operations");
 const destinationOperations = require("./src/destinationOperations");
 const scheduleOperations = require("./src/scheduleOperations");
 const orderMedRepNames = require("./src/orderMedRepNames");
+const cancelledShipmentAudit = require("./src/cancelledShipmentAudit");
 const invoiceOperations = require("./src/invoiceOperations");
 const statusEvents = require("./src/statusEvents");
 const inventoryWorkflow = require("./src/inventoryWorkflow");
@@ -286,6 +287,11 @@ exports.createOrderWithReservation = callable(
 exports.getOrderMedRepNames = callable(
   "getOrderMedRepNames",
   ({ db, uid, data }) => orderMedRepNames.getOrderMedRepNames({ db, uid, payload: data })
+);
+
+exports.getCancelledShipmentAudit = callable(
+  "getCancelledShipmentAudit",
+  ({ db, uid, data }) => cancelledShipmentAudit.getCancelledShipmentAudit({ db, uid, payload: data })
 );
 
 exports.correctOrderDestination = callable(

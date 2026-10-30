@@ -18,10 +18,9 @@ import {
   mapOrderStatusType,
 } from "../../services/deliveryService";
 import { ORDER_STATUSES, STATUS_LABELS } from "../../services/orderWorkflow";
-import { PRIORITY_FILTERS, filterCalendarOrders } from "../../services/deliverySchedule";
+import { PRIORITY_FILTERS, calendarCounts, filterCalendarOrders } from "../../services/deliverySchedule";
 import {
   addMonths,
-  countsByDate,
   isInMonth,
   manilaToday,
   monthOf,
@@ -227,7 +226,7 @@ function SalesRepDashboard() {
   );
   const plannerFiltersActive = plannerStatusFilter !== "all" || plannerPriorityFilter !== "all";
   // Day markers reflect the planner filters; checkout validates the chosen date.
-  const planCounts = useMemo(() => countsByDate(plannerOrders), [plannerOrders]);
+  const { counts: planCounts, urgent: planUrgentCounts } = useMemo(() => calendarCounts(plannerOrders), [plannerOrders]);
   const selectedDayOrders = useMemo(
     () => (selectedDate ? ordersOnDate(plannerOrders, selectedDate) : []),
     [plannerOrders, selectedDate]
@@ -340,7 +339,7 @@ function SalesRepDashboard() {
               </div>
               <span className="srd-planner-legend">
                 <CalendarDays size={14} />
-                Numbers show orders you've scheduled
+                Numbers show orders you've scheduled · red dot = urgent
               </span>
             </div>
 
@@ -383,6 +382,7 @@ function SalesRepDashboard() {
                   month={view.month}
                   today={today}
                   counts={planCounts}
+                  urgentCounts={planUrgentCounts}
                   selectedDate={selectedDate}
                   onSelectDate={selectPlannerDate}
                   onPrevMonth={goPrevMonth}

@@ -7,10 +7,9 @@ import { readFileSync } from "node:fs";
  * (the card and pager moved, and near the bottom of the document the browser
  * clamped the scroll position). Only the current page is rendered; every row
  * has one fixed height with its content bounded to fit, and a paged result
- * reserves a full page in CSS. No measuring, no hidden pages, no filler rows.
- * The geometry was verified in the browser (1440/1024/768/375 px, resizes on
- * the short page, long names and two-line batch IDs, 1,215 batches); this
- * pins the markup/CSS contract that produces it.
+ * keeps a stable bounded table region in CSS. No measuring, no hidden pages,
+ * no filler rows. The pager stays visible when the viewport is shorter than
+ * ten rows, while the table itself remains scrollable.
  */
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
@@ -27,10 +26,11 @@ test("Inventory renders only the current page's rows in a single table", () => {
   assert.equal(/visibility: hidden/.test(css.slice(css.indexOf("Pagination: only the current page"), css.indexOf("/* ---- Order Tracking ---- */"))), false);
 });
 
-test("a paged result reserves a full page; one page or none stays compact", () => {
+test("a paged result bounds the table height and keeps the pager outside it", () => {
   assert.match(src, /className=\{`inventory-v2-table-region\$\{totalPages > 1 \? " is-paged" : ""\}`\}/);
   assert.match(src, /style=\{\{ "--inv-page-rows": rowsPerPage \}\}/);
-  assert.match(css, /\.salesrep-main \.inventory-v2-table-region\.is-paged \{\s*min-height: calc\(var\(--inv-head-h\) \+ var\(--inv-page-rows\) \* var\(--inv-row-h\)\);\s*\}/);
+  assert.match(css, /\.salesrep-main \.inventory-v2-table-region\.is-paged \{[^}]*height: min\(calc\(var\(--inv-head-h\) \+ var\(--inv-page-rows\) \* var\(--inv-row-h\)\), 46dvh\);[^}]*overflow-y: auto;/);
+  assert.match(css, /\.salesrep-main \.inventory-v2-table-region\.is-paged thead th \{[^}]*position: sticky;/);
   assert.match(css, /\.salesrep-main \.inventory-v2-table th \{[^}]*height: var\(--inv-head-h\);/);
   assert.match(css, /\.salesrep-main \.inventory-v2-table td \{[^}]*height: var\(--inv-row-h\);/);
   // Borders inside each cell's height, so a page is exactly header + rows.

@@ -14,6 +14,7 @@ import DestinationCorrectionDialog from "./DestinationCorrectionDialog";
 import { subscribeClinics } from "../../services/clinicService";
 import { clinicsById } from "../../services/destinationFreshness";
 import DestinationNotes from "../../components/dispatch/DestinationNotes";
+import VaccineBreakdown from "../../components/dispatch/VaccineBreakdown";
 import {
   ACTOR_DISPATCHER,
   AWAITING_DISPATCHER_STATUSES,
@@ -33,7 +34,11 @@ import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../serv
 import { UserMessageError } from "../../services/userMessageError";
 import { ToastRegion } from "../../components/ui/Feedback";
 import { useToast } from "../../components/ui/useToast";
+import { useDialogFocus } from "../../components/ui/useDialogFocus";
+import DialogLayer from "../../components/ui/DialogLayer";
 import { capitalizedOrderPhrase, orderNumberPhrase, orderPhrase, orderReference } from "../../services/orderLabel";
+import { fetchCancelledShipmentAudit } from "../../services/cancelledShipmentAudit";
+import { orderArrivalNote } from "../../services/requestedArrival";
 
 // A local status-label copy used to live here for the status-change toasts.
 // Those toasts are gone with the Delivered/Delay/Resume actions, and the
@@ -101,6 +106,26 @@ function formatTime(ts) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+function viewableProofUrl(value) {
+  if (typeof value !== "string" || !value.trim()) return "";
+  try {
+    const url = new URL(value.trim());
+    const localEmulator = url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);
+    return url.protocol === "https:" || localEmulator ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
+function formatCancellationTime(value) {
+  const date = value?.toDate ? value.toDate() : new Date(value);
+  if (!value || Number.isNaN(date.getTime())) return "Time not recorded";
+  return `${new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric",
+    hour: "numeric", minute: "2-digit", hour12: true,
+  }).format(date)} PHT`;
+}
+
 function DispatcherShipments() {
   const pageSize = 10;
   const [orders, setOrders] = useState([]);
@@ -111,6 +136,8 @@ function DispatcherShipments() {
   const [filterStatus, setFilterStatus] = useState("active");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(null);
+  const [proofTargetId, setProofTargetId] = useState(null);
+  const [detailsTargetId, setDetailsTargetId] = useState(null);
   const now = useManilaDayNow();
   // A notification's link (/dispatcher/shipments?order=…) points at one order.
   const [searchParams] = useSearchParams();
@@ -192,6 +219,8 @@ function DispatcherShipments() {
   const initialPage = focusedIndex < 0 ? 1 : Math.floor(focusedIndex / pageSize) + 1;
   const currentPage = Math.min(page ?? initialPage, pageCount);
   const pageOrders = matchingOrders.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const proofTarget = proofTargetId ? orders.find((order) => order.id === proofTargetId) : null;
+  const detailsTarget = detailsTargetId ? orders.find((order) => order.id === detailsTargetId) : null;
 
   // The order awaiting cancellation confirmation, plus the control that opened
   // the dialog so focus can be handed back to it.
@@ -438,10 +467,10 @@ function DispatcherShipments() {
             <div className="shp-table-wrap">
               <table className="shp-table">
                 <colgroup>
-                  <col style={{ width: "16%" }} /><col style={{ width: "22%" }} />
-                  <col style={{ width: "13%" }} /><col style={{ width: "12%" }} />
+                  <col style={{ width: "15%" }} /><col style={{ width: "21%" }} />
+                  <col style={{ width: "12%" }} /><col style={{ width: "11%" }} />
                   <col style={{ width: "13%" }} /><col style={{ width: "8%" }} />
-                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "20%" }} />
                 </colgroup>
                 <thead>
                   <tr>
@@ -464,6 +493,8 @@ function DispatcherShipments() {
                       onRequestCancel={openCancelDialog}
                       onRequestReassign={openReassignDialog}
                       onRequestCorrection={openCorrectionDialog}
+                      onViewProof={(order) => setProofTargetId(order.id)}
+                      onViewDetails={(order) => setDetailsTargetId(order.id)}
                       clinic={clinicMap.get(order.clinicDocId)}
                       focused={order.id === focusOrderId}
                     />
@@ -484,6 +515,18 @@ function DispatcherShipments() {
           </nav>
         )}
       </div>
+
+      {proofTarget && (
+        <DialogLayer scope="dispatcher-page">
+          <ProofOfDeliveryDialog order={proofTarget} onDismiss={() => setProofTargetId(null)} />
+        </DialogLayer>
+      )}
+
+      {detailsTarget && (
+        <DialogLayer scope="dispatcher-page">
+          <CancelledShipmentDialog order={detailsTarget} onDismiss={() => setDetailsTargetId(null)} />
+        </DialogLayer>
+      )}
 
       {cancelTarget && (
         <CancelOrderDialog
@@ -509,6 +552,156 @@ function DispatcherShipments() {
         />
       )}
     </>
+  );
+}
+
+function ProofOfDeliveryDialog({ order, onDismiss }) {
+  const dialogRef = useRef(null);
+  const closeRef = useRef(null);
+  const [imageFailed, setImageFailed] = useState(false);
+  useDialogFocus({ dialogRef, initialRef: closeRef, onDismiss });
+  const proofUrl = viewableProofUrl(order.proofOfDeliveryUrl);
+  const hasStoredProof = typeof order.proofOfDeliveryUrl === "string" && !!order.proofOfDeliveryUrl.trim();
+  const titleId = "shipment-proof-title";
+  const descriptionId = "shipment-proof-description";
+
+  return (
+    <div className="shp-dialog-backdrop shp-proof-backdrop" onMouseDown={onDismiss}>
+      <div className="shp-dialog shp-proof-dialog" role="dialog" aria-modal="true"
+        aria-labelledby={titleId} aria-describedby={descriptionId} ref={dialogRef}
+        onMouseDown={(event) => event.stopPropagation()}>
+        <div className="shp-dialog-head">
+          <h2 id={titleId}>Proof of delivery</h2>
+          <button type="button" className="shp-dialog-close" aria-label="Close proof of delivery"
+            onClick={onDismiss} ref={closeRef}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+        <p id={descriptionId} className="shp-dialog-desc">
+          {orderNumberPhrase(order)} · {order.clinicName || "Clinic"}
+        </p>
+        {proofUrl && !imageFailed ? (
+          <a className="shp-proof-image-link" href={proofUrl} target="_blank" rel="noopener noreferrer">
+            <img src={proofUrl} alt={`Proof of delivery for ${orderNumberPhrase(order)}`}
+              onError={() => setImageFailed(true)} />
+          </a>
+        ) : (
+          <p className="shp-proof-empty" role="status">
+            {proofUrl
+              ? "The proof image could not be previewed. Open the image to try again."
+              : hasStoredProof
+                ? "The proof image link is unavailable."
+                : "No proof of delivery was uploaded for this order."}
+          </p>
+        )}
+        {proofUrl && (
+          <a className="shp-proof-open" href={proofUrl} target="_blank" rel="noopener noreferrer">
+            Open image in new tab
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CancelledShipmentDialog({ order, onDismiss }) {
+  const dialogRef = useRef(null);
+  const closeRef = useRef(null);
+  const [audit, setAudit] = useState(null);
+  const [auditError, setAuditError] = useState("");
+  const [copied, setCopied] = useState(false);
+  useDialogFocus({ dialogRef, initialRef: closeRef, onDismiss });
+
+  useEffect(() => {
+    let current = true;
+    fetchCancelledShipmentAudit(order.id)
+      .then((result) => { if (current) setAudit(result); })
+      .catch((error) => { if (current) setAuditError(friendlyErrorMessage(error, "Cancellation audit is unavailable.")); });
+    return () => { current = false; };
+  }, [order.id]);
+
+  const orderId = orderReference(order, order.id);
+  const lines = Array.isArray(order.items) && order.items.length
+    ? order.items
+    : [{ name: order.vaccineName, quantity: order.quantity }];
+  const slices = Array.isArray(audit?.slices) ? audit.slices : [];
+  const releasedCount = slices.reduce((sum, slice) => sum + slice.quantity, 0);
+  const releaseNote = order.inventoryReconciliation === "legacy-unallocated"
+    ? "Legacy stock effect could not be reconciled. Admin review is needed."
+    : audit?.reservationStatus === "released" && audit?.settlementType === "cancelled"
+      ? releasedCount === 0
+        ? "No reserved vials needed release; unfilled items were never taken from stock."
+        : `${releasedCount.toLocaleString()} reserved vial${releasedCount === 1 ? "" : "s"} released back to available inventory.${releasedCount < (Number(order.quantity) || 0) ? " Unreserved items were never taken from stock." : ""}`
+      : audit?.reservationStatus === "returned" || order.allocationStatus === "returned"
+        ? "Stock is awaiting Admin inspection; it has not been released to available inventory."
+        : audit
+          ? "Stock restoration is not confirmed by the reservation record. Admin review is needed."
+          : auditError ? "Stock restoration could not be verified here." : "Checking the reservation record…";
+
+  const copyOrderId = async () => {
+    try {
+      await navigator.clipboard.writeText(orderId);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <div className="shp-dialog-backdrop shp-proof-backdrop" onMouseDown={onDismiss}>
+      <div className="shp-dialog shp-cancelled-dialog" role="dialog" aria-modal="true"
+        aria-labelledby="shipment-details-title" ref={dialogRef}
+        onMouseDown={(event) => event.stopPropagation()}>
+        <div className="shp-dialog-head">
+          <h2 id="shipment-details-title">Cancelled shipment details</h2>
+          <button type="button" className="shp-dialog-close" aria-label="Close shipment details"
+            onClick={onDismiss} ref={closeRef}><X size={16} aria-hidden="true" /></button>
+        </div>
+
+        <section className="shp-audit-section">
+          <h3>Cancellation audit</h3>
+          <dl className="shp-audit-grid">
+            <div><dt>Reason</dt><dd>{order.cancelReason || "Not recorded"}</dd></div>
+            <div><dt>Cancelled by</dt><dd>{audit?.cancelledByName || order.cancelledByName || (audit || auditError ? "Name unavailable" : "Loading…")}{order.cancelledByRole ? ` · ${order.cancelledByRole === "salesrep" ? "Med Rep" : order.cancelledByRole.charAt(0).toUpperCase() + order.cancelledByRole.slice(1)}` : ""}</dd></div>
+            <div><dt>Cancelled at</dt><dd>{formatCancellationTime(order.cancelledAt)}</dd></div>
+            <div><dt>Previous status</dt><dd>{order.cancelledFromStatus?.replaceAll("_", " ") || "Not recorded"}</dd></div>
+          </dl>
+        </section>
+
+        <section className="shp-audit-section">
+          <h3>Order and destination</h3>
+          <div className="shp-audit-id"><span>{orderId}</span><button type="button" className="shp-act-btn" onClick={copyOrderId}>{copied ? "Copied" : "Copy ID"}</button></div>
+          <dl className="shp-audit-grid">
+            <div><dt>Receiving doctor</dt><dd>{order.doctorName || "Not recorded"}</dd></div>
+            <div><dt>Clinic</dt><dd>{order.clinicName || "Not recorded"}</dd></div>
+            <div><dt>Delivery address</dt><dd>{order.clinicAddress || "Not recorded"}</dd></div>
+            <div><dt>Requested arrival</dt><dd>{orderArrivalNote(order)}</dd></div>
+          </dl>
+        </section>
+
+        <section className="shp-audit-section">
+          <h3>Vaccine package</h3>
+          <ul className="shp-audit-items">{lines.map((line, index) => {
+            const batches = slices.filter((slice) => slice.lineIndex === index);
+            return <li key={`${line.productKey || line.name || "item"}-${index}`}>
+              <strong>{line.name || "Vaccine not recorded"}</strong>
+              <span>{Number.isFinite(Number(line.quantity)) ? Number(line.quantity).toLocaleString() : "—"} vials</span>
+              <small>Allocated batch{batches.length === 1 ? "" : "es"}: {audit ? (batches.length ? batches.map((slice) => `${slice.batchId || "Unknown lot"} (${slice.quantity} vials)`).join(", ") : "None recorded") : auditError ? "Unavailable" : "Checking…"}</small>
+              <small>Storage requirements: Not recorded for this order</small>
+            </li>;
+          })}</ul>
+        </section>
+
+        <section className="shp-audit-section">
+          <h3>Logistics and inventory</h3>
+          <dl className="shp-audit-grid">
+            <div><dt>Assigned rider</dt><dd>{order.assignedRiderName || "Unassigned"}{order.assignedRiderPhone ? ` · ${order.assignedRiderPhone}` : ""}</dd></div>
+            <div><dt>Stock restoration</dt><dd>{releaseNote}</dd></div>
+          </dl>
+          {auditError && <p className="shp-audit-error" role="alert">{auditError} Stock release and allocated lots cannot be verified here.</p>}
+        </section>
+      </div>
+    </div>
   );
 }
 
@@ -789,7 +982,7 @@ function CancelOrderDialog({ order, onDismiss, onConfirm }) {
   );
 }
 
-function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign, onRequestCorrection, clinic: clinicDoc, focused = false }) {
+function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign, onRequestCorrection, onViewProof, onViewDetails, clinic: clinicDoc, focused = false }) {
   const rowRef = useRef(null);
   // Opened from a notification: bring the order into view once.
   useEffect(() => {
@@ -806,11 +999,12 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
   const correctable = canCorrectDestination(order);
   const awaitingApproval = !!order.destinationChangeRequest;
   const isDelayed = sKey === "delayed" || sKey === "delivery_failed";
+  const isCompleted = sKey === "delivered" || sKey === "completed";
+  const isCancelled = sKey === "cancelled" || sKey === "canceled";
 
   const riderName = order.assignedRiderName || "Unassigned";
   const riderPhone = order.assignedRiderPhone || "";
   const orderNum = orderReference(order, "No order number");
-  const vaccine = order.vaccineName || "—";
   const clinic = order.clinicName || "—";
   const address = order.clinicAddress || "";
   const qty = order.quantity || 0;
@@ -835,7 +1029,7 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
       </td>
       <td>
         <div className="shp-cell">
-          <strong>{vaccine}</strong>
+          <strong><VaccineBreakdown order={order} /></strong>
           <small className="tnum">{qty.toLocaleString()} {unit}</small>
         </div>
       </td>
@@ -863,44 +1057,62 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
       </td>
       <td className="shp-td-meta">{updated}</td>
       <td className="shp-actions-cell">
-        {cancellable || reassignable || legacyReturned || correctable || awaitingApproval ? (
-          <div className="shp-actions">
-            {awaitingApproval && <span className="shp-muted">Awaiting Med Rep approval</span>}
-            {correctable && (
-              <button type="button" className="shp-act-btn request-change" disabled={updating}
-                onClick={(e) => onRequestCorrection(order, e.currentTarget)}>
-                Request change
-              </button>
-            )}
-            {legacyReturned && (
-              <span className="shp-muted">
-                Placed before future orders — its stock was returned. Cancel it and place a new order.
-              </span>
-            )}
-            {reassignable && (
-              <button
-                type="button"
-                className="shp-act-btn primary return-to-queue"
-                disabled={updating}
-                onClick={(e) => onRequestReassign(order, e.currentTarget)}
-              >
-                Return to queue
-              </button>
-            )}
-            {cancellable && (
-              <button
-                type="button"
-                className="shp-act-btn danger"
-                disabled={updating}
-                onClick={(e) => onRequestCancel(order, e.currentTarget)}
-              >
-                Cancel order
-              </button>
-            )}
-          </div>
-        ) : (
-          <span className="shp-muted shp-action-dash">—</span>
-        )}
+        <div className="shp-actions">
+          {isCompleted ? (
+            <button type="button" className="shp-act-btn primary view-proof"
+              aria-label={`View proof of delivery for ${orderNumberPhrase(order)}`}
+              onClick={() => onViewProof(order)}>
+              View proof of delivery
+            </button>
+          ) : isCancelled ? (
+            <button type="button" className="shp-act-btn view-details"
+              aria-label={`View cancellation details for ${orderNumberPhrase(order)}`}
+              onClick={() => onViewDetails(order)}>View details</button>
+          ) : (
+          <>
+          {awaitingApproval && <span className="shp-muted shp-action-note">Awaiting Med Rep approval</span>}
+          {correctable && (
+            <button type="button" className="shp-act-btn request-change" disabled={updating}
+              onClick={(e) => onRequestCorrection(order, e.currentTarget)}>
+              Request change
+            </button>
+          )}
+          {!correctable && (
+            <span className="shp-action-placeholder" aria-hidden="true">
+              {!cancellable && !reassignable && !legacyReturned && !awaitingApproval ? "—" : null}
+            </span>
+          )}
+          {reassignable && (
+            <button
+              type="button"
+              className="shp-act-btn primary return-to-queue"
+              disabled={updating}
+              onClick={(e) => onRequestReassign(order, e.currentTarget)}
+            >
+              Return to queue
+            </button>
+          )}
+          {!reassignable && <span className="shp-action-placeholder" aria-hidden="true" />}
+          {legacyReturned && (
+            <span className="shp-muted shp-action-note">
+              Placed before future orders — its stock was returned. Cancel it and place a new order.
+            </span>
+          )}
+          {cancellable && (
+            <button
+              type="button"
+              className="shp-act-btn danger cancel-order-outline"
+              disabled={updating}
+              onClick={(e) => onRequestCancel(order, e.currentTarget)}
+            >
+              Cancel order
+            </button>
+          )}
+          {!cancellable && <span className="shp-action-placeholder" aria-hidden="true" />}
+          <span className="shp-action-placeholder" aria-hidden="true" />
+          </>
+          )}
+        </div>
       </td>
     </tr>
   );

@@ -904,5 +904,6 @@ test("pages that used a one-time read for live data no longer do", () => {
     const code = strip(read(file));
     for (const fn of gone) assert.equal(new RegExp(`\\b${fn}\\b`).test(code), false, `${file} still uses ${fn}`);
   }
-  assert.match(strip(read("src/pages/dispatcher/DispatcherCargoLoading.jsx")), /const \{ profile: ownProfile \} = useOwnProfile\(\);/);
+  // Cargo Loading no longer reads the Dispatcher's profile solely for a print sheet.
+  assert.doesNotMatch(strip(read("src/pages/dispatcher/DispatcherCargoLoading.jsx")), /Print sheet|PrintSheet|window\.print/);
 });

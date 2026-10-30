@@ -1344,9 +1344,9 @@ aside.salesrep-sidebar .salesrep-logout {
 /* Pagination: only the current page is rendered. The header and every row
    have one fixed height, and each cell's content is bounded to fit inside it
    (the name clamps and opens a popover; dates, quantities and status never
-   wrap; batch IDs wrap to at most two lines). A paged result reserves the
-   header plus a full page of rows, so a short last page leaves the pager
-   where it was; one page or an empty result keeps its natural height.
+   wrap; batch IDs wrap to at most two lines). A paged result keeps the pager
+   steady while the table region is bounded by the viewport; one page or an
+   empty result keeps its natural height.
    The table is `table-layout: fixed` with a 720px minimum, so column widths
    never depend on the rows shown. Sizes are px, like the type they hold, so
    browser zoom scales them together. */
@@ -1355,7 +1355,16 @@ aside.salesrep-sidebar .salesrep-logout {
   --inv-row-h: 77px;
 }
 .salesrep-main .inventory-v2-table-region.is-paged {
-  min-height: calc(var(--inv-head-h) + var(--inv-page-rows) * var(--inv-row-h));
+  height: min(calc(var(--inv-head-h) + var(--inv-page-rows) * var(--inv-row-h)), 46dvh);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.salesrep-main .inventory-v2-table-region.is-paged thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 /* Separate borders with no spacing: each border sits inside its cell's
    border-box height, so a page is exactly header + rows × row height. */

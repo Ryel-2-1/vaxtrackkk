@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Route as RouteIcon,
   User,
+  X,
 } from "lucide-react";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
@@ -38,6 +39,8 @@ import TripProgress, { StopProgressBadge } from "../../components/dispatch/TripP
 import { shipmentProgress, tripProgress } from "../../services/stopProgress";
 import { routingSettingsOf } from "../../services/routingSettings";
 import StatusBadge from "../../components/ui/StatusBadge";
+import DialogLayer from "../../components/ui/DialogLayer";
+import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import { savedRouteDescription } from "../../services/routeMetadata.js";
 import { manilaTime } from "../../services/deliveryTiming";
 import { manilaClock, requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
@@ -333,11 +336,35 @@ function RiderLocationMap({ lat, lng, clinicLat, clinicLng, routePolyline, stops
   return <div ref={containerRef} className="geo3-live-map" />;
 }
 
+function ShipmentDrawer({ onDismiss, children }) {
+  const dialogRef = useRef(null);
+  const closeRef = useRef(null);
+  useDialogFocus({ dialogRef, initialRef: closeRef, onDismiss });
+
+  return (
+    <DialogLayer scope="geo3-drawer-scope">
+      <div className="geo3-drawer-overlay">
+        <div className="geo3-drawer-backdrop" onClick={onDismiss} aria-hidden="true" />
+        <aside id="geo3-shipment-drawer" className="geo3-drawer" role="dialog" aria-modal="true" aria-labelledby="geo3-drawer-title" ref={dialogRef}>
+          <div className="geo3-drawer-header">
+            <h2 id="geo3-drawer-title">Shipment details</h2>
+            <button type="button" ref={closeRef} onClick={onDismiss} aria-label="Close shipment details">
+              <X size={20} aria-hidden="true" />
+            </button>
+          </div>
+          <div className="geo3-drawer-content">{children}</div>
+        </aside>
+      </div>
+    </DialogLayer>
+  );
+}
+
 function DispatcherGeofence() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [chosenId, setSelectedId] = useState("");
+  const [drawerOrderId, setDrawerOrderId] = useState(null);
   // Route generation state, scoped to the order it belongs to (so an error or
   // in-flight request never bleeds onto a different selected order).
   const [busyOrderId, setBusyOrderId] = useState(null);
@@ -857,7 +884,7 @@ function DispatcherGeofence() {
             <small>Orders with status Assigned, Loading, In Transit, or Delayed will appear here.</small>
           </div>
         ) : (
-          <div className="geo3-grid">
+          <div className="geo3-grid geo3-grid-single">
             <div className="geo3-left">
               <div className="geo3-card geo3-status-card">
                 <h3>Active Shipments ({activeOrders.length})</h3>
@@ -870,7 +897,13 @@ function DispatcherGeofence() {
                         key={order.id}
                         type="button"
                         className={`geo3-order-item ${isActive ? "active" : ""}`}
-                        onClick={() => setSelectedId(order.id)}
+                        aria-haspopup="dialog"
+                        aria-expanded={drawerOrderId === order.id && isActive}
+                        aria-controls={drawerOrderId === order.id && isActive ? "geo3-shipment-drawer" : undefined}
+                        onClick={() => {
+                          setSelectedId(order.id);
+                          setDrawerOrderId(order.id);
+                        }}
                       >
                         <div className="geo3-order-item-head">
                           <strong>{order.orderNumber || order.id}</strong>
@@ -893,12 +926,11 @@ function DispatcherGeofence() {
               </div>
             </div>
 
-            <div className="geo3-right">
-              {selected ? (
-                <>
+            {selected && drawerOrderId === selected.id && (
+              <ShipmentDrawer onDismiss={() => setDrawerOrderId(null)}>
                   <div className="geo3-card geo3-info-card">
                     <div className="geo3-card-head">
-                      <h3>Shipment Details</h3>
+                      <h3>Shipment overview</h3>
                       <StatusBadge statusKey={selected.statusKey} label={selected.statusLabel} />
                     </div>
 
@@ -1007,6 +1039,9 @@ function DispatcherGeofence() {
                               selected.statusUpdatedAt || selected.updatedAt
                             ) || "—"}
                           </strong>
+                          {millisOf(selected.statusUpdatedAt || selected.updatedAt) !== null && (
+                            <p>{manilaTime(millisOf(selected.statusUpdatedAt || selected.updatedAt))}</p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1020,13 +1055,8 @@ function DispatcherGeofence() {
                       </p>
                     </div>
                   )}
-                </>
-              ) : (
-                <div className="geo3-card">
-                  <p>Select a shipment to view details.</p>
-                </div>
-              )}
-            </div>
+              </ShipmentDrawer>
+            )}
           </div>
         )}
       </section>

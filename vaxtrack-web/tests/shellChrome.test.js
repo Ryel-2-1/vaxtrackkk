@@ -43,7 +43,7 @@ const chrome = read("src", "styles", "shell-chrome.css");
 test("every role renders the same top bar, and it owns the page's one <h1>", () => {
   for (const role of Object.keys(SHELLS)) {
     const src = shellCode(role);
-    assert.match(src, /<header className="[^"]*\bm-topbar\b[^"]*">/, `${role}: shared top bar`);
+    assert.match(src, /<header className="[^"]*\bm-topbar\b[^"]*"[^>]*>/, `${role}: shared top bar`);
     const h1s = src.match(/<h1\b[^>]*>/g) || [];
     assert.deepEqual(h1s, ['<h1 className="m-topbar-title">'], `${role}: exactly one <h1>, in the top bar`);
   }

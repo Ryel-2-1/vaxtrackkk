@@ -834,6 +834,7 @@ function Clinics() {
 
         <section className={`clinics-v2-table-card${view === "grid" ? " is-grid" : ""}`}>
           {view === "list" ? (
+          <div className="clinics-list-table-wrap">
           <table className="clinics-v2-table">
             <thead>
               <tr>
@@ -949,6 +950,7 @@ function Clinics() {
               ))}
             </tbody>
           </table>
+          </div>
           ) : (
             <ul className="clinics-grid" aria-label="Clinics">
               {paginatedClinics.map((clinic) => (

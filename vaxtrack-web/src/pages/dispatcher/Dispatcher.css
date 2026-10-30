@@ -8589,3 +8589,103 @@
   font-size: 12px;
   color: var(--gray-500);
 }
+
+/* Geofence shipment details: fixed to the viewport so opening them never
+   changes the map or shipment list's layout. */
+.geo3-grid.geo3-grid-single {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.geo3-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+}
+
+.geo3-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.36);
+  animation: geo3-backdrop-in 220ms ease-out both;
+}
+
+.geo3-drawer {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: min(460px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #f8fafc;
+  box-shadow: -18px 0 48px rgba(15, 23, 42, 0.18);
+  animation: geo3-drawer-in 240ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+.geo3-drawer-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.geo3-drawer-header h2 {
+  margin: 0;
+  font-size: 18px;
+  color: #0f172a;
+}
+
+.geo3-drawer-header button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+}
+
+.geo3-drawer-header button:hover { background: #f1f5f9; }
+.geo3-drawer-header button:focus-visible { outline: 2px solid #166534; outline-offset: 2px; }
+
+.geo3-drawer-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px 24px;
+}
+
+.geo3-drawer-content .geo3-card {
+  flex: 0 0 auto;
+}
+
+.geo3-drawer-content .geo3-info-row strong,
+.geo3-drawer-content .geo3-info-row p {
+  overflow-wrap: anywhere;
+}
+
+@keyframes geo3-drawer-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes geo3-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .geo3-drawer,
+  .geo3-drawer-backdrop { animation: none; }
+}

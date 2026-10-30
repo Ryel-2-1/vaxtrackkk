@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import AdminLayout from "../../components/admin/AdminLayout";
 import KpiCard from "../../components/ui/KpiCard";
+import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import StaleEditNotice from "../../components/ui/StaleEditNotice";
 import { useLiveDraft } from "../../components/useLiveDraft";
 import {
@@ -362,6 +363,7 @@ function AiInventoryAnalytics() {
   const [configs, setConfigs] = useState(new Map());
   const [error, setError] = useState(null);
   const [selected, setSelected] = useState(null);
+  const [page, setPage] = useState(1);
   const [now] = useState(() => Date.now());
 
   useEffect(() => {
@@ -386,6 +388,8 @@ function AiInventoryAnalytics() {
     [byVaccine]
   );
   const totals = summarize(rows);
+  const currentPage = Math.min(page, Math.max(1, Math.ceil(rows.length / PAGE_SIZE)));
+  const pageRows = rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   let body;
   if (error === "permission") {
@@ -462,7 +466,7 @@ function AiInventoryAnalytics() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {pageRows.map((r) => (
                   <tr key={r.vaccineId} className={selected === r.vaccineId ? "aia-selected" : ""}>
                     <td className="aia-name">
                       <button type="button" className="aia-link" onClick={() => setSelected(r.vaccineId)}>
@@ -488,6 +492,7 @@ function AiInventoryAnalytics() {
               </tbody>
             </table>
           </div>
+          <PageNav page={currentPage} total={rows.length} onPageChange={setPage} label="Forecast pages" />
         </section>
 
         {selectedHorizons && (

@@ -1,0 +1,43 @@
+.vaccine-summary { display: inline; min-width: 0; overflow-wrap: anywhere; }
+.vaccine-summary-name { overflow-wrap: anywhere; }
+.vaccine-more {
+  display: inline-flex;
+  align-items: center;
+  min-height: 25px;
+  margin-left: 4px;
+  padding: 2px 7px;
+  border: 1px solid var(--green-200, #b9ddca);
+  border-radius: 999px;
+  background: var(--green-50, #eff8f2);
+  color: var(--green-800, #176242);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+  vertical-align: baseline;
+}
+.vaccine-more:hover, .vaccine-more:focus-visible { background: var(--green-100, #dbf0e2); border-color: var(--green-600, #287a52); }
+.vaccine-more:focus-visible { outline: 2px solid var(--green-700, #226b48); outline-offset: 2px; }
+.vaccine-breakdown-popover {
+  position: fixed;
+  z-index: 2000;
+  max-height: min(360px, 55vh);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid var(--gray-200, #e2e8f0);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(16, 24, 40, .18);
+  color: var(--gray-900, #111827);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.vaccine-breakdown-popover > strong { display: block; margin-bottom: 8px; font-size: 13px; }
+.vaccine-breakdown-popover ul { list-style: none; margin: 0; padding: 0; }
+.vaccine-breakdown-popover li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 7px 0; border-top: 1px solid var(--gray-100, #f1f5f9); }
+.vaccine-breakdown-popover li span { min-width: 0; overflow-wrap: anywhere; }
+.vaccine-breakdown-popover li b { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.vaccine-breakdown-popover li small { grid-column: 1 / -1; color: var(--gray-600, #64748b); }
+.vaccine-breakdown-popover p { margin: 8px 0 0; color: var(--gray-600, #64748b); }

@@ -999,6 +999,11 @@ async function cancelOrderTransaction({ db, FieldValue, uid, email, orderId, rea
       cancelledAt: FieldValue.serverTimestamp(),
       cancelledByUid: uid,
       cancelledByRole: actorRole,
+      cancelledByName: typeof userData.name === "string" && userData.name.trim()
+        ? userData.name.trim()
+        : (typeof userData.fullName === "string" && userData.fullName.trim()
+          ? userData.fullName.trim()
+          : (typeof userData.displayName === "string" && userData.displayName.trim() ? userData.displayName.trim() : null)),
       cancelledFromStatus: order.status,
       cancellationScope: actorRole === "dispatcher" ? "dispatcher" : "pre_departure",
       statusUpdatedAt: FieldValue.serverTimestamp(),

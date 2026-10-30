@@ -5,6 +5,8 @@
 
 .arq-card {
   overflow: visible;
+  height: fit-content;
+  min-height: 0;
 }
 
 .arq-toolbar {
@@ -114,23 +116,28 @@
 
 .arq-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1.3fr) minmax(190px, .8fr) auto;
   grid-template-areas:
-    "main action"
-    "meta action"
-    "hold action";
+    "details vaccine action"
+    "hold hold action";
   align-items: center;
   column-gap: 16px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--gray-100);
 }
 
+.arq-row-details { grid-area: details; display: grid; gap: 4px; min-width: 0; }
+.arq-row-details .requested-arrival-note { margin: 0; }
+.arq-destination { display: flex; flex-wrap: wrap; gap: 3px 8px; margin: 0; min-width: 0; color: var(--gray-600); font-size: 13px; overflow-wrap: anywhere; }
+.arq-destination strong { color: var(--gray-900); }
+.arq-row-vaccine { grid-area: vaccine; display: grid; align-content: center; gap: 5px; min-width: 0; font-size: 13px; }
+.arq-row-vaccine > .tnum { color: var(--gray-600); }
+
 .arq-row:last-child {
   border-bottom: 0;
 }
 
 .arq-row-main {
-  grid-area: main;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -299,14 +306,20 @@
   padding: 0 16px;
 }
 
+@media (max-width: 800px) {
+  .arq-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "details action"
+      "vaccine action"
+      "hold action";
+  }
+}
+
 @media (max-width: 560px) {
   .arq-row {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      "main"
-      "meta"
-      "hold"
-      "action";
+    grid-template-areas: "details" "vaccine" "hold" "action";
   }
 
   .ar-btn.arq-assign {

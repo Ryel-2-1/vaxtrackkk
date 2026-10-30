@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Trophy } from "lucide-react";
 import KpiCard from "../../components/ui/KpiCard";
+import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import { subscribeUsers } from "../../services/userService";
 import { liveErrorMessage } from "../../services/liveDataErrors";
 import { subscribeAreas } from "../../services/areaService";
@@ -34,6 +35,7 @@ function formatManilaDay(ymd) {
  */
 export default function MedRepPerformance({ orders, ordersLoading, ordersError, nowMs }) {
   const [rangeKey, setRangeKey] = useState(DEFAULT_PERFORMANCE_RANGE);
+  const [page, setPage] = useState(1);
   const [users, setUsers] = useState([]);
   const [areas, setAreas] = useState([]);
   const [usersLoading, setUsersLoading] = useState(true);
@@ -81,6 +83,9 @@ export default function MedRepPerformance({ orders, ordersLoading, ordersError, 
       : `${result.range.label} · through ${formatManilaDay(result.range.endDate)} (Asia/Manila)`
     : "";
   const note = result ? exclusionNote(result.exclusions) : "";
+  const rows = result?.rows ?? [];
+  const currentPage = Math.min(page, Math.max(1, Math.ceil(rows.length / PAGE_SIZE)));
+  const pageRows = rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
     <section className="analytics-card mrp-card" aria-labelledby="mrp-title">
@@ -98,7 +103,7 @@ export default function MedRepPerformance({ orders, ordersLoading, ordersError, 
               type="button"
               className={range.key === rangeKey ? "active" : ""}
               aria-pressed={range.key === rangeKey}
-              onClick={() => setRangeKey(range.key)}
+              onClick={() => { setRangeKey(range.key); setPage(1); }}
             >
               {range.label}
             </button>
@@ -150,7 +155,7 @@ export default function MedRepPerformance({ orders, ordersLoading, ordersError, 
                   </tr>
                 </thead>
                 <tbody>
-                  {result.rows.map((row) => (
+                  {pageRows.map((row) => (
                     <tr key={row.uid}>
                       <td className="num">
                         {row.rank === 1 && row.delivered > 0 ? (
@@ -175,6 +180,9 @@ export default function MedRepPerformance({ orders, ordersLoading, ordersError, 
                 </tbody>
               </table>
             </div>
+          )}
+          {rows.length > 0 && (
+            <PageNav page={currentPage} total={rows.length} onPageChange={setPage} label="Med Rep performance pages" />
           )}
 
           {note && <p className="mrp-note">{note}</p>}

@@ -231,10 +231,8 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
    font-size:15px !important; font-weight:850 !important }`) wins and
    inflates every action to a 46px, 15px/850, 12px-radius block.
    Restore a compact operational button while keeping a usable click
-   target. Row actions stack at one consistent width. Tone colours
-   (green primary / amber warning / red-outline danger) come from the
-   existing `.shp-act-btn.primary/.warning/.danger` rules and are not
-   touched, so Mark delivered stays green, Delay amber, Cancel red. */
+   target. Row actions use a two-column grid with stable empty slots.
+   The cancellation dialog keeps its existing danger button style. */
 .dispatcher-main .shp-act-btn {
   min-height: 36px !important;   /* beats the global 46px, keeps a ~36px target */
   height: 36px !important;
@@ -244,14 +242,14 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   border-radius: var(--radius-control) !important;
 }
 
-/* Shipments keeps stable columns across filters, while the status choices can
-   wrap beside search without pushing it outside the page. */
+/* Shipments keeps stable columns across filters; its one search sits above
+   the status choices. */
 .dispatcher-main .shp-page { padding-top: 0; }
 .dispatcher-main .shp-header { margin-bottom: 12px; }
 .dispatcher-main .shp-kpis { margin-bottom: 12px; }
 .dispatcher-main .shp-filterbar {
   display: grid;
-  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 10px;
   width: 100%;
@@ -274,7 +272,7 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   display: flex;
   align-items: center;
   min-width: 0;
-  width: 100%;
+  width: min(100%, 320px);
   min-height: 40px;
   box-sizing: border-box;
   gap: 8px;
@@ -321,10 +319,10 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   outline: none !important;
   box-shadow: none !important;
 }
-.dispatcher-main .shp-card { min-height: 340px; display: flex; flex-direction: column; }
-.dispatcher-main .shp-empty { flex: 1 1 auto; min-height: 338px; }
-.dispatcher-main .shp-table-wrap { flex: 1 1 auto; }
-.dispatcher-main .shp-table { min-width: 1120px; table-layout: fixed; }
+.dispatcher-main .shp-card { min-height: 0; height: fit-content; }
+.dispatcher-main .shp-empty { min-height: 338px; }
+.dispatcher-main .shp-table-wrap { height: auto; }
+.dispatcher-main .shp-table { min-width: 1400px; table-layout: fixed; }
 .dispatcher-main .shp-table thead th {
   text-align: left !important;
   vertical-align: middle !important;
@@ -353,19 +351,30 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   text-align: left;
 }
 .dispatcher-main .shp-actions {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
   gap: 6px;
-  width: min(100%, 170px);
+  width: 100%;
   text-align: left;
 }
 .dispatcher-main .shp-actions .shp-act-btn {
   width: 100%;
   height: 36px !important;
   justify-content: center;
-  padding: 0 5px !important;
+  padding: 0 6px !important;
   font-size: 12px !important;
+}
+.dispatcher-main .shp-action-placeholder {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  color: var(--gray-400);
+}
+.dispatcher-main .shp-action-note {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  line-height: 1.35;
 }
 .dispatcher-main .shp-actions .request-change {
   background: var(--green-800);
@@ -373,6 +382,41 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   color: #fff;
 }
 .dispatcher-main .shp-actions .request-change:hover:not(:disabled) { background: var(--green-900); }
+.dispatcher-main .shp-actions .view-proof {
+  grid-column: 1 / -1;
+  width: max-content;
+  max-width: 100%;
+  justify-self: start;
+  padding-inline: 12px !important;
+  background: var(--green-700);
+  border-color: var(--green-700);
+  color: #fff;
+}
+.dispatcher-main .shp-actions .view-proof:hover:not(:disabled) {
+  background: var(--green-800);
+  border-color: var(--green-800);
+}
+.dispatcher-main .shp-actions .view-proof:focus-visible {
+  outline: 2px solid var(--green-800);
+  outline-offset: 2px;
+}
+.dispatcher-main .shp-actions .view-details {
+  grid-column: 1 / -1;
+  width: max-content;
+  max-width: 100%;
+  justify-self: start;
+  padding-inline: 12px !important;
+  background: #fff;
+  border-color: var(--green-700);
+  color: var(--green-800);
+}
+.dispatcher-main .shp-actions .view-details:hover:not(:disabled) {
+  background: var(--green-50);
+}
+.dispatcher-main .shp-actions .view-details:focus-visible {
+  outline: 2px solid var(--green-800);
+  outline-offset: 2px;
+}
 .dispatcher-page .shp-act-btn.return-to-queue {
   background: var(--green-600);
   border-color: var(--green-600);
@@ -393,7 +437,14 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   color: var(--green-800);
   cursor: not-allowed;
 }
-.dispatcher-main .shp-action-dash { display: block; text-align: left; }
+.dispatcher-main .shp-actions .cancel-order-outline {
+  background: #fff;
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+}
+.dispatcher-main .shp-actions .cancel-order-outline:hover:not(:disabled) {
+  background: var(--danger-bg);
+}
 .dispatcher-main .shp-pagination {
   display: flex;
   align-items: center;
@@ -520,6 +571,9 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   padding: 16px;
   background: rgba(15, 23, 42, 0.45);
 }
+.dispatcher-page .shp-proof-backdrop {
+  z-index: 1400;
+}
 
 .dispatcher-page .shp-dialog {
   width: 100%;
@@ -573,6 +627,72 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   font-size: 13px !important;
   line-height: 1.5 !important;
   color: var(--gray-600) !important;
+}
+.dispatcher-page .shp-proof-dialog {
+  max-width: 580px;
+}
+.dispatcher-page .shp-cancelled-dialog {
+  max-width: 760px;
+}
+.dispatcher-page .shp-audit-section {
+  padding: 14px 0;
+  border-top: 1px solid var(--gray-200);
+}
+.dispatcher-page .shp-audit-section:first-of-type { margin-top: 12px; }
+.dispatcher-page .shp-audit-section h3 {
+  margin: 0 0 10px;
+  color: var(--gray-900);
+  font-size: 14px;
+}
+.dispatcher-page .shp-audit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 20px;
+  margin: 0;
+}
+.dispatcher-page .shp-audit-grid dt { color: var(--gray-600); font-size: 12px; }
+.dispatcher-page .shp-audit-grid dd { margin: 3px 0 0; overflow-wrap: anywhere; font-size: 13px; color: var(--gray-900); }
+.dispatcher-page .shp-audit-id { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; overflow-wrap: anywhere; font-weight: 700; font-size: 13px; }
+.dispatcher-page .shp-audit-id .shp-act-btn { flex: 0 0 auto; }
+.dispatcher-page .shp-audit-items { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.dispatcher-page .shp-audit-items li { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; padding: 9px 11px; border: 1px solid var(--gray-200); border-radius: 8px; font-size: 13px; }
+.dispatcher-page .shp-audit-items small { grid-column: 1 / -1; color: var(--gray-600); }
+.dispatcher-page .shp-audit-error { margin: 10px 0 0; color: var(--danger-text); font-size: 12px; }
+@media (max-width: 640px) {
+  .dispatcher-page .shp-audit-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 1024px) {
+  .dispatcher-main .dispatcher-topbar[data-shipments-topbar] { grid-template-rows: auto !important; }
+}
+.dispatcher-page .shp-proof-image-link {
+  display: block;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--gray-50);
+}
+.dispatcher-page .shp-proof-image-link:focus-visible,
+.dispatcher-page .shp-proof-open:focus-visible {
+  outline: 2px solid var(--green-700);
+  outline-offset: 2px;
+}
+.dispatcher-page .shp-proof-image-link img {
+  display: block;
+  width: 100%;
+  max-height: min(56dvh, 480px);
+  object-fit: contain;
+}
+.dispatcher-page .shp-proof-empty {
+  margin: 0 0 12px;
+  color: var(--gray-600);
+  font-size: 13px;
+}
+.dispatcher-page .shp-proof-open {
+  display: inline-block;
+  margin-top: 12px;
+  color: var(--green-800);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .dispatcher-page .shp-dialog label {

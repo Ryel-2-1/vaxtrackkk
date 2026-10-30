@@ -359,7 +359,7 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
             : "No orders match these filters."}
         </div>
       ) : (
-        <div className="ohx-table-wrap">
+        <div className="ohx-table-wrap ohx-list-table-wrap">
           <table className="ohx-table">
             <thead>
               <tr>

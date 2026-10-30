@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -6,7 +6,6 @@ import {
   Info,
   Loader2,
   Package,
-  Printer,
   RotateCcw,
   Truck,
 } from "lucide-react";
@@ -15,13 +14,11 @@ import {
   subscribeCargoLoadingGroups,
   updateOrderLoadedState,
 } from "../../services/cargoLoadingService";
-import useOwnProfile from "../../components/profile/useOwnProfile";
 import {
   dispatchEligibility,
   SCHEDULED_DATE_NOT_REACHED,
 } from "../../services/dispatchEligibility";
 import useManilaDayNow from "../../components/useManilaDayNow";
-import { auth } from "../../firebase";
 import StatusBadge from "../../components/ui/StatusBadge";
 import KpiCard from "../../components/ui/KpiCard";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
@@ -45,7 +42,7 @@ import DestinationNotes from "../../components/dispatch/DestinationNotes";
 // in the loopback-only motorcycle-QA mode.
 const DEPARTURE_PLANNER_ENABLED =
   import.meta.env?.VITE_DEPARTURE_PLANNER_ENABLED === "true" || import.meta.env?.MODE === "motorcycle-qa";
-import { requestedArrivalLabel, requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
+import { requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
 import "./CargoLoading.css";
 
 // Loading-state badge shown on each rider card. Text + icon (not colour alone)
@@ -54,10 +51,6 @@ function loadingBadge(group, dispatched) {
   if (dispatched) return { label: "Dispatched", tone: "dispatched" };
   if (group.allLoaded) return { label: "Ready", tone: "ready" };
   return { label: "Pending", tone: "pending" };
-}
-
-function orderAddress(order) {
-  return order.deliveryAddress || order.clinicAddress || "";
 }
 
 function orderClinic(order) {
@@ -76,30 +69,40 @@ function initialsOf(name) {
   );
 }
 
-function formatNow() {
-  return new Date().toLocaleString("en-PH", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-}
-
 function DispatcherCargoLoading() {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const now = useManilaDayNow();
+  const pageRef = useRef(null);
+  const cardsRef = useRef(null);
+  const [pageSize, setPageSize] = useState(3);
+  const [page, setPage] = useState(1);
+  const [cardMaxHeight, setCardMaxHeight] = useState(420);
+  const pageCount = Math.max(1, Math.ceil(groups.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
 
-  // The signed-in dispatcher, for the printed loading sheet. The name comes
-  // from the LIVE own-profile listener (the same one My Profile and the
-  // sidebar use), so a rename shows on the next print without a reload; it
-  // used to be read once when the page opened.
-  const { profile: ownProfile } = useOwnProfile();
-  const authUser = auth.currentUser;
-  const dispatcher = {
-    uid: authUser?.uid || null,
-    email: authUser?.email || null,
-    name: ownProfile?.fullName || ownProfile?.name || ownProfile?.displayName || authUser?.displayName || "",
-  };
+  useEffect(() => {
+    const element = pageRef.current;
+    if (!element) return undefined;
+    const update = () => {
+      const width = element.getBoundingClientRect().width;
+      setPageSize(width >= 1020 ? 3 : width >= 680 ? 2 : 1);
+      if (cardsRef.current) {
+        const top = cardsRef.current.getBoundingClientRect().top;
+        const pagerHeight = element.querySelector(".cl-pagination")?.getBoundingClientRect().height ?? 0;
+        setCardMaxHeight(Math.max(280, Math.floor(window.innerHeight - top - pagerHeight - 64)));
+      }
+    };
+    update();
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(update);
+      observer.observe(element);
+      return () => observer.disconnect();
+    }
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [loading, error]);
 
   const [savingOrders, setSavingOrders] = useState({}); // orderId -> true while writing
   const [finalizingRider, setFinalizingRider] = useState(null);
@@ -115,7 +118,6 @@ function DispatcherCargoLoading() {
   const [tripStatesUnavailable, setTripStatesUnavailable] = useState(false);
   const [riders, setRiders] = useState([]);
   const [confirmReturn, setConfirmReturn] = useState(null); // { riderUid, tripId, name, ... }
-  const [printGroup, setPrintGroup] = useState(null); // group being printed
   const { toast, showToast, dismissToast } = useToast();
   // Hub + planning defaults for the departure planner (Admin → Settings → Routing).
   // null while loading; an unreadable document plans with no hub, never a guessed one.
@@ -250,18 +252,6 @@ function DispatcherCargoLoading() {
     }
   };
 
-  // Trigger the browser print dialog once the print sheet has rendered.
-  useEffect(() => {
-    if (!printGroup) return;
-    const handleAfterPrint = () => setPrintGroup(null);
-    window.addEventListener("afterprint", handleAfterPrint);
-    const timer = window.setTimeout(() => window.print(), 60);
-    return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener("afterprint", handleAfterPrint);
-    };
-  }, [printGroup]);
-
   if (loading) {
     return (
       <>
@@ -299,7 +289,7 @@ function DispatcherCargoLoading() {
 
   return (
     <>
-      <div className="dispatcher-v2-page">
+      <div className="dispatcher-v2-page cl-page" ref={pageRef}>
         <div className="cl-header">
           <h2 className="disp-section-title">Loading queue</h2>
           <p>Confirm each order as loaded, then finalize dispatch per rider.</p>
@@ -390,17 +380,18 @@ function DispatcherCargoLoading() {
               </span>
             </div>
 
-            <div className="cl-cards">
-              {groups.map((group) => (
+            <div className={`cl-cards cl-cards-${pageSize}`} ref={cardsRef}
+              style={{ "--cl-card-max-height": `${cardMaxHeight}px` }}>
+              {groups.map((group, index) => (
                 <RiderCard
                   key={group.riderId}
+                  hidden={index < (currentPage - 1) * pageSize || index >= currentPage * pageSize}
                   group={group}
                   dispatched={!!dispatchedRiders[group.riderId]}
                   savingOrders={savingOrders}
                   finalizing={finalizingRider === group.riderId}
                   now={now}
                   onToggleLoaded={handleToggleLoaded}
-                  onPrint={() => setPrintGroup(group)}
                   onFinalize={() => setConfirmGroup(group)}
                   tripHold={cargoGroupDispatch(tripStates.get(group.riderId))}
                   routing={routing}
@@ -408,6 +399,16 @@ function DispatcherCargoLoading() {
                 />
               ))}
             </div>
+            {groups.length > pageSize && (
+              <nav className="cl-pagination" aria-label="Cargo loading pages">
+                <span>Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, groups.length)} of {groups.length} riders</span>
+                <div>
+                  <button type="button" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>Previous</button>
+                  <span>Page {currentPage} of {pageCount}</span>
+                  <button type="button" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button>
+                </div>
+              </nav>
+            )}
           </>
         )}
       </div>
@@ -461,21 +462,18 @@ function DispatcherCargoLoading() {
         </DispatcherDialogLayer>
       )}
 
-      {printGroup && (
-        <PrintSheet group={printGroup} dispatcher={dispatcher} printedAt={formatNow()} />
-      )}
     </>
   );
 }
 
 function RiderCard({
   group,
+  hidden = false,
   dispatched,
   savingOrders,
   finalizing,
   now,
   onToggleLoaded,
-  onPrint,
   onFinalize,
   tripHold = { canFinalize: true, reason: "" },
   routing = null,
@@ -497,7 +495,7 @@ function RiderCard({
   const pct = total > 0 ? Math.round((loaded / total) * 100) : 0;
 
   return (
-    <section className="cl-card" aria-label={`Loading sheet for ${group.rider.name}`}>
+    <section className="cl-card" hidden={hidden} aria-label={`Cargo for ${group.rider.name}`}>
       <header className="cl-card-head">
         <span className="cl-avatar" aria-hidden="true">
           {initialsOf(group.rider.name)}
@@ -536,6 +534,7 @@ function RiderCard({
         </div>
       </div>
 
+      <div className="cl-card-body">
       <div className="cl-order-list">
         {group.orders.map((order, index) => {
           const checkboxId = `loaded-${order.id}`;
@@ -630,16 +629,9 @@ function RiderCard({
           <p className="cl-hint">Confirm all orders as loaded to enable dispatch.</p>
         )
       )}
+      </div>
 
       <div className="cl-card-actions">
-        <button
-          type="button"
-          className="cl-btn cl-btn-outline"
-          onClick={onPrint}
-        >
-          <Printer size={14} /> Print sheet
-        </button>
-
         <button
           type="button"
           className="cl-btn cl-btn-primary"
@@ -652,76 +644,6 @@ function RiderCard({
         </button>
       </div>
     </section>
-  );
-}
-
-function PrintSheet({ group, dispatcher, printedAt }) {
-  return (
-    <div className="cl-print-area">
-      <div className="cl-print-header">
-        <h1>VaxTrack — Loading Sheet</h1>
-        <p>{printedAt}</p>
-      </div>
-
-      <table className="cl-print-meta">
-        <tbody>
-          <tr>
-            <th>Rider</th>
-            <td>{group.rider.name}</td>
-            <th>Vehicle Plate</th>
-            <td>{group.rider.plate || "—"}</td>
-          </tr>
-          <tr>
-            <th>Total Orders</th>
-            <td>{group.totalOrders}</td>
-            <th>Dispatcher</th>
-            <td>{dispatcher.name || dispatcher.email || "—"}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <table className="cl-print-table">
-        <thead>
-          <tr>
-            <th>Seq</th>
-            <th>Clinic &amp; Address</th>
-            <th>Vaccine</th>
-            <th>Batch ID</th>
-            <th>Requested arrival</th>
-            <th>Qty</th>
-            <th>Loaded</th>
-          </tr>
-        </thead>
-        <tbody>
-          {group.orders.map((order, index) => {
-            const seq = Number.isFinite(Number(order.deliverySequence))
-              ? Number(order.deliverySequence)
-              : index + 1;
-            return (
-              <tr key={order.id}>
-                <td>#{String(seq).padStart(2, "0")}</td>
-                <td>
-                  <strong>{orderClinic(order)}</strong>
-                  {orderAddress(order) && <div>{orderAddress(order)}</div>}
-                </td>
-                <td>{order.vaccineName || "—"}</td>
-                <td>{order.batchId || "—"}</td>
-                <td>{requestedArrivalLabel(requestedArrivalOf(order))}</td>
-                <td>
-                  {(order.quantity || 0).toLocaleString()} {order.unit || "doses"}
-                </td>
-                <td>{order.isLoaded === true ? "YES" : "NO"}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-
-      <div className="cl-print-signoff">
-        <p>Prepared by: {dispatcher.name || dispatcher.email || "—"}</p>
-        <p>Rider signature: ____________________________</p>
-      </div>
-    </div>
   );
 }
 

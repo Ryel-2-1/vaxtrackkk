@@ -1,6 +1,4 @@
-/* ===== Dispatcher · Cargo Loading — Meridian (Phase 6) =====
-   Screen styles are tokens-based (m/srd-style). Print styles at the
-   bottom are unchanged and functional. */
+/* ===== Dispatcher · Cargo Loading — Meridian (Phase 6) ===== */
 
 @keyframes cl-spin {
   to {
@@ -88,15 +86,54 @@
 }
 
 /* ===== Cards grid ===== */
+.dispatcher-main .cl-page {
+  height: fit-content;
+  min-height: 0;
+  padding: 16px 20px 20px !important;
+}
 .cl-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   align-items: start;
+  height: fit-content;
 }
+.cl-cards-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cl-cards-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.cl-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-top: 12px;
+  color: var(--gray-600);
+  font-size: 13px;
+}
+.cl-pagination > div { display: flex; align-items: center; gap: 10px; }
+.cl-pagination button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control);
+  background: #fff;
+  color: var(--green-800);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cl-pagination button:disabled { color: var(--gray-400); cursor: not-allowed; }
+.cl-pagination button:focus-visible { outline: 2px solid var(--green-700); outline-offset: 2px; }
 
 /* ===== Rider card ===== */
 .cl-card {
+  display: flex;
+  flex-direction: column;
+  max-height: var(--cl-card-max-height, 420px);
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
   background: #ffffff;
   border: 1px solid var(--gray-200);
   border-radius: var(--radius-card);
@@ -104,6 +141,9 @@
   padding: 16px;
   font-family: var(--font-ui);
 }
+.cl-card[hidden] { display: none !important; }
+.cl-card-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
+.cl-card-actions { flex: 0 0 auto; }
 
 .cl-card-head {
   display: flex;
@@ -325,6 +365,7 @@
   gap: 10px;
   margin-top: 14px;
 }
+.cl-card-actions > .cl-btn-primary { width: 100%; }
 .cl-btn {
   min-height: 36px;
   border-radius: var(--radius-control);
@@ -464,86 +505,6 @@
   }
 }
 
-/* ===== Print sheet (unchanged, functional) =====
-   Hidden on screen; only shown when printing. */
-.cl-print-area {
-  display: none;
-}
-
-@media print {
-  body * {
-    visibility: hidden !important;
-  }
-  .cl-print-area,
-  .cl-print-area * {
-    visibility: visible !important;
-  }
-  .cl-print-area {
-    display: block !important;
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    padding: 24px;
-    color: #000;
-    font-family: Arial, Helvetica, sans-serif;
-  }
-  .cl-print-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    border-bottom: 2px solid #000;
-    padding-bottom: 8px;
-    margin-bottom: 16px;
-  }
-  .cl-print-header h1 {
-    margin: 0;
-    font-size: 20px;
-  }
-  .cl-print-header p {
-    margin: 0;
-    font-size: 12px;
-  }
-  .cl-print-meta {
-    width: 100%;
-    border-collapse: collapse;
-    margin-bottom: 16px;
-    font-size: 12px;
-  }
-  .cl-print-meta th,
-  .cl-print-meta td {
-    text-align: left;
-    padding: 4px 8px;
-    border: 1px solid #999;
-  }
-  .cl-print-meta th {
-    background: #f0f0f0;
-    width: 130px;
-  }
-  .cl-print-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12px;
-  }
-  .cl-print-table th,
-  .cl-print-table td {
-    border: 1px solid #999;
-    padding: 6px 8px;
-    text-align: left;
-    vertical-align: top;
-  }
-  .cl-print-table th {
-    background: #f0f0f0;
-  }
-  .cl-print-signoff {
-    margin-top: 28px;
-    font-size: 12px;
-  }
-  .cl-print-signoff p {
-    margin: 6px 0;
-  }
-}
-
 /* Rider trips: riders whose trip is finished, waiting for a Dispatcher to
    confirm they are physically back at the distribution hub. */
 .cl-return {
@@ -582,6 +543,8 @@
   padding: 0;
   display: grid;
   gap: 8px;
+  max-height: 180px;
+  overflow-y: auto;
 }
 
 .cl-return-row {

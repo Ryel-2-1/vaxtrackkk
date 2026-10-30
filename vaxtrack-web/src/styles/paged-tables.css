@@ -1,0 +1,46 @@
+/* Bound paginated list tables to the viewport; keep their pager outside the
+   scrolling region so moving through a ten-row page never requires scrolling
+   past an unbounded table. Detail/editing and printable tables are excluded. */
+.inventory-page .v2-table-scroll,
+.clinics-v2-main .clinics-list-table-wrap,
+.settings-v3-main .staff-table-wrap,
+.inv-page .inv-table-wrap,
+.inventory-page .alloc-card > .alloc-table-wrap,
+.inventory-page .aia-card > .aia-table-wrap,
+.inventory-page .mrp-table-wrap,
+.deliveries-v4-page .mdl-table-wrap,
+.dispatcher-main .shp-table-wrap,
+.dispatcher-main .dispatcher-dash-table-wrap,
+.salesrep-page .tracking-v2-table-wrap,
+.ohx-list-table-wrap {
+  max-height: min(62dvh, 640px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.inventory-page .v2-table-scroll thead th,
+.clinics-v2-main .clinics-list-table-wrap thead th,
+.settings-v3-main .staff-table-wrap thead th,
+.inv-page .inv-table-wrap thead th,
+.inventory-page .alloc-card > .alloc-table-wrap thead th,
+.inventory-page .aia-card > .aia-table-wrap thead th,
+.inventory-page .mrp-table-wrap thead th,
+.deliveries-v4-page .mdl-table-wrap thead th,
+.dispatcher-main .shp-table-wrap thead th,
+.dispatcher-main .dispatcher-dash-table-wrap thead th,
+.salesrep-page .tracking-v2-table-wrap thead th,
+.ohx-list-table-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.deliveries-v4-page .mdl-card > .page-nav,
+.inventory-page .aia-card > .page-nav,
+.inventory-page .mrp-card > .page-nav,
+.inventory-page .alloc-card > .page-nav {
+  padding: 8px 16px;
+  border-top: 1px solid var(--gray-200);
+  background: #fff;
+}

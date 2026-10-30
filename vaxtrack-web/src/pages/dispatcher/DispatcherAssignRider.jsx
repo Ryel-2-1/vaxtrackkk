@@ -37,6 +37,7 @@ import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../serv
 import { createSingleFlight } from "../../services/singleFlight";
 import { requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
 import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
+import VaccineBreakdown from "../../components/dispatch/VaccineBreakdown";
 
 function initialsOf(name) {
   return (
@@ -365,21 +366,20 @@ function DispatcherAssignRider() {
               <ul className="arq-list">
                 {rows.map((o) => (
                   <li key={o.id} className="arq-row">
-                    <div className="arq-row-main">
-                      <strong className="arq-order tnum" title={o.orderNumber || o.id}>{o.orderNumber || o.id}</strong>
-                      {(o.priority || "").toLowerCase() === "urgent" && <span className="arq-tag urgent">Urgent</span>}
-                      {o.dateKind === "overdue" && <span className="arq-tag overdue">Overdue</span>}
-                      {o.dateKind === "today" && <span className="arq-tag">Due today</span>}
+                    <div className="arq-row-details">
+                      <div className="arq-row-main">
+                        <strong className="arq-order tnum" title={o.orderNumber || o.id}>{o.orderNumber || o.id}</strong>
+                        {(o.priority || "").toLowerCase() === "urgent" && <span className="arq-tag urgent">Urgent</span>}
+                        {o.dateKind === "overdue" && <span className="arq-tag overdue">Overdue</span>}
+                        {o.dateKind === "today" && <span className="arq-tag">Due today</span>}
+                      </div>
+                      <RequestedArrivalNote order={o} />
+                      <p className="arq-destination"><strong>{o.clinicName || "Clinic not recorded"}</strong>{o.clinicAddress && <span>{o.clinicAddress}</span>}</p>
                     </div>
-                    <p className="arq-row-meta">
-                      <span title={o.clinicName}>
-                        {o.clinicName || "—"}
-                        <RequestedArrivalNote order={o} />
-                      </span>
-                      <span>
-                        {o.vaccineName || "—"} · <span className="tnum">{o.quantity || 0}</span> {o.unit || "vials"}
-                      </span>
-                    </p>
+                    <div className="arq-row-vaccine">
+                      <VaccineBreakdown order={o} />
+                      <span className="tnum">{o.quantity || 0} {o.unit || "vials"}</span>
+                    </div>
                     {o.stockBlock && <p className="arq-hold">{o.stockBlock}</p>}
                     <button
                       type="button"

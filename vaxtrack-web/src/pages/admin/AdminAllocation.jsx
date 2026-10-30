@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import AdminLayout from "../../components/admin/AdminLayout";
 import KpiCard from "../../components/ui/KpiCard";
+import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import AdminDialogLayer from "../../components/admin/AdminDialogLayer";
 import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
@@ -75,6 +76,12 @@ function AdminAllocation() {
   const [returns, setReturns] = useState([]);
   const [returnsLoading, setReturnsLoading] = useState(true);
   const [returnsError, setReturnsError] = useState("");
+  const [returnsPage, setReturnsPage] = useState(1);
+  const [queuePage, setQueuePage] = useState(1);
+  const currentReturnsPage = Math.min(returnsPage, Math.max(1, Math.ceil(returns.length / PAGE_SIZE)));
+  const pageReturns = returns.slice((currentReturnsPage - 1) * PAGE_SIZE, currentReturnsPage * PAGE_SIZE);
+  const currentQueuePage = Math.min(queuePage, Math.max(1, Math.ceil(queue.length / PAGE_SIZE)));
+  const pageQueue = queue.slice((currentQueuePage - 1) * PAGE_SIZE, currentQueuePage * PAGE_SIZE);
   // Per-return draft notes and the one return currently being decided.
   const [notes, setNotes] = useState({});
   const [busyId, setBusyId] = useState(null);
@@ -265,8 +272,9 @@ function AdminAllocation() {
         ) : returns.length === 0 ? (
           <p className="alloc-muted">No returned stock is waiting for a decision.</p>
         ) : (
+          <>
           <ul className="alloc-return-list">
-            {returns.map((ret) => (
+            {pageReturns.map((ret) => (
               <li key={ret.id} className="alloc-return">
                 <div className="alloc-return-head">
                   <strong>{ret.orderNumber || ret.orderId}</strong>
@@ -389,6 +397,8 @@ function AdminAllocation() {
               </li>
             ))}
           </ul>
+          <PageNav page={currentReturnsPage} total={returns.length} onPageChange={setReturnsPage} label="Pending return pages" />
+          </>
         )}
       </section>
 
@@ -407,6 +417,7 @@ function AdminAllocation() {
         ) : queue.length === 0 ? (
           <p className="alloc-muted">No orders are waiting for stock.</p>
         ) : (
+          <>
           <div className="alloc-table-wrap">
             <table className="alloc-table">
               <thead>
@@ -421,11 +432,11 @@ function AdminAllocation() {
                 </tr>
               </thead>
               <tbody>
-                {queue.map((order, index) => {
+                {pageQueue.map((order, index) => {
                   const info = describeAllocation(order);
                   return (
                     <tr key={order.id}>
-                      <td className="tnum">{index + 1}</td>
+                      <td className="tnum">{(currentQueuePage - 1) * PAGE_SIZE + index + 1}</td>
                       <td>
                         <strong>{order.orderNumber || order.id}</strong>
                         <RequestedArrivalNote order={order} />
@@ -454,6 +465,8 @@ function AdminAllocation() {
               </tbody>
             </table>
           </div>
+          <PageNav page={currentQueuePage} total={queue.length} onPageChange={setQueuePage} label="Backorder queue pages" />
+          </>
         )}
       </section>
     </AdminLayout>
