@@ -31,6 +31,7 @@ const CALLABLE_NAMES = [
   "issueInvoiceForPricedOrder",
   // Admin-only delivery reschedule: date/time + history, never stock or price.
   "rescheduleOrderDelivery",
+  "getOrderMedRepNames", // Admin/Dispatcher: read-only names for the owners of specified orders
   // Future-order allocation and failed-delivery returns. Each is one named
   // business action, role-checked on the server (functions/src/inventoryWorkflow.js).
   "addStockBatchWithAllocation", // Admin: add a batch + reserve it for waiting orders

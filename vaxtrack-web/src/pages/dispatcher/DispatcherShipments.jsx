@@ -395,6 +395,12 @@ function DispatcherShipments() {
         <ToastRegion toast={toast} onDismiss={dismissToast} />
 
         <div className="shp-filterbar">
+          <label className="shp-search">
+            <Search size={16} aria-hidden="true" />
+            <span className="shp-search-label">Search shipments</span>
+            <input type="search" value={search} placeholder="Search shipments"
+              onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
+          </label>
           <div className="shp-segmented">
             {FILTERS.map((f) => (
               <button
@@ -407,12 +413,6 @@ function DispatcherShipments() {
               </button>
             ))}
           </div>
-          <label className="shp-search">
-            <Search size={16} aria-hidden="true" />
-            <span className="shp-search-label">Search shipments</span>
-            <input type="search" value={search} placeholder="Search shipments"
-              onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
-          </label>
         </div>
 
         <section className="shp-card">
@@ -438,10 +438,10 @@ function DispatcherShipments() {
             <div className="shp-table-wrap">
               <table className="shp-table">
                 <colgroup>
-                  <col style={{ width: "11%" }} /><col style={{ width: "20%" }} />
-                  <col style={{ width: "13%" }} /><col style={{ width: "11%" }} />
-                  <col style={{ width: "11%" }} /><col style={{ width: "8%" }} />
-                  <col style={{ width: "26%" }} />
+                  <col style={{ width: "16%" }} /><col style={{ width: "22%" }} />
+                  <col style={{ width: "13%" }} /><col style={{ width: "12%" }} />
+                  <col style={{ width: "13%" }} /><col style={{ width: "8%" }} />
+                  <col style={{ width: "16%" }} />
                 </colgroup>
                 <thead>
                   <tr>
@@ -864,42 +864,39 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
       <td className="shp-td-meta">{updated}</td>
       <td className="shp-actions-cell">
         {cancellable || reassignable || legacyReturned || correctable || awaitingApproval ? (
-          <div className={`shp-actions${sKey === "delivery_failed" ? " shp-actions--failed" : ""}`}>
-            {awaitingApproval && <span className="shp-muted shp-action-slot">Awaiting Med Rep approval</span>}
+          <div className="shp-actions">
+            {awaitingApproval && <span className="shp-muted">Awaiting Med Rep approval</span>}
             {correctable && (
-              <button type="button" className="shp-act-btn shp-action-slot request-change" disabled={updating}
+              <button type="button" className="shp-act-btn request-change" disabled={updating}
                 onClick={(e) => onRequestCorrection(order, e.currentTarget)}>
                 Request change
               </button>
             )}
-            {!correctable && !awaitingApproval && <span className="shp-action-slot shp-action-placeholder" aria-hidden="true" />}
             {legacyReturned && (
-              <span className="shp-muted shp-action-slot">
+              <span className="shp-muted">
                 Placed before future orders — its stock was returned. Cancel it and place a new order.
               </span>
             )}
             {reassignable && (
               <button
                 type="button"
-                className="shp-act-btn shp-action-slot primary return-to-queue"
+                className="shp-act-btn primary return-to-queue"
                 disabled={updating}
                 onClick={(e) => onRequestReassign(order, e.currentTarget)}
               >
                 Return to queue
               </button>
             )}
-            {!reassignable && !legacyReturned && <span className="shp-action-slot shp-action-placeholder" aria-hidden="true" />}
             {cancellable && (
               <button
                 type="button"
-                className="shp-act-btn shp-action-slot danger"
+                className="shp-act-btn danger"
                 disabled={updating}
                 onClick={(e) => onRequestCancel(order, e.currentTarget)}
               >
                 Cancel order
               </button>
             )}
-            {!cancellable && <span className="shp-action-slot shp-action-placeholder" aria-hidden="true" />}
           </div>
         ) : (
           <span className="shp-muted shp-action-dash">—</span>

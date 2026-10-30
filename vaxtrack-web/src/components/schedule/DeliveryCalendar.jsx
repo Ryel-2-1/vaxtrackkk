@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeUsers } from "../../services/userService";
+import { fetchOrderMedRepNames } from "../../services/orderMedRepNames";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { ORDER_STATUSES, STATUS_LABELS } from "../../services/orderWorkflow";
 import { addMonths, manilaToday, monthOf } from "../../services/deliveryCalendar";
@@ -306,6 +307,7 @@ function DeliveryCalendar({ role }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [usersById, setUsersById] = useState(null);
+  const [medRepLookup, setMedRepLookup] = useState({ query: null, names: {}, failed: false });
 
   const now = useManilaDayNow();
   const today = manilaToday(now);
@@ -334,8 +336,8 @@ function DeliveryCalendar({ role }) {
     return unsubscribe;
   }, []);
 
-  // Med Rep names come from the user directory, which only an Admin may read.
-  // A failure here is not fatal: entries fall back to the order's own snapshot.
+  // Admin may read the staff directory. Dispatcher gets only the names of
+  // owners for orders visible on the current calendar pages from a callable.
   useEffect(() => {
     if (!isAdmin) return undefined;
     return subscribeUsers(
@@ -358,6 +360,24 @@ function DeliveryCalendar({ role }) {
   const pageDayOrders = dayOrders.slice((currentDayPage - 1) * PAGE_SIZE, currentDayPage * PAGE_SIZE);
   const currentUnscheduledPage = Math.min(unscheduledPage, Math.max(1, Math.ceil(unscheduled.length / PAGE_SIZE)));
   const pageUnscheduled = unscheduled.slice((currentUnscheduledPage - 1) * PAGE_SIZE, currentUnscheduledPage * PAGE_SIZE);
+  const visibleLookupIds = useMemo(() => [...new Set([
+    ...dayOrders.slice((currentDayPage - 1) * PAGE_SIZE, currentDayPage * PAGE_SIZE),
+    ...unscheduled.slice((currentUnscheduledPage - 1) * PAGE_SIZE, currentUnscheduledPage * PAGE_SIZE),
+  ].filter((order) => order.createdByUid && order.id).map((order) => order.id))],
+  [dayOrders, currentDayPage, unscheduled, currentUnscheduledPage]);
+  useEffect(() => {
+    if (isAdmin || visibleLookupIds.length === 0) return undefined;
+    let cancelled = false;
+    fetchOrderMedRepNames(visibleLookupIds)
+      .then((names) => {
+        if (!cancelled) setMedRepLookup({ query: visibleLookupIds, names, failed: false });
+      })
+      .catch((error) => {
+        logSafeError("Calendar Med Rep names", error);
+        if (!cancelled) setMedRepLookup({ query: visibleLookupIds, names: {}, failed: true });
+      });
+    return () => { cancelled = true; };
+  }, [isAdmin, visibleLookupIds]);
   const dayUrgent = dayOrders.filter(isUrgent).length;
   const filtersActive = statusFilter !== "all" || priorityFilter !== "all";
 
@@ -397,7 +417,14 @@ function DeliveryCalendar({ role }) {
     }
   };
 
-  const medRepOf = (order) => medRepNameFor(order, isAdmin ? usersById : null);
+  const medRepOf = (order) => {
+    const resolvedName = medRepLookup.query === visibleLookupIds ? medRepLookup.names[order.id] : null;
+    const name = medRepNameFor(order, isAdmin ? usersById : null, resolvedName);
+    if (name || isAdmin || !order.createdByUid) return name;
+    return medRepLookup.query !== visibleLookupIds
+      ? "Looking up Med Rep…"
+      : medRepLookup.failed ? "Name unavailable" : null;
+  };
 
   return (
     <div className="dcal">
@@ -535,21 +562,20 @@ function DeliveryCalendar({ role }) {
               {dayOrders.length > PAGE_SIZE && <PageNav page={currentDayPage} total={dayOrders.length} onPageChange={setDayPage} label="Selected day order pages" />}
             </section>
 
-            <section className="dcal-card" aria-labelledby="dcal-unscheduled-title">
+            <section className={`dcal-card dcal-unscheduled-card${unscheduled.length === 0 ? " is-empty" : ""}`} aria-labelledby="dcal-unscheduled-title">
               <div className="dcal-card-head">
                 <h2 id="dcal-unscheduled-title">Unscheduled — needs scheduling</h2>
-                <p>
+                {unscheduled.length > 0 && <p>
                   {unscheduled.length} active order{unscheduled.length === 1 ? "" : "s"} without
                   a usable delivery date. None can be dispatched until an Admin
                   {isAdmin ? " gives it a date with Change date & time." : " stores a valid date."}
-                </p>
+                </p>}
               </div>
 
               {unscheduled.length === 0 ? (
                 <div className="dcal-empty">
                   <CalendarDays size={18} aria-hidden="true" />
-                  <strong>All active orders are dated</strong>
-                  <p>Every open order has a delivery date.</p>
+                  <strong>{filtersActive ? "No unscheduled orders match these filters" : "All active orders are dated"}</strong>
                 </div>
               ) : (
                 <ul className="dcal-list dcal-list-scroll">

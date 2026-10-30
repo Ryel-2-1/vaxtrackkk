@@ -127,19 +127,32 @@
   top: 16px;
 }
 
-/* The Dispatcher month has its own height. Its five or six week rows divide
-   that height evenly, regardless of how many orders the selected day has. */
+/* Keep the month and selected-day panel on one aligned row. Unscheduled work
+   uses the full row below, so a short list cannot leave uneven card edges. */
 @media (min-width: 1025px) {
   .dispatcher-main .dcal-body {
-    align-items: start;
+    --dcal-panel-height: clamp(460px, calc(100dvh - 220px), 680px);
+    align-items: stretch;
+  }
+
+  .dispatcher-main .dcal-side {
+    display: contents;
   }
 
   .dispatcher-main .dcal-calendar-card {
     display: flex;
     flex-direction: column;
-    align-self: start;
-    height: clamp(460px, calc(100dvh - 220px), 680px);
+    position: static;
+    height: var(--dcal-panel-height);
     box-sizing: border-box;
+  }
+
+  .dispatcher-main .dcal-day-card {
+    height: var(--dcal-panel-height);
+  }
+
+  .dispatcher-main .dcal-unscheduled-card {
+    grid-column: 1 / -1;
   }
 
   .dispatcher-main .dcal-calendar-card .mcal {
@@ -157,6 +170,25 @@
   }
 }
 
+.dcal-unscheduled-card.is-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding-block: 14px;
+}
+
+.dcal-unscheduled-card.is-empty .dcal-card-head {
+  margin: 0;
+}
+
+.dcal-unscheduled-card.is-empty .dcal-empty {
+  flex-direction: row;
+  padding: 0;
+  text-align: left;
+}
+
 .dcal-side {
   display: flex;
   flex-direction: column;
@@ -171,7 +203,6 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  max-height: max(300px, calc(100dvh - 230px));
   box-sizing: border-box;
 }
 

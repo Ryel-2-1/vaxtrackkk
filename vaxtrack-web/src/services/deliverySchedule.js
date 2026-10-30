@@ -153,16 +153,16 @@ export function eventDestination(order) {
 }
 
 /**
- * The Med Rep who placed the order: resolved from the user directory by uid
- * (Admin can read it), else a name/email snapshot the order itself carries
- * (legacy orders). Never guessed — null when neither exists. Dispatchers cannot
- * read Med Rep user documents, so for them only the snapshot can answer.
+ * The Med Rep who placed the order: Admin uses the user directory; Dispatcher
+ * receives a narrow server lookup for visible orders. A stored name/email is
+ * the fallback for older records. Never guess when no source can identify one.
  */
-export function medRepNameFor(order, usersById) {
+export function medRepNameFor(order, usersById, resolvedName = null) {
   const uid = typeof order?.createdByUid === "string" ? order.createdByUid : "";
   const user = uid && usersById ? usersById.get(uid) : null;
   return (
-    text(user?.fullName) ?? text(user?.name) ?? text(user?.displayName) ??
+    text(user?.name) ?? text(user?.fullName) ?? text(user?.displayName) ??
+    text(resolvedName) ??
     text(order?.salesRepName) ?? text(order?.createdByEmail) ?? null
   );
 }

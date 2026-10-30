@@ -59,6 +59,7 @@ const { PolicyError } = require("./src/policy");
 const operations = require("./src/operations");
 const destinationOperations = require("./src/destinationOperations");
 const scheduleOperations = require("./src/scheduleOperations");
+const orderMedRepNames = require("./src/orderMedRepNames");
 const invoiceOperations = require("./src/invoiceOperations");
 const statusEvents = require("./src/statusEvents");
 const inventoryWorkflow = require("./src/inventoryWorkflow");
@@ -280,6 +281,11 @@ exports.createOrderWithReservation = callable(
   // confirmation receipt; it never decides anything.
   ({ db, FieldValue, uid, email, data, now }) =>
     operations.createOrderWithReservation({ db, FieldValue, uid, email, payload: data, now })
+);
+
+exports.getOrderMedRepNames = callable(
+  "getOrderMedRepNames",
+  ({ db, uid, data }) => orderMedRepNames.getOrderMedRepNames({ db, uid, payload: data })
 );
 
 exports.correctOrderDestination = callable(

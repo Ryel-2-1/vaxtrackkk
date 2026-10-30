@@ -231,8 +231,7 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
    font-size:15px !important; font-weight:850 !important }`) wins and
    inflates every action to a 46px, 15px/850, 12px-radius block.
    Restore a compact operational button while keeping a usable click
-   target. `.shp-actions` already flex-wraps with a 6px gap, so
-   actions wrap cleanly at narrow widths — left as-is. Tone colours
+   target. Row actions stack at one consistent width. Tone colours
    (green primary / amber warning / red-outline danger) come from the
    existing `.shp-act-btn.primary/.warning/.danger` rules and are not
    touched, so Mark delivered stays green, Delay amber, Cancel red. */
@@ -245,26 +244,37 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   border-radius: var(--radius-control) !important;
 }
 
-/* Shipments keeps the same table frame when status filters have different
-   counts. The scrollable table retains fixed columns; actions own the right
-   edge and reserve the same slots in each active row. */
+/* Shipments keeps stable columns across filters, while the status choices can
+   wrap beside search without pushing it outside the page. */
 .dispatcher-main .shp-page { padding-top: 0; }
 .dispatcher-main .shp-header { margin-bottom: 12px; }
 .dispatcher-main .shp-kpis { margin-bottom: 12px; }
 .dispatcher-main .shp-filterbar {
-  display: flex;
-  align-items: stretch;
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  align-items: start;
   gap: 10px;
   width: 100%;
   margin-bottom: 12px;
 }
-.dispatcher-main .shp-segmented { display: flex; flex: 1 1 auto; }
-.dispatcher-main .shp-segmented .shp-segment { flex: 1 1 auto; }
+.dispatcher-main .shp-segmented {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.dispatcher-main .shp-segmented .shp-segment {
+  flex: 0 0 auto;
+  min-height: 34px !important;
+  height: 34px !important;
+  padding: 0 10px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+}
 .dispatcher-main .shp-search {
   display: flex;
   align-items: center;
-  flex: 0 1 220px;
-  min-width: 160px;
+  min-width: 0;
+  width: 100%;
   min-height: 40px;
   box-sizing: border-box;
   gap: 8px;
@@ -314,21 +324,21 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
 .dispatcher-main .shp-card { min-height: 340px; display: flex; flex-direction: column; }
 .dispatcher-main .shp-empty { flex: 1 1 auto; min-height: 338px; }
 .dispatcher-main .shp-table-wrap { flex: 1 1 auto; }
-.dispatcher-main .shp-table { min-width: 1180px; table-layout: fixed; }
+.dispatcher-main .shp-table { min-width: 1120px; table-layout: fixed; }
 .dispatcher-main .shp-table thead th {
-  text-align: center !important;
+  text-align: left !important;
   vertical-align: middle !important;
 }
 .dispatcher-main .shp-table tbody td {
-  text-align: center;
+  text-align: left;
   vertical-align: middle !important;
   overflow-wrap: anywhere;
 }
 .dispatcher-main .shp-order-content,
 .dispatcher-main .shp-cell {
-  width: fit-content;
+  width: auto;
   max-width: 100%;
-  margin-inline: auto;
+  margin-inline: 0;
   text-align: left;
 }
 .dispatcher-main .shp-order-id {
@@ -340,31 +350,23 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
 .dispatcher-main .shp-table td.shp-actions-cell {
   padding: 8px 12px !important;
   vertical-align: middle !important;
-  text-align: center;
+  text-align: left;
 }
 .dispatcher-main .shp-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  justify-items: center;
-  align-content: center;
-  gap: 5px;
-  width: 100%;
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: min(100%, 170px);
+  text-align: left;
 }
-.dispatcher-main .shp-actions--failed {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.dispatcher-main .shp-action-slot { width: min(100%, 150px); min-height: 36px; min-width: 0; }
-.dispatcher-main .shp-actions--failed .shp-action-slot { width: 100%; }
-.dispatcher-main .shp-action-placeholder { visibility: hidden; }
 .dispatcher-main .shp-actions .shp-act-btn {
-  width: min(100%, 150px);
+  width: 100%;
   height: 36px !important;
   justify-content: center;
   padding: 0 5px !important;
   font-size: 12px !important;
 }
-.dispatcher-main .shp-actions--failed .shp-act-btn { width: 100%; }
 .dispatcher-main .shp-actions .request-change {
   background: var(--green-800);
   border-color: var(--green-800);
@@ -391,7 +393,7 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   color: var(--green-800);
   cursor: not-allowed;
 }
-.dispatcher-main .shp-action-dash { display: block; text-align: center; }
+.dispatcher-main .shp-action-dash { display: block; text-align: left; }
 .dispatcher-main .shp-pagination {
   display: flex;
   align-items: center;
@@ -413,9 +415,9 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   cursor: pointer;
 }
 .dispatcher-main .shp-pagination button:disabled { opacity: .45; cursor: default; }
-@media (max-width: 900px) {
-  .dispatcher-main .shp-filterbar { flex-direction: column; }
-  .dispatcher-main .shp-search { flex-basis: auto; min-height: 40px; }
+@media (max-width: 1200px) {
+  .dispatcher-main .shp-filterbar { grid-template-columns: minmax(0, 1fr); }
+  .dispatcher-main .shp-search { min-height: 40px; }
 }
 
 /* ============================================================
