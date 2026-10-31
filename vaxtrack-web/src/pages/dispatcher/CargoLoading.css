@@ -127,10 +127,14 @@
 .cl-pagination button:focus-visible { outline: 2px solid var(--green-700); outline-offset: 2px; }
 
 /* ===== Rider card ===== */
+/* Every rider card is ONE height (2026-10-31) — the space the page measures
+   between the cards' top and the pager (DispatcherCargoLoading.jsx) — so a
+   rider with one order lines up with a rider with six: the order list fills
+   and scrolls, and the Finalize button sits on every card's floor. */
 .cl-card {
   display: flex;
   flex-direction: column;
-  max-height: var(--cl-card-max-height, 420px);
+  height: var(--cl-card-max-height, 420px);
   min-height: 0;
   overflow: hidden;
   box-sizing: border-box;
@@ -142,7 +146,7 @@
   font-family: var(--font-ui);
 }
 .cl-card[hidden] { display: none !important; }
-.cl-card-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
+.cl-card-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
 .cl-card-actions { flex: 0 0 auto; }
 
 .cl-card-head {
@@ -282,11 +286,21 @@
 .cl-order-info {
   min-width: 0;
 }
+/* Confirming an order changes its badge (Assigned → Loading) and its control
+   (Confirm → Loaded): both sit in fixed slots, so the row never reflows. */
 .cl-order-top {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  flex-wrap: wrap;
+}
+.cl-order-top > strong {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cl-order-top > .m-badge {
+  flex: none;
+  min-width: 86px;
+  justify-content: center;
 }
 .cl-order-info strong {
   font-size: 13px;
@@ -314,7 +328,10 @@
 .cl-check {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 7px;
+  width: 104px;
+  box-sizing: border-box;
   height: 34px;
   padding: 0 12px;
   border-radius: var(--radius-control);

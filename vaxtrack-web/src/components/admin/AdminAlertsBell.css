@@ -1,0 +1,29 @@
+/* Admin top bar — alerts button. The button itself uses the shared
+   `.m-topbar-icon-btn` (shell-chrome.css); this adds only the count badge. */
+.admin-alerts-bell {
+  position: relative;
+  color: var(--gray-700);
+  text-decoration: none;
+}
+.admin-alerts-bell:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+}
+.admin-alerts-bell-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: var(--danger-text);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}

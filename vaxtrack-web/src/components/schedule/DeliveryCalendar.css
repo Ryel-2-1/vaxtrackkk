@@ -9,13 +9,6 @@
   min-width: 0;
 }
 
-.dcal-head p {
-  margin: 0;
-  max-width: 680px;
-  font-size: 13px;
-  color: var(--gray-500);
-}
-
 .dcal-muted {
   color: var(--gray-500);
   font-weight: 400;
@@ -23,25 +16,33 @@
 
 /* ---------------------------------------------------------------- filters */
 
+/* One toolbar row, as on the Med Rep Delivery planner: inline "Status [ ]"
+   and "Priority [ ]" on the left, the count and legend on the right. */
 .dcal-filters {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 12px;
+  align-items: center;
+  gap: 8px 12px;
 }
 
 .dcal-filter {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   font-weight: 600;
   color: var(--gray-600);
 }
 
 .dcal-filter select {
-  min-width: 170px;
-  padding: 0 12px;
+  width: 160px;
+  max-width: 100%;
+  /* !important only to out-specify the global select/input min-height reset. */
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 0 10px;
+  border-radius: var(--radius-control, 8px);
+  font-size: 13px;
   border: 1px solid var(--gray-200);
   background: #fff;
   color: var(--gray-900);
@@ -52,9 +53,24 @@
   outline-offset: 1px;
 }
 
+.dcal-filter-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-left: auto;
+}
+
 .dcal-filter-summary {
-  margin: 0 0 0 auto;
-  align-self: center;
+  margin: 0;
+  font-size: 12px;
+  color: var(--gray-500);
+}
+
+.dcal-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   color: var(--gray-500);
 }
@@ -131,7 +147,7 @@
    uses the full row below, so a short list cannot leave uneven card edges. */
 @media (min-width: 1025px) {
   .dcal-body {
-    --dcal-panel-height: clamp(460px, calc(100dvh - 220px), 680px);
+    --dcal-panel-height: clamp(460px, calc(100dvh - 238px), 680px);
     align-items: stretch;
   }
 
@@ -267,121 +283,6 @@
 .dcal-list-scroll {
   max-height: 420px;
   overflow-y: auto;
-}
-
-/* ---------------------------------------------------------------- events */
-
-.dcal-event {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px 14px;
-  border: 1px solid var(--gray-200);
-  border-left: 3px solid var(--gray-300);
-  border-radius: var(--radius-control, 8px);
-  background: var(--gray-50);
-}
-
-/* Urgent: red rule + tinted card. The "Urgent" chip carries the meaning in
-   text, so colour is never the only signal. */
-.dcal-event-urgent {
-  border-color: var(--danger-border);
-  border-left-color: var(--danger-text);
-  background: var(--danger-bg);
-}
-
-.dcal-event-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.dcal-event-id {
-  margin-right: auto;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--gray-900);
-  font-variant-numeric: tabular-nums;
-}
-
-.dcal-priority {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border: 1px solid var(--gray-200);
-  border-radius: var(--radius-pill, 999px);
-  background: #fff;
-  color: var(--gray-600);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.dcal-priority-urgent {
-  border-color: var(--danger-text);
-  background: var(--danger-text);
-  color: #fff;
-}
-
-.dcal-event-when {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--gray-800, var(--gray-900));
-}
-
-.dcal-event-original {
-  margin: 0;
-  font-size: 12px;
-  color: var(--warning-text);
-}
-
-.dcal-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px 14px;
-  margin: 0;
-}
-
-.dcal-field {
-  min-width: 0;
-}
-
-.dcal-field dt {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--gray-500);
-}
-
-.dcal-field dd {
-  margin: 0;
-  font-size: 13px;
-  color: var(--gray-900);
-  overflow-wrap: anywhere;
-}
-
-.dcal-field-missing {
-  color: var(--gray-400, var(--gray-500)) !important;
-  font-style: italic;
-}
-
-.dcal-note {
-  margin: 0;
-  font-size: 12px;
-  color: var(--warning-text);
-}
-
-.dcal-note-anomaly {
-  color: var(--danger-text);
-}
-
-.dcal-closed-note {
-  margin: 0;
-  font-size: 12px;
 }
 
 /* ---------------------------------------------------------------- buttons */
@@ -596,7 +497,11 @@
     width: 100%;
     min-width: 0;
   }
-  .dcal-filter-summary {
+  .dcal-filter select {
+    flex: 1 1 auto;
+    width: auto;
+  }
+  .dcal-filter-meta {
     margin-left: 0;
   }
   .dcal-fields {

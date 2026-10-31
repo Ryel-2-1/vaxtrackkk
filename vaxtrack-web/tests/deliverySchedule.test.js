@@ -250,7 +250,12 @@ test("only the Admin view can reschedule, and only through the callable", () => 
   assert.match(code("src/pages/dispatcher/DispatcherSchedule.jsx"), /<DeliveryCalendar role="dispatcher" \/>/);
   const page = code("src/components/schedule/DeliveryCalendar.jsx");
   assert.match(page, /const isAdmin = role === "admin";/);
-  assert.match(page, /\{isAdmin \? \(\s*canReschedule\(order\)/);
+  // The order card (DeliveryEventCard) shows the control only for Admin; the
+  // calendar passes the role through to every card it renders.
+  assert.match(code("src/components/schedule/DeliveryEventCard.jsx"), /\{isAdmin \? \(\s*canReschedule\(order\)/);
+  assert.equal((page.match(/<DeliveryEventCard[\s\S]*?isAdmin=\{isAdmin\}[\s\S]*?onReschedule=\{openReschedule\}/g) || []).length, 2);
+  // The Med Rep planner's cards never get it.
+  assert.doesNotMatch(code("src/pages/salesRep/SalesRepDashboard.jsx"), /<DeliveryEventCard[^>]*isAdmin/);
   assert.match(page, /\{isAdmin && editing \? \(/);
   // The user directory (Med Rep names) is only subscribed for Admin.
   assert.match(page, /if \(!isAdmin\) return undefined;\s*return subscribeUsers\(/);

@@ -202,7 +202,8 @@ test("history is read-only on the client and scoped to the Med Rep", () => {
   assert.match(view, /const scopeUid = isAdmin \? null : medRepUid;/);
   // Bounded, incremental loading.
   assert.match(service, /limit\(pageSize\)/);
-  assert.match(view, /Load \$\{HISTORY_PAGE_SIZE\} older orders/);
+  // Older orders load as the pager runs past the loaded window (both roles).
+  assert.match(view, /if \(next > Math\.ceil\(visible\.length \/ HISTORY_PAGE_SIZE\) && hasMore && !lookupResult\) \{\s*loadMore\(\)/);
   // Loading, error, empty and permission-denied states.
   assert.match(view, /Loading order history…/);
   // Refused reads are their own state, worded by the shared mapper (never "no orders").
@@ -225,13 +226,15 @@ test("routes and navigation: Med Rep and Admin history inside their shells", () 
   assert.match(read("src", "pages", "admin", "AdminOrderHistory.jsx"), /<OrderHistoryView mode="admin" \/>/);
 });
 
-test("Med Rep history uses bounded pager navigation and automatic filters", () => {
+test("both roles use bounded pager navigation and automatic filters", () => {
   const view = read("src", "components", "history", "OrderHistoryView.jsx");
   assert.match(view, /const visiblePage = visible\.slice\(\(currentPage - 1\) \* HISTORY_PAGE_SIZE, currentPage \* HISTORY_PAGE_SIZE\)/);
   assert.match(view, /if \(next > Math\.ceil\(visible\.length \/ HISTORY_PAGE_SIZE\) && hasMore && !lookupResult\) \{\s*loadMore\(\)/);
-  assert.match(view, /<nav className="page-nav ohx-history-pager" aria-label="Order history pages">/);
-  assert.match(view, /\{isAdmin && !lookupResult && hasMore && !loading && !shownError && \(/, "Load older remains Admin-only");
-  assert.match(view, /\{isAdmin && <button type="submit" className="ohx-btn">Apply dates<\/button>\}/);
+  // One pager for Admin and Med Rep (2026-10-31): no "Load older" button and
+  // no "Apply dates" — Next loads older orders, dates apply on their own.
+  assert.match(view, /\{!loading && !shownError && !lookupResult && \(visible\.length > 0 \|\| hasMore\) && \(\s*<nav className="page-nav ohx-history-pager" aria-label="Order history pages">/);
+  assert.doesNotMatch(view, /older orders`|Apply dates|<PageNav/);
+  assert.match(view, /useEffect\(\(\) => \{\s*const timer = setTimeout\(\(\) => \{/, "the settle timer runs for both roles");
   assert.match(view, /\}, 350\);\s*return \(\) => clearTimeout\(timer\);/);
   assert.match(view, /if \(!isAdmin\) setAppliedFilters\(\(f\) => \(\{ \.\.\.f, \[key\]: value \}\)\);/, "selectors apply without a timer");
 });
@@ -321,7 +324,14 @@ test("exact reference lookup queries the whole authorized history, not the loade
   assert.match(fn, /where\("orderNumber", "==", value\)/);
   assert.match(fn, /if \(medRepUid\) parts\.unshift\(where\("createdByUid", "==", medRepUid\)\)/, "a Med Rep's lookup keeps the ownership restriction");
   const view = read("src", "components", "history", "OrderHistoryView.jsx");
-  assert.match(view, /if \(lookup\.kind === "reference"\) orders = await findOrdersByReference\(value, scopeUid\);/);
+  assert.match(view, /if \(kind === "reference"\) orders = await findOrdersByReference\(value, scopeUid\);/);
+  // One search row for both roles (2026-10-31): Enter on a full VT-ORD-…
+  // reference searches the whole history; for Admin, Enter on any other value
+  // runs the exact SKU and Batch ID lookups the removed bar offered.
+  assert.match(view, /if \(FULL_ORDER_REFERENCE\.test\(value\)\) searchWholeHistory\("reference", value\);\s*else if \(isAdmin\) searchWholeHistory\("sku-or-batch", value\);/);
+  assert.match(view, /const \[bySku, byBatch\] = await Promise\.all\(\[findOrderIdsBySku\(value\), findOrderIdsByBatchId\(value\)\]\);/);
+  assert.match(view, /onSubmit=\{submitSearch\}/);
+  assert.doesNotMatch(view, /className="ohx-lookup"|<span>Search all history by<\/span>/);
 });
 
 test("every query is bounded; Med Rep queries always carry the ownership restriction", () => {

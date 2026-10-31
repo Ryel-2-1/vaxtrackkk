@@ -11,7 +11,6 @@ import {
   MapPinned,
   Menu,
   Navigation,
-  Search,
   Settings,
   Truck,
   UserPlus,
@@ -66,7 +65,6 @@ function DispatcherLayout() {
   const active = meta.key;
   const title = meta.title;
 
-  const [searchText, setSearchText] = useState("");
   const [showNotifications, setShowNotifications] = useState(false);
 
   // Mobile navigation drawer. Below `DRAWER_MEDIA_QUERY` the 260px rail cannot
@@ -254,51 +252,6 @@ function DispatcherLayout() {
     );
   };
 
-  const handleSearchSubmit = (e) => {
-    e.preventDefault();
-
-    const keyword = searchText.trim().toLowerCase();
-
-    if (!keyword) return;
-
-    if (
-      keyword.includes("assign") ||
-      keyword.includes("rider") ||
-      keyword.includes("delivery assignment")
-    ) {
-      navigate("/dispatcher/assign-rider");
-      return;
-    }
-
-    if (
-      keyword.includes("shipment") ||
-      keyword.includes("cargo") ||
-      keyword.includes("loading")
-    ) {
-      navigate("/dispatcher/shipments");
-      return;
-    }
-
-    if (
-      keyword.includes("geofence") ||
-      keyword.includes("route") ||
-      keyword.includes("deviation")
-    ) {
-      navigate("/dispatcher/geofence");
-      return;
-    }
-
-    if (
-      keyword.includes("setting") ||
-      keyword.includes("profile") ||
-      keyword.includes("preference")
-    ) {
-      navigate("/dispatcher/settings");
-      return;
-    }
-
-    navigate("/dispatcher");
-  };
 
   return (
     <div className="dispatcher-page">
@@ -435,18 +388,10 @@ function DispatcherLayout() {
         <header className="dispatcher-topbar m-topbar" data-shipments-topbar={active === "shipments" || undefined}>
           <h1 className="m-topbar-title">{title}</h1>
 
-          {/* Search + bell grouped on the right, as in every role's top bar.
-              Below 1025px the group is `display: contents`, so the existing
-              tablet/phone grid still places each control individually. */}
+          {/* The bell on the right, as in the Med Rep top bar. The keyword
+              "search" that only navigated between pages was removed
+              (2026-10-31); each page keeps its own real search. */}
           <div className="m-topbar-actions">
-          {active !== "shipments" && <form className="dispatcher-search m-topbar-search" onSubmit={handleSearchSubmit}>
-            <Search size={15} />
-            <input
-              placeholder="Search orders, clinics, or vaccine types..."
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-            />
-          </form>}
 
           <div className="dispatcher-notification-wrap">
             <button

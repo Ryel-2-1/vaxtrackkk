@@ -34,6 +34,15 @@ import "./LiveTracking.css";
 
 const STATE_TONE = { deviating: "danger", fresh: "success", stale: "warning", offline: "neutral", unavailable: "neutral" };
 
+// What the states mean — shown on hover over the summary cards.
+const TRACKING_LEGEND =
+  "Riders appear while they have an active delivery, and while returning to the hub until a Dispatcher confirms " +
+  `their return. Fresh: updated within ${FRESHNESS.freshMs / 60000} min · ` +
+  `Stale: ${FRESHNESS.freshMs / 60000}–${FRESHNESS.offlineMs / 60000} min · ` +
+  `Offline: over ${FRESHNESS.offlineMs / 60000} min or sharing stopped. ` +
+  `Route deviation: more than ${DEVIATION_RULES.offRouteMeters} m from the assigned route for ` +
+  `${DEVIATION_RULES.confirmDeviationMs / 60000} minutes while the rider is navigating.`;
+
 function RiderDetails({ rider, nowMs }) {
   if (!rider) {
     return <p className="ltp-muted">Select a rider on the map or in the list.</p>;
@@ -205,7 +214,9 @@ function LiveTrackingPanel() {
 
   return (
     <div className="ltp">
-      <div className="ltp-kpis">
+      {/* The explanatory line under these cards was removed (2026-10-31) to
+          give the map the height; its definitions stay one hover away. */}
+      <div className="ltp-kpis" title={TRACKING_LEGEND}>
         <KpiCard label="Riders on delivery" value={onDelivery} context="With an active delivery" onClick={() => setFilter("all")} />
         <KpiCard
           label={RETURNING_TO_HUB_LABEL}
@@ -226,14 +237,6 @@ function LiveTrackingPanel() {
         ))}
       </div>
 
-      <p className="ltp-note">
-        Riders appear while they have an active delivery, and while returning to the hub until a Dispatcher confirms
-        their return (no route is monitored then). Fresh: updated within {FRESHNESS.freshMs / 60000} min ·
-        Stale: {FRESHNESS.freshMs / 60000}–{FRESHNESS.offlineMs / 60000} min · Offline: over{" "}
-        {FRESHNESS.offlineMs / 60000} min or sharing stopped. Route deviation is decided by VaxTrack: more than{" "}
-        {DEVIATION_RULES.offRouteMeters} m from the assigned route for {DEVIATION_RULES.confirmDeviationMs / 60000}{" "}
-        minutes while the rider is navigating.
-      </p>
       {deviationError && (
         <p className="ltp-warn" role="status">Route-deviation status could not be loaded; positions are still live.</p>
       )}

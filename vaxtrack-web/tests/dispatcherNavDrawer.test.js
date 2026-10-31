@@ -495,5 +495,6 @@ test("no navigation destination, active state or action was dropped", () => {
     "and the backdrop dismisses it"
   );
   assert.match(layoutJsx, /className="dispatcher-logout"/);
-  assert.match(layoutJsx, /onSubmit=\{handleSearchSubmit\}/, "search behaviour is untouched");
+  // The keyword "search" (it only navigated between pages) was removed 2026-10-31.
+  assert.doesNotMatch(layoutJsx, /handleSearchSubmit|m-topbar-search/);
 });

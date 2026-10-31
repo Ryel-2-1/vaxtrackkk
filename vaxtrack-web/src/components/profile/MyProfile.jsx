@@ -142,7 +142,9 @@ export default function MyProfile({ showEmployeeId = true }) {
     }
   };
 
-  const showOrganization = stored.roleKey === "salesrep" || stored.organization !== "";
+  // Med Rep and Dispatcher cards always list Organization (a dash until an
+  // administrator records one); other roles only when it is stored.
+  const showOrganization = stored.roleKey === "salesrep" || stored.roleKey === "dispatcher" || stored.organization !== "";
 
   return (
     <div className="my-profile">

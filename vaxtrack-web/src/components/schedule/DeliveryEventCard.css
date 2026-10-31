@@ -1,0 +1,141 @@
+/* Delivery event card — one scheduled order. Shared by the Delivery Calendar
+   (Admin, Dispatcher) and the Med Rep dashboard's Delivery planner. Moved
+   verbatim from DeliveryCalendar.css; every selector is a .dcal-* class the
+   card itself renders, so it reaches nothing else. */
+
+.dcal-muted {
+  color: var(--gray-500);
+  font-weight: 400;
+}
+
+/* ---------------------------------------------------------------- events */
+
+.dcal-event {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--gray-200);
+  border-left: 3px solid var(--gray-300);
+  border-radius: var(--radius-control, 8px);
+  background: var(--gray-50);
+}
+
+/* Urgent: red rule + tinted card. The "Urgent" chip carries the meaning in
+   text, so colour is never the only signal. */
+.dcal-event-urgent {
+  border-color: var(--danger-border);
+  border-left-color: var(--danger-text);
+  background: var(--danger-bg);
+}
+
+.dcal-event-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.dcal-event-id {
+  margin-right: auto;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-900);
+  font-variant-numeric: tabular-nums;
+}
+
+.dcal-priority {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-pill, 999px);
+  background: #fff;
+  color: var(--gray-600);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dcal-priority-urgent {
+  border-color: var(--danger-text);
+  background: var(--danger-text);
+  color: #fff;
+}
+
+.dcal-event-when {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-800, var(--gray-900));
+}
+
+.dcal-event-original {
+  margin: 0;
+  font-size: 12px;
+  color: var(--warning-text);
+}
+
+.dcal-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 14px;
+  margin: 0;
+}
+
+.dcal-field {
+  min-width: 0;
+}
+
+.dcal-field dt {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gray-500);
+}
+
+.dcal-field dd {
+  margin: 0;
+  font-size: 13px;
+  color: var(--gray-900);
+  overflow-wrap: anywhere;
+}
+
+.dcal-field-missing {
+  color: var(--gray-400, var(--gray-500)) !important;
+  font-style: italic;
+}
+
+.dcal-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--warning-text);
+}
+
+.dcal-note-anomaly {
+  color: var(--danger-text);
+}
+
+.dcal-closed-note {
+  margin: 0;
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .dcal-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* A standard order's one-line destination (urgent orders show the fields). */
+.dcal-event-summary {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--gray-700, var(--gray-900));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

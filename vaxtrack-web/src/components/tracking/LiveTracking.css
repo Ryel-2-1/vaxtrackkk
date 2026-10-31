@@ -4,7 +4,7 @@
 .ltp {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   min-width: 0;
 }
 
@@ -12,13 +12,6 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
-}
-
-.ltp-note {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--gray-600);
 }
 
 .ltp-warn {
@@ -284,4 +277,43 @@
 .ltp-retry:focus-visible {
   outline: 2px solid var(--green-700);
   outline-offset: 2px;
+}
+
+/* Desktop (2026-10-31): the map and the sidebar share ONE height that fills
+   the viewport below the summary cards, so the page fits without scrolling.
+   The sidebar never grows past the map: the rider details scroll past a cap,
+   and the riders list fills the rest and scrolls on its own. On a short or
+   narrow screen the page still scrolls (nothing is cut off). */
+@media (min-width: 1025px) {
+  .ltp-grid {
+    --ltp-pane-h: max(420px, calc(100dvh - var(--shell-topbar-height, 64px) - var(--ltp-offset, 242px)));
+    align-items: stretch;
+  }
+  .ltp-map {
+    height: var(--ltp-pane-h);
+  }
+  .ltp-side {
+    height: var(--ltp-pane-h);
+    min-height: 0;
+  }
+  .ltp-side > .ltp-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .ltp-side > .ltp-card:first-child {
+    flex: 0 1 auto;
+    max-height: 55%;
+    overflow-y: auto;
+  }
+  .ltp-side > .ltp-card:last-child {
+    flex: 1 1 auto;
+  }
+  .ltp-side > .ltp-card:last-child > .ltp-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
 }

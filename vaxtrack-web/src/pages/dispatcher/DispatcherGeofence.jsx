@@ -7,7 +7,6 @@ import {
   AlertTriangle,
   Clock3,
   Flag,
-  Info,
   Loader2,
   MapPin,
   Navigation,
@@ -15,7 +14,6 @@ import {
   RefreshCw,
   Route as RouteIcon,
   User,
-  X,
 } from "lucide-react";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
@@ -39,8 +37,7 @@ import TripProgress, { StopProgressBadge } from "../../components/dispatch/TripP
 import { shipmentProgress, tripProgress } from "../../services/stopProgress";
 import { routingSettingsOf } from "../../services/routingSettings";
 import StatusBadge from "../../components/ui/StatusBadge";
-import DispatcherDialogLayer from "./DispatcherDialogLayer";
-import { useDialogFocus } from "../../components/ui/useDialogFocus";
+import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import { savedRouteDescription } from "../../services/routeMetadata.js";
 import { manilaTime } from "../../services/deliveryTiming";
 import { manilaClock, requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
@@ -346,35 +343,12 @@ function RiderLocationMap({ lat, lng, clinicLat, clinicLng, routePolyline, stops
   return <div ref={containerRef} className="geo3-live-map" />;
 }
 
-function ShipmentDrawer({ onDismiss, children }) {
-  const dialogRef = useRef(null);
-  const closeRef = useRef(null);
-  useDialogFocus({ dialogRef, initialRef: closeRef, onDismiss });
-
-  return (
-    <DispatcherDialogLayer>
-      <div className="geo3-drawer-overlay">
-        <div className="geo3-drawer-backdrop" onClick={onDismiss} aria-hidden="true" />
-        <aside id="geo3-shipment-drawer" className="geo3-drawer" role="dialog" aria-modal="true" aria-labelledby="geo3-drawer-title" ref={dialogRef}>
-          <div className="geo3-drawer-header">
-            <h2 id="geo3-drawer-title">Shipment details</h2>
-            <button type="button" ref={closeRef} onClick={onDismiss} aria-label="Close shipment details">
-              <X size={20} aria-hidden="true" />
-            </button>
-          </div>
-          <div className="geo3-drawer-content">{children}</div>
-        </aside>
-      </div>
-    </DispatcherDialogLayer>
-  );
-}
 
 function DispatcherGeofence() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [chosenId, setSelectedId] = useState("");
-  const [drawerOrderId, setDrawerOrderId] = useState(null);
   // Route generation state, scoped to the order it belongs to (so an error or
   // in-flight request never bleeds onto a different selected order).
   const [busyOrderId, setBusyOrderId] = useState(null);
@@ -439,6 +413,13 @@ function DispatcherGeofence() {
     : activeOrders[0]?.id ?? "";
 
   const selectedOrder = activeOrders.find((o) => o.id === selectedId) || null;
+  // The list shows 10 per page. Until the dispatcher pages by hand it opens
+  // on the page holding the selected shipment.
+  const [listPage, setListPage] = useState(null);
+  const selectedIndex = activeOrders.findIndex((o) => o.id === selectedId);
+  const listPageCount = Math.max(1, Math.ceil(activeOrders.length / PAGE_SIZE));
+  const currentListPage = Math.min(listPage ?? (selectedIndex >= 0 ? Math.floor(selectedIndex / PAGE_SIZE) + 1 : 1), listPageCount);
+  const pageShipments = activeOrders.slice((currentListPage - 1) * PAGE_SIZE, currentListPage * PAGE_SIZE);
   // The rider's live position comes from riderLocations/{assignedRiderId}; the
   // order document no longer carries a location copy. It is overlaid in the
   // GeoPoint shape the map code below already reads, so that verified code is
@@ -645,260 +626,8 @@ function DispatcherGeofence() {
     <>
       <section className="geo3-page">
         <div className="geo3-top-row">
-          <div>
-            <h2 className="disp-section-title">Active monitoring</h2>
-            <p>Track active vaccine shipments in real time from Firestore orders.</p>
-          </div>
+          <h2 className="disp-section-title">Active monitoring</h2>
         </div>
-
-        <div className="geo3-info-banner">
-          <Info size={16} />
-          <div>
-            <strong>Follow trip progress and the Rider’s reported position.</strong>
-            <p>
-              Proof and delivery completion update automatically. Proof recorded
-              does not confirm departure from a stop. The GPS marker shows the
-              reported position; check its last update.
-            </p>
-          </div>
-        </div>
-
-        <TripProgress progress={progress} riderName={selected?.assignedRiderName} selectedId={selectedId} />
-
-        {selected && getLatLng(selected.lastLocation) && (() => {
-          const riderLL = getLatLng(selected.lastLocation);
-          const clinicLL = getClinicLatLng(selected);
-          const distM = clinicLL ? distanceMeters(riderLL, clinicLL) : null;
-          const inside = distM != null && distM <= GEOFENCE_RADIUS_M;
-          return (
-            <div className="geo3-card geo3-live-map-card">
-              <h3>Live map</h3>
-              <RiderLocationMap
-                lat={riderLL[0]}
-                lng={riderLL[1]}
-                clinicLat={hasTrip ? undefined : clinicLL ? clinicLL[0] : undefined}
-                clinicLng={hasTrip ? undefined : clinicLL ? clinicLL[1] : undefined}
-                routePolyline={hasTrip ? selected.tripPolyline : selected.routePolyline}
-                stops={hasTrip ? tripStopMarkers : NO_STOPS}
-              />
-              {hasTrip && <p className="stop-progress-note">Stop markers: ✓ Delivered · P Proof recorded · ➜ Navigation target. The Rider’s position is the separate GPS dot.</p>}
-              {clinicLL ? (
-                <p className="geo3-live-map-note">
-                  <span className={inside ? "geo3-geofence-in" : "geo3-geofence-out"}>
-                    {inside
-                      ? "Inside geofence"
-                      : "Outside geofence"}
-                  </span>{" "}
-                  — rider is {Math.round(distM)} m from the destination
-                  (geofence radius {GEOFENCE_RADIUS_M} m)
-                  {isLocationStale(selected.lastLocationUpdate)
-                    ? "; last update is stale"
-                    : ""}
-                  .
-                </p>
-              ) : (
-                <p className="geo3-live-map-note">
-                  Rider position only
-                  {isLocationStale(selected.lastLocationUpdate)
-                    ? " — last update is stale"
-                    : ""}
-                  . Add clinic coordinates in Admin → Clinics to show a
-                  destination marker + geofence.
-                </p>
-              )}
-
-              {(() => {
-                const hasStoredRoute =
-                  !!selected.routePolyline &&
-                  Number.isFinite(selected.routeDistanceMeters);
-                const genAt = selected.routeGeneratedAt?.toDate
-                  ? selected.routeGeneratedAt.toDate()
-                  : null;
-                const liveEta = genAt
-                  ? formatEta(genAt, selected.routeDurationSeconds)
-                  : selected.routeEtaText || "—";
-                const canGenerate = !!clinicLL && fixIsFresh; // rider location present here
-                return (
-                  <div className="geo3-live-route">
-                    <div className="geo3-live-route-head">
-                      <RouteIcon size={15} />
-                      <span>Route &amp; ETA</span>
-                    </div>
-
-                    {hasStoredRoute && (
-                      <div className="geo3-live-route-metrics">
-                        <div>
-                          <small>Distance</small>
-                          <strong className="tnum">
-                            {formatDistance(selected.routeDistanceMeters)}
-                          </strong>
-                        </div>
-                        <div>
-                          <small>Est. duration</small>
-                          <strong className="tnum">
-                            {formatDuration(selected.routeDurationSeconds)}
-                          </strong>
-                        </div>
-                        <div>
-                          <small>ETA</small>
-                          <strong className="tnum">{liveEta}</strong>
-                        </div>
-                      </div>
-                    )}
-
-                    {hasStoredRoute && genAt && (() => {
-                      // The arrival with the traffic buffer, against the requested time.
-                      const buffered = bufferedMinutes(selected.routeDurationSeconds, routing.trafficBufferPercent);
-                      const check = buffered === null ? null : arrivalCheck(selected, new Date(genAt.getTime() + buffered * 60000));
-                      return check ? (
-                        <p className={check.met || check.early ? "geo3-live-route-sub" : "geo3-live-route-error"} role="status">
-                          {check.met ? "✓ " : check.early ? "" : "✗ "}
-                          {check.text} With a {routing.trafficBufferPercent}% traffic buffer.
-                        </p>
-                      ) : null;
-                    })()}
-
-                    {hasStoredRoute && (
-                      <p className="geo3-live-route-sub">
-                        {savedRouteDescription(selected)}
-                        {genAt
-                          ? ` · generated ${formatRelativeTime(selected.routeGeneratedAt)}`
-                          : ""}
-                        .
-                      </p>
-                    )}
-
-                    {!ROUTE_CONFIGURED ? (
-                      <p className="geo3-live-route-missing">
-                        Route and ETA planning isn't set up for this site yet. Contact an administrator.
-                      </p>
-                    ) : (
-                      <>
-                        <p className="geo3-live-route-sub">Motorcycle routing for the below-400 cc fleet. Routes flagged as using highways, toll roads or ferries are rejected. {ROUTE_TIMING_NOTICE}</p>
-                        {hasTrip && riderStops.length >= 2 && (
-                          <p className="geo3-live-route-sub">
-                            The map shows the saved multi-stop trip. Use Re-optimize route below to refresh that trip.
-                          </p>
-                        )}
-                        <button
-                          type="button"
-                          className="geo3-live-route-btn"
-                          onClick={handleGenerateRoute}
-                          disabled={!canGenerate || routeBusy}
-                        >
-                          {routeBusy ? (
-                            <Loader2 size={14} className="spin" />
-                          ) : hasStoredRoute ? (
-                            <RefreshCw size={14} />
-                          ) : (
-                            <RouteIcon size={14} />
-                          )}
-                          {routeBusy
-                            ? "Generating…"
-                            : hasStoredRoute
-                            ? "Refresh route"
-                            : "Generate route & ETA"}
-                        </button>
-                        {!clinicLL ? (
-                          <p className="geo3-live-route-sub">
-                            Add clinic coordinates (Admin → Clinics) to
-                            enable routing to the destination.
-                          </p>
-                        ) : (
-                          !fixIsFresh && <p className="geo3-live-route-sub" role="status">{STALE_FIX_REASON}</p>
-                        )}
-                        {activeRouteError && (
-                          <p className="geo3-live-route-error" role="alert">{activeRouteError}</p>
-                        )}
-                      </>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {riderStops.length >= 2 && (
-                <div className="geo3-live-trip">
-                  <div className="geo3-live-route-head">
-                    <RouteIcon size={15} />
-                    <span>Multi-stop trip ({riderStops.length} stops)</span>
-                  </div>
-
-                  {hasTrip && (
-                    <>
-                      <p className="geo3-live-route-sub">{savedRouteDescription(selected, true)}</p>
-                      <div className="geo3-live-route-metrics">
-                        <div>
-                          <small>Total distance</small>
-                          <strong className="tnum">
-                            {formatDistance(selected.tripDistanceMeters)}
-                          </strong>
-                        </div>
-                        <div>
-                          <small>Total duration</small>
-                          <strong className="tnum">
-                            {formatDuration(selected.tripDurationSeconds)}
-                          </strong>
-                        </div>
-                        <div>
-                          <small>Stops</small>
-                          <strong className="tnum">{selected.tripStopCount}</strong>
-                        </div>
-                      </div>
-
-                    </>
-                  )}
-
-                  {!ROUTE_CONFIGURED ? (
-                    <p className="geo3-live-route-missing">
-                      Trip optimization isn't set up for this site yet. Contact an administrator.
-                    </p>
-                  ) : (
-                    <>
-                      <p className="geo3-live-route-sub">{TRIP_TIMING_NOTICE}</p>
-                      <button
-                        type="button"
-                        className="geo3-live-route-btn"
-                        onClick={handleOptimizeTrip}
-                        disabled={!canOptimize || tripBusy}
-                      >
-                        {tripBusy ? (
-                          <Loader2 size={14} className="spin" />
-                        ) : hasTrip ? (
-                          <RefreshCw size={14} />
-                        ) : (
-                          <RouteIcon size={14} />
-                        )}
-                        {tripBusy
-                          ? "Optimizing…"
-                          : hasTrip
-                          ? "Re-optimize route"
-                          : `Optimize route (${riderStops.length} stops)`}
-                      </button>
-                      {!canOptimize && (
-                        <p className="geo3-live-route-sub" role="status">
-                          {fixIsStale
-                            ? STALE_FIX_REASON
-                            : "Needs the rider's live location and at least two stops with clinic coordinates."}
-                        </p>
-                      )}
-                      {activeTripError && (
-                        <p className="geo3-live-route-error" role="alert">{activeTripError}</p>
-                      )}
-                      {activeTripNotice && (
-                        <p
-                          className={activeTripNotice.allMet ? "geo3-live-route-sub" : "geo3-live-route-error"}
-                          role="status"
-                        >
-                          {activeTripNotice.text}
-                        </p>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })()}
 
         {activeOrders.length === 0 ? (
           <div className="dispatcher-empty-queue">
@@ -907,12 +636,14 @@ function DispatcherGeofence() {
             <small>Orders with status Assigned, Loading, In Transit, or Delayed will appear here.</small>
           </div>
         ) : (
-          <div className="geo3-grid geo3-grid-single">
-            <div className="geo3-left">
-              <div className="geo3-card geo3-status-card">
-                <h3>Active Shipments ({activeOrders.length})</h3>
+          /* Master-detail: the list stays in view (10 per page) while the
+             selected shipment's trip, map and details update in place on the
+             right. Each column scrolls on its own; nothing pops up. */
+          <div className="geo3-split">
+            <div className="geo3-card geo3-split-list">
+              <h3>Active Shipments ({activeOrders.length})</h3>
                 <div className="geo3-order-list">
-                  {activeOrders.map((order) => {
+                  {pageShipments.map((order) => {
                     const isActive = order.id === selectedId;
                     const stop = shipmentProgress(order);
                     return (
@@ -920,13 +651,8 @@ function DispatcherGeofence() {
                         key={order.id}
                         type="button"
                         className={`geo3-order-item ${isActive ? "active" : ""}`}
-                        aria-haspopup="dialog"
-                        aria-expanded={drawerOrderId === order.id && isActive}
-                        aria-controls={drawerOrderId === order.id && isActive ? "geo3-shipment-drawer" : undefined}
-                        onClick={() => {
-                          setSelectedId(order.id);
-                          setDrawerOrderId(order.id);
-                        }}
+                        aria-pressed={isActive}
+                        onClick={() => setSelectedId(order.id)}
                       >
                         <div className="geo3-order-item-head">
                           <strong>{order.orderNumber || order.id}</strong>
@@ -946,11 +672,250 @@ function DispatcherGeofence() {
                     );
                   })}
                 </div>
-              </div>
+              <PageNav page={currentListPage} total={activeOrders.length} onPageChange={setListPage} label="Active shipment pages" />
             </div>
 
-            {selected && drawerOrderId === selected.id && (
-              <ShipmentDrawer onDismiss={() => setDrawerOrderId(null)}>
+            <div className="geo3-split-detail" aria-label="Selected shipment">
+            <TripProgress progress={progress} riderName={selected?.assignedRiderName} selectedId={selectedId} />
+
+            {selected && getLatLng(selected.lastLocation) && (() => {
+              const riderLL = getLatLng(selected.lastLocation);
+              const clinicLL = getClinicLatLng(selected);
+              const distM = clinicLL ? distanceMeters(riderLL, clinicLL) : null;
+              const inside = distM != null && distM <= GEOFENCE_RADIUS_M;
+              return (
+                <div className="geo3-card geo3-live-map-card">
+                  <h3>Live map</h3>
+                  <RiderLocationMap
+                    lat={riderLL[0]}
+                    lng={riderLL[1]}
+                    clinicLat={hasTrip ? undefined : clinicLL ? clinicLL[0] : undefined}
+                    clinicLng={hasTrip ? undefined : clinicLL ? clinicLL[1] : undefined}
+                    routePolyline={hasTrip ? selected.tripPolyline : selected.routePolyline}
+                    stops={hasTrip ? tripStopMarkers : NO_STOPS}
+                  />
+                  {hasTrip && <p className="stop-progress-note">Stop markers: ✓ Delivered · P Proof recorded · ➜ Navigation target. The Rider’s position is the separate GPS dot.</p>}
+                  {clinicLL ? (
+                    <p className="geo3-live-map-note">
+                      <span className={inside ? "geo3-geofence-in" : "geo3-geofence-out"}>
+                        {inside
+                          ? "Inside geofence"
+                          : "Outside geofence"}
+                      </span>{" "}
+                      — rider is {Math.round(distM)} m from the destination
+                      (geofence radius {GEOFENCE_RADIUS_M} m)
+                      {isLocationStale(selected.lastLocationUpdate)
+                        ? "; last update is stale"
+                        : ""}
+                      .
+                    </p>
+                  ) : (
+                    <p className="geo3-live-map-note">
+                      Rider position only
+                      {isLocationStale(selected.lastLocationUpdate)
+                        ? " — last update is stale"
+                        : ""}
+                      . Add clinic coordinates in Admin → Clinics to show a
+                      destination marker + geofence.
+                    </p>
+                  )}
+
+                  {(() => {
+                    const hasStoredRoute =
+                      !!selected.routePolyline &&
+                      Number.isFinite(selected.routeDistanceMeters);
+                    const genAt = selected.routeGeneratedAt?.toDate
+                      ? selected.routeGeneratedAt.toDate()
+                      : null;
+                    const liveEta = genAt
+                      ? formatEta(genAt, selected.routeDurationSeconds)
+                      : selected.routeEtaText || "—";
+                    const canGenerate = !!clinicLL && fixIsFresh; // rider location present here
+                    return (
+                      <div className="geo3-live-route">
+                        <div className="geo3-live-route-head">
+                          <RouteIcon size={15} />
+                          <span>Route &amp; ETA</span>
+                        </div>
+
+                        {hasStoredRoute && (
+                          <div className="geo3-live-route-metrics">
+                            <div>
+                              <small>Distance</small>
+                              <strong className="tnum">
+                                {formatDistance(selected.routeDistanceMeters)}
+                              </strong>
+                            </div>
+                            <div>
+                              <small>Est. duration</small>
+                              <strong className="tnum">
+                                {formatDuration(selected.routeDurationSeconds)}
+                              </strong>
+                            </div>
+                            <div>
+                              <small>ETA</small>
+                              <strong className="tnum">{liveEta}</strong>
+                            </div>
+                          </div>
+                        )}
+
+                        {hasStoredRoute && genAt && (() => {
+                          // The arrival with the traffic buffer, against the requested time.
+                          const buffered = bufferedMinutes(selected.routeDurationSeconds, routing.trafficBufferPercent);
+                          const check = buffered === null ? null : arrivalCheck(selected, new Date(genAt.getTime() + buffered * 60000));
+                          return check ? (
+                            <p className={check.met || check.early ? "geo3-live-route-sub" : "geo3-live-route-error"} role="status">
+                              {check.met ? "✓ " : check.early ? "" : "✗ "}
+                              {check.text} With a {routing.trafficBufferPercent}% traffic buffer.
+                            </p>
+                          ) : null;
+                        })()}
+
+                        {hasStoredRoute && (
+                          <p className="geo3-live-route-sub">
+                            {savedRouteDescription(selected)}
+                            {genAt
+                              ? ` · generated ${formatRelativeTime(selected.routeGeneratedAt)}`
+                              : ""}
+                            .
+                          </p>
+                        )}
+
+                        {!ROUTE_CONFIGURED ? (
+                          <p className="geo3-live-route-missing">
+                            Route and ETA planning isn't set up for this site yet. Contact an administrator.
+                          </p>
+                        ) : (
+                          <>
+                            <p className="geo3-live-route-sub">Motorcycle routing for the below-400 cc fleet. Routes flagged as using highways, toll roads or ferries are rejected. {ROUTE_TIMING_NOTICE}</p>
+                            {hasTrip && riderStops.length >= 2 && (
+                              <p className="geo3-live-route-sub">
+                                The map shows the saved multi-stop trip. Use Re-optimize route below to refresh that trip.
+                              </p>
+                            )}
+                            <button
+                              type="button"
+                              className="geo3-live-route-btn"
+                              onClick={handleGenerateRoute}
+                              disabled={!canGenerate || routeBusy}
+                            >
+                              {routeBusy ? (
+                                <Loader2 size={14} className="spin" />
+                              ) : hasStoredRoute ? (
+                                <RefreshCw size={14} />
+                              ) : (
+                                <RouteIcon size={14} />
+                              )}
+                              {routeBusy
+                                ? "Generating…"
+                                : hasStoredRoute
+                                ? "Refresh route"
+                                : "Generate route & ETA"}
+                            </button>
+                            {!clinicLL ? (
+                              <p className="geo3-live-route-sub">
+                                Add clinic coordinates (Admin → Clinics) to
+                                enable routing to the destination.
+                              </p>
+                            ) : (
+                              !fixIsFresh && <p className="geo3-live-route-sub" role="status">{STALE_FIX_REASON}</p>
+                            )}
+                            {activeRouteError && (
+                              <p className="geo3-live-route-error" role="alert">{activeRouteError}</p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {riderStops.length >= 2 && (
+                    <div className="geo3-live-trip">
+                      <div className="geo3-live-route-head">
+                        <RouteIcon size={15} />
+                        <span>Multi-stop trip ({riderStops.length} stops)</span>
+                      </div>
+
+                      {hasTrip && (
+                        <>
+                          <p className="geo3-live-route-sub">{savedRouteDescription(selected, true)}</p>
+                          <div className="geo3-live-route-metrics">
+                            <div>
+                              <small>Total distance</small>
+                              <strong className="tnum">
+                                {formatDistance(selected.tripDistanceMeters)}
+                              </strong>
+                            </div>
+                            <div>
+                              <small>Total duration</small>
+                              <strong className="tnum">
+                                {formatDuration(selected.tripDurationSeconds)}
+                              </strong>
+                            </div>
+                            <div>
+                              <small>Stops</small>
+                              <strong className="tnum">{selected.tripStopCount}</strong>
+                            </div>
+                          </div>
+
+                        </>
+                      )}
+
+                      {!ROUTE_CONFIGURED ? (
+                        <p className="geo3-live-route-missing">
+                          Trip optimization isn't set up for this site yet. Contact an administrator.
+                        </p>
+                      ) : (
+                        <>
+                          <p className="geo3-live-route-sub">{TRIP_TIMING_NOTICE}</p>
+                          <button
+                            type="button"
+                            className="geo3-live-route-btn"
+                            onClick={handleOptimizeTrip}
+                            disabled={!canOptimize || tripBusy}
+                          >
+                            {tripBusy ? (
+                              <Loader2 size={14} className="spin" />
+                            ) : hasTrip ? (
+                              <RefreshCw size={14} />
+                            ) : (
+                              <RouteIcon size={14} />
+                            )}
+                            {tripBusy
+                              ? "Optimizing…"
+                              : hasTrip
+                              ? "Re-optimize route"
+                              : `Optimize route (${riderStops.length} stops)`}
+                          </button>
+                          {!canOptimize && (
+                            <p className="geo3-live-route-sub" role="status">
+                              {fixIsStale
+                                ? STALE_FIX_REASON
+                                : "Needs the rider's live location and at least two stops with clinic coordinates."}
+                            </p>
+                          )}
+                          {activeTripError && (
+                            <p className="geo3-live-route-error" role="alert">{activeTripError}</p>
+                          )}
+                          {activeTripNotice && (
+                            <p
+                              className={activeTripNotice.allMet ? "geo3-live-route-sub" : "geo3-live-route-error"}
+                              role="status"
+                            >
+                              {activeTripNotice.text}
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+
+              {selected && (
+                <>
                   <div className="geo3-card geo3-info-card">
                     <div className="geo3-card-head">
                       <h3>Shipment overview</h3>
@@ -1078,8 +1043,9 @@ function DispatcherGeofence() {
                       </p>
                     </div>
                   )}
-              </ShipmentDrawer>
-            )}
+                </>
+              )}
+            </div>
           </div>
         )}
       </section>

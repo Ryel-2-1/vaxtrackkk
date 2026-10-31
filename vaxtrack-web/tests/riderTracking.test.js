@@ -310,6 +310,17 @@ test("Live Tracking routes, nav entries and titles exist for Admin and Dispatche
   assert.match(app, /<Route path="\/admin\/live-tracking" element=\{<AdminLiveTracking \/>\} \/>/);
   assert.match(app, /<Route path="\/dispatcher\/live-tracking" element=\{<DispatcherLiveTracking \/>\} \/>/);
   assert.equal(/sales-rep\/live-tracking/.test(app), false);
+  // Med Rep has Live Monitoring (2026-11-01) — scoped to the rep's OWN orders,
+  // never the fleet: one location listener per rider carrying them (allowed
+  // by riderLocationViewers), no fleet list, no deviation states.
+  assert.match(app, /<Route path="\/sales-rep\/live-monitoring" element=\{<SalesRepLiveMonitoring \/>\} \/>/);
+  const rep = strip(read("src/pages/salesRep/SalesRepLiveMonitoring.jsx"));
+  assert.match(rep, /subscribeSalesRepOrders\(\s*uid,/);
+  assert.match(rep, /riderUidsOnDelivery\(orders \|\| \[\]\)/);
+  assert.match(rep, /subscribeRiderLocation\(\s*riderUid,/);
+  assert.match(rep, /buildFleet\(\{ orders, locations, deviations: null, riders: null, nowMs \}\)/);
+  assert.doesNotMatch(rep, /useRiderTrackingFeeds|subscribeAllRiderLocations|subscribeAllDeviationStates|subscribeDeliveries|subscribeRiders\b/);
+  assert.match(read("src/pages/salesRep/SalesRepShell.jsx"), /"\/sales-rep\/live-monitoring": \{ key: "monitoring", title: "Live Monitoring" \}/);
   const shell = read("src/components/admin/AdminShell.jsx");
   assert.match(shell, /"\/admin\/live-tracking": "Live Tracking"/);
   const sidebar = read("src/components/admin/AdminSidebar.jsx");

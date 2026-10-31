@@ -56,13 +56,18 @@ test("only working controls sit in the top bar", () => {
     assert.match(src, /className="[^"]*\bm-topbar-actions\b/, role);
     assert.match(src, /className=\{?[`"][^`"]*\bm-topbar-icon-btn\b/, `${role}: bell`);
   }
-  // Dispatcher keeps its global search. The Med Rep bar has none — it showed
-  // only on the Dashboard; every Med Rep page keeps its own search.
-  assert.match(shellCode("dispatcher"), /<form\s+className="[^"]*\bm-topbar-search\b[^"]*"\s+onSubmit=/, "dispatcher: search submits");
+  // Neither Dispatcher nor Med Rep has a top-bar search (Dispatcher's only
+  // navigated by keyword; removed 2026-10-31). Every page keeps its own search.
+  assert.doesNotMatch(shellCode("dispatcher"), /m-topbar-search|handleSearchSubmit/);
   assert.doesNotMatch(shellCode("salesrep"), /m-topbar-search|handleTopSearch|showSearch/);
-  // Admin has neither, so it gets the title alone — no decorative search/bell.
+  // Admin has no search; its one top-bar control is the alerts button, which
+  // opens the Alerts page and counts what needs review there (2026-10-31).
   const admin = shellCode("admin");
-  assert.doesNotMatch(admin, /m-topbar-search|m-topbar-icon-btn|m-topbar-actions/);
+  assert.doesNotMatch(admin, /m-topbar-search/);
+  assert.match(admin, /<div className="m-topbar-actions">\s*<AdminAlertsBell \/>\s*<\/div>/);
+  const bell = code("src/components/admin/AdminAlertsBell.jsx");
+  assert.match(bell, /<Link to="\/admin\/alerts" className="m-topbar-icon-btn admin-alerts-bell" aria-label=\{label\}/);
+  assert.match(bell, /const count = activeAlerts \+ exceptions;/);
   // The decorative chip on the Dispatcher bar is gone, and an unknown route
   // falls back to a real page title like Sales Rep does, not the old slogan.
   const dispatcher = code("src/pages/dispatcher/DispatcherLayout.jsx");

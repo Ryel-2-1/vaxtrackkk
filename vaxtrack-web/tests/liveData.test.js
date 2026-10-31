@@ -761,7 +761,7 @@ test("no page reloads the browser to show new data", () => {
 // The minimum argument count at which each listener receives an error callback.
 const WITH_ERROR = {
   subscribeActiveAlerts: 2, subscribeAllAlerts: 2, subscribeBackorderQueue: 2, subscribePendingReturns: 2,
-  subscribeAreas: 2, subscribeCargoLoadingGroups: 2, subscribeClinics: 2, subscribeDeliveries: 2,
+  subscribeAreas: 2, subscribeCargoLoadingGroups: 2, subscribeClinics: 2, subscribeDeliveries: 2, subscribeDeliveryExceptions: 2,
   subscribeDestinationCorrections: 3, subscribeDoctorAddresses: 3, subscribeDoctors: 2,
   subscribeLatestAnalyticsRun: 2, subscribeInventoryForecasts: 2, subscribeAnalyticsConfigs: 2,
   subscribeInventory: 2, subscribeInvoiceQueue: 2, subscribeInvoice: 3, subscribeAllocationEvents: 4,

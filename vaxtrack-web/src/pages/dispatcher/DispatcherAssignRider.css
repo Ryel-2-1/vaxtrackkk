@@ -83,8 +83,7 @@
   gap: 6px;
 }
 
-.dispatcher-main .arq-filter,
-.dispatcher-main .arq-pager button {
+.dispatcher-main .arq-filter {
   min-height: 34px !important;
   padding: 0 12px;
   border: 1px solid var(--gray-300);
@@ -102,10 +101,41 @@
   color: var(--green-800);
 }
 
-.arq-filter:focus-visible,
-.arq-pager button:focus-visible {
+.arq-filter:focus-visible {
   outline: 2px solid var(--green-600);
   outline-offset: 1px;
+}
+
+/* The queue body keeps ONE height (2026-10-31): the list scrolls inside it,
+   the shared pager is pinned to its foot, and a filter that leaves a few
+   orders — or none — never shrinks it. On a tall screen the page fits the
+   viewport without scrolling; on a short one it falls back to a fixed cap. */
+.arq-body {
+  --arq-body-h: min(62dvh, 640px);
+  display: flex;
+  flex-direction: column;
+  height: var(--arq-body-h);
+  min-height: 0;
+}
+@media (min-width: 1025px) {
+  .arq-body {
+    --arq-body-h: max(380px, calc(100dvh - var(--shell-topbar-height, 64px) - var(--arq-offset, 170px)));
+  }
+}
+.arq-body > .arq-list,
+.arq-body > .ar-state {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.arq-body > .arq-list {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.arq-body > .page-nav {
+  flex: none;
+  padding: 10px 16px;
+  border-top: 1px solid var(--gray-200);
 }
 
 .arq-list {
@@ -198,22 +228,6 @@
   margin: 0;
   padding: 0 14px;
   white-space: nowrap;
-}
-
-.arq-pager {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--gray-200);
-  color: var(--gray-600);
-  font-size: 13px;
-}
-
-.arq-pager button:disabled {
-  color: var(--gray-500);
-  cursor: not-allowed;
 }
 
 /* ---------- assignment dialog ---------- */

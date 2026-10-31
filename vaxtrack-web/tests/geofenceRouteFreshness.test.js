@@ -27,8 +27,13 @@ test("Generate route and Re-optimize refuse a stale or undated rider fix", () =>
   }
 });
 
-test("the shipment drawer renders through DispatcherDialogLayer", () => {
-  assert.match(page, /import DispatcherDialogLayer from "\.\/DispatcherDialogLayer";/);
-  assert.doesNotMatch(page, /geo3-drawer-scope|<DialogLayer\b/);
-  assert.match(page, /return \(\s*<DispatcherDialogLayer>\s*<div className="geo3-drawer-overlay">/);
+test("shipment details render in place beside the list — no pop-up drawer", () => {
+  // Master-detail (2026-10-31): selecting a shipment updates the right column;
+  // the drawer (and its dialog layer) is gone.
+  assert.doesNotMatch(page, /ShipmentDrawer|geo3-drawer|drawerOrderId|<DialogLayer\b|DispatcherDialogLayer/);
+  assert.match(page, /<div className="geo3-split">\s*<div className="geo3-card geo3-split-list">/);
+  assert.match(page, /\{pageShipments\.map\(\(order\) => \{/);
+  assert.match(page, /aria-pressed=\{isActive\}\s*onClick=\{\(\) => setSelectedId\(order\.id\)\}/);
+  assert.match(page, /<PageNav page=\{currentListPage\} total=\{activeOrders\.length\} onPageChange=\{setListPage\} label="Active shipment pages" \/>/);
+  assert.match(page, /<div className="geo3-split-detail" aria-label="Selected shipment">[\s\S]*?<TripProgress[\s\S]*?Shipment overview/);
 });

@@ -2,8 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
-  ChevronDown,
-  Filter,
+  RotateCcw,
   Search,
   Truck,
   X,
@@ -25,6 +24,11 @@ import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 import { subscribeOrderStatusEvents } from "../../services/statusEventService";
 import { kpiValue, liveErrorMessage } from "../../services/liveDataErrors";
 import "./Deliveries.css";
+
+// The "Preparing" card counts — and its filter shows — orders not yet on the
+// road: pending dispatch, assigned or loading.
+const PREPARING_FILTER = "preparing";
+const PREPARING_STATUSES = new Set(["pending_dispatch", "assigned", "loading"]);
 
 function normalizeDelivery(raw) {
   const riderName = raw.assignedRiderName || "Unassigned";
@@ -134,7 +138,6 @@ function Deliveries() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
-  const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [selectedDelivery, setSelectedDelivery] = useState(null);
   // An alert’s "Open delivery" link (/admin/deliveries?order=<order id>)
   // opens that order’s drawer as soon as the live list has it. Derived, not
@@ -190,7 +193,9 @@ function Deliveries() {
       // what the list shows. The old four buckets meant "In transit" also
       // returned delivered orders and "Delayed" also returned cancelled ones.
       const matchesStatus =
-        statusFilter === "all" || delivery.statusType === statusFilter;
+        statusFilter === "all" ||
+        (statusFilter === PREPARING_FILTER && PREPARING_STATUSES.has(delivery.statusType)) ||
+        delivery.statusType === statusFilter;
       return matchesSearch && matchesStatus;
     });
   }, [deliveryList, searchTerm, statusFilter]);
@@ -206,19 +211,15 @@ function Deliveries() {
   const kpiState = { loading, error: loadError };
   const delayedCount = countOf("delayed");
   const failedCount = countOf("delivery_failed");
-  const preparingCount =
-    countOf("pending_dispatch") + countOf("assigned") + countOf("loading");
+  const preparingCount = deliveryList.filter((d) => PREPARING_STATUSES.has(d.statusType)).length;
   const unknownCount = countOf(UNKNOWN_STATUS_KEY);
-
-  // The banner covers orders that have stopped and need a person: delayed and
-  // failed. A cancelled order is closed, not stalled, and used to be counted here.
-  const needsReview = useMemo(
-    () =>
-      deliveryList.filter(
-        (d) => d.statusType === "delayed" || d.statusType === "delivery_failed"
-      ),
-    [deliveryList]
-  );
+  // Delayed and failed deliveries are listed on the Alerts page (Delivery
+  // exceptions) and counted on the top bar's bell — no banner here.
+  const filtersActive = statusFilter !== "all" || searchTerm !== "";
+  const resetFilters = () => {
+    setStatusFilter("all");
+    setSearchTerm("");
+  };
 
   // Every stop in the selected order's trip, numbered by visiting order. Admin
   // can read all orders, so it plots the whole tour; the map falls back to the
@@ -243,13 +244,6 @@ function Deliveries() {
     <main className="deliveries-v4-page">
 
         <header className="mdl-header">
-          <div>
-            {/* Was "Monitor and route active cold-chain shipments." Admin does
-                not route anything and this page performs no cold-chain
-                measurement; it reads the orders collection. */}
-            <p>Review every order and its current status. Eligible orders can be cancelled before loading.</p>
-          </div>
-
           {/* A "New delivery" button stood here and raised a toast explaining
               that deliveries are created elsewhere. A control that cannot do
               the thing it is labelled with is not a control — the same fact is
@@ -259,36 +253,64 @@ function Deliveries() {
           </p>
         </header>
 
-        {needsReview.length > 0 && (
-          <section className="mdl-banner mdl-banner-danger">
-            <AlertTriangle size={16} aria-hidden="true" />
-            <div>
-              <strong>
-                {needsReview.length} deliver{needsReview.length === 1 ? "y" : "ies"}{" "}
-                stopped and need{needsReview.length === 1 ? "s" : ""} review
-              </strong>
-              {/* Names the two statuses it covers, so the figure can be checked
-                  against the cards below it. It used to say "delayed" while
-                  counting cancelled orders too. */}
-              <p>
-                {delayedCount} delayed, {failedCount} failed. Oldest:{" "}
-                {needsReview[0].id}.
-              </p>
-            </div>
-            {/* The order number stays in the sentence above rather than in the
-                label: at 375px a button carrying a full VT-ORD- number is wider
-                than the banner can give it. */}
-            <button
-              type="button"
-              className="mdl-btn mdl-btn-danger-ghost"
-              onClick={() => setSelectedDelivery(needsReview[0])}
-              aria-label={`Review ${needsReview[0].id}`}
-            >
-              Review
-            </button>
-          </section>
-        )}
+        <section className="deliveries-summary-grid">
+          <KpiCard
+            label="Total deliveries"
+            value={kpiValue(deliveryList.length, kpiState)}
+            context="All orders"
+            tone="neutral"
+            active={statusFilter === "all"}
+            onClick={() => setStatusFilter("all")}
+          />
 
+          {/* "In transit" counted delivered and completed orders too, so
+              finished deliveries were reported as on route. It now counts the
+              one status it names. */}
+          <KpiCard
+            label="In transit"
+            value={kpiValue(inTransitCount, kpiState)}
+            context="On route"
+            tone="info"
+            active={statusFilter === "in_transit"}
+            onClick={() => setStatusFilter("in_transit")}
+          />
+
+          {/* "Delayed" counted cancelled orders as well, which both overstated
+              the figure and put closed orders behind a "Needs review" label. */}
+          <KpiCard
+            label="Delayed"
+            value={kpiValue(delayedCount, kpiState)}
+            context="Still open"
+            tone="danger"
+            attention={delayedCount > 0}
+            active={statusFilter === "delayed"}
+            onClick={() => setStatusFilter("delayed")}
+          />
+
+          {/* A canonical status with no count anywhere before this pass: a
+              failed delivery was in the total and in the filter, and in no card. */}
+          <KpiCard
+            label="Delivery failed"
+            value={kpiValue(failedCount, kpiState)}
+            context="Rider stopped"
+            tone="danger"
+            attention={failedCount > 0}
+            active={statusFilter === "delivery_failed"}
+            onClick={() => setStatusFilter("delivery_failed")}
+          />
+
+          <KpiCard
+            label="Preparing"
+            value={kpiValue(preparingCount, kpiState)}
+            context="Pending, assigned or loading"
+            tone="warning"
+            active={statusFilter === PREPARING_FILTER}
+            onClick={() => setStatusFilter(PREPARING_FILTER)}
+          />
+        </section>
+
+        {/* The cards above are the status tabs; this row refines them: search,
+            any single status (including those no card covers) and Reset. */}
         <section className="mdl-filterbar">
           <label className="mdl-search">
             <Search size={15} />
@@ -301,6 +323,7 @@ function Deliveries() {
 
           <select
             className="mdl-select"
+            aria-label="Filter by status"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
@@ -309,6 +332,7 @@ function Deliveries() {
                 offered too — a document carrying a value the system does not
                 define is findable rather than buried in another bucket. */}
             <option value="all">All statuses</option>
+            <option value={PREPARING_FILTER}>Preparing (pending, assigned or loading)</option>
             {ORDER_STATUSES.map((key) => (
               <option key={key} value={key}>
                 {STATUS_LABELS[key]}
@@ -317,101 +341,15 @@ function Deliveries() {
             <option value={UNKNOWN_STATUS_KEY}>{UNKNOWN_STATUS_LABEL}</option>
           </select>
 
-          {/* The region select was removed with the field behind it. `region` is
-              written only by the superseded client order path, so no order
-              created today has one and the list was permanently empty. */}
-
           <button
             type="button"
             className="mdl-btn mdl-btn-secondary"
-            onClick={() => setShowMoreFilters((prev) => !prev)}
+            onClick={resetFilters}
+            disabled={!filtersActive}
           >
-            <Filter size={14} />
-            More filters
-            <ChevronDown size={14} />
+            <RotateCcw size={14} aria-hidden="true" />
+            Reset filters
           </button>
-        </section>
-
-        {showMoreFilters && (
-          <section className="mdl-quickfilters">
-            <button
-              type="button"
-              className="mdl-chip"
-              onClick={() => setStatusFilter("delayed")}
-            >
-              Show delayed only
-            </button>
-
-            <button
-              type="button"
-              className="mdl-chip"
-              onClick={() => setStatusFilter("transit")}
-            >
-              Show in-transit only
-            </button>
-
-            <button
-              type="button"
-              className="mdl-chip"
-              onClick={() => {
-                setStatusFilter("all");
-                setSearchTerm("");
-              }}
-            >
-              Reset filters
-            </button>
-          </section>
-        )}
-
-        <section className="deliveries-summary-grid">
-          <KpiCard
-            label="Total deliveries"
-            value={kpiValue(deliveryList.length, kpiState)}
-            context="All orders"
-            tone="neutral"
-            onClick={() => setStatusFilter("all")}
-          />
-
-          {/* "In transit" counted delivered and completed orders too, so
-              finished deliveries were reported as on route. It now counts the
-              one status it names. */}
-          <KpiCard
-            label="In transit"
-            value={kpiValue(inTransitCount, kpiState)}
-            context="On route"
-            tone="info"
-            onClick={() => setStatusFilter("in_transit")}
-          />
-
-          {/* "Delayed" counted cancelled orders as well, which both overstated
-              the figure and put closed orders behind a "Needs review" label. */}
-          <KpiCard
-            label="Delayed"
-            value={kpiValue(delayedCount, kpiState)}
-            context="Still open"
-            tone="danger"
-            attention={delayedCount > 0}
-            onClick={() => setStatusFilter("delayed")}
-          />
-
-          {/* A canonical status with no count anywhere before this pass: a
-              failed delivery was in the total and in the filter, and in no card. */}
-          <KpiCard
-            label="Delivery failed"
-            value={kpiValue(failedCount, kpiState)}
-            context="Rider stopped"
-            tone="danger"
-            attention={failedCount > 0}
-            onClick={() => setStatusFilter("delivery_failed")}
-          />
-
-          <KpiCard
-            label="Preparing"
-            value={kpiValue(preparingCount, kpiState)}
-            context="Pending, assigned or loading"
-            tone="warning"
-            onClick={() => setStatusFilter("pending_dispatch")}
-          />
         </section>
 
         {/* Only rendered when such a document exists, so it is a real finding

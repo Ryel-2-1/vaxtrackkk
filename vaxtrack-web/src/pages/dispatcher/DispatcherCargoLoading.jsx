@@ -399,7 +399,8 @@ function DispatcherCargoLoading() {
                 />
               ))}
             </div>
-            {groups.length > pageSize && (
+            {/* Always shown, so its place under the cards never changes. */}
+            {groups.length > 0 && (
               <nav className="cl-pagination" aria-label="Cargo loading pages">
                 <span>Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, groups.length)} of {groups.length} riders</span>
                 <div>

@@ -1,13 +1,28 @@
-import { useRef, useState } from "react";
-import { X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Search, X } from "lucide-react";
 import DialogLayer from "../ui/DialogLayer";
 import { useDialogFocus } from "../ui/useDialogFocus";
 import "./catalogFilterDialog.css";
+
+// How long the type search waits after the last keystroke before filtering.
+const TYPE_SEARCH_DEBOUNCE_MS = 150;
 
 function FilterDialogContent({ title, types, selectedTypes, status, statusOptions, expiry, expiryOptions, onApply, onClose }) {
   const dialogRef = useRef(null);
   const [draft, setDraft] = useState({ types: selectedTypes, status, expiry });
   useDialogFocus({ dialogRef, onDismiss: onClose });
+
+  // Type search: narrows the checkbox list as the rep types (debounced, so a
+  // long list is not re-filtered on every keystroke). It only hides options —
+  // a ticked type stays ticked while hidden, and Apply sends every tick.
+  const [typeQuery, setTypeQuery] = useState("");
+  const [shownQuery, setShownQuery] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setShownQuery(typeQuery), TYPE_SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [typeQuery]);
+  const needle = shownQuery.trim().toLowerCase();
+  const visibleTypes = needle ? types.filter((type) => type.toLowerCase().includes(needle)) : types;
 
   const toggleType = (type) => setDraft((current) => ({
     ...current,
@@ -42,9 +57,23 @@ function FilterDialogContent({ title, types, selectedTypes, status, statusOption
         )}
         <fieldset className="catalog-filter-types">
           <legend>Vaccine types <span>(select any number)</span></legend>
-          {types.length === 0 ? <p>No vaccine types available.</p> : (
+          {types.length > 0 && (
+            <label className="catalog-filter-type-search">
+              <Search size={15} aria-hidden="true" />
+              <input
+                type="search"
+                value={typeQuery}
+                onChange={(event) => setTypeQuery(event.target.value)}
+                placeholder="Search vaccine type..."
+                aria-label="Search vaccine types"
+              />
+            </label>
+          )}
+          {types.length === 0 ? <p>No vaccine types available.</p> : visibleTypes.length === 0 ? (
+            <p className="catalog-filter-type-none" role="status">No vaccine type matches &ldquo;{shownQuery.trim()}&rdquo;.</p>
+          ) : (
             <div className="catalog-filter-type-list">
-              {types.map((type) => (
+              {visibleTypes.map((type) => (
                 <label key={type} className={draft.types.includes(type) ? "is-selected" : ""}>
                   <input type="checkbox" checked={draft.types.includes(type)} onChange={() => toggleType(type)} />
                   {type}
@@ -55,7 +84,7 @@ function FilterDialogContent({ title, types, selectedTypes, status, statusOption
           <small>No selection shows every type.</small>
         </fieldset>
         <footer className="catalog-filter-actions">
-          <button type="button" onClick={() => setDraft({ types: [], status: statusOptions?.[0]?.value ?? "all", expiry: expiryOptions?.[0]?.value ?? "all" })}>Clear filters</button>
+          <button type="button" onClick={() => { setDraft({ types: [], status: statusOptions?.[0]?.value ?? "all", expiry: expiryOptions?.[0]?.value ?? "all" }); setTypeQuery(""); setShownQuery(""); }}>Clear filters</button>
           <button type="button" className="catalog-filter-apply" onClick={() => onApply(draft)}>Apply filters</button>
         </footer>
       </section>

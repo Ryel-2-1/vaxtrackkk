@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  CalendarClock,
   CalendarDays,
-  Clock,
   Loader2,
   Package,
   X,
@@ -15,21 +13,13 @@ import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../serv
 import { ORDER_STATUSES, STATUS_LABELS } from "../../services/orderWorkflow";
 import { addMonths, isInMonth, manilaToday, monthOf } from "../../services/deliveryCalendar";
 import {
-  dispatchEligibility,
-  isEarlyDispatchAnomaly,
-  SCHEDULED_DATE_NOT_REACHED,
-} from "../../services/dispatchEligibility";
-import {
   PRIORITY_FILTERS,
   calendarCounts,
   calendarDay,
-  canReschedule,
-  eventDestination,
   filterCalendarOrders,
   isUrgent,
   medRepNameFor,
   originalRequestNote,
-  priorityLabel,
   scheduleLabel,
   scheduledDateOf,
   scheduledTimeOf,
@@ -42,9 +32,8 @@ import MonthCalendar from "../ui/MonthCalendar";
 import PageNav, { PAGE_SIZE } from "../ui/PageNav";
 import { useDialogFocus } from "../ui/useDialogFocus";
 import AdminDialogLayer from "../admin/AdminDialogLayer";
-import StatusBadge from "../ui/StatusBadge";
+import DeliveryEventCard from "./DeliveryEventCard";
 import { capitalizedOrderPhrase, orderDestination, orderReference } from "../../services/orderLabel";
-import { requestedArrivalLabel, requestedArrivalOf } from "../../services/requestedArrival";
 import "./DeliveryCalendar.css";
 
 /**
@@ -59,25 +48,6 @@ import "./DeliveryCalendar.css";
  * Urgent orders are listed first and marked, but urgency changes no figure.
  */
 
-// Statuses still waiting to (re-)enter dispatch, where a blocked date matters.
-const PRE_DISPATCH = new Set(["pending_dispatch", "assigned", "loading", "delivery_failed"]);
-
-// The schedule's own reading of an order, from the same rule the dispatch
-// queue, the services and firestore.rules apply. Null when there is nothing
-// to add to the status badge.
-function scheduleNote(order, now) {
-  const schedule = dispatchEligibility(order, now);
-  if (isEarlyDispatchAnomaly(order, order.statusKey, now)) {
-    return { tone: "anomaly", text: "Early dispatch — dispatched before its scheduled date" };
-  }
-  if (!PRE_DISPATCH.has(order.statusKey) || schedule.eligible) return null;
-  if (schedule.code === SCHEDULED_DATE_NOT_REACHED) {
-    return { tone: "hold", text: "Upcoming — not dispatchable until 00:00 that day" };
-  }
-  // Missing or invalid: the exact operator message from the shared rule.
-  return { tone: "anomaly", text: schedule.message };
-}
-
 function longDate(iso) {
   const d = new Date(`${iso}T00:00:00.000Z`);
   if (Number.isNaN(d.getTime())) return iso;
@@ -88,76 +58,6 @@ function longDate(iso) {
     year: "numeric",
     timeZone: "UTC",
   });
-}
-
-function Field({ label, value }) {
-  return (
-    <div className="dcal-field">
-      <dt>{label}</dt>
-      <dd className={value ? "" : "dcal-field-missing"}>{value || "Not recorded"}</dd>
-    </div>
-  );
-}
-
-function EventCard({ order, now, medRep, isAdmin, onReschedule }) {
-  const urgent = isUrgent(order);
-  const where = eventDestination(order);
-  const original = originalRequestNote(order);
-  const note = scheduleNote(order, now);
-  const titleId = `dcal-ev-${order.id}`;
-
-  return (
-    <li className={`dcal-event${urgent ? " dcal-event-urgent" : ""}`} aria-labelledby={titleId}>
-      <div className="dcal-event-head">
-        <strong id={titleId} className="dcal-event-id">{orderReference(order, orderDestination(order) || "Order without a number")}</strong>
-        <span className={`dcal-priority${urgent ? " dcal-priority-urgent" : ""}`}>
-          {urgent ? <AlertTriangle size={12} aria-hidden="true" /> : null}
-          {priorityLabel(order)}
-        </span>
-        <StatusBadge statusKey={order.statusKey} />
-      </div>
-
-      <p className="dcal-event-when">
-        <Clock size={13} aria-hidden="true" />
-        <span className="tnum">{scheduleLabel(order)}</span>
-        {!scheduledTimeOf(order) && scheduledDateOf(order) ? (
-          <span className="dcal-muted"> · no set time</span>
-        ) : null}
-      </p>
-      {original ? <p className="dcal-event-original">{original}</p> : null}
-
-      <dl className="dcal-fields">
-        {/* The Med Rep's requested ARRIVAL at the destination — separate from
-            any time an Admin schedule sets above. */}
-        <Field label="Requested arrival" value={requestedArrivalLabel(requestedArrivalOf(order))} />
-        <Field label="Doctor" value={where.doctor} />
-        <Field label="Clinic" value={where.clinic} />
-        <Field label="Location" value={where.location} />
-        <Field label="Med Rep" value={medRep} />
-      </dl>
-
-      {note ? (
-        <p className={note.tone === "anomaly" ? "dcal-note dcal-note-anomaly" : "dcal-note"}>
-          {note.text}
-        </p>
-      ) : null}
-
-      {isAdmin ? (
-        canReschedule(order) ? (
-          <button
-            type="button"
-            className="dcal-action"
-            onClick={(e) => onReschedule(order, e.currentTarget)}
-          >
-            <CalendarClock size={14} aria-hidden="true" />
-            Change date &amp; time
-          </button>
-        ) : (
-          <p className="dcal-muted dcal-closed-note">Closed orders keep their final schedule.</p>
-        )
-      ) : null}
-    </li>
-  );
 }
 
 function RescheduleDialog({ order, todayIso, onClose, onSaved }) {
@@ -438,17 +338,9 @@ function DeliveryCalendar({ role }) {
 
   return (
     <div className="dcal">
-      {/* The shell top bar owns the page <h1>; this is the intro line only. */}
-      <header className="dcal-head">
-        <div>
-          <p>
-            Orders appear on their scheduled day — the date the Med Rep requested,
-            unless an Admin has since changed it. Dates and times are Asia/Manila.
-            Urgent orders are listed first.
-          </p>
-        </div>
-      </header>
-
+      {/* The shell top bar owns the page <h1>. The toolbar matches the Med Rep
+          Delivery planner's: Status and Priority on the left, the count and
+          legend on the right. (The intro line was removed 2026-10-31.) */}
       <div className="dcal-filters" role="group" aria-label="Calendar filters">
         <label className="dcal-filter">
           Status
@@ -485,11 +377,17 @@ function DeliveryCalendar({ role }) {
             Clear filters
           </button>
         ) : null}
-        {!loading && !error ? (
-          <p className="dcal-filter-summary" aria-live="polite">
-            {filtered.length} of {deliveries.length} order{deliveries.length === 1 ? "" : "s"} shown
-          </p>
-        ) : null}
+        <div className="dcal-filter-meta">
+          {!loading && !error ? (
+            <p className="dcal-filter-summary" aria-live="polite">
+              {filtered.length} of {deliveries.length} order{deliveries.length === 1 ? "" : "s"} shown
+            </p>
+          ) : null}
+          <span className="dcal-legend">
+            <CalendarDays size={14} aria-hidden="true" />
+            Numbers = scheduled orders · red dot = urgent
+          </span>
+        </div>
       </div>
 
       {notice ? (
@@ -559,7 +457,7 @@ function DeliveryCalendar({ role }) {
               ) : (
                 <ul className="dcal-list dcal-day-list">
                   {pageDayOrders.map((o) => (
-                    <EventCard
+                    <DeliveryEventCard
                       key={o.id}
                       order={o}
                       now={now}
@@ -591,7 +489,7 @@ function DeliveryCalendar({ role }) {
               ) : (
                 <ul className="dcal-list dcal-list-scroll">
                   {pageUnscheduled.map((o) => (
-                    <EventCard
+                    <DeliveryEventCard
                       key={o.id}
                       order={o}
                       now={now}

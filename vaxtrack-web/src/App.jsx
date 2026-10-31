@@ -47,6 +47,7 @@ const SalesRepRequestOrder = lazy(() => import("./pages/salesRep/SalesRepRequest
 const SalesRepPlaceOrder = lazy(() => import("./pages/salesRep/SalesRepPlaceOrder"));
 const SalesRepOrderConfirmation = lazy(() => import("./pages/salesRep/SalesRepOrderConfirmation"));
 const SalesRepOrderTracking = lazy(() => import("./pages/salesRep/SalesRepOrderTracking"));
+const SalesRepLiveMonitoring = lazy(() => import("./pages/salesRep/SalesRepLiveMonitoring"));
 const SalesRepOrderHistory = lazy(() => import("./pages/salesRep/SalesRepOrderHistory"));
 const SalesRepAlerts = lazy(() => import("./pages/salesRep/SalesRepAlerts"));
 const SalesRepSettings = lazy(() => import("./pages/salesRep/SalesRepSettings"));
@@ -129,6 +130,7 @@ function App() {
               <Route path="/sales-rep/place-order" element={<SalesRepPlaceOrder />} />
               <Route path="/sales-rep/order-confirmation" element={<SalesRepOrderConfirmation />} />
               <Route path="/sales-rep/order-tracking" element={<SalesRepOrderTracking />} />
+              <Route path="/sales-rep/live-monitoring" element={<SalesRepLiveMonitoring />} />
               <Route path="/sales-rep/order-history" element={<SalesRepOrderHistory />} />
               <Route path="/sales-rep/alerts" element={<SalesRepAlerts />} />
               <Route path="/sales-rep/settings" element={<SalesRepSettings />} />

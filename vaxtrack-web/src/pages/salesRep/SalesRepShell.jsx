@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   LogOut,
   MapPin,
+  MapPinned,
   Settings,
   Truck,
 } from "lucide-react";
@@ -36,6 +37,7 @@ const ROUTE_META = {
   "/sales-rep/place-order": { key: "request", title: "Checkout" },
   "/sales-rep/order-confirmation": { key: "request", title: "Order Confirmation" },
   "/sales-rep/order-tracking": { key: "tracking", title: "Order Tracking" },
+  "/sales-rep/live-monitoring": { key: "monitoring", title: "Live Monitoring" },
   "/sales-rep/order-history": { key: "history", title: "Order History" },
   "/sales-rep/alerts": { key: "alerts", title: "Alerts" },
   "/sales-rep/settings": { key: "settings", title: "Settings" },
@@ -161,6 +163,11 @@ function SalesRepShell() {
           <Link className={active === "tracking" ? "active" : ""} to="/sales-rep/order-tracking">
             <MapPin size={17} />
             <span>Order Tracking</span>
+          </Link>
+
+          <Link className={active === "monitoring" ? "active" : ""} to="/sales-rep/live-monitoring">
+            <MapPinned size={17} />
+            <span>Live Monitoring</span>
           </Link>
 
           <Link className={active === "history" ? "active" : ""} to="/sales-rep/order-history">

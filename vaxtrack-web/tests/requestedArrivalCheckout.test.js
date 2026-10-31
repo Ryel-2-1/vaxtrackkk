@@ -191,7 +191,8 @@ test("Med Rep and Dispatcher screens show the requested arrival", () => {
     ["src/pages/dispatcher/DispatcherAssignRider.jsx", /<span>Requested arrival<\/span>/],
     ["src/pages/dispatcher/DispatcherCargoLoading.jsx", /Requested arrival: \{requestedScheduleLabel\(order\.requestedDeliveryDate, requestedArrivalOf\(order\)\)\}/],
     ["src/components/dispatch/TripProgress.jsx", /Requested: \{requestedArrivalLabel\(requestedArrivalOf\(stop\.order\)\)\}/],
-    ["src/components/schedule/DeliveryCalendar.jsx", /<Field label="Requested arrival" value=\{requestedArrivalLabel\(requestedArrivalOf\(order\)\)\} \/>/],
+    // The calendar card, shared by Admin/Dispatcher's calendar and the Med Rep planner.
+    ["src/components/schedule/DeliveryEventCard.jsx", /<Field label="Requested arrival" value=\{requestedArrivalLabel\(requestedArrivalOf\(order\)\)\} \/>/],
   ]) {
     assert.match(read(file), pattern, file);
   }

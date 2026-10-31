@@ -1341,19 +1341,31 @@ aside.salesrep-sidebar .salesrep-logout {
 .salesrep-main .inventory-v2-table th {
   border-bottom: 1px solid var(--gray-300) !important;
 }
-/* Pagination: only the current page is rendered. The table and footer follow
-   its rows in normal page flow, without a second vertical scrollbar.
+/* Pagination: only the current page (10 rows) is rendered, inside a box of
+   one FIXED height — the header plus 7½ rows, so the half row shows there is
+   more to scroll. Rows scroll inside it under a sticky header; a short last
+   page or a narrow filter never changes the box, so the toolbar, callouts,
+   cards above and the pager below stay exactly where they are.
    Cell content is bounded to fit (the name opens a details dialog; dates,
-   quantities and status do not wrap; batch IDs use at most two lines).
-   The table is `table-layout: fixed` with a 720px minimum, so column widths
-   never depend on the rows shown. Sizes are px, like the type they hold, so
-   browser zoom scales them together. */
+   quantities and status do not wrap; batch IDs use at most two lines), so
+   every row is exactly --inv-row-h tall. The table is `table-layout: fixed`
+   with a 720px minimum, so column widths never depend on the rows shown.
+   Sizes are px, like the type they hold, so browser zoom scales them
+   together. */
 .salesrep-main .inventory-v2-table-region {
   --inv-head-h: 52px;
   --inv-row-h: 77px;
-  height: fit-content;
+  height: calc(var(--inv-head-h) + 7.5 * var(--inv-row-h));
   min-height: 0;
-  overflow-y: visible;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.salesrep-main .inventory-v2-table-region thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--gray-50, #f9fafb);
 }
 .salesrep-main .inventory-v2-page-nav {
   padding: 0 20px;
@@ -1614,25 +1626,58 @@ aside.salesrep-sidebar .salesrep-logout {
 .salesrep-main .tracking-v2-side {
   border: 1px solid var(--gray-300) !important;
 }
+/* Two independent scroll areas of ONE fixed height (2026-10-31): the order
+   table (rows scroll under a sticky header; the pager is pinned to the card's
+   foot) and, on desktop, the selected-order panel beside it. A filter that
+   leaves one row never shrinks the card, so the pager never moves. On a tall
+   screen both fit the viewport and the page itself does not scroll; on a
+   short one the page still scrolls, so nothing is ever cut off. */
+.salesrep-main .tracking-v2-layout {
+  --trk-pane-h: min(62dvh, 640px);
+}
+@media (min-width: 1201px) {
+  .salesrep-main .tracking-v2-layout {
+    --trk-pane-h: max(380px, calc(100dvh - var(--shell-topbar-height) - var(--trk-offset, 190px)));
+    align-items: stretch !important;
+  }
+  .salesrep-main .tracking-v2-side {
+    position: static !important;
+    height: var(--trk-pane-h);
+    max-height: none !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+  }
+}
 .salesrep-main .tracking-v2-table-wrap {
-  height: fit-content;
+  display: flex;
+  flex-direction: column;
+  height: var(--trk-pane-h);
+  max-height: none;
   overflow: hidden !important;
 }
 .salesrep-main .tracking-v2-table-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
   width: 100%;
-  overflow-x: auto;
+  overflow: auto;
+  overscroll-behavior: contain;
   scrollbar-gutter: stable;
 }
-@media (min-width: 1201px) {
-  .salesrep-main .tracking-v2-table-scroll {
-    max-height: max(240px, calc(100dvh - var(--shell-topbar-height) - 225px));
-    overflow-y: auto;
-  }
-  .salesrep-main .tracking-v2-table thead th {
-    position: sticky;
-    top: 0;
-    z-index: 1;
-  }
+.salesrep-main .tracking-v2-table-wrap > .page-nav {
+  flex: none;
+}
+.salesrep-main .tracking-v2-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+/* Status fits its longest label ("Pending Dispatch") on one line. */
+.salesrep-main .tracking-v2-table th:nth-child(4),
+.salesrep-main .tracking-v2-table td:nth-child(4) {
+  width: 150px !important;
+}
+.salesrep-main .tracking-v2-table td:nth-child(4) .m-badge {
+  max-width: none;
 }
 .salesrep-main .tracking-v2-table th,
 .salesrep-main .tracking-v2-table td {
@@ -1732,16 +1777,42 @@ aside.salesrep-sidebar .salesrep-logout {
   border-radius: var(--radius-card);
   background: #fff;
 }
+/* One FIXED table height (2026-10-31): rows scroll inside under a sticky
+   header, the pager sits directly below, and a filter that leaves 3 rows —
+   or none, or the loading state — keeps the same footprint, so nothing
+   below moves. On a tall screen the page then fits without scrolling. */
+.salesrep-order-history {
+  --ohx-list-h: min(62dvh, 640px);
+}
 @media (min-width: 1201px) {
-  .salesrep-order-history .ohx-list-table-wrap {
-    max-height: max(220px, calc(100dvh - var(--shell-topbar-height) - 365px));
-    overflow-y: auto;
+  .salesrep-order-history {
+    --ohx-list-h: max(320px, calc(100dvh - var(--shell-topbar-height) - var(--ohx-list-offset, 300px)));
   }
-  .salesrep-order-history .ohx-list-table-wrap thead th {
-    position: sticky;
-    top: 0;
-    z-index: 1;
-  }
+}
+.salesrep-order-history .ohx-list-table-wrap {
+  height: var(--ohx-list-h);
+  max-height: none;
+  overflow-y: auto;
+}
+.salesrep-order-history .ohx-list-table-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.salesrep-order-history .ohx > .ohx-state {
+  min-height: var(--ohx-list-h);
+  box-sizing: border-box;
+}
+/* A tighter filter row: the single search row now holds every control. */
+.salesrep-order-history .ohx-filter-dock {
+  gap: 8px;
+}
+.salesrep-order-history .ohx-filters {
+  padding: 8px 12px;
+  gap: 8px 10px;
+}
+.salesrep-order-history .ohx > .ohx-muted {
+  margin: 0;
 }
 .salesrep-order-history .ohx-card > h2,
 .salesrep-order-history .ohx-receipt-head {
@@ -2940,4 +3011,25 @@ body:has(> #root > .salesrep-page),
     overflow-x: clip !important;
     overflow-y: visible !important;
   }
+}
+
+/* Delivery planner (2026-10-31): with the description removed, the Status and
+   Priority filters sit directly under the title and share the row with the
+   "N of N orders shown" summary and legend when they fit. */
+.salesrep-main .srd-planner-controls-main {
+  flex: 0 1 auto;
+}
+/* The selected day's orders use the shared DeliveryEventCard (as on the
+   Dispatcher/Admin calendar); this is only the list wrapper. */
+.salesrep-main .srd-planner-events {
+  margin: 0;
+  padding: 0 4px 0 0;
+  list-style: none;
+}
+
+/* Live Monitoring (2026-11-01): the shared Live Tracking layout (LiveTracking
+   .css). No summary-card row here, so the map starts higher: a smaller offset
+   lets the map and sidebar fill the viewport below the top bar. */
+.salesrep-main .srl-monitor {
+  --ltp-offset: 60px;
 }

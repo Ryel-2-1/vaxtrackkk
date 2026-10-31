@@ -62,8 +62,10 @@ test("delivery_failed is visible, labelled, filterable and counted", () => {
   assert.match(PAGE, /value=\{kpiValue\(failedCount, kpiState\)\}/);
   assert.match(PAGE, /const failedCount = countOf\("delivery_failed"\);/);
   assert.match(PAGE, /setStatusFilter\("delivery_failed"\)/);
-  // And it is one of the two statuses the review banner covers.
-  assert.match(PAGE, /d\.statusType === "delayed" \|\| d\.statusType === "delivery_failed"/);
+  // And it is one of the two statuses listed as a delivery exception on the
+  // Alerts page (the Deliveries banner moved there 2026-10-31).
+  assert.match(read("src/services/deliveryService.js"), /export const DELIVERY_EXCEPTION_STATUSES = \["delayed", "delivery_failed"\];/);
+  assert.doesNotMatch(PAGE, /mdl-banner-danger|needsReview/);
   // The filter options come from the canonical list, so it cannot be dropped.
   assert.match(PAGE, /\{ORDER_STATUSES\.map\(\(key\) => \(/);
   assert.match(PAGE, /<option key=\{key\} value=\{key\}>\s*\n?\s*\{STATUS_LABELS\[key\]\}/);

@@ -314,8 +314,9 @@ function SalesRepInventory() {
           )}
         </div>
 
-        {/* Only the current page is rendered; the table grows to fit those
-            rows, so no batch is cut off inside a second vertical scroller. */}
+        {/* Only the current page is rendered, in a fixed-height box (header +
+            7½ rows) that scrolls under a sticky header — a short page never
+            moves the pager below or anything above (salesrep-polish.css). */}
         <div className="inventory-v2-table-region">
           <table className="salesrep-inventory-table inventory-v2-table">
             <thead>

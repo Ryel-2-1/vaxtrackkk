@@ -31,6 +31,7 @@ import KpiCard from "../../components/ui/KpiCard";
 import MonthCalendar from "../../components/ui/MonthCalendar";
 import StatusBadge from "../../components/ui/StatusBadge";
 import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
+import DeliveryEventCard from "../../components/schedule/DeliveryEventCard";
 import { kpiValue, liveErrorMessage } from "../../services/liveDataErrors";
 
 // The key the planner leaves for the checkout page to pick up, so a day chosen
@@ -162,7 +163,13 @@ function SalesRepDashboard() {
             id: o.id,
             orderNumber: o.orderNumber || o.id,
             clinicName: o.clinicName || "Unknown clinic",
-            clinicAddress: o.clinicAddress || "—",
+            // The planner's order cards (DeliveryEventCard) read the order's
+            // destination and schedule; a missing value reads "Not recorded".
+            clinicAddress: o.clinicAddress || null,
+            doctorName: o.doctorName ?? null,
+            destinationName: o.destinationName ?? null,
+            deliveryAddress: o.deliveryAddress ?? null,
+            scheduledDeliveryTime: o.scheduledDeliveryTime ?? null,
             vaccineName: o.vaccineName || "—",
             quantity: o.quantity != null ? Number(o.quantity) : 0,
             unit: o.unit || "vials",
@@ -247,10 +254,12 @@ function SalesRepDashboard() {
   // Picking a day — including a dimmed day of the previous or next month —
   // also brings that day's month into view, so the grid always shows the
   // selected day and the details beside it.
+  // Selecting a day only selects it — the calendar never changes month under
+  // the rep. A day from the previous or next month (shown greyed at the grid's
+  // edges) is selected in place; the month changes only through the arrows or
+  // the month/year pickers.
   const selectPlannerDate = (iso) => {
     setSelectedDate(iso);
-    const m = monthOf(iso);
-    if (m) setView(m);
   };
 
   // A date can be viewed at any time, but only today-or-later can be scheduled —
@@ -338,7 +347,6 @@ function SalesRepDashboard() {
 
             <div className="srd-planner-controls">
               <div className="srd-planner-controls-main">
-                <p className="srd-planner-description">Pick the date your client wants delivery, then build the order.</p>
                 <div className="srd-planner-filters" role="group" aria-label="Delivery planner filters">
                   <label className="srd-planner-filter">
                     Status
@@ -423,18 +431,13 @@ function SalesRepDashboard() {
                         <span>{plannerFiltersActive ? "No orders on this date match the filters." : "Orders for this date will appear here."}</span>
                       </div>
                     ) : (
-                      <div className="srd-planner-list">
+                      // The Dispatcher/Admin calendar's card: urgent tint and
+                      // chip, requested arrival, doctor, clinic and location.
+                      <ul className="srd-planner-list srd-planner-events">
                         {selectedDayOrders.map((o) => (
-                          <div key={o.id} className="srd-planner-row">
-                            <div className="srd-planner-row-main">
-                              <strong>{o.orderNumber}</strong>
-                              <small>{o.clinicName}</small>
-                              <RequestedArrivalNote order={o} />
-                            </div>
-                            <StatusBadge statusKey={o.statusKey} />
-                          </div>
+                          <DeliveryEventCard key={o.id} order={o} showMedRep={false} showScheduleNote={false} />
                         ))}
-                      </div>
+                      </ul>
                     )}
 
                     <button

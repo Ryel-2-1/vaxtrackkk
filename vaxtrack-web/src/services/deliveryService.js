@@ -1,4 +1,4 @@
-import { collection } from "firebase/firestore";
+import { collection, query, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { ORDER_STATUSES, STATUS_LABELS } from "./orderWorkflow";
 import { logSafeError } from "./liveDataErrors.js";
@@ -145,6 +145,36 @@ export function subscribeDeliveries(callback, onError) {
     },
     (error) => {
       logSafeError("subscribeDeliveries", error);
+      if (onError) onError(error);
+    }
+  );
+}
+
+/** The statuses that mean a delivery stopped and needs a person. */
+export const DELIVERY_EXCEPTION_STATUSES = ["delayed", "delivery_failed"];
+
+/**
+ * Only the orders that stopped and need review — delayed or failed — oldest
+ * first. A narrow query (one equality `in`, no composite index) so the Admin
+ * top bar's alert count and the Alerts page can watch exceptions on every
+ * page without reading the whole orders collection.
+ */
+export function subscribeDeliveryExceptions(callback, onError) {
+  return listenLive(
+    query(collection(db, ORDERS), where("status", "in", DELIVERY_EXCEPTION_STATUSES)),
+    (snap) => {
+      const orders = snap.docs
+        .map((d) => {
+          const data = d.data();
+          const statusKey = normalizeStatusKey(getOrderStatusValue(data));
+          return { ...data, id: d.id, statusKey, statusLabel: mapOrderStatusLabel(statusKey) };
+        })
+        .sort((a, b) => (a.statusUpdatedAt?.toMillis?.() ?? a.updatedAt?.toMillis?.() ?? 0)
+          - (b.statusUpdatedAt?.toMillis?.() ?? b.updatedAt?.toMillis?.() ?? 0));
+      callback(orders);
+    },
+    (error) => {
+      logSafeError("subscribeDeliveryExceptions", error);
       if (onError) onError(error);
     }
   );

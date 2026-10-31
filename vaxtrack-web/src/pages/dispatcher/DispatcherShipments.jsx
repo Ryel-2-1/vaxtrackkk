@@ -24,6 +24,7 @@ import StatusBadge from "../../components/ui/StatusBadge";
 import TimingIndicator from "../../components/ui/TimingIndicator";
 import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
 import KpiCard from "../../components/ui/KpiCard";
+import PageNav from "../../components/ui/PageNav";
 import {
   dispatchEligibility,
   formatScheduledDate,
@@ -503,17 +504,12 @@ function DispatcherShipments() {
               </table>
             </div>
           )}
+          {/* Pinned to the foot of the fixed-height card: rows scroll above it,
+              so the pager never moves between pages or filters. */}
+          {matchingOrders.length > 0 && (
+            <PageNav page={currentPage} total={matchingOrders.length} onPageChange={setPage} label="Shipment pages" />
+          )}
         </section>
-        {matchingOrders.length > 0 && (
-          <nav className="shp-pagination" aria-label="Shipment pages">
-            <span>Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, matchingOrders.length)} of {matchingOrders.length}</span>
-            <div>
-              <button type="button" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>Previous</button>
-              <span>Page {currentPage} of {pageCount}</span>
-              <button type="button" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button>
-            </div>
-          </nav>
-        )}
       </div>
 
       {proofTarget && (

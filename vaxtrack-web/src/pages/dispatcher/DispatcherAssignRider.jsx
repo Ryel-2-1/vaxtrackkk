@@ -32,6 +32,7 @@ import useManilaDayNow from "../../components/useManilaDayNow";
 // from the session inside assignRiderToOrder, so this page cannot supply — or
 // mis-supply — who performed the assignment.
 import StatusBadge from "../../components/ui/StatusBadge";
+import PageNav from "../../components/ui/PageNav";
 import "./DispatcherAssignRider.css";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { createSingleFlight } from "../../services/singleFlight";
@@ -173,7 +174,7 @@ function DispatcherAssignRider() {
     () => buildAssignmentQueue({ orders: orders || [], now, search, filter }),
     [orders, now, search, filter]
   );
-  const { rows, page: currentPage, pageCount } = pageOf(queue, page);
+  const { rows, page: currentPage } = pageOf(queue, page);
 
   // The dialog's order is always the LIVE pending order; once the snapshot no
   // longer has it, it cannot be assigned from here.
@@ -340,6 +341,10 @@ function DispatcherAssignRider() {
             </div>
           </div>
 
+          {/* One fixed-height body: the list scrolls inside it and the pager is
+              pinned to its foot, so a filter pill that leaves two orders — or
+              none — never shrinks it or moves the pager. */}
+          <div className="arq-body">
           {ordersError ? (
             <div className="ar-state" role="alert">
               <span className="ar-state-icon">
@@ -392,21 +397,10 @@ function DispatcherAssignRider() {
                   </li>
                 ))}
               </ul>
-              {pageCount > 1 && (
-                <nav className="arq-pager" aria-label="Queue pages">
-                  <button type="button" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>
-                    Previous
-                  </button>
-                  <span className="tnum">
-                    Page {currentPage} of {pageCount}
-                  </span>
-                  <button type="button" disabled={currentPage >= pageCount} onClick={() => setPage(currentPage + 1)}>
-                    Next
-                  </button>
-                </nav>
-              )}
+              <PageNav page={currentPage} total={queue.length} onPageChange={setPage} label="Queue pages" />
             </>
           )}
+          </div>
         </section>
       </div>
 

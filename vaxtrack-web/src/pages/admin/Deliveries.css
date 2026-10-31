@@ -1728,3 +1728,40 @@
   color: var(--gray-600) !important;
   line-height: 1.5;
 }
+
+/* Fixed-height table card (2026-10-31): rows scroll inside under the sticky
+   header (paged-tables.css) and the shared pager sits on the card's floor, so
+   a status tab that leaves one row never shrinks the card or moves the pager.
+   On a tall screen the page fits the viewport; on a short one it still
+   scrolls, so nothing is cut off. */
+.deliveries-v4-page .mdl-filterbar {
+  margin: 12px 0;
+}
+.deliveries-v4-page .mdl-card {
+  --mdl-card-h: min(62dvh, 640px);
+  display: flex;
+  flex-direction: column;
+  height: var(--mdl-card-h);
+}
+@media (min-width: 1025px) {
+  .deliveries-v4-page .mdl-card {
+    --mdl-card-h: max(360px, calc(100dvh - var(--shell-topbar-height, 64px) - var(--mdl-offset, 300px)));
+  }
+}
+.deliveries-v4-page .mdl-card > .mdl-card-head,
+.deliveries-v4-page .mdl-card > .page-nav {
+  flex: none;
+}
+.deliveries-v4-page .mdl-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+}
+/* One low toolbar row: the select and Reset match the 36px search box.
+   !important only to out-specify the global 46px control reset. */
+.deliveries-v4-page .mdl-filterbar .mdl-select,
+.deliveries-v4-page .mdl-filterbar .mdl-btn {
+  height: 36px !important;
+  min-height: 36px !important;
+}

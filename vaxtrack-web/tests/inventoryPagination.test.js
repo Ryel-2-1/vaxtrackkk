@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 /**
- * Med Rep Inventory shows no more than ten rows per page. The table keeps
- * its natural height so rows are never clipped by a nested vertical scroller;
- * the shared page control follows it in normal document flow.
+ * Med Rep Inventory shows no more than ten rows per page, in a fixed-height
+ * box (header + 7½ rows) that scrolls under a sticky header; the shared page
+ * control sits directly under it and never moves between pages.
  */
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
@@ -21,10 +21,13 @@ test("Inventory renders only the current page's rows in a single table", () => {
   assert.equal(/pagesOf|aria-hidden=\{isCurrent|useLayoutEffect|ResizeObserver|scrollTo|scrollIntoView|getBoundingClientRect/.test(src), false);
 });
 
-test("the table grows to fit its rows and the shared pager follows it", () => {
+test("the table box keeps one height (header + 7½ rows) and the shared pager sits under it", () => {
   assert.match(src, /className="inventory-v2-table-region"/);
   assert.match(src, /<PageNav page=\{currentPage\} total=\{filteredStocks\.length\} onPageChange=\{setPage\} label="Inventory pages" \/>/);
-  assert.match(css, /\.salesrep-main \.inventory-v2-table-region \{[^}]*height: fit-content;[^}]*overflow-y: visible;/);
+  // Decision 2026-10-31: a fixed-height box with internal scrolling, so a short
+  // last page never moves the pager or anything above (replaces fit-content).
+  assert.match(css, /\.salesrep-main \.inventory-v2-table-region \{[^}]*height: calc\(var\(--inv-head-h\) \+ 7\.5 \* var\(--inv-row-h\)\);[^}]*overflow-y: auto;/);
+  assert.match(css, /\.salesrep-main \.inventory-v2-table-region thead th \{\s*position: sticky;\s*top: 0;/);
   assert.doesNotMatch(css, /\.inventory-v2-table-region\.is-paged|46dvh/);
   assert.match(css, /\.salesrep-main \.inventory-v2-table th \{[^}]*height: var\(--inv-head-h\);/);
   assert.match(css, /\.salesrep-main \.inventory-v2-table td \{[^}]*height: var\(--inv-row-h\);/);

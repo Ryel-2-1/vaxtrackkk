@@ -242,21 +242,25 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   border-radius: var(--radius-control) !important;
 }
 
-/* Shipments keeps stable columns across filters; its one search sits above
-   the status choices. */
+/* Shipments keeps stable columns across filters. One toolbar row (2026-10-31):
+   the search sits inline before the status pills, which wrap after it. */
 .dispatcher-main .shp-page { padding-top: 0; }
-.dispatcher-main .shp-header { margin-bottom: 12px; }
-.dispatcher-main .shp-kpis { margin-bottom: 12px; }
+.dispatcher-main .shp-header { margin-bottom: 8px; }
+.dispatcher-main .shp-kpis { margin-bottom: 10px; }
 .dispatcher-main .shp-filterbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-  gap: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
   width: 100%;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
+}
+.dispatcher-main .shp-filterbar > .shp-search {
+  flex: 0 1 260px;
 }
 .dispatcher-main .shp-segmented {
   display: flex;
+  flex: 1 1 auto;
   flex-wrap: wrap;
   min-width: 0;
 }
@@ -319,9 +323,39 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   outline: none !important;
   box-shadow: none !important;
 }
-.dispatcher-main .shp-card { min-height: 0; height: fit-content; }
-.dispatcher-main .shp-empty { min-height: 338px; }
-.dispatcher-main .shp-table-wrap { height: auto; }
+/* One FIXED card height: rows scroll inside under the sticky header and the
+   shared pager is pinned to the card's foot, so a filter that leaves two
+   shipments — or none — never shrinks the card or moves the pager. On a tall
+   screen the page fits the viewport without scrolling; on a short one the
+   page still scrolls, so nothing is cut off. */
+.dispatcher-main .shp-card {
+  --shp-card-h: min(62dvh, 640px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: var(--shp-card-h);
+}
+@media (min-width: 1025px) {
+  .dispatcher-main .shp-card {
+    --shp-card-h: max(360px, calc(100dvh - var(--shell-topbar-height, 64px) - var(--shp-offset, 300px)));
+  }
+}
+.dispatcher-main .shp-card > .shp-empty {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.dispatcher-main .shp-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  max-height: none;
+  overflow: auto;
+}
+.dispatcher-main .shp-card > .page-nav {
+  flex: none;
+  padding: 8px 16px;
+  border-top: 1px solid var(--gray-200);
+}
 .dispatcher-main .shp-table { min-width: 1400px; table-layout: fixed; }
 .dispatcher-main .shp-table thead th {
   text-align: left !important;
@@ -445,30 +479,8 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
 .dispatcher-main .shp-actions .cancel-order-outline:hover:not(:disabled) {
   background: var(--danger-bg);
 }
-.dispatcher-main .shp-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-  color: var(--gray-600);
-  font-size: 13px;
-}
-.dispatcher-main .shp-pagination > div { display: flex; align-items: center; gap: 8px; }
-.dispatcher-main .shp-pagination button {
-  min-height: 34px !important;
-  padding: 0 12px;
-  border: 1px solid var(--gray-300);
-  border-radius: var(--radius-control);
-  background: #fff;
-  color: var(--green-800);
-  cursor: pointer;
-}
-.dispatcher-main .shp-pagination button:disabled { opacity: .45; cursor: default; }
-@media (max-width: 1200px) {
-  .dispatcher-main .shp-filterbar { grid-template-columns: minmax(0, 1fr); }
-  .dispatcher-main .shp-search { min-height: 40px; }
+@media (max-width: 760px) {
+  .dispatcher-main .shp-filterbar > .shp-search { flex: 1 1 100%; }
 }
 
 /* ============================================================
@@ -919,5 +931,76 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
 @media (max-width: 900px) {
   .dispatcher-page .dispatcher-settings-content .my-profile-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ============================================================
+   Geofence — master-detail split (2026-10-31)
+   Left 40%: the active-shipment list (10 per page, the shared pager at its
+   foot). Right 60%: the selected shipment's trip progress, live map, route
+   and details, updated in place (no pop-up). Both columns are ONE height and
+   scroll independently; on a tall screen the page fits the viewport, on a
+   short or narrow one it still scrolls, so nothing is cut off.
+   ============================================================ */
+.dispatcher-main .geo3-top-row {
+  margin-bottom: 10px;
+}
+.dispatcher-main .geo3-split {
+  --geo3-split-h: min(70dvh, 760px);
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 14px;
+  align-items: stretch;
+}
+@media (min-width: 1025px) {
+  .dispatcher-main .geo3-split {
+    --geo3-split-h: max(460px, calc(100dvh - var(--shell-topbar-height, 64px) - var(--geo3-offset, 110px)));
+    height: var(--geo3-split-h);
+  }
+}
+.dispatcher-main .geo3-split-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0;
+}
+.dispatcher-main .geo3-split-list > h3 {
+  flex: none;
+}
+.dispatcher-main .geo3-split-list > .geo3-order-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.dispatcher-main .geo3-split-list > .page-nav {
+  flex: none;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--gray-200);
+}
+.dispatcher-main .geo3-split-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+.dispatcher-main .geo3-split-detail > * {
+  flex: none;
+  margin: 0;
+}
+@media (max-width: 1024px) {
+  .dispatcher-main .geo3-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dispatcher-main .geo3-split-list {
+    height: var(--geo3-split-h);
+  }
+  .dispatcher-main .geo3-split-detail {
+    overflow: visible;
   }
 }

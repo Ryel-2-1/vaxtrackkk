@@ -174,3 +174,53 @@
   .vt-dialog-layer:is(.salesrep-page, .inventory-page) .catalog-filter-dialog { padding: 16px; }
   .vt-dialog-layer:is(.salesrep-page, .inventory-page) .catalog-filter-type-list { grid-template-columns: 1fr; max-height: 150px; }
 }
+
+/* Vaccine-type search above the checkbox grid. The grid below keeps its fixed,
+   scrollable height, so the dialog never grows or shrinks as the list narrows. */
+.vt-dialog-layer:is(.salesrep-page, .inventory-page) .catalog-filter-type-search {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px !important;
+  padding: 0 10px !important;
+  height: 38px;
+  border: 1px solid var(--gray-300) !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+  color: var(--gray-500);
+}
+.vt-dialog-layer:is(.salesrep-page, .inventory-page) .catalog-filter-type-search:focus-within {
+  border-color: var(--green-700) !important;
+  box-shadow: 0 0 0 2px var(--green-100);
+}
+.vt-dialog-layer:is(.salesrep-page, .inventory-page) .catalog-filter-type-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 36px !important;
+  min-height: 36px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  outline: none;
+  box-shadow: none !important;
+  background: transparent !important;
+  color: var(--gray-900) !important;
+  font-size: 13px !important;
+}
+.vt-dialog-layer:is(.salesrep-page, .inventory-page) .catalog-filter-type-none {
+  display: flex;
+  align-items: center;
+  height: 168px;
+  margin: 0;
+  color: var(--gray-600);
+  font-size: 13px;
+}
+/* The grid holds its full height even when the search leaves one match. */
+.vt-dialog-layer:is(.salesrep-page, .inventory-page) .catalog-filter-type-list {
+  height: 168px;
+  align-content: start;
+}
+@media (max-width: 440px) {
+  .vt-dialog-layer:is(.salesrep-page, .inventory-page) .catalog-filter-type-list,
+  .vt-dialog-layer:is(.salesrep-page, .inventory-page) .catalog-filter-type-none { height: 150px; }
+}

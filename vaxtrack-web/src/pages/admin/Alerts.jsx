@@ -26,6 +26,8 @@ import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import { ToastRegion } from "../../components/ui/Feedback";
 import { useToast } from "../../components/ui/useToast";
 import { presentAlert } from "../../services/alertPresentation";
+import { subscribeDeliveryExceptions } from "../../services/deliveryService";
+import DeliveryExceptions from "./DeliveryExceptions";
 
 const TYPE_MAP = {
   route_deviation: {
@@ -110,6 +112,13 @@ function Alerts() {
   const [markingAll, setMarkingAll] = useState(false);
   const markingAllRef = useRef(false);
   const openedFromLinkRef = useRef(null);
+  // Delayed and failed deliveries (moved here from the Deliveries banner).
+  const [exceptions, setExceptions] = useState([]);
+  const [exceptionsError, setExceptionsError] = useState("");
+  useEffect(() => subscribeDeliveryExceptions(
+    (rows) => { setExceptions(rows); setExceptionsError(""); },
+    (error) => setExceptionsError(liveErrorMessage(error, "delivery exceptions"))
+  ), []);
 
   useEffect(() => {
     const unsubscribe = subscribeAllAlerts(
@@ -326,6 +335,8 @@ function Alerts() {
             onClick={() => setSeverityFilter("resolved")}
           />
         </section>
+
+        <DeliveryExceptions exceptions={exceptions} error={exceptionsError} />
 
         <section className="alerts-layout-grid">
           <div className="alerts-list-card">

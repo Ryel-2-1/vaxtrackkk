@@ -434,3 +434,67 @@
     border: 0;
   }
 }
+
+/* Admin › Order History — laid out like the Med Rep view (2026-10-31): one
+   filter row, one FIXED-height table (rows scroll inside under a sticky
+   header) and the pager directly below it, so a narrow filter never moves
+   anything. On a tall screen the page fits the viewport; on a short one it
+   still scrolls, so nothing is cut off. */
+.inventory-page .ohx {
+  --ohx-list-h: min(62dvh, 640px);
+  gap: 10px;
+}
+@media (min-width: 1025px) {
+  .inventory-page .ohx {
+    --ohx-list-h: max(320px, calc(100dvh - var(--shell-topbar-height, 64px) - var(--ohx-admin-offset, 230px)));
+  }
+}
+.inventory-page .ohx .ohx-filter-dock {
+  gap: 8px;
+}
+.inventory-page .ohx .ohx-filters {
+  padding: 8px 12px;
+  gap: 8px 10px;
+}
+.inventory-page .ohx > .ohx-muted {
+  margin: 0;
+}
+.inventory-page .ohx .ohx-list-table-wrap {
+  height: var(--ohx-list-h);
+  max-height: none;
+  overflow-y: auto;
+}
+.inventory-page .ohx .ohx-list-table-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.inventory-page .ohx > .ohx-state {
+  min-height: var(--ohx-list-h);
+  box-sizing: border-box;
+}
+.inventory-page .ohx .ohx-history-pager {
+  padding: 8px 12px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card, 12px);
+  background: #fff;
+}
+/* All of Admin's filters on one row at desktop width: the search takes a
+   larger share, every other control an equal one. */
+@media (min-width: 1025px) {
+  .inventory-page .ohx .ohx-filters {
+    flex-wrap: nowrap;
+  }
+  .inventory-page .ohx .ohx-filters > label {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .inventory-page .ohx .ohx-filters > .ohx-filter-search {
+    flex: 2 1 0;
+  }
+  .inventory-page .ohx .ohx-filters input,
+  .inventory-page .ohx .ohx-filters select {
+    width: 100%;
+    min-width: 0;
+  }
+}
