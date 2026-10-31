@@ -56,28 +56,26 @@ test("the three bands are exclusive and cover every day", () => {
   assert.equal(levelAt(91), "stable", "day 91 is in date");
 });
 
-test("Admin Inventory labels each KPI with the band it actually counts", () => {
-  // The critical card covers today through day 30…
-  assert.match(INV, /label="Expiring within 30 days"/);
-  assert.match(INV, /value=\{loading \|\| loadError \? "—" : stockBatches\.filter\(\(i\) => i\.level === "critical"\)\.length\}/);
+test("Admin Inventory's expiry card labels each band with what it actually counts", () => {
+  // One card, three exclusive bands, each counted on its own derived level.
+  assert.match(INV, /label="Expiring & expired stock"/);
+  for (const [name, level] of [["expiredCount", "expired"], ["criticalCount", "critical"], ["warningCount", "warning"]]) {
+    assert.match(INV, new RegExp(`const ${name} = useMemo\\(\\s*\\(\\) => stockBatches\\.filter\\(\\(i\\) => i\\.level === "${level}"\\)\\.length,`), name);
+  }
+  assert.match(INV, /value=\{loading \|\| loadError \? "—" : expiredCount \+ criticalCount \+ warningCount\}/);
+  // The breakdown names each band for exactly its range: "within 30d" is
+  // today through day 30, "31–90d" starts at 31. "Within 90 days" over a
+  // 31–90 count would be a miscount.
+  assert.match(INV, /`\$\{expiredCount\} expired · \$\{criticalCount\} within 30d · \$\{warningCount\} in 31–90d`/);
+  assert.equal(/label="Expiring within 90 days"/.test(INV), false);
 
-  // …and the warning card covers 31 through 90, which is what its label now
-  // says. "Expiring within 90 days" read as 0–90 over a 31–90 count.
-  assert.match(INV, /label="Expiring in 31–90 days"/);
-  assert.equal(
-    /label="Expiring within 90 days"/.test(INV),
-    false,
-    "an inclusive-from-zero label over an exclusive count is a miscount"
-  );
-  assert.match(INV, /value=\{loading \|\| loadError \? "—" : stockBatches\.filter\(\(i\) => i\.level === "warning"\)\.length\}/);
-
-  // Expired stays its own card, counted on its own level.
-  assert.match(INV, /label="Expired"/);
-  assert.match(INV, /value=\{loading \|\| loadError \? "—" : stockBatches\.filter\(\(i\) => i\.level === "expired"\)\.length\}/);
-
-  // Each card filters to the single level it counts, so figure and list agree.
+  // The card filters to exactly the three levels it counts, so figure and list agree.
+  assert.match(INV, /onClick=\{\(\) => \{ changeStatusFilter\("watch"\); scrollToTable\(\); \}\}/);
+  assert.match(INV, /const WATCH_LEVELS = new Set\(\["expired", "critical", "warning"\]\);/);
+  assert.match(INV, /\(statusFilter === "watch" && WATCH_LEVELS\.has\(item\.level\)\)/);
+  // Each band is still reachable on its own from the expiry filter.
   for (const level of ["expired", "critical", "warning"]) {
-    assert.match(INV, new RegExp(`changeStatusFilter\\("${level}"\\)`));
+    assert.match(INV, new RegExp(`\\{ value: "${level}", label: `), level);
   }
 });
 

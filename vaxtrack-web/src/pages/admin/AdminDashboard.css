@@ -143,8 +143,21 @@
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr);
   gap: 16px;
-  align-items: start;
+  /* Both cards take the row's height, so the shorter one never leaves
+     uneven dead space beneath it; their bodies fill it (below). */
+  align-items: stretch;
   margin-bottom: 16px;
+}
+.adx-grid > .adx-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.adx-grid > .adx-card > .adx-card-head {
+  flex: none;
+}
+.adx-grid > .adx-card > :not(.adx-card-head) {
+  flex: 1 1 auto;
 }
 
 /* ---------- cards ---------- */
@@ -244,7 +257,24 @@
 
 /* ---------- alerts list ---------- */
 .adx-alert-list {
-  padding: 6px 0;
+  padding: 4px 0;
+}
+/* In the attention card the list fills the card: its rows share the height
+   (centred), so no blank strip trails the last check. Labels, notes and the
+   "View all" link keep their natural height. */
+.adx-attention-card .adx-alert-list {
+  display: flex;
+  flex-direction: column;
+}
+.adx-attention-card .adx-alert-list > .adx-alert-row {
+  flex: 1 0 auto;
+  align-items: center;
+}
+.adx-attention-card .adx-alert-list > .adx-alert-row .adx-alert-dot {
+  margin-top: 0;
+}
+.adx-attention-card .adx-alert-list > :not(.adx-alert-row) {
+  flex: none;
 }
 .adx-alert-row {
   display: flex;
@@ -300,7 +330,7 @@
 }
 .adx-attention-label {
   margin: 0;
-  padding: 11px 20px 5px;
+  padding: 8px 20px 4px;
   color: var(--green-700);
   font-size: 10px;
   font-weight: 700;

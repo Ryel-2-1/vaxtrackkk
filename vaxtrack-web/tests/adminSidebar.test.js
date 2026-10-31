@@ -284,3 +284,18 @@ test("the persistent AdminShell owns the one sidebar; no page renders its own", 
     );
   }
 });
+
+test("the Admin sidebar groups its destinations by workflow, each route exactly once", () => {
+  // Group headings and links in document order, e.g. ["#Supply & Stock", "/admin/inventory", ...].
+  const nav = sidebarJsx.slice(sidebarJsx.indexOf("<nav>"), sidebarJsx.indexOf("</nav>"));
+  const sequence = [...nav.matchAll(/<p className="admin-nav-group">([^<]+)<\/p>|to="([^"]+)"/g)]
+    .map((m) => (m[1] ? `#${m[1].replace("&amp;", "&")}` : m[2]));
+  assert.deepEqual(sequence, [
+    "/admin",
+    "#Supply & Stock", "/admin/inventory", "/admin/allocation", "/admin/ai-inventory-analytics",
+    "#Fulfillment & Dispatch", "/admin/deliveries", "/admin/delivery-calendar", "/admin/live-tracking",
+    "#Directory", "/admin/clinics", "/admin/riders",
+    "#Records", "/admin/order-history", "/admin/invoices", "/admin/analytics",
+    "#System", "/admin/alerts", "/admin/settings",
+  ]);
+});

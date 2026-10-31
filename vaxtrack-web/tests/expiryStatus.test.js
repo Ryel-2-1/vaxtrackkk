@@ -216,16 +216,17 @@ test("no surface calls stock healthy or safe on expiry alone", () => {
 });
 
 test("the derived levels are what the surfaces label and filter by", () => {
-  assert.match(INV, /label="Expired"/);
-  assert.match(INV, /label="Expiring within 30 days"/);
-  // The bands are exclusive; tests/expiryRanges.test.js pins their edges.
-  assert.match(INV, /label="Expiring in 31–90 days"/);
-  assert.match(INV, /changeStatusFilter\("expired"\)/);
-  assert.match(INV, /<option value="unknown">No valid expiry date<\/option>/);
+  // One summary card over the three exclusive bands; tests/expiryRanges.test.js
+  // pins how each is counted and labelled.
+  assert.match(INV, /label="Expiring & expired stock"/);
+  assert.match(INV, /changeStatusFilter\("watch"\)/);
+  assert.match(INV, /\{ value: "unknown", label: "No valid expiry date" \}/);
   assert.match(DASH, /label: "Expiring or expired stock"/);
-  // Every level a batch can take is reachable from the compact Admin filter.
+  // Every level a batch can take is reachable from the compact Admin filter
+  // (its options render from EXPIRY_OPTIONS).
+  assert.match(INV, /\{EXPIRY_OPTIONS\.map\(\(option\) => \(\s*<option key=\{option\.value\} value=\{option\.value\}>\{option\.label\}<\/option>/);
   for (const level of ["expired", "critical", "warning", "stable", "unknown"]) {
-    assert.match(INV, new RegExp(`<option value="${level}">`), `${level} must be filterable`);
+    assert.match(INV, new RegExp(`\\{ value: "${level}", label: `), `${level} must be filterable`);
   }
 });
 

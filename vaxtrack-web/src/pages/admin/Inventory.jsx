@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Archive, ChevronDown, Download, Package, Plus, Search, X } from "lucide-react";
+import { Archive, ChevronDown, Download, Filter, Package, Plus, Search, X } from "lucide-react";
+import CatalogFilterDialog from "../../components/inventory/CatalogFilterDialog";
+import PageNav from "../../components/ui/PageNav";
+import { adminWrapperClassFor } from "../../components/admin/adminShellClasses";
 import AdminLayout from "../../components/admin/AdminLayout";
 import { subscribeInventory } from "../../services/inventoryService";
 import { useInventoryVisibility } from "../../components/useInventoryVisibility";
@@ -70,6 +73,32 @@ const CORRECTION_LABELS = {
   quarantinedValue: "Quarantined stock",
 };
 const pickFields = (row, keys) => Object.fromEntries(keys.map((k) => [k, row?.[k] ?? null]));
+
+// The expiry levels the "Expiring & expired stock" card counts and filters to:
+// the three exclusive bands, so the figure always equals the filtered list.
+const WATCH_LEVELS = new Set(["expired", "critical", "warning"]);
+
+// Expiry choices, shared by the toolbar dropdown and the filter dialog.
+const EXPIRY_OPTIONS = [
+  { value: "all", label: "All expiry statuses" },
+  { value: "watch", label: "Expired or within 90 days" },
+  { value: "expired", label: "Expired" },
+  { value: "critical", label: "Within 30 days" },
+  { value: "warning", label: "31–90 days" },
+  { value: "next90", label: "Next 90 days" },
+  { value: "next180", label: "Next 180 days" },
+  { value: "stable", label: "In date (over 90 days)" },
+  { value: "unknown", label: "No valid expiry date" },
+];
+
+// Stock status filters, derived from each row's own figures (no new data).
+const STOCK_FILTERS = {
+  all: { label: "All stock statuses", test: () => true },
+  available: { label: "Available for orders", test: (item) => !item.voided && item.availableValue > 0 },
+  out: { label: "Out of stock", test: (item) => item.outOfStock },
+  voided: { label: "Voided", test: (item) => item.voided },
+};
+const STOCK_OPTIONS = Object.entries(STOCK_FILTERS).map(([value, { label }]) => ({ value, label }));
 
 /* `getDaysUntilExpiry` was deleted. It built its answer from LOCAL midnight
    while the Expired flag beside it used Manila — two date conventions on the
@@ -234,6 +263,11 @@ function Inventory() {
   const [catalogError, setCatalogError] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  // Advanced filters (the shared catalog filter dialog). The dialog's Expiry
+  // is the same `statusFilter` the toolbar dropdown sets.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [stockFilter, setStockFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedVaccine, setSelectedVaccine] = useState(null);
   const [batchDraft, setBatchDraft] = useState(null);
@@ -320,6 +354,21 @@ function Inventory() {
     setStatusFilter(value);
     setCurrentPage(1);
   };
+
+  // A summary card filters the table AND brings it into view, so the rows it
+  // just filtered are on screen. The page scrolls inside the shell's main
+  // area, not the window, so scrollIntoView (which scrolls whichever
+  // container holds the table) is used rather than window.scrollTo.
+  // The scroll runs in an effect, after the filtered rows have rendered:
+  // started in the click itself, the re-render cut the smooth scroll short.
+  const tableCardRef = useRef(null);
+  const [tableScrollRequest, setTableScrollRequest] = useState(0);
+  const scrollToTable = () => setTableScrollRequest((n) => n + 1);
+  useEffect(() => {
+    if (!tableScrollRequest) return;
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    tableCardRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+  }, [tableScrollRequest]);
 
   const openPriceDialog = (item) => {
     setPricing(item);
@@ -597,11 +646,27 @@ function Inventory() {
       const matchesStatus = statusFilter === "all" ||
         (statusFilter === "next90" && daysUntilExpiry >= 0 && daysUntilExpiry <= 90) ||
         (statusFilter === "next180" && daysUntilExpiry >= 0 && daysUntilExpiry <= 180) ||
+        (statusFilter === "watch" && WATCH_LEVELS.has(item.level)) ||
         item.level === statusFilter;
+      const matchesStock = STOCK_FILTERS[stockFilter]?.test(item) ?? true;
+      const matchesType = typeFilter.length === 0 || typeFilter.includes(item.type);
 
-      return matchesSearch && matchesStatus;
+      return matchesSearch && matchesStatus && matchesStock && matchesType;
     });
-  }, [inventoryWithVat, searchTerm, statusFilter, showInactive, inactiveIds]);
+  }, [inventoryWithVat, searchTerm, statusFilter, stockFilter, typeFilter, showInactive, inactiveIds]);
+
+  // Every type the listed batches carry, for the filter dialog.
+  const vaccineTypes = useMemo(
+    () => [...new Set(inventory.map((item) => item.type))].sort((a, b) => a.localeCompare(b)),
+    [inventory]
+  );
+  const activeFilterCount = typeFilter.length + Number(stockFilter !== "all") + Number(statusFilter !== "all");
+  const applyFilters = ({ types, status, expiry }) => {
+    setTypeFilter(types);
+    setStockFilter(status);
+    changeStatusFilter(expiry);
+    setFiltersOpen(false);
+  };
 
   /**
    * Download the currently filtered inventory as a real .xlsx workbook.
@@ -685,11 +750,6 @@ function Inventory() {
       })
     : null;
 
-  const startItem =
-    filteredVaccines.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
-
-  const endItem = Math.min(safePage * pageSize, filteredVaccines.length);
-
   return (
     <AdminLayout
       active="inventory"
@@ -745,44 +805,22 @@ function Inventory() {
             value={loading || loadError ? "—" : listedInventory.length}
             context={showInactive ? "Including inactive inventory" : "Excluding long-empty inventory"}
             tone="neutral"
-            onClick={() => changeStatusFilter("all")}
+            onClick={() => { changeStatusFilter("all"); scrollToTable(); }}
           />
 
-          {/* Each card counts one derived expiry level, so its figure always
-              matches the list its click filters to. The old set counted the
-              stored status and mislabelled it: "Warning batches / Temperature
-              exceptions" described a temperature check this page has never
-              performed, and "Stable batches / No action required" pronounced a
-              batch fine on its expiry date alone — quantity, reserved figures
-              and pricing are separate concerns, surfaced as row flags. */}
+          {/* One card for the three exclusive expiry bands (expired, within
+              30 days, 31–90 days): each batch is counted once, by its derived
+              level, and the click filters to exactly those three levels
+              ("watch"), so the figure always equals the filtered list. The
+              breakdown keeps each band visible; each band is still its own
+              option in the expiry filter. */}
           <KpiCard
-            label="Expired"
-            value={loading || loadError ? "—" : stockBatches.filter((i) => i.level === "expired").length}
-            context="Past expiry date — not orderable"
-            tone="danger"
-            attention
-            onClick={() => changeStatusFilter("expired")}
-          />
-
-          <KpiCard
-            label="Expiring within 30 days"
-            value={loading || loadError ? "—" : stockBatches.filter((i) => i.level === "critical").length}
-            context="By expiry date"
-            tone="warning"
-            onClick={() => changeStatusFilter("critical")}
-          />
-
-          {/* The three ranges are exclusive, so each batch is counted once and
-              the labels say which band they cover. "Expiring within 90 days"
-              read as 0–90 while the count was only the warning level, so a
-              batch expiring next week was missing from the figure its label
-              promised. */}
-          <KpiCard
-            label="Expiring in 31–90 days"
-            value={loading || loadError ? "—" : stockBatches.filter((i) => i.level === "warning").length}
-            context="By expiry date"
-            tone="neutral"
-            onClick={() => changeStatusFilter("warning")}
+            label="Expiring & expired stock"
+            value={loading || loadError ? "—" : expiredCount + criticalCount + warningCount}
+            context={loading || loadError ? "By expiry date" : `${expiredCount} expired · ${criticalCount} within 30d · ${warningCount} in 31–90d`}
+            tone={expiredCount > 0 ? "danger" : "warning"}
+            attention={!loading && !loadError && expiredCount > 0}
+            onClick={() => { changeStatusFilter("watch"); scrollToTable(); }}
           />
         </section>
 
@@ -801,7 +839,7 @@ function Inventory() {
           />
         </section>
 
-        <section className="v2-inventory-table-card">
+        <section className="v2-inventory-table-card" ref={tableCardRef}>
           <InventoryVisibilityToggle checked={showInactive} count={inactiveIds.size}
             onChange={(value) => { setShowInactive(value); setCurrentPage(1); }} />
           <div className="v2-inventory-toolbar">
@@ -821,15 +859,15 @@ function Inventory() {
                 value={statusFilter}
                 onChange={(e) => changeStatusFilter(e.target.value)}
               >
-                <option value="all">All expiry statuses</option>
-                <option value="expired">Expired</option>
-                <option value="critical">Within 30 days</option>
-                <option value="warning">31–90 days</option>
-                <option value="next90">Next 90 days</option>
-                <option value="next180">Next 180 days</option>
-                <option value="stable">In date (over 90 days)</option>
-                <option value="unknown">No valid expiry date</option>
+                {EXPIRY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
               </select>
+
+              <button type="button" className="catalog-filter-trigger" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog">
+                <Filter size={16} aria-hidden="true" /> Advanced filters
+                {activeFilterCount > 0 && <span aria-label="Filters active">{activeFilterCount}</span>}
+              </button>
             </div>
           </div>
 
@@ -969,44 +1007,27 @@ function Inventory() {
             </div>
           )}
 
+          {/* The shared pager (Med Rep Inventory uses the same one): outlined
+              Previous / Next, "Page n of N" and the visible range. */}
           <div className="v2-inventory-footer">
-            <p>
-              {startItem}–{endItem} of {filteredVaccines.length} batches
-              {filteredVaccines.length !== inventory.length && ` (from ${inventory.length} total)`}
-            </p>
-
-            <div className="v2-pagination">
-              <button
-                type="button"
-                disabled={safePage === 1}
-                onClick={() => setCurrentPage(Math.max(safePage - 1, 1))}
-              >
-                Previous
-              </button>
-
-              <label className="v2-page-picker">
-                Page
-                <select aria-label="Inventory page" value={safePage}
-                  onChange={(e) => setCurrentPage(Number(e.target.value))}>
-                  {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
-                    <option key={page} value={page}>{page}</option>
-                  ))}
-                </select>
-                of {totalPages}
-              </label>
-
-              <button
-                type="button"
-                disabled={safePage === totalPages}
-                onClick={() =>
-                  setCurrentPage(Math.min(safePage + 1, totalPages))
-                }
-              >
-                Next
-              </button>
-            </div>
+            <PageNav page={safePage} total={filteredVaccines.length} onPageChange={setCurrentPage} label="Inventory pages" />
           </div>
         </section>
+
+      {filtersOpen && (
+        <CatalogFilterDialog
+          scope={adminWrapperClassFor("/admin/inventory")}
+          title="Inventory filters"
+          types={vaccineTypes}
+          selectedTypes={typeFilter}
+          status={stockFilter}
+          statusOptions={STOCK_OPTIONS}
+          expiry={statusFilter}
+          expiryOptions={EXPIRY_OPTIONS}
+          onApply={applyFilters}
+          onClose={() => setFiltersOpen(false)}
+        />
+      )}
 
       {drawerItem && (
         <InventoryBatchDialog
@@ -1025,14 +1046,8 @@ function Inventory() {
               </button>
             </div>
             <div className="v2-modal-actions">
-              <button
-                type="button"
-                className="v2-blue-action"
-                onClick={() => navigate("/admin/add-stock")}
-              >
-                Add Stock
-              </button>
-
+              {/* No Add Stock here: new stock enters from the page header's
+                  Add Stock; a batch's quantity changes only via Correct stock. */}
               <button
                 type="button"
                 className="inv-price-cancel"
@@ -1071,8 +1086,8 @@ function Inventory() {
                   Both are worth building, and neither is invented here: a
                   history view needs an append-only trail that does not exist
                   yet, and a review flag needs a decision about what a flag
-                  means and who acts on it. "Add Stock" stays because it really
-                  navigates, and the batch's price is edited from its table row. */}
+                  means and who acts on it. The batch's price is edited from its
+                  table row. */}
             </div>
             </div>
           }
@@ -1097,20 +1112,34 @@ function Inventory() {
                 {drawerItem.batchIdLocked && <small>Locked after first use or where usage history is unknown.</small>}
               </div>
 
-              <div>
-                <span>On hand (not yet delivered) / Reserved / Available</span>
-                <strong>
-                  {drawerItem.onHand} / {drawerItem.reserved} /{" "}
-                  {drawerItem.voided ? "—" : drawerItem.available}
-                  {drawerItem.outOfStock && <small className="inv-out-of-stock">{OUT_OF_STOCK_LABEL}</small>}
-                </strong>
+              {/* Stock figures as three labelled tiles (was "38 / 5 / 32").
+                  Same values as before; only the presentation changed. */}
+              <section className="inv-stock-figures" aria-label="Stock quantities">
+                <dl className="inv-stock-tiles">
+                  <div title="Every unit not yet delivered: includes reserved stock, stock out with riders, returns awaiting a decision and quarantined stock">
+                    <dt>On hand</dt>
+                    <dd className="tnum">{drawerItem.onHand}</dd>
+                    <small>Not yet delivered (includes reserved)</small>
+                  </div>
+                  <div>
+                    <dt>Reserved</dt>
+                    <dd className="tnum">{drawerItem.reserved}</dd>
+                    <small>Held for active orders</small>
+                  </div>
+                  <div>
+                    <dt>Available</dt>
+                    <dd className="tnum">{drawerItem.voided ? "—" : drawerItem.available}</dd>
+                    <small>Ready for new orders</small>
+                  </div>
+                </dl>
+                {drawerItem.outOfStock && <small className="inv-out-of-stock">{OUT_OF_STOCK_LABEL}</small>}
                 {drawerItem.flags.length > 0 && (
                   <small className="inv-flag-list">
                     {drawerItem.flags.join(" · ")}
                   </small>
                 )}
-                <small>Quantity changes use Correct stock or Add Stock so they are validated and logged.</small>
-              </div>
+                <small>Quantity changes use Correct stock so they are validated and logged.</small>
+              </section>
 
               <div>
                 <label htmlFor="inv-batch-manufacturing">Manufacturing Date</label>

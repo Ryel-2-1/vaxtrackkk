@@ -63,6 +63,11 @@ function FilterDialogContent({ title, types, selectedTypes, status, statusOption
   );
 }
 
-export default function CatalogFilterDialog(props) {
-  return <DialogLayer scope="salesrep-page salesrep-main"><FilterDialogContent {...props} /></DialogLayer>;
+/**
+ * [scope] is the role shell's class list the portaled dialog re-applies
+ * (DialogLayer). Med Rep pages use the default; Admin Inventory passes its
+ * own shell classes, so each role keeps its own scoped styles.
+ */
+export default function CatalogFilterDialog({ scope = "salesrep-page salesrep-main", ...props }) {
+  return <DialogLayer scope={scope}><FilterDialogContent {...props} /></DialogLayer>;
 }

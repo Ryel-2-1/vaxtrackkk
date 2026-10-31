@@ -158,7 +158,7 @@ export function AdminSidebar({ active: activeProp, onLogout }) {
             <span>Dashboard</span>
           </Link>
 
-          <p className="admin-nav-group">Operations</p>
+          <p className="admin-nav-group">Supply &amp; Stock</p>
 
           <Link
             className={active === "inventory" ? "active" : ""}
@@ -179,13 +179,15 @@ export function AdminSidebar({ active: activeProp, onLogout }) {
           </Link>
 
           <Link
-            className={active === "orderHistory" ? "active" : ""}
-            aria-current={active === "orderHistory" ? "page" : undefined}
-            to="/admin/order-history"
+            className={active === "aiInventoryAnalytics" ? "active" : ""}
+            aria-current={active === "aiInventoryAnalytics" ? "page" : undefined}
+            to="/admin/ai-inventory-analytics"
           >
-            <History size={16} aria-hidden="true" />
-            <span>Order History</span>
+            <TrendingUp size={16} aria-hidden="true" />
+            <span>AI Inventory Analytics</span>
           </Link>
+
+          <p className="admin-nav-group">Fulfillment &amp; Dispatch</p>
 
           <Link
             className={active === "deliveries" ? "active" : ""}
@@ -194,15 +196,6 @@ export function AdminSidebar({ active: activeProp, onLogout }) {
           >
             <Truck size={16} aria-hidden="true" />
             <span>Deliveries</span>
-          </Link>
-
-          <Link
-            className={active === "liveTracking" ? "active" : ""}
-            aria-current={active === "liveTracking" ? "page" : undefined}
-            to="/admin/live-tracking"
-          >
-            <MapPinned size={16} aria-hidden="true" />
-            <span>Live Tracking</span>
           </Link>
 
           <Link
@@ -215,13 +208,15 @@ export function AdminSidebar({ active: activeProp, onLogout }) {
           </Link>
 
           <Link
-            className={active === "riders" ? "active" : ""}
-            aria-current={active === "riders" ? "page" : undefined}
-            to="/admin/riders"
+            className={active === "liveTracking" ? "active" : ""}
+            aria-current={active === "liveTracking" ? "page" : undefined}
+            to="/admin/live-tracking"
           >
-            <Users size={16} aria-hidden="true" />
-            <span>Riders</span>
+            <MapPinned size={16} aria-hidden="true" />
+            <span>Live Tracking</span>
           </Link>
+
+          <p className="admin-nav-group">Directory</p>
 
           <Link
             className={active === "clinics" ? "active" : ""}
@@ -232,7 +227,25 @@ export function AdminSidebar({ active: activeProp, onLogout }) {
             <span>Clinics</span>
           </Link>
 
+          <Link
+            className={active === "riders" ? "active" : ""}
+            aria-current={active === "riders" ? "page" : undefined}
+            to="/admin/riders"
+          >
+            <Users size={16} aria-hidden="true" />
+            <span>Riders</span>
+          </Link>
+
           <p className="admin-nav-group">Records</p>
+
+          <Link
+            className={active === "orderHistory" ? "active" : ""}
+            aria-current={active === "orderHistory" ? "page" : undefined}
+            to="/admin/order-history"
+          >
+            <History size={16} aria-hidden="true" />
+            <span>Order History</span>
+          </Link>
 
           <Link
             className={active === "invoices" ? "active" : ""}
@@ -250,15 +263,6 @@ export function AdminSidebar({ active: activeProp, onLogout }) {
           >
             <BarChart3 size={16} aria-hidden="true" />
             <span>Analytics</span>
-          </Link>
-
-          <Link
-            className={active === "aiInventoryAnalytics" ? "active" : ""}
-            aria-current={active === "aiInventoryAnalytics" ? "page" : undefined}
-            to="/admin/ai-inventory-analytics"
-          >
-            <TrendingUp size={16} aria-hidden="true" />
-            <span>AI Inventory Analytics</span>
           </Link>
 
           <p className="admin-nav-group">System</p>

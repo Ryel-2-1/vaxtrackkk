@@ -1657,3 +1657,135 @@
 .inventory-page .inv-price-modal label[for="inv-correct-reason"] {
   margin-top: 14px;
 }
+
+/* =========================================================
+   Compact rhythm (2026-10-31): one 12px step between the summary
+   cards, the availability chart, Expiry watch and the table, and
+   less padding inside the chart. Scoped to the Admin page; beats
+   the earlier `!important` hub-grid block on purpose.
+========================================================= */
+.inventory-page .v2-inventory-summary-grid {
+  margin-bottom: 12px;
+}
+.inventory-page .v2-hub-grid {
+  gap: 12px !important;
+  margin-bottom: 12px !important;
+}
+.inventory-page .vaccine-availability-chart {
+  padding: 8px 12px 4px;
+}
+.inventory-page .vaccine-overview-note {
+  margin-top: 6px;
+}
+.inventory-page .inventory-watch-body,
+.inventory-page .inventory-watch-list {
+  margin-top: 10px;
+}
+/* A summary card scrolls the table into view: leave a little air above it. */
+.inventory-page .v2-inventory-table-card {
+  scroll-margin-top: 12px;
+}
+
+/* Batch drawer — On hand / Reserved / Available as three labelled tiles. */
+.v2-modal-detail-grid .inv-stock-figures {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.v2-modal-detail-grid .inv-stock-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 6px;
+}
+.v2-modal-detail-grid .inv-stock-tiles > div {
+  padding: 10px 12px;
+  min-width: 0;
+}
+.v2-modal-detail-grid .inv-stock-tiles dt {
+  color: var(--gray-600);
+  font-size: 12px;
+  font-weight: 600;
+}
+.v2-modal-detail-grid .inv-stock-tiles dd {
+  margin: 2px 0 0;
+  color: var(--gray-900);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.v2-modal-detail-grid .inv-stock-tiles small {
+  margin-top: 4px;
+  line-height: 1.35;
+}
+@media (max-width: 520px) {
+  .v2-modal-detail-grid .inv-stock-tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Fixed-height table box: the shared cap (paged-tables.css) as a fixed
+   height, so filtering to a few rows never changes the page's layout and a
+   summary card can always bring the table to the top. Rows scroll inside;
+   the header cells are sticky (paged-tables.css). */
+.inventory-page .v2-inventory-table-card .v2-table-scroll {
+  height: min(62dvh, 640px);
+}
+
+/* Advanced filters trigger — the Med Rep catalog control's tokens
+   (salesrep-polish.css `.catalog-filter-trigger`), scoped to Admin. Beats the
+   generic `.v2-inventory-filters button` rule above. */
+.inventory-page .v2-inventory-filters .catalog-filter-trigger {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  height: auto;
+  min-height: 42px !important;
+  padding: 0 14px !important;
+  border: 1px solid var(--gray-300) !important;
+  border-radius: 10px !important;
+  background: #fff !important;
+  color: var(--green-800) !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  cursor: pointer;
+}
+.inventory-page .v2-inventory-filters .catalog-filter-trigger span {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--green-100);
+  font-size: 12px;
+}
+.inventory-page .v2-inventory-filters .catalog-filter-trigger:focus-visible {
+  outline: 2px solid var(--green-700);
+  outline-offset: 2px;
+}
+/* The expiry select sits level with the trigger. */
+.inventory-page .v2-inventory-filters {
+  align-items: center;
+}
+
+/* Shared pager (PageNav) — fills the footer; its own stylesheet sets the
+   outlined Previous / Next buttons, as on Med Rep Inventory. */
+.inventory-page .v2-inventory-footer {
+  display: block;
+  padding-top: 4px;
+}
+
+/* Summary row: two cards (Total batches; Expiring & expired stock), compact. */
+.inventory-page .v2-inventory-summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.inventory-page .v2-inventory-summary-grid .m-kpi {
+  min-height: 84px !important;
+  padding: 12px 18px !important;
+}
+@media (max-width: 760px) {
+  .inventory-page .v2-inventory-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
