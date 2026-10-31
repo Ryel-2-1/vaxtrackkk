@@ -52,17 +52,19 @@ test("the Med Rep vaccine catalog is a compact table with every field kept", () 
   assert.match(src, /<table className="rq-table">/);
   assert.equal(src.includes("rq-view-switch"), false);
   // Still shown on each row: name, batch, type, status, VAT, stock, price, quantity, action.
-  for (const piece of ["{product.name}", "Batch: {product.sku}", "{product.category}", "{product.vatLabel}", "Availability", "Unit price", "changeQuantity(", "addToCart(product)"]) {
+  for (const piece of ["{product.name}", "Batch: {product.sku}", "{product.category}", "{product.vatLabel}", "Availability", "Unit price", "changeQuantity(", 'addToCart(product, "immediate")']) {
     assert.ok(src.includes(piece), `the row keeps ${piece}`);
   }
   // Blocked batches stay visible with a reason tied to the disabled action.
   assert.match(src, /className="rq-table-reason" id=\{`rq-table-reason-\$\{product\.inventoryId\}`\}/);
-  // Short action labels (no icon) so the button never needs more than two lines.
-  assert.match(src, /\{!product\.orderable \? "Unavailable" : product\.backorderOnly \? "Add future order" : "Add to Order"\}/);
-  assert.equal(src.includes("Add as future order"), false);
+  // The ordinary action is disabled for a typed quantity above live stock;
+  // a separate, explicit action preserves future ordering.
+  assert.match(src, /disabled=\{!product\.orderable \|\| review\.kind !== "immediate"\}/);
+  assert.match(src, /review\.kind === "future" && \(/);
+  assert.match(src, /type="number"[\s\S]*?min="1"/);
   // One compact stock line: "7 on hand · 7 reserved or held".
   assert.match(src, /`\$\{product\.onHand \?\? 0\} on hand · \$\{Math\.max\(\(product\.onHand \?\? 0\) - product\.available, 0\)\} reserved or held`/);
-  assert.match(src, /aria-describedby=\{!product\.orderable \? `rq-table-reason-\$\{product\.inventoryId\}` : undefined\}/);
+  assert.match(src, /aria-describedby=\{!product\.orderable \? `rq-table-reason-\$\{product\.inventoryId\}` : review\.kind !== "immediate" \? quantityNoteId : undefined\}/);
   // The price convention is said once for the list.
   assert.match(src, /className="rq-price-convention">Unit prices are per vial · VAT-inclusive for VATable products\./);
   const css = read("src/pages/salesRep/salesrep-polish.css");

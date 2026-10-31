@@ -429,7 +429,8 @@ function SalesRepOrderTracking() {
         <section className="tracking-layout tracking-v2-layout">
           <div className="tracking-left">
             <div className="tracking-v2-table-wrap">
-              <table className="tracking-table tracking-v2-table">
+              <div className="tracking-v2-table-scroll">
+                <table className="tracking-table tracking-v2-table">
                 <thead>
                   <tr>
                     <th>Order ID</th>
@@ -462,9 +463,10 @@ function SalesRepOrderTracking() {
                     </tr>
                   )}
                 </tbody>
-              </table>
+                </table>
+              </div>
+              <PageNav page={currentPage} total={filteredOrders.length} onPageChange={setPage} label="Order tracking pages" />
             </div>
-            <PageNav page={currentPage} total={filteredOrders.length} onPageChange={setPage} label="Order tracking pages" />
           </div>
 
           <aside className="tracking-side tracking-v2-side">

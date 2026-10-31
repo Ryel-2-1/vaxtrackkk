@@ -1341,30 +1341,24 @@ aside.salesrep-sidebar .salesrep-logout {
 .salesrep-main .inventory-v2-table th {
   border-bottom: 1px solid var(--gray-300) !important;
 }
-/* Pagination: only the current page is rendered. The header and every row
-   have one fixed height, and each cell's content is bounded to fit inside it
-   (the name clamps and opens a popover; dates, quantities and status never
-   wrap; batch IDs wrap to at most two lines). A paged result keeps the pager
-   steady while the table region is bounded by the viewport; one page or an
-   empty result keeps its natural height.
+/* Pagination: only the current page is rendered. The table and footer follow
+   its rows in normal page flow, without a second vertical scrollbar.
+   Cell content is bounded to fit (the name opens a details dialog; dates,
+   quantities and status do not wrap; batch IDs use at most two lines).
    The table is `table-layout: fixed` with a 720px minimum, so column widths
    never depend on the rows shown. Sizes are px, like the type they hold, so
    browser zoom scales them together. */
 .salesrep-main .inventory-v2-table-region {
   --inv-head-h: 52px;
   --inv-row-h: 77px;
-}
-.salesrep-main .inventory-v2-table-region.is-paged {
-  height: min(calc(var(--inv-head-h) + var(--inv-page-rows) * var(--inv-row-h)), 46dvh);
+  height: fit-content;
   min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  overflow-y: visible;
 }
-.salesrep-main .inventory-v2-table-region.is-paged thead th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+.salesrep-main .inventory-v2-page-nav {
+  padding: 0 20px;
+  border-top: 1px solid var(--gray-200);
+  background: #fff;
 }
 /* Separate borders with no spacing: each border sits inside its cell's
    border-box height, so a page is exactly header + rows × row height. */
@@ -1570,6 +1564,7 @@ aside.salesrep-sidebar .salesrep-logout {
    scroll containers (overflow), and the stacked toolbar would cover a
    third of the screen, so there it scrolls with the page. */
 .salesrep-main .tracking-v2-toolbar {
+  align-items: center !important;
   gap: 10px 12px !important;
   margin: var(--mr-header-gap) 0 12px !important;
   padding: 10px 12px !important;
@@ -1580,7 +1575,7 @@ aside.salesrep-sidebar .salesrep-logout {
 @media (min-width: 769px) {
   .salesrep-main .tracking-v2-toolbar {
     position: sticky;
-    top: 0;
+    top: var(--shell-topbar-height);
     z-index: 20;
     box-shadow: 0 6px 12px -10px rgba(17, 24, 39, 0.35);
   }
@@ -1596,10 +1591,82 @@ aside.salesrep-sidebar .salesrep-logout {
 }
 .salesrep-main .tracking-v2-tabs {
   border: 1px solid var(--gray-300) !important;
+  flex: 0 0 auto;
+}
+.salesrep-main .tracking-v2-status-filter {
+  align-self: center;
+  min-height: 42px;
+  white-space: nowrap;
+}
+.salesrep-main .tracking-v2-status-filter span {
+  line-height: 42px;
+}
+.salesrep-main .tracking-v2-layout {
+  width: 100%;
+  min-width: 0;
+  gap: 16px !important;
+}
+.salesrep-main .tracking-left {
+  min-width: 0;
+  width: 100%;
 }
 .salesrep-main .tracking-v2-table-wrap,
 .salesrep-main .tracking-v2-side {
   border: 1px solid var(--gray-300) !important;
+}
+.salesrep-main .tracking-v2-table-wrap {
+  height: fit-content;
+  overflow: hidden !important;
+}
+.salesrep-main .tracking-v2-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  scrollbar-gutter: stable;
+}
+@media (min-width: 1201px) {
+  .salesrep-main .tracking-v2-table-scroll {
+    max-height: max(240px, calc(100dvh - var(--shell-topbar-height) - 225px));
+    overflow-y: auto;
+  }
+  .salesrep-main .tracking-v2-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+}
+.salesrep-main .tracking-v2-table th,
+.salesrep-main .tracking-v2-table td {
+  padding: 10px 12px !important;
+}
+.salesrep-main .tracking-v2-table tr.selected {
+  border-left: 0 !important;
+  box-shadow: inset 4px 0 var(--green-700);
+}
+.salesrep-main .tracking-v2-table-wrap .page-nav {
+  padding: 10px 12px;
+  border-top: 1px solid var(--gray-300);
+}
+.salesrep-main .tracking-v2-side {
+  padding: 16px !important;
+}
+.salesrep-main .tracking-v2-side > p,
+.salesrep-main .tracking-v2-side > h3 {
+  margin: 12px 0 0 !important;
+}
+.salesrep-main .tracking-v2-side > p:first-of-type {
+  margin-top: 8px !important;
+}
+.salesrep-main .tracking-v2-side > .tracking-v2-status-strip,
+.salesrep-main .tracking-v2-side > .tracking-v2-info-box,
+.salesrep-main .tracking-v2-side > .tracking-destination-request,
+.salesrep-main .tracking-v2-side > .tracking-destination-history,
+.salesrep-main .tracking-v2-side > .order-cancellation-action {
+  margin: 8px 0 0 !important;
+}
+.salesrep-main .tracking-v2-side > .ldm,
+.salesrep-main .tracking-v2-side > .order-content,
+.salesrep-main .tracking-v2-side > .tracking-total {
+  margin-top: 8px !important;
 }
 .salesrep-main .tracking-v2-table td {
   border-top: 0 !important;
@@ -1618,7 +1685,7 @@ aside.salesrep-sidebar .salesrep-logout {
 @media (min-width: 769px) {
   .salesrep-order-history .ohx-filter-dock {
     position: sticky;
-    top: 0;
+    top: var(--shell-topbar-height);
     z-index: 10;
     padding: 10px 0;
     background: var(--gray-50);
@@ -1652,6 +1719,29 @@ aside.salesrep-sidebar .salesrep-logout {
 }
 .salesrep-order-history .ohx-table th {
   border-bottom: 1px solid var(--gray-300);
+}
+.salesrep-order-history .ohx {
+  gap: 12px;
+}
+.salesrep-order-history .ohx-list-table-wrap {
+  scrollbar-gutter: stable;
+}
+.salesrep-order-history .ohx-history-pager {
+  padding: 10px 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-card);
+  background: #fff;
+}
+@media (min-width: 1201px) {
+  .salesrep-order-history .ohx-list-table-wrap {
+    max-height: max(220px, calc(100dvh - var(--shell-topbar-height) - 365px));
+    overflow-y: auto;
+  }
+  .salesrep-order-history .ohx-list-table-wrap thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
 }
 .salesrep-order-history .ohx-card > h2,
 .salesrep-order-history .ohx-receipt-head {
@@ -1704,6 +1794,11 @@ aside.salesrep-sidebar .salesrep-logout {
 }
 .salesrep-main .alerts-v2-search {
   border: 1px solid var(--gray-500) !important;
+}
+.salesrep-main .alerts-v2-filters .alert-filter-btn.critical {
+  background-color: var(--error-bg, #fee2e2) !important;
+  color: var(--error-text, #dc2626) !important;
+  border-color: var(--error-border, #fca5a5) !important;
 }
 .salesrep-main .alerts-v2-card {
   border-top-color: var(--gray-300) !important;
@@ -2317,7 +2412,7 @@ body:has(> #root > .salesrep-page),
   flex: 0 0 auto;
 }
 
-/* ---- wide screens: catalog | 312px sticky cart ---- */
+/* ---- wide screens: catalog | 312px cart ---- */
 @media (min-width: 1101px) {
   .salesrep-page .request-order-layout.request-v2-layout {
     grid-template-columns: minmax(0, 1fr) 312px !important;
@@ -2381,7 +2476,7 @@ body:has(> #root > .salesrep-page),
   }
   .salesrep-page .rq-cart-bar {
     position: sticky;
-    top: 0; /* the Med Rep top bar scrolls away; this pins to the viewport top */
+    top: var(--shell-topbar-height); /* sit below the sticky Med Rep top bar */
     z-index: 5;
     display: flex;
     justify-content: flex-end;
@@ -2605,7 +2700,7 @@ body:has(> #root > .salesrep-page),
 }
 .salesrep-page .rq-table {
   width: 100%;
-  min-width: 760px;
+  min-width: 840px;
   border-collapse: collapse;
   table-layout: fixed;
   font-size: 12px;
@@ -2618,12 +2713,12 @@ body:has(> #root > .salesrep-page),
   font-weight: 600;
   text-align: left;
 }
-.salesrep-page .rq-table th:nth-child(1) { width: 22%; }
+.salesrep-page .rq-table th:nth-child(1) { width: 20%; }
 .salesrep-page .rq-table th:nth-child(2) { width: 12%; }
-.salesrep-page .rq-table th:nth-child(3) { width: 22%; }
-.salesrep-page .rq-table th:nth-child(4) { width: 13%; }
-.salesrep-page .rq-table th:nth-child(5) { width: 13%; }
-.salesrep-page .rq-table th:nth-child(6) { width: 18%; }
+.salesrep-page .rq-table th:nth-child(3) { width: 19%; }
+.salesrep-page .rq-table th:nth-child(4) { width: 12%; }
+.salesrep-page .rq-table th:nth-child(5) { width: 17%; }
+.salesrep-page .rq-table th:nth-child(6) { width: 20%; }
 .salesrep-page .rq-table td {
   padding: 8px 10px;
   border-bottom: 1px solid var(--gray-200);
@@ -2661,7 +2756,43 @@ body:has(> #root > .salesrep-page),
   cursor: pointer;
 }
 .salesrep-page .rq-table-qty button:disabled { opacity: .45; cursor: not-allowed; }
-.salesrep-page .rq-table-qty span { min-width: 28px; text-align: center; font-variant-numeric: tabular-nums; }
+.salesrep-page .rq-table-qty input {
+  width: 58px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gray-900);
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  appearance: textfield;
+}
+.salesrep-page .rq-table-qty input::-webkit-inner-spin-button,
+.salesrep-page .rq-table-qty input::-webkit-outer-spin-button { appearance: none; }
+.salesrep-page .rq-table-qty input:focus-visible { outline: 2px solid var(--green-700); outline-offset: 1px; }
+.salesrep-page .rq-table-qty:has(input[aria-invalid="true"]) {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
+.salesrep-page .rq-table .rq-quantity-feedback {
+  max-width: 170px;
+  margin-top: 3px;
+  color: var(--danger-text);
+  line-height: 1.25;
+}
+.salesrep-page .rq-table-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 5px;
+  align-items: center;
+}
+.salesrep-page .rq-table-actions.has-future {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 .salesrep-page .rq-table-add {
   width: 100%;
   min-height: 32px;
@@ -2682,25 +2813,57 @@ body:has(> #root > .salesrep-page),
   color: var(--gray-500);
   cursor: not-allowed;
 }
+.salesrep-page .rq-table-add-future {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-control);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+}
 .salesrep-page .rq-table-qty button:focus-visible,
-.salesrep-page .rq-table-add:focus-visible { outline: 2px solid var(--green-700); outline-offset: 2px; }
+.salesrep-page .rq-table-add:focus-visible,
+.salesrep-page .rq-table-add-future:focus-visible { outline: 2px solid var(--green-700); outline-offset: 2px; }
+.salesrep-page .rq-table-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  background: #fff;
+  overflow: hidden;
+}
+.salesrep-page .rq-table-card .rq-table-wrap {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  scroll-margin-top: calc(var(--shell-topbar-height) + 8px);
+}
 .salesrep-page .rq-pagination {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 10px;
-  margin-top: 14px;
-  padding: 12px 2px;
+  margin-top: 0;
+  padding: 10px 14px;
+  border-top: 1px solid var(--gray-200);
+  background: #fff;
   color: var(--gray-600);
   font-size: 13px;
 }
 .salesrep-page .rq-pagination > div { display: flex; align-items: center; gap: 8px; }
 .salesrep-page .rq-pagination button {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
   border: 1px solid var(--gray-300);
   border-radius: 8px;
   background: #fff;
@@ -2709,7 +2872,72 @@ body:has(> #root > .salesrep-page),
 }
 .salesrep-page .rq-pagination button:disabled { opacity: .45; cursor: not-allowed; }
 .salesrep-page .rq-pagination button:focus-visible { outline: 2px solid var(--green-700); outline-offset: 2px; }
+@media (min-width: 1101px) {
+  #root .salesrep-route-view:has(> .request-order-layout) {
+    height: calc(100dvh - var(--shell-topbar-height));
+    min-height: 0;
+    overflow: hidden;
+  }
+  .salesrep-page .request-order-layout.request-v2-layout {
+    height: 100%;
+    min-height: 0 !important;
+    align-items: stretch !important;
+    overflow: hidden;
+  }
+  .salesrep-page .request-v2-layout > .request-catalog {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .salesrep-page .request-catalog .rq-table-card {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .salesrep-page .request-catalog .rq-table-wrap {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    scrollbar-gutter: stable;
+  }
+  .salesrep-page .rq-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  .salesrep-page .request-order-layout aside.rq-cart-side {
+    position: relative !important;
+    top: auto !important;
+    height: 100% !important;
+    max-height: none !important;
+    align-self: stretch !important;
+  }
+}
 @media (max-width: 640px) {
   .salesrep-page .inventory-v2-toolbar { grid-template-columns: 1fr !important; }
   .salesrep-page .catalog-filter-trigger { justify-self: start; }
+}
+
+/* The shell header stays visible in the main pane's desktop scroller and in
+   the window scroller at smaller widths. It is outside each route's animated
+   content, so navigation never resets its position. */
+#root .salesrep-main > header.salesrep-topbar.m-topbar {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 1000 !important;
+  background: #fff !important;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, .07) !important;
+}
+
+/* `overflow-x: hidden` on these mobile ancestors creates a non-scrolling
+   overflow container and prevents sticky from following the window. `clip`
+   keeps horizontal overflow contained without taking over vertical scroll. */
+@media (max-width: 1024px) {
+  body:has(> #root > .salesrep-page),
+  #root:has(> .salesrep-page),
+  #root > .salesrep-page,
+  #root > .salesrep-page > .salesrep-main {
+    overflow-x: clip !important;
+    overflow-y: visible !important;
+  }
 }

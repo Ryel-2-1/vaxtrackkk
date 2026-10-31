@@ -13,7 +13,7 @@ import MyProfile from "../../components/profile/MyProfile";
  * and role is read-only like everywhere else.
  */
 function DispatcherSettings() {
-  return <MyProfile />;
+  return <MyProfile showEmployeeId={false} />;
 }
 
 export default DispatcherSettings;

@@ -225,6 +225,17 @@ test("routes and navigation: Med Rep and Admin history inside their shells", () 
   assert.match(read("src", "pages", "admin", "AdminOrderHistory.jsx"), /<OrderHistoryView mode="admin" \/>/);
 });
 
+test("Med Rep history uses bounded pager navigation and automatic filters", () => {
+  const view = read("src", "components", "history", "OrderHistoryView.jsx");
+  assert.match(view, /const visiblePage = visible\.slice\(\(currentPage - 1\) \* HISTORY_PAGE_SIZE, currentPage \* HISTORY_PAGE_SIZE\)/);
+  assert.match(view, /if \(next > Math\.ceil\(visible\.length \/ HISTORY_PAGE_SIZE\) && hasMore && !lookupResult\) \{\s*loadMore\(\)/);
+  assert.match(view, /<nav className="page-nav ohx-history-pager" aria-label="Order history pages">/);
+  assert.match(view, /\{isAdmin && !lookupResult && hasMore && !loading && !shownError && \(/, "Load older remains Admin-only");
+  assert.match(view, /\{isAdmin && <button type="submit" className="ohx-btn">Apply dates<\/button>\}/);
+  assert.match(view, /\}, 350\);\s*return \(\) => clearTimeout\(timer\);/);
+  assert.match(view, /if \(!isAdmin\) setAppliedFilters\(\(f\) => \(\{ \.\.\.f, \[key\]: value \}\)\);/, "selectors apply without a timer");
+});
+
 test("Stock Allocation stays the current queue and links to history", () => {
   const alloc = read("src", "pages", "admin", "AdminAllocation.jsx");
   assert.match(alloc, /subscribeBackorderQueue\(/, "the operational queue is unchanged");
@@ -298,7 +309,7 @@ test("the loaded-records limitation is stated whenever a filter applies to loade
   assert.match(loadedFilterNotice({ filtersActive: true, hasMore: true, loadedCount: 25 }), /^Search\/filtering currently covers loaded records \(25 loaded\)/);
   assert.match(loadedFilterNotice({ filtersActive: true, hasMore: false, loadedCount: 7 }), /^Search\/filtering currently covers loaded records — all 7/);
   const view = read("src", "components", "history", "OrderHistoryView.jsx");
-  assert.match(view, /const clientFiltered = Boolean\(filters\.search \|\| filters\.stage \|\| filters\.allocationState \|\| filters\.priority\);/);
+  assert.match(view, /const clientFiltered = Boolean\(effectiveFilters\.search \|\| effectiveFilters\.stage \|\| effectiveFilters\.allocationState \|\| effectiveFilters\.priority\);/);
   assert.match(view, /loadedFilterNotice\(\{ filtersActive: clientFiltered, hasMore, loadedCount: rows\.length \}\)/);
   assert.match(view, /\{loadedNotice && <p className="ohx-loaded-notice" role="note">\{loadedNotice\}<\/p>\}/);
 });

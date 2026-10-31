@@ -3247,41 +3247,6 @@
   color: #64748b !important;
 }
 
-.inventory-v2-pagination {
-  padding: 14px 20px !important;
-  background: #ffffff !important;
-}
-
-.inventory-v2-pagination div {
-  display: flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-}
-
-.inventory-v2-pagination button {
-  display: inline-grid !important;
-  place-items: center !important;
-  width: 32px !important;
-  height: 32px !important;
-  border: 1px solid #c7d5ea !important;
-  background: #ffffff !important;
-  color: #334155 !important;
-  border-radius: 8px !important;
-  font-weight: 700 !important;
-  cursor: pointer !important;
-}
-
-.inventory-v2-pagination button.active {
-  background: var(--green-700) !important;
-  color: #ffffff !important;
-  border-color: var(--green-700) !important;
-}
-
-.inventory-v2-pagination button:disabled {
-  opacity: 0.45 !important;
-  cursor: not-allowed !important;
-}
-
 @media (max-width: 1100px) {
   .inventory-v2-summary,
   .inventory-v2-toolbar {
@@ -7103,6 +7068,37 @@
 .srd-planner-section {
   margin-bottom: var(--mr-section-gap);
 }
+.srd-planner > .srd-card-head {
+  padding: 12px 20px 4px;
+  border-bottom: 0;
+}
+.srd-planner-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 6px 20px 10px;
+  border-bottom: 1px solid var(--gray-200);
+}
+.srd-planner-controls-main,
+.srd-planner-controls-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  min-width: 0;
+}
+.srd-planner-controls-main { flex: 1 1 600px; }
+.srd-planner-controls-meta {
+  margin-left: auto;
+  justify-content: flex-end;
+}
+.srd-planner-description {
+  margin: 0;
+  color: var(--gray-600);
+  font-size: 12px;
+}
 
 .srd-planner-legend {
   display: inline-flex;
@@ -7115,16 +7111,14 @@
 .srd-planner-filters {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 10px 12px;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--gray-200);
+  align-items: center;
+  gap: 8px 10px;
 }
 
 .srd-planner-filter {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
   color: var(--gray-600);
   font-size: 12px;
@@ -7132,7 +7126,7 @@
 }
 
 .srd-planner-filter select {
-  width: 170px;
+  width: 145px;
   max-width: 100%;
   height: 34px;
   min-height: 34px;
@@ -7150,11 +7144,10 @@
 }
 
 .srd-planner-clear {
-  align-self: flex-end;
+  align-self: center;
 }
 
 .srd-planner-filter-summary {
-  margin-left: auto;
   align-self: center;
   color: var(--gray-500);
   font-size: 12px;
@@ -7165,7 +7158,7 @@
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
   gap: 24px;
   align-items: stretch;
-  padding: 16px 20px 20px;
+  padding: 10px 20px 16px;
 }
 
 .srd-planner-calendar {
@@ -7351,14 +7344,19 @@
   }
 }
 @media (max-width: 560px) {
+  .srd-planner > .srd-card-head { padding: 12px 16px 4px; }
+  .srd-planner-controls { padding: 6px 16px 10px; }
+  .srd-planner-controls-main { flex-basis: 100%; }
+  .srd-planner-controls-meta { margin-left: 0; justify-content: flex-start; }
   .srd-planner-filters {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    padding: 12px 16px;
+    width: 100%;
   }
+  .srd-planner-filter { flex-direction: column; align-items: stretch; }
   .srd-planner-filter select { width: 100%; }
   .srd-planner-clear { justify-self: start; }
-  .srd-planner-filter-summary { grid-column: 2; margin-left: 0; justify-self: end; }
+  .srd-planner-filter-summary { margin-left: 0; }
 }
 /* Place Order: future-order explanation inside the dark Order Summary card. */
 .place-v2-pricing-card .place-v2-backorder-note {

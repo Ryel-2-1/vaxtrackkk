@@ -194,10 +194,11 @@ test("Med Rep wording offers a future order and never promises a date", () => {
   }
   // Requested / reserved / backordered all shown.
   assert.match(summary, /Requested<\/th>[\s\S]*Reserved<\/th>[\s\S]*Backordered<\/th>/);
-  // The catalog no longer caps quantity at available stock.
+  // Requests above available stock remain possible through an explicit future-order action.
   const req = read("src/pages/salesRep/SalesRepRequestOrder.jsx");
   assert.doesNotMatch(req, /Math\.min\(item\.quantity \+ quantity, product\.stock\)/);
-  assert.match(req, /const maxQty = MAX_LINE_QUANTITY;/);
+  assert.match(req, /assessRequestQuantity\(quantityDraft, product\.available, alreadyInCart\)/);
+  assert.match(req, /Add future order/);
   // Tracking shows the split for orders still waiting to be dispatched.
   const tracking = read("src/pages/salesRep/SalesRepOrderTracking.jsx");
   assert.match(tracking, /allocation: statusKey === "pending_dispatch" \? describeAllocation\(raw\) : null/);

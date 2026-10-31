@@ -3,8 +3,6 @@ import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   Clock,
   Filter,
   Loader2,
@@ -45,6 +43,7 @@ import {
 import { liveErrorMessage } from "../../services/liveDataErrors";
 import DialogLayer from "../../components/ui/DialogLayer";
 import { useDialogFocus } from "../../components/ui/useDialogFocus";
+import { assessRequestQuantity } from "../../services/requestQuantity";
 
 
 
@@ -140,7 +139,6 @@ function RequestOrderCart({ uid }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
   const catalogTableRef = useRef(null);
-  const [fullPageHeight, setFullPageHeight] = useState(0);
   const [quantities, setQuantities] = useState({});
   const [cart, setCart] = useState(() => restoreCatalogCart(localStorage, uid));
   const cartRef = useRef(cart);
@@ -199,7 +197,7 @@ function RequestOrderCart({ uid }) {
         setQuantities((prev) => {
           const next = { ...prev };
           for (const p of products) {
-            if (!(p.inventoryId in next)) next[p.inventoryId] = 1;
+            if (!(p.inventoryId in next)) next[p.inventoryId] = "1";
           }
           return next;
         });
@@ -259,25 +257,18 @@ function RequestOrderCart({ uid }) {
       return matchesSearch && matchesStock && matchesType;
     });
   }, [products, searchTerm, stockFilter, selectedTypes]);
-  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / 10));
+  const rowsPerPage = 10;
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / rowsPerPage));
   const currentPage = Math.min(page, totalPages);
-  const visibleProducts = filteredProducts.slice((currentPage - 1) * 10, currentPage * 10);
-  // Keep the pagination area steady when its last page has fewer than ten
-  // rows. Measure an actual full page because row heights vary with names,
-  // blocked reasons, viewport width and text zoom.
-  useEffect(() => {
-    const table = catalogTableRef.current;
-    if (!table || totalPages < 2 || visibleProducts.length !== 10) return undefined;
-    const observer = new ResizeObserver(() => setFullPageHeight(Math.ceil(table.getBoundingClientRect().height)));
-    observer.observe(table);
-    return () => observer.disconnect();
-  }, [totalPages, visibleProducts.length, currentPage]);
+  const visibleProducts = filteredProducts.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
 
   const goToPage = (nextPage) => {
     if (nextPage < 1 || nextPage > totalPages || nextPage === currentPage) return;
-    const top = catalogTableRef.current?.getBoundingClientRect().top;
     setPage(nextPage);
-    if (top != null) window.scrollTo({ top: Math.max(0, window.scrollY + top - 88), behavior: "instant" });
+    catalogTableRef.current?.scrollTo({ top: 0, behavior: "instant" });
+    if (window.matchMedia("(max-width: 1100px)").matches) {
+      catalogTableRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }
   };
 
   const cartTotal = cart.reduce((total, item) => total + item.quantity, 0);
@@ -323,18 +314,15 @@ function RequestOrderCart({ uid }) {
   // share a batchId (nothing enforces uniqueness), and keying by it would let
   // one row's quantity control another's.
   const changeQuantity = (key, direction) => {
-    // Not capped by available stock any more: whatever cannot be reserved now
-    // is backordered. The only ceiling is the server's per-line maximum.
-    const maxQty = MAX_LINE_QUANTITY;
-
     setQuantities((current) => {
-      const currentQty = current[key] || 1;
+      const parsed = Number(current[key]);
+      const currentQty = Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 1;
       const nextQty = direction === "minus" ? currentQty - 1 : currentQty + 1;
-      return { ...current, [key]: Math.min(Math.max(nextQty, 1), maxQty) };
+      return { ...current, [key]: String(Math.min(Math.max(nextQty, 1), MAX_LINE_QUANTITY)) };
     });
   };
 
-  const addToCart = (product) => {
+  const addToCart = (product, mode) => {
     if (!product.orderable) {
       // The real reason, not a blanket "out of stock" — an unpriced or
       // unmigrated batch is an admin task, not an empty shelf, and telling a
@@ -343,14 +331,20 @@ function RequestOrderCart({ uid }) {
       return;
     }
 
-    const quantity = quantities[product.inventoryId] || 1;
+    const alreadyInCart = cartRef.current.find((item) => item.inventoryId === product.inventoryId)?.quantity ?? 0;
+    const review = assessRequestQuantity(quantities[product.inventoryId] ?? "1", product.available, alreadyInCart);
+    if (review.kind !== mode) {
+      setNotice(review.message || "Check the quantity and try again.");
+      return;
+    }
+    const quantity = review.quantity;
 
     const next = mergeCartBatch(cartRef.current, product, quantity, MAX_LINE_QUANTITY);
     if (!commitCart(next)) return;
 
     setNotice(
-      product.backorderOnly
-        ? `${product.name} added as a future order — it is out of stock, so dispatch waits until stock arrives and is reserved.`
+      mode === "future"
+        ? `${product.name} added as a future order — dispatch waits until the full order is reserved.`
         : `${product.name} added to quick cart.`,
       { transient: true }
     );
@@ -482,8 +476,8 @@ function RequestOrderCart({ uid }) {
             </button>
           </div>
 
-          <div ref={catalogTableRef} className="rq-table-wrap"
-            style={totalPages > 1 && visibleProducts.length < 10 && fullPageHeight > 0 ? { minHeight: fullPageHeight } : undefined}>
+          <div className="rq-table-card">
+          <div ref={catalogTableRef} className="rq-table-wrap">
             {filteredProducts.length > 0 ? (
               <table className="rq-table">
                 <thead>
@@ -497,8 +491,13 @@ function RequestOrderCart({ uid }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleProducts.map((product) => (
-                    <tr key={product.inventoryId}>
+                  {visibleProducts.map((product) => {
+                    const alreadyInCart = cart.find((item) => item.inventoryId === product.inventoryId)?.quantity ?? 0;
+                    const quantityDraft = quantities[product.inventoryId] ?? "1";
+                    const review = assessRequestQuantity(quantityDraft, product.available, alreadyInCart);
+                    const quantityNoteId = `rq-quantity-note-${product.inventoryId}`;
+                    const remaining = Math.max(0, (product.available ?? 0) - alreadyInCart);
+                    return <tr key={product.inventoryId}>
                       <td>
                         <strong>{product.name}</strong>
                         <small>Batch: {product.sku}</small>
@@ -520,18 +519,40 @@ function RequestOrderCart({ uid }) {
                       <td>
                         <div className="rq-table-qty" role="group" aria-label={`Quantity for ${product.name}, batch ${product.sku}`}>
                           <button type="button" className="rq-table-qty-btn" aria-label={`Decrease ${product.name} quantity`} onClick={() => changeQuantity(product.inventoryId, "minus")} disabled={!product.orderable}><Minus size={14} /></button>
-                          <span>{quantities[product.inventoryId] || 1}</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max={remaining > 0 ? remaining : MAX_LINE_QUANTITY - alreadyInCart}
+                            step="1"
+                            inputMode="numeric"
+                            aria-label={`Vial quantity for ${product.name}, batch ${product.sku}`}
+                            aria-invalid={product.orderable && review.kind !== "immediate" ? "true" : undefined}
+                            aria-describedby={product.orderable && review.kind !== "immediate" ? quantityNoteId : undefined}
+                            value={quantityDraft}
+                            onChange={(event) => setQuantities((current) => ({ ...current, [product.inventoryId]: event.target.value }))}
+                            disabled={!product.orderable}
+                          />
                           <button type="button" className="rq-table-qty-btn" aria-label={`Increase ${product.name} quantity`} onClick={() => changeQuantity(product.inventoryId, "plus")} disabled={!product.orderable}><Plus size={14} /></button>
                         </div>
+                        {product.orderable && review.kind !== "immediate" && (
+                          <small id={quantityNoteId} className="rq-quantity-feedback">{review.message}</small>
+                        )}
                       </td>
                       <td>
-                        <button type="button" className="rq-table-add" onClick={() => addToCart(product)} disabled={!product.orderable}
-                          aria-describedby={!product.orderable ? `rq-table-reason-${product.inventoryId}` : undefined}>
-                          {!product.orderable ? "Unavailable" : product.backorderOnly ? "Add future order" : "Add to Order"}
-                        </button>
+                        <div className={`rq-table-actions${product.orderable && review.kind === "future" ? " has-future" : ""}`}>
+                          <button type="button" className="rq-table-add" onClick={() => addToCart(product, "immediate")} disabled={!product.orderable || review.kind !== "immediate"}
+                            aria-describedby={!product.orderable ? `rq-table-reason-${product.inventoryId}` : review.kind !== "immediate" ? quantityNoteId : undefined}>
+                            {!product.orderable ? "Unavailable" : review.kind === "future" ? "Add now" : "Add to Order"}
+                          </button>
+                          {product.orderable && review.kind === "future" && (
+                            <button type="button" className="rq-table-add-future" onClick={() => addToCart(product, "future")} aria-label="Add future order" aria-describedby={quantityNoteId}>
+                              Add future
+                            </button>
+                          )}
+                        </div>
                       </td>
-                    </tr>
-                  ))}
+                    </tr>;
+                  })}
                 </tbody>
               </table>
             ) : (
@@ -544,17 +565,18 @@ function RequestOrderCart({ uid }) {
           </div>
           {filteredProducts.length > 0 && (
             <nav className="rq-pagination" aria-label="Vaccine catalog pages">
-              <span>Showing {(currentPage - 1) * 10 + 1}–{Math.min(currentPage * 10, filteredProducts.length)} of {filteredProducts.length} batches</span>
+              <span>Showing {(currentPage - 1) * rowsPerPage + 1}–{Math.min(currentPage * rowsPerPage, filteredProducts.length)} of {filteredProducts.length} batches</span>
               <div>
-                <button type="button" aria-label="Previous page" disabled={currentPage === 1} onClick={() => goToPage(currentPage - 1)}><ChevronLeft size={16} /></button>
+                <button type="button" disabled={currentPage === 1} onClick={() => goToPage(currentPage - 1)}>Previous</button>
                 <span>Page {currentPage} of {totalPages}</span>
-                <button type="button" aria-label="Next page" disabled={currentPage === totalPages} onClick={() => goToPage(currentPage + 1)}><ChevronRight size={16} /></button>
+                <button type="button" disabled={currentPage === totalPages} onClick={() => goToPage(currentPage + 1)}>Next</button>
               </div>
             </nav>
           )}
+          </div>
         </div>
 
-        {/* Wide screens: the cart sits beside the catalog (sticky). It is
+        {/* Wide screens: the cart sits beside the catalog at matching height. It is
             hidden below CART_SIDE_MIN_WIDTH, where the drawer below takes over. */}
         <aside className="quick-cart request-v2-cart rq-cart-side" aria-labelledby="rq-cart-title">
           <QuickCartPanel headingId="rq-cart-title" {...cartPanel} />

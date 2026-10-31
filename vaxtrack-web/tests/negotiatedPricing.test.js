@@ -258,32 +258,37 @@ test("a retry under the same request id must carry the same price, reason and di
 // ---------------------------------------------------------------- the page
 
 const PAGE = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
+const PRICE_REVIEW = read("src/pages/salesRep/OrderPriceReview.jsx");
 const CODE = strip(PAGE);
+// The page's price-review state (agreed price + reason per line) lives here.
+const PRICE_STATE = strip(read("src/pages/salesRep/useCheckoutPriceReview.js"));
 
 test("each line edits its agreed price; checkout offers no SC/PWD discount entry", () => {
-  assert.match(PAGE, /Agreed unit price \(VAT-inclusive\) for \{item\.name\}/);
+  assert.match(PAGE, /<PriceReview/);
+  assert.match(PRICE_REVIEW, /Agreed unit price \(VAT-inclusive\) for \{item\.name\}/);
   for (const label of ["Standard unit price", "Negotiated line total", "Price adjustment", "Final line total"]) {
-    assert.match(PAGE, new RegExp(`<dt>${label}</dt>`), label);
+    assert.match(PRICE_REVIEW, new RegExp(`<dt>${label}</dt>`), label);
   }
   // Removed from the review: the standard line total and the SC/PWD figure,
   // the per-line discount selector, its amount and its attestation.
   for (const gone of ["<dt>Standard line total</dt>", "<dt>SC/PWD discount</dt>", "SC/PWD discount for", "No discount", "Discount amount for this line", "place-v2-price-discount", "place-v2-eligibility"]) {
-    assert.equal(PAGE.includes(gone), false, `${gone} must be gone`);
+    assert.equal((PAGE + PRICE_REVIEW).includes(gone), false, `${gone} must be gone`);
   }
   for (const gone of ["onDiscountTypeChange", "onDiscountChange", "onEligibilityChange", "discountType", "discountInput", "eligibilityConfirmed", "ELIGIBILITY_ATTESTATION_TEXT", "STATUTORY_DISCOUNT_TYPES"]) {
-    assert.equal(CODE.includes(gone), false, `${gone} must be gone`);
+    assert.equal((CODE + PRICE_STATE).includes(gone), false, `${gone} must be gone`);
   }
   // One money input per line: the agreed unit price. No total input.
-  assert.equal((PAGE.match(/inputMode="decimal"/g) || []).length, 1);
+  assert.equal((PRICE_REVIEW.match(/inputMode="decimal"/g) || []).length, 1);
   // Reset clears the price and its reason.
-  assert.match(CODE, /delete rest\.agreedInput;\s*delete rest\.reason;\s*return \{ \.\.\.current, \[inventoryId\]: rest \};/);
-  assert.match(PAGE, /Reset to standard price/);
+  assert.match(CODE, /useCheckoutPriceReview\(\{\s*initialNegotiation: initialReview\.negotiation,/);
+  assert.match(PRICE_STATE, /delete rest\.agreedInput;\s*delete rest\.reason;\s*return \{ \.\.\.current, \[inventoryId\]: rest \};/);
+  assert.match(PRICE_REVIEW, /Reset to standard price/);
 });
 
 test("with no discount entry, a checkout line is reviewed and sent at its agreed price", () => {
   // The page reviews each line with exactly these inputs — no discount fields.
   assert.match(
-    CODE,
+    PRICE_STATE,
     /price: priceReviewLine\(\{\s*quantity: item\.quantity,\s*expectedUnitPriceCentavos: item\.expectedUnitPriceCentavos,\s*vatClassification,\s*agreedInput: entry\.agreedInput,\s*negotiationReason: entry\.reason \?\? "",\s*\}\)/
   );
   // Same inputs through the model: no discount, VAT-inclusive totals intact.
@@ -307,13 +312,14 @@ test("with no discount entry, a checkout line is reviewed and sent at its agreed
 
 test("the summary shows negotiated subtotal, VAT and the final total", () => {
   for (const label of ["Negotiated subtotal", "VATable sales (net of VAT)", "VAT-exempt sales", "Zero-rated sales", "VAT (12%)", "Final total (VAT-inclusive)"]) {
-    assert.match(PAGE, new RegExp(`<dt>${label.replace(/[()/]/g, "\\$&")}</dt>`), label);
+    assert.match(PRICE_REVIEW, new RegExp(`<dt>${label.replace(/[()/]/g, "\\$&")}</dt>`), label);
   }
-  assert.equal(PAGE.includes("Less: SC/PWD discounts"), false);
+  assert.equal((PAGE + PRICE_REVIEW).includes("Less: SC/PWD discounts"), false);
 });
 
 test("the reconfirmation dialog lists each line's price, and still sends once", () => {
-  const dialog = PAGE.slice(PAGE.indexOf("function ReconfirmDialog"));
+  assert.match(PAGE, /<ReconfirmDialog/);
+  const dialog = PRICE_REVIEW.slice(PRICE_REVIEW.indexOf("function ReconfirmDialog"));
   assert.match(dialog, /Reason: \{price\.negotiationReason\}/);
   assert.match(dialog, /<strong>\{formatAmount\(price\.finalLineTotalCentavos\)\}<\/strong>/);
   assert.equal(/statutoryDiscount/.test(dialog), false);

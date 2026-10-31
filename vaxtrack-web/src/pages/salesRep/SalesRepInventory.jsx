@@ -2,8 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   Filter,
   Hourglass,
   Loader2,
@@ -19,12 +17,13 @@ import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
 import { liveErrorMessage } from "../../services/liveDataErrors";
 import { abbreviateBatchId } from "../../services/batchIdDisplay";
 import CatalogFilterDialog from "../../components/inventory/CatalogFilterDialog";
+import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import "../../components/ui/feedback.css";
 
 // The derived expiry levels, in the order a rep cares about them. These are
 // labels from the shared helper, not values of the stored `status` field.
 const statusTypes = ["All", "Expired", "Expiring soon", "Expiring later", "In date", "No expiry date"];
-const rowsPerPage = 10;
+const rowsPerPage = PAGE_SIZE;
 
 /* `getDaysUntilExpiry` was deleted: it measured from local midnight, while the
    server and every other surface use a date-only Manila cutoff. The days now
@@ -315,14 +314,9 @@ function SalesRepInventory() {
           )}
         </div>
 
-        {/* Only the current page is rendered. Rows have one fixed height (each
-            cell's content is bounded to fit it, see salesrep-polish.css), and a
-            paged result reserves a full page, so a short last page leaves the
-            pager where it was. One page or none keeps its natural height. */}
-        <div
-          className={`inventory-v2-table-region${totalPages > 1 ? " is-paged" : ""}`}
-          style={{ "--inv-page-rows": rowsPerPage }}
-        >
+        {/* Only the current page is rendered; the table grows to fit those
+            rows, so no batch is cut off inside a second vertical scroller. */}
+        <div className="inventory-v2-table-region">
           <table className="salesrep-inventory-table inventory-v2-table">
             <thead>
               <tr>
@@ -352,43 +346,8 @@ function SalesRepInventory() {
           </table>
         </div>
 
-        <div className="salesrep-pagination-row right inventory-v2-pagination">
-          <p>
-            Displaying {filteredStocks.length === 0 ? 0 : startIndex + 1}-
-            {Math.min(startIndex + rowsPerPage, filteredStocks.length)} of {filteredStocks.length} batches
-          </p>
-
-          <div>
-            <button
-              type="button"
-              aria-label="Previous page"
-              disabled={currentPage === 1}
-              onClick={() => setPage((value) => Math.max(value - 1, 1))}
-            >
-              <ChevronLeft size={15} aria-hidden="true" />
-            </button>
-
-            {Array.from({ length: totalPages }, (_, index) => (
-              <button
-                key={index + 1}
-                type="button"
-                className={currentPage === index + 1 ? "active" : ""}
-                aria-current={currentPage === index + 1 ? "page" : undefined}
-                onClick={() => setPage(index + 1)}
-              >
-                {index + 1}
-              </button>
-            ))}
-
-            <button
-              type="button"
-              aria-label="Next page"
-              disabled={currentPage === totalPages}
-              onClick={() => setPage((value) => Math.min(value + 1, totalPages))}
-            >
-              <ChevronRight size={15} aria-hidden="true" />
-            </button>
-          </div>
+        <div className="inventory-v2-page-nav">
+          <PageNav page={currentPage} total={filteredStocks.length} onPageChange={setPage} label="Inventory pages" />
         </div>
       </section>
       {filtersOpen && <CatalogFilterDialog

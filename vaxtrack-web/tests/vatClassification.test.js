@@ -98,7 +98,9 @@ test("10 · the Med Rep never sends a VAT field; the server snapshots the produc
 
 test("13 · final order review and confirmation show each item's classification", () => {
   const checkout = code("src/pages/salesRep/SalesRepPlaceOrder.jsx");
-  assert.match(checkout, /PRODUCT_VAT_LABELS\[item\.vatClassification\]/);
+  const cartRow = code("src/pages/salesRep/OrderCartRow.jsx");
+  assert.match(checkout, /<OrderCartRow/);
+  assert.match(cartRow, /PRODUCT_VAT_LABELS\[item\.vatClassification\]/);
   const confirmation = buildConfirmationFromOrder({
     id: "o1",
     items: [

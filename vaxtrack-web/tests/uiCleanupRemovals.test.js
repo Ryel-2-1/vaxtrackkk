@@ -253,7 +253,7 @@ test("Order History: Print receipt is offered to Admin only; the Med Rep view ha
   assert.match(read("src/pages/admin/AdminOrderHistory.jsx"), /<OrderHistoryView mode="admin" \/>/);
 });
 
-test("Inventory and Alerts are not capped at 1280px; the Tracking toolbar pins only above 768px", () => {
+test("Inventory and Alerts are not capped at 1280px; the Tracking toolbar pins below the header above 768px", () => {
   const legacy = read("src/pages/salesRep/SalesRep.css");
   const cap = legacy.slice(0, legacy.indexOf("max-width: 1280px !important;"));
   const selectors = cap.slice(cap.lastIndexOf("}") + 1);
@@ -261,5 +261,5 @@ test("Inventory and Alerts are not capped at 1280px; the Tracking toolbar pins o
     assert.equal(selectors.includes(gone), false, `${gone} must not be capped`);
   }
   const polish = read("src/pages/salesRep/salesrep-polish.css");
-  assert.match(polish, /@media \(min-width: 769px\) \{\s*\.salesrep-main \.tracking-v2-toolbar \{\s*position: sticky;\s*top: 0;/);
+  assert.match(polish, /@media \(min-width: 769px\) \{\s*\.salesrep-main \.tracking-v2-toolbar \{\s*position: sticky;\s*top: var\(--shell-topbar-height\);/);
 });

@@ -181,7 +181,7 @@ test("Sales Rep order creation names the selected Doctor relationship documents"
 test("Dispatcher assignment and status flow are untouched", () => {
   const orderService = src("services", "orderService.js");
   assert.match(orderService, /export async function assignRiderToOrder\(/);
-  assert.match(orderService, /export async function createSalesRepOrder\(/);
+  assert.doesNotMatch(orderService, /createSalesRepOrder|\baddDoc\(/);
   // The dispatcher's status writer is `cancelOrderByDispatcher`. It replaced
   // the generic `updateOrderStatus(orderId, anyString)` when the lifecycle was
   // enforced — cancellation is the only status change a dispatcher makes

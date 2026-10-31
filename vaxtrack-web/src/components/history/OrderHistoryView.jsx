@@ -33,7 +33,7 @@ import { liveErrorMessage } from "../../services/liveDataErrors";
  *                    SKU / Batch ID lookups.
  *
  * Loading is bounded: a LIVE window of the newest orders, one page at first,
- * grown a page at a time by "Load older orders" — every loaded row stays
+ * grown a page at a time by Med Rep Next or Admin's Load older action — every loaded row stays
  * current without a reload. The date range narrows the query itself; status, allocation,
  * priority and the text search filter the orders already loaded, and the page
  * says so. Exact reference / SKU / Batch ID lookups search the whole history.
@@ -52,7 +52,9 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
   const scopeUid = isAdmin ? null : medRepUid;
 
   const [filters, setFilters] = useState(EMPTY_FILTERS);
-  // The date range in effect for the loaded pages (applied on submit).
+  const [appliedFilters, setAppliedFilters] = useState(EMPTY_FILTERS);
+  // The date range in effect for the live window (debounced for Med Rep,
+  // applied on submit for Admin).
   const [range, setRange] = useState({ dateFrom: "", dateTo: "" });
   const [repFilter, setRepFilter] = useState("");
   const [medReps, setMedReps] = useState([]);
@@ -78,6 +80,28 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
 
   const [selectedId, setSelectedId] = useState(null);
   const requestSeq = useRef(0);
+
+  // Med Rep text and date controls settle before changing the live query;
+  // selectors apply immediately. Admin retains its existing Apply dates flow.
+  useEffect(() => {
+    if (isAdmin) return undefined;
+    const timer = setTimeout(() => {
+      setAppliedFilters((current) => ({
+        ...current,
+        search: filters.search,
+        dateFrom: filters.dateFrom,
+        dateTo: filters.dateTo,
+      }));
+      setPage(1);
+      if (range.dateFrom !== filters.dateFrom || range.dateTo !== filters.dateTo) {
+        setLookupResult(null);
+        setLoading(true);
+        setWindowSize(HISTORY_PAGE_SIZE);
+        setRange({ dateFrom: filters.dateFrom, dateTo: filters.dateTo });
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [isAdmin, filters.search, filters.dateFrom, filters.dateTo, range]);
 
   // Receipts are written once, in the order's own creation transaction, so
   // each is read once per order and cached (a legacy order's absence too).
@@ -159,6 +183,13 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
     setPage((current) => current + 1);
     setWindowSize((n) => n + HISTORY_PAGE_SIZE);
   };
+  const changeHistoryPage = (next) => {
+    if (next > Math.ceil(visible.length / HISTORY_PAGE_SIZE) && hasMore && !lookupResult) {
+      loadMore();
+    } else {
+      setPage(next);
+    }
+  };
 
   const runLookup = async (event) => {
     event.preventDefault();
@@ -184,10 +215,9 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
     }
   };
 
-  const visible = useMemo(() => {
-    const source = lookupResult ? lookupResult.rows : rows;
-    return source.filter((r) => matchesHistoryFilters(r, { ...filters, dateFrom: "", dateTo: "" }));
-  }, [rows, lookupResult, filters]);
+  const effectiveFilters = isAdmin ? filters : appliedFilters;
+  const source = lookupResult ? lookupResult.rows : rows;
+  const visible = source.filter((r) => matchesHistoryFilters(r, { ...effectiveFilters, dateFrom: "", dateTo: "" }));
   const currentPage = Math.min(page, Math.max(1, Math.ceil(visible.length / HISTORY_PAGE_SIZE)));
   const visiblePage = visible.slice((currentPage - 1) * HISTORY_PAGE_SIZE, currentPage * HISTORY_PAGE_SIZE);
 
@@ -196,7 +226,14 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
     return all.find((r) => r.id === selectedId) ?? null;
   }, [rows, lookupResult, selectedId]);
 
-  const setFilter = (key) => (e) => { setFilters((f) => ({ ...f, [key]: e.target.value })); setPage(1); };
+  const setFilter = (key) => (e) => {
+    const value = e.target.value;
+    setFilters((f) => ({ ...f, [key]: value }));
+    if (isAdmin || !["search", "dateFrom", "dateTo"].includes(key)) {
+      if (!isAdmin) setAppliedFilters((f) => ({ ...f, [key]: value }));
+      setPage(1);
+    }
+  };
   const applyRange = (e) => {
     e.preventDefault();
     if (range.dateFrom === filters.dateFrom && range.dateTo === filters.dateTo) return;
@@ -215,7 +252,7 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
     setRepFilter(e.target.value);
   };
   const shownError = signedOut ? "You must be signed in to view your order history." : error;
-  const clientFiltered = Boolean(filters.search || filters.stage || filters.allocationState || filters.priority);
+  const clientFiltered = Boolean(effectiveFilters.search || effectiveFilters.stage || effectiveFilters.allocationState || effectiveFilters.priority);
   // Shown whenever a filter acts on loaded records only. The exact-reference
   // lookup above is not one: it queries the whole authorized history.
   const loadedNotice = loadedFilterNotice({ filtersActive: clientFiltered, hasMore, loadedCount: rows.length });
@@ -264,7 +301,7 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
         </form>
         {lookupError && <p className="ohx-error" role="alert">{lookupError}</p>}
 
-        <form className="ohx-filters" onSubmit={applyRange} aria-label="Filter order history">
+        <form className="ohx-filters" onSubmit={isAdmin ? applyRange : (event) => event.preventDefault()} aria-label="Filter order history">
           <label className="ohx-filter-search">
             <span>Filter loaded orders</span>
             <input
@@ -282,7 +319,7 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
             <span>To</span>
             <input type="date" value={filters.dateTo} onChange={setFilter("dateTo")} />
           </label>
-          <button type="submit" className="ohx-btn">Apply dates</button>
+          {isAdmin && <button type="submit" className="ohx-btn">Apply dates</button>}
           <label>
             <span>Status</span>
             <select value={filters.stage} onChange={setFilter("stage")}>
@@ -413,9 +450,19 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
         </div>
       )}
 
-      {visible.length > HISTORY_PAGE_SIZE && <PageNav page={currentPage} total={visible.length} onPageChange={setPage} label="Order history pages" />}
+      {!isAdmin && !loading && !shownError && !lookupResult && (visible.length > 0 || hasMore) && (
+        <nav className="page-nav ohx-history-pager" aria-label="Order history pages">
+          <span>Showing {visiblePage.length ? (currentPage - 1) * HISTORY_PAGE_SIZE + 1 : 0}–{Math.min(currentPage * HISTORY_PAGE_SIZE, visible.length)} of {visible.length} loaded</span>
+          <div className="page-nav-actions">
+            <button type="button" disabled={currentPage === 1 || loadingMore} onClick={() => changeHistoryPage(currentPage - 1)}>Previous</button>
+            <span>Page {currentPage} of {Math.max(1, Math.ceil(visible.length / HISTORY_PAGE_SIZE)) + (hasMore ? 1 : 0)}{hasMore ? "+" : ""}</span>
+            <button type="button" disabled={loadingMore || (!hasMore && currentPage >= Math.ceil(visible.length / HISTORY_PAGE_SIZE))} onClick={() => changeHistoryPage(currentPage + 1)}>{loadingMore ? "Loading…" : "Next"}</button>
+          </div>
+        </nav>
+      )}
+      {isAdmin && visible.length > HISTORY_PAGE_SIZE && <PageNav page={currentPage} total={visible.length} onPageChange={setPage} label="Order history pages" />}
 
-      {!lookupResult && hasMore && !loading && !shownError && (
+      {isAdmin && !lookupResult && hasMore && !loading && !shownError && (
         <button type="button" className="ohx-btn ohx-more" onClick={loadMore} disabled={loadingMore}>
           {loadingMore ? "Loading…" : `Load ${HISTORY_PAGE_SIZE} older orders`}
         </button>

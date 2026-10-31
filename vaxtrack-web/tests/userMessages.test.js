@@ -541,7 +541,8 @@ test("values survive a failed submission — failure paths never reset the form"
   const regCatch = /\} catch \(err\) \{([\s\S]*?)\} finally/.exec(register)[1];
   assert.equal(/set(FullName|Email|Password|ConfirmPassword)\(/.test(regCatch), false);
   // Place Order keeps the cart on failure.
-  assert.match(read("src/pages/salesRep/SalesRepPlaceOrder.jsx"), /Your cart and entries are still here/);
+  assert.match(read("src/pages/salesRep/SalesRepPlaceOrder.jsx"), /messageForCallableError\(error\)/);
+  assert.match(read("src/services/checkoutErrorMessages.js"), /Your cart and entries are still here/);
 });
 
 // ======================================================================
@@ -625,13 +626,15 @@ test("the false-success Register Clinic page is gone; its paths go to the real r
 
 test("existing business-domain messages remain intact", () => {
   const placeOrder = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
+  const checkoutErrors = read("src/services/checkoutErrorMessages.js");
+  assert.match(placeOrder, /messageForCallableError\(error\)/);
   for (const text of [
     "while you were ordering. Nothing was placed. Accept the new standard price on that line, check your agreed price, and confirm again.",
     "Give a reason for every negotiated price that differs from the standard price. Nothing was placed.",
     "An earlier attempt of this checkout was already placed with different details.",
     "One of these batches has expired and can no longer be ordered.",
   ]) {
-    assert.ok(placeOrder.includes(text), text);
+    assert.ok(checkoutErrors.includes(text), text);
   }
   // SC/PWD attestation, negotiated pricing and geofence sentences survive the mapper.
   const pricing = read("src/services/negotiatedPricing.js");

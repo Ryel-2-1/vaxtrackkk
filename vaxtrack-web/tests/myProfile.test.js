@@ -148,7 +148,7 @@ test("updateUserProfile drops every administrator-managed field", async () => {
 
 test("the Dispatcher page is no longer a local fake with an editable role", () => {
   const page = code("src/pages/dispatcher/DispatcherSettings.jsx");
-  assert.match(page, /return <MyProfile \/>;/);
+  assert.match(page, /return <MyProfile showEmployeeId=\{false\} \/>;/);
   for (const gone of [
     "localStorage",
     "dispatcherProfile",
@@ -170,12 +170,12 @@ test("every role's settings page renders the same My profile", () => {
   const admin = read("src/pages/admin/Settings.jsx");
   assert.match(admin, /onClick=\{\(\) => setActiveTab\("profile"\)\}\s*\n\s*>\s*\n\s*My Profile/);
   assert.match(admin, /activeTab === "profile" \? \(\s*\n\s*<MyProfile \/>/);
-  assert.match(read("src/pages/dispatcher/DispatcherSettings.jsx"), /return <MyProfile \/>;/);
+  assert.match(read("src/pages/dispatcher/DispatcherSettings.jsx"), /return <MyProfile showEmployeeId=\{false\} \/>;/);
 });
 
-test("the Med Rep page hides only the Employee ID row; Admin and Dispatcher keep it", () => {
+test("Med Rep and Dispatcher hide Employee ID; Admin retains it", () => {
   const page = code("src/components/profile/MyProfile.jsx");
-  // Shown unless a page opts out — Admin and Dispatcher pass nothing.
+  // Shown unless a page opts out — Admin passes nothing.
   assert.match(page, /export default function MyProfile\(\{ showEmployeeId = true \}\)/);
   assert.match(page, /\{showEmployeeId && \(\s*<div>\s*<dt>Employee ID<\/dt>/);
   // The Med Rep note names exactly what an administrator manages there.

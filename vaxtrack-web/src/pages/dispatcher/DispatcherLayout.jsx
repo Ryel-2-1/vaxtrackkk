@@ -549,7 +549,10 @@ function DispatcherLayout() {
             </div>
           }
         >
-          <div className="dispatcher-content route-view" key={location.pathname}>
+          <div
+            className={`dispatcher-content route-view${location.pathname === "/dispatcher/settings" ? " dispatcher-settings-content" : ""}`}
+            key={location.pathname}
+          >
             <Outlet />
           </div>
         </Suspense>

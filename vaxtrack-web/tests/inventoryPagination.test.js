@@ -3,19 +3,15 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 /**
- * Med Rep Inventory pagination: a short last page must not shrink the table
- * (the card and pager moved, and near the bottom of the document the browser
- * clamped the scroll position). Only the current page is rendered; every row
- * has one fixed height with its content bounded to fit, and a paged result
- * keeps a stable bounded table region in CSS. No measuring, no hidden pages,
- * no filler rows. The pager stays visible when the viewport is shorter than
- * ten rows, while the table itself remains scrollable.
+ * Med Rep Inventory shows no more than ten rows per page. The table keeps
+ * its natural height so rows are never clipped by a nested vertical scroller;
+ * the shared page control follows it in normal document flow.
  */
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const src = read("src/pages/salesRep/SalesRepInventory.jsx");
 const css = read("src/pages/salesRep/salesrep-polish.css");
-const region = src.slice(src.indexOf('className={`inventory-v2-table-region'), src.indexOf('className="salesrep-pagination-row'));
+const region = src.slice(src.indexOf('className="inventory-v2-table-region"'), src.indexOf('className="inventory-v2-page-nav"'));
 
 test("Inventory renders only the current page's rows in a single table", () => {
   assert.match(src, /const visibleStocks = filteredStocks\.slice\(startIndex, startIndex \+ rowsPerPage\);/);
@@ -23,14 +19,13 @@ test("Inventory renders only the current page's rows in a single table", () => {
   assert.match(region, /visibleStocks\.map\(\(stock\) => <StockRow key=\{stock\.id\} stock=\{stock\} \/>\)/);
   // No all-pages stack and nothing measured or scrolled for it.
   assert.equal(/pagesOf|aria-hidden=\{isCurrent|useLayoutEffect|ResizeObserver|scrollTo|scrollIntoView|getBoundingClientRect/.test(src), false);
-  assert.equal(/visibility: hidden/.test(css.slice(css.indexOf("Pagination: only the current page"), css.indexOf("/* ---- Order Tracking ---- */"))), false);
 });
 
-test("a paged result bounds the table height and keeps the pager outside it", () => {
-  assert.match(src, /className=\{`inventory-v2-table-region\$\{totalPages > 1 \? " is-paged" : ""\}`\}/);
-  assert.match(src, /style=\{\{ "--inv-page-rows": rowsPerPage \}\}/);
-  assert.match(css, /\.salesrep-main \.inventory-v2-table-region\.is-paged \{[^}]*height: min\(calc\(var\(--inv-head-h\) \+ var\(--inv-page-rows\) \* var\(--inv-row-h\)\), 46dvh\);[^}]*overflow-y: auto;/);
-  assert.match(css, /\.salesrep-main \.inventory-v2-table-region\.is-paged thead th \{[^}]*position: sticky;/);
+test("the table grows to fit its rows and the shared pager follows it", () => {
+  assert.match(src, /className="inventory-v2-table-region"/);
+  assert.match(src, /<PageNav page=\{currentPage\} total=\{filteredStocks\.length\} onPageChange=\{setPage\} label="Inventory pages" \/>/);
+  assert.match(css, /\.salesrep-main \.inventory-v2-table-region \{[^}]*height: fit-content;[^}]*overflow-y: visible;/);
+  assert.doesNotMatch(css, /\.inventory-v2-table-region\.is-paged|46dvh/);
   assert.match(css, /\.salesrep-main \.inventory-v2-table th \{[^}]*height: var\(--inv-head-h\);/);
   assert.match(css, /\.salesrep-main \.inventory-v2-table td \{[^}]*height: var\(--inv-row-h\);/);
   // Borders inside each cell's height, so a page is exactly header + rows.
@@ -71,9 +66,11 @@ test("the full name, manufacturer and type open in a modal dialog from a button"
   assert.equal(/\btitle=/.test(row), false);
 });
 
-test("pagination controls are unchanged and keyboard-named", () => {
-  assert.match(src, /aria-label="Previous page"/);
-  assert.match(src, /aria-label="Next page"/);
-  assert.match(src, /aria-current=\{currentPage === index \+ 1 \? "page" : undefined\}/);
-  assert.match(src, /const rowsPerPage = 10;/);
+test("Inventory uses the shared ten-item page limit and named controls", () => {
+  const nav = read("src/components/ui/PageNav.jsx");
+  assert.match(src, /const rowsPerPage = PAGE_SIZE;/);
+  assert.match(nav, /export const PAGE_SIZE = 10;/);
+  assert.match(nav, /aria-label=\{label\}/);
+  assert.match(nav, />Previous<\/button>/);
+  assert.match(nav, />Next<\/button>/);
 });

@@ -1,5 +1,4 @@
 import {
-  addDoc,
   collection,
   doc,
   getDoc,
@@ -11,7 +10,6 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
-import { buildClinicLocationSnapshot } from "./orderLocation";
 import { assignRiderToOrderOnServer, RiderDispatchError } from "./riderDispatchService";
 import {
   ACTOR_DISPATCHER,
@@ -44,97 +42,6 @@ export async function getOrderById(orderId) {
   const snap = await getDoc(doc(db, ORDERS_COLLECTION, orderId));
   if (!snap.exists()) return null;
   return { ...snap.data(), id: snap.id };
-}
-
-/**
- * ⚠️ SUPERSEDED — no page calls this, and Firestore rules refuse it.
- *
- * Creating an order reserves stock, and a client `addDoc` cannot commit
- * together with the reservation, so the whole operation moved to the trusted
- * callable `createOrderWithReservation`. The rules now allow order creation to
- * ADMIN only, so a sales-rep call fails with permission-denied.
- *
- * Kept for its field-shape and clinic-snapshot tests, which still describe what
- * an order document must look like — the callable builds the same shape. It is
- * not a live path and must not become one; add fields to the callable instead.
- */
-export async function createSalesRepOrder(orderData = {}) {
-  if (!orderData.clinicName) {
-    throw new UserMessageError("Clinic name is required.");
-  }
-  if (!orderData.vaccineName) {
-    throw new UserMessageError("Vaccine name is required.");
-  }
-  if (!orderData.quantity || orderData.quantity <= 0) {
-    throw new UserMessageError("Quantity must be greater than zero.");
-  }
-
-  const orderNumber = orderData.orderNumber || `VT-ORD-${Date.now()}`;
-
-  const doc = {
-    orderNumber,
-    clinicName: orderData.clinicName,
-    clinicAddress: orderData.clinicAddress || "",
-    vaccineName: orderData.vaccineName,
-    vaccineType: orderData.vaccineType || "",
-    quantity: Number(orderData.quantity),
-    unit: orderData.unit || "vials",
-    priority: orderData.priority || "Standard",
-
-    status: "pending_dispatch",
-
-    assignedRiderId: null,
-    assignedRiderName: null,
-
-    createdByRole: "sales_rep",
-    createdByUid: orderData.createdByUid || null,
-    createdByEmail: orderData.createdByEmail || null,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  };
-
-  if (orderData.region) {
-    doc.region = orderData.region;
-  }
-
-  if (orderData.deliveryInstructions) {
-    doc.deliveryInstructions = orderData.deliveryInstructions;
-  }
-
-  // Order-time snapshot of the clinic's delivery location.
-  //
-  // Derived ONLY from the selected clinic record plus its Firestore document
-  // id. Any `clinicLat` / `clinicLng` / `clinicGeofenceRadiusM` /
-  // `clinicLocationVerified` a caller puts on `orderData` is deliberately
-  // ignored — otherwise a client could pair a real clinic with a destination of
-  // its own choosing. Firestore rules re-verify the result against the clinic
-  // document, so this is the first of two independent checks, not the only one.
-  //
-  // This also fixes a real bug: the caller has always sent a clinic reference,
-  // but the document below is built from an explicit field list, so it was
-  // silently dropped and NO order in the collection carried one.
-  const { fields: clinicLocationFields } = buildClinicLocationSnapshot(
-    orderData.clinicDocId,
-    orderData.clinic
-  );
-  Object.assign(doc, clinicLocationFields);
-
-  // Server-stamped so the snapshot's own age is trustworthy. Always written,
-  // including for a clinic with no usable location — "we looked, and there was
-  // nothing verified to copy" is itself the fact worth recording.
-  doc.clinicLocationSnapshotAt = serverTimestamp();
-
-  if (Array.isArray(orderData.items) && orderData.items.length > 0) {
-    doc.items = orderData.items.map((item) => ({
-      name: item.name || "",
-      sku: item.sku || "",
-      chain: item.chain || item.category || "",
-      quantity: Number(item.quantity) || 0,
-      unitPrice: Number(item.unitPrice) || 0,
-    }));
-  }
-
-  return addDoc(collection(db, ORDERS_COLLECTION), doc);
 }
 
 export function subscribeSalesRepOrders(uid, callback, onError) {

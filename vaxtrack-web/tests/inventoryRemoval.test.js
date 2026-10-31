@@ -168,8 +168,10 @@ test("Med Rep pages hide voided batches and archived vaccines from new ordering"
   const request = read("src/pages/salesRep/SalesRepRequestOrder.jsx");
   assert.match(request, /\.filter\(\(product\) => !product\.voided && !vaccinesById\.get\(product\.vaccineId\)\?\.archived\)/);
   assert.match(request, /\{ vaccine: batch \? vaccinesById\.get\(batch\.vaccineId\) \?\? null : null \}/);
-  const place = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
-  assert.match(place, /liveCartLines\(items, liveStock\.batches, liveStock\.todayIso, catalog\.byId\)/);
+  // Checkout's cart lines come from useCartLiveStock, which passes the cart's
+  // products so an archived one blocks its line.
+  assert.match(read("src/pages/salesRep/SalesRepPlaceOrder.jsx"), /= useCartLiveStock\(items\);/);
+  assert.match(read("src/pages/salesRep/useCartLiveStock.js"), /liveCartLines\(items, liveStock\.batches, liveStock\.todayIso, catalog\.byId\)/);
   const inventory = read("src/pages/salesRep/SalesRepInventory.jsx");
   assert.match(inventory, /raw\.filter\(\(item\) => item\.voided !== true\)/);
   assert.match(inventory, /stocks\.filter\(\(stock\) => !archivedIds\.has\(stock\.vaccineId\) && \(showInactive \|\| !inactiveIds\.has\(stock\.vaccineId\)\)\)/);

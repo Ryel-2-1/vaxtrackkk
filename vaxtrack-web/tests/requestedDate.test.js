@@ -31,7 +31,9 @@ test("the date picker is required on the page", () => {
   const src = readFileSync(new URL("../src/pages/salesRep/SalesRepPlaceOrder.jsx", import.meta.url), "utf8");
   assert.match(src, /type="date"\s*\n\s*required\s*\n\s*aria-required="true"/);
   assert.equal(src.includes("Requested delivery date (optional)"), false);
-  assert.match(src, /case "requested-date-required":/);
+  assert.match(src, /messageForCallableError\(error\)/);
+  const errors = readFileSync(new URL("../src/services/checkoutErrorMessages.js", import.meta.url), "utf8");
+  assert.match(errors, /case "requested-date-required":/);
 });
 
 // -------------------------------------------------------------------- shape
@@ -73,11 +75,9 @@ const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 
 test("Place Order validates the date and sends it in the callable payload", () => {
   const src = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
-  assert.match(
-    src,
-    /import \{[^}]*validateRequestedDate[^}]*\} from "\.\.\/\.\.\/services\/requestedDate"/,
-    "must import the validator"
-  );
+  const restore = read("src/services/checkoutDraftRestore.js");
+  assert.match(restore, /validateRequestedDate\(planned\)/, "planner date must be validated before prefill");
+  assert.match(src, /takePlannedRequestedDate\(localStorage\)/);
   assert.match(src, /validateCheckoutSchedule\(\{\s*requestedDeliveryDate: requestedDate,/, "must validate before submit, including pending recovery");
   assert.match(src, /requestedDeliveryDate: requestedCheck\.value/, "must send it in the payload");
   // The input is a date picker bounded to today (Manila) or later.

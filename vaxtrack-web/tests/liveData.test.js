@@ -342,10 +342,16 @@ test("checkout gate: finalizing is blocked until every changed line is reviewed"
 
 test("Place Order watches only the cart's batches and gates Finalize on the review", () => {
   const code = strip(read("src", "pages", "salesRep", "SalesRepPlaceOrder.jsx"));
-  assert.equal(/subscribeInventory\(/.test(code), false, "never the whole inventory collection");
-  assert.match(code, /const batchIdsKey = cartBatchIds\(items\)\.join\("\|"\);/);
-  assert.match(code, /if \(!batchIdsKey\) return undefined;\s*return subscribeInventoryBatches\(\s*batchIdsKey\.split\("\|"\),/);
-  assert.match(code, /\}, \[batchIdsKey\]\);/, "replaced when the cart's set of batches changes");
+  // The cart's listeners live in useCartLiveStock; the page only reads them.
+  const live = strip(read("src", "pages", "salesRep", "useCartLiveStock.js"));
+  for (const src of [code, live]) {
+    assert.equal(/subscribeInventory\(/.test(src), false, "never the whole inventory collection");
+  }
+  assert.match(code, /= useCartLiveStock\(items\);/);
+  assert.match(live, /const batchIdsKey = cartBatchIds\(items\)\.join\("\|"\);/);
+  assert.match(live, /if \(!batchIdsKey\) return undefined;\s*return subscribeInventoryBatches\(\s*batchIdsKey\.split\("\|"\),/);
+  assert.match(live, /\}, \[batchIdsKey\]\);/, "replaced when the cart's set of batches changes");
+  assert.doesNotMatch(live, /setItems|acceptLiveLine/, "the listeners never edit the cart");
   assert.match(code, /const review = cartReview\(displayItems, liveStatus\);/);
   // Blocked both on the button and inside the handler.
   assert.match(code, /!selectedDestination \|\|\s*review\.blocked \|\|\s*!pricingCheck\.ok\s*\}/);
@@ -354,8 +360,11 @@ test("Place Order watches only the cart's batches and gates Finalize on the revi
   assert.match(code, /const handleAcceptLine = \(line\) => setItems\(\(current\) => acceptLiveLine\(current, line\)\);/);
   assert.equal((code.match(/acceptLiveLine\(/g) || []).length, 1);
   assert.match(code, /onAccept=\{\(\) => handleAcceptLine\(item\)\}/);
-  // The server still decides: the submission carries the cart's expected prices.
-  assert.match(code, /expectedUnitPriceCentavos: item\.expectedUnitPriceCentavos/);
+  // The server still decides: the submission carries the cart's expected
+  // prices — reviewed in the price-review state, sent from that review.
+  const priceState = strip(read("src", "pages", "salesRep", "useCheckoutPriceReview.js"));
+  assert.match(priceState, /expectedUnitPriceCentavos: item\.expectedUnitPriceCentavos/);
+  assert.match(code, /\.\.\.negotiatedRequestLine\(item, reviewByBatch\.get\(item\.inventoryId\)\.price\)/);
   assert.match(code, /createOrderWithReservation\(\{/);
 });
 
@@ -809,7 +818,8 @@ test("listeners are opened in effects that return their cleanup", () => {
     ["src/pages/admin/AddStock.jsx", /useEffect\(\s*\(\) =>\s*subscribeVaccines\(/],
     ["src/components/history/OrderHistoryView.jsx", /return \(\) => unsubscribe\(\);\s*\}, \[signedOut, isAdmin, scopeUid, repFilter, range, windowSize, toRows\]\);/],
     ["src/components/history/OrderHistoryView.jsx", /return subscribeMedReps\(/],
-    ["src/pages/salesRep/SalesRepPlaceOrder.jsx", /if \(!batchIdsKey\) return undefined;\s*return subscribeInventoryBatches\(/],
+    ["src/pages/salesRep/useCartLiveStock.js", /if \(!batchIdsKey\) return undefined;\s*return subscribeInventoryBatches\(/],
+    ["src/pages/salesRep/useCartLiveStock.js", /if \(!vaccineIdsKey\) return undefined;\s*return subscribeVaccinesByIds\(/],
     ["src/pages/dispatcher/DispatcherDashboard.jsx", /return \(\) => \{\s*unsubPending\(\);\s*unsubAll\(\);\s*unsubRiders\(\);\s*if \(unsubAlerts\) unsubAlerts\(\);\s*\};/],
   ];
   for (const [file, re] of cases) assert.match(strip(read(file)), re, file);

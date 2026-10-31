@@ -333,46 +333,50 @@ function SalesRepDashboard() {
         <section className="srd-planner-section">
           <div className="srd-card srd-planner">
             <div className="srd-card-head">
-              <div>
-                <h2>Delivery planner</h2>
-                <p>Pick the date your client wants delivery, then build the order.</p>
-              </div>
-              <span className="srd-planner-legend">
-                <CalendarDays size={14} />
-                Numbers show orders you've scheduled · red dot = urgent
-              </span>
+              <h2>Delivery planner</h2>
             </div>
 
-            <div className="srd-planner-filters" role="group" aria-label="Delivery planner filters">
-              <label className="srd-planner-filter">
-                Status
-                <select value={plannerStatusFilter} onChange={(event) => setPlannerStatusFilter(event.target.value)}>
-                  <option value="all">All statuses</option>
-                  {ORDER_STATUSES.map((status) => (
-                    <option key={status} value={status}>{STATUS_LABELS[status]}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="srd-planner-filter">
-                Priority
-                <select value={plannerPriorityFilter} onChange={(event) => setPlannerPriorityFilter(event.target.value)}>
-                  {PRIORITY_FILTERS.map((priority) => (
-                    <option key={priority.value} value={priority.value}>{priority.label}</option>
-                  ))}
-                </select>
-              </label>
-              {plannerFiltersActive && (
-                <button
-                  type="button"
-                  className="srd-btn srd-btn-secondary srd-planner-clear"
-                  onClick={() => { setPlannerStatusFilter("all"); setPlannerPriorityFilter("all"); }}
-                >
-                  Clear filters
-                </button>
-              )}
-              <span className="srd-planner-filter-summary" aria-live="polite">
-                {plannerOrders.length} of {orders.length} orders shown
-              </span>
+            <div className="srd-planner-controls">
+              <div className="srd-planner-controls-main">
+                <p className="srd-planner-description">Pick the date your client wants delivery, then build the order.</p>
+                <div className="srd-planner-filters" role="group" aria-label="Delivery planner filters">
+                  <label className="srd-planner-filter">
+                    Status
+                    <select value={plannerStatusFilter} onChange={(event) => setPlannerStatusFilter(event.target.value)}>
+                      <option value="all">All statuses</option>
+                      {ORDER_STATUSES.map((status) => (
+                        <option key={status} value={status}>{STATUS_LABELS[status]}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="srd-planner-filter">
+                    Priority
+                    <select value={plannerPriorityFilter} onChange={(event) => setPlannerPriorityFilter(event.target.value)}>
+                      {PRIORITY_FILTERS.map((priority) => (
+                        <option key={priority.value} value={priority.value}>{priority.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  {plannerFiltersActive && (
+                    <button
+                      type="button"
+                      className="srd-btn srd-btn-secondary srd-planner-clear"
+                      onClick={() => { setPlannerStatusFilter("all"); setPlannerPriorityFilter("all"); }}
+                    >
+                      Clear filters
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="srd-planner-controls-meta">
+                <span className="srd-planner-filter-summary" aria-live="polite">
+                  {plannerOrders.length} of {orders.length} orders shown
+                </span>
+                <span className="srd-planner-legend">
+                  <CalendarDays size={14} />
+                  Numbers = scheduled orders · red dot = urgent
+                </span>
+              </div>
             </div>
 
             <div className="srd-planner-body" style={plannerCalendarHeight ? { "--planner-calendar-height": `${plannerCalendarHeight}px` } : undefined}>
