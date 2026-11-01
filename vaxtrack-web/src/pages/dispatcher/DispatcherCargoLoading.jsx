@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -74,35 +74,6 @@ function DispatcherCargoLoading() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const now = useManilaDayNow();
-  const pageRef = useRef(null);
-  const cardsRef = useRef(null);
-  const [pageSize, setPageSize] = useState(3);
-  const [page, setPage] = useState(1);
-  const [cardMaxHeight, setCardMaxHeight] = useState(420);
-  const pageCount = Math.max(1, Math.ceil(groups.length / pageSize));
-  const currentPage = Math.min(page, pageCount);
-
-  useEffect(() => {
-    const element = pageRef.current;
-    if (!element) return undefined;
-    const update = () => {
-      const width = element.getBoundingClientRect().width;
-      setPageSize(width >= 1020 ? 3 : width >= 680 ? 2 : 1);
-      if (cardsRef.current) {
-        const top = cardsRef.current.getBoundingClientRect().top;
-        const pagerHeight = element.querySelector(".cl-pagination")?.getBoundingClientRect().height ?? 0;
-        setCardMaxHeight(Math.max(280, Math.floor(window.innerHeight - top - pagerHeight - 64)));
-      }
-    };
-    update();
-    if (typeof ResizeObserver !== "undefined") {
-      const observer = new ResizeObserver(update);
-      observer.observe(element);
-      return () => observer.disconnect();
-    }
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, [loading, error]);
 
   const [savingOrders, setSavingOrders] = useState({}); // orderId -> true while writing
   const [finalizingRider, setFinalizingRider] = useState(null);
@@ -289,7 +260,7 @@ function DispatcherCargoLoading() {
 
   return (
     <>
-      <div className="dispatcher-v2-page cl-page" ref={pageRef}>
+      <div className="dispatcher-v2-page cl-page">
         <div className="cl-header">
           <h2 className="disp-section-title">Loading queue</h2>
           <p>Confirm each order as loaded, then finalize dispatch per rider.</p>
@@ -380,12 +351,10 @@ function DispatcherCargoLoading() {
               </span>
             </div>
 
-            <div className={`cl-cards cl-cards-${pageSize}`} ref={cardsRef}
-              style={{ "--cl-card-max-height": `${cardMaxHeight}px` }}>
-              {groups.map((group, index) => (
+            <div className="cl-cards">
+              {groups.map((group) => (
                 <RiderCard
                   key={group.riderId}
-                  hidden={index < (currentPage - 1) * pageSize || index >= currentPage * pageSize}
                   group={group}
                   dispatched={!!dispatchedRiders[group.riderId]}
                   savingOrders={savingOrders}
@@ -399,17 +368,6 @@ function DispatcherCargoLoading() {
                 />
               ))}
             </div>
-            {/* Always shown, so its place under the cards never changes. */}
-            {groups.length > 0 && (
-              <nav className="cl-pagination" aria-label="Cargo loading pages">
-                <span>Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, groups.length)} of {groups.length} riders</span>
-                <div>
-                  <button type="button" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>Previous</button>
-                  <span>Page {currentPage} of {pageCount}</span>
-                  <button type="button" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button>
-                </div>
-              </nav>
-            )}
           </>
         )}
       </div>
@@ -469,7 +427,6 @@ function DispatcherCargoLoading() {
 
 function RiderCard({
   group,
-  hidden = false,
   dispatched,
   savingOrders,
   finalizing,
@@ -496,7 +453,7 @@ function RiderCard({
   const pct = total > 0 ? Math.round((loaded / total) * 100) : 0;
 
   return (
-    <section className="cl-card" hidden={hidden} aria-label={`Cargo for ${group.rider.name}`}>
+    <section className="cl-card" aria-label={`Cargo for ${group.rider.name}`}>
       <header className="cl-card-head">
         <span className="cl-avatar" aria-hidden="true">
           {initialsOf(group.rider.name)}

@@ -27,13 +27,12 @@ test("Generate route and Re-optimize refuse a stale or undated rider fix", () =>
   }
 });
 
-test("shipment details render in place beside the list — no pop-up drawer", () => {
-  // Master-detail (2026-10-31): selecting a shipment updates the right column;
-  // the drawer (and its dialog layer) is gone.
-  assert.doesNotMatch(page, /ShipmentDrawer|geo3-drawer|drawerOrderId|<DialogLayer\b|DispatcherDialogLayer/);
-  assert.match(page, /<div className="geo3-split">\s*<div className="geo3-card geo3-split-list">/);
-  assert.match(page, /\{pageShipments\.map\(\(order\) => \{/);
-  assert.match(page, /aria-pressed=\{isActive\}\s*onClick=\{\(\) => setSelectedId\(order\.id\)\}/);
-  assert.match(page, /<PageNav page=\{currentListPage\} total=\{activeOrders\.length\} onPageChange=\{setListPage\} label="Active shipment pages" \/>/);
-  assert.match(page, /<div className="geo3-split-detail" aria-label="Selected shipment">[\s\S]*?<TripProgress[\s\S]*?Shipment overview/);
+test("shipment details open in a dismissible, keyboard-accessible drawer", () => {
+  assert.match(page, /setSelectedId\(order\.id\);\s*setDrawerOpen\(true\)/);
+  assert.match(page, /className="geo3-drawer-backdrop"[^>]*onClick=\{closeDrawer\}/);
+  assert.match(page, /className="geo3-split-detail geo3-drawer"[\s\S]*?role="dialog"[\s\S]*?aria-modal="true"/);
+  assert.match(page, /event\.key === "Escape"[\s\S]*?closeDrawer\(\)/);
+  assert.match(page, /requestAnimationFrame\(\(\) => drawerTriggerRef\.current\?\.focus\(\)\)/);
+  assert.match(page, /aria-label="Close shipment details" onClick=\{closeDrawer\}/);
+  assert.match(page, /<TripProgress[\s\S]*?Shipment overview/);
 });

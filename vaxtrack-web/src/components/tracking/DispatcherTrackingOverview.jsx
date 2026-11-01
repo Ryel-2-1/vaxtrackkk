@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, Clock3, MapPinOff, Navigation, ShieldCheck, Users } from "lucide-react";
 import FleetMap from "./FleetMap";
@@ -6,6 +6,7 @@ import TrackingStateBadge from "./TrackingStateBadge";
 import useRiderTrackingFeeds from "./useRiderTrackingFeeds";
 import { useNow } from "../useRiderLiveLocation";
 import { buildFleet, trackingOverviewRows, trackingOverviewState } from "../../services/riderTracking";
+import { dispatcherMonitoringStatus } from "../../services/dispatcherMonitoringStatus";
 import "./DispatcherTrackingOverview.css";
 
 export const LIVE_TRACKING_ROUTE = "/dispatcher/live-tracking";
@@ -31,6 +32,7 @@ function DispatcherTrackingOverview({
   delayedCount,
   pendingCount,
   availableCount,
+  onMonitoringStatus,
 }) {
   const nowMs = useNow();
   const { locations, deviations, tripStates, error, deviationError, retry } = useRiderTrackingFeeds();
@@ -41,6 +43,13 @@ function DispatcherTrackingOverview({
     [orders, locations, deviations, ridersById, tripStates, nowMs],
   );
   const view = trackingOverviewState({ error, orders, locations, fleet });
+  const monitoringStatus = useMemo(
+    () => dispatcherMonitoringStatus({ view, fleet, nowMs, deviationError }),
+    [view, fleet, nowMs, deviationError],
+  );
+  useEffect(() => {
+    onMonitoringStatus?.(monitoringStatus);
+  }, [onMonitoringStatus, monitoringStatus]);
   const { rows, moreLabel } = trackingOverviewRows(fleet, nowMs);
   const mapRiders = useMemo(() => fleet.filter((r) => r.latLng), [fleet]);
 

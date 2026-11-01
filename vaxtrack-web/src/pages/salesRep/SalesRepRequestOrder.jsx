@@ -134,7 +134,6 @@ function RequestOrderCart({ uid }) {
   const [error, setError] = useState("");
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [stockFilter, setStockFilter] = useState("all");
   const [selectedTypes, setSelectedTypes] = useState([]);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
@@ -250,13 +249,10 @@ function RequestOrderCart({ uid }) {
         product.sku.toLowerCase().includes(query) ||
         product.category.toLowerCase().includes(query) ||
         product.status.toLowerCase().includes(query);
-      // "In stock only" now means orderable — an expired or unmigrated batch
-      // has stock on paper but cannot be ordered.
-      const matchesStock = stockFilter === "all" || product.orderable;
       const matchesType = selectedTypes.length === 0 || selectedTypes.includes(product.category);
-      return matchesSearch && matchesStock && matchesType;
+      return matchesSearch && matchesType;
     });
-  }, [products, searchTerm, stockFilter, selectedTypes]);
+  }, [products, searchTerm, selectedTypes]);
   const rowsPerPage = 10;
   const totalPages = Math.max(1, Math.ceil(filteredProducts.length / rowsPerPage));
   const currentPage = Math.min(page, totalPages);
@@ -451,8 +447,8 @@ function RequestOrderCart({ uid }) {
             count={[...inactiveIds].filter((id) => !vaccinesById.get(id)?.archived).length} />
           <div className="request-v2-tabs">
             <button type="button" className="catalog-filter-trigger" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog">
-              <Filter size={16} /> Advanced filters
-              {(selectedTypes.length > 0 || stockFilter !== "all") && <span aria-label="Filters active">{selectedTypes.length + Number(stockFilter !== "all")}</span>}
+              <Filter size={16} /> Filter by type
+              {selectedTypes.length > 0 && <span aria-label="Filters active">{selectedTypes.length}</span>}
             </button>
 
             {/* Said once for the whole list rather than under every price:
@@ -584,12 +580,11 @@ function RequestOrderCart({ uid }) {
       </section>
 
       {filtersOpen && <CatalogFilterDialog
-        title="Catalog filters"
+        title="Vaccine type filter"
+        description="Choose vaccine types, then apply them to the list."
         types={vaccineTypes}
         selectedTypes={selectedTypes}
-        status={stockFilter}
-        statusOptions={[{ value: "all", label: "All products" }, { value: "stock", label: "Orderable products" }]}
-        onApply={({ types, status }) => { setSelectedTypes(types); setStockFilter(status); setPage(1); setFiltersOpen(false); }}
+        onApply={({ types }) => { setSelectedTypes(types); setPage(1); setFiltersOpen(false); }}
         onClose={() => setFiltersOpen(false)}
       />}
 

@@ -87,8 +87,18 @@ test("a resolved late-delivery alert says how its delivery ended", () => {
 test("Admin Alerts counts open stale-location alerts in their own category", () => {
   const page = read("src/pages/admin/Alerts.jsx");
   assert.match(page, /rider_location_stale: \{\s*display: "Location Not Updating",/);
-  assert.match(page, /location: kpi\(activeOfType\("Location Not Updating"\)\),/);
-  assert.match(page, /title="Location Not Updating"\s*count=\{`\$\{categoryCounts\.location\} active`\}/);
+  assert.match(page, /location: kpi\(activeAlertCountOfType\(alerts, "rider_location_stale"\)\),/);
+  assert.match(page, /title="Location Not Updating"\s*count=\{categoryCounts\.location\}/);
+  assert.match(page, /onClick=\{\(\) => selectType\("rider_location_stale"\)\}/);
+});
+
+test("Priority Action appears only when a live active alert exists", () => {
+  const page = read("src/pages/admin/Alerts.jsx");
+  assert.match(page, /!loading && !loadError && priorityAlert && \(/);
+  assert.match(page, /onClick=\{\(\) => handleReviewAlert\(priorityAlert\)\}/);
+  assert.doesNotMatch(page, /No active priority alert|No active system alerts need review/);
+  const css = read("src/pages/admin/Alerts.css");
+  assert.doesNotMatch(css, /priority-alert-card\.resolved/);
 });
 
 test("Live Tracking opens on the linked rider, accepting only an id-shaped value", () => {

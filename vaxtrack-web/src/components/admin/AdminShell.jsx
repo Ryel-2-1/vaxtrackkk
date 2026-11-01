@@ -72,8 +72,7 @@ function AdminShell() {
       {/* The shared top bar (same as Sales Rep and Dispatcher). Fixed beside
           the rail, like the rail itself, so the page's own <main> remains the
           direct flex child the existing admin page CSS expects. Admin has no
-          global search; the alerts button opens the Alerts page and counts
-          what needs review there (2026-10-31). */}
+          global search; the bell counts unread system alerts. */}
       <header className="m-topbar admin-shell-topbar">
         <h1 className="m-topbar-title">{adminTitleFor(location.pathname)}</h1>
         <div className="m-topbar-actions">

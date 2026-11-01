@@ -1713,6 +1713,28 @@ aside.salesrep-sidebar .salesrep-logout {
 .salesrep-main .tracking-v2-side > .tracking-total {
   margin-top: 8px !important;
 }
+.salesrep-main .tracking-v2-side > .order-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  margin-top: 0 !important;
+  margin-bottom: 0;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--gray-200);
+  border-radius: 0;
+  background: transparent;
+}
+.salesrep-main .tracking-v2-side .order-content > div {
+  min-width: 0;
+}
+.salesrep-main .tracking-v2-side .order-content-quantity {
+  color: var(--gray-900);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
 .salesrep-main .tracking-v2-table td {
   border-top: 0 !important;
   border-bottom: 1px solid var(--gray-300) !important;

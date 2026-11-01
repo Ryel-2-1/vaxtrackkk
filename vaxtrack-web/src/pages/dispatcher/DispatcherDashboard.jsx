@@ -14,6 +14,7 @@ import {
 } from "../../services/dispatchEligibility";
 import useManilaDayNow from "../../components/useManilaDayNow";
 import {
+  Activity,
   AlertTriangle,
   CalendarClock,
   Loader2,
@@ -61,6 +62,9 @@ function DispatcherDashboard() {
   // listener can no longer hold the whole page on its loading state.)
   const [failed, setFailed] = useState({});
   const anyFailed = Object.values(failed).some(Boolean);
+  const [monitoringStatus, setMonitoringStatus] = useState({
+    tone: "waiting", label: "Connecting", detail: "Checking Rider locations",
+  });
   const [assignNotice, setAssignNotice] = useState("");
   // Advances at each 00:00 Manila, so a scheduled order moves from Upcoming to
   // the actionable queue on its day without a reload.
@@ -196,6 +200,9 @@ function DispatcherDashboard() {
   const availableShown = shown(["riders", "all"], availableRiders);
   const activeShown = shown(["all"], activeDeliveries);
   const delayedShown = shown(["all"], delayedDeliveries);
+  const liveMonitor = failed.all
+    ? { tone: "error", label: "Monitoring unavailable", detail: "Order updates could not be loaded" }
+    : monitoringStatus;
 
   // Schedule-aware queue: sort by requested delivery date (soonest first, so
   // overdue rises to the top), urgent within a date, undated last.
@@ -232,20 +239,20 @@ function DispatcherDashboard() {
     <>
       <div className="dispatcher-dash-page">
         <section className="dispatcher-dash-hero">
-          <div>
-            <span className="dispatcher-dash-eyebrow">
-              Dispatch Control Center
-            </span>
-            <h2 className="disp-section-title">Operations overview</h2>
-            <p>
-              Review approved orders, monitor live deliveries, and assign riders
-              for vaccine distribution.
-            </p>
+          <div className="dispatcher-dash-hero-heading">
+            <span className="dispatcher-dash-hero-icon" aria-hidden="true"><Activity size={20} /></span>
+            <div>
+              <h2 className="disp-section-title">Dispatch overview</h2>
+              <p>Orders, riders, and delivery progress in one place.</p>
+            </div>
           </div>
 
-          <div className="dispatcher-dash-hero-status">
-            <span className="status-dot"></span>
-            Real-time monitoring active
+          <div className="dispatcher-dash-hero-status" data-tone={liveMonitor.tone} role="status" aria-live="polite">
+            <span className="status-dot" aria-hidden="true" />
+            <div>
+              <strong>{liveMonitor.label}</strong>
+              <small>{liveMonitor.detail}</small>
+            </div>
           </div>
         </section>
 
@@ -327,6 +334,7 @@ function DispatcherDashboard() {
             delayedCount={delayedShown}
             pendingCount={pendingShown}
             availableCount={availableShown}
+            onMonitoringStatus={setMonitoringStatus}
           />
 
           <aside className="dispatcher-dash-side-card">
@@ -389,9 +397,9 @@ function DispatcherDashboard() {
               <h2>Approved Orders Waiting for Rider Assignment</h2>
             </div>
 
-            <div className="dispatcher-dash-live-pill">
-              <span></span>
-              Real-time update active
+            <div className="dispatcher-dash-live-pill" data-tone={failed.pending ? "error" : "loaded"} role="status">
+              <span aria-hidden="true" />
+              {failed.pending ? "Queue unavailable" : "Queue data loaded"}
             </div>
           </div>
 

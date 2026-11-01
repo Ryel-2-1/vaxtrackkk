@@ -94,7 +94,7 @@ test("order, tracking and invoice surfaces use Med Rep wording", () => {
   // The stored field name is internal and unchanged.
   assert.match(editor, /form\.salesRepCode/);
 
-  assert.match(code("src/pages/admin/Deliveries.jsx"), /Orders are created by Med Reps and dispatched by a Dispatcher\./);
+  assert.doesNotMatch(code("src/pages/admin/Deliveries.jsx"), /Orders are created by Med Reps and dispatched by a Dispatcher\./);
   assert.match(code("src/pages/admin/Deliveries.jsx"), /created by Medical Representatives\./);
   assert.equal(code("src/pages/admin/AdminDashboard.jsx").split("Orders appear here as Med Reps place them.").length - 1, 2);
   // The Delivery Calendar's intro line ("…the date the Med Rep requested…")

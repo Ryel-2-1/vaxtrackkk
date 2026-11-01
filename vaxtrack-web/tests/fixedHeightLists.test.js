@@ -3,10 +3,9 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 
 /**
- * Fixed-height list boxes (2026-10-31): rows scroll inside, the pager is
- * pinned to the box's foot, and a short page or narrow filter never shrinks
- * the box — so nothing above or below moves. No page sets a hard
- * `overflow: hidden` lock: on short screens the page may still scroll.
+ * List layout contracts: table and queue panes retain their scroll regions;
+ * Cargo Loading cards show every rider and order without a nested scrollbar.
+ * No page locks scrolling outright on short screens.
  */
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const DISP = read("src/pages/dispatcher/dispatcher-polish.css");
@@ -30,13 +29,16 @@ test("Dispatcher Assign Rider: the queue body keeps one height with the shared p
   assert.match(css, /\.arq-body > \.arq-list \{\s*overflow-y: auto;/);
 });
 
-test("Dispatcher Cargo Loading: every rider card one height; confirm controls in fixed slots", () => {
+test("Dispatcher Cargo Loading: all rider details use a responsive grid without nested scrolling", () => {
   const css = read("src/pages/dispatcher/CargoLoading.css");
-  assert.match(css, /\.cl-card \{[^}]*height: var\(--cl-card-max-height, 420px\);/);
-  assert.match(css, /\.cl-card-body \{ flex: 1 1 auto;/);
+  assert.match(css, /\.cl-cards \{[^}]*grid-template-columns: repeat\(auto-fill, minmax\(min\(100%, 420px\), 1fr\)\);/);
+  assert.match(css, /\.cl-card \{[^}]*height: auto;[^}]*overflow: visible;/);
+  assert.match(css, /\.cl-card-body \{[^}]*overflow: visible;/);
   assert.match(css, /\.cl-check \{[^}]*width: 104px;/);
   assert.match(css, /\.cl-order-top > \.m-badge \{[^}]*min-width: 86px;/);
-  assert.match(read("src/pages/dispatcher/DispatcherCargoLoading.jsx"), /\{groups\.length > 0 && \(\s*<nav className="cl-pagination"/);
+  const page = read("src/pages/dispatcher/DispatcherCargoLoading.jsx");
+  assert.match(page, /\{groups\.map\(\(group\) => \(\s*<RiderCard/);
+  assert.doesNotMatch(page, /cl-pagination|cardMaxHeight|cardsRef|pageSize|currentPage/);
 });
 
 test("Med Rep Order Tracking and Order History: fixed table boxes, independent scroll", () => {

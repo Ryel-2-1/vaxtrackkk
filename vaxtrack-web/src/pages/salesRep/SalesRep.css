@@ -295,7 +295,7 @@
 .tracking-side { border-left: 1px solid #d6e1f2; padding: 24px 16px; } .tracking-side-title { display: flex; justify-content: space-between; align-items: center; } .tracking-side-title h2 { margin: 0; } .tracking-side-title button { border: 0; background: transparent; font-size: 22px; } .tracking-side > p { color: #475569; margin: 4px 0 14px; }
 .tracking-side h3 { color: #475569; text-transform: uppercase; font-size: 12px; margin-top: 24px; }
 .mini-map { height: 145px; border-radius: 9px; background: linear-gradient(135deg, #334155, #8ab4c4); position: relative; overflow: hidden; } .mini-map span { position: absolute; left: 12px; bottom: 12px; background: #fff; color: #0057d8; border-radius: 999px; padding: 6px 10px; font-size: 10px; font-weight: 700; }
-.order-content { display: flex; align-items: center; gap: 12px; border: 1px solid #c7d5ea; border-radius: 9px; padding: 12px; margin-bottom: 10px; } .order-content svg { color: #2563eb; } .order-content p { margin: 3px 0 0; font-size: 11px; color: #64748b; } .order-content b { margin-left: auto; }
+.order-content p { margin: 3px 0 0; font-size: 11px; color: #64748b; }
 .tracking-total p, .tracking-total h2 { display: flex; justify-content: space-between; } .tracking-total span { color: #0057d8; }
 
 .sales-alerts-header { display: grid; grid-template-columns: 1fr 280px 38px; gap: 12px; align-items: center; margin: 28px 0; } .sales-alerts-header h1 { margin: 0; font-size: 30px; } .sales-alerts-header p { margin: 8px 0 0; color: #475569; } .filter-square { height: 38px; border: 1px solid #c7d5ea; border-radius: 8px; color: #0057d8; background: #eaf2ff; }
@@ -2740,6 +2740,14 @@
 .salesrep-notification-list {
   max-height: 330px !important;
   overflow-y: auto !important;
+}
+
+.salesrep-notification-empty {
+  padding: 18px 16px !important;
+  margin: 0 !important;
+  font-size: 13px !important;
+  color: #6b7280 !important;
+  text-align: center !important;
 }
 
 .salesrep-notification-item {
@@ -5923,22 +5931,11 @@
 .tracking-v2-table th:nth-child(5),
 .tracking-v2-table td:nth-child(5) { width: 19% !important; }
 
-/* Long order ids / destinations wrap cleanly inside their fixed column.
-   The base rule makes the first cell `display: flex`, but a flex <td> escapes
-   the fixed table-column width and shrinks its text to min-content — one
-   character per line, the clipped-looking wrap we are fixing. Keeping it a
-   normal table cell lets the id wrap to the 24% column width instead. The icon
-   stays inline (flex `gap` no longer applies, so it gets a right margin).
-   overflow-wrap: break-word breaks a long unbroken run only when it cannot fit,
-   never forcing the column to a single glyph. */
+/* Keep the first cell in the table grid so long order IDs have room to wrap. */
 .tracking-v2-table td:first-child {
   display: table-cell !important;
   vertical-align: middle !important;
   min-width: 0 !important;
-}
-.tracking-v2-table td:first-child > svg {
-  margin-right: 8px !important;
-  vertical-align: middle !important;
 }
 .tracking-v2-table td strong {
   overflow-wrap: break-word !important;
@@ -6345,22 +6342,6 @@
   color: var(--green-700) !important;
   font-size: 24px !important;
   font-weight: 700 !important;
-}
-
-/* Improve order content card spacing */
-.tracking-v2-side .order-content {
-  grid-template-columns: 22px 1fr auto !important;
-  align-items: center !important;
-  gap: 12px !important;
-}
-
-.tracking-v2-side .order-content b {
-  color: #0f172a !important;
-  white-space: nowrap !important;
-}
-
-.tracking-v2-side .order-content svg {
-  color: var(--green-700) !important;
 }
 
 /* The former duplicate "Responsive fallback" @media (max-width: 1200px) /

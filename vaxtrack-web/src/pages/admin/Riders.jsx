@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CircleHelp,
-  PhoneCall,
   Search,
   Users,
   X,
@@ -589,8 +588,7 @@ function RiderDetailsModal({
         </div>
 
         <div className="riders-modal-actions">
-          {/* Not built yet. Shown disabled, with the reason, rather than
-              clickable with a toast that implies something happened. */}
+          {/* Route viewing from this dialog is not available yet. */}
           <button
             type="button"
             className="riders-light-action"
@@ -598,16 +596,6 @@ function RiderDetailsModal({
             aria-describedby="rider-unavailable-actions"
           >
             View Route
-          </button>
-
-          <button
-            type="button"
-            className="riders-light-action"
-            disabled
-            aria-describedby="rider-unavailable-actions"
-          >
-            <PhoneCall size={15} aria-hidden="true" />
-            Contact Rider
           </button>
 
           {isApproved && (
@@ -651,8 +639,7 @@ function RiderDetailsModal({
           )}
         </div>
         <p id="rider-unavailable-actions" className="riders-unavailable-note">
-          Viewing a rider's route and calling them from VaxTrack aren't available yet. Use Live Tracking
-          for positions and the rider's registered phone number to call.
+          Viewing a rider's route from this dialog isn't available yet. Use Live Tracking for positions.
         </p>
 
         {rider.uid && <RiderRecoveryPanel riderUid={rider.uid} riderName={rider.name} />}

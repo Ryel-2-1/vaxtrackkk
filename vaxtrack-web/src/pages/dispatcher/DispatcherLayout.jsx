@@ -19,10 +19,13 @@ import {
 import { auth } from "../../firebase";
 import { subscribeActiveAlerts } from "../../services/alertService";
 import { lateAlertLiveText } from "../../services/deliveryTiming";
-import { presentAlert } from "../../services/alertPresentation";
+import { subscribeDeliveries } from "../../services/deliveryService";
+import { subscribeAllRiderLocations } from "../../services/riderTrackingService";
+import { advanceNearDestinations, buildDispatcherNotificationFeed } from "../../services/dispatcherNotificationFeed";
 import useMinuteClock from "../../components/useMinuteClock";
 import SidebarProfile from "../../components/shell/SidebarProfile";
 import OfflineNotice from "../../components/shell/OfflineNotice";
+import { loadReadIds, saveReadIds, withReadIds } from "../../services/notificationReadState";
 import {
   DRAWER_MEDIA_QUERY,
   nextNavState,
@@ -30,15 +33,6 @@ import {
   toggleLabel,
 } from "./navDrawer";
 import "./Dispatcher.css";
-
-// Relative time from a Firestore Timestamp (or "" when unavailable) — an honest
-// fallback, never a fabricated time.
-// Map an alert's severity to the dropdown's existing tone classes.
-function alertToneClass(severity) {
-  if (severity === "critical") return "danger";
-  if (severity === "warning") return "info";
-  return "normal";
-}
 
 // Per-route chrome for the persistent Dispatcher shell. Keys drive the sidebar
 // highlight; titles drive the topbar. Pages render only their content into the
@@ -89,36 +83,59 @@ function DispatcherLayout() {
     () => applyNav({ type: "navigate" }),
     [applyNav]
   );
-  // No demo/sample data is seeded here — notifications start empty until wired
-  // to real Firestore alerts.
-  const [notifications, setNotifications] = useState([]);
+  const [operationalAlerts, setOperationalAlerts] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [nearDestinations, setNearDestinations] = useState({});
+  const ordersRef = useRef([]);
+  const locationsRef = useRef({});
+  const uid = auth.currentUser?.uid ?? null;
+  const projectId = auth.app.options.projectId;
+  const [readNotifications, setReadNotifications] = useState(() => loadReadIds(projectId, "dispatcher", uid));
   // Live "now N minutes past expected arrival" on late-delivery alerts.
   const minuteNow = useMinuteClock();
-  // A failed feed is said as such — "No notifications." would be a false all-clear.
-  const [notificationsError, setNotificationsError] = useState(false);
+  const [feedErrors, setFeedErrors] = useState({ alerts: false, orders: false, locations: false });
+  const [feedLoading, setFeedLoading] = useState({ alerts: true, orders: true, locations: true });
+  const notificationsError = Object.values(feedErrors).some(Boolean);
+  const notificationsLoading = Object.values(feedLoading).some(Boolean);
+  const feed = useMemo(() => buildDispatcherNotificationFeed({
+    alerts: operationalAlerts, orders, near: nearDestinations, nowMs: minuteNow,
+  }), [operationalAlerts, orders, nearDestinations, minuteNow]);
+  const notifications = useMemo(() => [...feed.actions, ...feed.updates], [feed]);
+  const unreadActionCount = feed.actions.filter((entry) => !readNotifications.includes(entry.id)).length;
+  const unreadUpdateCount = feed.updates.filter((entry) => !readNotifications.includes(entry.id)).length;
 
-  const unreadCount = useMemo(
-    () => notifications.filter((notification) => !notification.read).length,
-    [notifications]
-  );
-
-  // Live dispatcher notifications = the active Firestore alerts. No fake or
-  // fallback entries are ever inserted; a failure just leaves the empty state.
   useEffect(() => {
-    let unsubscribe = () => {};
-    try {
-      unsubscribe = subscribeActiveAlerts(
-        (alerts) => {
-          setNotifications(Array.isArray(alerts) ? alerts : []);
-          setNotificationsError(false);
-        },
-        () => setNotificationsError(true)
-      );
-    } catch {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setNotifications([]);
-    }
-    return () => unsubscribe();
+    saveReadIds(projectId, "dispatcher", uid, readNotifications);
+  }, [projectId, uid, readNotifications]);
+
+  // Operational exceptions, shipment outcomes, and current Rider positions are
+  // separate live reads. A failed source is named in the panel, not an all-clear.
+  useEffect(() => {
+    const ready = (source) => setFeedLoading((current) => ({ ...current, [source]: false }));
+    const failed = (source) => {
+      setFeedErrors((current) => ({ ...current, [source]: true }));
+      ready(source);
+    };
+    const clearError = (source) => setFeedErrors((current) => ({ ...current, [source]: false }));
+    const stopAlerts = subscribeActiveAlerts((alerts) => {
+      setOperationalAlerts(Array.isArray(alerts) ? alerts : []);
+      clearError("alerts");
+      ready("alerts");
+    }, () => { setOperationalAlerts([]); failed("alerts"); });
+    const stopOrders = subscribeDeliveries((nextOrders) => {
+      ordersRef.current = nextOrders;
+      setOrders(nextOrders);
+      setNearDestinations((previous) => advanceNearDestinations(previous, nextOrders, locationsRef.current, Date.now()));
+      clearError("orders");
+      ready("orders");
+    }, () => { ordersRef.current = []; setOrders([]); setNearDestinations({}); failed("orders"); });
+    const stopLocations = subscribeAllRiderLocations((nextLocations) => {
+      locationsRef.current = nextLocations;
+      setNearDestinations((previous) => advanceNearDestinations(previous, ordersRef.current, nextLocations, Date.now()));
+      clearError("locations");
+      ready("locations");
+    }, () => { locationsRef.current = {}; setNearDestinations({}); failed("locations"); });
+    return () => { stopAlerts(); stopOrders(); stopLocations(); };
   }, []);
 
   // Growing back past the breakpoint must not leave an overlay stranded on top
@@ -229,27 +246,16 @@ function DispatcherLayout() {
   };
 
   const handleNotificationClick = (notification) => {
-    setNotifications((prev) =>
-      prev.map((item) =>
-        item.id === notification.id ? { ...item, read: true } : item
-      )
-    );
+    setReadNotifications((current) => withReadIds(current, [notification.id]));
 
     setShowNotifications(false);
-    // Order-linked alerts open their shipment; others have nowhere to go.
-    const { path } = presentAlert(notification, { role: "dispatcher" });
-    if (path) {
-      navigate(path);
+    if (notification.path) {
+      navigate(notification.path);
     }
   };
 
   const handleClearNotifications = () => {
-    setNotifications((prev) =>
-      prev.map((notification) => ({
-        ...notification,
-        read: true,
-      }))
-    );
+    setReadNotifications((current) => withReadIds(current, notifications.map((notification) => notification.id)));
   };
 
 
@@ -401,7 +407,9 @@ function DispatcherLayout() {
               onClick={() => setShowNotifications((prev) => !prev)}
             >
               <Bell size={16} />
-              {unreadCount > 0 && <span></span>}
+              {(unreadActionCount > 0 || unreadUpdateCount > 0) && (
+                <span className={unreadActionCount > 0 ? "dispatcher-bell-action" : "dispatcher-bell-update"} />
+              )}
             </button>
 
             {showNotifications && (
@@ -409,7 +417,7 @@ function DispatcherLayout() {
                 <div className="dispatcher-notification-head">
                   <div>
                     <strong>Notifications</strong>
-                    <p>{unreadCount} unread alert(s)</p>
+                    <p>{unreadActionCount} need action · {unreadUpdateCount} new updates</p>
                   </div>
 
                   <button type="button" onClick={handleClearNotifications}>
@@ -429,10 +437,13 @@ function DispatcherLayout() {
                         textAlign: "center",
                       }}
                     >
-                      Notifications could not be loaded.
+                      Some notifications could not be loaded.
                     </p>
                   )}
-                  {!notificationsError && notifications.length === 0 && (
+                  {notificationsLoading && !notificationsError && (
+                    <p className="dispatcher-notification-empty" role="status">Loading notifications…</p>
+                  )}
+                  {!notificationsLoading && !notificationsError && notifications.length === 0 && (
                     <p
                       style={{
                         padding: "18px 16px",
@@ -445,20 +456,20 @@ function DispatcherLayout() {
                       No notifications.
                     </p>
                   )}
-                  {notifications.map((notification) => {
-                    // Shared wording: names + the human order code, never ids.
-                    const view = presentAlert(notification, { role: "dispatcher", nowMs: minuteNow });
+                  {feed.actions.length > 0 && <div className="dispatcher-notification-group">Needs action</div>}
+                  {feed.actions.map((notification) => {
+                    const isRead = readNotifications.includes(notification.id);
                     return (
                     <button
                       type="button"
                       key={notification.id}
                       className={`dispatcher-notification-item ${
-                        notification.read ? "read" : ""
-                      } ${alertToneClass(notification.severity)}`}
+                        isRead ? "read" : ""
+                      } danger`}
                       onClick={() => handleNotificationClick(notification)}
                     >
                       <div className="notification-icon">
-                        {notification.read ? (
+                        {isRead ? (
                           <CheckCircle2 size={15} />
                         ) : (
                           <Bell size={15} />
@@ -466,14 +477,30 @@ function DispatcherLayout() {
                       </div>
 
                       <div>
-                        <strong>{view.title}</strong>
-                        <p>{view.message || "No additional details."}</p>
-                        {lateAlertLiveText(notification, minuteNow) && (
-                          <small className="tnum">{lateAlertLiveText(notification, minuteNow)}</small>
+                        <strong>{notification.title}</strong>
+                        <p>{notification.message || "No additional details."}</p>
+                        {notification.rawAlert && lateAlertLiveText(notification.rawAlert, minuteNow) && (
+                          <small className="tnum">{lateAlertLiveText(notification.rawAlert, minuteNow)}</small>
                         )}
-                        {view.metaText && <small>{view.metaText}</small>}
+                        {notification.atMs > 0 && <small>{new Date(notification.atMs).toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" })} PHT</small>}
                       </div>
                     </button>
+                    );
+                  })}
+                  {feed.updates.length > 0 && <div className="dispatcher-notification-group">Shipment updates</div>}
+                  {feed.updates.map((notification) => {
+                    const isRead = readNotifications.includes(notification.id);
+                    return (
+                      <button type="button" key={notification.id}
+                        className={`dispatcher-notification-item ${isRead ? "read" : ""}`}
+                        onClick={() => handleNotificationClick(notification)}>
+                        <div className="notification-icon">{isRead ? <CheckCircle2 size={15} /> : <Bell size={15} />}</div>
+                        <div>
+                          <strong>{notification.title}</strong>
+                          <p>{notification.message}</p>
+                          {notification.atMs > 0 && <small>{new Date(notification.atMs).toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" })} PHT</small>}
+                        </div>
+                      </button>
                     );
                   })}
                 </div>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRiderLiveLocation } from "../../components/useRiderLiveLocation";
 import { FRESHNESS, deviationDisplayState, deviationText, locationLatLng, locationTimeMs } from "../../services/riderTracking";
 import L from "leaflet";
@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Route as RouteIcon,
   User,
+  X,
 } from "lucide-react";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
@@ -349,6 +350,14 @@ function DispatcherGeofence() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [chosenId, setSelectedId] = useState("");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerRef = useRef(null);
+  const drawerCloseRef = useRef(null);
+  const drawerTriggerRef = useRef(null);
+  const closeDrawer = useCallback(() => {
+    setDrawerOpen(false);
+    requestAnimationFrame(() => drawerTriggerRef.current?.focus());
+  }, []);
   // Route generation state, scoped to the order it belongs to (so an error or
   // in-flight request never bleeds onto a different selected order).
   const [busyOrderId, setBusyOrderId] = useState(null);
@@ -404,6 +413,34 @@ function DispatcherGeofence() {
     () => orders.filter((o) => ACTIVE_STATUSES.has(o.statusKey)),
     [orders]
   );
+  const drawerVisible = drawerOpen && activeOrders.some((order) => order.id === chosenId);
+
+  useEffect(() => {
+    if (!drawerVisible) return undefined;
+    drawerCloseRef.current?.focus();
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeDrawer();
+      } else if (event.key === "Tab") {
+        const focusable = drawerRef.current?.querySelectorAll(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        if (!focusable?.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [closeDrawer, drawerVisible]);
 
   // The operator's pick while it is still an active order; otherwise the first
   // active order (or none). Derived, so the list and the selection can never
@@ -426,7 +463,7 @@ function DispatcherGeofence() {
   // unchanged. An ended or never-reported location yields null ("No live
   // location yet"), never a stale or invented position.
   const live = useRiderLiveLocation(selectedOrder?.assignedRiderId, {
-    enabled: !!selectedOrder,
+    enabled: drawerVisible && !!selectedOrder,
     withDeviation: true,
   });
   const selected = useMemo(() => {
@@ -636,15 +673,13 @@ function DispatcherGeofence() {
             <small>Orders with status Assigned, Loading, In Transit, or Delayed will appear here.</small>
           </div>
         ) : (
-          /* Master-detail: the list stays in view (10 per page) while the
-             selected shipment's trip, map and details update in place on the
-             right. Each column scrolls on its own; nothing pops up. */
+          /* Keep the shipment list stable while details open over the page. */
           <div className="geo3-split">
             <div className="geo3-card geo3-split-list">
               <h3>Active Shipments ({activeOrders.length})</h3>
                 <div className="geo3-order-list">
                   {pageShipments.map((order) => {
-                    const isActive = order.id === selectedId;
+                    const isActive = drawerVisible && order.id === selectedId;
                     const stop = shipmentProgress(order);
                     return (
                       <button
@@ -652,7 +687,11 @@ function DispatcherGeofence() {
                         type="button"
                         className={`geo3-order-item ${isActive ? "active" : ""}`}
                         aria-pressed={isActive}
-                        onClick={() => setSelectedId(order.id)}
+                        onClick={(event) => {
+                          drawerTriggerRef.current = event.currentTarget;
+                          setSelectedId(order.id);
+                          setDrawerOpen(true);
+                        }}
                       >
                         <div className="geo3-order-item-head">
                           <strong>{order.orderNumber || order.id}</strong>
@@ -675,7 +714,25 @@ function DispatcherGeofence() {
               <PageNav page={currentListPage} total={activeOrders.length} onPageChange={setListPage} label="Active shipment pages" />
             </div>
 
-            <div className="geo3-split-detail" aria-label="Selected shipment">
+            {drawerVisible && selected && (
+              <div className="geo3-drawer-layer">
+                <div className="geo3-drawer-backdrop" aria-hidden="true" onClick={closeDrawer} />
+                <div
+                  className="geo3-split-detail geo3-drawer"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="geo3-drawer-title"
+                  ref={drawerRef}
+                >
+                  <div className="geo3-drawer-header">
+                    <div>
+                      <span className="geo3-drawer-eyebrow">Active shipment</span>
+                      <h2 id="geo3-drawer-title">{selected.orderNumber || selected.id}</h2>
+                    </div>
+                    <button type="button" className="geo3-drawer-close" aria-label="Close shipment details" onClick={closeDrawer} ref={drawerCloseRef}>
+                      <X size={18} />
+                    </button>
+                  </div>
             <TripProgress progress={progress} riderName={selected?.assignedRiderName} selectedId={selectedId} />
 
             {selected && getLatLng(selected.lastLocation) && (() => {
@@ -941,7 +998,9 @@ function DispatcherGeofence() {
                           <strong>{selected.orderNumber || selected.id}</strong>
                           <p>
                             {selected.vaccineName || "—"} · {selected.quantity || 0}{" "}
-                            {selected.unit || "vials"}
+                            {Number(selected.quantity) === 1 && (selected.unit || "vials").toLowerCase() === "vials"
+                              ? "vial"
+                              : selected.unit || "vials"}
                           </p>
                         </div>
                       </div>
@@ -1045,7 +1104,9 @@ function DispatcherGeofence() {
                   )}
                 </>
               )}
-            </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </section>

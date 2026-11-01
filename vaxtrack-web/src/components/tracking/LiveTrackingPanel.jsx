@@ -57,7 +57,7 @@ function RiderDetails({ rider, nowMs }) {
       {rider.phone && (
         <p className="ltp-row">
           <span>Phone</span>
-          <a href={`tel:${rider.phone}`}>{rider.phone}</a>
+          <strong>{rider.phone}</strong>
         </p>
       )}
       {rider.returningToHub && (

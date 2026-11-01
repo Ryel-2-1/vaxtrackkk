@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, Suspense } from "react";
+import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
@@ -7,6 +7,7 @@ import {
   Box,
   CheckCircle2,
   History,
+  Info,
   LayoutDashboard,
   LogOut,
   MapPin,
@@ -17,6 +18,9 @@ import {
 import { auth } from "../../firebase";
 import SidebarProfile from "../../components/shell/SidebarProfile";
 import OfflineNotice from "../../components/shell/OfflineNotice";
+import { subscribeSalesRepOrders } from "../../services/orderService";
+import { deriveSalesRepOrderAlert } from "../../services/salesRepOrderAlert";
+import { loadReadIds, saveReadIds, withReadIds } from "../../services/notificationReadState";
 import "./SalesRep.css";
 
 /**
@@ -55,31 +59,39 @@ function SalesRepShell() {
 
   const notificationRef = useRef(null);
   const [notificationOpen, setNotificationOpen] = useState(false);
-  const [readNotifications, setReadNotifications] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("salesrepReadNotifications")) || [];
-    } catch {
-      return [];
-    }
-  });
+  const uid = auth.currentUser?.uid ?? null;
+  const projectId = auth.app.options.projectId;
+  const [readNotifications, setReadNotifications] = useState(() => loadReadIds(projectId, "salesrep", uid));
+  const [orders, setOrders] = useState([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(true);
+  const [notificationsError, setNotificationsError] = useState(false);
 
-  // No hardcoded/sample notifications. Sales Reps have no `alerts` read access
-  // under the Firestore rules and no Sales-Rep-specific notification feed
-  // exists, so this stays an honest empty list — no fabricated entries.
-  const notifications = [];
+  // Reuse the same order-derived updates as the Med Rep Alerts page. Med Reps
+  // have no permission to read the shared operational `alerts` collection.
+  useEffect(() => {
+    if (!uid) return undefined;
+    return subscribeSalesRepOrders(uid, (nextOrders) => {
+      setOrders(nextOrders);
+      setNotificationsLoading(false);
+      setNotificationsError(false);
+    }, () => {
+      setOrders([]);
+      setNotificationsLoading(false);
+      setNotificationsError(true);
+    });
+  }, [uid]);
+
+  const notifications = useMemo(() =>
+    orders.map(deriveSalesRepOrderAlert).sort((a, b) => b.sortTime - a.sortTime),
+  [orders]);
 
   const unreadCount = notifications.filter(
-    (notification) => !readNotifications.includes(notification.id)
+    (notification) => !readNotifications.includes(notification.readId)
   ).length;
 
   useEffect(() => {
-    // A per-browser convenience only; private browsing may refuse it.
-    try {
-      localStorage.setItem("salesrepReadNotifications", JSON.stringify(readNotifications));
-    } catch {
-      // nothing to do — the list simply is not remembered
-    }
-  }, [readNotifications]);
+    saveReadIds(projectId, "salesrep", uid, readNotifications);
+  }, [projectId, uid, readNotifications]);
 
   // Logging out is one request at a time; a failure is shown beside the
   // button (never a browser alert) and the Med Rep stays signed in.
@@ -121,15 +133,16 @@ function SalesRepShell() {
   };
 
   const markAllRead = () => {
-    setReadNotifications(notifications.map((notification) => notification.id));
+    setReadNotifications((current) => withReadIds(current, notifications.map((notification) => notification.readId)));
   };
 
   const openNotification = (notification) => {
     setReadNotifications((current) =>
-      current.includes(notification.id) ? current : [...current, notification.id]
+      withReadIds(current, [notification.readId])
     );
     setNotificationOpen(false);
-    navigate(notification.route);
+    const history = ["completed", "delivered", "cancelled", "canceled"].includes(notification.statusKey);
+    navigate(`/sales-rep/alerts?tab=${history ? "history" : "active"}&reference=${encodeURIComponent(notification.orderNumber)}`);
   };
 
   return (
@@ -233,21 +246,13 @@ function SalesRepShell() {
                   </div>
 
                   <div className="salesrep-notification-list">
-                    {notifications.length === 0 && (
-                      <p
-                        style={{
-                          padding: "18px 16px",
-                          margin: 0,
-                          fontSize: 13,
-                          color: "#6b7280",
-                          textAlign: "center",
-                        }}
-                      >
-                        No notifications.
-                      </p>
+                    {notificationsError && <p className="salesrep-notification-empty" role="alert">Notifications could not be loaded.</p>}
+                    {!notificationsError && notificationsLoading && <p className="salesrep-notification-empty" role="status">Loading notifications…</p>}
+                    {!notificationsError && !notificationsLoading && notifications.length === 0 && (
+                      <p className="salesrep-notification-empty">No notifications.</p>
                     )}
-                    {notifications.map((notification) => {
-                      const isUnread = !readNotifications.includes(notification.id);
+                    {!notificationsError && notifications.map((notification) => {
+                      const isUnread = !readNotifications.includes(notification.readId);
                       return (
                         <button
                           type="button"
@@ -255,13 +260,14 @@ function SalesRepShell() {
                           className={`salesrep-notification-item ${isUnread ? "unread" : ""}`}
                           onClick={() => openNotification(notification)}
                         >
-                          <span className={`notification-dot ${notification.tone}`}>
+                          <span className={`notification-dot ${notification.tone === "critical" ? "danger" : notification.tone}`}>
                             {notification.tone === "success" && <CheckCircle2 size={13} />}
-                            {notification.tone !== "success" && <AlertTriangle size={13} />}
+                            {notification.tone === "critical" && <AlertTriangle size={13} />}
+                            {notification.tone === "info" && <Info size={13} />}
                           </span>
                           <div>
                             <strong>{notification.title}</strong>
-                            <p>{notification.message}</p>
+                            <p>{notification.body}</p>
                             <small>{notification.time}</small>
                           </div>
                         </button>
@@ -285,7 +291,7 @@ function SalesRepShell() {
             </div>
           }
         >
-          <div className="salesrep-route-view route-view" key={location.pathname}>
+          <div className="salesrep-route-view route-view" key={`${location.pathname}${location.search}`}>
             <Outlet />
           </div>
         </Suspense>

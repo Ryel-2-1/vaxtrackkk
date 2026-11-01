@@ -233,11 +233,16 @@ function SalesRepDashboard() {
   );
   const plannerFiltersActive = plannerStatusFilter !== "all" || plannerPriorityFilter !== "all";
   // Day markers reflect the planner filters; checkout validates the chosen date.
-  const { counts: planCounts, urgent: planUrgentCounts } = useMemo(() => calendarCounts(plannerOrders), [plannerOrders]);
+  const { counts: planCounts, urgent: planUrgentCounts } = useMemo(
+    () => calendarCounts(plannerOrders, { includeCancelled: plannerStatusFilter === "cancelled" }),
+    [plannerOrders, plannerStatusFilter]
+  );
   const selectedDayOrders = useMemo(
     () => (selectedDate ? ordersOnDate(plannerOrders, selectedDate) : []),
     [plannerOrders, selectedDate]
   );
+  const selectedDayCancelled = selectedDayOrders.filter((o) => o.statusType === "cancelled").length;
+  const selectedDayScheduled = selectedDayOrders.length - selectedDayCancelled;
 
   // Moving to another month (arrows or the month/year pickers) keeps the
   // selected day only if it is in that month; otherwise the selection is
@@ -382,7 +387,7 @@ function SalesRepDashboard() {
                 </span>
                 <span className="srd-planner-legend">
                   <CalendarDays size={14} />
-                  Numbers = scheduled orders · red dot = urgent
+                  {plannerStatusFilter === "cancelled" ? "Numbers = cancelled orders" : "Numbers = scheduled orders · red dot = urgent"}
                 </span>
               </div>
             </div>
@@ -420,7 +425,9 @@ function SalesRepDashboard() {
                     <div className="srd-planner-detail-head">
                       <strong>{longDate(selectedDate)}</strong>
                       <span className="srd-planner-count tnum">
-                        {selectedDayOrders.length} scheduled
+                        {plannerStatusFilter === "cancelled"
+                          ? `${selectedDayCancelled} cancelled`
+                          : `${selectedDayScheduled} scheduled${selectedDayCancelled > 0 ? ` · ${selectedDayCancelled} cancelled` : ""}`}
                       </span>
                     </div>
 

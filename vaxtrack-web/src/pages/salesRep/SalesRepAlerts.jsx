@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import {
   AlertTriangle,
   CheckCircle,
@@ -9,137 +10,22 @@ import {
   X,
 } from "lucide-react";
 import { subscribeSalesRepOrders } from "../../services/orderService";
-import {
-  normalizeStatusKey,
-  getOrderStatusValue,
-} from "../../services/deliveryService";
 import { auth } from "../../firebase";
 import { liveErrorMessage } from "../../services/liveDataErrors";
 import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import DialogLayer from "../../components/ui/DialogLayer";
-import { orderDestination, orderReference } from "../../services/orderLabel";
-
-function deriveAlertFromOrder(order) {
-  const rawStatus = getOrderStatusValue(order);
-  const statusKey = normalizeStatusKey(rawStatus);
-
-  let tone = "info";
-  let tag = "INFO";
-  let icon = <Info size={18} />;
-  // Every branch of the switch below (including default) assigns both.
-  let title;
-  let body;
-
-  const clinic = order.clinicName || "Unknown Clinic";
-  // The order number, else where it goes — never the document id.
-  const orderNum = orderReference(order, orderDestination(order) || "Order without a number");
-  const vaccine = order.vaccineName || "Vaccine order";
-
-  switch (statusKey) {
-    case "delayed":
-      tone = "critical";
-      tag = "CRITICAL";
-      icon = <AlertTriangle size={18} />;
-      title = `Delivery Delayed — ${orderNum}`;
-      body = `Order to ${clinic} for ${vaccine} has been delayed. Check order tracking for updates.`;
-      break;
-    case "cancelled":
-    case "canceled":
-      tone = "critical";
-      tag = "CRITICAL";
-      icon = <AlertTriangle size={18} />;
-      title = `Order Cancelled — ${orderNum}`;
-      body = `Order to ${clinic} for ${vaccine} has been cancelled.`;
-      break;
-    case "assigned":
-      tone = "info";
-      tag = "UPDATE";
-      icon = <Truck size={18} />;
-      title = `Rider Assigned — ${orderNum}`;
-      body = `A rider has been assigned to deliver ${vaccine} to ${clinic}.${order.assignedRiderName ? ` Rider: ${order.assignedRiderName}` : ""}`;
-      break;
-    case "in_transit":
-      tone = "info";
-      tag = "UPDATE";
-      icon = <Truck size={18} />;
-      title = `In Transit — ${orderNum}`;
-      body = `Your order of ${vaccine} to ${clinic} is now in transit.`;
-      break;
-    case "completed":
-    case "delivered":
-      tone = "success";
-      tag = "DELIVERED";
-      icon = <CheckCircle size={18} />;
-      title = `Delivered — ${orderNum}`;
-      body = `Order of ${vaccine} to ${clinic} has been delivered successfully.`;
-      break;
-    case "pending":
-    case "pending_dispatch":
-      tone = "info";
-      tag = "PENDING";
-      icon = <Info size={18} />;
-      title = `Order Submitted — ${orderNum}`;
-      body = `Your order of ${vaccine} to ${clinic} is pending dispatch.`;
-      break;
-    case "loading":
-      tone = "info";
-      tag = "UPDATE";
-      icon = <Truck size={18} />;
-      title = `Loading — ${orderNum}`;
-      body = `Order of ${vaccine} for ${clinic} is being loaded for dispatch.`;
-      break;
-    default:
-      title = `Order Update — ${orderNum}`;
-      body = `Order to ${clinic} status: ${rawStatus || "unknown"}.`;
-      break;
-  }
-
-  const ts = order.updatedAt || order.createdAt;
-
-  return {
-    id: order.id,
-    tone,
-    tag,
-    icon,
-    title,
-    body,
-    location: clinic,
-    time: formatTime(ts),
-    statusKey,
-    orderNumber: orderNum,
-    priority: order.priority || "Standard",
-    quantity: Number(order.quantity || 0),
-    vaccineName: vaccine,
-  };
-}
-
-function formatTime(ts) {
-  if (!ts) return "—";
-  const date = ts.toDate ? ts.toDate() : new Date(ts);
-  if (isNaN(date.getTime())) return "—";
-
-  const now = new Date();
-  const diffMs = now - date;
-  const diffMin = Math.floor(diffMs / 60000);
-  const diffHr = Math.floor(diffMs / 3600000);
-  const diffDay = Math.floor(diffMs / 86400000);
-
-  if (diffMin < 1) return "Just now";
-  if (diffMin < 60) return `${diffMin} min ago`;
-  if (diffHr < 24) return `${diffHr} hr ago`;
-  if (diffDay < 7) return `${diffDay} day${diffDay > 1 ? "s" : ""} ago`;
-
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
+import { deriveSalesRepOrderAlert } from "../../services/salesRepOrderAlert";
 
 function SalesRepAlerts() {
+  const location = useLocation();
+  const linkedParams = new URLSearchParams(location.search);
   const [alerts, setAlerts] = useState([]);
   const [loadingState, setLoading] = useState(true);
   const [errorState, setError] = useState("");
 
-  const [activeTab, setActiveTab] = useState("active");
+  const [activeTab, setActiveTab] = useState(() => linkedParams.get("tab") === "history" ? "history" : "active");
   const [activeFilter, setActiveFilter] = useState("all");
-  const [searchTerm, setSearchTerm] = useState("");
+  const [searchTerm, setSearchTerm] = useState(() => linkedParams.get("reference") || "");
   const [message, setMessage] = useState("");
   const [selectedAlert, setSelectedAlert] = useState(null);
 
@@ -155,7 +41,7 @@ function SalesRepAlerts() {
     const unsubscribe = subscribeSalesRepOrders(
       uid,
       (raw) => {
-        const derived = raw.map(deriveAlertFromOrder);
+        const derived = raw.map(deriveSalesRepOrderAlert);
         setAlerts(derived);
         setLoading(false);
         setError("");
@@ -342,7 +228,7 @@ function AlertCard({ alert, isHistory, onViewDetails }) {
   return (
     <div className={`sales-alert-card alerts-v2-card ${alert.tone} ${isHistory ? "history" : ""}`}>
       <div className="sales-alert-card-top">
-        <span>{alert.icon}</span>
+        <span>{alert.tone === "critical" ? <AlertTriangle size={18} /> : alert.tone === "success" ? <CheckCircle size={18} /> : alert.tag === "UPDATE" ? <Truck size={18} /> : <Info size={18} />}</span>
         <b>{isHistory ? (alert.statusKey === "cancelled" || alert.statusKey === "canceled" ? "CANCELLED" : "DELIVERED") : alert.tag}</b>
         <small>{alert.time}</small>
       </div>

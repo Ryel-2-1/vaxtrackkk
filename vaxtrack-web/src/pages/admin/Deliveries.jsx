@@ -243,16 +243,6 @@ function Deliveries() {
     <>
     <main className="deliveries-v4-page">
 
-        <header className="mdl-header">
-          {/* A "New delivery" button stood here and raised a toast explaining
-              that deliveries are created elsewhere. A control that cannot do
-              the thing it is labelled with is not a control — the same fact is
-              stated as text, where it belongs. */}
-          <p className="mdl-header-note">
-            Orders are created by Med Reps and dispatched by a Dispatcher.
-          </p>
-        </header>
-
         <section className="deliveries-summary-grid">
           <KpiCard
             label="Total deliveries"
@@ -309,8 +299,8 @@ function Deliveries() {
           />
         </section>
 
-        {/* The cards above are the status tabs; this row refines them: search,
-            any single status (including those no card covers) and Reset. */}
+        {/* The cards provide quick status filters; this row adds search and
+            specific statuses. Reset appears only when a filter is active. */}
         <section className="mdl-filterbar">
           <label className="mdl-search">
             <Search size={15} />
@@ -341,15 +331,16 @@ function Deliveries() {
             <option value={UNKNOWN_STATUS_KEY}>{UNKNOWN_STATUS_LABEL}</option>
           </select>
 
-          <button
-            type="button"
-            className="mdl-btn mdl-btn-secondary"
-            onClick={resetFilters}
-            disabled={!filtersActive}
-          >
-            <RotateCcw size={14} aria-hidden="true" />
-            Reset filters
-          </button>
+          {filtersActive && (
+            <button
+              type="button"
+              className="mdl-btn mdl-btn-secondary"
+              onClick={resetFilters}
+            >
+              <RotateCcw size={14} aria-hidden="true" />
+              Reset filters
+            </button>
+          )}
         </section>
 
         {/* Only rendered when such a document exists, so it is a real finding

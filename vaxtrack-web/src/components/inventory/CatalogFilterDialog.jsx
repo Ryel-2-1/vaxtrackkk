@@ -7,7 +7,7 @@ import "./catalogFilterDialog.css";
 // How long the type search waits after the last keystroke before filtering.
 const TYPE_SEARCH_DEBOUNCE_MS = 150;
 
-function FilterDialogContent({ title, types, selectedTypes, status, statusOptions, expiry, expiryOptions, onApply, onClose }) {
+function FilterDialogContent({ title, description = "Choose filters, then apply them to the list.", types, selectedTypes, status, statusOptions, expiry, expiryOptions, onApply, onClose }) {
   const dialogRef = useRef(null);
   const [draft, setDraft] = useState({ types: selectedTypes, status, expiry });
   useDialogFocus({ dialogRef, onDismiss: onClose });
@@ -37,7 +37,7 @@ function FilterDialogContent({ title, types, selectedTypes, status, statusOption
         <header className="catalog-filter-head">
           <div>
             <h2 id="catalog-filter-title">{title}</h2>
-            <p>Choose filters, then apply them to the list.</p>
+            <p>{description}</p>
           </div>
           <button type="button" className="catalog-filter-close" aria-label="Close filters" onClick={onClose}><X size={18} /></button>
         </header>

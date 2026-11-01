@@ -6,6 +6,7 @@
   flex-direction: column;
   gap: 10px;
   width: 100%;
+  container-type: inline-size;
 }
 
 .mcal-head {
@@ -254,11 +255,11 @@
   box-shadow: 0 0 0 1px var(--danger-text, #b42318);
 }
 
-@media (max-width: 560px) {
+@container (max-width: 470px) {
   .mcal-head {
     display: grid;
     grid-template-columns: 32px minmax(0, 1fr) 32px;
-    grid-template-areas: "prev pick next" "today today today";
+    grid-template-areas: "prev pick next" ". today .";
     row-gap: 8px;
   }
   .mcal-head > .mcal-nav { grid-area: prev; }

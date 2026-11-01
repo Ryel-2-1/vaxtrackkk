@@ -60,14 +60,14 @@ test("only working controls sit in the top bar", () => {
   // navigated by keyword; removed 2026-10-31). Every page keeps its own search.
   assert.doesNotMatch(shellCode("dispatcher"), /m-topbar-search|handleSearchSubmit/);
   assert.doesNotMatch(shellCode("salesrep"), /m-topbar-search|handleTopSearch|showSearch/);
-  // Admin has no search; its one top-bar control is the alerts button, which
-  // opens the Alerts page and counts what needs review there (2026-10-31).
+  // Admin has no search; its bell counts unread active system alerts.
   const admin = shellCode("admin");
   assert.doesNotMatch(admin, /m-topbar-search/);
   assert.match(admin, /<div className="m-topbar-actions">\s*<AdminAlertsBell \/>\s*<\/div>/);
   const bell = code("src/components/admin/AdminAlertsBell.jsx");
   assert.match(bell, /<Link to="\/admin\/alerts" className="m-topbar-icon-btn admin-alerts-bell" aria-label=\{label\}/);
-  assert.match(bell, /const count = activeAlerts \+ exceptions;/);
+  assert.match(bell, /rows\.filter\(\(alert\) => alert\.read !== true\)\.length/);
+  assert.doesNotMatch(bell, /subscribeDeliveryExceptions/);
   // The decorative chip on the Dispatcher bar is gone, and an unknown route
   // falls back to a real page title like Sales Rep does, not the old slogan.
   const dispatcher = code("src/pages/dispatcher/DispatcherLayout.jsx");
@@ -186,9 +186,6 @@ test("the shell work added no lint suppressions", () => {
   ]) {
     assert.doesNotMatch(read(f), /eslint-disable/, f);
   }
-  // These two each carry one pre-existing, documented suppression (closing a
-  // dropdown / drawer on route change); the shell work must not add another.
-  for (const f of ["src/pages/salesRep/SalesRepShell.jsx", "src/pages/dispatcher/DispatcherLayout.jsx"]) {
-    assert.equal(read(f).match(/eslint-disable/g).length, 1, f);
-  }
+  assert.equal((read("src/pages/salesRep/SalesRepShell.jsx").match(/eslint-disable/g) || []).length, 1);
+  assert.equal((read("src/pages/dispatcher/DispatcherLayout.jsx").match(/eslint-disable/g) || []).length, 0);
 });

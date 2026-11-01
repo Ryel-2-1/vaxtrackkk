@@ -589,10 +589,7 @@ test("no raw provider HTTP status or provider text reaches the routing UI", () =
 
 test("placeholder controls are disabled with an explanation — they cannot trigger false progress", () => {
   const pages = {
-    // Alerts' "View Route" placeholder became a real "Open delivery" link
-    // (tests/alertPresentation.test.js); only "Contact Rider" is still unbuilt.
-    "src/pages/admin/Alerts.jsx": ["alert-unavailable-actions", ["Contact Rider"]],
-    "src/pages/admin/Riders.jsx": ["rider-unavailable-actions", ["Contact Rider", "View Route"]],
+    "src/pages/admin/Riders.jsx": ["rider-unavailable-actions", ["View Route"]],
     "src/pages/admin/Clinics.jsx": ["clinic-edit-unavailable", ["Edit Clinic"]],
   };
   for (const [p, [noteId, labels]] of Object.entries(pages)) {
@@ -614,6 +611,17 @@ test("placeholder controls are disabled with an explanation — they cannot trig
   // the fake one must not come back.
   assert.equal(/clinics-view-btn|Grid3X3|Grid view can be added/.test(read("src/pages/admin/Clinics.jsx")), false);
   assert.equal(/<Bell\b/.test(read("src/pages/admin/Riders.jsx")) || /<Bell\b/.test(read("src/pages/admin/Clinics.jsx")), false);
+});
+
+test("admin dialogs do not offer an unavailable rider contact action", () => {
+  for (const page of ["src/pages/admin/Alerts.jsx", "src/pages/admin/Riders.jsx"]) {
+    const src = read(page);
+    assert.doesNotMatch(src, /Contact Rider|PhoneCall|calling (?:a |the )?rider/i, page);
+  }
+  assert.match(read("src/pages/admin/Alerts.jsx"), /Open delivery/);
+  const tracking = read("src/components/tracking/LiveTrackingPanel.jsx");
+  assert.match(tracking, /<strong>\{rider\.phone\}<\/strong>/);
+  assert.doesNotMatch(tracking, /href=\{`tel:/);
 });
 
 test("the false-success Register Clinic page is gone; its paths go to the real registration", () => {

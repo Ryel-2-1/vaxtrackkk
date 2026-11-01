@@ -116,15 +116,18 @@ export function calendarDay(orders, iso) {
     .sort(compareCalendarOrders);
 }
 
-/** Per-day counts, plus how many of each day are Urgent (for the markers). */
-export function calendarCounts(orders) {
+/** Per-day scheduled counts and urgent markers. Cancelled orders are history,
+ * but the Cancelled filter can opt in to date markers for browsing them. */
+export function calendarCounts(orders, { includeCancelled = false } = {}) {
   const counts = {};
   const urgent = {};
   for (const o of Array.isArray(orders) ? orders : []) {
     const d = scheduledDateOf(o);
     if (!d) continue;
+    const cancelled = o?.statusType === "cancelled";
+    if (cancelled && !includeCancelled) continue;
     counts[d] = (counts[d] || 0) + 1;
-    if (isUrgent(o)) urgent[d] = (urgent[d] || 0) + 1;
+    if (!cancelled && isUrgent(o)) urgent[d] = (urgent[d] || 0) + 1;
   }
   return { counts, urgent };
 }

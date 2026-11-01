@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  Box,
   CalendarDays,
   ClipboardCheck,
   Loader2,
   MapPin,
-  PackageCheck,
   Search,
   Truck,
 } from "lucide-react";
@@ -618,13 +616,10 @@ function SalesRepOrderTracking() {
                     />
                   ))
                 ) : (
-                  <div className="tracking-v2-info-box">
-                    <PackageCheck size={15} />
-                    <div>
-                      <strong>{selectedOrder.vaccineName}</strong>
-                      <p>{selectedOrder.quantity.toLocaleString()} {selectedOrder.quantity === 1 ? "vial" : "vials"}</p>
-                    </div>
-                  </div>
+                  <OrderContent
+                    name={selectedOrder.vaccineName}
+                    qty={`${selectedOrder.quantity.toLocaleString()} ${selectedOrder.quantity === 1 ? "vial" : "vials"}`}
+                  />
                 )}
 
                 <div className="tracking-total">
@@ -662,7 +657,6 @@ function TrackingRow({ selected, order, onSelect }) {
       }}
     >
       <td>
-        {isDanger ? <AlertTriangle size={17} /> : <Box size={17} />}
         <strong>{order.orderNumber}</strong>
       </td>
 
@@ -714,11 +708,11 @@ function TrackingRow({ selected, order, onSelect }) {
 function OrderContent({ name, batch, qty }) {
   return (
     <div className="order-content">
-      <PackageCheck size={18} />
       <div>
         <strong>{name}</strong>
-        <p>Batch: {batch} · {qty}</p>
+        {batch && <p>Batch: {batch}</p>}
       </div>
+      <span className="order-content-quantity">{qty}</span>
     </div>
   );
 }

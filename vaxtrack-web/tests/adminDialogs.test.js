@@ -226,7 +226,7 @@ test("pages whose dialogs render inside <main> keep every dialog portaled", () =
 
 test("pages whose dialogs render after </main> keep them there (the safe placement)", () => {
   const safe = {
-    "src/pages/admin/Alerts.jsx": ["<AlertReviewModal", "<ConfirmDialog", "<AlertChannelsModal"],
+    "src/pages/admin/Alerts.jsx": ["<AlertReviewModal", "<ConfirmDialog"],
     "src/pages/admin/Clinics.jsx": ["<ClinicDetailsModal", "<NewClinicModal", "<AreasModal", "<DoctorsModal", "<ManageLocationModal"],
     "src/pages/admin/Deliveries.jsx": ["<DeliveryModal"],
     "src/pages/admin/Riders.jsx": ["<RiderDetailsModal", "<ConfirmDialog"],

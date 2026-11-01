@@ -11,7 +11,8 @@ import { readFileSync } from "node:fs";
  *   "Alert settings saved." Nothing in the app read `alertSettings`; no
  *   service, Firestore field or localStorage key existed for it. Two of the
  *   toggles offered to configure push and email delivery, which the system does
- *   not have at all.
+ *   not have at all. The replacement read-only modal was redundant with Admin
+ *   Settings, so the Alerts page no longer opens it.
  *
  *   Inventory bulk actions — checkboxes and a selected-count bar whose
  *   "Mark as Checked" and "Generate Report" buttons only raised a toast.
@@ -58,35 +59,17 @@ test("no save action and no saved confirmation exist for alert delivery", () => 
   );
   assert.equal(/Save Settings/.test(src), false, "no Save button");
   assert.equal(/AlertSettingsModal/.test(src), false, "the editable modal must be gone");
-  assert.match(src, /AlertChannelsModal/, "replaced by the read-only channel list");
+  assert.doesNotMatch(src, /AlertChannelsModal|showSettings|alerts-blue-btn/, "the redundant channel dialog is removed from Alerts");
 });
 
-test("the alert delivery modal is read-only and names unavailable channels", () => {
-  const src = read("src/pages/admin/Alerts.jsx");
-  const modal = /function AlertChannelsModal\(\{ onClose \}\) \{([\s\S]*?)\n\}/.exec(src);
-  assert.ok(modal, "the channel modal must exist");
-
-  // No interactive control other than Close.
-  assert.equal(
-    /onChange=|setSettings|type="checkbox"/.test(modal[1]),
-    false,
-    "the channel list must contain no editable control"
-  );
-  // It states what is true rather than offering to change it.
-  assert.match(modal[1], /Not configured/);
-  assert.match(modal[1], /In-app alerts/);
-  assert.match(modal[1], /Push notifications/);
-  assert.match(modal[1], /Email notifications/);
-  // And it does not claim a channel that does not exist is on. Checked per
-  // channel object, not by proximity — the in-app entry legitimately carries
-  // `available: true` a few lines above the push entry.
-  for (const name of ["Push notifications", "Email notifications"]) {
-    const entry = new RegExp(
-      `\\{[^{}]*available:\\s*(true|false)[^{}]*title:\\s*"${name}"[\\s\\S]*?\\}`
-    ).exec(modal[1]);
-    assert.ok(entry, `${name} must be listed`);
-    assert.match(entry[0], /available: false/, `${name} must not be marked available`);
-  }
+test("alert delivery status lives in Admin Settings without a duplicate Alerts dialog", () => {
+  const alerts = code("src/pages/admin/Alerts.jsx");
+  const settings = code("src/pages/admin/Settings.jsx");
+  assert.doesNotMatch(alerts, /AlertChannelsModal|showSettings|Alert delivery/);
+  assert.match(settings, /<h2>Alert delivery<\/h2>/);
+  assert.match(settings, /<dt>In-app alerts<\/dt>/);
+  assert.match(settings, /<dt>Push and email<\/dt>/);
+  assert.match(settings, /<strong>Not configured<\/strong>/);
 });
 
 test("no push or email delivery was implemented by this change", () => {

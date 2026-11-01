@@ -1,10 +1,10 @@
 import "./AdminDashboard.css";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, ArrowRight, BellRing, CheckCircle2, Package, Truck } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Package, Truck } from "lucide-react";
 import AdminLayout from "../../components/admin/AdminLayout";
-import { subscribeDeliveries } from "../../services/deliveryService";
-import { subscribeAllAlerts } from "../../services/alertService";
+import { DELIVERY_EXCEPTION_STATUSES, subscribeDeliveries } from "../../services/deliveryService";
+import { subscribeActiveAlerts } from "../../services/alertService";
 import { subscribeRiders } from "../../services/riderService";
 import { subscribeInventory } from "../../services/inventoryService";
 import { manilaToday } from "../../services/expiry";
@@ -129,7 +129,7 @@ function AdminDashboard() {
     const unsubDeliveries = subscribeDeliveries(
       (orders) => {
         setDeliveryCount(orders.length);
-        setExceptionCount(orders.filter((o) => ["delayed", "delivery_failed"].includes(o.statusKey)).length);
+        setExceptionCount(orders.filter((o) => DELIVERY_EXCEPTION_STATUSES.includes(o.statusKey)).length);
         // Derived from the same orders array — no extra Firestore read.
         const breakdown = {};
         orders.forEach((o) => {
@@ -159,10 +159,9 @@ function AdminDashboard() {
 
     let unsubAlerts = () => {};
     try {
-      unsubAlerts = subscribeAllAlerts((raw) => {
+      unsubAlerts = subscribeActiveAlerts((raw) => {
         setActiveAlerts(
           raw
-            .filter((a) => a.status !== "resolved")
             .map(normalizeAlert)
             .sort((a, b) => ALERT_PRIORITY[a.type] - ALERT_PRIORITY[b.type] || b.createdAtMs - a.createdAtMs)
         );
@@ -242,14 +241,8 @@ function AdminDashboard() {
     },
   ].filter(Boolean);
   const hasAttention = activeAlerts.length > 0 || operationalChecks.length > 0;
-
   return (
-    <AdminLayout
-      active="dashboard"
-      eyebrow="Cold-chain operations"
-      title="Dashboard"
-      description="Live overview of deliveries, alerts, riders, and stock."
-    >
+    <AdminLayout>
       {anyFailed && loadError && (
         <div className="adx-banner" role="alert">
           <AlertTriangle size={16} aria-hidden="true" />
@@ -261,16 +254,9 @@ function AdminDashboard() {
       )}
 
       <section className="adx-hero" aria-label="Dashboard overview">
-        <div>
-          <span className="adx-hero-kicker">VAXTRACK OPERATIONS</span>
-          <h2>Keep every handoff in view.</h2>
-          <p>Follow orders, stock, and delivery issues from one place.</p>
-        </div>
-        <button type="button" className="adx-hero-action" onClick={() => navigate("/admin/alerts")}>
-          <BellRing size={17} aria-hidden="true" />
-          {loading || failed.alerts ? "Open alert center" : `${activeAlerts.length} active ${activeAlerts.length === 1 ? "alert" : "alerts"}`}
-          <ArrowRight size={16} aria-hidden="true" />
-        </button>
+        <span className="adx-hero-kicker">VAXTRACK OPERATIONS</span>
+        <h2>Keep every handoff in view.</h2>
+        <p>Follow orders, stock, and delivery issues from one place.</p>
       </section>
 
       {/* Operational status strip — the same real KPI values presented as one

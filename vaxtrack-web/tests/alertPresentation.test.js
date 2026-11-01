@@ -297,11 +297,13 @@ test("the dashboards and the Dispatcher bell use the same presentation", () => {
   // The banner printed the raw riderName and an undefined `location`.
   assert.doesNotMatch(disp, /latestAlert\.location|latestAlert\.riderName/);
 
+  const feed = read("src/services/dispatcherNotificationFeed.js");
+  assert.match(feed, /const view = presentAlert\(alert, \{ role: "dispatcher", nowMs \}\);/);
+  assert.match(feed, /title: view\.title,/);
+  assert.match(feed, /message: view\.message,/);
   const bell = read("src/pages/dispatcher/DispatcherLayout.jsx");
-  assert.match(bell, /const view = presentAlert\(notification, \{ role: "dispatcher", nowMs: minuteNow \}\);/);
-  assert.match(bell, /<strong>\{view\.title\}<\/strong>/);
-  assert.match(bell, /<p>\{view\.message \|\| "No additional details\."\}<\/p>/);
-  assert.doesNotMatch(bell, /notification\.title|notification\.message\b/);
+  assert.match(bell, /<strong>\{notification\.title\}<\/strong>/);
+  assert.doesNotMatch(bell, /notification\.rawAlert\.message/);
 });
 
 test("Admin Deliveries opens the drawer for an alert's ?order= link", () => {

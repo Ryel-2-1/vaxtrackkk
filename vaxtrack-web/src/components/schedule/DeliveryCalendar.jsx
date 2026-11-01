@@ -250,7 +250,10 @@ function DeliveryCalendar({ role }) {
     () => filterCalendarOrders(deliveries, { status: statusFilter, priority: priorityFilter }),
     [deliveries, statusFilter, priorityFilter]
   );
-  const { counts, urgent } = useMemo(() => calendarCounts(filtered), [filtered]);
+  const { counts, urgent } = useMemo(
+    () => calendarCounts(filtered, { includeCancelled: statusFilter === "cancelled" }),
+    [filtered, statusFilter]
+  );
   const dayOrders = useMemo(
     () => (selectedDate ? calendarDay(filtered, selectedDate) : []),
     [filtered, selectedDate]
@@ -278,7 +281,9 @@ function DeliveryCalendar({ role }) {
       });
     return () => { cancelled = true; };
   }, [isAdmin, visibleLookupIds]);
-  const dayUrgent = dayOrders.filter(isUrgent).length;
+  const dayCancelled = dayOrders.filter((o) => o.statusType === "cancelled").length;
+  const dayScheduled = dayOrders.length - dayCancelled;
+  const dayUrgent = dayOrders.filter((o) => o.statusType !== "cancelled" && isUrgent(o)).length;
   const filtersActive = statusFilter !== "all" || priorityFilter !== "all";
 
   const showMonth = (next) => {
@@ -385,7 +390,7 @@ function DeliveryCalendar({ role }) {
           ) : null}
           <span className="dcal-legend">
             <CalendarDays size={14} aria-hidden="true" />
-            Numbers = scheduled orders · red dot = urgent
+            {statusFilter === "cancelled" ? "Numbers = cancelled orders" : "Numbers = scheduled orders · red dot = urgent"}
           </span>
         </div>
       </div>
@@ -428,7 +433,6 @@ function DeliveryCalendar({ role }) {
               onNextMonth={goNextMonth}
               onCurrentMonth={goCurrentMonth}
               onJumpToMonth={jumpToMonth}
-              caption="Numbers show scheduled orders · red dot = urgent"
               ariaLabel="Delivery calendar"
             />
           </div>
@@ -438,8 +442,11 @@ function DeliveryCalendar({ role }) {
               <div className="dcal-card-head">
                 <h2 id="dcal-day-title">{selectedDate ? longDate(selectedDate) : "Select a day"}</h2>
                 <p>
-                  {dayOrders.length} scheduled order{dayOrders.length === 1 ? "" : "s"}
+                  {statusFilter === "cancelled"
+                    ? `${dayCancelled} cancelled order${dayCancelled === 1 ? "" : "s"}`
+                    : `${dayScheduled} scheduled order${dayScheduled === 1 ? "" : "s"}`}
                   {dayUrgent > 0 ? ` · ${dayUrgent} urgent` : ""}
+                  {statusFilter !== "cancelled" && dayCancelled > 0 ? ` · ${dayCancelled} cancelled` : ""}
                   {filtersActive ? " (filtered)" : ""}
                 </p>
               </div>

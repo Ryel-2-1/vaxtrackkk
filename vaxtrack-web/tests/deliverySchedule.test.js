@@ -66,6 +66,22 @@ test("an advance order sits on its own scheduled day, never on the day it was pl
   assert.deepEqual(calendarCounts(orders).counts, { "2026-11-20": 1, "2026-10-05": 1 });
 });
 
+test("cancelled orders stay browsable without inflating scheduled or urgent counts", () => {
+  const active = order({ id: "active", priority: "Urgent" });
+  const cancelled = order({ id: "cancelled", statusType: "cancelled", statusKey: "cancelled", priority: "Urgent" });
+  const orders = [active, cancelled];
+  assert.deepEqual(calendarCounts(orders), {
+    counts: { "2026-10-08": 1 },
+    urgent: { "2026-10-08": 1 },
+  });
+  assert.deepEqual(calendarDay(orders, "2026-10-08").map((o) => o.id), ["active", "cancelled"]);
+  assert.deepEqual(calendarCounts([cancelled]), { counts: {}, urgent: {} });
+  assert.deepEqual(calendarCounts([cancelled], { includeCancelled: true }), {
+    counts: { "2026-10-08": 1 },
+    urgent: {},
+  });
+});
+
 test("a rescheduled order moves day; its original request is shown, not used", () => {
   const moved = order({ requestedDeliveryDate: "2026-10-12", originalRequestedDeliveryDate: "2026-10-08", scheduledDeliveryTime: "09:30" });
   assert.equal(scheduledDateOf(moved), "2026-10-12");

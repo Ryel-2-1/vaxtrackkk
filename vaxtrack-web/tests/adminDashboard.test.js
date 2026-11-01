@@ -110,7 +110,7 @@ test("no static array, sample row or fixed percentage supplies a metric", () => 
 
 test("all four Firestore subscriptions remain connected", () => {
   for (const sub of [
-    "subscribeDeliveries", "subscribeAllAlerts", "subscribeRiders", "subscribeInventory",
+    "subscribeDeliveries", "subscribeActiveAlerts", "subscribeRiders", "subscribeInventory",
   ]) {
     assert.match(CODE, new RegExp(`${sub}\\(`), `${sub} must still feed the page`);
   }
@@ -120,8 +120,9 @@ test("all four Firestore subscriptions remain connected", () => {
   // Every KPI is a state value, never a literal.
   const values = [...CODE.matchAll(/value: (\w+)/g)].map((m) => m[1]);
   assert.deepEqual(values, ["deliveryCount", "exceptionCount", "criticalCount", "riderCount"]);
-  // Alerts are the unresolved ones, counted from the collection.
-  assert.match(SRC, /\.filter\(\(a\) => a\.status !== "resolved"\)/);
+  // The active-alert subscription uses the same query as the Admin bell.
+  assert.match(read("src/services/alertService.js"), /where\("status", "==", "active"\)/);
+  assert.match(read("src/components/admin/AdminAlertsBell.jsx"), /subscribeActiveAlerts\(/);
 });
 
 test("the breakdown covers every canonical status", () => {
@@ -162,7 +163,8 @@ test("no KPI states a verdict its field cannot support", () => {
   // Closed cancellations must not be presented as delivery exceptions.
   assert.equal(/missing/i.test(CODE), false, "no order is described as missing");
   assert.match(SRC, /label: "Delivery exceptions"/);
-  assert.match(SRC, /\["delayed", "delivery_failed"\]\.includes\(o\.statusKey\)/);
+  assert.match(SRC, /DELIVERY_EXCEPTION_STATUSES\.includes\(o\.statusKey\)/);
+  assert.match(read("src/services/deliveryService.js"), /DELIVERY_EXCEPTION_STATUSES = \["delayed", "delivery_failed"\]/);
 });
 
 // ------------------------------------------------------- neutral fallbacks
@@ -215,6 +217,14 @@ test("every action leads somewhere real", () => {
   for (const w of ["setDoc", "updateDoc", "addDoc", "deleteDoc", "writeBatch", "localStorage"]) {
     assert.equal(CODE.includes(w), false, `the dashboard must not ${w}`);
   }
+});
+
+test("the dashboard uses the shell bell and its attention panel without a second hero alert button", () => {
+  assert.doesNotMatch(SRC, /adx-hero-action|BellRing/);
+  assert.doesNotMatch(CSS, /adx-hero-action/);
+  assert.match(SRC, /<h2>Needs attention<\/h2>/);
+  assert.match(SRC, /Alert center\s*<ArrowRight/);
+  assert.match(read("src/components/admin/AdminShell.jsx"), /<AdminAlertsBell\s*\/>/);
 });
 
 test("the dashboard stylesheet no longer carries anything it cannot render", () => {

@@ -93,50 +93,19 @@
 }
 .cl-cards {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));
   gap: 16px;
   align-items: start;
-  height: fit-content;
 }
-.cl-cards-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.cl-cards-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-
-.cl-pagination {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
-  margin-top: 12px;
-  color: var(--gray-600);
-  font-size: 13px;
-}
-.cl-pagination > div { display: flex; align-items: center; gap: 10px; }
-.cl-pagination button {
-  min-height: 34px;
-  padding: 0 12px;
-  border: 1px solid var(--gray-300);
-  border-radius: var(--radius-control);
-  background: #fff;
-  color: var(--green-800);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-.cl-pagination button:disabled { color: var(--gray-400); cursor: not-allowed; }
-.cl-pagination button:focus-visible { outline: 2px solid var(--green-700); outline-offset: 2px; }
 
 /* ===== Rider card ===== */
-/* Every rider card is ONE height (2026-10-31) — the space the page measures
-   between the cards' top and the pager (DispatcherCargoLoading.jsx) — so a
-   rider with one order lines up with a rider with six: the order list fills
-   and scrolls, and the Finalize button sits on every card's floor. */
+/* Every rider is visible in the responsive grid, with full order details.
+   The page scrolls as one surface when the grid grows taller than the screen. */
 .cl-card {
   display: flex;
   flex-direction: column;
-  height: var(--cl-card-max-height, 420px);
-  min-height: 0;
-  overflow: hidden;
+  height: auto;
+  overflow: visible;
   box-sizing: border-box;
   background: #ffffff;
   border: 1px solid var(--gray-200);
@@ -145,8 +114,7 @@
   padding: 16px;
   font-family: var(--font-ui);
 }
-.cl-card[hidden] { display: none !important; }
-.cl-card-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
+.cl-card-body { flex: 0 0 auto; overflow: visible; }
 .cl-card-actions { flex: 0 0 auto; }
 
 .cl-card-head {
@@ -508,9 +476,6 @@
 @media (max-width: 900px) {
   .cl-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .cl-cards {
-    grid-template-columns: 1fr;
   }
 }
 @media (max-width: 520px) {
