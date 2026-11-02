@@ -72,10 +72,8 @@ test("the details modal no longer takes a delivery callback", () => {
     /^function ClinicDetailsModal\(\{ clinic, onClose \}\)/,
     "the onCreateDelivery (and toast-only onEdit) props must be removed from the signature"
   );
-  // Editing is not built: the button is visibly disabled and explains why,
-  // instead of being clickable with a toast.
-  assert.match(modal, /disabled\s+aria-describedby="clinic-edit-unavailable"/);
-  assert.match(modal, /id="clinic-edit-unavailable"/);
+  // Editing is not built, so the dialog has no misleading edit action.
+  assert.doesNotMatch(modal, /Edit Clinic|clinic-edit-unavailable/);
   assert.ok(!modal.includes("onEdit"));
   assert.ok(!modal.includes("Create Delivery"));
   assert.ok(!modal.includes("onCreateDelivery"));

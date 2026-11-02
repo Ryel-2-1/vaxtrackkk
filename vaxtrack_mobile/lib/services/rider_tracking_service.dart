@@ -332,7 +332,13 @@ class FirestoreTrackingStore implements TrackingStore {
 Stream<List<TrackedOrder>> trackedOrdersFor(String riderUid, {DeliveryService? service}) {
   return (service ?? DeliveryService()).riderDeliveries(riderUid).map(
         (list) => list
-            .map((Delivery d) => TrackedOrder(id: d.id, status: d.status, assignedRiderId: d.assignedRiderId))
+            .map((Delivery d) => TrackedOrder(
+                  id: d.id,
+                  status: d.status,
+                  assignedRiderId: d.assignedRiderId,
+                  tripId: d.tripId,
+                  stopSequence: d.stopSequence,
+                ))
             .toList(),
       );
 }

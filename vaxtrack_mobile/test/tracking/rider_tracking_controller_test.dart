@@ -326,6 +326,78 @@ void main() {
     });
   });
 
+  group('carrying on to the next trip stop', () {
+    TrackedOrder stop(String id, String status, int seq, {String trip = 't1', String to = rider}) =>
+        TrackedOrder(id: id, status: status, assignedRiderId: to, tripId: trip, stopSequence: seq);
+
+    test('finishing the navigated stop starts the next stop with no tap; writes carry the new session', () async {
+      await emit([stop('a', 'in_transit', 1), stop('b', 'in_transit', 2)]);
+      await c.startNavigation('a', authUid: rider);
+      final first = c.navigation!.sessionId;
+      await emit([stop('a', 'delivered', 1), stop('b', 'in_transit', 2)]);
+      expect(c.navigation!.orderId, 'b');
+      expect(c.navigation!.continuedFrom, 'a');
+      expect(c.navigation!.sessionId, isNot(first));
+      expect(store.started.map((s) => s.$1), ['a', 'b']);
+      // Replaced, not ended: the server closes the old route on the new session.
+      expect(store.endedSessions, isEmpty);
+      expect(c.status, TrackingStatus.navigating);
+      await sendFix(fix(0));
+      expect(store.writes.last.orderId, 'b');
+      expect(store.writes.last.sessionId, c.navigation!.sessionId);
+    });
+
+    test('the stream keeps running: no restart between stops', () async {
+      await emit([stop('a', 'in_transit', 1), stop('b', 'in_transit', 2)]);
+      await c.startNavigation('a', authUid: rider);
+      final opened = source.streamsOpened.length;
+      await emit([stop('a', 'delivered', 1), stop('b', 'in_transit', 2)]);
+      expect(source.streamsOpened, hasLength(opened));
+      expect(source.activeStreams, 1);
+    });
+
+    test('a failed delivery also moves on; the planned order is followed', () async {
+      await emit([stop('a', 'in_transit', 1), stop('c', 'in_transit', 3), stop('b', 'delayed', 2)]);
+      await c.startNavigation('a', authUid: rider);
+      await emit([stop('a', 'delivery_failed', 1), stop('c', 'in_transit', 3), stop('b', 'delayed', 2)]);
+      expect(c.navigation!.orderId, 'b');
+    });
+
+    test('after the last stop navigation ends as before', () async {
+      await emit([stop('a', 'delivered', 1), stop('b', 'in_transit', 2)]);
+      await c.startNavigation('b', authUid: rider);
+      await emit([stop('a', 'delivered', 1), stop('b', 'delivered', 2)]);
+      expect(c.navigation, isNull);
+      expect(store.endedSessions.single.$2, kEndReasonTrackingStopped);
+    });
+
+    test('cancelled or reassigned stops do not carry on: the rider decides', () async {
+      for (final gone in [stop('a', 'cancelled', 1), stop('a', 'in_transit', 1, to: 'riderB')]) {
+        await emit([stop('a', 'in_transit', 1), stop('b', 'in_transit', 2)]);
+        await c.startNavigation('a', authUid: rider);
+        await emit([gone, stop('b', 'in_transit', 2)]);
+        expect(c.navigation, isNull, reason: gone.status);
+      }
+    });
+
+    test('never carries on to another trip, an order off any trip, or one not yet in transit', () async {
+      await emit([stop('a', 'in_transit', 1), stop('x', 'in_transit', 2, trip: 't2'), order('y', 'in_transit'), stop('z', 'loading', 2)]);
+      await c.startNavigation('a', authUid: rider);
+      await emit([stop('a', 'delivered', 1), stop('x', 'in_transit', 2, trip: 't2'), order('y', 'in_transit'), stop('z', 'loading', 2)]);
+      expect(c.navigation, isNull);
+    });
+
+    test('a next-stop session that cannot be saved ends navigation and says to tap Start', () async {
+      await emit([stop('a', 'in_transit', 1), stop('b', 'in_transit', 2)]);
+      await c.startNavigation('a', authUid: rider);
+      store.failStart = true;
+      await emit([stop('a', 'delivered', 1), stop('b', 'in_transit', 2)]);
+      expect(c.navigation, isNull);
+      expect(c.lastError, kNextStopNotStartedMessage);
+      expect(c.status, TrackingStatus.tracking);
+    });
+  });
+
   test('sign-out ends navigation and tracking and clears coordinates', () async {
     await emit([order('o1', 'in_transit')]);
     await c.startNavigation('o1', authUid: rider);

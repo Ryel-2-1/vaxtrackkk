@@ -7,6 +7,7 @@ import '../services/rider_tracking_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/delivery_buckets.dart';
 import '../utils/google_maps_url.dart';
+import '../utils/saved_route_plan.dart';
 import '../utils/route_utils.dart';
 import '../utils/sync_status.dart';
 import '../utils/trip_route.dart';
@@ -236,9 +237,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(height: 4),
           Text(
-            stops.every((stop) => stop.isMotorcycleRoute(trip: true))
-                ? first.routeDescription(trip: true)
-                : 'Older or unverified trip. Ask dispatch to re-optimize it for this motorcycle fleet.',
+            // The trip's saved plan, described exactly as the route screens
+            // describe it (every stop carries the same trip fields).
+            SavedRoutePlan.of(first).label,
             style: const TextStyle(fontSize: 12, color: AppColors.textLight),
           ),
           const SizedBox(height: 10),
@@ -247,7 +248,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: ElevatedButton.icon(
               onPressed: () => _navigateFullRoute(stops),
               icon: const Icon(Icons.navigation, size: 18),
-              label: const Text('Navigate route in Google Maps'),
+              label: const Text('Turn-by-turn in Google Maps'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
@@ -255,8 +256,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
           const SizedBox(height: 6),
+          // Google keeps the planned stop order but picks its own roads
+          // between stops; the hand-off never carries the saved trip route.
           const Text(
-            motorcycleModeNote,
+            'Stops open in the planned order. $googleRouteNote $motorcycleModeNote',
             style: TextStyle(fontSize: 11, color: AppColors.textLight),
           ),
         ],

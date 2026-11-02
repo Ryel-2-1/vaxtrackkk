@@ -112,6 +112,8 @@ test("the alert writes a client may make stay read/resolve only", () => {
   assert.match(svc, /updateDoc\(doc\(db, ALERTS_COLLECTION, alertId\), \{\s*status: "resolved",\s*\}\)/);
   assert.match(svc, /updateDoc\(doc\(db, ALERTS_COLLECTION, alertId\), \{\s*read: true,\s*\}\)/);
   const rules = read("firestore.rules");
-  assert.match(rules, /return \['route_deviation', 'delivery_delay', 'rider_location_stale'\];/);
+  // Every server-raised type, the awaiting-completion alert included
+  // (functions/src/arrivalProximityOps.js), is closed to client creation.
+  assert.match(rules, /return \['route_deviation', 'delivery_delay', 'rider_location_stale', 'delivery_awaiting_completion'\];/);
   assert.match(rules, /match \/riderLocationWatches\/\{riderUid\} \{\s*allow read, write: if false;/);
 });

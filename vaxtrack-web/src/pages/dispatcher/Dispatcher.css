@@ -7438,6 +7438,11 @@
   color: var(--warning-text, #b45309) !important;
   font-weight: 700 !important;
 }
+/* A stale position: where the rider WAS — neutral, never green or amber. */
+.geo3-geofence-stale {
+  color: var(--gray-600, #4b5563) !important;
+  font-weight: 700 !important;
+}
 
 /* ---------- route + ETA (OpenRouteService) ----------
    geo3-live-route-* names (not the legacy geo3-route-line / geo3-route-tag /

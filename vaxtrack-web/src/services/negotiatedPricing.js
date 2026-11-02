@@ -254,6 +254,7 @@ export function reviewProblems(lines) {
 export function negotiatedRequestLine(line, review) {
   return {
     expectedUnitPriceCentavos: line.expectedUnitPriceCentavos,
+    expectedQuotedUnitPriceCentavos: review.standardUnitPriceCentavos,
     agreedUnitPriceCentavos: review.agreedUnitPriceCentavos,
     ...(review.priceNegotiated ? { negotiationReason: review.negotiationReason } : {}),
     ...(review.statutoryDiscountCentavos > 0

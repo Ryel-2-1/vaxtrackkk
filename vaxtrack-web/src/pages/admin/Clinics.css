@@ -2562,18 +2562,9 @@
 }
 
 
-/* Clinic details: Edit is not built yet, so it is visibly disabled and this
-   note (its aria-describedby) says why. Register-form summary spacing. */
 .clinics-light-action:disabled {
   opacity: 0.55;
   cursor: not-allowed;
-}
-
-.clinics-unavailable-note {
-  margin: 10px 0 0;
-  color: var(--gray-600);
-  font-size: 13px;
-  line-height: 1.45;
 }
 
 .clinics-register-modal .clinics-form-notice {

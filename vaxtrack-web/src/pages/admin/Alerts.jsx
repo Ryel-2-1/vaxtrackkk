@@ -29,6 +29,7 @@ import { presentAlert } from "../../services/alertPresentation";
 import { subscribeDeliveryExceptions } from "../../services/deliveryService";
 import { activeAlertCountOfType, filterAdminAlerts } from "../../services/adminAlertCategories";
 import DeliveryExceptions from "./DeliveryExceptions";
+import ZeroRateReviews from "./ZeroRateReviews";
 
 const TYPE_MAP = {
   route_deviation: {
@@ -45,6 +46,11 @@ const TYPE_MAP = {
     display: "Delayed Delivery",
     iconKey: "truck",
     recommendation: "Monitor ETA and notify the receiving clinic if delay continues.",
+  },
+  delivery_awaiting_completion: {
+    display: "Awaiting Completion",
+    iconKey: "truck",
+    recommendation: "Call the rider: they have been at the destination for 15 minutes without completing the delivery.",
   },
   rider_location_stale: {
     display: "Location Not Updating",
@@ -320,6 +326,7 @@ function Alerts() {
           />
         </section>
 
+        <ZeroRateReviews />
         <DeliveryExceptions exceptions={exceptions} error={exceptionsError} />
 
         <section className="alerts-layout-grid">
@@ -494,7 +501,7 @@ function Alerts() {
               </div>
               <button type="button" className="alert-stock-link" onClick={() => navigate("/admin/inventory")}>
                 <Package size={16} aria-hidden="true" />
-                <span>Review stock in Inventory<small>Automatic stock alerts are not available yet</small></span>
+                <span>Review stock in Inventory<small>Check stock levels and expiry dates</small></span>
                 <ArrowRight size={16} aria-hidden="true" />
               </button>
             </div>

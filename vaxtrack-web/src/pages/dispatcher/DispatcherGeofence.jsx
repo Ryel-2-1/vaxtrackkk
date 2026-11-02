@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRiderLiveLocation } from "../../components/useRiderLiveLocation";
-import { FRESHNESS, deviationDisplayState, deviationText, locationLatLng, locationTimeMs } from "../../services/riderTracking";
+import { FRESHNESS, deviationDisplayState, deviationTextForFreshness, locationLatLng, locationTimeMs } from "../../services/riderTracking";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -32,7 +32,7 @@ import {
 import { DEADLINE_SLACK_MINUTES, arrivalCheck, bufferedMinutes, matrixMinutes, planTrip } from "../../services/timeAwareRouting";
 import { subscribeRoutingSettings } from "../../services/routingSettingsService";
 import { subscribeClinics } from "../../services/clinicService";
-import { clinicsById } from "../../services/destinationFreshness";
+import { arrivalGeofence, clinicsById, geofenceStatus } from "../../services/destinationFreshness";
 import DestinationNotes from "../../components/dispatch/DestinationNotes";
 import TripProgress, { StopProgressBadge } from "../../components/dispatch/TripProgress";
 import { shipmentProgress, tripProgress } from "../../services/stopProgress";
@@ -99,9 +99,6 @@ function numberedStopIcon(n, state, navigating) {
 // every render and re-initialise the Leaflet map constantly.
 const NO_STOPS = Object.freeze([]);
 
-// Manual geofence radius around the clinic (metres). No routing/ETA — just a
-// simple "is the rider within this circle" visualization.
-const GEOFENCE_RADIUS_M = 300;
 
 const ACTIVE_STATUSES = new Set(["assigned", "loading", "in_transit", "delayed"]);
 
@@ -182,7 +179,8 @@ function distanceMeters([lat1, lng1], [lat2, lng2]) {
 // when the order carries manual clinic coordinates it also shows a destination
 // marker + a geofence circle. No routing, ETA, or automatic alerts.
 // Renders only when a rider lastLocation exists.
-function RiderLocationMap({ lat, lng, clinicLat, clinicLng, routePolyline, stops = [] }) {
+// geofenceRadiusM: the order's own arrival radius (arrivalGeofence).
+function RiderLocationMap({ lat, lng, clinicLat, clinicLng, geofenceRadiusM, routePolyline, stops = [] }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
@@ -222,7 +220,7 @@ function RiderLocationMap({ lat, lng, clinicLat, clinicLng, routePolyline, stops
       }
       if (!circleRef.current) {
         circleRef.current = L.circle([clinicLat, clinicLng], {
-          radius: GEOFENCE_RADIUS_M,
+          radius: geofenceRadiusM,
           color: "#b45309",
           weight: 2,
           fillColor: "#f59e0b",
@@ -230,7 +228,7 @@ function RiderLocationMap({ lat, lng, clinicLat, clinicLng, routePolyline, stops
         }).addTo(map);
       } else {
         circleRef.current.setLatLng([clinicLat, clinicLng]);
-        circleRef.current.setRadius(GEOFENCE_RADIUS_M);
+        circleRef.current.setRadius(geofenceRadiusM);
       }
     } else {
       // Clinic coords went away (different order selected) — remove overlays.
@@ -303,7 +301,7 @@ function RiderLocationMap({ lat, lng, clinicLat, clinicLng, routePolyline, stops
       fit();
     }, 50);
     return () => clearTimeout(timer);
-  }, [lat, lng, clinicLat, clinicLng, hasClinic, routePolyline, hasStops, stops]);
+  }, [lat, lng, clinicLat, clinicLng, geofenceRadiusM, hasClinic, routePolyline, hasStops, stops]);
 
   // Re-measure on viewport resize so the responsive height breakpoints
   // (480 / 390 / 320px) don't leave the map with stale dimensions (gray
@@ -737,9 +735,12 @@ function DispatcherGeofence() {
 
             {selected && getLatLng(selected.lastLocation) && (() => {
               const riderLL = getLatLng(selected.lastLocation);
-              const clinicLL = getClinicLatLng(selected);
+              // The order's own arrival pin + radius — what the server checks.
+              const arrival = arrivalGeofence(selected);
+              const clinicLL = arrival?.latLng ?? null;
               const distM = clinicLL ? distanceMeters(riderLL, clinicLL) : null;
-              const inside = distM != null && distM <= GEOFENCE_RADIUS_M;
+              const stale = isLocationStale(selected.lastLocationUpdate);
+              const geofence = distM != null ? geofenceStatus({ distanceM: distM, radiusM: arrival.radiusM, stale }) : null;
               return (
                 <div className="geo3-card geo3-live-map-card">
                   <h3>Live map</h3>
@@ -748,21 +749,18 @@ function DispatcherGeofence() {
                     lng={riderLL[1]}
                     clinicLat={hasTrip ? undefined : clinicLL ? clinicLL[0] : undefined}
                     clinicLng={hasTrip ? undefined : clinicLL ? clinicLL[1] : undefined}
+                    geofenceRadiusM={arrival?.radiusM}
                     routePolyline={hasTrip ? selected.tripPolyline : selected.routePolyline}
                     stops={hasTrip ? tripStopMarkers : NO_STOPS}
                   />
                   {hasTrip && <p className="stop-progress-note">Stop markers: ✓ Delivered · P Proof recorded · ➜ Navigation target. The Rider’s position is the separate GPS dot.</p>}
-                  {clinicLL ? (
+                  {geofence ? (
                     <p className="geo3-live-map-note">
-                      <span className={inside ? "geo3-geofence-in" : "geo3-geofence-out"}>
-                        {inside
-                          ? "Inside geofence"
-                          : "Outside geofence"}
-                      </span>{" "}
-                      — rider is {Math.round(distM)} m from the destination
-                      (geofence radius {GEOFENCE_RADIUS_M} m)
-                      {isLocationStale(selected.lastLocationUpdate)
-                        ? "; last update is stale"
+                      <span className={`geo3-geofence-${geofence.tone}`}>{geofence.label}</span>{" "}
+                      — rider {stale ? "was" : "is"} {Math.round(distM)} m from the destination
+                      (geofence radius {arrival.radiusM} m{arrival.defaultRadius ? ", default" : ""})
+                      {stale
+                        ? `; last update ${formatRelativeTime(selected.lastLocationUpdate) || "unknown"}`
                         : ""}
                       .
                     </p>
@@ -1056,7 +1054,11 @@ function DispatcherGeofence() {
                               </p>
                               {routeMonitoring !== "not_navigating" && (
                                 <p className={routeMonitoring === "deviating" ? "geo3-stale" : undefined}>
-                                  Route monitoring: {deviationText(live.deviation)}
+                                  Route monitoring:{" "}
+                                  {deviationTextForFreshness(
+                                    live.deviation,
+                                    isLocationStale(selected.lastLocationUpdate) ? "stale" : "fresh",
+                                  )}
                                 </p>
                               )}
                             </>

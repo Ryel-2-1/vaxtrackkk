@@ -11,11 +11,60 @@ class TrackedOrder {
   final String status;
   final String? assignedRiderId;
 
+  /// The planned trip this order is a stop of, and its place in the visiting
+  /// order (1-based); null when the order is not on a trip.
+  final String? tripId;
+  final int? stopSequence;
+
   const TrackedOrder({
     required this.id,
     required this.status,
     required this.assignedRiderId,
+    this.tripId,
+    this.stopSequence,
   });
+}
+
+/// The rider has finished at a stop: delivered (or the legacy `completed`), or
+/// reported the delivery failed. Either way they move on to the next stop.
+/// Cancelled or reassigned stops are not "finished" — the rider did not choose
+/// to leave them, so navigation simply ends and the rider decides.
+const List<String> kStopFinishedStatuses = ['delivered', 'completed', 'delivery_failed'];
+
+/// The stop to navigate next once [finishedOrderId] — the stop being
+/// navigated — is finished: the earliest stop left in the planned visiting
+/// order of the SAME trip, assigned to [riderUid] and navigable now. Null when
+/// the finished order was not on a trip, is not finished, or the trip has no
+/// navigable stop left — then navigation ends as before.
+String? nextTripStopAfter({
+  required String riderUid,
+  required List<TrackedOrder> orders,
+  required String finishedOrderId,
+}) {
+  TrackedOrder? finished;
+  for (final o in orders) {
+    if (o.id == finishedOrderId) finished = o;
+  }
+  final tripId = finished?.tripId ?? '';
+  if (finished == null ||
+      tripId.isEmpty ||
+      finished.assignedRiderId != riderUid ||
+      !kStopFinishedStatuses.contains(finished.status)) {
+    return null;
+  }
+  final candidates = orders
+      .where((o) =>
+          o.id != finishedOrderId &&
+          o.tripId == tripId &&
+          o.assignedRiderId == riderUid &&
+          (o.stopSequence ?? 0) > 0 &&
+          kNavigableOrderStatuses.contains(o.status))
+      .toList()
+    ..sort((a, b) {
+      final bySequence = a.stopSequence!.compareTo(b.stopSequence!);
+      return bySequence != 0 ? bySequence : a.id.compareTo(b.id);
+    });
+  return candidates.isEmpty ? null : candidates.first.id;
 }
 
 /// What the rider app should be doing right now.
@@ -209,6 +258,10 @@ enum DeviationDisplay {
   /// Navigating, but the order has no saved route: deviation is never computed.
   routeUnavailable,
 
+  /// Navigating, but the server has not measured a usable fix of this session
+  /// yet (a new session starts in phase on_route) — never shown as On route.
+  checking,
+
   /// Navigating and within the route corridor.
   onRoute,
 
@@ -230,6 +283,7 @@ DeviationDisplay deviationDisplayFor(Map<String, dynamic>? state, {required Stri
   if (state['routeStatus'] != 'available') return DeviationDisplay.routeUnavailable;
   if (state['phase'] == 'deviating') return DeviationDisplay.deviating;
   if (state['pendingOffSinceMs'] != null) return DeviationDisplay.pendingDeviation;
+  if (state['lastQualifyingFixAtMs'] == null) return DeviationDisplay.checking;
   return DeviationDisplay.onRoute;
 }
 
@@ -237,6 +291,7 @@ DeviationDisplay deviationDisplayFor(Map<String, dynamic>? state, {required Stri
 const Map<DeviationDisplay, String> kDeviationDisplayLabels = {
   DeviationDisplay.notNavigating: 'Not navigating',
   DeviationDisplay.routeUnavailable: 'Route not available',
+  DeviationDisplay.checking: 'Checking your position…',
   DeviationDisplay.onRoute: 'On route',
   DeviationDisplay.pendingDeviation: 'Off route — checking',
   DeviationDisplay.deviating: 'Route deviation reported',

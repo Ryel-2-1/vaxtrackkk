@@ -23,6 +23,8 @@ import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 import { subscribeOrderStatusEvents } from "../../services/statusEventService";
 import { kpiValue, liveErrorMessage } from "../../services/liveDataErrors";
+import { invoicePhotoView, proofPhotoView } from "../../services/deliveryEvidenceView";
+import { storageBucket } from "../../firebase";
 import "./Deliveries.css";
 
 // The "Preparing" card counts — and its filter shows — orders not yet on the
@@ -79,17 +81,20 @@ function normalizeDelivery(raw) {
     assignedAt: raw.assignedAt || null,
     statusUpdatedAt: raw.statusUpdatedAt || null,
     statusUpdatedByEmail: raw.statusUpdatedByEmail || "",
-    // Rider-uploaded photos. Both are full Firebase Storage download URLs
-    // written by the Flutter Rider app, so the web renders them directly and
-    // needs no Storage SDK. `invoiceUrl` is the rider's photo of the paper
-    // invoice — unrelated to the `invoices` collection / Admin Invoices module.
     // Server-evaluated delivery timing (functions/src/deliveryTiming.js) —
     // shown next to the lifecycle status, never instead of it.
     timingStatus: raw.timingStatus ?? null,
     expectedArrivalAt: raw.expectedArrivalAt ?? null,
     automaticDelayedAt: raw.automaticDelayedAt ?? null,
+    // Rider-uploaded photos: Firebase Storage download URLs written by the
+    // Rider app. `invoiceUrl` is the rider's photo of the paper invoice —
+    // unrelated to the `invoices` collection / Admin Invoices module. A link
+    // is shown only when it is this order's own stored object; any other
+    // recorded link is reported as unverified, never opened.
     proofOfDeliveryUrl: raw.proofOfDeliveryUrl || "",
     invoiceUrl: raw.invoiceUrl || "",
+    proofPhoto: proofPhotoView(raw, storageBucket),
+    invoicePhoto: invoicePhotoView(raw, storageBucket),
     // The rider whose live location the map reads (riderLocations/{uid} — the
     // order itself no longer carries a location copy), then the saved-route
     // fields. The map tolerates missing values and shows an honest fallback.
@@ -616,16 +621,16 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
 
           <section className="mdl-drawer-section">
             <h3>Proof of delivery</h3>
-            {delivery.proofOfDeliveryUrl ? (
+            {delivery.proofPhoto.state === "verified" ? (
               <div className="mdl-proof">
                 <a
                   className="mdl-proof-thumb"
-                  href={delivery.proofOfDeliveryUrl}
+                  href={delivery.proofPhoto.url}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
                   <img
-                    src={delivery.proofOfDeliveryUrl}
+                    src={delivery.proofPhoto.url}
                     alt={`Proof of delivery for order ${delivery.id}`}
                     loading="lazy"
                   />
@@ -633,16 +638,16 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
                 <div className="mdl-proof-actions">
                   <a
                     className="mdl-proof-link"
-                    href={delivery.proofOfDeliveryUrl}
+                    href={delivery.proofPhoto.url}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
                     Open image
                   </a>
-                  {delivery.invoiceUrl && (
+                  {delivery.invoicePhoto.state === "verified" && (
                     <a
                       className="mdl-proof-link secondary"
-                      href={delivery.invoiceUrl}
+                      href={delivery.invoicePhoto.url}
                       target="_blank"
                       rel="noopener noreferrer"
                     >
@@ -650,7 +655,16 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
                     </a>
                   )}
                 </div>
+                {delivery.invoicePhoto.state === "unverified" && (
+                  <p className="mdl-drawer-note">
+                    The invoice photo link doesn't match this order's stored photo, so it isn't shown.
+                  </p>
+                )}
               </div>
+            ) : delivery.proofPhoto.state === "unverified" ? (
+              <p className="mdl-drawer-note">
+                A proof link was recorded, but it isn't this order's stored photo, so it isn't shown.
+              </p>
             ) : (
               <p className="mdl-drawer-note">No proof uploaded yet.</p>
             )}

@@ -171,6 +171,8 @@ void main() {
         'lib/screens/delivery_detail_screen.dart',
         'lib/screens/dashboard_screen.dart',
         'lib/screens/google_navigation_screen.dart',
+        'lib/screens/route_monitoring_screen.dart',
+        'lib/utils/route_screen_state.dart',
         'lib/utils/trip_route.dart',
       ]) {
         final src = File(path).readAsStringSync();
@@ -178,10 +180,17 @@ void main() {
         expect(src, isNot(contains("'driving'")), reason: path);
         expect(src, isNot(contains('/maps/dir/?api=1')), reason: path);
       }
+      // Both route screens hand off through one builder.
       expect(
-        File('lib/screens/delivery_detail_screen.dart').readAsStringSync(),
+        File('lib/utils/route_screen_state.dart').readAsStringSync(),
         contains('googleMapsDestinationUrl(d.clinicLat!, d.clinicLng!)'),
       );
+      for (final path in [
+        'lib/screens/delivery_detail_screen.dart',
+        'lib/screens/route_monitoring_screen.dart',
+      ]) {
+        expect(File(path).readAsStringSync(), contains('googleHandoffFor(d, '), reason: path);
+      }
       expect(
         File('lib/screens/google_navigation_screen.dart').readAsStringSync(),
         contains('googleMapsDestinationUrl(widget.clinicLat, widget.clinicLng)'),

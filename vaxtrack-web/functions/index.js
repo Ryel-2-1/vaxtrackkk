@@ -57,6 +57,7 @@ const admin = require("firebase-admin");
 
 const { PolicyError } = require("./src/policy");
 const operations = require("./src/operations");
+const zeroRateRequests = require("./src/zeroRateRequests");
 const destinationOperations = require("./src/destinationOperations");
 const scheduleOperations = require("./src/scheduleOperations");
 const orderMedRepNames = require("./src/orderMedRepNames");
@@ -75,6 +76,7 @@ const riderTrackingOps = require("./src/riderTrackingOps");
 const deliveryTimingOps = require("./src/deliveryTimingOps");
 const riderDispatchOps = require("./src/riderDispatchOps");
 const riderLocationStaleOps = require("./src/riderLocationStaleOps");
+const arrivalProximityOps = require("./src/arrivalProximityOps");
 const riderRecoveryOps = require("./src/riderRecoveryOps");
 const { qaResetConfig } = require("./src/riderRecovery");
 
@@ -283,6 +285,16 @@ exports.createOrderWithReservation = callable(
   // confirmation receipt; it never decides anything.
   ({ db, FieldValue, uid, email, data, now }) =>
     operations.createOrderWithReservation({ db, FieldValue, uid, email, payload: data, now })
+);
+
+exports.requestZeroRateApproval = callable(
+  "requestZeroRateApproval",
+  ({ db, FieldValue, uid, data, now }) => zeroRateRequests.requestZeroRateApproval({ db, FieldValue, uid, payload: data, now })
+);
+
+exports.reviewZeroRateApproval = callable(
+  "reviewZeroRateApproval",
+  ({ db, FieldValue, uid, data }) => zeroRateRequests.reviewZeroRateApproval({ db, FieldValue, uid, payload: data })
 );
 
 exports.getOrderMedRepNames = callable(
@@ -731,6 +743,16 @@ exports.trackRiderLocation = onDocumentWritten(
     } catch (error) {
       logger.warn("stale-location resolve deferred", { errorType: error?.constructor?.name ?? typeof error });
     }
+    // Arrival proximity (src/arrivalProximity.js): near the destination, and
+    // still not completed after 15 minutes. Advisory; never changes an order.
+    // Never fails the work above — the next fix re-evaluates from the store.
+    try {
+      await arrivalProximityOps.processLocationProximity({
+        db, FieldValue, riderUid: event.params.riderUid, location: after, nowMs: Date.now(),
+      });
+    } catch (error) {
+      logger.warn("arrival-proximity deferred", { errorType: error?.constructor?.name ?? typeof error });
+    }
   }
 );
 
@@ -777,6 +799,9 @@ exports.syncRiderTrackingOnOrderWrite = onDocumentWritten(
     const before = event.data?.before?.exists ? event.data.before.data() : null;
     const after = event.data?.after?.exists ? event.data.after.data() : null;
     await riderTrackingOps.handleOrderWrite({ db, FieldValue, orderId: event.params.orderId, before, after });
+    // An order that left transit clears its arrival proximity and resolves its
+    // awaiting-completion alert (idempotent; retried with the trigger).
+    await arrivalProximityOps.settleProximityOnOrderWrite({ db, FieldValue, orderId: event.params.orderId, before, after });
   }
 );
 

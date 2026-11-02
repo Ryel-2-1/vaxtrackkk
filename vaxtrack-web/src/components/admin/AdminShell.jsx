@@ -39,7 +39,7 @@ const ROUTE_TITLE = {
   "/admin/riders": "Riders",
   "/admin/alerts": "Alerts",
   "/admin/analytics": "Analytics",
-  "/admin/ai-inventory-analytics": "AI Inventory Analytics",
+  "/admin/ai-inventory-analytics": "Inventory Forecast",
   "/admin/settings": "Settings",
   "/admin/clinics": "Clinics",
   "/admin/invoices": "Invoices",

@@ -72,6 +72,11 @@ const String kSignInToNavigateMessage = 'Sign in to start navigation.';
 /// or the app just came back): never a reason to tell them to sign in.
 const String kDeliveriesLoadingMessage = 'Your deliveries are still loading. Try again in a moment.';
 
+/// A stop was finished but navigation to the trip's next stop could not be
+/// saved (offline): the rider starts it themselves.
+const String kNextStopNotStartedMessage =
+    'Navigation to your next stop could not start. Open the stop and tap Start.';
+
 /// Signed in, but the deliveries could not be read.
 const String kDeliveriesUnreadableMessage = 'Your deliveries could not be loaded. Check your connection and try again.';
 
@@ -100,7 +105,12 @@ enum NavigationReadiness {
 class ActiveNavigation {
   final String orderId;
   final String sessionId;
-  const ActiveNavigation(this.orderId, this.sessionId);
+
+  /// The trip stop this navigation carried on from when that stop was
+  /// finished (null when the rider tapped Start).
+  final String? continuedFrom;
+
+  const ActiveNavigation(this.orderId, this.sessionId, {this.continuedFrom});
 }
 
 /// Owns the Rider app's live-location lifecycle.
@@ -108,9 +118,11 @@ class ActiveNavigation {
 ///  * Tracking follows the rider's assigned orders (planTracking): it starts
 ///    while at least one is active and stops — writing an 'ended' state that
 ///    clears the coordinates — when none is. Opening a screen never starts it.
-///  * Navigation is explicit: [startNavigation] for one order replaces any
-///    previous one; it ends when the rider stops, the order stops being
-///    navigable, tracking stops, or the rider signs out.
+///  * Navigation is started by the rider: [startNavigation] for one order
+///    replaces any previous one. When the navigated stop is FINISHED and its
+///    trip has another stop to go, navigation carries on to that stop by
+///    itself ([nextTripStopAfter]); otherwise it ends when the rider stops, the
+///    order stops being navigable, tracking stops, or the rider signs out.
 ///  * Location writes go through [LocationWritePolicy]: jitter, repeated and
 ///    out-of-order fixes are dropped; at most one write is in flight and only
 ///    the newest fix waits behind it (bounded offline queue).
@@ -452,8 +464,16 @@ class RiderTrackingController extends ChangeNotifier {
     final tripState = _deliveriesKnown ? _tripState : null;
     _plan = planTracking(riderUid: uid, orders: _orders, navigatingOrderId: _navigation?.orderId, tripState: tripState);
     if (_plan.endNavigation) {
-      await _endNavigation(kEndReasonTrackingStopped);
-      _plan = planTracking(riderUid: uid, orders: _orders, tripState: tripState);
+      // The stop being navigated was finished: carry on to the trip's next
+      // stop without the rider having to tap Start again.
+      final finished = _navigation?.orderId;
+      final next = finished == null ? null : nextTripStopAfter(riderUid: uid, orders: _orders, finishedOrderId: finished);
+      if (next != null && await _continueTo(next, from: finished!, uid: uid)) {
+        _plan = planTracking(riderUid: uid, orders: _orders, navigatingOrderId: next, tripState: tripState);
+      } else {
+        await _endNavigation(kEndReasonTrackingStopped);
+        _plan = planTracking(riderUid: uid, orders: _orders, tripState: tripState);
+      }
     }
     if (_plan.mode == TrackingMode.off) {
       await _stopStream(writeEnded: true);
@@ -563,6 +583,21 @@ class RiderTrackingController extends ChangeNotifier {
       }
     }
     _wroteSinceStart = false;
+  }
+
+  /// Replace the finished stop's session with one for [orderId] (the server
+  /// closes the old route, as for any Start). False when it could not be
+  /// saved: the caller then ends navigation and the rider is told to tap Start.
+  Future<bool> _continueTo(String orderId, {required String from, required String uid}) async {
+    final sessionId = newNavigationSessionId();
+    try {
+      await _store.startSession(riderUid: uid, orderId: orderId, sessionId: sessionId);
+    } catch (_) {
+      _lastError = kNextStopNotStartedMessage;
+      return false;
+    }
+    _navigation = ActiveNavigation(orderId, sessionId, continuedFrom: from);
+    return true;
   }
 
   Future<void> _endNavigation(String reason, {String? uid}) async {

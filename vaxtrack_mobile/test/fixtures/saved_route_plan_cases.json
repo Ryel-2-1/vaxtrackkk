@@ -1,0 +1,87 @@
+{
+  "about": "Which saved route is the VaxTrack plan. Run by the Rider app (test/saved_route_plan_test.dart, SavedRoutePlan.of) and by the server (vaxtrack-web/functions/test/savedRoutePlanContract.test.js, routeForOrder), so the route the rider is shown is the route deviation is measured against. Times are epoch milliseconds. `checked` is the Rider app's motorcycle-verification claim; the server makes no such claim.",
+  "polylines": {
+    "leg": "_p~iF~ps|U_ulLnnqC",
+    "trip": "_p~iF~ps|U_ulLnnqC_mqNvxq`@",
+    "onePoint": "_p~iF~ps|U"
+  },
+  "verified": { "routeProvider": "valhalla", "routeProfile": "motorcycle-no-expressways-v1" },
+  "verifiedTrip": { "tripRouteProvider": "valhalla", "tripRouteProfile": "motorcycle-no-expressways-v1" },
+  "cases": [
+    {
+      "name": "a single delivery uses its own verified route",
+      "order": { "routePolyline": "@leg", "routeGeneratedAt": 2000, "assignedAt": 1000, "@verified": true },
+      "expect": { "available": true, "source": "order", "checked": true }
+    },
+    {
+      "name": "an older route is still the plan, but is not claimed as checked",
+      "order": { "routePolyline": "@leg", "routeGeneratedAt": 2000, "assignedAt": 1000, "routeProvider": "openrouteservice" },
+      "expect": { "available": true, "source": "order", "checked": false }
+    },
+    {
+      "name": "no saved route",
+      "order": { "assignedAt": 1000 },
+      "expect": { "available": false, "source": "order", "reason": "missing" }
+    },
+    {
+      "name": "a trip stop uses the whole-trip route, not its own leg",
+      "order": { "tripId": "t1", "stopSequence": 2, "tripPolyline": "@trip", "tripGeneratedAt": 3000, "routePolyline": "@leg", "routeGeneratedAt": 2000, "assignedAt": 1000, "@verifiedTrip": true },
+      "expect": { "available": true, "source": "trip", "checked": true }
+    },
+    {
+      "name": "a trip's verification is the trip's own: a verified leg does not make the trip verified",
+      "order": { "tripId": "t1", "stopSequence": 1, "tripPolyline": "@trip", "tripGeneratedAt": 3000, "assignedAt": 1000, "@verified": true },
+      "expect": { "available": true, "source": "trip", "checked": false }
+    },
+    {
+      "name": "a trip id without a stop number is not a trip stop",
+      "order": { "tripId": "t1", "stopSequence": 0, "tripPolyline": "@trip", "tripGeneratedAt": 3000, "routePolyline": "@leg", "routeGeneratedAt": 2000, "assignedAt": 1000 },
+      "expect": { "available": true, "source": "order", "checked": false }
+    },
+    {
+      "name": "a trip stop with no saved trip route falls back to its own route",
+      "order": { "tripId": "t1", "stopSequence": 1, "routePolyline": "@leg", "routeGeneratedAt": 2000, "assignedAt": 1000, "@verified": true },
+      "expect": { "available": true, "source": "order", "checked": true }
+    },
+    {
+      "name": "a one-point route cannot be followed",
+      "order": { "routePolyline": "@onePoint", "routeGeneratedAt": 2000, "assignedAt": 1000 },
+      "expect": { "available": false, "source": "order", "reason": "malformed" }
+    },
+    {
+      "name": "a route planned before this assignment is not the plan",
+      "order": { "routePolyline": "@leg", "routeGeneratedAt": 500, "assignedAt": 1000, "@verified": true },
+      "expect": { "available": false, "source": "order", "reason": "generated_before_assignment" }
+    },
+    {
+      "name": "a route with no planning time is not trusted",
+      "order": { "routePolyline": "@leg", "assignedAt": 1000 },
+      "expect": { "available": false, "source": "order", "reason": "generated_before_assignment" }
+    },
+    {
+      "name": "a trip planned before this assignment is not the plan, even when the leg is newer",
+      "order": { "tripId": "t1", "stopSequence": 1, "tripPolyline": "@trip", "tripGeneratedAt": 500, "routePolyline": "@leg", "routeGeneratedAt": 2000, "assignedAt": 1000 },
+      "expect": { "available": false, "source": "trip", "reason": "generated_before_assignment" }
+    },
+    {
+      "name": "a route saved for an older destination revision",
+      "order": { "routePolyline": "@leg", "routeGeneratedAt": 2000, "assignedAt": 1000, "destinationRevision": 2, "routeDestinationRevision": 1 },
+      "expect": { "available": false, "source": "order", "reason": "destination_changed" }
+    },
+    {
+      "name": "revision zero and no revision are the same revision",
+      "order": { "routePolyline": "@leg", "routeGeneratedAt": 2000, "assignedAt": 1000, "routeDestinationRevision": 0 },
+      "expect": { "available": true, "source": "order", "checked": false }
+    },
+    {
+      "name": "a trip planned before a destination correction",
+      "order": { "tripId": "t1", "stopSequence": 1, "tripPolyline": "@trip", "tripGeneratedAt": 3000, "destinationCorrectedAt": 4000, "assignedAt": 1000 },
+      "expect": { "available": false, "source": "trip", "reason": "destination_changed" }
+    },
+    {
+      "name": "a trip planned after a destination correction",
+      "order": { "tripId": "t1", "stopSequence": 1, "tripPolyline": "@trip", "tripGeneratedAt": 5000, "destinationCorrectedAt": 4000, "assignedAt": 1000, "destinationRevision": 3 },
+      "expect": { "available": true, "source": "trip", "checked": false }
+    }
+  ]
+}

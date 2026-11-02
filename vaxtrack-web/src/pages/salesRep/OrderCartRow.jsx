@@ -29,7 +29,7 @@ export default function OrderCartRow({ item, price, review, onAccept, onDecrease
           <small className="place-v2-line-alert">
             {item.livePriceCentavos === null
               ? "This batch no longer has a price. Remove it to continue."
-              : `Price changed: ${formatCentavos(item.expectedUnitPriceCentavos)} in your cart, ${formatCentavos(item.livePriceCentavos)} now.`}
+              : "The batch price or VAT basis changed. Review the current checkout price."}
           </small>
         )}
         {review === "accept-stock" && (
@@ -39,7 +39,7 @@ export default function OrderCartRow({ item, price, review, onAccept, onDecrease
         )}
         {(review === "accept-price" || review === "accept-stock") && (
           <button type="button" className="place-v2-accept-btn" onClick={onAccept}>
-            {review === "accept-price" ? `Accept ${formatCentavos(item.livePriceCentavos)}` : "Accept current stock"}
+            {review === "accept-price" ? "Accept current price" : "Accept current stock"}
           </button>
         )}
         <small className="place-v2-vat">

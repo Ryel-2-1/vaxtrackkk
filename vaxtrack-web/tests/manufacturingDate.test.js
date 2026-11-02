@@ -149,7 +149,7 @@ test("15 · quantity, reservation, pricing and expiry writes are unchanged", () 
   const server = read("functions/src/inventoryWorkflow.js");
   // Same stored fields as before: a fresh batch, priced in PHP, recording the
   // confirmed VAT-inclusive convention from the one pricing configuration…
-  assert.match(server, /sellingPriceCentavos: input\.sellingPriceCentavos,\s*priceCurrency: "PHP",\s*\/\/[^\n]*\n\s*priceIsVatInclusive: PRICES_INCLUDE_VAT,/);
+  assert.match(server, /sellingPriceCentavos: input\.sellingPriceCentavos,[\s\S]*?priceIsVatInclusive: input\.priceIsVatInclusive,/);
   assert.match(server, /expiryDate: input\.expiryDate,\s*quantity: input\.quantity,/);
   // …whose reserved figure is exactly what the same transaction allocated from
   // it to waiting orders (0 when none were waiting).

@@ -100,6 +100,7 @@ const TITLES = Object.freeze({
   route_deviation: { active: "Route deviation", resolved: "Route deviation resolved" },
   delivery_delay: { active: "Delivery running late", resolved: "Late delivery resolved" },
   rider_location_stale: { active: "Rider location not updating", resolved: "Rider location updating again" },
+  delivery_awaiting_completion: { active: "Delivery still awaiting completion", resolved: "Delivery completion resolved" },
 });
 
 const STALE_MINUTES = 10;
@@ -148,7 +149,7 @@ function pathFor(raw, role) {
 export function presentAlert(raw, { role = "admin", nowMs = Date.now(), fallbackTitle = "Alert" } = {}) {
   const resolved = raw?.status === "resolved";
   const type = raw?.type;
-  const orderLinked = type === "route_deviation" || type === "delivery_delay";
+  const orderLinked = type === "route_deviation" || type === "delivery_delay" || type === "delivery_awaiting_completion";
   const riderLinked = type === "rider_location_stale";
   const rider = nameOr(raw?.riderName, null);
   const code = orderCodeOf(raw?.orderNumber);
@@ -171,6 +172,15 @@ export function presentAlert(raw, { role = "admin", nowMs = Date.now(), fallback
     message = resolved
       ? lateResolvedText(raw.resolutionReason, code)
       : withoutIds(nameOr(raw.message, "A delivery passed its expected arrival and grace period."), raw);
+  } else if (type === "delivery_awaiting_completion") {
+    // Server-raised (functions/src/arrivalProximityOps.js): the Rider stayed
+    // near the destination 15 minutes with no completion recorded.
+    title = TITLES.delivery_awaiting_completion[resolved ? "resolved" : "active"];
+    message = resolved
+      ? (["delivered", "delivery_failed", "cancelled"].includes(raw.resolutionReason)
+        ? lateResolvedText(raw.resolutionReason, code)
+        : `${code ? `Order ${code}` : "This order"} is no longer waiting at the destination.`)
+      : withoutIds(nameOr(raw.message, "The rider has been near the destination for 15 minutes without completing the delivery."), raw);
   } else if (type === "rider_location_stale") {
     // Rebuilt from the stored fields, never shown from `message`.
     title = TITLES.rider_location_stale[resolved ? "resolved" : "active"];

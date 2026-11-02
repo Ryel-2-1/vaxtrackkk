@@ -22,7 +22,7 @@ test("checkout restores only the signed-in rep's batch lines and validates quote
   assert.deepEqual(restoreCartItems(storage, null), []);
   assert.deepEqual(restoreCartItems(storage, "rep-a"), [{
     inventoryId: "batch-1", name: "Vaccine A", sku: "BT-1", chain: "Cold Chain", quantity: 3,
-    expectedUnitPriceCentavos: null, vatClassification: "vatable", availableNow: 7,
+    expectedUnitPriceCentavos: null, priceIsVatInclusive: null, vatClassification: "vatable", availableNow: 7,
   }]);
 });
 

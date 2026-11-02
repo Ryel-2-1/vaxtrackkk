@@ -114,6 +114,36 @@ void main() {
     });
   });
 
+  group('nextTripStopAfter', () {
+    TrackedOrder stop(String id, String status, int? seq, {String? trip = 't1', String to = rider}) =>
+        TrackedOrder(id: id, status: status, assignedRiderId: to, tripId: trip, stopSequence: seq);
+    String? next(List<TrackedOrder> orders, [String finished = 'a']) =>
+        nextTripStopAfter(riderUid: rider, orders: orders, finishedOrderId: finished);
+
+    test('the earliest navigable stop left on the same trip', () {
+      expect(next([stop('a', 'delivered', 1), stop('c', 'in_transit', 3), stop('b', 'in_transit', 2)]), 'b');
+      expect(next([stop('a', 'completed', 2), stop('b', 'delayed', 1)]), 'b', reason: 're-ordered: stop 1 still left');
+      expect(next([stop('a', 'delivery_failed', 1), stop('b', 'in_transit', 2)]), 'b');
+    });
+
+    test('nothing while the stop is not finished (still moving, cancelled, reassigned)', () {
+      for (final s in ['in_transit', 'delayed', 'cancelled']) {
+        expect(next([stop('a', s, 1), stop('b', 'in_transit', 2)]), isNull, reason: s);
+      }
+      expect(next([stop('a', 'delivered', 1, to: 'riderB'), stop('b', 'in_transit', 2)]), isNull);
+      expect(next([stop('b', 'in_transit', 2)]), isNull, reason: 'finished order not in the list');
+    });
+
+    test('only stops of the same trip, for this rider, in transit and placed on the trip', () {
+      expect(next([stop('a', 'delivered', 1, trip: null), stop('b', 'in_transit', 2)]), isNull);
+      expect(next([stop('a', 'delivered', 1), stop('b', 'in_transit', 2, trip: 't2')]), isNull);
+      expect(next([stop('a', 'delivered', 1), stop('b', 'in_transit', 2, to: 'riderB')]), isNull);
+      expect(next([stop('a', 'delivered', 1), stop('b', 'loading', 2)]), isNull);
+      expect(next([stop('a', 'delivered', 1), stop('b', 'in_transit', null)]), isNull);
+      expect(next([stop('a', 'delivered', 1), stop('b', 'delivered', 2)]), isNull, reason: 'last stop done');
+    });
+  });
+
   group('navigationEligibility', () {
     test('allowed for an assigned in-transit order, with or without a route', () {
       expect(navigationEligibility(order: order('o1', 'in_transit'), riderUid: rider, routeAvailable: true).canStart,
@@ -161,6 +191,7 @@ void main() {
       String routeStatus = 'available',
       String phase = 'on_route',
       int? pendingOffSinceMs,
+      int? lastQualifyingFixAtMs = 1,
     }) =>
         {
           'sessionId': sessionId,
@@ -168,6 +199,7 @@ void main() {
           'routeStatus': routeStatus,
           'phase': phase,
           'pendingOffSinceMs': pendingOffSinceMs,
+          'lastQualifyingFixAtMs': lastQualifyingFixAtMs,
         };
 
     test('no state, no session, an ended session or an OLDER session → not navigating', () {
@@ -187,6 +219,18 @@ void main() {
       expect(deviationDisplayFor(state(), sessionId: 's1'), DeviationDisplay.onRoute);
       expect(deviationDisplayFor(state(pendingOffSinceMs: 1), sessionId: 's1'), DeviationDisplay.pendingDeviation);
       expect(deviationDisplayFor(state(phase: 'deviating'), sessionId: 's1'), DeviationDisplay.deviating);
+    });
+
+    test('a new session is "checking" until the server measures its first usable fix', () {
+      final d = deviationDisplayFor(state(lastQualifyingFixAtMs: null), sessionId: 's1');
+      expect(d, DeviationDisplay.checking);
+      expect(kDeviationDisplayLabels[d], isNot(contains('On route')));
+      // A deviation carried over from the previous stop on the same trip route
+      // shows at once, before this session's first fix.
+      expect(deviationDisplayFor(state(phase: 'deviating', lastQualifyingFixAtMs: null), sessionId: 's1'),
+          DeviationDisplay.deviating);
+      expect(deviationDisplayFor(state(pendingOffSinceMs: 1, lastQualifyingFixAtMs: null), sessionId: 's1'),
+          DeviationDisplay.pendingDeviation);
     });
 
     test('every display state has a label', () {

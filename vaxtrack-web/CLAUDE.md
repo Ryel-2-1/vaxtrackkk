@@ -26,10 +26,10 @@ One nuance to keep straight: the Dispatcher Geofence info banner still reads *"G
 
 Recorded from **observed file structure and code, not runtime verification** — these features were not built or exercised while writing this. Treat behaviour as unconfirmed until tested.
 
-- **Route deviation + monitoring (Flutter):** `lib/utils/deviation_detector.dart`, `deviation_utils.dart`, `route_monitor.dart`, `route_compliance_monitor.dart`; `lib/services/route_deviation_alert_service.dart`; `lib/screens/route_monitoring_screen.dart`. Web side: `alertService.createRouteDeviationAlert()` writes alerts with `type: "route_deviation"`, `title: "Route Deviation Detected"`.
+- **Route deviation + monitoring:** decided only on the **server** (`functions/src/riderTracking.js` `routeForOrder` + `trackRiderLocation`), which also writes the `route_deviation` alert. The Rider app shows the saved plan through `lib/utils/saved_route_plan.dart` (same choice as `routeForOrder`, pinned by the shared fixture `vaxtrack_mobile/test/fixtures/saved_route_plan_cases.json`) on `lib/screens/route_monitoring_screen.dart`. The old device-side detector / monitor / alert writer (`deviation_detector.dart`, `route_monitor.dart`, `route_compliance_monitor.dart`, `route_deviation_alert_service.dart`) was **deleted 2026-11-01** — it was unused, and its alert writes were refused by the rules.
 - **Rider offline cache / sync visibility:** `lib/utils/sync_status.dart`, `lib/widgets/sync_indicator.dart`.
 - **Flutter environment separation + branding:** `lib/environment.dart`, `lib/bootstrap.dart`, `lib/main_production.dart`, `lib/main_staging.dart`, `lib/firebase_options.dart`, `lib/dev/`. Plus Android release signing.
-- **Flutter tests** (`vaxtrack_mobile/test/`): `deviation_detector_test`, `deviation_utils_test`, `route_compliance_monitor_test`, `route_deviation_alert_service_test`, `route_monitor_test`, `sync_status_test`, `sync_indicator_test`, `environment_config_test`, `nav_availability_test`, `navigation_init_controller_test`.
+- **Flutter tests** (`vaxtrack_mobile/test/`): `deviation_utils_test`, `saved_route_plan_test`, `route_screen_state_test`, `navigation_honesty_test`, `sync_status_test`, `sync_indicator_test`, `environment_config_test`, `nav_availability_test`, `navigation_init_controller_test`.
 - **Invoice module:** `invoiceModel.js` split out from `invoiceService.js`.
 - **Web UI passes** across all three roles — see the CSS layering convention below.
 

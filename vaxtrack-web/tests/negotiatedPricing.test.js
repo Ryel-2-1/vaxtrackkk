@@ -229,10 +229,10 @@ test("invalid lines make the totals unavailable, never wrong", () => {
 test("the request carries unit price, reason and the line's discount — no totals, no VAT", () => {
   const cart = { inventoryId: "inv1", quantity: 3, expectedUnitPriceCentavos: 12500 };
   assert.deepEqual(negotiatedRequestLine(cart, line({ agreedInput: "110", negotiationReason: "deal", discountType: "pwd", discountInput: "30" })), {
-    expectedUnitPriceCentavos: 12500, agreedUnitPriceCentavos: 11000, negotiationReason: "deal",
+    expectedUnitPriceCentavos: 12500, expectedQuotedUnitPriceCentavos: 12500, agreedUnitPriceCentavos: 11000, negotiationReason: "deal",
     statutoryDiscountType: "pwd", statutoryDiscountCentavos: 3000, eligibilityConfirmed: true,
   });
-  assert.deepEqual(negotiatedRequestLine(cart, line()), { expectedUnitPriceCentavos: 12500, agreedUnitPriceCentavos: 12500 });
+  assert.deepEqual(negotiatedRequestLine(cart, line()), { expectedUnitPriceCentavos: 12500, expectedQuotedUnitPriceCentavos: 12500, agreedUnitPriceCentavos: 12500 });
   const fn = read("src/services/negotiatedPricing.js").slice(read("src/services/negotiatedPricing.js").indexOf("export function negotiatedRequestLine"));
   assert.equal(/vat|finalLine|negotiatedGross|lineTotal/i.test(fn), false);
   const callables = strip(read("src/services/inventoryCallables.js"));
@@ -289,7 +289,7 @@ test("with no discount entry, a checkout line is reviewed and sent at its agreed
   // The page reviews each line with exactly these inputs — no discount fields.
   assert.match(
     PRICE_STATE,
-    /price: priceReviewLine\(\{\s*quantity: item\.quantity,\s*expectedUnitPriceCentavos: item\.expectedUnitPriceCentavos,\s*vatClassification,\s*agreedInput: entry\.agreedInput,\s*negotiationReason: entry\.reason \?\? "",\s*\}\)/
+    /price: priceReviewLine\(\{\s*quantity: item\.quantity,\s*expectedUnitPriceCentavos: quotedUnitPriceCentavos,\s*vatClassification: quoted\?\.vatClassification \?\? vatClassification,\s*agreedInput: entry\.agreedInput,\s*negotiationReason: entry\.reason \?\? "",\s*\}\)/
   );
   // Same inputs through the model: no discount, VAT-inclusive totals intact.
   const cart = { inventoryId: "inv1", quantity: 3, expectedUnitPriceCentavos: 12500 };
@@ -299,12 +299,12 @@ test("with no discount entry, a checkout line is reviewed and sent at its agreed
   assert.equal(standard.finalLineTotalCentavos, 37500);
   assert.equal(standard.lineVatCentavos, vatOf(37500));
   assert.equal(line({ vatClassification: "vat_exempt" }).lineVatCentavos, 0);
-  assert.deepEqual(negotiatedRequestLine(cart, standard), { expectedUnitPriceCentavos: 12500, agreedUnitPriceCentavos: 12500 });
+  assert.deepEqual(negotiatedRequestLine(cart, standard), { expectedUnitPriceCentavos: 12500, expectedQuotedUnitPriceCentavos: 12500, agreedUnitPriceCentavos: 12500 });
   const negotiated = line({ agreedInput: "110", negotiationReason: "deal" });
   assert.equal(negotiated.negotiatedAdjustmentCentavos, -4500);
   assert.equal(negotiated.finalLineTotalCentavos, 33000);
   assert.deepEqual(negotiatedRequestLine(cart, negotiated), {
-    expectedUnitPriceCentavos: 12500, agreedUnitPriceCentavos: 11000, negotiationReason: "deal",
+    expectedUnitPriceCentavos: 12500, expectedQuotedUnitPriceCentavos: 12500, agreedUnitPriceCentavos: 11000, negotiationReason: "deal",
   });
   // The request line is still built from the reviewed price.
   assert.match(CODE, /\.\.\.negotiatedRequestLine\(item, reviewByBatch\.get\(item\.inventoryId\)\.price\)/);

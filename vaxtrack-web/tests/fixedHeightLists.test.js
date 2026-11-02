@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const DISP = read("src/pages/dispatcher/dispatcher-polish.css");
 const SR = read("src/pages/salesRep/salesrep-polish.css");
+const PAGED = read("src/styles/paged-tables.css");
 
 test("Dispatcher Shipments: one toolbar row, a fixed card, the pager at its foot", () => {
   const page = read("src/pages/dispatcher/DispatcherShipments.jsx");
@@ -41,10 +42,13 @@ test("Dispatcher Cargo Loading: all rider details use a responsive grid without 
   assert.doesNotMatch(page, /cl-pagination|cardMaxHeight|cardsRef|pageSize|currentPage/);
 });
 
-test("Med Rep Order Tracking and Order History: fixed table boxes, independent scroll", () => {
-  assert.match(SR, /\.salesrep-main \.tracking-v2-table-wrap \{[^}]*display: flex;[^}]*height: var\(--trk-pane-h\);/);
-  assert.match(SR, /\.salesrep-main \.tracking-v2-table-scroll \{[^}]*flex: 1 1 auto;[^}]*overflow: auto;/);
-  assert.match(SR, /\.salesrep-main \.tracking-v2-side \{[^}]*height: var\(--trk-pane-h\);[^}]*overflow-y: auto !important;/);
+test("Med Rep Order Tracking fits the desktop viewport and keeps internal scrolling", () => {
+  assert.match(SR, /\.salesrep-main \.tracking-v2-table-scroll \{[^}]*overflow: auto;/);
+  assert.match(SR, /\.salesrep-main \.tracking-v2-table thead th \{\s*position: sticky;/);
+  assert.match(SR, /\.salesrep-main \.tracking-v2-table-wrap \{\s*height: var\(--trk-pane-h\);\s*max-height: none;/);
+  assert.match(SR, /\.salesrep-main \.tracking-v2-toolbar \{\s*position: static;\s*margin: 0 0 12px !important;/);
+  assert.match(SR, /\.salesrep-main \.tracking-v2-side \{\s*height: var\(--trk-pane-h\);/);
+  assert.doesNotMatch(PAGED, /\.salesrep-page \.tracking-v2-table-wrap/);
   assert.match(SR, /\.salesrep-order-history \.ohx-list-table-wrap \{[^}]*height: var\(--ohx-list-h\);/);
 });
 

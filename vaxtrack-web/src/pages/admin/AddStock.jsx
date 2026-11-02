@@ -9,7 +9,6 @@ import { addStockBatchWithAllocation } from "../../services/inventoryCallables";
 import { subscribeVaccines } from "../../services/vaccineCatalogService";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { parsePesosToCentavos } from "../../services/money";
-import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
 import { validateStockBatchDates } from "../../services/stockBatchDates";
 import "./AdminForms.css";
 
@@ -24,6 +23,7 @@ const STOCK_FIELD_IDS = {
   expiryDate: "stock-expiry-date",
   quantity: "stock-quantity",
   unitPrice: "stock-unit-price",
+  priceBasis: "stock-price-basis",
 };
 const STOCK_FIELD_ERROR_ID = "stock-field-error";
 
@@ -44,6 +44,7 @@ function AddStock() {
   // Also starts empty. A default price would be worse than a default quantity:
   // a plausible-looking figure nobody chose is exactly what gets invoiced.
   const [unitPrice, setUnitPrice] = useState("");
+  const [priceBasis, setPriceBasis] = useState("");
 
   const [loadingVaccines, setLoadingVaccines] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -208,6 +209,7 @@ function AddStock() {
           "Enter the selling price in pesos, e.g. 1250 or 1250.50."
       );
     }
+    if (!priceBasis) return failField("priceBasis", "Choose whether the entered price includes VAT.");
 
     if (await batchIdExists(cleanedBatchId)) {
       return failField("batchId", "This Batch ID already exists in inventory.");
@@ -254,6 +256,7 @@ function AddStock() {
         // text in one place means the value written is the value validated,
         // even if the two ever drift apart.
         sellingPriceCentavos: parsePesosToCentavos(unitPrice).value,
+        priceIsVatInclusive: priceBasis === "included",
       }, { submit: addStockBatchWithAllocation });
 
       setResult(report ?? null);
@@ -489,13 +492,19 @@ function AddStock() {
                   {...a11y("unitPrice", "stock-unit-price-help")}
                 />
                 {fieldMessage("unitPrice")}
-                {/* Says which convention applies: the entered price is
-                    VAT-inclusive for VATable products, and VAT is never added
-                    on top of it (pricingConfig.js). */}
                 <small id="stock-unit-price-help">
-                  Price per vial charged to the clinic. {VAT_INCLUSIVE_NOTE} Applies
-                  to this batch only.
+                  Enter the amount per vial; choose its VAT basis below. This applies to this batch only.
                 </small>
+              </div>
+
+              <div>
+                <label htmlFor="stock-price-basis">Entered price basis</label>
+                <select id="stock-price-basis" value={priceBasis} onChange={(e) => setPriceBasis(e.target.value)} {...a11y("priceBasis")}>
+                  <option value="">Choose price basis</option>
+                  <option value="before">Before VAT — 12% is added for a standard VATable sale</option>
+                  <option value="included">VAT included — 12% is already in the entered amount</option>
+                </select>
+                {fieldMessage("priceBasis")}
               </div>
 
             </div>

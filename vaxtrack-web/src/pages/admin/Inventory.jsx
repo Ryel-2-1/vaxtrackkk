@@ -55,7 +55,6 @@ import {
 import { OUT_OF_STOCK_LABEL, removalSource } from "../../services/inventoryRemovalModel";
 import { MAX_STOCK_QUANTITY } from "../../services/orderEligibility";
 import { buildVaccineAvailabilitySummary } from "../../services/inventoryOverview";
-import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
 import {
   describePriceReconfirmation,
   priceNeedsReconfirmation,
@@ -290,6 +289,7 @@ function Inventory() {
    */
   const [pricing, setPricing] = useState(null);
   const [priceInput, setPriceInput] = useState("");
+  const [priceBasis, setPriceBasis] = useState("");
   const [priceError, setPriceError] = useState("");
   const [savingPrice, setSavingPrice] = useState(false);
 
@@ -376,12 +376,14 @@ function Inventory() {
     // would silently re-read it as VAT-inclusive. The Admin enters or picks
     // the figure deliberately.
     setPriceInput(item.priceNeedsReconfirm ? "" : centavosToInputValue(item.priceCentavos));
+    setPriceBasis(item.priceIsVatInclusive === true ? "included" : item.priceIsVatInclusive === false ? "before" : "");
     setPriceError("");
   };
 
   const closePriceDialog = () => {
     setPricing(null);
     setPriceInput("");
+    setPriceBasis("");
     setPriceError("");
   };
 
@@ -408,6 +410,11 @@ function Inventory() {
       document.getElementById("inv-price-input")?.focus();
       return;
     }
+    if (!priceBasis) {
+      setPriceError("Choose whether the entered price includes VAT.");
+      document.getElementById("inv-price-basis")?.focus();
+      return;
+    }
 
     setSavingPrice(true);
     setPriceError("");
@@ -417,13 +424,14 @@ function Inventory() {
       await updateStockPrice({
         inventoryId: pricing.id,
         sellingPriceCentavos: parsed.value,
+        priceIsVatInclusive: priceBasis === "included",
       });
       // The live subscription re-renders the row; nothing is patched locally,
       // so what is on screen is what Firestore actually holds.
       closePriceDialog();
       showToast(
         pricing.priceNeedsReconfirm
-          ? `Price re-confirmed as VAT-inclusive for batch ${pricing.batch}. It can be ordered again.`
+          ? `Price basis confirmed for batch ${pricing.batch}. It can be ordered again.`
           : `Price updated for batch ${pricing.batch}.`,
         "success"
       );
@@ -742,7 +750,7 @@ function Inventory() {
 
   // The open price dialog's legacy-price choice (VAT recorded as exclusive),
   // or null for an ordinary re-price.
-  const reconfirm = pricing
+  const reconfirm = pricing?.priceNeedsReconfirm
     ? describePriceReconfirmation({
         priceCentavos: pricing.priceCentavos,
         priceIsVatInclusive: pricing.priceIsVatInclusive,
@@ -940,6 +948,9 @@ function Inventory() {
                         the two lead to different actions. */}
                     <td className={item.priceCentavos === null ? "inv-unpriced" : "tnum"}>
                       {item.price}
+                      {item.priceCentavos !== null && item.priceIsVatInclusive !== null && (
+                        <small className="inv-price-legacy-tag">{item.priceIsVatInclusive ? "VAT included" : "Before VAT"}</small>
+                      )}
                       {item.priceNeedsReconfirm && (
                         <small className="inv-price-legacy-tag">
                           {item.priceIsVatInclusive === false ? "Legacy · VAT exclusive" : "VAT not recorded"}
@@ -1277,7 +1288,7 @@ function Inventory() {
                 <p className="inv-price-legacy-note">{reconfirm.recordedNote}</p>
                 <p>{reconfirm.recordedLine}</p>
                 <p>{reconfirm.explanation}</p>
-                <p>Enter the new price including VAT, or pick one:</p>
+                <p>Enter the price and choose its VAT basis below, or use one of these amounts:</p>
                 <div className="inv-price-legacy-options">
                   {reconfirm.options.map((option) => (
                     <button
@@ -1310,10 +1321,16 @@ function Inventory() {
               aria-describedby={priceError ? "inv-price-error inv-price-help" : "inv-price-help"}
             />
             <small id="inv-price-help">
-              Price per vial charged to the clinic. {VAT_INCLUSIVE_NOTE} Applies
+              Entered amount per vial. Its VAT basis is chosen below. Applies
               to this batch only, and only to orders placed from now on — orders
               already placed keep the price they were quoted.
             </small>
+            <label htmlFor="inv-price-basis">Entered price basis</label>
+            <select id="inv-price-basis" value={priceBasis} onChange={(e) => setPriceBasis(e.target.value)} disabled={savingPrice}>
+              <option value="">Choose price basis</option>
+              <option value="before">Before VAT — add 12% on a standard VATable sale</option>
+              <option value="included">VAT included — the entered amount already contains VAT</option>
+            </select>
 
             <StaleEditNotice
               labels={priceStale.length > 0 ? ["The selling price"] : []}
@@ -1323,6 +1340,7 @@ function Inventory() {
               onLoadLatest={() => {
                 setPricing(pricingLive);
                 setPriceInput(pricingLive.priceNeedsReconfirm ? "" : centavosToInputValue(pricingLive.priceCentavos));
+                setPriceBasis(pricingLive.priceIsVatInclusive === true ? "included" : pricingLive.priceIsVatInclusive === false ? "before" : "");
                 setPriceError("");
               }}
               onKeepMine={() => setPricing(pricingLive)}
@@ -1352,7 +1370,7 @@ function Inventory() {
                 onClick={handleSavePrice}
                 disabled={savingPrice || priceBlocked}
               >
-                {savingPrice ? "Saving…" : reconfirm ? "Confirm VAT-inclusive price" : "Save price"}
+                {savingPrice ? "Saving…" : reconfirm ? "Confirm price basis" : "Save price"}
               </button>
             </div>
         </InventoryDialog>

@@ -63,6 +63,11 @@ export const limit = (n) => ({ __t: 'limit', n });
 export const serverTimestamp = () => "${SERVER_TIMESTAMP}";
 export const deleteField = () => "${DELETE_FIELD}";
 export const GeoPoint = class { constructor(lat, lng) { this.latitude = lat; this.longitude = lng; } };
+export const Timestamp = class {
+  constructor(ms) { this.__ms = ms; }
+  static fromMillis(ms) { return new Timestamp(ms); }
+  toMillis() { return this.__ms; }
+};
 
 const matches = (data, clauses = []) => clauses
   .filter((c) => c && c.__t === 'where')

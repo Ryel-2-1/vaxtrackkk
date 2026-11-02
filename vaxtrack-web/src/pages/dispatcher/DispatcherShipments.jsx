@@ -40,6 +40,8 @@ import DialogLayer from "../../components/ui/DialogLayer";
 import { capitalizedOrderPhrase, orderNumberPhrase, orderPhrase, orderReference } from "../../services/orderLabel";
 import { fetchCancelledShipmentAudit } from "../../services/cancelledShipmentAudit";
 import { orderArrivalNote } from "../../services/requestedArrival";
+import { proofPhotoView } from "../../services/deliveryEvidenceView";
+import { storageBucket } from "../../firebase";
 
 // A local status-label copy used to live here for the status-change toasts.
 // Those toasts are gone with the Delivered/Delay/Resume actions, and the
@@ -105,17 +107,6 @@ function formatTime(ts) {
   const diffHr = Math.floor(diffMin / 60);
   if (diffHr < 24) return `${diffHr}h ago`;
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function viewableProofUrl(value) {
-  if (typeof value !== "string" || !value.trim()) return "";
-  try {
-    const url = new URL(value.trim());
-    const localEmulator = url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);
-    return url.protocol === "https:" || localEmulator ? url.href : "";
-  } catch {
-    return "";
-  }
 }
 
 function formatCancellationTime(value) {
@@ -556,8 +547,10 @@ function ProofOfDeliveryDialog({ order, onDismiss }) {
   const closeRef = useRef(null);
   const [imageFailed, setImageFailed] = useState(false);
   useDialogFocus({ dialogRef, initialRef: closeRef, onDismiss });
-  const proofUrl = viewableProofUrl(order.proofOfDeliveryUrl);
-  const hasStoredProof = typeof order.proofOfDeliveryUrl === "string" && !!order.proofOfDeliveryUrl.trim();
+  // Only this order's own stored photo is shown; any other recorded link is
+  // reported, never opened (services/deliveryEvidenceView.js).
+  const proof = proofPhotoView(order, storageBucket);
+  const proofUrl = proof.url;
   const titleId = "shipment-proof-title";
   const descriptionId = "shipment-proof-description";
 
@@ -585,8 +578,8 @@ function ProofOfDeliveryDialog({ order, onDismiss }) {
           <p className="shp-proof-empty" role="status">
             {proofUrl
               ? "The proof image could not be previewed. Open the image to try again."
-              : hasStoredProof
-                ? "The proof image link is unavailable."
+              : proof.state === "unverified"
+                ? "A proof link was recorded, but it isn't this order's stored photo, so it isn't shown."
                 : "No proof of delivery was uploaded for this order."}
           </p>
         )}

@@ -51,3 +51,17 @@ export function subscribeRiderDeviationState(riderUid, onData, onError) {
     (error) => onError?.(error),
   );
 }
+
+/**
+ * Orders whose Rider is provably near the destination right now, keyed by
+ * order id (server-owned: functions/src/arrivalProximityOps.js). A handful of
+ * documents at most — the Dispatcher bell reads these instead of every
+ * Rider's live location.
+ */
+export function subscribeArrivalProximity(onData, onError) {
+  return listenLive(
+    collection(db, "arrivalProximity"),
+    (snap) => onData(Object.fromEntries(snap.docs.map((d) => [d.id, { ...d.data(), orderId: d.id }]))),
+    (error) => onError?.(error),
+  );
+}

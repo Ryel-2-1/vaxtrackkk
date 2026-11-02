@@ -12,7 +12,6 @@ import {
 import { auth, db } from "../firebase";
 import { validateStockBatchDates } from "./stockBatchDates";
 import { readVatClassification } from "./vatClassification";
-import { PRICES_INCLUDE_VAT } from "./pricingConfig";
 import { UserMessageError } from "./userMessageError.js";
 import { logSafeError } from "./liveDataErrors.js";
 import { listenLive } from "./liveSnapshot.js";
@@ -147,6 +146,7 @@ export async function addStockBatch({
   expiryDate,
   quantity,
   sellingPriceCentavos,
+  priceIsVatInclusive,
 }, { todayIso, submit } = {}) {
   if (typeof submit !== "function") {
     throw new UserMessageError("Stock can only be added through the server.");
@@ -169,6 +169,9 @@ export async function addStockBatch({
   ) {
     throw new UserMessageError("A stock batch needs a selling price in whole centavos.");
   }
+  if (typeof priceIsVatInclusive !== "boolean") {
+    throw new UserMessageError("Choose whether the batch price includes VAT.");
+  }
   return submit({
     vaccineId,
     batchId,
@@ -177,9 +180,9 @@ export async function addStockBatch({
     arrivalDate: dates.value.arrivalDate,
     expiryDate: dates.value.expiryDate,
     quantity,
-    // The clinic selling price for this batch, in PHP centavos — VAT-inclusive
-    // for VATable products (the server stamps the convention).
+    // The amount entered by Admin and its explicit VAT basis.
     sellingPriceCentavos,
+    priceIsVatInclusive,
     ...(typeof manufacturer === "string" && manufacturer.trim() ? { manufacturer: manufacturer.trim() } : {}),
   });
 }
@@ -195,7 +198,7 @@ export async function addStockBatch({
  * the rules refuse a client write that names either, so re-pricing can never
  * become a way to move stock.
  */
-export async function updateStockPrice({ inventoryId, sellingPriceCentavos }) {
+export async function updateStockPrice({ inventoryId, sellingPriceCentavos, priceIsVatInclusive }) {
   if (typeof inventoryId !== "string" || inventoryId.trim() === "") {
     throw new UserMessageError("A batch is required to set a price.");
   }
@@ -206,11 +209,13 @@ export async function updateStockPrice({ inventoryId, sellingPriceCentavos }) {
   ) {
     throw new UserMessageError("A selling price must be a whole number of centavos above zero.");
   }
+  if (typeof priceIsVatInclusive !== "boolean") {
+    throw new UserMessageError("Choose whether the batch price includes VAT.");
+  }
   return updateDoc(doc(db, INVENTORY, inventoryId), {
     sellingPriceCentavos,
     priceCurrency: "PHP",
-    // Entered prices are VAT-inclusive (pricingConfig.js).
-    priceIsVatInclusive: PRICES_INCLUDE_VAT,
+    priceIsVatInclusive,
     // Audit taken from the SESSION, never from a parameter. A caller-supplied
     // uid would let one admin record a re-price as another's — and the rules
     // now refuse any value that is not the authenticated caller, so passing one

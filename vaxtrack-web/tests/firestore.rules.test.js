@@ -1001,11 +1001,10 @@ async function main() {
     }));
   });
 
-  // P14b/P14c reproduce the REAL service path (route_deviation_alert_service):
-  // the idempotent upsert runs in a TRANSACTION that reads the deterministic doc
-  // BEFORE it exists. The rider `get` rule must therefore allow reading a
-  // NON-EXISTENT own alert, or the transaction is denied at the read — the
-  // Phase 6C2 persistence root cause (direct setDoc in P14 never hit this path).
+  // P14b/P14c reproduce the path of the removed Rider-app alert writer
+  // (route_deviation_alert_service.dart, deleted 2026-11-01): an idempotent
+  // upsert in a TRANSACTION that read the deterministic doc BEFORE it existed.
+  // Deviation alerts are server-owned now, so both stay refused.
   await check("P14b (now refused) rider can get a non-existent own route-deviation alert (tx pre-read)", async () => {
     await assertFails(getDoc(doc(rider, "alerts", "route_deviation_ordRider3_rider1")));
   });
@@ -1961,6 +1960,57 @@ async function main() {
     await assertFails(deleteDoc(addressRef(dispatcher, "legacy-standalone")));
     await assertSucceeds(deleteDoc(addressRef(admin, "legacy-standalone")));
     await assertFails(getDoc(addressRef(anon)));
+  });
+
+  // ---- arrival proximity + notification read state (2026-11-01) ----
+  await testEnv.withSecurityRulesDisabled((ctx) =>
+    setDoc(doc(ctx.firestore(), "arrivalProximity", "proxOrder1"), {
+      orderId: "proxOrder1", riderUid, firstFixMs: 1, lastFixMs: 2, confirmedAtMs: 2, radiusM: 300, distanceM: 40,
+    })
+  );
+
+  await check("Pprox1 Admin and Dispatcher read arrival proximity (the bell's near-destination feed)", async () => {
+    for (const db of [admin, dispatcher]) {
+      await assertSucceeds(getDoc(doc(db, "arrivalProximity", "proxOrder1")));
+      await assertSucceeds(getDocs(collection(db, "arrivalProximity")));
+    }
+  });
+
+  await check("Nprox1 arrival proximity is server-owned: no client writes it, no Rider or Med Rep reads it", async () => {
+    for (const db of [admin, dispatcher, rider, salesRep]) {
+      await assertFails(setDoc(doc(db, "arrivalProximity", "forged"), { orderId: "forged", riderUid }));
+      await assertFails(updateDoc(doc(db, "arrivalProximity", "proxOrder1"), { confirmedAtMs: 1 }));
+      await assertFails(deleteDoc(doc(db, "arrivalProximity", "proxOrder1")));
+    }
+    for (const db of [rider, salesRep, anon]) {
+      await assertFails(getDoc(doc(db, "arrivalProximity", "proxOrder1")));
+    }
+  });
+
+  await check("Nprox2 no client can create an awaiting-completion alert", async () => {
+    await assertFails(setDoc(doc(admin, "alerts", "forgedAwait"), {
+      type: "delivery_awaiting_completion", severity: "warning", status: "active", read: false, title: "x", message: "y",
+    }));
+  });
+
+  const readState = (db, uid) => doc(db, "notificationReadStates", uid);
+  await check("Pread1 a user keeps their own notification read state", async () => {
+    await assertSucceeds(setDoc(readState(dispatcher, dispatcherUid), { ids: ["a", "b"], updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(readState(dispatcher, dispatcherUid), { ids: ["a", "b", "c"], updatedAt: serverTimestamp() }));
+    await assertSucceeds(getDoc(readState(dispatcher, dispatcherUid)));
+    await assertSucceeds(setDoc(readState(salesRep, salesRepUid), { ids: ["o1:delivered"], updatedAt: serverTimestamp() }));
+  });
+
+  await check("Nread1 read state is private, bounded and shaped", async () => {
+    await assertFails(getDoc(readState(salesRep, dispatcherUid)), "another user's");
+    await assertFails(setDoc(readState(salesRep, dispatcherUid), { ids: [], updatedAt: serverTimestamp() }));
+    await assertFails(setDoc(readState(dispatcher, dispatcherUid), { ids: Array.from({ length: 501 }, (_, i) => `id${i}`), updatedAt: serverTimestamp() }), "over 500");
+    await assertFails(setDoc(readState(dispatcher, dispatcherUid), { ids: [], updatedAt: serverTimestamp(), extra: true }), "extra field");
+    await assertFails(setDoc(readState(dispatcher, dispatcherUid), { ids: "a", updatedAt: serverTimestamp() }), "not a list");
+    await assertFails(setDoc(readState(dispatcher, dispatcherUid), { ids: [], updatedAt: Timestamp.fromMillis(0) }), "client time");
+    await assertFails(deleteDoc(readState(dispatcher, dispatcherUid)));
+    await assertFails(getDocs(collection(dispatcher, "notificationReadStates")), "no listing");
+    await assertFails(getDoc(readState(anon, dispatcherUid)));
   });
 
   // ---- clinic location / geofence (Phase 01) ----
@@ -4038,7 +4088,7 @@ async function main() {
   });
 
   // ---- VAT price convention on a batch ----
-  await check("Nprice-conv a re-price must stamp VAT-inclusive; the flag never flips silently", async () => {
+  await check("Nprice-conv a price basis change needs an Admin audit", async () => {
     await testEnv.withSecurityRulesDisabled((ctx) =>
       setDoc(doc(ctx.firestore(), "inventory", "invConvLegacy"), {
         vaccineName: "Legacy priced", batchId: "CONV-1", expiryDate: "2027-12-31",
@@ -4047,9 +4097,9 @@ async function main() {
       })
     );
     const audit = { priceSetAt: serverTimestamp(), priceSetByUid: adminUid };
-    // A new price that does not say it is VAT-inclusive (false, or omitted).
-    await assertFails(updateDoc(doc(admin, "inventory", "invConvLegacy"), { sellingPriceCentavos: 110000, ...audit }));
-    await assertFails(updateDoc(doc(admin, "inventory", "invConvLegacy"), { sellingPriceCentavos: 110000, priceIsVatInclusive: false, ...audit }));
+    // The existing Before VAT basis can be retained by an audited re-price.
+    await assertSucceeds(updateDoc(doc(admin, "inventory", "invConvLegacy"), { sellingPriceCentavos: 110000, ...audit }));
+    await assertSucceeds(updateDoc(doc(admin, "inventory", "invConvLegacy"), { sellingPriceCentavos: 110000, priceIsVatInclusive: false, ...audit }));
     // Flipping the flag alone is a re-confirmation — it needs the audit.
     await assertFails(updateDoc(doc(admin, "inventory", "invConvLegacy"), { priceIsVatInclusive: true }));
     // ...and nobody but an Admin may do it.
@@ -4058,13 +4108,12 @@ async function main() {
     }
   });
 
-  await check("Pprice-conv an Admin re-confirms a legacy batch's price as VAT-inclusive, audited", async () => {
+  await check("Pprice-conv an Admin can choose either basis with an audit", async () => {
     await assertSucceeds(updateDoc(doc(admin, "inventory", "invConvLegacy"), {
       sellingPriceCentavos: 100000, priceIsVatInclusive: true,
       priceSetAt: serverTimestamp(), priceSetByUid: adminUid,
     }));
-    // Once VAT-inclusive, it cannot be turned back to the legacy convention.
-    await assertFails(updateDoc(doc(admin, "inventory", "invConvLegacy"), {
+    await assertSucceeds(updateDoc(doc(admin, "inventory", "invConvLegacy"), {
       priceIsVatInclusive: false, priceSetAt: serverTimestamp(), priceSetByUid: adminUid,
     }));
   });
@@ -6613,6 +6662,27 @@ async function main() {
       } catch (error) {
         throw new Error(`VIS2 ${role} server-only cursor: ${error.message}`, { cause: error });
       }
+    }
+  });
+
+  await check("Zero-rating requests are readable only by Admin and their owning Med Rep; all client writes are denied", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "zeroRateRequests", "zeroRateRulesQa"), {
+        requesterUid: salesRepUid, status: "pending", doctorId: "doctor1",
+        doctorAddressId: "clinic1", requestedDeliveryDate: "2026-11-10",
+      });
+    });
+    await assertSucceeds(getDoc(doc(admin, "zeroRateRequests", "zeroRateRulesQa")));
+    await assertSucceeds(getDoc(doc(salesRep, "zeroRateRequests", "zeroRateRulesQa")));
+    for (const ctx of [dispatcher, rider, testEnv.authenticatedContext(otherSalesRepUid).firestore(), anon]) {
+      await assertFails(getDoc(doc(ctx, "zeroRateRequests", "zeroRateRulesQa")));
+    }
+    await assertSucceeds(getDocs(query(collection(salesRep, "zeroRateRequests"), where("requesterUid", "==", salesRepUid))));
+    await assertFails(getDocs(collection(salesRep, "zeroRateRequests")));
+    await assertSucceeds(getDocs(query(collection(admin, "zeroRateRequests"), where("status", "==", "pending"))));
+    for (const ctx of [admin, salesRep, dispatcher, rider]) {
+      await assertFails(updateDoc(doc(ctx, "zeroRateRequests", "zeroRateRulesQa"), { status: "approved" }));
+      await assertFails(setDoc(doc(ctx, "zeroRateRequests", `forged${ctx === admin ? "Admin" : "User"}`), { requesterUid: salesRepUid, status: "approved" }));
     }
   });
 

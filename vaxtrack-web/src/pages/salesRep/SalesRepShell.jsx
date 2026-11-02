@@ -20,7 +20,7 @@ import SidebarProfile from "../../components/shell/SidebarProfile";
 import OfflineNotice from "../../components/shell/OfflineNotice";
 import { subscribeSalesRepOrders } from "../../services/orderService";
 import { deriveSalesRepOrderAlert } from "../../services/salesRepOrderAlert";
-import { loadReadIds, saveReadIds, withReadIds } from "../../services/notificationReadState";
+import useNotificationReadState from "../../components/useNotificationReadState";
 import "./SalesRep.css";
 
 /**
@@ -60,8 +60,8 @@ function SalesRepShell() {
   const notificationRef = useRef(null);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const uid = auth.currentUser?.uid ?? null;
-  const projectId = auth.app.options.projectId;
-  const [readNotifications, setReadNotifications] = useState(() => loadReadIds(projectId, "salesrep", uid));
+  // Read marks: this browser's cache + the user's shared copy in Firestore.
+  const [readNotifications, markNotificationsRead] = useNotificationReadState("salesrep");
   const [orders, setOrders] = useState([]);
   const [notificationsLoading, setNotificationsLoading] = useState(true);
   const [notificationsError, setNotificationsError] = useState(false);
@@ -88,10 +88,6 @@ function SalesRepShell() {
   const unreadCount = notifications.filter(
     (notification) => !readNotifications.includes(notification.readId)
   ).length;
-
-  useEffect(() => {
-    saveReadIds(projectId, "salesrep", uid, readNotifications);
-  }, [projectId, uid, readNotifications]);
 
   // Logging out is one request at a time; a failure is shown beside the
   // button (never a browser alert) and the Med Rep stays signed in.
@@ -133,13 +129,11 @@ function SalesRepShell() {
   };
 
   const markAllRead = () => {
-    setReadNotifications((current) => withReadIds(current, notifications.map((notification) => notification.readId)));
+    markNotificationsRead(notifications.map((notification) => notification.readId));
   };
 
   const openNotification = (notification) => {
-    setReadNotifications((current) =>
-      withReadIds(current, [notification.readId])
-    );
+    markNotificationsRead([notification.readId]);
     setNotificationOpen(false);
     const history = ["completed", "delivered", "cancelled", "canceled"].includes(notification.statusKey);
     navigate(`/sales-rep/alerts?tab=${history ? "history" : "active"}&reference=${encodeURIComponent(notification.orderNumber)}`);

@@ -12,8 +12,9 @@ import '../utils/delivery_timing.dart';
 import '../utils/google_maps_url.dart';
 import '../utils/nav_availability.dart';
 import '../utils/order_workflow.dart';
+import '../utils/route_screen_state.dart';
 import '../utils/route_utils.dart';
-import '../utils/trip_route.dart';
+import '../utils/saved_route_plan.dart';
 import '../widgets/delivered_evidence_card.dart';
 import '../widgets/delivery_map.dart';
 import 'delivery_completion_coordinator.dart';
@@ -397,33 +398,18 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     );
   }
 
-  // Hands off to the installed Google Maps app for real turn-by-turn
-  // navigation (free, no API key), in motorcycle mode. On a planned trip it
-  // opens THIS stop and then the trip's other unfinished stops, in the planned
-  // order, as Google Maps waypoints — not this stop alone. Otherwise it prefers
-  // the exact clinic coordinates; without them it falls back to an address
-  // search (a search carries no travel mode — the rider picks it).
+  // Hands off to the installed Google Maps app for turn-by-turn (free, no API
+  // key), in motorcycle mode. On a planned trip it opens THIS stop and then the
+  // trip's other unfinished stops, in the planned order. Google picks its own
+  // roads between them: the link carries stops, never the saved VaxTrack plan.
+  // See [googleHandoffFor].
   Future<void> _openNavigation() async {
-    final Uri uri;
-    final trip = d.isOnTrip && d.hasClinicCoords ? await _remainingTrip() : null;
+    final deliveries = d.isOnTrip && d.hasClinicCoords ? await _riderDeliveries() : null;
     if (!mounted) return;
-    if (trip != null && trip.stops.length > 1) {
-      uri = googleMapsMultiStopUrl(trip.stops)!;
-      _showNavSnack(trip.truncated
-          ? 'Opening the next ${trip.stops.length} stops in Google Maps (its limit). '
-              'Start navigation again from a later stop for the rest.'
-          : 'Opening ${trip.stops.length} stops in Google Maps, in the planned order.');
-    } else if (d.hasClinicCoords) {
-      uri = googleMapsDestinationUrl(d.clinicLat!, d.clinicLng!);
-    } else if (d.clinicAddress.isNotEmpty) {
-      uri = Uri.parse(
-        'https://www.google.com/maps/search/?api=1'
-        '&query=${Uri.encodeComponent(d.clinicAddress)}',
-      );
-    } else {
-      _showNavSnack('No destination available to open in Google Maps.');
-      return;
-    }
+    final handoff = googleHandoffFor(d, deliveries);
+    final uri = handoff.uri;
+    if (handoff.message != null) _showNavSnack(handoff.message!);
+    if (uri == null) return;
     // Surface the outcome honestly instead of failing silently: canLaunchUrl
     // false (no maps app) or a launch that throws both tell the rider.
     try {
@@ -431,24 +417,25 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
           await launchUrl(uri, mode: LaunchMode.externalApplication)) {
         return;
       }
-      _showNavSnack('Could not open Google Maps — no maps app is available.');
+      _showNavSnack('Could not open Google Maps — no maps app is available. '
+          'Use Open VaxTrack route for the planned route.');
     } catch (_) {
-      _showNavSnack('Could not open Google Maps on this device.');
+      _showNavSnack('Could not open Google Maps on this device. '
+          'Use Open VaxTrack route for the planned route.');
     }
   }
 
-  /// The rider's trip from this stop on, read once at the tap (a cached copy is
-  /// fine). If the deliveries cannot be read in time: null, and this stop is
-  /// navigated alone rather than not at all.
-  Future<({List<Delivery> stops, bool truncated})?> _remainingTrip() async {
+  /// The rider's deliveries, read once at the tap (a cached copy is fine), so a
+  /// trip's other stops can be handed off too. If they cannot be read in time:
+  /// null, and this stop is navigated alone rather than not at all.
+  Future<List<Delivery>?> _riderDeliveries() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return null;
     try {
-      final deliveries = await _deliveryService
+      return await _deliveryService
           .riderDeliveries(uid)
           .first
           .timeout(const Duration(seconds: 5));
-      return remainingTripFrom(d, deliveries);
     } catch (_) {
       return null;
     }
@@ -591,6 +578,9 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     final hasRiderLoc = d.lastLocation != null;
     final showMap = d.hasClinicCoords || hasRiderLoc;
     final nav = NavigationAvailability.of(d);
+    // The ONE route this screen draws and describes: the saved VaxTrack plan,
+    // chosen exactly as the server chooses its deviation baseline.
+    final plan = SavedRoutePlan.of(d);
 
     return Card(
       child: Padding(
@@ -611,32 +601,21 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
                 clinic: d.hasClinicCoords
                     ? LatLng(d.clinicLat!, d.clinicLng!)
                     : null,
-                routePolyline: d.routePolyline,
+                routePolyline: plan.encodedPolyline,
               ),
               const SizedBox(height: 12),
-              if (d.hasRoute) ...[_etaCard(), const SizedBox(height: 12)],
-              if (d.routePolyline != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Text(
-                    d.routeDescription(),
-                    style: const TextStyle(fontSize: 12, color: AppColors.textLight),
-                  ),
+              if (plan.usable) ...[_etaCard(plan), const SizedBox(height: 12)],
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  d.hasClinicCoords || plan.usable
+                      ? plan.label
+                      : 'Destination pin not set — showing your location only.',
+                  key: const Key('savedRoutePlanLabel'),
+                  style: const TextStyle(fontSize: 12, color: AppColors.textLight),
                 ),
+              ),
               _destinationRow(),
-              if (!d.hasRoute)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(
-                    d.hasClinicCoords
-                        ? 'Route not generated yet — dispatch can add it. You can still open Google Maps.'
-                        : 'Destination pin not set — showing your location only.',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.textLight,
-                    ),
-                  ),
-                ),
               const SizedBox(height: 12),
             ] else ...[
               _textRouteFallback(),
@@ -647,28 +626,53 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
             // delivered/cancelled show nothing here (the route summary above
             // stays as read-only history).
             if (nav.inTransit) ...[
-              // Start navigation opens the Google Maps app for turn-by-turn:
-              // on a planned trip, THIS stop and then the trip's remaining
-              // stops in the planned order; otherwise this stop alone. No
-              // in-app Navigation SDK, so there is no Maps-key / terms gate —
-              // one consistent nav path that works.
+              // PRIMARY: the VaxTrack route screen — the saved plan on a free
+              // OpenStreetMap map, the rider's GPS and route status, and the
+              // Start that shares location so the SERVER can check it against
+              // that same plan. It is not turn-by-turn.
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: nav.canOpenExternalMaps ? _openNavigation : null,
-                  icon: const Icon(Icons.navigation),
-                  label: const Text('Start navigation'),
+                  key: const Key('openVaxTrackRoute'),
+                  onPressed: nav.canMonitorRoute ? _startRouteMonitoring : null,
+                  icon: const Icon(Icons.two_wheeler),
+                  label: const Text('Open VaxTrack route'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
+                    minimumSize: const Size.fromHeight(52),
                   ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  nav.canMonitorRoute
+                      ? 'The route dispatch planned. Start it there to share your '
+                          'location; VaxTrack checks your position against this plan.'
+                      : 'Needs the destination pin from dispatch.',
+                  style: const TextStyle(fontSize: 11, color: AppColors.textLight),
+                ),
+              ),
+              const SizedBox(height: 14),
+              // SECONDARY: Google Maps turn-by-turn. Google routes on its own;
+              // the hand-off carries the stops (and their planned order), never
+              // the saved route, so it is labelled as Google's directions.
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  key: const Key('openGoogleDirections'),
+                  onPressed: nav.canOpenExternalMaps ? _openNavigation : null,
+                  icon: const Icon(Icons.map_outlined),
+                  label: const Text('Turn-by-turn in Google Maps'),
+                  style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
                 ),
               ),
               if (nav.canOpenExternalMaps)
                 const Padding(
                   padding: EdgeInsets.only(top: 6),
                   child: Text(
-                    motorcycleModeNote,
+                    '$googleRouteNote $motorcycleModeNote',
                     style: TextStyle(fontSize: 11, color: AppColors.textLight),
                   ),
                 ),
@@ -689,53 +693,6 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
                     style: TextStyle(fontSize: 11, color: AppColors.textLight),
                   ),
                 ),
-              const SizedBox(height: 16),
-              const Divider(height: 1),
-              const SizedBox(height: 12),
-              // SEPARATE, clearly-labelled VaxTrack compliance feature — NOT a
-              // turn-by-turn navigator. Free flutter_map + OpenStreetMap. Start
-              // Navigation opens a navigation session; the SERVER checks the
-              // shared location against the Dispatcher-assigned route and raises
-              // any deviation alert. The screen explains anything missing.
-              Row(
-                children: [
-                  const Icon(
-                    Icons.verified_user_outlined,
-                    size: 16,
-                    color: AppColors.info,
-                  ),
-                  const SizedBox(width: 6),
-                  const Text(
-                    'VaxTrack compliance',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textDark,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: nav.canMonitorRoute ? _startRouteMonitoring : null,
-                  icon: const Icon(Icons.my_location),
-                  label: const Text('Navigation & route monitoring'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.info,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.only(top: 6),
-                child: Text(
-                  'Start Navigation to have VaxTrack check your route against the '
-                  'Dispatcher-assigned one. Not turn-by-turn navigation.',
-                  style: TextStyle(fontSize: 11, color: AppColors.textLight),
-                ),
-              ),
             ] else ...[
               // Rebuilds when navigation starts/stops anywhere in the app.
               AnimatedBuilder(
@@ -784,7 +741,9 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     );
   }
 
-  Widget _etaCard() {
+  // Distance and time of the plan being shown. A trip plan shows the whole
+  // trip and THIS stop's planned arrival; a single-delivery plan shows its leg.
+  Widget _etaCard(SavedRoutePlan plan) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
       decoration: BoxDecoration(
@@ -795,24 +754,26 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
         children: [
           _etaMetric(
             Icons.straighten,
-            'Distance',
-            formatDistance(d.routeDistanceMeters),
+            plan.isTrip ? 'Trip distance' : 'Distance',
+            formatDistance(plan.distanceMeters),
           ),
           _etaDivider(),
           _etaMetric(
             Icons.schedule,
-            'Duration',
-            formatDuration(d.routeDurationSeconds),
+            plan.isTrip ? 'Trip time' : 'Duration',
+            formatDuration(plan.durationSeconds),
           ),
           _etaDivider(),
           _etaMetric(
             Icons.access_time,
-            'ETA',
-            formatEta(
-              d.routeGeneratedAt,
-              d.routeDurationSeconds,
-              d.routeEtaText,
-            ),
+            plan.isTrip ? 'This stop' : 'ETA',
+            plan.isTrip
+                ? ((d.stopEtaText ?? '').trim().isEmpty ? '—' : d.stopEtaText!.trim())
+                : formatEta(
+                    d.routeGeneratedAt,
+                    d.routeDurationSeconds,
+                    d.routeEtaText,
+                  ),
           ),
         ],
       ),

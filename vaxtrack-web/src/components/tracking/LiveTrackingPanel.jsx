@@ -6,6 +6,7 @@ import FleetMap from "./FleetMap";
 import TrackingStateBadge from "./TrackingStateBadge";
 import useRiderTrackingFeeds from "./useRiderTrackingFeeds";
 import { subscribeDeliveries } from "../../services/deliveryService";
+import { manilaTime } from "../../services/deliveryTiming";
 import { subscribeRiders } from "../../services/riderService";
 import {
   DEVIATION_RULES,
@@ -85,7 +86,8 @@ function RiderDetails({ rider, nowMs }) {
           {rider.deviationText}
           {(rider.deviation === "deviating" || rider.deviation === "pending_deviation") &&
             rider.deviationDistanceMeters !== null &&
-            ` · ${Math.round(rider.deviationDistanceMeters).toLocaleString()} m from route when this began`}
+            ` · ${Math.round(rider.deviationDistanceMeters).toLocaleString()} m from route${
+              rider.deviationDistanceAtMs !== null ? ` at ${manilaTime(rider.deviationDistanceAtMs)}` : ""}`}
         </strong>
       </p>
       <div className="ltp-orders">

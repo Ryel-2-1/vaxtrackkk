@@ -44,6 +44,8 @@ const {
 } = require("./policy");
 const { RIDER_LOCATIONS, evaluateDeliveryGeofence } = require("./deliveryGeofence");
 const { readPriceConvention } = require("./pricingConfig");
+const { quoteUnitPrice } = require("./vatQuote");
+const { approvedCartMatches } = require("./zeroRateApproval");
 const { deliveryEvidenceProblem } = require("./deliveryEvidence");
 const { statusUpdatedByEmailValue } = require("./attribution");
 const { potentiallyCancellable } = require("./preDepartureCancellation");
@@ -198,6 +200,8 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
 
   const requestId = validateRequestId(payload?.requestId);
   const { doctorId, doctorAddressId, items } = validateCreatePayload(payload);
+  const zeroRateRequestId = payload?.zeroRateRequestId == null
+    ? null : validateDocumentId(payload.zeroRateRequestId, "Select an approved zero-rating request.");
   // Parse the immutable request before looking up its key. A committed order
   // must remain recoverable after its requested time/day passes. Clock checks
   // apply only to NEW keys, inside the transaction, before any write.
@@ -220,6 +224,7 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
     doctorAddressId,
     items,
     schedule: { requestedDeliveryDate, requestedArrival },
+    zeroRateRequestId,
   });
   const arrivalFingerprint = canonicalRequestFingerprint({
     uid, doctorId, doctorAddressId, items, schedule: { requestedArrival },
@@ -241,6 +246,7 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
   const doctorAddressRef = doctorRef
     .collection(DOCTOR_ADDRESSES)
     .doc(doctorAddressId);
+  const zeroRateRef = zeroRateRequestId ? db.collection("zeroRateRequests").doc(zeroRateRequestId) : null;
 
   return db.runTransaction(async (tx) => {
     // ---- reads ----
@@ -363,6 +369,23 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
       },
     });
 
+    const zeroRateSnap = zeroRateRef ? await tx.get(zeroRateRef) : null;
+    const zeroRateRequest = zeroRateSnap?.exists ? zeroRateSnap.data() : null;
+    if (zeroRateRef && (
+      !zeroRateRequest || zeroRateRequest.status !== "approved" ||
+      zeroRateRequest.requesterUid !== uid || zeroRateRequest.doctorId !== doctorId ||
+      zeroRateRequest.doctorAddressId !== doctorAddressId ||
+      zeroRateRequest.requestedDeliveryDate !== requestedDeliveryDate ||
+      zeroRateRequest.consumedByOrderId
+    )) {
+      throw new PolicyError("zero-rate-approval-invalid", "The zero-rating approval is unavailable or does not match this order. Request a new review before placing it.");
+    }
+    if (zeroRateRequest) {
+      if (!approvedCartMatches(zeroRateRequest.items, items)) {
+        throw new PolicyError("zero-rate-approval-invalid", "The approved vaccine list or vial counts differ from this order. Request a new review.");
+      }
+    }
+
     const invRefs = items.map((i) => db.collection(INVENTORY).doc(i.inventoryId));
     const invSnaps = [];
     for (const ref of invRefs) {
@@ -424,6 +447,9 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
         vaccine: vSnap && vSnap.exists ? vSnap.data() : null,
       });
     });
+    if (zeroRateRequest && !lineVat.includes("vatable")) {
+      throw new PolicyError("zero-rate-no-vatable-lines", "This order has no VATable items to zero-rate. Place it under its ordinary tax classification.");
+    }
     // The canonical SKU is the catalog vaccine's internalSku, snapshotted per
     // line so the receipt and the history keep the identifier the order used.
     const lineSku = invSnaps.map((snap) => {
@@ -438,16 +464,28 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
     // otherwise). The AGREED price is the Med Rep's, shape-checked with its
     // reason by validateCreatePayload. Every total and the VAT breakdown are
     // computed HERE, in integers; the caller sends none of them.
+    const quotedLines = evaluated.map((e, index) => {
+      const quote = quoteUnitPrice({
+        enteredCentavos: e.unitPriceCentavos,
+        priceIsVatInclusive: invSnaps[index].data().priceIsVatInclusive,
+        productVatClassification: lineVat[index],
+        approvedZeroRate: Boolean(zeroRateRequest),
+      });
+      if (quote.unitPriceCentavos !== (items[index].expectedQuotedUnitPriceCentavos ?? items[index].expectedUnitPriceCentavos)) {
+        throw new PolicyError("price-changed", "The batch price or its VAT basis changed. Review the order price again before placing it.");
+      }
+      return quote;
+    });
     const pricedLines = evaluated.map((e, index) =>
       priceOrderLine({
         quantity: e.quantity,
-        standardUnitPriceCentavos: e.unitPriceCentavos,
+        standardUnitPriceCentavos: quotedLines[index].unitPriceCentavos,
         agreedUnitPriceCentavos: items[index].agreedUnitPriceCentavos,
         negotiationReason: items[index].negotiationReason,
         statutoryDiscountType: items[index].statutoryDiscountType,
         statutoryDiscountCentavos: items[index].statutoryDiscountCentavos,
         eligibilityConfirmed: items[index].eligibilityConfirmed,
-        vatClassification: lineVat[index],
+        vatClassification: quotedLines[index].vatClassification,
       })
     );
     const agreement = summarizeAgreement(pricedLines);
@@ -538,6 +576,12 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
       statutoryDiscountApplied: agreement.statutoryDiscountApplied,
       finalTotalCentavos: agreement.finalTotalCentavos,
       vatSummary: agreement.vatSummary,
+      ...(zeroRateRequest ? { zeroRateApproval: {
+        requestId: zeroRateRequestId,
+        approvedByUid: zeroRateRequest.reviewedByUid,
+        approvedAt: zeroRateRequest.reviewedAt,
+        reason: zeroRateRequest.reason,
+      } } : {}),
       // ---- allocation (backorder-aware; see allocation.js) ----
       allocationVersion: ALLOCATION_VERSION_BACKORDER,
       // The reservation document is active (possibly still empty).
@@ -594,6 +638,10 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
 
     // ---- writes (continued) ----
     tx.set(orderRef, orderData);
+    if (zeroRateRef) tx.update(zeroRateRef, {
+      status: "used", consumedByOrderId: orderRef.id,
+      consumedAt: FieldValue.serverTimestamp(),
+    });
     // Each quoted batch is now referenced by an order line, so it can never be
     // voided (allocation.usageMark). Once per batch; later quotes write nothing.
     const marked = new Set();

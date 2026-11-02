@@ -168,6 +168,62 @@ test("starting navigation for another order replaces the route and closes the op
   assert.equal((await get(C.STATES, RIDER)).orderId, "o2");
 });
 
+test("switching stops on the same trip route keeps a confirmed deviation and its alert open until the rider returns", async () => {
+  await wipe();
+  await seedOrder("o1");
+  await seedOrder("o2"); // same saved route, as stops of one trip share the trip route
+  await startSession("sess_stopone1", "o1");
+  await feed(north(800), [0, 60, 120, 180]);
+  const alertId = T.deviationAlertId({ orderId: "o1", riderUid: RIDER, sessionId: "sess_stopone1" });
+  assert.equal((await get(C.ALERTS, alertId)).status, "active");
+
+  await startSession("sess_stoptwo2", "o2");
+  assert.equal((await get(C.ALERTS, alertId)).status, "active", "switching stops does not clear the deviation");
+  const carried = await get(C.STATES, RIDER);
+  assert.deepEqual(
+    [carried.sessionId, carried.orderId, carried.phase, carried.episode, carried.openAlertId, carried.continuedFromSessionId],
+    ["sess_stoptwo2", "o2", "deviating", 1, alertId, "sess_stopone1"]
+  );
+  assert.equal(T.deviationDisplayState(carried), "deviating");
+  assert.equal((await all(C.EVENTS)).some((e) => e.id === "sess_stopone1_e1_session_closed"), false, "the deviation was not closed");
+
+  // Back on the route for 2 minutes: the carried alert — not a new one — resolves.
+  const back = north(100);
+  await feed(back, [300, 360]);
+  assert.equal((await locate(back, 420)).event, "returned");
+  const resolved = await get(C.ALERTS, alertId);
+  assert.deepEqual([resolved.status, resolved.resolutionReason], ["resolved", "returned_to_route"]);
+  assert.equal((await all(C.ALERTS)).length, 1, "no second alert was raised");
+  assert.equal((await get(C.STATES, RIDER)).openAlertId, null);
+});
+
+test("switching stops on the same route keeps the 3-minute clock running", async () => {
+  await wipe();
+  await seedOrder("o1");
+  await seedOrder("o2");
+  await startSession("sess_clock001", "o1");
+  await feed(north(800), [0, 60, 120]);
+  const pending = (await get(C.STATES, RIDER)).pendingOffSinceMs;
+  assert.ok(Number.isFinite(pending));
+
+  await startSession("sess_clock002", "o2");
+  assert.equal((await get(C.STATES, RIDER)).pendingOffSinceMs, pending, "the timer is carried, not restarted");
+  assert.equal(T.deviationDisplayState(await get(C.STATES, RIDER)), "pending_deviation");
+  // Still off route a minute later: 3 minutes from the ORIGINAL start.
+  assert.equal((await locate(north(800), 180)).event, "deviated");
+  const alertId = T.deviationAlertId({ orderId: "o2", riderUid: RIDER, sessionId: "sess_clock002" });
+  assert.equal((await get(C.ALERTS, alertId)).status, "active");
+});
+
+test("a new session shows 'checking' until its first usable fix is measured", async () => {
+  await wipe();
+  await seedOrder("o1");
+  await startSession("sess_check001", "o1");
+  assert.equal(T.deviationDisplayState(await get(C.STATES, RIDER)), "checking");
+  await locate(north(800), 30);
+  assert.equal(T.deviationDisplayState(await get(C.STATES, RIDER)), "pending_deviation");
+});
+
 test("completing, failing or cancelling the navigated order ends the session and resolves its alert", async () => {
   for (const [status, reason] of [["delivered", "completed"], ["delivery_failed", "failed"], ["cancelled", "cancelled"]]) {
     await wipe();
@@ -439,7 +495,9 @@ test("only the threshold creates the event and alert; remaining deviated writes 
 test("a replaced session's late fixes cannot alter the new session's state", async () => {
   await wipe();
   await seedOrder("o1");
-  await seedOrder("o2");
+  // A different route: the same route would continue the deviation instead
+  // (see "switching stops on the same trip route…").
+  await seedOrder("o2", { routePolyline: encode([ROUTE[0], ROUTE[2]]) });
   await startSession("sess_old00001", "o1");
   await feed(north(800), [0, 60]);
   // The rider starts navigating o2 at T0 + 100 s.

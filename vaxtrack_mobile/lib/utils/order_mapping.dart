@@ -15,10 +15,6 @@ import '../models/delivery.dart';
 /// can call directly. `DeliveryService` keeps a private three-line adapter that
 /// unwraps the snapshot and delegates here, so no Firestore type appears in
 /// this file and no new production surface exists beyond this one function.
-///
-/// This mirrors the pattern the codebase already uses for route deviation:
-/// pure decision logic in `utils/` (`deviation_detector.dart`), a thin
-/// Firestore adapter in `services/` (`route_deviation_alert_service.dart`).
 
 /// One raw order: its Firestore document id and its data map.
 typedef OrderEntry = ({String id, Map<String, dynamic> data});

@@ -29,6 +29,7 @@ export function restoreCartItems(storage, uid) {
         // storage value does not become a price, it becomes null, and the
         // submit guard below refuses the cart rather than quoting it.
         expectedUnitPriceCentavos: readPriceCentavos(item.unitPriceCentavos),
+        priceIsVatInclusive: typeof item.priceIsVatInclusive === "boolean" ? item.priceIsVatInclusive : null,
         // Display only: the classification the catalog showed. The server reads
         // the vaccine's own value and snapshots it; this is never sent.
         vatClassification: readVatClassification(item.vatClassification),

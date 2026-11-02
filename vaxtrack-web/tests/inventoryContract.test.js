@@ -126,7 +126,7 @@ test("the callables are the only inventory-affecting entry points", () => {
   const exported = [...index.matchAll(/^exports\.(\w+)\s*=/gm)].map((m) => m[1]);
   assert.deepEqual(
     exported.sort(),
-    [...CALLABLE_NAMES, ...NON_CALLABLE_EXPORTS].sort(),
+    [...CALLABLE_NAMES, "requestZeroRateApproval", "reviewZeroRateApproval", ...NON_CALLABLE_EXPORTS].sort(),
     "exactly these callables, plus the triggers / scheduled jobs listed above"
   );
   for (const p of ["functions/src/riderDispatch.js", "functions/src/riderDispatchOps.js"]) {
@@ -383,7 +383,7 @@ test("the order's stored price comes from the batch, not the payload", () => {
   // The STANDARD price is the evaluated batch's; the payload contributes only
   // the validated agreed unit price and reason (negotiatedPricing.js), and
   // every total is computed server-side from integers.
-  assert.match(ops, /standardUnitPriceCentavos:\s*e\.unitPriceCentavos/, "standard taken from the evaluated batch");
+  assert.match(ops, /standardUnitPriceCentavos:\s*quotedLines\[index\]\.unitPriceCentavos/, "standard comes from the server's batch price and VAT basis");
   assert.match(ops, /agreedUnitPriceCentavos:\s*items\[index\]\.agreedUnitPriceCentavos/, "agreed price from the validated payload");
   assert.match(ops, /\.\.\.pricedLines\[index\]/, "line totals are server-computed");
   assert.match(ops, /subtotalCentavos\s*=\s*sumLineTotalsCentavos\(pricedLines\)/);

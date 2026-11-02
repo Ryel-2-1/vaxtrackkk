@@ -430,7 +430,7 @@ function StyleGuide() {
                     className="sg-dot"
                     style={{ background: "var(--success-text)" }}
                   />
-                  All cold-chain checks passed
+                  Sample dashboard metric
                 </span>
               </div>
             </div>

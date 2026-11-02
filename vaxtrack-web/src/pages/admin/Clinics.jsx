@@ -4,7 +4,6 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleHelp,
-  Edit,
   LayoutGrid,
   List,
   MapPin,
@@ -1598,17 +1597,6 @@ function ClinicDetailsModal({ clinic, onClose }) {
             Rider delivery. The former delivery-draft action here only showed a
             toast and drafted nothing, so it was removed rather than replaced. */}
         <div className="clinics-modal-actions">
-          {/* Not built yet. Shown disabled, with the reason, rather than
-              clickable with a toast that implies something happened. */}
-          <button
-            type="button"
-            className="clinics-light-action"
-            disabled
-            aria-describedby="clinic-edit-unavailable"
-          >
-            <Edit size={15} aria-hidden="true" />
-            Edit Clinic
-          </button>
           <button
             type="button"
             className="clinics-light-action"
@@ -1617,9 +1605,6 @@ function ClinicDetailsModal({ clinic, onClose }) {
             Close
           </button>
         </div>
-        <p id="clinic-edit-unavailable" className="clinics-unavailable-note">
-          Editing clinic details isn't available yet. Use Manage location to change where deliveries go.
-        </p>
       </div>
     </div>
   );

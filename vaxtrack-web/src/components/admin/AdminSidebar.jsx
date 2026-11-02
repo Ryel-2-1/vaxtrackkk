@@ -184,7 +184,7 @@ export function AdminSidebar({ active: activeProp, onLogout }) {
             to="/admin/ai-inventory-analytics"
           >
             <TrendingUp size={16} aria-hidden="true" />
-            <span>AI Inventory Analytics</span>
+            <span>Inventory Forecast</span>
           </Link>
 
           <p className="admin-nav-group">Fulfillment &amp; Dispatch</p>

@@ -90,7 +90,8 @@ test("10 · the Med Rep never sends a VAT field; the server snapshots the produc
   const fn = line.slice(line.indexOf("export function negotiatedRequestLine"));
   assert.equal(/vat/i.test(fn), false, "the request line carries no VAT field");
   const ops = read("functions/src/operations.js");
-  assert.match(ops, /vatClassification: lineVat\[index\],/);
+  assert.match(ops, /productVatClassification: lineVat\[index\],/);
+  assert.match(ops, /vatClassification: quotedLines\[index\]\.vatClassification,/);
   assert.match(ops, /resolveLineVatClassification\(\{/);
 });
 

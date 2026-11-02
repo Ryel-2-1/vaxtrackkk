@@ -159,9 +159,12 @@ void main() {
 
   test('Start navigation on the delivery screen opens the remaining trip, falling back to one stop', () {
     final screen = File('lib/screens/delivery_detail_screen.dart').readAsStringSync().replaceAll('\r\n', '\n');
-    expect(screen, contains('final trip = d.isOnTrip && d.hasClinicCoords ? await _remainingTrip() : null;'));
-    expect(screen, contains('uri = googleMapsMultiStopUrl(trip.stops)!;'));
-    expect(screen, contains('return remainingTripFrom(d, deliveries);'));
+    expect(screen, contains('final deliveries = d.isOnTrip && d.hasClinicCoords ? await _riderDeliveries() : null;'));
+    expect(screen, contains('final handoff = googleHandoffFor(d, deliveries);'));
     expect(screen, contains('.timeout(const Duration(seconds: 5));'));
+    // The shared builder (behaviour in route_screen_state_test.dart).
+    final builder = File('lib/utils/route_screen_state.dart').readAsStringSync().replaceAll('\r\n', '\n');
+    expect(builder, contains('final trip = remainingTripFrom(d, deliveries);'));
+    expect(builder, contains('googleMapsMultiStopUrl(trip.stops)'));
   });
 }

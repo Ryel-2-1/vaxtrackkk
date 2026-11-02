@@ -6,6 +6,7 @@ import {
   summarizeReviewVat,
 } from "../../services/negotiatedPricing";
 import { readVatClassification } from "../../services/vatClassification";
+import { quoteUnitPrice } from "../../services/vatQuote";
 
 /**
  * The checkout's final price review (negotiated pricing;
@@ -20,32 +21,38 @@ import { readVatClassification } from "../../services/vatClassification";
  * products, for the full SKU and the CURRENT VAT class the server will
  * snapshot. Holds no other checkout state and writes nothing.
  */
-export default function useCheckoutPriceReview({ initialNegotiation, displayItems, batches, vaccinesById }) {
+export default function useCheckoutPriceReview({ initialNegotiation, displayItems, batches, vaccinesById, approvedZeroRate = false }) {
   const [negotiation, setNegotiation] = useState(initialNegotiation);
   const reviewLines = useMemo(() => {
     const batchById = new Map((batches || []).map((b) => [b.id, b]));
     return displayItems.map((item) => {
       const vaccine = vaccinesById.get(batchById.get(item.inventoryId)?.vaccineId);
       const vatClassification = readVatClassification(vaccine?.vatClassification) ?? item.vatClassification ?? null;
+      const batch = batchById.get(item.inventoryId);
+      const quoted = batch && vatClassification && typeof batch.priceIsVatInclusive === "boolean" &&
+        Number.isSafeInteger(item.expectedUnitPriceCentavos) && item.expectedUnitPriceCentavos > 0
+        ? quoteUnitPrice({ enteredCentavos: item.expectedUnitPriceCentavos, priceIsVatInclusive: batch.priceIsVatInclusive, productVatClassification: vatClassification, approvedZeroRate })
+        : null;
+      const quotedUnitPriceCentavos = quoted?.unitPriceCentavos ?? item.expectedUnitPriceCentavos;
       const entry = negotiation[item.inventoryId] || {};
       return {
         item,
         catalogSku: typeof vaccine?.internalSku === "string" && vaccine.internalSku.trim() ? vaccine.internalSku.trim() : null,
-        vatClassification,
-        agreedText: entry.agreedInput ?? agreedInputFor(item.expectedUnitPriceCentavos),
+        vatClassification: quoted?.vatClassification ?? vatClassification,
+        agreedText: entry.agreedInput ?? agreedInputFor(quotedUnitPriceCentavos),
         reasonText: entry.reason ?? "",
         // No SC/PWD discount is entered at checkout, so none is passed: the
         // line is reviewed — and sent — at its agreed price with no discount.
         price: priceReviewLine({
           quantity: item.quantity,
-          expectedUnitPriceCentavos: item.expectedUnitPriceCentavos,
-          vatClassification,
+          expectedUnitPriceCentavos: quotedUnitPriceCentavos,
+          vatClassification: quoted?.vatClassification ?? vatClassification,
           agreedInput: entry.agreedInput,
           negotiationReason: entry.reason ?? "",
         }),
       };
     });
-  }, [displayItems, batches, vaccinesById, negotiation]);
+  }, [displayItems, batches, vaccinesById, negotiation, approvedZeroRate]);
   const priceSummary = summarizeReviewVat(reviewLines.map((l) => l.price));
   const pricingCheck = reviewProblems(reviewLines.map((l) => l.price));
   const reviewByBatch = new Map(reviewLines.map((l) => [l.item.inventoryId, l]));

@@ -241,7 +241,7 @@ function Riders() {
 
         <header className="riders-v2-header">
           <div>
-            <p>Monitor field personnel and cold-chain assignments.</p>
+            <p>Monitor rider assignments and delivery progress.</p>
             {/* Admin does not create rider accounts — riders self-register in
                 the Flutter app and arrive here as pending for approval. Saying
                 so avoids the page implying a capability it does not have. */}
@@ -588,16 +588,6 @@ function RiderDetailsModal({
         </div>
 
         <div className="riders-modal-actions">
-          {/* Route viewing from this dialog is not available yet. */}
-          <button
-            type="button"
-            className="riders-light-action"
-            disabled
-            aria-describedby="rider-unavailable-actions"
-          >
-            View Route
-          </button>
-
           {isApproved && (
             <button
               type="button"
@@ -638,10 +628,6 @@ function RiderDetailsModal({
             </button>
           )}
         </div>
-        <p id="rider-unavailable-actions" className="riders-unavailable-note">
-          Viewing a rider's route from this dialog isn't available yet. Use Live Tracking for positions.
-        </p>
-
         {rider.uid && <RiderRecoveryPanel riderUid={rider.uid} riderName={rider.name} />}
       </div>
     </div>

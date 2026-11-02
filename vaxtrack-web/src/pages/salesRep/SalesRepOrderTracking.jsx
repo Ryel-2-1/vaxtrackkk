@@ -370,13 +370,6 @@ function SalesRepOrderTracking() {
   return (
     <>
       <section className="tracking-v2-page">
-        <div className="tracking-v2-header">
-          <div>
-            <h2>Deliveries overview</h2>
-            <p>Monitor active deliveries, shipment progress, and completed orders.</p>
-          </div>
-        </div>
-
         <ToastRegion toast={toast} onDismiss={dismissToast} />
 
         <div className="tracking-toolbar tracking-v2-toolbar" role="group" aria-label="Order tracking filters">
@@ -408,7 +401,7 @@ function SalesRepOrderTracking() {
           </div>
 
           <label className="tracking-v2-status-filter">
-            <span>Filter by Status</span>
+            <span className="m-visually-hidden">Filter by status</span>
             <select
               value={statusFilter}
               onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }}

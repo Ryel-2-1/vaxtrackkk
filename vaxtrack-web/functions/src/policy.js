@@ -372,6 +372,7 @@ const ALLOWED_LINE_KEYS = Object.freeze([
   // The batch's STANDARD price as the Med Rep reviewed it — compared with the
   // batch inside the transaction, never used as a price.
   "expectedUnitPriceCentavos",
+  "expectedQuotedUnitPriceCentavos",
   // The Med Rep's negotiated VAT-inclusive UNIT price for this line, and the
   // reason when it differs from the standard. Optional: absent means the
   // standard price. Totals and VAT are never accepted — the server computes them.
@@ -506,6 +507,7 @@ const ALLOWED_CREATE_KEYS = Object.freeze([
   // Optional requested arrival at the destination (requestedArrival.js),
   // validated by operations.js against the requested date and the server clock.
   "requestedArrival",
+  "zeroRateRequestId",
 ]);
 
 function validateDocumentId(value, message) {
@@ -606,6 +608,8 @@ function validateCreatePayload(payload) {
           : "A price on this order was not a valid amount. Please rebuild the cart from the catalog."
       );
     }
+    const quoted = validateExpectedPriceCentavos(line.expectedQuotedUnitPriceCentavos ?? expected.value);
+    if (!quoted.ok) throw new PolicyError("price-not-confirmed", "Review the current VAT treatment and price before placing this order.");
 
     const agreed = validateAgreedPriceCentavos(line.agreedUnitPriceCentavos);
     if (!agreed.ok) {
@@ -620,9 +624,9 @@ function validateCreatePayload(payload) {
     // The agreed price defaults to the reviewed standard. A different price
     // needs a reason; an unchanged one carries none (a reason sent with it is
     // dropped — there is nothing to explain).
-    const agreedUnitPriceCentavos = agreed.value ?? expected.value;
+    const agreedUnitPriceCentavos = agreed.value ?? quoted.value;
     const negotiationReason =
-      agreedUnitPriceCentavos === expected.value ? null : normalizeNegotiationReason(line.negotiationReason);
+      agreedUnitPriceCentavos === quoted.value ? null : normalizeNegotiationReason(line.negotiationReason);
     // The statutory discount is checked against THIS line's negotiated gross
     // (quantity × agreed price), which is known from the request alone.
     const discount = validateStatutoryDiscount({
@@ -636,6 +640,7 @@ function validateCreatePayload(payload) {
       inventoryId,
       quantity: qty.value,
       expectedUnitPriceCentavos: expected.value,
+      ...(line.expectedQuotedUnitPriceCentavos !== undefined ? { expectedQuotedUnitPriceCentavos: quoted.value } : {}),
       agreedUnitPriceCentavos,
       negotiationReason,
       statutoryDiscountType: discount.type,
@@ -967,16 +972,13 @@ function evaluateBatch({ inventoryId, data, requested, expectedUnitPriceCentavos
     );
   }
 
-  // The batch's price must have been RECORDED under the convention new orders
-  // are stamped with (VAT-inclusive). A price set before that rule was entered
-  // VAT-exclusive (`priceIsVatInclusive: false`); quoting it onto a new order
-  // would silently change what the figure means. It stays unorderable — like
-  // an unpriced batch — until an Admin re-confirms the price, which stamps the
-  // current convention. Nothing converts it automatically.
-  if (data.priceIsVatInclusive !== PRICE_IS_VAT_INCLUSIVE) {
+  // A missing basis cannot be interpreted as Before VAT or VAT included.
+  // An explicit false or true is valid and is normalized to charged gross by
+  // quoteUnitPrice in the transaction below.
+  if (typeof data.priceIsVatInclusive !== "boolean") {
     throw new PolicyError(
       "batch-price-convention-legacy",
-      "This batch's price was recorded under legacy pricing (VAT-exclusive). An admin must re-confirm it as a VAT-inclusive price before it can be ordered.",
+      "This batch's price basis was not recorded. An admin must confirm whether the entered price includes VAT before it can be ordered.",
       { inventoryId, batchId: data.batchId ?? null }
     );
   }
@@ -1182,7 +1184,7 @@ function settleBatch({ inventoryId, data, quantity, mode }) {
  * order — and a genuinely different order (other batch, other quantity, other
  * Doctor, or other destination) cannot reuse a request id.
  */
-function canonicalRequestFingerprint({ uid, doctorId, doctorAddressId, items, schedule }) {
+function canonicalRequestFingerprint({ uid, doctorId, doctorAddressId, items, schedule, zeroRateRequestId }) {
   const canonical = JSON.stringify({
     // No schedule reproduces v1; arrival alone reproduces v2. New v3 keys bind
     // BOTH date and arrival. Keep the older canonical forms byte-for-byte so
@@ -1195,6 +1197,7 @@ function canonicalRequestFingerprint({ uid, doctorId, doctorAddressId, items, sc
         requestedArrival: schedule.requestedArrival ?? null,
       } }),
     uid,
+    ...(zeroRateRequestId ? { zeroRateRequestId } : {}),
     doctorId: doctorId ?? null,
     doctorAddressId: doctorAddressId ?? null,
     items: [...items]
@@ -1205,6 +1208,8 @@ function canonicalRequestFingerprint({ uid, doctorId, doctorAddressId, items, sc
         // Two submissions of the same batches at different prices are two
         // different orders and must not share an idempotency key.
         expectedUnitPriceCentavos: i.expectedUnitPriceCentavos ?? null,
+        ...(i.expectedQuotedUnitPriceCentavos != null && i.expectedQuotedUnitPriceCentavos !== i.expectedUnitPriceCentavos
+          ? { expectedQuotedUnitPriceCentavos: i.expectedQuotedUnitPriceCentavos } : {}),
         // So is the negotiated price and its stated reason: the same request
         // id resubmitted with a different agreed price is a different order.
         // Absent (an older client) means "the standard price".

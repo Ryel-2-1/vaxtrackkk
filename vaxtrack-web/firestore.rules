@@ -972,18 +972,15 @@ service cloud.firestore {
     // null. Pinned to request.auth.uid and request.time, so the audit trail on
     // a price change is evidence rather than a claim.
     //
-    // The price CONVENTION travels with the price. A price entered now is
-    // VAT-inclusive, so a re-price must stamp `priceIsVatInclusive == true`,
-    // and the flag can only ever be set to true — by the same audited act. A
-    // legacy batch recorded VAT-exclusive therefore becomes orderable again
-    // only through an Admin re-confirming its price; nothing flips it silently.
+    // The Admin's chosen price basis travels with the price. Both "Before VAT"
+    // and "VAT included" are valid; the audited write must record one of them.
     function stockPriceAuditValid() {
       let d = request.resource.data;
       return !changedKeys().hasAny(['sellingPriceCentavos', 'priceIsVatInclusive'])
         || (
           d.priceSetAt == request.time
           && d.priceSetByUid == request.auth.uid
-          && d.get('priceIsVatInclusive', null) == true
+          && d.get('priceIsVatInclusive', null) is bool
         );
     }
 
@@ -1545,6 +1542,14 @@ service cloud.firestore {
     }
 
     // ---------------- orders ----------------
+    // One-use, pre-order zero-rating requests. Only the named callables write
+    // decisions or consume an approval. A Med Rep sees only their own requests.
+    match /zeroRateRequests/{requestId} {
+      allow get, list: if isAdmin()
+        || (isSalesRep() && resource.data.requesterUid == request.auth.uid);
+      allow write: if false;
+    }
+
     match /orders/{orderId} {
       // Request and decision records are written by the named callables only.
       // The Med Rep who owns the order can read the reason and decision trail.
@@ -1840,6 +1845,28 @@ service cloud.firestore {
       allow get, list: if isAdmin() || isDispatcher();
       allow write: if false;
     }
+
+    // arrivalProximity/{orderId}: server-owned (functions/src/arrivalProximity
+    // Ops.js) — exists only while an in-transit order's Rider is provably near
+    // its destination. Read by the Dispatcher bell and Admin; never written by
+    // a client.
+    match /arrivalProximity/{orderId} {
+      allow get, list: if isAdmin() || isDispatcher();
+      allow write: if false;
+    }
+
+    // notificationReadStates/{uid}: which bell notifications this user has
+    // read, so it follows them across devices. Private to its owner; a bounded
+    // list of short ids, stamped with the server time.
+    match /notificationReadStates/{uid} {
+      allow get: if isApprovedUser() && request.auth.uid == uid;
+      allow create, update: if isApprovedUser() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['ids', 'updatedAt'])
+        && request.resource.data.ids is list
+        && request.resource.data.ids.size() <= 500
+        && request.resource.data.updatedAt == request.time;
+      allow list, delete: if false;
+    }
     // Rider trips (functions/src/riderDispatchOps.js): one server-owned state
     // per Rider and an audit record per trip. Written only by the callables and
     // the order-write trigger. A Rider may read their own state.
@@ -1999,7 +2026,7 @@ service cloud.firestore {
     // or deletes one. An Admin may only acknowledge it — mark it read, or
     // resolve it — which is all the Alerts page writes (alertService.js).
     function serverAlertTypes() {
-      return ['route_deviation', 'delivery_delay', 'rider_location_stale'];
+      return ['route_deviation', 'delivery_delay', 'rider_location_stale', 'delivery_awaiting_completion'];
     }
     function isAlertAcknowledgement() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'status'])

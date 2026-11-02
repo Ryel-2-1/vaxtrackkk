@@ -16,6 +16,16 @@ import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import DialogLayer from "../../components/ui/DialogLayer";
 import { deriveSalesRepOrderAlert } from "../../services/salesRepOrderAlert";
 
+const STATUS_GROUPS = {
+  attention: ["delayed", "delivery_failed"],
+  awaiting: ["processing", "requested", "approved", "pending", "pending_dispatch"],
+  assigned: ["assigned"],
+  loading: ["loading", "ready_for_dispatch"],
+  transit: ["in_transit", "out_for_delivery"],
+  delivered: ["delivered", "completed"],
+  cancelled: ["cancelled", "canceled"],
+};
+
 function SalesRepAlerts() {
   const location = useLocation();
   const linkedParams = new URLSearchParams(location.search);
@@ -24,7 +34,7 @@ function SalesRepAlerts() {
   const [errorState, setError] = useState("");
 
   const [activeTab, setActiveTab] = useState(() => linkedParams.get("tab") === "history" ? "history" : "active");
-  const [activeFilter, setActiveFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState(() => linkedParams.get("reference") || "");
   const [message, setMessage] = useState("");
   const [selectedAlert, setSelectedAlert] = useState(null);
@@ -70,7 +80,7 @@ function SalesRepAlerts() {
   const filteredAlerts = useMemo(() => {
     const search = searchTerm.trim().toLowerCase();
     return currentAlerts.filter((alert) => {
-      const matchesFilter = activeFilter === "all" || alert.tone === activeFilter;
+      const matchesFilter = statusFilter === "all" || STATUS_GROUPS[statusFilter]?.includes(alert.statusKey);
       const matchesSearch =
         alert.orderNumber.toLowerCase().includes(search) ||
         alert.title.toLowerCase().includes(search) ||
@@ -78,18 +88,11 @@ function SalesRepAlerts() {
         alert.location.toLowerCase().includes(search);
       return matchesFilter && matchesSearch;
     });
-  }, [activeFilter, currentAlerts, searchTerm]);
-
-  const filterCounts = useMemo(() => ({
-    all: currentAlerts.length,
-    critical: currentAlerts.filter((a) => a.tone === "critical").length,
-    info: currentAlerts.filter((a) => a.tone === "info").length,
-    success: currentAlerts.filter((a) => a.tone === "success").length,
-  }), [currentAlerts]);
+  }, [statusFilter, currentAlerts, searchTerm]);
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
-    setActiveFilter("all");
+    setStatusFilter("all");
     setSearchTerm("");
     setMessage("");
   };
@@ -121,12 +124,12 @@ function SalesRepAlerts() {
       <div className="alerts-v2-sticky-head">
         <section className="sales-alerts-header alerts-v2-header no-filter-icon">
           <div>
-            <h2>Recent alerts</h2>
-            <p>Order status updates and delivery alerts for your orders.</p>
+            <h2>Order updates</h2>
+            <p>Current status of your orders.</p>
           </div>
         </section>
 
-        {/* One toolbar: lifecycle tabs, then the category chips, then search. */}
+        {/* Order lifecycle tabs, a status filter, and search. */}
         <div className="alerts-v2-toolbar">
           <div className="sales-alert-tabs alerts-v2-tabs">
             <button
@@ -134,7 +137,7 @@ function SalesRepAlerts() {
               className={activeTab === "active" ? "active" : ""}
               onClick={() => handleTabChange("active")}
             >
-              Active ({activeAlerts.length})
+              Open orders ({activeAlerts.length})
             </button>
 
             <button
@@ -142,25 +145,35 @@ function SalesRepAlerts() {
               className={activeTab === "history" ? "active" : ""}
               onClick={() => handleTabChange("history")}
             >
-              History ({historyAlerts.length})
+              Closed orders ({historyAlerts.length})
             </button>
           </div>
 
-          <div className="sales-alert-filters alerts-v2-filters">
-            <FilterButton label={`All (${filterCounts.all})`} value="all" activeFilter={activeFilter} onClick={setActiveFilter} />
-            <FilterButton label={`Critical (${filterCounts.critical})`} value="critical" activeFilter={activeFilter} onClick={setActiveFilter} />
-            <FilterButton label={`Updates (${filterCounts.info})`} value="info" activeFilter={activeFilter} onClick={setActiveFilter} />
-            {activeTab === "history" && (
-              <FilterButton label={`Delivered (${filterCounts.success})`} value="success" activeFilter={activeFilter} onClick={setActiveFilter} />
+          <select className="alerts-v2-status-select" aria-label="Filter order updates by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <option value="all">All statuses</option>
+            {activeTab === "active" ? (
+              <>
+                <option value="attention">Needs attention</option>
+                <option value="awaiting">Awaiting dispatch</option>
+                <option value="assigned">Rider assigned</option>
+                <option value="loading">Loading</option>
+                <option value="transit">In transit</option>
+              </>
+            ) : (
+              <>
+                <option value="delivered">Delivered</option>
+                <option value="cancelled">Cancelled</option>
+              </>
             )}
-          </div>
+          </select>
 
           <div className="alerts-v2-search">
             <Search size={15} />
             <input
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Search order ID, title, or clinic..."
+              aria-label="Search order updates"
+              placeholder="Search order ID or clinic..."
             />
           </div>
       </div>
@@ -208,19 +221,6 @@ function SalesRepAlerts() {
         </DialogLayer>
       )}
     </>
-  );
-}
-
-function FilterButton({ label, value, activeFilter, onClick }) {
-  return (
-    <button
-      type="button"
-      className={`alert-filter-btn ${value} ${activeFilter === value ? "active" : ""}`}
-      onClick={() => onClick(value)}
-    >
-      {value !== "all" && <span className="filter-dot"></span>}
-      {label}
-    </button>
   );
 }
 

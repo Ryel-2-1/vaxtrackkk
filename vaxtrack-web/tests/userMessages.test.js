@@ -7,8 +7,8 @@
 //      field-validation helpers, dialog keyboard logic and toast tones.
 //   2. Source contracts for page wiring that cannot run without a DOM: no
 //      native dialogs, no raw `.message` rendering, confirmations that name a
-//      target and a consequence, dialogs that stay open on failure, disabled
-//      placeholder controls, accessible field errors.
+//      target and a consequence, dialogs that stay open on failure, no
+//      unavailable action controls, accessible field errors.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -59,8 +59,8 @@ function walk(dir) {
 const SRC = walk(join(root, "src")).filter((p) => /\.(jsx?|mjs)$/.test(p));
 const UI = SRC.filter((p) => /[\\/](pages|components)[\\/]/.test(p));
 const rel = (p) => relative(root, p).replace(/\\/g, "/");
-// A developer-only diagnostic, mounted only behind VITE_GOOGLE_MAPS_FEASIBILITY.
-const DEV_ONLY = new Set(["src/pages/dev/GoogleMapsFeasibility.jsx"]);
+// Developer-only diagnostics exempt from the user-message checks (none today).
+const DEV_ONLY = new Set();
 
 const fbError = (code, message = `raw firebase text for ${code}`) => {
   const e = new Error(message);
@@ -587,22 +587,14 @@ test("no raw provider HTTP status or provider text reaches the routing UI", () =
   assert.equal(/MISSING_KEY|API key not configured/.test(geo), false);
 });
 
-test("placeholder controls are disabled with an explanation — they cannot trigger false progress", () => {
+test("unavailable admin dialog actions do not imply progress", () => {
   const pages = {
-    "src/pages/admin/Riders.jsx": ["rider-unavailable-actions", ["View Route"]],
-    "src/pages/admin/Clinics.jsx": ["clinic-edit-unavailable", ["Edit Clinic"]],
+    "src/pages/admin/Riders.jsx": /View Route|rider-unavailable-actions/,
+    "src/pages/admin/Clinics.jsx": /Edit Clinic|clinic-edit-unavailable/,
   };
-  for (const [p, [noteId, labels]] of Object.entries(pages)) {
+  for (const [p, unavailableAction] of Object.entries(pages)) {
     const src = read(p);
-    assert.match(src, new RegExp(`id="${noteId}"`), `${p}: the explanation exists`);
-    for (const label of labels) {
-      const at = src.indexOf(label);
-      const tag = src.lastIndexOf("<button", at);
-      const button = src.slice(tag, src.indexOf(">", src.indexOf(`aria-describedby="${noteId}"`, tag)) + 1);
-      assert.match(button, /\bdisabled\b/, `${p}: ${label} is disabled`);
-      assert.match(button, new RegExp(`aria-describedby="${noteId}"`), `${p}: ${label} is described`);
-      assert.equal(/onClick/.test(button), false, `${p}: ${label} has no click handler`);
-    }
+    assert.doesNotMatch(src, unavailableAction, `${p}: unavailable action is absent`);
     // No toast pretends the action happened.
     assert.equal(/Contacting |Opening route|Editing \$\{|Grid view can be added|No new (clinic|rider) notifications/.test(src), false, p);
   }

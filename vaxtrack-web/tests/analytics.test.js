@@ -169,9 +169,8 @@ test("the clock is read to stamp a reference time, never during render", () => {
   }
 });
 
-test("hub performance stays an honest empty state", () => {
-  assert.match(SRC, /Hub ranking not available yet/);
-  assert.match(SRC, /No hub data\s*\n?\s*is fabricated in the meantime/);
+test("analytics omits hub ranking until hub metrics exist", () => {
+  assert.doesNotMatch(SRC, /Hub performance ranking|Hub ranking not available yet|analytics-hub-card/);
 });
 
 // ------------------------------------------------- honest derivations

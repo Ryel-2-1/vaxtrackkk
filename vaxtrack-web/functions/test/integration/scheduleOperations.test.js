@@ -215,7 +215,10 @@ test("a reschedule past a reserved batch's expiry is refused; a date it still co
   try {
     await assert.rejects(
       reschedule(ADMIN, { orderId: ids.held, requestedDeliveryDate: "2026-10-20", reason: "Clinic closed that week" }),
-      (e) => e.code === "reserved-batch-expires-first" && /LOT-EXP expires on 2026-10-15, before 2026-10-20/.test(e.message)
+      // The message gives both dates but never the batch ID: IDs like
+      // "AB_2026-001" would trip the web's user-message filter.
+      (e) => e.code === "reserved-batch-expires-first" && /A reserved batch expires on 2026-10-15, before 2026-10-20/.test(e.message)
+        && !/LOT-EXP/.test(e.message)
     );
     assert.equal((await order(ids.held)).requestedDeliveryDate, "2026-10-08", "nothing changed");
     const ok = await reschedule(ADMIN, { orderId: ids.held, requestedDeliveryDate: "2026-10-15", reason: "Clinic asked for the 15th" });

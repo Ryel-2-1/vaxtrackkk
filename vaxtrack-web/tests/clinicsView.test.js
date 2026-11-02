@@ -228,9 +228,9 @@ test("the grid card shows the list's information and the same actions; placehold
   assert.match(CODE, /onDetails=\{\(\) => setSelectedClinic\(clinic\)\}/);
   assert.match(CODE, /onManageLocation=\{\(trigger\) => openManageLocation\(clinic, trigger\)\}/);
   assert.match(card, /onClick=\{\(e\) => onManageLocation\(e\.currentTarget\)\}/, "focus returns to the card's button");
-  // No fake actions in the card; Edit stays the disabled, explained control in Details.
+  // No fake actions in the card or Details dialog.
   assert.equal(/Edit Clinic|Contact Rider|showToast|onEdit/.test(card), false);
-  assert.match(PAGE, /disabled\s+aria-describedby="clinic-edit-unavailable"/);
+  assert.doesNotMatch(PAGE, /Edit Clinic|clinic-edit-unavailable/);
   // Registration is the real dialog; the old pages stay gone.
   assert.match(PAGE, /function NewClinicModal\(/);
   assert.equal(/RegisterClinic|ClinicSuccess|register-clinic/.test(PAGE), false);

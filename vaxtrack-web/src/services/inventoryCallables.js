@@ -92,6 +92,7 @@ export async function createOrderWithReservation({
   requestId,
   doctorId,
   doctorAddressId,
+  zeroRateRequestId,
   items,
   priority,
   deliveryInstructions,
@@ -110,6 +111,7 @@ export async function createOrderWithReservation({
       requestId,
       doctorId,
       doctorAddressId,
+      ...(zeroRateRequestId ? { zeroRateRequestId } : {}),
       priority,
       deliveryInstructions,
       requestedDeliveryDate,
@@ -121,6 +123,8 @@ export async function createOrderWithReservation({
         // it has not moved — NOT so the server can use it. `unitPrice` is
         // deliberately no longer sent at all; the callable now rejects it.
         expectedUnitPriceCentavos: item.expectedUnitPriceCentavos,
+        ...(Number.isSafeInteger(item.expectedQuotedUnitPriceCentavos)
+          ? { expectedQuotedUnitPriceCentavos: item.expectedQuotedUnitPriceCentavos } : {}),
         // The Med Rep's negotiated VAT-inclusive UNIT price, the reason when it
         // differs from the standard, and this line's statutory (SC/PWD)
         // discount — category, amount and the Med Rep's eligibility
@@ -179,6 +183,7 @@ export async function addStockBatchWithAllocation({
   expiryDate,
   quantity,
   sellingPriceCentavos,
+  priceIsVatInclusive,
   manufacturer,
 }) {
   try {
@@ -190,6 +195,7 @@ export async function addStockBatchWithAllocation({
       expiryDate,
       quantity,
       sellingPriceCentavos,
+      priceIsVatInclusive,
       ...(manufacturer ? { manufacturer } : {}),
     });
     return result.data;

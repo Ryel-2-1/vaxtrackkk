@@ -47,7 +47,6 @@ const { statusUpdatedByEmailValue } = require("./attribution");
 const { routeFieldDeletes } = require("./orderRouteFields");
 const { TIMING_FIELDS } = require("./deliveryTiming");
 const { settleFailureReturn, failureWouldSettle } = require("./failureReturn");
-const { PRICES_INCLUDE_VAT } = require("./pricingConfig");
 const { dispositionEvents, epochOf, requeueEvent, prepareEvents, createPreparedEvents } = require("./orderHistory");
 
 const ORDERS = "orders";
@@ -91,7 +90,7 @@ function statusFromExpiry(expiryIso, todayIso) {
 
 /** Server-side Add Stock validation; mirrors src/services/stockBatchDates.js. */
 function validateStockBatchPayload(payload, now) {
-  const allowed = ["vaccineId", "batchId", "manufacturingDate", "arrivalDate", "expiryDate", "quantity", "sellingPriceCentavos", "manufacturer"];
+  const allowed = ["vaccineId", "batchId", "manufacturingDate", "arrivalDate", "expiryDate", "quantity", "sellingPriceCentavos", "priceIsVatInclusive", "manufacturer"];
   for (const key of Object.keys(payload ?? {})) {
     if (!allowed.includes(key)) throw new PolicyError("unknown-field", `Unexpected field: ${key}.`);
   }
@@ -120,6 +119,9 @@ function validateStockBatchPayload(payload, now) {
   }
   const price = readSellingPriceCentavos(payload?.sellingPriceCentavos);
   if (!price.ok) fail("invalid-stock-batch", "A stock batch needs a selling price in whole centavos.");
+  if (payload?.priceIsVatInclusive !== undefined && typeof payload.priceIsVatInclusive !== "boolean") {
+    fail("invalid-stock-batch", "Choose whether the entered batch price includes VAT.");
+  }
   const manufacturer =
     typeof payload?.manufacturer === "string" ? payload.manufacturer.trim().slice(0, 120) : "";
   return {
@@ -130,6 +132,7 @@ function validateStockBatchPayload(payload, now) {
     expiryDate: expiry,
     quantity,
     sellingPriceCentavos: price.value,
+    priceIsVatInclusive: payload.priceIsVatInclusive ?? true,
     manufacturer,
     status: statusFromExpiry(expiry, today),
   };
@@ -175,8 +178,8 @@ async function addStockBatchWithAllocation({ db, FieldValue, uid, payload, now }
       quarantinedQuantity: 0,
       sellingPriceCentavos: input.sellingPriceCentavos,
       priceCurrency: "PHP",
-      // The entered price is VAT-inclusive (pricingConfig.js).
-      priceIsVatInclusive: PRICES_INCLUDE_VAT,
+      // The Admin explicitly chooses the meaning of this batch's entered price.
+      priceIsVatInclusive: input.priceIsVatInclusive,
       status: input.status,
       // Usage is recorded from this batch's first moment (allocation.usageMark),
       // so whether it was ever used can be PROVEN — the precondition for voiding.

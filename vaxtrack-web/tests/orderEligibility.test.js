@@ -108,12 +108,13 @@ test("an unpriced or invalidly priced batch is not orderable", () => {
   }
   // A price recorded under the legacy VAT-exclusive convention (or with none
   // recorded) is never quoted as if it included VAT — mirrors the server.
-  for (const priceIsVatInclusive of [false, undefined, null, "true"]) {
+  for (const priceIsVatInclusive of [undefined, null, "true"]) {
     const result = evaluateBatchEligibility(batch({ priceIsVatInclusive }), TODAY);
     assert.equal(result.eligible, false, String(priceIsVatInclusive));
     assert.equal(result.reasonCode, ELIGIBILITY_REASONS.LEGACY_PRICE_CONVENTION, String(priceIsVatInclusive));
-    assert.match(result.reason, /Legacy pricing — VAT recorded as exclusive/);
+    assert.match(result.reason, /price basis|VAT/i);
   }
+  assert.equal(evaluateBatchEligibility(batch({ priceIsVatInclusive: false }), TODAY).eligible, true);
 });
 
 // 7. Zero (or fully reserved) available stock is not orderable.

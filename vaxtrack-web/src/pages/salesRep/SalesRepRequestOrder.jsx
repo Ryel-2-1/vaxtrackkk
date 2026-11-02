@@ -21,6 +21,7 @@ import CatalogFilterDialog from "../../components/inventory/CatalogFilterDialog"
 import { subscribeVaccines } from "../../services/vaccineCatalogService";
 import { applyVatToCatalogProduct } from "../../services/vatClassification";
 import { formatCentavos, readPriceCentavos } from "../../services/money";
+import { quoteUnitPrice } from "../../services/vatQuote";
 import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
 import {
   STORAGE_UNAVAILABLE_MESSAGE,
@@ -87,6 +88,7 @@ function normalizeProduct(raw, todayIso) {
     // the server to confirm. Carried into the cart so a price that moves while
     // the rep is deciding is caught rather than silently applied.
     unitPriceCentavos,
+    priceIsVatInclusive: typeof raw.priceIsVatInclusive === "boolean" ? raw.priceIsVatInclusive : null,
     priceLabel: formatCentavos(unitPriceCentavos),
     name: raw.vaccineName || "Unknown Vaccine",
     sku: raw.batchId || "—",
@@ -235,7 +237,16 @@ function RequestOrderCart({ uid }) {
         // all — hidden, not shown disabled. They stay in Admin Inventory.
         .filter((product) => !product.voided && !vaccinesById.get(product.vaccineId)?.archived)
         .filter((product) => showInactive || !inactiveIds.has(product.vaccineId))
-        .map((product) => applyVatToCatalogProduct(product, vaccinesById)),
+        .map((product) => {
+          const classified = applyVatToCatalogProduct(product, vaccinesById);
+          if (!classified.vatClassification || classified.unitPriceCentavos === null || typeof classified.priceIsVatInclusive !== "boolean") return classified;
+          const quote = quoteUnitPrice({
+            enteredCentavos: classified.unitPriceCentavos,
+            priceIsVatInclusive: classified.priceIsVatInclusive,
+            productVatClassification: classified.vatClassification,
+          });
+          return { ...classified, priceLabel: formatCentavos(quote.unitPriceCentavos) };
+        }),
     [catalog, vaccinesById, inactiveIds, showInactive]
   );
 
@@ -510,6 +521,7 @@ function RequestOrderCart({ uid }) {
                       </td>
                       <td className="rq-table-price">
                         <strong>{product.priceLabel}</strong>
+                        {product.vatClassification === "vatable" && <small>{product.priceIsVatInclusive ? "VAT included" : "12% VAT added"}</small>}
                         {product.unitPriceCentavos === null && <small>Not priced yet</small>}
                       </td>
                       <td>

@@ -77,6 +77,15 @@ class Delivery {
   final String? routeProvider;
   final String? routeProfile;
 
+  // Destination revisions, compared exactly as the server does
+  // (functions/src/riderTracking.js routeForOrder): a single-order route saved
+  // for an older destination revision no longer leads to this destination.
+  // Kept raw — never coerced — so a malformed value disagrees the same way on
+  // both sides.
+  final Object? destinationRevision;
+  final Object? routeDestinationRevision;
+  final DateTime? destinationCorrectedAt;
+
   // Multi-stop trip fields, written by the web Dispatcher's "Optimize route"
   // (Valhalla matrix with VaxTrack stop ordering). All optional — an order
   // outside an optimized trip omits them. The Rider app only READS these.
@@ -89,6 +98,7 @@ class Delivery {
   final int? tripDurationSeconds;
   final String? tripRouteProvider;
   final String? tripRouteProfile;
+  final DateTime? tripGeneratedAt;
 
   /// How to reach the confirmed clinic entrance ("Side gate on Rizal St."),
   /// copied onto the order with its pin. Optional; read-only for the rider.
@@ -146,6 +156,9 @@ class Delivery {
     this.routeGeneratedAt,
     this.routeProvider,
     this.routeProfile,
+    this.destinationRevision,
+    this.routeDestinationRevision,
+    this.destinationCorrectedAt,
     this.tripId,
     this.stopSequence,
     this.tripStopCount,
@@ -155,6 +168,7 @@ class Delivery {
     this.tripDurationSeconds,
     this.tripRouteProvider,
     this.tripRouteProfile,
+    this.tripGeneratedAt,
     this.destinationAccessNotes,
     this.timingStatus,
     this.expectedArrivalAt,
@@ -216,6 +230,9 @@ class Delivery {
       routeGeneratedAt: _toDateTime(data['routeGeneratedAt']),
       routeProvider: _nonBlank(data['routeProvider']),
       routeProfile: _nonBlank(data['routeProfile']),
+      destinationRevision: data['destinationRevision'],
+      routeDestinationRevision: data['routeDestinationRevision'],
+      destinationCorrectedAt: _toDateTime(data['destinationCorrectedAt']),
       tripId: (data['tripId'] as String?)?.isEmpty ?? true
           ? null
           : data['tripId'] as String?,
@@ -229,6 +246,7 @@ class Delivery {
       tripDurationSeconds: _toInt(data['tripDurationSeconds']),
       tripRouteProvider: _nonBlank(data['tripRouteProvider']),
       tripRouteProfile: _nonBlank(data['tripRouteProfile']),
+      tripGeneratedAt: _toDateTime(data['tripGeneratedAt']),
       destinationAccessNotes: _nonBlank(data['destinationAccessNotes']),
       timingStatus: _nonBlank(data['timingStatus']),
       expectedArrivalAt: _toDateTime(data['expectedArrivalAt']),

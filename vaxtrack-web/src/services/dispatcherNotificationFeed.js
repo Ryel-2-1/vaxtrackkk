@@ -1,60 +1,14 @@
 import { orderDestination, orderReference } from "./orderLabel.js";
-import {
-  FRESHNESS,
-  isValidCoordinate,
-  locationFreshness,
-  locationTimeMs,
-  millisOf,
-  normalizeStatus,
-} from "./riderTracking.js";
+import { FRESHNESS, millisOf, normalizeStatus } from "./riderTracking.js";
 import { presentAlert } from "./alertPresentation.js";
 
-export const NEAR_DWELL_MS = 2 * 60 * 1000;
-export const NEAR_WAIT_MS = 15 * 60 * 1000;
 const RECENT_MS = 7 * 24 * 60 * 60 * 1000;
-const MAX_ACCURACY_M = 100;
-const DEFAULT_RADIUS_M = 300;
 
-function radiusOf(order) {
-  const value = order.destinationGeofenceRadiusM ?? order.clinicGeofenceRadiusM;
-  return Number.isFinite(value) && value > 0 ? value : DEFAULT_RADIUS_M;
-}
-
-function distanceMeters(aLat, aLng, bLat, bLng) {
-  const rad = (n) => n * Math.PI / 180;
-  const deltaLat = rad(bLat - aLat);
-  const deltaLng = rad(bLng - aLng);
-  const sin = Math.sin(deltaLat / 2) ** 2 + Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * Math.sin(deltaLng / 2) ** 2;
-  return 2 * 6371000 * Math.asin(Math.sqrt(sin));
-}
-
-// Two distinct, accurate fixes at least two minutes apart must stay inside
-// the destination radius. A stale/poor fix or a gap in tracking resets the
-// candidate; one GPS point never claims a Rider reached the clinic.
-export function advanceNearDestinations(previous, orders, locations, nowMs) {
-  const next = {};
-  for (const order of orders) {
-    if (!order?.id || !["in_transit", "delayed"].includes(normalizeStatus(order.statusKey ?? order.status ?? order.rawStatus))) continue;
-    const riderUid = order.assignedRiderId;
-    const loc = riderUid ? locations[riderUid] : null;
-    if (!isValidCoordinate(order.clinicLat, order.clinicLng)
-      || locationFreshness(loc, nowMs) !== "fresh"
-      || !Number.isFinite(loc?.accuracyMeters) || loc.accuracyMeters > MAX_ACCURACY_M) continue;
-    const fixMs = locationTimeMs(loc);
-    if (fixMs === null || fixMs > nowMs + 30_000) continue;
-    if (distanceMeters(loc.latitude, loc.longitude, order.clinicLat, order.clinicLng) > radiusOf(order)) continue;
-
-    const prior = previous[order.id];
-    const continuous = prior && prior.riderUid === riderUid
-      && fixMs >= prior.lastFixMs && fixMs - prior.lastFixMs <= FRESHNESS.freshMs;
-    const firstFixMs = continuous ? prior.firstFixMs : fixMs;
-    const confirmedAtMs = continuous
-      ? prior.confirmedAtMs ?? (fixMs > prior.lastFixMs && fixMs - firstFixMs >= NEAR_DWELL_MS ? fixMs : null)
-      : null;
-    next[order.id] = { riderUid, firstFixMs, lastFixMs: fixMs, confirmedAtMs };
-  }
-  return next;
-}
+// "Near destination" is decided on the server (functions/src/arrivalProximity
+// .js) from every Rider fix, so it does not depend on this page being open:
+// `near` is the arrivalProximity documents keyed by order id. The 15-minute
+// "still awaiting completion" follow-up is a server alert
+// (delivery_awaiting_completion) and arrives with the other alerts.
 
 function shipmentPath(order) {
   return `/dispatcher/shipments?order=${encodeURIComponent(order.id)}`;
@@ -113,18 +67,12 @@ export function buildDispatcherNotificationFeed({ alerts, orders, near, nowMs })
     }
 
     const nearState = near[order.id];
-    if (!["in_transit", "delayed"].includes(status) || !nearState?.confirmedAtMs
-      || nowMs - nearState.lastFixMs > FRESHNESS.freshMs) continue;
+    if (!["in_transit", "delayed"].includes(status) || !Number.isFinite(nearState?.confirmedAtMs)
+      || nearState.riderUid !== order.assignedRiderId || nowMs - nearState.lastFixMs > FRESHNESS.freshMs) continue;
     const confirmed = nearState.confirmedAtMs;
     items.push(item({ id: `near:${order.id}:${confirmed}`, kind: "update", title: "Rider near destination",
-      message: `${riderName(order)} has remained within ${Math.round(radiusOf(order))} m of ${clinic} based on recent GPS. Clinic arrival and handoff are not confirmed.`,
+      message: `${riderName(order)} has remained within ${Math.round(nearState.radiusM)} m of ${clinic} based on recent GPS. Clinic arrival and handoff are not confirmed.`,
       atMs: confirmed, path }));
-    if (nowMs - confirmed >= NEAR_WAIT_MS) {
-      items.push(item({ id: `near-wait:${order.id}:${confirmed}`, kind: "action",
-        title: "Delivery still awaiting completion",
-        message: `${code} was near ${clinic} at least 15 minutes ago, but no completion is recorded. Check with the rider.`,
-        atMs: confirmed + NEAR_WAIT_MS, path }));
-    }
   }
   return {
     actions: items.filter((entry) => entry.kind === "action").sort((a, b) => b.atMs - a.atMs),

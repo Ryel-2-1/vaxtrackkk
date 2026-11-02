@@ -112,6 +112,13 @@
   border-color: var(--warning-border);
 }
 
+/* A stale or offline position: where the rider WAS — neutral. */
+.ldm-geofence.stale {
+  background: var(--gray-50, #f9fafb);
+  color: var(--gray-700, #374151);
+  border-color: var(--gray-200, #e5e7eb);
+}
+
 .ldm-route {
   display: flex;
   flex-wrap: wrap;

@@ -37,6 +37,12 @@ export function deriveSalesRepOrderAlert(order) {
       title = `Delivery Delayed — ${orderNum}`;
       body = `Order to ${clinic} for ${vaccine} has been delayed. Check order tracking for updates.`;
       break;
+    case "delivery_failed":
+      tone = "critical";
+      tag = "NEEDS ATTENTION";
+      title = `Delivery Failed — ${orderNum}`;
+      body = `The delivery of ${vaccine} to ${clinic} failed. Check order tracking for the next action.`;
+      break;
     case "cancelled":
     case "canceled":
       tone = "critical";

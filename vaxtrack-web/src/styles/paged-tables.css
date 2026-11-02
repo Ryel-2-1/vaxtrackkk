@@ -11,7 +11,6 @@
 .deliveries-v4-page .mdl-table-wrap,
 .dispatcher-main .shp-table-wrap,
 .dispatcher-main .dispatcher-dash-table-wrap,
-.salesrep-page .tracking-v2-table-wrap,
 .ohx-list-table-wrap {
   max-height: min(62dvh, 640px);
   overflow: auto;
@@ -29,7 +28,6 @@
 .deliveries-v4-page .mdl-table-wrap thead th,
 .dispatcher-main .shp-table-wrap thead th,
 .dispatcher-main .dispatcher-dash-table-wrap thead th,
-.salesrep-page .tracking-v2-table-wrap thead th,
 .ohx-list-table-wrap thead th {
   position: sticky;
   top: 0;

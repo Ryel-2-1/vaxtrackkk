@@ -361,6 +361,86 @@ aside.salesrep-sidebar .salesrep-logout {
 .salesrep-main .place-v2-pricing-card small {
   color: var(--gray-500) !important;
 }
+
+.salesrep-main .zero-rate-checkout-card {
+  display: grid;
+  gap: 12px;
+}
+.salesrep-main .zero-rate-checkout-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.salesrep-main .zero-rate-checkout-heading h2 {
+  margin: 0 !important;
+  color: var(--gray-900) !important;
+  font-size: 16px !important;
+}
+.salesrep-main .zero-rate-checkout-heading span {
+  border-radius: 999px;
+  background: var(--gray-100);
+  color: var(--gray-600);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.salesrep-main .zero-rate-checkout-intro,
+.salesrep-main .zero-rate-checkout-form > p {
+  margin: 0 !important;
+  color: var(--gray-600) !important;
+  font-size: 13px !important;
+  line-height: 1.5;
+}
+.salesrep-main .zero-rate-checkout-toggle,
+.salesrep-main .zero-rate-checkout-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  border-radius: 9px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.salesrep-main .zero-rate-checkout-toggle {
+  justify-self: start;
+  border: 1px solid var(--gray-300);
+  background: #fff;
+  color: var(--green-700);
+}
+.salesrep-main .zero-rate-checkout-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+.salesrep-main .zero-rate-checkout-form { display: grid; gap: 9px; padding-top: 3px; }
+.salesrep-main .zero-rate-checkout-form label { margin: 0 !important; }
+.salesrep-main .zero-rate-checkout-form textarea { width: 100%; }
+.salesrep-main .zero-rate-checkout-submit {
+  border: 1px solid var(--green-700);
+  background: var(--green-700);
+  color: #fff;
+}
+.salesrep-main .zero-rate-checkout-submit:disabled { opacity: 0.55; cursor: not-allowed; }
+.salesrep-main .zero-rate-checkout-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid #c2dfd0;
+  border-radius: 10px;
+  background: #eef8f1;
+  color: #175c3f;
+  padding: 12px;
+}
+.salesrep-main .zero-rate-checkout-status.is-pending {
+  border-color: #f0d9a7;
+  background: #fff9e9;
+  color: #80510a;
+}
+.salesrep-main .zero-rate-checkout-status svg { flex: none; margin-top: 1px; }
+.salesrep-main .zero-rate-checkout-status strong { font-size: 13px; }
+.salesrep-main .zero-rate-checkout-status p { margin: 4px 0 0 !important; color: inherit !important; font-size: 12px !important; line-height: 1.5; }
+.salesrep-main .zero-rate-checkout-denied,
+.salesrep-main .zero-rate-checkout-error { margin: 0 !important; color: #a52b23 !important; font-size: 12px !important; line-height: 1.5; }
 /* Compact delete control on the checkout rows (kept ≥36px target) */
 .salesrep-main .place-v2-remove-btn {
   min-height: 36px !important;
@@ -1626,12 +1706,10 @@ aside.salesrep-sidebar .salesrep-logout {
 .salesrep-main .tracking-v2-side {
   border: 1px solid var(--gray-300) !important;
 }
-/* Two independent scroll areas of ONE fixed height (2026-10-31): the order
-   table (rows scroll under a sticky header; the pager is pinned to the card's
-   foot) and, on desktop, the selected-order panel beside it. A filter that
-   leaves one row never shrinks the card, so the pager never moves. On a tall
-   screen both fit the viewport and the page itself does not scroll; on a
-   short one the page still scrolls, so nothing is ever cut off. */
+/* The default card height is a fallback for short and stacked layouts. The
+   desktop viewport rule below lets a short table collapse while keeping a
+   full page inside the viewport; its header and pager remain outside the row
+   scroll area. */
 .salesrep-main .tracking-v2-layout {
   --trk-pane-h: min(62dvh, 640px);
 }
@@ -1871,9 +1949,7 @@ aside.salesrep-sidebar .salesrep-logout {
 .salesrep-main .alerts-v2-sticky-head .alerts-v2-header {
   margin: 0 0 10px !important;
 }
-/* Lifecycle tabs, category chips and search on one toolbar row; it wraps
-   on narrow screens. The groups keep their own look so lifecycle and
-   category stay distinguishable. */
+/* Order lifecycle tabs, status, and search share one compact toolbar. */
 .salesrep-main .alerts-v2-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -1881,17 +1957,30 @@ aside.salesrep-sidebar .salesrep-logout {
   gap: 12px 24px;
   margin: 0;
 }
-.salesrep-main .alerts-v2-toolbar .alerts-v2-tabs,
-.salesrep-main .alerts-v2-toolbar .alerts-v2-filters {
+.salesrep-main .alerts-v2-toolbar .alerts-v2-tabs {
   margin: 0 !important;
+}
+.salesrep-main .alerts-v2-status-select {
+  min-height: 42px !important;
+  height: 42px !important;
+  min-width: 174px;
+  padding: 0 12px;
+  border: 1px solid var(--gray-500);
+  border-radius: var(--radius-control);
+  background: #fff;
+  color: var(--gray-900);
+  font: inherit;
+  font-weight: 600;
 }
 .salesrep-main .alerts-v2-search {
   border: 1px solid var(--gray-500) !important;
 }
-.salesrep-main .alerts-v2-filters .alert-filter-btn.critical {
-  background-color: var(--error-bg, #fee2e2) !important;
-  color: var(--error-text, #dc2626) !important;
-  border-color: var(--error-border, #fca5a5) !important;
+@media (max-width: 640px) {
+  .salesrep-main .alerts-v2-status-select,
+  .salesrep-main .alerts-v2-search {
+    width: 100% !important;
+    max-width: none !important;
+  }
 }
 .salesrep-main .alerts-v2-card {
   border-top-color: var(--gray-300) !important;
@@ -3054,4 +3143,84 @@ body:has(> #root > .salesrep-page),
    lets the map and sidebar fill the viewport below the top bar. */
 .salesrep-main .srl-monitor {
   --ltp-offset: 60px;
+}
+
+/* Inventory and tracking use the space below the shell header on desktop.
+   Rows scroll inside their cards; the table headings and pager stay visible.
+   On small/short screens the normal document scroll remains available so no
+   controls are clipped. */
+@media (min-width: 1101px) and (min-height: 700px) {
+  #root .salesrep-route-view:has(> .inventory-v2-title) {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - var(--shell-topbar-height));
+    min-height: 0;
+    overflow: hidden;
+  }
+  .salesrep-main .inventory-v2-title {
+    flex: 0 0 auto;
+  }
+  .salesrep-main .inventory-v2-summary {
+    flex: 0 1 clamp(180px, 25dvh, 230px);
+    min-height: 170px;
+    overflow: hidden;
+  }
+  .salesrep-main .inventory-stock-chart-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .salesrep-main .stock-hbar-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none !important;
+  }
+  .salesrep-main .inventory-side-metrics,
+  .salesrep-main .inventory-side-metrics .small-metric-card {
+    min-height: 0 !important;
+  }
+  .salesrep-main .inventory-v2-table-card {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden !important;
+  }
+  .salesrep-main .inventory-v2-table-region {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+    overflow: auto;
+  }
+  .salesrep-main .inventory-v2-page-nav {
+    flex: 0 0 auto;
+  }
+}
+
+/* Order Tracking: both cards use the same viewport-based height. The toolbar
+   stays in normal flow, table rows scroll below their sticky headings, and
+   pagination stays anchored at the bottom of the left card. */
+@media (min-width: 1201px) and (min-height: 540px) {
+  #root .salesrep-route-view:has(> .tracking-v2-page) {
+    padding-top: 12px !important;
+    padding-bottom: 12px !important;
+  }
+  .salesrep-main .tracking-v2-toolbar {
+    position: static;
+    margin: 0 0 12px !important;
+  }
+  .salesrep-main .tracking-v2-layout {
+    --trk-pane-h: max(320px, calc(100dvh - var(--shell-topbar-height) - 112px));
+  }
+  .salesrep-main .tracking-v2-table-wrap {
+    height: var(--trk-pane-h);
+    max-height: none;
+  }
+  .salesrep-main .tracking-v2-table-scroll {
+    flex: 1 1 auto;
+  }
+  .salesrep-main .tracking-v2-side {
+    height: var(--trk-pane-h);
+  }
 }

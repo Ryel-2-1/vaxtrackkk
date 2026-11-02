@@ -1023,3 +1023,133 @@
   outline-offset: 2px;
   border-radius: 4px;
 }
+
+/* The approval queue is a separate action surface from system alerts. */
+.alerts-v2-main .zero-rate-reviews {
+  margin-bottom: 16px;
+  padding: 20px 22px;
+  color: var(--gray-900);
+}
+
+.alerts-v2-main .zero-rate-reviews-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.alerts-v2-main .zero-rate-reviews-eyebrow {
+  color: var(--green-700);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.alerts-v2-main .zero-rate-reviews h2 {
+  margin: 3px 0 0;
+  color: var(--gray-900);
+  font-size: 21px;
+  line-height: 1.25;
+}
+
+.alerts-v2-main .zero-rate-reviews-head p {
+  margin: 4px 0 0;
+  color: var(--gray-600);
+  font-size: 13px;
+}
+
+.alerts-v2-main .zero-rate-reviews-count {
+  flex: none;
+  border-radius: 999px;
+  padding: 6px 11px;
+  background: #e7f4ec;
+  color: #176143;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.alerts-v2-main .zero-rate-reviews-count.is-error {
+  background: #fff0ed;
+  color: #a52b23;
+}
+
+.alerts-v2-main .zero-rate-reviews-empty {
+  margin: 16px 0 0;
+  color: var(--gray-600);
+  font-size: 14px;
+}
+
+.alerts-v2-main .zero-rate-reviews-feedback,
+.alerts-v2-main .zero-rate-reviews-load-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 16px 0 0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 13px;
+}
+
+.alerts-v2-main .zero-rate-reviews-feedback svg,
+.alerts-v2-main .zero-rate-reviews-load-error > svg { flex: none; }
+.alerts-v2-main .zero-rate-reviews-feedback.is-success { background: #eaf7ef; color: #176143; }
+.alerts-v2-main .zero-rate-reviews-feedback.is-error,
+.alerts-v2-main .zero-rate-reviews-load-error { background: #fff2f0; color: #a52b23; }
+.alerts-v2-main .zero-rate-reviews-load-error div { flex: 1; min-width: 0; }
+.alerts-v2-main .zero-rate-reviews-load-error p { margin: 3px 0 0; line-height: 1.45; }
+.alerts-v2-main .zero-rate-reviews-load-error button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  border: 1px solid #ecaea9;
+  border-radius: 8px;
+  background: #fff;
+  color: #922922;
+  padding: 7px 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.alerts-v2-main .zero-rate-review-item {
+  margin-top: 14px;
+  border: 1px solid var(--gray-200);
+  border-left: 3px solid var(--green-600);
+  border-radius: 11px;
+  padding: 16px;
+}
+
+.alerts-v2-main .zero-rate-review-item-head,
+.alerts-v2-main .zero-rate-review-meta,
+.alerts-v2-main .zero-rate-review-items li,
+.alerts-v2-main .zero-rate-review-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.alerts-v2-main .zero-rate-review-item-head strong { color: var(--gray-900); font-size: 15px; }
+.alerts-v2-main .zero-rate-review-item-head span { display: block; margin-top: 3px; color: var(--gray-600); font-size: 12px; }
+.alerts-v2-main .zero-rate-review-item-date { flex: none; font-weight: 700; }
+.alerts-v2-main .zero-rate-review-meta { justify-content: flex-start; gap: 18px; margin-top: 12px; color: var(--gray-600); font-size: 12px; }
+.alerts-v2-main .zero-rate-review-meta strong { color: var(--gray-900); }
+.alerts-v2-main .zero-rate-review-reason { margin-top: 14px; border-radius: 8px; background: var(--gray-50); padding: 11px 13px; }
+.alerts-v2-main .zero-rate-review-reason span { color: var(--gray-600); font-size: 12px; font-weight: 700; }
+.alerts-v2-main .zero-rate-review-reason p { margin: 4px 0 0; color: var(--gray-900); font-size: 14px; overflow-wrap: anywhere; }
+.alerts-v2-main .zero-rate-review-items { margin-top: 13px; font-size: 13px; }
+.alerts-v2-main .zero-rate-review-items ul { margin: 6px 0 0; padding: 0; list-style: none; }
+.alerts-v2-main .zero-rate-review-items li { border-top: 1px solid var(--gray-200); padding: 7px 0; }
+.alerts-v2-main .zero-rate-review-items li strong { flex: none; }
+.alerts-v2-main .zero-rate-review-actions { justify-content: flex-end; margin-top: 10px; }
+.alerts-v2-main .zero-rate-review-actions button { border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.alerts-v2-main .zero-rate-review-actions button:disabled { opacity: 0.6; cursor: wait; }
+.alerts-v2-main .zero-rate-accept { border: 1px solid var(--green-700); background: var(--green-700); color: #fff; }
+.alerts-v2-main .zero-rate-deny { border: 1px solid var(--gray-300); background: #fff; color: var(--gray-900); }
+
+@media (max-width: 640px) {
+  .alerts-v2-main .zero-rate-reviews-head,
+  .alerts-v2-main .zero-rate-review-item-head,
+  .alerts-v2-main .zero-rate-reviews-load-error { flex-wrap: wrap; }
+  .alerts-v2-main .zero-rate-review-actions button { flex: 1; }
+}

@@ -134,6 +134,35 @@ function newState({ riderUid, session, route }) {
 }
 
 /**
+ * A new session replacing a still-navigating one on the SAME saved route
+ * continues its deviation. Stops of one trip share the trip route, so tapping
+ * Start on another stop must not clear a confirmed deviation, close its alert,
+ * or restart the 3-minute clock — otherwise switching stops would hide a rider
+ * who is off the plan. The carried alert stays open (`openAlertId`) until the
+ * return or the end of this session resolves it, and the previous session's
+ * last qualifying fix may bridge continuity for this session's first fix
+ * (`carriedQualifyingFixAtMs`, never the session's own evidence). A different
+ * route, or an unavailable one, starts fresh. Null when nothing carries over.
+ */
+function continuedState({ previous, fresh }) {
+  if (!previous || previous.sessionState !== "navigating" || previous.riderUid !== fresh.riderUid) return null;
+  if (previous.routeStatus !== "available" || fresh.routeStatus !== "available") return null;
+  if (typeof fresh.routeFingerprint !== "string" || previous.routeFingerprint !== fresh.routeFingerprint) return null;
+  return {
+    ...fresh,
+    phase: previous.phase === "deviating" ? "deviating" : "on_route",
+    pendingOffSinceMs: previous.pendingOffSinceMs ?? null,
+    pendingReturnSinceMs: previous.pendingReturnSinceMs ?? null,
+    lastTransitionAtMs: previous.lastTransitionAtMs ?? null,
+    distanceAtTransitionMeters: previous.distanceAtTransitionMeters ?? null,
+    episode: Number.isInteger(previous.episode) ? previous.episode : 0,
+    openAlertId: previous.openAlertId ?? null,
+    continuedFromSessionId: previous.sessionId ?? null,
+    carriedQualifyingFixAtMs: Number.isFinite(previous.lastQualifyingFixAtMs) ? previous.lastQualifyingFixAtMs : null,
+  };
+}
+
+/**
  * A rider's riderLocations doc was written: advance the deviation state of the
  * active navigation session (if any). Returns a summary for logging.
  *
@@ -251,7 +280,11 @@ async function processLocationWrite({ db, FieldValue, riderUid, location, previo
     let dirty = false;
     let ownEvidence = evidence;
     if (!state || state.sessionId !== session.sessionId) {
-      state = newState({ riderUid, session, route });
+      const fresh = newState({ riderUid, session, route });
+      const carried = staleClose ? continuedState({ previous: staleClose.state, fresh }) : null;
+      // Same route: the previous session's deviation continues, nothing closes.
+      if (carried) staleClose = null;
+      state = carried ?? fresh;
       ownEvidence = T.sessionEvidence({ session, location, previous, current, state, nowMs: T.millisOf(current?.updatedAt) ?? T.millisOf(location?.updatedAt) });
       dirty = true;
     } else if (evidence.replay) {
@@ -296,7 +329,9 @@ async function processLocationWrite({ db, FieldValue, riderUid, location, previo
       // Continuity from the last QUALIFYING fix of this session before this
       // one: an ordinary, inaccurate, late or other-session fix in between
       // neither bridges nor breaks it.
-      previousSampleAtMs: ownEvidence.previousQualifyingAtMs,
+      // A session continuing another on the same route (continuedState) may
+      // bridge its first fix from the previous session's last one.
+      previousSampleAtMs: ownEvidence.previousQualifyingAtMs ?? state.carriedQualifyingFixAtMs ?? null,
       notBeforeMs: T.millisOf(session.startedAt),
     });
     if (result.changed) {
@@ -314,7 +349,10 @@ async function processLocationWrite({ db, FieldValue, riderUid, location, previo
       const eventId = T.deviationEventId({ sessionId: session.sessionId, episode: result.state.episode, type: result.event.type });
       eventRef = db.collection(C.EVENTS).doc(eventId);
       eventExists = (await tx.get(eventRef)).exists;
-      alertRef = db.collection(C.ALERTS).doc(T.deviationAlertId(context));
+      // A return resolves the alert that is actually open — which, for a
+      // continued session, was raised under the previous session's id.
+      const openId = result.event.type === "returned" && typeof state.openAlertId === "string" ? state.openAlertId : null;
+      alertRef = db.collection(C.ALERTS).doc(openId ?? T.deviationAlertId(context));
       const alertSnap = await tx.get(alertRef);
       existingAlert = alertSnap.exists ? alertSnap.data() : null;
     }
@@ -369,7 +407,11 @@ async function handleSessionWrite({ db, FieldValue, riderUid, after, before = un
       const orderSnap = await tx.get(db.collection(C.ORDERS).doc(after.orderId));
       order = orderSnap.exists ? orderSnap.data() : null;
     }
-    const closeOld = state && state.sessionState === "navigating" && (!navigating || state.sessionId !== after.sessionId);
+    const starting = navigating && (!state || state.sessionId !== after.sessionId);
+    const fresh = starting ? newState({ riderUid, session: after, route: T.routeForOrder(order) }) : null;
+    // Same saved route: the previous session's deviation continues (continuedState).
+    const carried = starting && state ? continuedState({ previous: state, fresh }) : null;
+    const closeOld = !carried && state && state.sessionState === "navigating" && (!navigating || state.sessionId !== after.sessionId);
     const closeInputs = closeOld ? await readCloseInputs(tx, db, state) : null;
 
     if (closeOld) {
@@ -377,9 +419,9 @@ async function handleSessionWrite({ db, FieldValue, riderUid, after, before = un
       const replacing = navigating && state.sessionId !== after.sessionId;
       closeStateWrites({ tx, db, FieldValue, stateRef, state, reason, writeState: !replacing, ...closeInputs });
     }
-    if (navigating && (!state || state.sessionId !== after.sessionId)) {
-      tx.set(stateRef, { ...newState({ riderUid, session: after, route: T.routeForOrder(order) }), updatedAt: FieldValue.serverTimestamp() });
-      return { started: after.sessionId, closed: closeOld ? state.sessionId : null };
+    if (starting) {
+      tx.set(stateRef, { ...(carried ?? fresh), updatedAt: FieldValue.serverTimestamp() });
+      return { started: after.sessionId, closed: closeOld ? state.sessionId : null, continuedFrom: carried ? state.sessionId : null };
     }
     return { started: null, closed: closeOld ? state.sessionId : null };
   });

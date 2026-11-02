@@ -221,7 +221,7 @@ test("Alerts category counts are of active alerts and say so when a category is 
   assert.equal(page.includes('alert.type.includes("Delivery")'), false, "the delivery count no longer includes resolved alerts");
   assert.match(page, /delivery: kpi\(activeAlertCountOfType\(alerts, "delivery_delay"\)\)/);
   assert.match(read("src/services/adminAlertCategories.js"), /alert.status !== "resolved" && alert.typeKey === typeKey/);
-  assert.match(page, /Automatic stock alerts are not available yet/);
+  assert.match(page, /Review stock in Inventory<small>Check stock levels and expiry dates<\/small>/);
   assert.match(page, /onClick=\{\(\) => navigate\("\/admin\/inventory"\)\}/);
   assert.equal(page.includes("System areas being monitored"), false);
 });

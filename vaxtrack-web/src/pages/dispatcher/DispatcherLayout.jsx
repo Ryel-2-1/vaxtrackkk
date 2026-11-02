@@ -19,13 +19,13 @@ import {
 import { auth } from "../../firebase";
 import { subscribeActiveAlerts } from "../../services/alertService";
 import { lateAlertLiveText } from "../../services/deliveryTiming";
-import { subscribeDeliveries } from "../../services/deliveryService";
-import { subscribeAllRiderLocations } from "../../services/riderTrackingService";
-import { advanceNearDestinations, buildDispatcherNotificationFeed } from "../../services/dispatcherNotificationFeed";
+import { subscribeNotificationOrders } from "../../services/deliveryService";
+import { subscribeArrivalProximity } from "../../services/riderTrackingService";
+import { buildDispatcherNotificationFeed } from "../../services/dispatcherNotificationFeed";
 import useMinuteClock from "../../components/useMinuteClock";
 import SidebarProfile from "../../components/shell/SidebarProfile";
 import OfflineNotice from "../../components/shell/OfflineNotice";
-import { loadReadIds, saveReadIds, withReadIds } from "../../services/notificationReadState";
+import useNotificationReadState from "../../components/useNotificationReadState";
 import {
   DRAWER_MEDIA_QUERY,
   nextNavState,
@@ -86,15 +86,12 @@ function DispatcherLayout() {
   const [operationalAlerts, setOperationalAlerts] = useState([]);
   const [orders, setOrders] = useState([]);
   const [nearDestinations, setNearDestinations] = useState({});
-  const ordersRef = useRef([]);
-  const locationsRef = useRef({});
-  const uid = auth.currentUser?.uid ?? null;
-  const projectId = auth.app.options.projectId;
-  const [readNotifications, setReadNotifications] = useState(() => loadReadIds(projectId, "dispatcher", uid));
+  // Read marks: this browser's cache + the user's shared copy in Firestore.
+  const [readNotifications, markNotificationsRead] = useNotificationReadState("dispatcher");
   // Live "now N minutes past expected arrival" on late-delivery alerts.
   const minuteNow = useMinuteClock();
-  const [feedErrors, setFeedErrors] = useState({ alerts: false, orders: false, locations: false });
-  const [feedLoading, setFeedLoading] = useState({ alerts: true, orders: true, locations: true });
+  const [feedErrors, setFeedErrors] = useState({ alerts: false, orders: false, near: false });
+  const [feedLoading, setFeedLoading] = useState({ alerts: true, orders: true, near: true });
   const notificationsError = Object.values(feedErrors).some(Boolean);
   const notificationsLoading = Object.values(feedLoading).some(Boolean);
   const feed = useMemo(() => buildDispatcherNotificationFeed({
@@ -104,12 +101,10 @@ function DispatcherLayout() {
   const unreadActionCount = feed.actions.filter((entry) => !readNotifications.includes(entry.id)).length;
   const unreadUpdateCount = feed.updates.filter((entry) => !readNotifications.includes(entry.id)).length;
 
-  useEffect(() => {
-    saveReadIds(projectId, "dispatcher", uid, readNotifications);
-  }, [projectId, uid, readNotifications]);
-
-  // Operational exceptions, shipment outcomes, and current Rider positions are
-  // separate live reads. A failed source is named in the panel, not an all-clear.
+  // Three narrow live reads (2026-11-01): active alerts; only the orders the
+  // bell speaks about (on the road, delayed, failed, delivered this week); and
+  // the server's arrival-proximity documents. Never every order or every
+  // Rider's location. A failed source is named in the panel, not an all-clear.
   useEffect(() => {
     const ready = (source) => setFeedLoading((current) => ({ ...current, [source]: false }));
     const failed = (source) => {
@@ -122,20 +117,17 @@ function DispatcherLayout() {
       clearError("alerts");
       ready("alerts");
     }, () => { setOperationalAlerts([]); failed("alerts"); });
-    const stopOrders = subscribeDeliveries((nextOrders) => {
-      ordersRef.current = nextOrders;
+    const stopOrders = subscribeNotificationOrders((nextOrders) => {
       setOrders(nextOrders);
-      setNearDestinations((previous) => advanceNearDestinations(previous, nextOrders, locationsRef.current, Date.now()));
       clearError("orders");
       ready("orders");
-    }, () => { ordersRef.current = []; setOrders([]); setNearDestinations({}); failed("orders"); });
-    const stopLocations = subscribeAllRiderLocations((nextLocations) => {
-      locationsRef.current = nextLocations;
-      setNearDestinations((previous) => advanceNearDestinations(previous, ordersRef.current, nextLocations, Date.now()));
-      clearError("locations");
-      ready("locations");
-    }, () => { locationsRef.current = {}; setNearDestinations({}); failed("locations"); });
-    return () => { stopAlerts(); stopOrders(); stopLocations(); };
+    }, () => { setOrders([]); failed("orders"); });
+    const stopNear = subscribeArrivalProximity((near) => {
+      setNearDestinations(near);
+      clearError("near");
+      ready("near");
+    }, () => { setNearDestinations({}); failed("near"); });
+    return () => { stopAlerts(); stopOrders(); stopNear(); };
   }, []);
 
   // Growing back past the breakpoint must not leave an overlay stranded on top
@@ -246,7 +238,7 @@ function DispatcherLayout() {
   };
 
   const handleNotificationClick = (notification) => {
-    setReadNotifications((current) => withReadIds(current, [notification.id]));
+    markNotificationsRead([notification.id]);
 
     setShowNotifications(false);
     if (notification.path) {
@@ -255,7 +247,7 @@ function DispatcherLayout() {
   };
 
   const handleClearNotifications = () => {
-    setReadNotifications((current) => withReadIds(current, notifications.map((notification) => notification.id)));
+    markNotificationsRead(notifications.map((notification) => notification.id));
   };
 
 

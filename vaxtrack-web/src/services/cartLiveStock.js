@@ -67,7 +67,9 @@ export function liveCartLines(items, batches, todayIso, vaccinesById = null) {
       cartAvailable,
       availableNow: liveAvailable ?? item.availableNow,
       livePriceCentavos,
-      priceChanged: livePriceCentavos !== item.expectedUnitPriceCentavos,
+      livePriceIsVatInclusive: batch.priceIsVatInclusive,
+      priceChanged: livePriceCentavos !== item.expectedUnitPriceCentavos ||
+        (typeof item.priceIsVatInclusive === "boolean" && batch.priceIsVatInclusive !== item.priceIsVatInclusive),
       batchGone: false,
       liveBlockedReason: eligibility.eligible ? null : eligibility.reason || "This batch can no longer be ordered.",
       stockShortNow:
@@ -126,7 +128,10 @@ export function acceptLiveLine(items, line) {
   return items.map((item) => {
     if (item.inventoryId !== line.inventoryId || item.sku !== line.sku) return item;
     const next = { ...item };
-    if (line.priceChanged && line.livePriceCentavos !== null) next.expectedUnitPriceCentavos = line.livePriceCentavos;
+    if (line.priceChanged && line.livePriceCentavos !== null) {
+      next.expectedUnitPriceCentavos = line.livePriceCentavos;
+      next.priceIsVatInclusive = line.livePriceIsVatInclusive;
+    }
     if (Number.isInteger(line.availableNow)) next.availableNow = line.availableNow;
     return next;
   });

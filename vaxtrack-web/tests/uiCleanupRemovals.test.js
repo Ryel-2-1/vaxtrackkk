@@ -228,21 +228,22 @@ test("Order Tracking: the one search sits in the filter toolbar with the tabs an
   }
   assert.match(toolbar, /onChange=\{\(event\) => \{ setSearchTerm\(event\.target\.value\); setPage\(1\); \}\}/);
   assert.match(toolbar, /placeholder="Search order ID, clinic, vaccine, or status\.\.\."/);
-  assert.equal(block(page, "tracking-v2-header").includes("tracking-v2-search"), false, "no search left in the header");
+  assert.doesNotMatch(page, /Deliveries overview|Monitor active deliveries, shipment progress, and completed orders\.|Filter by Status/);
+  assert.match(page, /className="m-visually-hidden">Filter by status<\/span>/);
 });
 
-test("Alerts: lifecycle tabs, category chips and the one search share a single toolbar", () => {
+test("Alerts: order tabs, status select and the one search share a single toolbar", () => {
   const page = stripComments(read("src/pages/salesRep/SalesRepAlerts.jsx"));
   assert.equal((page.match(/className="alerts-v2-search"/g) || []).length, 1, "exactly one search");
   const toolbar = block(page, "alerts-v2-toolbar");
-  for (const part of ['className="sales-alert-tabs alerts-v2-tabs"', 'className="sales-alert-filters alerts-v2-filters"', 'className="alerts-v2-search"']) {
+  for (const part of ['className="sales-alert-tabs alerts-v2-tabs"', 'className="alerts-v2-status-select"', 'className="alerts-v2-search"']) {
     assert.ok(toolbar.includes(part), `${part} is in the toolbar`);
   }
-  // The categories and counts are unchanged.
-  for (const label of ["All (${filterCounts.all})", "Critical (${filterCounts.critical})", "Updates (${filterCounts.info})", "Delivered (${filterCounts.success})"]) {
-    assert.ok(toolbar.includes(label), label);
+  for (const value of ["attention", "awaiting", "assigned", "loading", "transit", "delivered", "cancelled"]) {
+    assert.ok(toolbar.includes(`value="${value}"`), value);
   }
-  assert.match(toolbar, /placeholder="Search order ID, title, or clinic\.\.\."/);
+  assert.match(toolbar, /placeholder="Search order ID or clinic\.\.\."/);
+  assert.doesNotMatch(toolbar, /sales-alert-filters|Critical \(/);
 });
 
 test("Order History: Print receipt is offered to Admin only; the Med Rep view has none", () => {

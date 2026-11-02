@@ -4,8 +4,11 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
+  capReadIds,
   loadReadIds,
+  MAX_READ_IDS,
   saveReadIds,
+  unsyncedReadIds,
   withReadIds,
 } from "../src/services/notificationReadState.js";
 
@@ -39,9 +42,31 @@ test("Med Rep bell uses the same live order alerts as the page; Dispatcher keeps
   assert.match(shell, /navigate\(`\/sales-rep\/alerts\?tab=/);
   assert.match(page, /linkedParams\.get\("reference"\)/);
   assert.doesNotMatch(shell, /const notifications = \[\]/);
-  assert.match(dispatcher, /loadReadIds\(projectId, "dispatcher", uid\)/);
-  assert.match(dispatcher, /saveReadIds\(projectId, "dispatcher", uid, readNotifications\)/);
+  // Both bells keep personal read state through the same synced hook.
+  assert.match(dispatcher, /useNotificationReadState\("dispatcher"\)/);
+  assert.match(shell, /useNotificationReadState\("salesrep"\)/);
   assert.doesNotMatch(dispatcher, /notification\.read \?/);
+});
+
+test("read state follows the user across devices: cached here, shared in Firestore, bounded", () => {
+  const hook = source("src/components/useNotificationReadState.js");
+  // Starts from this browser's cache, merges the shared copy as it arrives…
+  assert.match(hook, /useState\(\(\) => loadReadIds\(projectId, role, uid\)\)/);
+  assert.match(hook, /subscribeReadIds\(\s*uid,/);
+  assert.match(hook, /setReadIds\(\(current\) => withReadIds\(current, ids\)\)/);
+  // …and writes back only what the shared copy lacks, after a short settle.
+  assert.match(hook, /if \(remote === null \|\| unsyncedReadIds\(readIds, remote\)\.length === 0\) return undefined;/);
+  assert.match(hook, /saveReadIdsRemote\(uid, readIds\)/);
+  const store = source("src/services/notificationReadStore.js");
+  assert.match(store, /doc\(db, "notificationReadStates", uid\)/);
+  assert.match(store, /setDoc\(readStateRef\(uid\), \{ ids: capReadIds\(ids\), updatedAt: serverTimestamp\(\) \}\)/);
+  // Bounded to the most recent ids, matching the rule's limit.
+  assert.equal(MAX_READ_IDS, 500);
+  const many = Array.from({ length: 520 }, (_, i) => `n${i}`);
+  assert.deepEqual(capReadIds(many), many.slice(-500));
+  assert.equal(withReadIds(many.slice(0, 500), ["new"]).at(-1), "new");
+  assert.deepEqual(unsyncedReadIds(["a", "b", "c"], ["a", "c"]), ["b"]);
+  assert.match(source("firestore.rules"), /request\.resource\.data\.ids\.size\(\) <= 500/);
 });
 
 test("Admin Mark Read and the bell use the same read flag", () => {

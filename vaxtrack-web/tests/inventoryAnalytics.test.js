@@ -185,7 +185,7 @@ test("the page is an Admin route in the persistent shell, linked from the sideba
   assert.match(app, /const AiInventoryAnalytics = lazy\(\(\) => import\("\.\/pages\/admin\/AiInventoryAnalytics"\)\);/);
   assert.match(app, /<Route path="\/admin\/ai-inventory-analytics" element=\{<AiInventoryAnalytics \/>\} \/>/);
   const shell = read("src/components/admin/AdminShell.jsx");
-  assert.match(shell, /"\/admin\/ai-inventory-analytics": "AI Inventory Analytics"/);
+  assert.match(shell, /"\/admin\/ai-inventory-analytics": "Inventory Forecast"/);
   // The route's wrapper class lives in the shell's class map (adminShellClasses.js).
   assert.match(read("src/components/admin/adminShellClasses.js"), /"\/admin\/ai-inventory-analytics": "inventory-page adl-root"/);
   const sidebar = read("src/components/admin/AdminSidebar.jsx");

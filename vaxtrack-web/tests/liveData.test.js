@@ -363,7 +363,7 @@ test("Place Order watches only the cart's batches and gates Finalize on the revi
   // The server still decides: the submission carries the cart's expected
   // prices — reviewed in the price-review state, sent from that review.
   const priceState = strip(read("src", "pages", "salesRep", "useCheckoutPriceReview.js"));
-  assert.match(priceState, /expectedUnitPriceCentavos: item\.expectedUnitPriceCentavos/);
+  assert.match(priceState, /enteredCentavos: item\.expectedUnitPriceCentavos/);
   assert.match(code, /\.\.\.negotiatedRequestLine\(item, reviewByBatch\.get\(item\.inventoryId\)\.price\)/);
   assert.match(code, /createOrderWithReservation\(\{/);
 });
@@ -762,6 +762,7 @@ test("no page reloads the browser to show new data", () => {
 const WITH_ERROR = {
   subscribeActiveAlerts: 2, subscribeAllAlerts: 2, subscribeBackorderQueue: 2, subscribePendingReturns: 2,
   subscribeAreas: 2, subscribeCargoLoadingGroups: 2, subscribeClinics: 2, subscribeDeliveries: 2, subscribeDeliveryExceptions: 2,
+  subscribeNotificationOrders: 2, subscribeArrivalProximity: 2, subscribeReadIds: 3,
   subscribeDestinationCorrections: 3, subscribeDoctorAddresses: 3, subscribeDoctors: 2,
   subscribeLatestAnalyticsRun: 2, subscribeInventoryForecasts: 2, subscribeAnalyticsConfigs: 2,
   subscribeInventory: 2, subscribeInvoiceQueue: 2, subscribeInvoice: 3, subscribeAllocationEvents: 4,

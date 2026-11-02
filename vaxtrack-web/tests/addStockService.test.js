@@ -204,6 +204,7 @@ const payloadFor = (vaccine) => ({
   // ₱1,250.00 per vial, VAT-exclusive. Required from the batch's first moment:
   // the service refuses a write without it.
   sellingPriceCentavos: 125000,
+  priceIsVatInclusive: false,
   status: "stable",
 });
 
@@ -230,7 +231,7 @@ test("only the fields the server accepts are sent — catalog metadata is the se
 
   assert.deepEqual(Object.keys(w).sort(), [
     "arrivalDate", "batchId", "expiryDate", "manufacturer", "manufacturingDate",
-    "quantity", "sellingPriceCentavos", "vaccineId",
+    "priceIsVatInclusive", "quantity", "sellingPriceCentavos", "vaccineId",
   ]);
   assert.equal(w.manufacturer, "Pfizer-BioNTech");
   for (const forbidden of ["vaccineName", "vaccineType", "internalSku", "status", "reservedQuantity", "createdAt"]) {
@@ -324,7 +325,8 @@ test("a batch is sent with its VAT-exclusive selling price in centavos", opts, a
   const w = calls.sent[0];
 
   assert.equal(w.sellingPriceCentavos, 125000, "integer centavos, exactly as given");
-  assert.ok(!("priceCurrency" in w) && !("priceIsVatInclusive" in w), "set by the server");
+  assert.equal(w.priceIsVatInclusive, false, "Admin's chosen price basis is sent");
+  assert.ok(!("priceCurrency" in w), "currency is set by the server");
 });
 
 test("a batch cannot be created without a usable price", opts, async () => {
@@ -345,6 +347,7 @@ test("updateStockPrice re-prices one batch and records who and when", opts, asyn
   await mod.updateStockPrice({
     inventoryId: "batchDocId",
     sellingPriceCentavos: 140000,
+    priceIsVatInclusive: true,
   });
 
   assert.equal(calls.updateDoc.length, 1, "exactly one document is updated");
@@ -363,7 +366,7 @@ test("re-pricing can never become a way to move stock", opts, async () => {
   // The rules refuse a client write naming either counter, but the service must
   // not be the thing that tries: a re-price is a price change and nothing else.
   const { mod, calls } = await loadService();
-  await mod.updateStockPrice({ inventoryId: "batchDocId", sellingPriceCentavos: 1 });
+  await mod.updateStockPrice({ inventoryId: "batchDocId", sellingPriceCentavos: 1, priceIsVatInclusive: false });
 
   const keys = Object.keys(calls.updateDoc[0].data);
   assert.ok(!keys.includes("quantity"), "no on-hand figure is touched");
@@ -401,6 +404,7 @@ test("the re-price audit uid comes from the session, not a parameter", opts, asy
   await mod.updateStockPrice({
     inventoryId: "batchDocId",
     sellingPriceCentavos: 140000,
+    priceIsVatInclusive: true,
     adminUid: "someone-else",
   });
 
@@ -415,7 +419,7 @@ test("a signed-out caller records no uid rather than a forged one", opts, async 
   // the point is that the service never invents a value to fill the gap.
   const { mod, calls } = await loadService();
   calls.currentUser = null;
-  await mod.updateStockPrice({ inventoryId: "batchDocId", sellingPriceCentavos: 140000 });
+  await mod.updateStockPrice({ inventoryId: "batchDocId", sellingPriceCentavos: 140000, priceIsVatInclusive: true });
   assert.equal(calls.updateDoc[0].data.priceSetByUid, null);
 });
 

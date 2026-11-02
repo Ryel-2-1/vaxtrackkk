@@ -2,6 +2,8 @@ import {
   AlertTriangle,
   Bell,
   CalendarDays,
+  CheckCircle2,
+  ChevronDown,
   FileText,
   Loader2,
   MapPin,
@@ -30,7 +32,7 @@ import {
 import { loadAuthoritativeConfirmation } from "../../services/orderConfirmation";
 import { getOrderById } from "../../services/orderService";
 import { auth } from "../../firebase";
-import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
+import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { UserMessageError } from "../../services/userMessageError";
 import { subscribeClinics } from "../../services/clinicService";
 import { subscribeDoctors } from "../../services/doctorService";
@@ -58,7 +60,8 @@ import {
   requestedScheduleLabel,
 } from "../../services/requestedArrival";
 import RequestedArrivalField from "../../components/schedule/RequestedArrivalField";
-import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
+import { requestZeroRateApproval, subscribeOwnZeroRateRequests } from "../../services/zeroRateRequests";
+import { approvedZeroRateForOrder, matchingZeroRateOrderRequests } from "../../services/zeroRateOrderMatch";
 import DialogLayer from "../../components/ui/DialogLayer";
 import { PriceReview, ReconfirmDialog, VatBreakdown } from "./OrderPriceReview";
 import OrderCartRow from "./OrderCartRow";
@@ -93,6 +96,8 @@ function SalesRepPlaceOrder() {
     uid ? loadPendingAttempt(localStorage, uid) : null
   );
   const restored = pendingAttempt?.submission ?? null;
+  const [recoveryAllowed, setRecoveryAllowed] = useState(Boolean(restored));
+  const [recoveryApprovalId, setRecoveryApprovalId] = useState(restored?.zeroRateRequestId ?? "");
   const [initialReview] = useState(() => initialCheckoutReview({
     attempt: restored,
     saved: uid ? loadCheckoutReview(localStorage, uid) : null,
@@ -130,6 +135,36 @@ function SalesRepPlaceOrder() {
   const { displayItems, liveStatus, batches: liveBatches, vaccinesById } = useCartLiveStock(items);
   const review = cartReview(displayItems, liveStatus);
   const handleAcceptLine = (line) => setItems((current) => acceptLiveLine(current, line));
+  const [selectedDoctorId, setSelectedDoctorId] = useState(initialCheckout.doctorId);
+  const [selectedDestinationId, setSelectedDestinationId] = useState("");
+  const [requestedDate, setRequestedDate] = useState(initialCheckout.requestedDeliveryDate);
+  const [zeroRateRequests, setZeroRateRequests] = useState([]);
+  const [zeroRateError, setZeroRateError] = useState("");
+  const [zeroRateLoadError, setZeroRateLoadError] = useState(null);
+  const [zeroRateReason, setZeroRateReason] = useState("");
+  const [zeroRateBusy, setZeroRateBusy] = useState(false);
+  const [zeroRateExpanded, setZeroRateExpanded] = useState(false);
+  const [zeroRateSentId, setZeroRateSentId] = useState("");
+  const [submittedZeroRate, setSubmittedZeroRate] = useState(null);
+  useEffect(() => {
+    if (!uid) return undefined;
+    return subscribeOwnZeroRateRequests(uid, (rows) => {
+      setZeroRateRequests(rows);
+      setZeroRateLoadError(null);
+      setSubmittedZeroRate((current) => current && rows.some((row) => row.id === current.id) ? null : current);
+    }, setZeroRateLoadError);
+  }, [uid]);
+  const visibleZeroRateRequests = submittedZeroRate && !zeroRateRequests.some((row) => row.id === submittedZeroRate.id)
+    ? [...zeroRateRequests, submittedZeroRate] : zeroRateRequests;
+  const approvalOrder = {
+    doctorId: selectedDoctorId,
+    doctorAddressId: selectedDestinationId || pendingRestore?.destinationId,
+    requestedDeliveryDate: requestedDate,
+    items,
+  };
+  const approvedRequest = approvedZeroRateForOrder(visibleZeroRateRequests, {
+    ...approvalOrder, recoveryAllowed, recoveryApprovalId, restored,
+  });
 
   // ---- final price review (negotiated pricing; useCheckoutPriceReview.js) ----
   const {
@@ -147,6 +182,7 @@ function SalesRepPlaceOrder() {
     displayItems,
     batches: liveBatches,
     vaccinesById,
+    approvedZeroRate: Boolean(approvedRequest),
   });
   /** The reconfirmation dialog is open. Nothing is sent until it is confirmed. */
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -171,14 +207,12 @@ function SalesRepPlaceOrder() {
 
   const [doctors, setDoctors] = useState([]);
   const [doctorsLoading, setDoctorsLoading] = useState(true);
-  const [selectedDoctorId, setSelectedDoctorId] = useState(initialCheckout.doctorId);
   // Every reachable doctor's destinations, keyed by doctor id, tagged with the
   // active-doctor list they were fetched for. The server returns only links
   // inside this Med Rep's territory — a Med Rep cannot read doctor addresses
   // (including private Home addresses) directly. Written only by the fetch's
   // callbacks; everything shown is derived from it below.
   const [destinationBook, setDestinationBook] = useState({ key: null, byDoctor: {} });
-  const [selectedDestinationId, setSelectedDestinationId] = useState("");
   const [clinics, setClinics] = useState([]);
   const [clinicsLoading, setClinicsLoading] = useState(true);
   // One entry per source, so a source that recovers clears only its own
@@ -190,7 +224,6 @@ function SalesRepPlaceOrder() {
     setDestinationLoadErrors((prev) => (prev[source] === message ? prev : { ...prev, [source]: message }));
   const [instructions, setInstructions] = useState(initialReview.deliveryInstructions);
   // Exact 'YYYY-MM-DD' text, never parsed into a Date, so it cannot shift.
-  const [requestedDate, setRequestedDate] = useState(initialCheckout.requestedDeliveryDate);
   // Optional requested ARRIVAL at the destination on that date (mode + only
   // the times it needs). Restored like the date: from a pending attempt's
   // snapshot, else the saved draft; any time within the day otherwise.
@@ -350,6 +383,36 @@ function SalesRepPlaceOrder() {
   const destinationId = selectedDestinationId !== "" ? selectedDestinationId : restore.destinationId;
   const selectedDestination =
     destinationOptions.find((destination) => destination.id === destinationId) || null;
+  const matchingRequests = matchingZeroRateOrderRequests(visibleZeroRateRequests, {
+    doctorId: selectedDoctor?.id, doctorAddressId: selectedDestination?.id,
+    requestedDeliveryDate: requestedDate, items,
+  });
+  const handleZeroRateRequest = async () => {
+    if (!selectedDoctor || !selectedDestination || !requestedDate) {
+      setZeroRateError("Select a doctor, delivery address and date first."); return;
+    }
+    setZeroRateBusy(true); setZeroRateError("");
+    try {
+      const result = await requestZeroRateApproval({
+        doctorId: selectedDoctor.id, doctorAddressId: selectedDestination.id,
+        requestedDeliveryDate: requestedDate, reason: zeroRateReason.trim(),
+        items: items.map((item) => ({ inventoryId: item.inventoryId, quantity: Number(item.quantity) })),
+      });
+      setSubmittedZeroRate({
+        id: result.requestId, status: "pending", doctorId: selectedDoctor.id,
+        doctorAddressId: selectedDestination.id, requestedDeliveryDate: requestedDate,
+        items: items.map((item) => ({ inventoryId: item.inventoryId, quantity: Number(item.quantity) })),
+        createdAt: { toMillis: () => Number.MAX_SAFE_INTEGER },
+      });
+      setZeroRateSentId(result.requestId);
+      setZeroRateExpanded(false);
+      setZeroRateReason("");
+    } catch (error) {
+      setZeroRateError(error?.code === "functions/not-found"
+        ? "Zero-rating review is not available in this environment yet. Ask an administrator to enable it."
+        : friendlyErrorMessage(error, "The zero-rating review request could not be sent. The review service may not be available here yet; please contact an administrator."));
+    } finally { setZeroRateBusy(false); }
+  };
   // A saved doctor or destination that is no longer permitted was dropped, not
   // silently kept: the rep is told to choose again.
   const savedSelectionDropped =
@@ -458,6 +521,8 @@ function SalesRepPlaceOrder() {
       return;
     }
     discardOrderAttempt(localStorage, uid);
+    setRecoveryAllowed(false);
+    setRecoveryApprovalId("");
     setDiscardConfirmOpen(false);
     setAttemptConflict(false);
     setMessage(
@@ -609,6 +674,7 @@ function SalesRepPlaceOrder() {
       deliveryInstructions: instructions.trim(),
       requestedDeliveryDate: requestedCheck.value,
       requestedArrival: arrivalCheck.value,
+      ...(approvedRequest ? { zeroRateRequestId: approvedRequest.id } : {}),
       // Per line: the reviewed standard, the agreed UNIT price and (only when
       // negotiated) its reason. No total and no VAT figure is ever sent.
       items: items.map((item) => ({
@@ -619,6 +685,7 @@ function SalesRepPlaceOrder() {
     };
 
     setSaving(true);
+    if (approvedRequest) { setRecoveryAllowed(true); setRecoveryApprovalId(approvedRequest.id); }
     setMessage("");
     setAttemptConflict(false);
     setDiscardConfirmOpen(false);
@@ -644,6 +711,7 @@ function SalesRepPlaceOrder() {
             requestId,
             doctorId: submission.doctorId,
             doctorAddressId: submission.doctorAddressId,
+            zeroRateRequestId: submission.zeroRateRequestId,
             priority: submission.priority,
             deliveryInstructions: submission.deliveryInstructions,
             // Required: validateRequestedDate has refused a blank date above,
@@ -994,6 +1062,45 @@ function SalesRepPlaceOrder() {
             </label>
           </div>
 
+          <div className="destination-card zero-rate-checkout-card">
+            <div className="zero-rate-checkout-heading">
+              <h2>Zero-rating request</h2>
+              <span>Optional</span>
+            </div>
+            {approvedRequest ? (
+              <div className="zero-rate-checkout-status is-approved" role="status">
+                <CheckCircle2 size={19} aria-hidden="true" />
+                <div><strong>Approved for this order</strong><p>Zero-rating is applied automatically in the price review.</p></div>
+              </div>
+            ) : matchingRequests.some((row) => row.status === "pending") ? (
+              <div className="zero-rate-checkout-status is-pending" role="status">
+                <CheckCircle2 size={19} aria-hidden="true" />
+                <div><strong>{matchingRequests.some((row) => row.id === zeroRateSentId) ? "Request sent for Admin review" : "Waiting for Admin review"}</strong>
+                  <p>The request was saved for this doctor, address, date and vial list. Standard VAT applies until Admin accepts it.</p></div>
+              </div>
+            ) : (
+              <>
+                <p className="zero-rate-checkout-intro">Use this only when the customer asks about a potentially eligible zero-rated sale. Orders can be placed with standard VAT without a request.</p>
+                {matchingRequests[0]?.status === "rejected" && <p className="zero-rate-checkout-denied" role="status">The previous request was denied. You may submit a new reason for review.</p>}
+                <button type="button" className="zero-rate-checkout-toggle" aria-expanded={zeroRateExpanded} aria-controls="zero-rate-request-form" onClick={() => setZeroRateExpanded((open) => !open)}>
+                  {zeroRateExpanded ? "Close request" : matchingRequests[0]?.status === "rejected" ? "Request another review" : "Request zero-rating"}
+                  <ChevronDown size={16} aria-hidden="true" />
+                </button>
+                {zeroRateExpanded && <div id="zero-rate-request-form" className="zero-rate-checkout-form">
+                  <p>Admin reviews the reason and order details before the order is placed.</p>
+                  <label htmlFor="zero-rate-reason">Reason for requesting zero-rating</label>
+                  <textarea id="zero-rate-reason" value={zeroRateReason} onChange={(event) => setZeroRateReason(event.target.value)} maxLength={500} placeholder="Explain why this customer’s order may qualify" />
+                  <button type="button" className="zero-rate-checkout-submit" onClick={handleZeroRateRequest} disabled={zeroRateBusy || saving || !selectedDoctor || !selectedDestination || !requestedDate || !reviewLines.some((line) => line.vatClassification === "vatable") || !zeroRateReason.trim()}>
+                    {zeroRateBusy ? "Sending request…" : "Send to Admin for review"}
+                  </button>
+                  {!reviewLines.some((line) => line.vatClassification === "vatable") && <p role="status">This order has no VATable items that need zero-rating.</p>}
+                  {zeroRateError && <p role="alert" className="zero-rate-checkout-error">{zeroRateError}</p>}
+                </div>}
+              </>
+            )}
+            {zeroRateLoadError && <p role="alert" className="zero-rate-checkout-error">{liveErrorMessage(zeroRateLoadError, "zero-rating requests")} Approval status will appear when access is restored.</p>}
+          </div>
+
           <div className="pricing-card place-v2-pricing-card">
             <h2>Order Summary</h2>
 
@@ -1022,8 +1129,7 @@ function SalesRepPlaceOrder() {
                 the server records the binding figures. */}
             <VatBreakdown summary={priceSummary} />
             <p className="place-v2-price-note">
-              {VAT_INCLUSIVE_NOTE} Prices are confirmed against the batch when
-              the order is placed.
+              Batch prices use the basis set by Admin. {approvedRequest ? "Approved zero-rating is included in this review." : "VATable items include 12% VAT."} Prices are confirmed when the order is placed.
             </p>
 
             {mayBackorder && (
