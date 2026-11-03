@@ -10,10 +10,12 @@ import '../services/delivery_service.dart';
 import '../services/rider_tracking_service.dart';
 import '../theme/app_theme.dart';
 import '../tracking/tracking_contract.dart';
+import '../tracking/location_write_policy.dart';
 import '../tracking/tracking_lifecycle.dart';
 import '../utils/deviation_utils.dart';
 import '../utils/google_maps_url.dart';
 import '../utils/map_fit.dart';
+import '../utils/route_progress.dart';
 import '../utils/route_screen_state.dart';
 import '../utils/safe_log.dart';
 import '../utils/saved_route_plan.dart';
@@ -86,7 +88,20 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
 
   static const LatLng _fallbackCenter = LatLng(14.5995, 120.9842);
 
-  SavedRoutePlan get _plan => SavedRoutePlan.of(d);
+  // Decoded once per order update (the live feed hands a new Delivery), not on
+  // every rebuild: the screen rebuilds on every location fix.
+  Delivery? _planOf;
+  SavedRoutePlan? _planCache;
+  SavedRoutePlan get _plan {
+    if (!identical(_planOf, d)) {
+      _planOf = d;
+      _planCache = SavedRoutePlan.of(d);
+    }
+    return _planCache!;
+  }
+
+  /// The plan segment the rider was last placed on (route_progress.dart).
+  int _splitHint = -1;
 
   // The server decides whether the stored route is the authoritative baseline
   // for this session. While navigating, its "unavailable" verdict wins: the
@@ -238,7 +253,7 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
           _mapController.fitCamera(
             CameraFit.bounds(
               bounds: LatLngBounds.fromPoints(fit.boundsPoints),
-              padding: const EdgeInsets.all(40),
+              padding: const EdgeInsets.fromLTRB(40, 140, 60, 50),
               maxZoom: kMaxFitZoom,
             ),
           );
@@ -254,71 +269,111 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('VaxTrack route · ${d.orderNumber}')),
-      body: AnimatedBuilder(
-        animation: riderTracking,
-        builder: (context, _) => StreamBuilder<Map<String, dynamic>?>(
-          stream: _serverState,
-          builder: (context, snap) {
-            final display = _navigatingThis
-                ? deviationDisplayFor(snap.data, sessionId: riderTracking.navigation?.sessionId)
-                : DeviationDisplay.notNavigating;
-            return Column(
-              children: [
-                _stopHeader(),
-                Expanded(child: _map(display)),
-                _bottomPanel(
+      appBar: AppBar(
+        title: Text('VaxTrack route · ${d.orderNumber}'),
+        actions: [
+          IconButton(
+            key: const Key('routeScreenHelp'),
+            tooltip: 'How route monitoring works',
+            icon: const Icon(Icons.info_outline),
+            onPressed: _showHelp,
+          ),
+        ],
+      ),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          // Landscape phones and tablets: the map beside the panel, not above.
+          final wide = constraints.maxWidth >= 700;
+          return AnimatedBuilder(
+            animation: riderTracking,
+            builder: (context, _) => StreamBuilder<Map<String, dynamic>?>(
+              stream: _serverState,
+              builder: (context, snap) {
+                final display = _navigatingThis
+                    ? deviationDisplayFor(snap.data, sessionId: riderTracking.navigation?.sessionId)
+                    : DeviationDisplay.notNavigating;
+                final map = RepaintBoundary(child: _map(display));
+                final panel = _bottomPanel(
                   display,
                   serverError: snap.hasError,
                   serverRouteReason: snap.data?['routeUnavailableReason'] as String?,
-                ),
-              ],
-            );
-          },
-        ),
+                );
+                if (wide) {
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(child: map),
+                      SizedBox(width: 380, child: ColoredBox(color: AppColors.background, child: panel)),
+                    ],
+                  );
+                }
+                return Column(children: [Expanded(child: map), panel]);
+              },
+            ),
+          );
+        },
       ),
     );
   }
 
-  // Where the rider is going, readable at a glance: this stop, its place in the
-  // trip, the entrance notes, and what comes after it.
-  Widget _stopHeader() {
+  // Where the rider is going, readable at a glance, floating on the map: this
+  // stop, its place in the trip, how far it is, the entrance notes, and what
+  // comes after it.
+  Widget _nextStopCard() {
     final next = nextStopFor(d, _deliveries ?? const []);
     final eta = (d.stopEtaText ?? '').trim();
     final notes = (d.destinationAccessNotes ?? '').trim();
-    return Container(
-      width: double.infinity,
+    final rider = _riderPoint;
+    final dest = _destinationPoint;
+    final away = rider != null && dest != null ? '${shortDistance(straightLineMeters(rider, dest))} away' : null;
+    final top = [next.position ?? 'Destination', if (d.isOnTrip && eta.isNotEmpty) 'planned $eta'].join(' · ');
+    final sub = [?away, if (d.clinicAddress.trim().isNotEmpty) d.clinicAddress.trim()].join(' · ');
+    return Material(
+      key: ValueKey('next-stop-${d.id}'),
       color: AppColors.surface,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            [next.position ?? 'Destination', if (d.isOnTrip && eta.isNotEmpty) 'planned $eta'].join(' · '),
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textLight),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            _destinationName,
-            key: const Key('routeDestinationName'),
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.textDark),
-          ),
-          if (d.clinicAddress.trim().isNotEmpty)
-            Text(d.clinicAddress.trim(), style: const TextStyle(fontSize: 14, color: AppColors.textMedium)),
-          if (notes.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text('Entrance: $notes', style: const TextStyle(fontSize: 13, color: AppColors.textMedium)),
-            ),
-          if (next.after != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                'Then: ${next.after!.clinicName}',
-                style: const TextStyle(fontSize: 12, color: AppColors.textLight),
+      elevation: 3,
+      shadowColor: Colors.black26,
+      borderRadius: BorderRadius.circular(14),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 14, 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _pin(d.stopSequence?.toString(), current: true, size: 30),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(top, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textLight)),
+                  Text(
+                    _destinationName,
+                    key: const Key('routeDestinationName'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: AppColors.textDark),
+                  ),
+                  if (sub.isNotEmpty)
+                    Text(sub,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13, color: AppColors.textMedium)),
+                  if (notes.isNotEmpty)
+                    Text('Entrance: $notes',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12.5, color: AppColors.textMedium)),
+                  if (next.after != null)
+                    Text('Then: ${next.after!.clinicName}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12, color: AppColors.textLight)),
+                ],
               ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -334,17 +389,25 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
     }
   }
 
+  static const Color _ridden = Color(0xFF9CA3AF);
+  static const Color _arrival = Color(0xFFB45309);
+
   Widget _map(DeviationDisplay display) {
     final rider = _riderPoint;
     final dest = _destinationPoint;
     final plan = _plan;
     final later = _laterStops;
+    final shown = _routeShown(display);
+    final split = shown ? splitRouteAt(plan.points, rider, hintSegment: _splitHint) : null;
+    if (split != null && split.segment >= 0) _splitHint = split.segment;
+    final fix = riderTracking.lastFix;
+    final riderColor = _riderColor(display);
     return Stack(
       children: [
         FlutterMap(
           mapController: _mapController,
           options: MapOptions(
-            initialCenter: rider ?? dest ?? (_routeShown(display) ? plan.points.first : _fallbackCenter),
+            initialCenter: rider ?? dest ?? (shown ? plan.points.first : _fallbackCenter),
             initialZoom: 14,
             onMapReady: () {
               _mapReady = true;
@@ -356,27 +419,87 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
               urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
               userAgentPackageName: 'com.example.vaxtrack_mobile',
               maxZoom: 19,
+              keepBuffer: 3,
             ),
-            if (_routeShown(display))
+            // The arrival area the server checks completion against.
+            if (dest != null)
+              CircleLayer(
+                circles: [
+                  CircleMarker(
+                    point: dest,
+                    radius: (d.arrivalRadiusM ?? 300).toDouble(),
+                    useRadiusInMeter: true,
+                    color: _arrival.withValues(alpha: 0.10),
+                    borderColor: _arrival.withValues(alpha: 0.55),
+                    borderStrokeWidth: 1.5,
+                  ),
+                ],
+              ),
+            // The plan: ridden part grey, the rest green, both on a white
+            // casing so the line stands out on busy streets.
+            if (split != null)
               PolylineLayer(
-                polylines: [Polyline(points: plan.points, color: AppColors.primary, strokeWidth: 6)],
+                polylines: [
+                  if (split.ridden.length > 1)
+                    Polyline(points: split.ridden, color: _ridden, strokeWidth: 5, borderColor: Colors.white, borderStrokeWidth: 2),
+                  Polyline(points: split.ahead, color: AppColors.primary, strokeWidth: 6, borderColor: Colors.white, borderStrokeWidth: 3),
+                ],
               ),
             MarkerLayer(
               markers: [
-                for (var i = 0; i < later.length; i++)
+                for (var i = later.length - 1; i >= 0; i--)
                   if (later[i].hasClinicCoords)
                     Marker(
                       point: LatLng(later[i].clinicLat!, later[i].clinicLng!),
-                      width: 22,
-                      height: 22,
-                      child: _numberedDot('${(later[i].stopSequence ?? i + 2)}'),
+                      width: 30,
+                      height: 38,
+                      alignment: Alignment.topCenter,
+                      child: _pin('${later[i].stopSequence ?? i + 2}', current: false, size: 30),
                     ),
                 if (dest != null)
-                  Marker(point: dest, width: 26, height: 26, child: _dot(const Color(0xFFB45309))),
-                if (rider != null)
-                  Marker(point: rider, width: 24, height: 24, child: _dot(_riderColor(display))),
+                  Marker(
+                    point: dest,
+                    width: 180,
+                    height: 76,
+                    alignment: Alignment.topCenter,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        _mapChip(_destinationName),
+                        const SizedBox(height: 2),
+                        _pin(d.stopSequence?.toString(), current: true, size: 40),
+                      ],
+                    ),
+                  ),
               ],
             ),
+            // The rider glides between fixes instead of jumping.
+            if (rider != null)
+              TweenAnimationBuilder<LatLng>(
+                tween: _LatLngTween(end: rider),
+                duration: const Duration(milliseconds: 900),
+                curve: Curves.easeOut,
+                builder: (context, at, _) => Stack(
+                  children: [
+                    if (fix != null)
+                      CircleLayer(
+                        circles: [
+                          CircleMarker(
+                            point: at,
+                            radius: fix.accuracyMeters.clamp(5, 200).toDouble(),
+                            useRadiusInMeter: true,
+                            color: riderColor.withValues(alpha: 0.12),
+                            borderColor: riderColor.withValues(alpha: 0.35),
+                            borderStrokeWidth: 1,
+                          ),
+                        ],
+                      ),
+                    MarkerLayer(
+                      markers: [Marker(point: at, width: 40, height: 40, child: _riderMarker(riderColor, fix))],
+                    ),
+                  ],
+                ),
+              ),
             RichAttributionWidget(
               attributions: [
                 TextSourceAttribution(
@@ -390,12 +513,48 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
             ),
           ],
         ),
-        if (_routeShown(display))
+        Positioned(
+          top: 10,
+          left: 10,
+          right: 10,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                switchInCurve: Curves.easeOut,
+                transitionBuilder: (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(
+                    position: Tween(begin: const Offset(0, -0.15), end: Offset.zero).animate(animation),
+                    child: child,
+                  ),
+                ),
+                child: _nextStopCard(),
+              ),
+            ),
+          ),
+        ),
+        if (shown)
           Positioned(
-            top: 10,
+            bottom: 12,
             left: 10,
             child: _mapChip(plan.isTrip ? 'Line: VaxTrack plan (whole trip)' : 'Line: VaxTrack plan'),
           ),
+        Positioned(
+          bottom: 60,
+          right: 12,
+          child: FloatingActionButton.small(
+            key: const Key('routeScreenGoogleDirections'),
+            heroTag: 'route_monitor_google',
+            tooltip: 'Turn-by-turn in Google Maps',
+            backgroundColor: Colors.white,
+            foregroundColor: AppColors.primary,
+            onPressed: (d.hasClinicCoords || d.clinicAddress.trim().isNotEmpty) ? _confirmGoogleMaps : null,
+            child: const Icon(Icons.map_outlined),
+          ),
+        ),
         Positioned(
           bottom: 12,
           right: 12,
@@ -415,31 +574,71 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
   Widget _mapChip(String text) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.92),
+          color: Colors.white.withValues(alpha: 0.94),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: AppColors.border),
         ),
-        child: Text(text, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textDark)),
+        child: Text(text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textDark)),
       );
 
-  Widget _dot(Color color) => Container(
+  /// A stop pin: a teardrop with its stop number. The stop being ridden to is
+  /// amber and larger; later stops are small and green.
+  Widget _pin(String? number, {required bool current, required double size}) {
+    final color = current ? _arrival : AppColors.primaryDark;
+    return SizedBox(
+      width: size,
+      height: size * 1.25,
+      child: Stack(
+        alignment: Alignment.topCenter,
+        children: [
+          Icon(Icons.location_on, size: size * 1.25, color: color, shadows: const [Shadow(color: Colors.black26, blurRadius: 4)]),
+          Padding(
+            padding: EdgeInsets.only(top: size * 0.22),
+            child: Container(
+              width: size * 0.5,
+              height: size * 0.5,
+              alignment: Alignment.center,
+              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+              child: number == null
+                  ? Icon(Icons.flag, size: size * 0.32, color: color)
+                  : Text(number, style: TextStyle(fontSize: size * 0.3, fontWeight: FontWeight.w800, color: color, height: 1)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The rider: a dot, or an arrow pointing the way they are moving once they
+  /// are actually moving (a standing phone's compass heading is noise). Blue
+  /// on route, orange while checking off route, red once off route.
+  Widget _riderMarker(Color color, LocationFix? fix) {
+    final heading = fix?.sanitizedHeading;
+    final moving = heading != null && (fix?.sanitizedSpeed ?? 0) >= 1.5;
+    return Center(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        width: moving ? 32 : 22,
+        height: moving ? 32 : 22,
         decoration: BoxDecoration(
           color: color,
           shape: BoxShape.circle,
           border: Border.all(color: Colors.white, width: 3),
-          boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 4)],
+          boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 5)],
         ),
-      );
-
-  Widget _numberedDot(String label) => Container(
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: AppColors.textLight,
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 2),
-        ),
-        child: Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white)),
-      );
+        child: moving
+            ? AnimatedRotation(
+                turns: heading / 360,
+                duration: const Duration(milliseconds: 400),
+                child: const Icon(Icons.navigation, size: 16, color: Colors.white),
+              )
+            : null,
+      ),
+    );
+  }
 
   Widget _bottomPanel(DeviationDisplay display, {required bool serverError, String? serverRouteReason}) {
     final plan = _plan;
@@ -465,7 +664,11 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
           color: AppColors.background,
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Column(
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOut,
+              alignment: Alignment.topCenter,
+              child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -478,10 +681,11 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
                   ),
                 if (_feedError)
                   _note(Icons.sync_problem, 'Live updates paused. The plan shown may be out of date; it refreshes when the connection returns.'),
-                // Permission / location-off states, with their recovery actions.
-                TrackingStatusBanner(controller: riderTracking),
-                _note(plan.usable && display != DeviationDisplay.routeUnavailable ? Icons.two_wheeler : Icons.alt_route, routeText,
-                    key: const Key('routePlanStatus')),
+                // Only problems: location off, permission, no position yet.
+                TrackingStatusBanner(controller: riderTracking, problemsOnly: true),
+                // The plan line is labelled on the map; here only when it cannot be used.
+                if (!plan.usable || display == DeviationDisplay.routeUnavailable)
+                  _note(Icons.alt_route, routeText, key: const Key('routePlanStatus')),
                 if (_navigatingThis) _statusRow(display),
                 if (advice != null) _callout(Icons.warning_amber_rounded, advice, AppColors.warning),
                 if (_navigatingThis) _gpsRow(),
@@ -492,42 +696,8 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
                 const SizedBox(height: 10),
                 if (!eligibility.canStart && !_navigatingThis) _blockers(eligibility.blockers),
                 if (eligibility.canStart || _navigatingThis) _controls(),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    key: const Key('routeScreenGoogleDirections'),
-                    onPressed: (d.hasClinicCoords || d.clinicAddress.trim().isNotEmpty) ? _openGoogleMaps : null,
-                    icon: const Icon(Icons.map_outlined),
-                    label: const Text('Turn-by-turn in Google Maps'),
-                    style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46)),
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.only(top: 4),
-                  child: Text(
-                    '$googleRouteNote VaxTrack keeps checking your position against the plan.',
-                    style: TextStyle(fontSize: 11, color: AppColors.textLight),
-                  ),
-                ),
-                SizedBox(
-                  width: double.infinity,
-                  child: TextButton.icon(
-                    key: const Key('backToDeliveryDetails'),
-                    onPressed: () => Navigator.of(context).maybePop(),
-                    icon: const Icon(Icons.arrow_back),
-                    label: const Text('Back to delivery details'),
-                  ),
-                ),
-                const Text(
-                  'Keeps running with a notification if you leave this screen or lock the phone, '
-                  'until you tap Stop or your last stop is done — after each stop it moves on to the next '
-                  'one by itself. VaxTrack reports you off route when you are '
-                  'over $kDeviationOffRouteMeters m from the plan for ${kDeviationConfirmSeconds ~/ 60} '
-                  'minutes. This screen does not give turn-by-turn directions. Map: free OpenStreetMap.',
-                  style: TextStyle(fontSize: 11, color: AppColors.textLight),
-                ),
               ],
+            ),
             ),
           ),
         ),
@@ -590,6 +760,7 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
       GpsState.weak || GpsState.waiting => Icons.gps_not_fixed,
       GpsState.lost || GpsState.notSharing => Icons.gps_off,
     };
+    if (gps.state == GpsState.good) return const SizedBox.shrink(key: Key('gpsStatus'));
     return _note(icon, gps.message, key: const Key('gpsStatus'));
   }
 
@@ -662,16 +833,83 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
             minimumSize: const Size.fromHeight(54),
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text(
-            on
-                ? 'Sharing your location with dispatch. Stop ends sharing for this delivery.'
-                : 'Shares your location with dispatch until you tap Stop or the delivery ends.',
-            style: const TextStyle(fontSize: 11, color: AppColors.textLight),
-          ),
-        ),
       ],
     );
   }
+
+  /// The Google hand-off, with the reminder that Google picks its own roads.
+  Future<void> _confirmGoogleMaps() async {
+    final go = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('Turn-by-turn in Google Maps', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 8),
+              const Text('$googleRouteNote VaxTrack keeps checking your position against the plan.',
+                  style: TextStyle(fontSize: 13, color: AppColors.textMedium)),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.of(sheetContext).pop(true),
+                icon: const Icon(Icons.map_outlined),
+                label: const Text('Open Google Maps'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (go == true) await _openGoogleMaps();
+  }
+
+  void _showHelp() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('How route monitoring works', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 10),
+              Text(_plan.label, style: const TextStyle(fontSize: 13, color: AppColors.textMedium)),
+              const SizedBox(height: 10),
+              const Text(
+                'Start shares your location with dispatch. It keeps running with a notification if you leave this '
+                'screen or lock the phone, until you tap Stop or your last stop is done — after each stop it moves '
+                'on to the next one by itself. Keep background activity allowed for VaxTrack so sharing is reliable.',
+                style: TextStyle(fontSize: 13, color: AppColors.textMedium),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'VaxTrack reports you off route when you are over $kDeviationOffRouteMeters m from the plan for '
+                '${kDeviationConfirmSeconds ~/ 60} minutes. This screen does not give turn-by-turn directions. '
+                'Map: free OpenStreetMap.',
+                style: TextStyle(fontSize: 13, color: AppColors.textMedium),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Interpolates a map position, for the rider marker's glide between fixes.
+class _LatLngTween extends Tween<LatLng> {
+  _LatLngTween({required LatLng end}) : super(begin: end, end: end);
+
+  @override
+  LatLng lerp(double t) => LatLng(
+        begin!.latitude + (end!.latitude - begin!.latitude) * t,
+        begin!.longitude + (end!.longitude - begin!.longitude) * t,
+      );
 }

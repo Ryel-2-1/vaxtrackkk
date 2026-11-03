@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../utils/feed_errors.dart';
 import '../utils/safe_log.dart';
+import 'skeleton.dart';
 
 /// Builds a screen from one live feed for the signed-in Rider — opened once,
 /// kept across rebuilds, replaced only when the Rider changes or on Retry.
@@ -115,8 +116,7 @@ class _RiderFeedBuilderState<T> extends State<RiderFeedBuilder<T>> {
         }
         if (snapshot.connectionState == ConnectionState.none ||
             snapshot.connectionState == ConnectionState.waiting) {
-          return widget.loadingBuilder?.call(context) ??
-              const Center(child: CircularProgressIndicator());
+          return widget.loadingBuilder?.call(context) ?? const SkeletonDeliveryList();
         }
         // A live feed never closes on its own; one that ended without a value
         // has nothing to show, so it is offered as a failure with Retry.

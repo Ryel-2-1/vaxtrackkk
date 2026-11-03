@@ -5702,6 +5702,14 @@ async function main() {
       await assertSucceeds(setDoc(myLoc, loc({ headingDegrees: null, speedMps: null, trackingState: "paused" })));
     });
 
+    await check("PTR1b the optional mock-location flag is a boolean, never anything else", async () => {
+      await assertSucceeds(setDoc(myLoc, loc({ mockedLocation: true })));
+      await assertSucceeds(setDoc(myLoc, loc({ mockedLocation: false })));
+      await assertSucceeds(setDoc(myLoc, loc()), "older builds omit it");
+      await assertFails(setDoc(myLoc, loc({ mockedLocation: "no" })));
+      await assertFails(setDoc(myLoc, loc({ mockedLocation: null })));
+    });
+
     await check("NTR1 a rider cannot write another rider's location or forge the rider uid", async () => {
       await assertFails(setDoc(doc(rider, "riderLocations", otherRiderUid), loc({ riderUid: otherRiderUid })));
       await assertFails(setDoc(myLoc, loc({ riderUid: otherRiderUid })));

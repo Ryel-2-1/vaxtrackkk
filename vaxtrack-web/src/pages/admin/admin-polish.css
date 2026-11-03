@@ -502,3 +502,19 @@ aside.inventory-sidebar select {
 .inventory-page .deliveries-summary-grid > * {
   height: 100%;
 }
+
+/* Keep the delivery list independently scrollable, with its pager in view. */
+.inventory-page .deliveries-v4-page .mdl-table-wrap {
+  max-height: clamp(280px, calc(100dvh - 360px), 640px);
+  overflow: auto;
+  min-height: 0;
+}
+.inventory-page .deliveries-v4-page .mdl-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.inventory-page .mdl-drawer-body {
+  min-height: 0;
+  overscroll-behavior: contain;
+}

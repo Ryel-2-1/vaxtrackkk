@@ -93,6 +93,10 @@ class Delivery {
   final int? stopSequence; // this order's place in the visiting order (1-based)
   final int? tripStopCount; // total stops in the trip
   final String? stopEtaText; // arrival-clock snapshot for this stop
+
+  /// The arrival (geofence) radius saved on the order, in metres: the area the
+  /// server checks completion against. Null when the order has none.
+  final int? arrivalRadiusM;
   final String? tripPolyline; // whole-trip encoded polyline
   final int? tripDistanceMeters;
   final int? tripDurationSeconds;
@@ -103,6 +107,15 @@ class Delivery {
   /// How to reach the confirmed clinic entrance ("Side gate on Rizal St."),
   /// copied onto the order with its pin. Optional; read-only for the rider.
   final String? destinationAccessNotes;
+
+  /// How the delivery was completed: null (live), 'offline' (an offline record
+  /// the server verified) or 'offline_approved' (approved by a dispatcher).
+  final String? completionMode;
+
+  /// An offline record the server could not verify: 'pending' (a dispatcher is
+  /// reviewing it), 'approved' or 'rejected' (with the dispatcher's note).
+  final String? offlineReviewStatus;
+  final String? offlineReviewNote;
 
   /// Server-evaluated delivery timing (functions/src/deliveryTiming.js):
   /// on_time / at_risk / delayed / unknown, with the baseline frozen at
@@ -163,6 +176,7 @@ class Delivery {
     this.stopSequence,
     this.tripStopCount,
     this.stopEtaText,
+    this.arrivalRadiusM,
     this.tripPolyline,
     this.tripDistanceMeters,
     this.tripDurationSeconds,
@@ -170,6 +184,9 @@ class Delivery {
     this.tripRouteProfile,
     this.tripGeneratedAt,
     this.destinationAccessNotes,
+    this.completionMode,
+    this.offlineReviewStatus,
+    this.offlineReviewNote,
     this.timingStatus,
     this.expectedArrivalAt,
     this.automaticDelayedAt,
@@ -239,6 +256,7 @@ class Delivery {
       stopSequence: _toInt(data['stopSequence']),
       tripStopCount: _toInt(data['tripStopCount']),
       stopEtaText: data['stopEtaText'] as String?,
+      arrivalRadiusM: _toInt(data['destinationGeofenceRadiusM']) ?? _toInt(data['clinicGeofenceRadiusM']),
       tripPolyline: (data['tripPolyline'] as String?)?.isEmpty ?? true
           ? null
           : data['tripPolyline'] as String?,
@@ -248,6 +266,13 @@ class Delivery {
       tripRouteProfile: _nonBlank(data['tripRouteProfile']),
       tripGeneratedAt: _toDateTime(data['tripGeneratedAt']),
       destinationAccessNotes: _nonBlank(data['destinationAccessNotes']),
+      completionMode: _nonBlank(data['completionMode']),
+      offlineReviewStatus: data['offlineCompletionReview'] is Map
+          ? _nonBlank((data['offlineCompletionReview'] as Map)['status'])
+          : null,
+      offlineReviewNote: data['offlineCompletionReview'] is Map
+          ? _nonBlank((data['offlineCompletionReview'] as Map)['decisionNote'])
+          : null,
       timingStatus: _nonBlank(data['timingStatus']),
       expectedArrivalAt: _toDateTime(data['expectedArrivalAt']),
       automaticDelayedAt: _toDateTime(data['automaticDelayedAt']),

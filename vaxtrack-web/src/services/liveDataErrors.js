@@ -189,6 +189,7 @@ const DOMAIN_KINDS = Object.freeze({
   "rider-location-stale": "geofence-stale",
   "rider-location-inaccurate": "geofence-inaccurate",
   "rider-location-unavailable": "geofence-unavailable",
+  "rider-location-mocked": "geofence-unavailable",
   "delivery-destination-invalid": "geofence-unavailable",
   // proof
   "proof-missing": "proof",

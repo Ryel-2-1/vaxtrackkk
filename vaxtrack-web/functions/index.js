@@ -77,6 +77,7 @@ const deliveryTimingOps = require("./src/deliveryTimingOps");
 const riderDispatchOps = require("./src/riderDispatchOps");
 const riderLocationStaleOps = require("./src/riderLocationStaleOps");
 const arrivalProximityOps = require("./src/arrivalProximityOps");
+const offlineCompletionOps = require("./src/offlineCompletionOps");
 const riderRecoveryOps = require("./src/riderRecoveryOps");
 const { qaResetConfig } = require("./src/riderRecovery");
 
@@ -138,7 +139,12 @@ function toHttpsError(error, context) {
       "rider-location-stale": "failed-precondition",
       "rider-location-inaccurate": "failed-precondition",
       "rider-location-unavailable": "failed-precondition",
+      "rider-location-mocked": "failed-precondition",
       "delivery-destination-invalid": "failed-precondition",
+      // Offline delivery completion (offlineCompletion.js).
+      "no-pending-review": "failed-precondition",
+      "review-changed": "aborted",
+      "note-required": "invalid-argument",
       "insufficient-stock": "failed-precondition",
       "batch-expired": "failed-precondition",
       "batch-unavailable": "failed-precondition",
@@ -366,6 +372,22 @@ exports.validateDeliveryCompletionGeofence = callable(
     // `payload` is checked to carry the order id ONLY (no status, destination,
     // radius or location may be supplied by the client).
     operations.validateDeliveryCompletionGeofence({ db, uid, orderId: data.orderId, payload: data, now })
+);
+
+// Offline completion (src/offlineCompletion.js): the Rider recorded the handoff
+// on the phone with GPS but no signal; sent once back online. Verified records
+// complete through the same transaction as a live completion; the rest wait for
+// a Dispatcher/Admin decision (resolveOfflineCompletionReview).
+exports.submitOfflineDeliveryCompletion = callable(
+  "submitOfflineDeliveryCompletion",
+  ({ db, FieldValue, uid, email, data, now }) =>
+    offlineCompletionOps.submitOfflineDeliveryCompletion({ db, FieldValue, uid, email, payload: data, now })
+);
+
+exports.resolveOfflineCompletionReview = callable(
+  "resolveOfflineCompletionReview",
+  ({ db, FieldValue, uid, email, data, now }) =>
+    offlineCompletionOps.resolveOfflineCompletionReview({ db, FieldValue, uid, email, payload: data, now })
 );
 
 exports.markOrderDeliveredWithInventoryConsumption = callable(
@@ -742,6 +764,13 @@ exports.trackRiderLocation = onDocumentWritten(
       });
     } catch (error) {
       logger.warn("stale-location resolve deferred", { errorType: error?.constructor?.name ?? typeof error });
+    }
+    // The Rider's trusted trail (src/offlineCompletion.js), against which an
+    // offline delivery record is checked. Never fails the work above.
+    try {
+      await offlineCompletionOps.recordTrailPoint({ db, riderUid: event.params.riderUid, location: after, nowMs: Date.now() });
+    } catch (error) {
+      logger.warn("location-trail deferred", { errorType: error?.constructor?.name ?? typeof error });
     }
     // Arrival proximity (src/arrivalProximity.js): near the destination, and
     // still not completed after 15 minutes. Advisory; never changes an order.

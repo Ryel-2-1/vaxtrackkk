@@ -45,6 +45,10 @@ Future<void> _openReset(WidgetTester tester, FakeSender sender, {String loginEma
   if (loginEmail.isNotEmpty) {
     await tester.enterText(find.byKey(const Key('loginEmailField')), loginEmail);
   }
+  // With large text on a small phone the action can sit below the fold; the
+  // sign-in page scrolls, as a rider would.
+  await tester.ensureVisible(find.byKey(_forgot));
+  await tester.pumpAndSettle();
   await tester.tap(find.byKey(_forgot));
   await tester.pumpAndSettle();
 }

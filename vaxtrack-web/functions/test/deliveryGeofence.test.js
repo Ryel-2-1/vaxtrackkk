@@ -169,6 +169,12 @@ test("tracking explicitly stopped, missing, or another rider's document is block
   assert.equal(codeOf(() => evaluate(order(), loc({ lat: 0, lng: 0 }))), "rider-location-unavailable");
 });
 
+test("a fix the phone reported as mocked is never trusted; an explicit false is fine", () => {
+  assert.equal(codeOf(() => evaluate(order(), loc(CLINIC, { mockedLocation: true }))), "rider-location-mocked");
+  assert.equal(evaluate(order(), loc(CLINIC, { mockedLocation: false })).eligible, true);
+  assert.equal(G.trustedRiderPosition(loc(CLINIC, { mockedLocation: true }), { uid: UID, nowMs: NOW }).problem, "rider-location-mocked");
+});
+
 test("the decision never reads route-deviation state or client input", () => {
   const fs = require("node:fs");
   const src = fs.readFileSync(require.resolve("../src/deliveryGeofence.js"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");

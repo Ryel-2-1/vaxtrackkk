@@ -43,7 +43,7 @@ async function wipe() {
   retryPrev = null;
   navSession = null;
   navOrder = null;
-  for (const c of [...Object.values(C)]) {
+  for (const c of [...Object.values(C), "riderLocationTrails"]) {
     const snap = await db.collection(c).get();
     await Promise.all(snap.docs.map((d) => d.ref.delete()));
   }
@@ -325,8 +325,12 @@ test("retention deletes expired location, ended sessions/states and old events â
   await db.collection(C.STATES).doc("oldRider").set({ sessionState: "ended", updatedAt: ago(30) });
   await db.collection(C.EVENTS).doc("old_e1_deviated").set({ createdAt: ago(24 * 91) });
   await db.collection(C.EVENTS).doc("new_e1_deviated").set({ createdAt: ago(24) });
+  // Offline-completion trails: kept 4 h after their last write, then purged.
+  await db.collection("riderLocationTrails").doc("oldRider").set({ riderUid: "oldRider", points: [], updatedAtMs: now.getTime() - 5 * 3600 * 1000 });
+  await db.collection("riderLocationTrails").doc("liveRider").set({ riderUid: "liveRider", points: [], updatedAtMs: now.getTime() - 3600 * 1000 });
   const counts = await ops.purgeExpiredTrackingData({ db, Timestamp, now });
-  assert.deepEqual(counts, { locations: 1, sessions: 1, states: 1, events: 1 });
+  assert.deepEqual(counts, { locations: 1, sessions: 1, states: 1, events: 1, trails: 1 });
+  assert.deepEqual((await all("riderLocationTrails")).map((d) => d.id), ["liveRider"], "a trail written within 4 h is kept");
   assert.deepEqual((await all(C.LOCATIONS)).map((d) => d.id), ["liveRider"]);
   assert.deepEqual((await all(C.SESSIONS)).map((d) => d.id), ["navRider"], "a session still navigating is kept");
   assert.deepEqual((await all(C.EVENTS)).map((d) => d.id), ["new_e1_deviated"]);
@@ -425,7 +429,7 @@ test("retention boundaries: exactly 24 h / 90 days are kept; navigating and rece
   await db.collection(C.EVENTS).doc("e_open").set({ riderUid: "navigating", sessionId: "sess_open", createdAt: at(D90 * 2) });
 
   const counts = await ops.purgeExpiredTrackingData({ db, Timestamp, now });
-  assert.deepEqual(counts, { locations: 1, sessions: 1, states: 0, events: 1 });
+  assert.deepEqual(counts, { locations: 1, sessions: 1, states: 0, events: 1, trails: 0 });
   assert.deepEqual((await all(C.LOCATIONS)).map((d) => d.id).sort(), ["atBoundary", "live"]);
   assert.deepEqual((await all(C.SESSIONS)).map((d) => d.id).sort(), ["endedAtBoundary", "navigating"]);
   assert.deepEqual((await all(C.STATES)).map((d) => d.id), ["navigating"]);

@@ -1178,6 +1178,49 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
     throw new PolicyError("invalid-payload", "That delivery could not be identified.");
   }
 
+  return completeDelivery({
+    db,
+    FieldValue,
+    orderId,
+    riderUid: uid,
+    actorUid: uid,
+    actorEmail: email,
+    now,
+    // Clinic delivery geofence — the authoritative check (the app's preflight
+    // is only early feedback). The Rider's location is read IN this
+    // transaction: moving out, going stale, stopping tracking or being
+    // reassigned after the preflight still refuses here, before any write.
+    // An already-delivered replay returned before this, so retries stay idempotent.
+    verifyLocation: async (tx, order) => {
+      const locationSnap = await tx.get(db.collection(RIDER_LOCATIONS).doc(uid));
+      evaluateDeliveryGeofence({
+        order,
+        location: locationSnap.exists ? locationSnap.data() : null,
+        uid,
+        nowMs: now.getTime(),
+      });
+      return { orderFields: {} };
+    },
+  });
+}
+
+/**
+ * The completion transaction shared by every path that may close a delivery:
+ * the live one above, and the offline record (offlineCompletionOps.js — the
+ * Rider's own record, or a Dispatcher's approval of one).
+ *
+ * [riderUid] is the Rider who carried it: the order must be assigned to them
+ * and both photos recorded by them. [actorUid]/[actorEmail] is who closes it
+ * (the Rider, or the approving Dispatcher) — the status attribution.
+ *
+ * [verifyLocation](tx, order) runs after the status and evidence checks and
+ * before any other read. It either throws (nothing is written), returns
+ * { orderFields } to complete (extra fields stamped on the order — it must not
+ * write), or returns { stop: result } after writing its own outcome instead
+ * (an offline record sent for review) — then nothing else is read or written.
+ */
+async function completeDelivery({ db, FieldValue, orderId, riderUid, actorUid, actorEmail = null, now, verifyLocation }) {
+  const uid = riderUid;
   const orderRef = db.collection(ORDERS).doc(orderId);
   const reservationRef = db.collection(RESERVATIONS).doc(orderId);
 
@@ -1222,18 +1265,8 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
     const evidence = deliveryEvidenceProblem(order, orderId, uid);
     if (evidence) throw new PolicyError(evidence.code, evidence.message);
 
-    // Clinic delivery geofence — the authoritative check (the app's preflight
-    // is only early feedback). The Rider's location is read IN this
-    // transaction: moving out, going stale, stopping tracking or being
-    // reassigned after the preflight still refuses here, before any write.
-    // An already-delivered replay returned above, so retries stay idempotent.
-    const locationSnap = await tx.get(db.collection(RIDER_LOCATIONS).doc(uid));
-    evaluateDeliveryGeofence({
-      order,
-      location: locationSnap.exists ? locationSnap.data() : null,
-      uid,
-      nowMs: now.getTime(),
-    });
+    const verified = await verifyLocation(tx, order);
+    if (verified?.stop) return verified.stop;
 
     const legacy = isLegacyOrder(order);
     const settlements = [];
@@ -1293,7 +1326,7 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
     // History, READ phase: the consumption, create-only. A retried completion
     // replays above and never reaches this.
     const preparedHistory = !legacy
-      ? await prepareEvents(tx, { db, events: [consumptionEvent({ orderId, order, reservationItems: reservation.items, uid })] })
+      ? await prepareEvents(tx, { db, events: [consumptionEvent({ orderId, order, reservationItems: reservation.items, uid: actorUid })] })
       : [];
 
     // ---- writes ----
@@ -1303,21 +1336,22 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
       status: "delivered",
       deliveredAt: FieldValue.serverTimestamp(),
       statusUpdatedAt: FieldValue.serverTimestamp(),
-      statusUpdatedByUid: uid,
+      statusUpdatedByUid: actorUid,
       // The status-attribution trio is written TOGETHER. Writing only the uid
       // left the previous writer's email (the dispatcher who dispatched it) on
       // the order, so Admin's Activity panel showed "Updated by <dispatcher>"
       // for a delivery the rider completed. With no email on the rider's
       // token, the stale one is removed rather than left to mislead.
-      statusUpdatedByEmail: statusUpdatedByEmailValue(email, FieldValue),
+      statusUpdatedByEmail: statusUpdatedByEmailValue(actorEmail, FieldValue),
       updatedAt: FieldValue.serverTimestamp(),
+      ...(verified?.orderFields ?? {}),
     };
     if (legacy) {
       orderUpdate.inventoryReconciliation = "legacy-unallocated";
     } else {
       orderUpdate.allocationStatus = "consumed";
       orderUpdate.consumedAt = FieldValue.serverTimestamp();
-      orderUpdate.consumedByUid = uid;
+      orderUpdate.consumedByUid = actorUid;
       if (order.allocationVersion === ALLOCATION_VERSION_BACKORDER) {
         // Delivered: out of the allocation queue for good.
         orderUpdate.allocationOpen = false;
@@ -1326,7 +1360,7 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
       tx.update(reservationRef, {
         status: "consumed",
         settledAt: FieldValue.serverTimestamp(),
-        settledByUid: uid,
+        settledByUid: actorUid,
         settlementType: "delivered",
       });
       // Consumption recorded once: a retried completion replays above.
@@ -1342,6 +1376,7 @@ module.exports = {
   createOrderWithReservation,
   cancelOrderWithInventoryRelease,
   markOrderDeliveredWithInventoryConsumption,
+  completeDelivery,
   validateDeliveryCompletionGeofence,
   requireRole,
   loadUser,

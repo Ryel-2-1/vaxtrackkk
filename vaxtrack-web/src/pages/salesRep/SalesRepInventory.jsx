@@ -68,6 +68,9 @@ function SalesRepInventory() {
   const [rawInventory, setRawInventory] = useState([]);
   const [vaccines, setVaccines] = useState([]);
   const [showInactive, setShowInactive] = useState(false);
+  // The overview shows the top types; the rest open on request, so the card
+  // keeps one height and never squeezes its rows into a tiny scrollbox.
+  const [showAllTypes, setShowAllTypes] = useState(false);
   // Archived vaccine products: their batches are not offered to Med Reps.
   const [archivedIds, setArchivedIds] = useState(() => new Set());
   const [loading, setLoading] = useState(true);
@@ -249,22 +252,32 @@ function SalesRepInventory() {
             </div>
           </div>
 
-          <div className="stock-hbar-list">
+          <div className={`stock-hbar-list${showAllTypes ? " is-expanded" : ""}`}>
             {stockByType.length > 0 ? (
-              stockByType.map((bar) => (
+              (showAllTypes ? stockByType : stockByType.slice(0, TOP_TYPES)).map((bar) => (
                 <HBar key={bar.label} label={bar.label} qty={bar.qty} barWidth={bar.barHeight} tone={bar.tone} />
               ))
             ) : (
               <p className="chart-empty">No stock data available</p>
             )}
           </div>
+          {stockByType.length > TOP_TYPES && (
+            <button
+              type="button"
+              className="stock-hbar-toggle"
+              aria-expanded={showAllTypes}
+              onClick={() => setShowAllTypes((v) => !v)}
+            >
+              {showAllTypes ? `Show top ${TOP_TYPES}` : `Show all ${stockByType.length} types`}
+            </button>
+          )}
         </div>
 
         <div className="inventory-side-metrics">
           <SmallMetric
             icon={<Hourglass size={24} />}
             label="Expiring ≤ 30 Days"
-            value={formatNumber(metrics.expiringSoon)}
+            value={formatMetric(metrics.expiringSoon)}
             sub="vials need priority"
             tone="gold"
           />
@@ -272,7 +285,7 @@ function SalesRepInventory() {
           <SmallMetric
             icon={<CheckCircle2 size={24} />}
             label="In Date > 90 Days"
-            value={formatCompact(metrics.inDateStock)}
+            value={formatMetric(metrics.inDateStock)}
             sub="vials, by expiry date only"
             tone="green"
           />
@@ -469,10 +482,22 @@ function SmallMetric({ icon, label, value, sub, tone }) {
   );
 }
 
+/** Vaccine types shown before "Show all". */
+const TOP_TYPES = 5;
+
+/** 1.2K / 3.4M / 5.6B / 7.8T — a figure that always fits its card. */
 function formatCompact(value) {
-  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
-  if (value >= 1000) return `${Math.round(value / 1000)}K`;
-  return value.toLocaleString();
+  const v = Number(value) || 0;
+  for (const [unit, size] of [["T", 1e12], ["B", 1e9], ["M", 1e6]]) {
+    if (v >= size) return `${(v / size).toFixed(1).replace(/\.0$/, "")}${unit}`;
+  }
+  if (v >= 1000) return `${Math.round(v / 1000)}K`;
+  return v.toLocaleString();
+}
+
+/** A KPI figure: exact up to 99,999 (each vial matters), compact above. */
+function formatMetric(value) {
+  return Number(value) < 100000 ? formatNumber(value) : formatCompact(value);
 }
 
 export default SalesRepInventory;

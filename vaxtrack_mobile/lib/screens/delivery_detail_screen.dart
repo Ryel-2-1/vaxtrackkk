@@ -4,11 +4,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/delivery.dart';
+import '../offline/offline_delivery_service.dart';
 import '../services/delivery_service.dart';
 import '../services/rider_tracking_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/completion_gate.dart';
 import '../utils/delivery_timing.dart';
+import '../utils/evidence_errors.dart';
 import '../utils/google_maps_url.dart';
 import '../utils/nav_availability.dart';
 import '../utils/order_workflow.dart';
@@ -154,6 +156,25 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
       );
       Navigator.pop(context);
     } catch (e) {
+      // No signal while reporting a failed delivery: the report is kept on the
+      // phone and sent by itself once back online (OfflineDeliveryQueue).
+      if (newStatus == 'delivery_failed' && classifyEvidenceError(e) == EvidenceErrorKind.network) {
+        try {
+          await offlineDeliveries.saveFailure(delivery: d, reason: _failureReason ?? '');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('No signal. The failed-delivery report is saved on your phone and will be sent when you are back online.'),
+                backgroundColor: AppColors.warning,
+              ),
+            );
+            Navigator.pop(context);
+          }
+          return;
+        } catch (_) {
+          // Could not even keep it: fall through to the error below.
+        }
+      }
       // A genuine failure (e.g. permission denied, or a queued write rejected on
       // reconnect). Caught here so it is never an unhandled Future error; the
       // screen stays open so the rider can retry.

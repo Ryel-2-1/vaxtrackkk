@@ -20,6 +20,10 @@ class LocationFix {
   final double? speedMps;
   final DateTime capturedAt;
 
+  /// Android says the fix came from a mock-location ("fake GPS") app. Sent as
+  /// mockedLocation; the server then refuses it for arrival and completion.
+  final bool isMocked;
+
   const LocationFix({
     required this.latitude,
     required this.longitude,
@@ -27,6 +31,7 @@ class LocationFix {
     required this.capturedAt,
     this.headingDegrees,
     this.speedMps,
+    this.isMocked = false,
   });
 
   /// Heading/speed exactly as the rules accept them, or null when the device

@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'app.dart';
 import 'environment.dart';
+import 'theme/app_branding.dart';
 import 'firebase_options.dart';
 
 /// Upper bound for the on-device Firestore offline cache.
@@ -40,6 +41,8 @@ Future<void> bootstrapAndRun(EnvConfig config) async {
         'firebaseProjectId=$projectId',
       );
     }
+    // Sign-in shows the same icon as this build's launcher icon.
+    AppBranding.environment = config.environment;
     runApp(const VaxTrackRiderApp());
   } catch (e, stack) {
     debugPrint('Startup failed for ${config.label} environment: $e\n$stack');

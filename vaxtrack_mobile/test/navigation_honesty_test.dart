@@ -83,7 +83,8 @@ void main() {
     expect(detail.contains('routePolyline: d.routePolyline'), isFalse, reason: 'never the leg when the plan is the trip');
     expect(detail, contains('_etaCard(plan)'));
     final route = read('lib/screens/route_monitoring_screen.dart');
-    expect(route, contains('SavedRoutePlan get _plan => SavedRoutePlan.of(d);'));
+    // The plan is SavedRoutePlan.of(d), decoded once per order update.
+    expect(route, contains('_planCache = SavedRoutePlan.of(d);'));
     expect(route.contains('compliancePolyline('), isFalse);
     expect(route.contains('routeDescription('), isFalse);
     // The plan follows the live order, so a re-plan replaces the line.

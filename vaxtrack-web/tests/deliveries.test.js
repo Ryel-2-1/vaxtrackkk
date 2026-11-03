@@ -291,12 +291,16 @@ test("Activity 'Updated by' shows the attribution every status writer keeps curr
   // The completion callable now writes the email together with the time and
   // uid, from the caller's verified token — so the row names the rider.
   const ops = read("functions/src/operations.js").replace(/\r\n/g, "\n");
-  const deliver = ops.slice(ops.indexOf("async function markOrderDeliveredWithInventoryConsumption("));
+  // The completion transaction is shared (live + offline paths); it writes the
+  // closing actor's attribution, which the live callable passes as its token email.
+  const deliver = ops.slice(ops.indexOf("async function completeDelivery("));
   const update = /const orderUpdate = \{[\s\S]*?\n {4}\};/.exec(deliver)[0];
   for (const field of ["statusUpdatedAt", "statusUpdatedByUid", "statusUpdatedByEmail"]) {
     assert.match(update, new RegExp(`\\b${field}:`), `completion writes ${field}`);
   }
-  assert.match(update, /statusUpdatedByEmail: statusUpdatedByEmailValue\(email, FieldValue\),/);
+  assert.match(update, /statusUpdatedByEmail: statusUpdatedByEmailValue\(actorEmail, FieldValue\),/);
+  const live = ops.slice(ops.indexOf("async function markOrderDeliveredWithInventoryConsumption("), ops.indexOf("async function completeDelivery("));
+  assert.match(live, /actorUid: uid,\s+actorEmail: email,/);
   // Cancellation writes it the same way (it used to leave the previous email).
   const cancel = ops.slice(ops.indexOf("async function cancelOrderWithInventoryRelease("));
   const cancelUpdate = /const orderUpdate = \{[\s\S]*?\n {4}\};/.exec(cancel)[0];

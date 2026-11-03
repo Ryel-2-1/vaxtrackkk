@@ -426,7 +426,6 @@ function SalesRepOrderTracking() {
                   <tr>
                     <th>Order ID</th>
                     <th>Destination</th>
-                    <th>Date</th>
                     <th>Status</th>
                     <th>Progress</th>
                   </tr>
@@ -444,7 +443,7 @@ function SalesRepOrderTracking() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan="5">
+                      <td colSpan="4">
                         <div className="tracking-v2-empty">
                           {orders.length === 0
                             ? "You haven't placed any orders yet."
@@ -460,12 +459,12 @@ function SalesRepOrderTracking() {
             </div>
           </div>
 
-          <aside className="tracking-side tracking-v2-side">
+          <aside className="tracking-side tracking-v2-side" key={selectedOrder?.id ?? "none"}>
             {selectedOrder ? (
               <>
                 <div className="tracking-side-title">
                   <div>
-                    <span>Selected Order</span>
+                    <span>Selected order</span>
                     <h2>{selectedOrder.orderNumber}</h2>
                   </div>
                   <button type="button" onClick={() => selectOrder("")}>
@@ -477,7 +476,7 @@ function SalesRepOrderTracking() {
                   {selectedOrder.priority === "Urgent" ? "Urgent" : "Standard"} · {selectedOrder.date}
                 </p>
 
-                <h3>Delivery Status</h3>
+                <h3>Delivery status</h3>
                 <div className="tracking-v2-status-strip">
                   <StatusBadge statusKey={selectedOrder.statusKey} label={selectedOrder.status} />
                   <span>Rider: {selectedOrder.driverName}</span>
@@ -597,7 +596,7 @@ function SalesRepOrderTracking() {
                   </div>
                 )}
 
-                <h3>Order Content</h3>
+                <h3>Order contents</h3>
 
                 {selectedOrder.items.length > 0 ? (
                   selectedOrder.items.map((item, i) => (
@@ -617,7 +616,7 @@ function SalesRepOrderTracking() {
 
                 <div className="tracking-total">
                   <p>
-                    Total Quantity
+                    Total quantity
                     <strong>{selectedOrder.quantity.toLocaleString()} {selectedOrder.quantity === 1 ? "vial" : "vials"}</strong>
                   </p>
                 </div>
@@ -649,8 +648,11 @@ function TrackingRow({ selected, order, onSelect }) {
         if (event.key === "Enter") onSelect();
       }}
     >
+      {/* The order date sits under its number: a separate Date column took
+          the width the destination needs. */}
       <td>
         <strong>{order.orderNumber}</strong>
+        <small className="tnum">{order.date}</small>
       </td>
 
       <td>
@@ -666,7 +668,6 @@ function TrackingRow({ selected, order, onSelect }) {
         {order.changeRequest && <small>Destination change awaiting your approval</small>}
       </td>
 
-      <td>{order.date}</td>
 
       <td>
         <StatusBadge statusKey={order.statusKey} label={order.status} />

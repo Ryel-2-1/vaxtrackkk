@@ -56,6 +56,7 @@ dependencies:
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
   google_navigation_flutter: ^0.10.0
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:
@@ -83,6 +84,12 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # The VaxTrack icon shown on sign-in and apply (theme/app_branding.dart):
+  # the same images the launcher icons are generated from.
+  assets:
+    - branding/vaxtrack-icon-production.png
+    - branding/vaxtrack-icon-staging.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

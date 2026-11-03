@@ -24,6 +24,7 @@ import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 import { subscribeOrderStatusEvents } from "../../services/statusEventService";
 import { kpiValue, liveErrorMessage } from "../../services/liveDataErrors";
 import { invoicePhotoView, proofPhotoView } from "../../services/deliveryEvidenceView";
+import { offlineCompletionNote, pendingOfflineReview } from "../../services/offlineCompletionView";
 import { storageBucket } from "../../firebase";
 import "./Deliveries.css";
 
@@ -95,6 +96,10 @@ function normalizeDelivery(raw) {
     invoiceUrl: raw.invoiceUrl || "",
     proofPhoto: proofPhotoView(raw, storageBucket),
     invoicePhoto: invoicePhotoView(raw, storageBucket),
+    // Recorded on the rider's phone without signal (offlineCompletionView.js):
+    // how it was completed, or why it waits for a dispatcher's review.
+    offlineNote: offlineCompletionNote(raw),
+    offlineReview: pendingOfflineReview(raw),
     // The rider whose live location the map reads (riderLocations/{uid} — the
     // order itself no longer carries a location copy), then the saved-route
     // fields. The map tolerates missing values and shows an honest fallback.
@@ -614,13 +619,25 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
             </section>
           )}
 
-          <section className="mdl-drawer-section">
-            <h3>Live location</h3>
-            <LiveDeliveryMap order={delivery} tripStops={tripStops} showDeviation />
-          </section>
+          {delivery.statusType === "in_transit" && (
+            <section className="mdl-drawer-section">
+              <h3>Live location</h3>
+              <LiveDeliveryMap order={delivery} tripStops={tripStops} showDeviation />
+            </section>
+          )}
 
           <section className="mdl-drawer-section">
             <h3>Proof of delivery</h3>
+            {delivery.offlineNote && <p className="mdl-drawer-note">{delivery.offlineNote}</p>}
+            {delivery.offlineReview && (
+              <p className="mdl-drawer-note">
+                Recorded offline on the rider's phone{delivery.offlineReview.recordedAt ? ` at ${delivery.offlineReview.recordedAt}` : ""}
+                {delivery.offlineReview.distanceMeters != null
+                  ? `, ${delivery.offlineReview.distanceMeters} m from the clinic (area ${delivery.offlineReview.radiusMeters} m)`
+                  : ""}
+                . Waiting for dispatcher review: {delivery.offlineReview.reasonText} Decide it in Dispatcher → Shipments.
+              </p>
+            )}
             {delivery.proofPhoto.state === "verified" ? (
               <div className="mdl-proof">
                 <a

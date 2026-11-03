@@ -120,6 +120,14 @@ class ProofSubmissionController extends ChangeNotifier {
   /// under [completionPendingMessage]. Never raw error text.
   String? _completionFailureDetail;
 
+  /// The last submit failed only because the server could not be reached.
+  bool _failedForConnection = false;
+
+  /// The last attempt failed for want of a connection, so the Rider may keep
+  /// the delivery on the phone and send it once back online
+  /// (OfflineDeliveryQueue). Never true after a refusal by the server.
+  bool get failedForConnection => _failedForConnection && !isCommitting && !isCompleted;
+
   ProofPhase get phase => _phase;
   String? get errorMessage => _errorMessage;
 
@@ -225,6 +233,7 @@ class ProofSubmissionController extends ChangeNotifier {
 
   /// Forget everything about the previous order when the rider picks another.
   void resetForNewOrder() {
+    _failedForConnection = false;
     _pendingProof = null;
     _pendingInvoice = null;
     _proofSaved = false;
@@ -309,6 +318,7 @@ class ProofSubmissionController extends ChangeNotifier {
       _errorMessage = null;
       _noticeMessage = null;
       _completionFailureDetail = null;
+      _failedForConnection = false;
       _setPhase(ProofPhase.preparing);
 
       // Stale-attempt guard. The screen's copy of the order can be out of date
@@ -322,7 +332,8 @@ class ProofSubmissionController extends ChangeNotifier {
         final Delivery fresh;
         try {
           fresh = await loader.fetchDelivery(orderId);
-        } catch (_) {
+        } catch (e) {
+          _failedForConnection = classifyEvidenceError(e) == EvidenceErrorKind.network;
           _fail(refreshFailedMessage);
           return false;
         }
@@ -355,6 +366,7 @@ class ProofSubmissionController extends ChangeNotifier {
       try {
         await geofence.checkDeliveryGeofence(orderId);
       } catch (e) {
+        _failedForConnection = classifyEvidenceError(e) == EvidenceErrorKind.network;
         _fail(_locationFailure(e));
         if (_completionPending) _completionFailureDetail = evidenceKeptMessage;
         return false;
@@ -389,6 +401,7 @@ class ProofSubmissionController extends ChangeNotifier {
           return false;
         }
         _completionFailureDetail = _completionFailureReason(e);
+        _failedForConnection = classifyEvidenceError(e) == EvidenceErrorKind.network;
         _fail(completionPendingMessage);
         return false;
       }
@@ -484,6 +497,7 @@ class ProofSubmissionController extends ChangeNotifier {
       _fail(e.message);
       return false;
     } catch (e) {
+      _failedForConnection = classifyEvidenceError(e) == EvidenceErrorKind.network;
       _fail(_friendlyFailure(e));
       return false;
     }

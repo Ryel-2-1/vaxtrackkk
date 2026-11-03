@@ -11,6 +11,9 @@ import { cancelStockEffect } from "../../services/cancelStockEffect";
 import { loadingCustodyConfirmed } from "../../services/loadingCustody";
 import { requestOrderDestinationChange } from "../../services/destinationCorrectionService";
 import DestinationCorrectionDialog from "./DestinationCorrectionDialog";
+import OfflineReviewDialog from "./OfflineReviewDialog";
+import { resolveOfflineCompletion } from "../../services/offlineCompletion";
+import { offlineCompletionNote, pendingOfflineReview } from "../../services/offlineCompletionView";
 import { subscribeClinics } from "../../services/clinicService";
 import { clinicsById } from "../../services/destinationFreshness";
 import DestinationNotes from "../../components/dispatch/DestinationNotes";
@@ -277,6 +280,27 @@ function DispatcherShipments() {
     }
   };
 
+  // An offline delivery record the server could not verify: approve
+  // (completes the order) or reject (back to the rider), on the server.
+  const [offlineReviewId, setOfflineReviewId] = useState(null);
+  const offlineReviewTarget = offlineReviewId ? orders.find((o) => o.id === offlineReviewId) ?? null : null;
+  const handleOfflineDecision = async (order, decision, note) => {
+    setUpdating(order.id);
+    dismissToast();
+    try {
+      await resolveOfflineCompletion(order.id, decision, note);
+      setOfflineReviewId(null);
+      showToast(
+        decision === "approve"
+          ? `${capitalizedOrderPhrase(order)} completed from the rider's offline record.`
+          : `Offline record rejected. ${capitalizedOrderPhrase(order)} stays in transit for the rider.`,
+        "success"
+      );
+    } finally {
+      setUpdating("");
+    }
+  };
+
   const handleConfirmReassign = async (order) => {
     setUpdating(order.id);
     dismissToast();
@@ -487,6 +511,7 @@ function DispatcherShipments() {
                       onRequestCorrection={openCorrectionDialog}
                       onViewProof={(order) => setProofTargetId(order.id)}
                       onViewDetails={(order) => setDetailsTargetId(order.id)}
+                      onReviewOffline={(order) => setOfflineReviewId(order.id)}
                       clinic={clinicMap.get(order.clinicDocId)}
                       focused={order.id === focusOrderId}
                     />
@@ -506,6 +531,12 @@ function DispatcherShipments() {
       {proofTarget && (
         <DialogLayer scope="dispatcher-page">
           <ProofOfDeliveryDialog order={proofTarget} onDismiss={() => setProofTargetId(null)} />
+        </DialogLayer>
+      )}
+
+      {offlineReviewTarget && (
+        <DialogLayer scope="dispatcher-page">
+          <OfflineReviewDialog order={offlineReviewTarget} onDismiss={() => setOfflineReviewId(null)} onDecide={handleOfflineDecision} />
         </DialogLayer>
       )}
 
@@ -569,6 +600,7 @@ function ProofOfDeliveryDialog({ order, onDismiss }) {
         <p id={descriptionId} className="shp-dialog-desc">
           {orderNumberPhrase(order)} · {order.clinicName || "Clinic"}
         </p>
+        {offlineCompletionNote(order) && <p className="shp-dialog-desc">{offlineCompletionNote(order)}</p>}
         {proofUrl && !imageFailed ? (
           <a className="shp-proof-image-link" href={proofUrl} target="_blank" rel="noopener noreferrer">
             <img src={proofUrl} alt={`Proof of delivery for ${orderNumberPhrase(order)}`}
@@ -971,7 +1003,7 @@ function CancelOrderDialog({ order, onDismiss, onConfirm }) {
   );
 }
 
-function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign, onRequestCorrection, onViewProof, onViewDetails, clinic: clinicDoc, focused = false }) {
+function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign, onRequestCorrection, onViewProof, onViewDetails, onReviewOffline, clinic: clinicDoc, focused = false }) {
   const rowRef = useRef(null);
   // Opened from a notification: bring the order into view once.
   useEffect(() => {
@@ -990,6 +1022,7 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
   const isDelayed = sKey === "delayed" || sKey === "delivery_failed";
   const isCompleted = sKey === "delivered" || sKey === "completed";
   const isCancelled = sKey === "cancelled" || sKey === "canceled";
+  const offlineReview = pendingOfflineReview(order);
 
   const riderName = order.assignedRiderName || "Unassigned";
   const riderPhone = order.assignedRiderPhone || "";
@@ -1033,6 +1066,8 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
         <div>
           <TimingIndicator order={order} />
         </div>
+        {offlineReview && <div><span className="dispatch-anomaly">Offline record — needs review</span></div>}
+        {isCompleted && offlineCompletionNote(order) && <div><span className="shp-muted">Completed offline</span></div>}
         {earlyDispatch && (
           <div>
             <span
@@ -1059,6 +1094,13 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
               onClick={() => onViewDetails(order)}>View details</button>
           ) : (
           <>
+          {offlineReview && (
+            <button type="button" className="shp-act-btn primary review-offline" disabled={updating}
+              aria-label={`Review the offline delivery record for ${orderNumberPhrase(order)}`}
+              onClick={() => onReviewOffline(order)}>
+              Review offline delivery
+            </button>
+          )}
           {awaitingApproval && <span className="shp-muted shp-action-note">Awaiting Med Rep approval</span>}
           {correctable && (
             <button type="button" className="shp-act-btn request-change" disabled={updating}

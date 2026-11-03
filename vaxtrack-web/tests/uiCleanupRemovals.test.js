@@ -122,7 +122,7 @@ test("Order Tracking keeps destination approval, rider info and delivery status"
   assert.match(tracking, /Approve new destination/, "the approval action remains");
   assert.match(tracking, /aria-label="Destination change request"/, "the request section remains");
   assert.match(tracking, /Destination change history/, "the destination history remains");
-  assert.match(tracking, /Delivery Status/, "delivery status remains");
+  assert.match(tracking, /Delivery status/, "delivery status remains");
   assert.match(tracking, /selectedOrder\.driverName/, "rider assignment info remains");
 });
 

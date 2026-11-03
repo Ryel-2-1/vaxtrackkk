@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../offline/offline_delivery_service.dart';
+import '../widgets/offline_deliveries_banner.dart';
 import '../models/delivery.dart';
 import '../services/delivery_service.dart';
 import '../services/rider_tracking_service.dart';
@@ -105,6 +107,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               padding: const EdgeInsets.all(16),
               children: [
                 TrackingStatusBanner(controller: riderTracking),
+                OfflineDeliveriesBanner(queue: offlineDeliveries),
                 Align(
                   alignment: Alignment.centerRight,
                   child: SyncIndicator(status: syncStatus),

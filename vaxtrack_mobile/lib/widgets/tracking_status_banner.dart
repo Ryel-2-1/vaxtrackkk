@@ -8,9 +8,14 @@ import '../tracking/tracking_lifecycle.dart';
 /// for every state that needs one. The explanation is shown BEFORE the system
 /// permission prompt; nothing is requested silently.
 class TrackingStatusBanner extends StatelessWidget {
-  const TrackingStatusBanner({super.key, required this.controller});
+  const TrackingStatusBanner({super.key, required this.controller, this.problemsOnly = false});
 
   final RiderTrackingController controller;
+
+  /// Show only what needs the rider (no position yet, location off,
+  /// permission, errors) and nothing while sharing works normally: for screens
+  /// where the map needs the room (RouteMonitoringScreen).
+  final bool problemsOnly;
 
   /// Texts per status (also used by tests).
   static const Map<TrackingStatus, String> messages = {
@@ -87,6 +92,7 @@ class TrackingStatusBanner extends StatelessWidget {
                 ],
               );
             }
+            if (problemsOnly && controller.notificationsAllowed) return const SizedBox.shrink();
             final sharing = returning
                 ? returningMessage
                 : status == TrackingStatus.navigating

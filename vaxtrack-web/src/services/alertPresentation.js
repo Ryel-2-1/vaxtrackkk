@@ -101,6 +101,7 @@ const TITLES = Object.freeze({
   delivery_delay: { active: "Delivery running late", resolved: "Late delivery resolved" },
   rider_location_stale: { active: "Rider location not updating", resolved: "Rider location updating again" },
   delivery_awaiting_completion: { active: "Delivery still awaiting completion", resolved: "Delivery completion resolved" },
+  offline_completion_review: { active: "Offline delivery needs review", resolved: "Offline delivery reviewed" },
 });
 
 const STALE_MINUTES = 10;
@@ -149,7 +150,8 @@ function pathFor(raw, role) {
 export function presentAlert(raw, { role = "admin", nowMs = Date.now(), fallbackTitle = "Alert" } = {}) {
   const resolved = raw?.status === "resolved";
   const type = raw?.type;
-  const orderLinked = type === "route_deviation" || type === "delivery_delay" || type === "delivery_awaiting_completion";
+  const orderLinked = type === "route_deviation" || type === "delivery_delay" || type === "delivery_awaiting_completion" ||
+    type === "offline_completion_review";
   const riderLinked = type === "rider_location_stale";
   const rider = nameOr(raw?.riderName, null);
   const code = orderCodeOf(raw?.orderNumber);
@@ -181,6 +183,13 @@ export function presentAlert(raw, { role = "admin", nowMs = Date.now(), fallback
         ? lateResolvedText(raw.resolutionReason, code)
         : `${code ? `Order ${code}` : "This order"} is no longer waiting at the destination.`)
       : withoutIds(nameOr(raw.message, "The rider has been near the destination for 15 minutes without completing the delivery."), raw);
+  } else if (type === "offline_completion_review") {
+    // Server-raised (functions/src/offlineCompletionOps.js): a delivery the
+    // rider recorded without signal could not be verified automatically.
+    title = TITLES.offline_completion_review[resolved ? "resolved" : "active"];
+    message = resolved
+      ? `The offline delivery for ${code ? `Order ${code}` : "this order"} was ${raw.resolutionReason === "rejected" ? "rejected" : "approved"}.`
+      : withoutIds(nameOr(raw.message, "A delivery recorded without signal needs review."), raw);
   } else if (type === "rider_location_stale") {
     // Rebuilt from the stored fields, never shown from `message`.
     title = TITLES.rider_location_stale[resolved ? "resolved" : "active"];

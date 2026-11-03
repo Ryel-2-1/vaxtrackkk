@@ -519,7 +519,12 @@ test("both callables share the attribution helper and take the token email", () 
   assert.match(call, /\n\s+email,\n/);
   assert.equal(/data\.email/.test(call), false, "no email taken from the request payload");
   const ops = fs.readFileSync(path.join(__dirname, "..", "src", "operations.js"), "utf8");
-  assert.equal(ops.split("statusUpdatedByEmail: statusUpdatedByEmailValue(email, FieldValue),").length - 1, 2);
+  // Cancellation writes the caller's token email; completion (shared with the
+  // offline paths) writes the closing actor's, which the live callable passes
+  // as its own token email.
+  assert.equal(ops.split("statusUpdatedByEmail: statusUpdatedByEmailValue(email, FieldValue),").length - 1, 1);
+  assert.equal(ops.split("statusUpdatedByEmail: statusUpdatedByEmailValue(actorEmail, FieldValue),").length - 1, 1);
+  assert.match(ops, /return completeDelivery\(\{[\s\S]*?actorUid: uid,\s+actorEmail: email,/);
 });
 
 test("a reserved batch that has expired by the time of delivery is never recorded as delivered", async () => {

@@ -1,6 +1,7 @@
 import { orderDestination, orderReference } from "./orderLabel.js";
 import { FRESHNESS, millisOf, normalizeStatus } from "./riderTracking.js";
 import { presentAlert } from "./alertPresentation.js";
+import { offlineCompletionNote } from "./offlineCompletionView.js";
 
 const RECENT_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -60,8 +61,12 @@ export function buildDispatcherNotificationFeed({ alerts, orders, near, nowMs })
     } else if (status === "delivered") {
       const deliveredMs = millisOf(order.deliveredAt) ?? atMs;
       if (deliveredMs && nowMs - deliveredMs <= RECENT_MS) {
-        items.push(item({ id: `delivered:${order.id}`, kind: "update", title: "Delivery completed",
-          message: `${code} to ${clinic} was marked delivered. Open the shipment for its recorded details.`,
+        const offline = offlineCompletionNote(order);
+        items.push(item({ id: `delivered:${order.id}`, kind: "update",
+          title: offline ? "Delivery completed offline" : "Delivery completed",
+          message: offline
+            ? `${code} to ${clinic}: ${offline}`
+            : `${code} to ${clinic} was marked delivered. Open the shipment for its recorded details.`,
           atMs: deliveredMs, path }));
       }
     }

@@ -728,6 +728,53 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   font-weight: 600;
 }
 
+/* Offline delivery review (OfflineReviewDialog). */
+.dispatcher-page .shp-offline-review {
+  max-height: min(92dvh, 760px);
+  overflow-y: auto;
+}
+.dispatcher-page .shp-offline-reason {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--gray-800);
+}
+.dispatcher-page .shp-offline-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+.dispatcher-page .shp-offline-facts dt { color: var(--gray-600); }
+.dispatcher-page .shp-offline-facts dd { margin: 0; color: var(--gray-900); }
+.dispatcher-page .shp-offline-photos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+.dispatcher-page .shp-offline-photo {
+  display: block;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--gray-50);
+  color: var(--gray-700);
+  font-size: 12px;
+  text-decoration: none;
+}
+.dispatcher-page .shp-offline-photo img {
+  display: block;
+  width: 100%;
+  height: 160px;
+  object-fit: cover;
+}
+.dispatcher-page .shp-offline-photo span { display: block; padding: 6px 8px; }
+.dispatcher-page .shp-offline-photo:focus-visible {
+  outline: 2px solid var(--green-700);
+  outline-offset: 2px;
+}
+
 .dispatcher-page .shp-dialog label {
   display: block;
   margin-bottom: 6px;
@@ -1196,4 +1243,47 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
 @media (max-width: 760px) {
   .dispatcher-page .dispatcher-dash-hero { padding: 16px; gap: 14px; }
   .dispatcher-page .dispatcher-dash-hero-status { min-width: 0 !important; width: 100% !important; max-width: none !important; }
+}
+
+/* Give the return queue a clear boundary above the loading cards. */
+.dispatcher-page .cl-return {
+  background: #f2faf5;
+  border: 1px solid #b8dbc8;
+  border-left: 4px solid var(--green-700);
+  padding: 16px 18px;
+}
+.dispatcher-page .cl-return-head {
+  align-items: center;
+  gap: 12px;
+}
+.dispatcher-page .cl-return-head > svg {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #dcefe3;
+}
+.dispatcher-page .cl-return-head h3 {
+  color: var(--green-900);
+}
+.dispatcher-page .cl-return-list {
+  max-height: min(36dvh, 280px);
+  margin-top: 14px;
+  gap: 8px;
+}
+.dispatcher-page .cl-return-row {
+  min-height: 64px;
+  padding: 10px 12px;
+  border: 1px solid #d5e7da;
+  border-radius: 10px;
+  background: #fff;
+}
+.dispatcher-page .cl-return-row .cl-rider-meta {
+  flex: 1;
+  min-width: 0;
+}
+.dispatcher-page .cl-return-row .cl-btn {
+  flex: none;
+  margin-left: auto;
 }

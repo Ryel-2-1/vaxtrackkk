@@ -341,8 +341,11 @@ service cloud.firestore {
     }
     function validRiderLocation(riderUid) {
       let d = request.resource.data;
-      return d.keys().hasOnly(riderLocationFields())
+      // mockedLocation (optional): true when Android reports the fix came from
+      // a mock-location app. Older builds never send it.
+      return d.keys().hasOnly(riderLocationFields().concat(['mockedLocation']))
         && d.keys().hasAll(riderLocationFields())
+        && (!('mockedLocation' in d) || d.mockedLocation is bool)
         && d.riderUid == riderUid
         && d.updatedAt == request.time
         && d.capturedAt is timestamp
@@ -1853,6 +1856,13 @@ service cloud.firestore {
     match /arrivalProximity/{orderId} {
       allow get, list: if isAdmin() || isDispatcher();
       allow write: if false;
+    }
+
+    // riderLocationTrails/{uid}: server-owned (functions/src/offlineCompletion
+    // Ops.js) — the Rider's recent trusted fixes, used only to check an offline
+    // delivery record. Never read or written by a client.
+    match /riderLocationTrails/{riderUid} {
+      allow read, write: if false;
     }
 
     // notificationReadStates/{uid}: which bell notifications this user has

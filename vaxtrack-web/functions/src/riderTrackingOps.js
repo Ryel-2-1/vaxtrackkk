@@ -488,7 +488,7 @@ async function handleOrderWrite({ db, FieldValue, orderId, before, after }) {
  */
 async function purgeExpiredTrackingData({ db, Timestamp, now, batchLimit = 300 }) {
   const cutoff = (ms) => Timestamp.fromMillis(now.getTime() - ms);
-  const counts = { locations: 0, sessions: 0, states: 0, events: 0 };
+  const counts = { locations: 0, sessions: 0, states: 0, events: 0, trails: 0 };
   const purge = async (query, key) => {
     const snap = await query.limit(batchLimit).get();
     if (snap.empty) return;
@@ -498,6 +498,11 @@ async function purgeExpiredTrackingData({ db, Timestamp, now, batchLimit = 300 }
     counts[key] += snap.size;
   };
   await purge(db.collection(C.LOCATIONS).where("updatedAt", "<", cutoff(T.RETENTION.locationMaxIdleMs)), "locations");
+  // The offline-completion trail (offlineCompletion.js): a rider's recent
+  // trusted fixes, needed only for TRAIL_KEEP_MS. One that has not been written
+  // for that long holds nothing an offline record could still be checked
+  // against, so it goes.
+  await purge(db.collection(TRAIL_COLLECTION).where("updatedAtMs", "<", now.getTime() - TRAIL_KEEP_MS), "trails");
   // Ended sessions/states: filtered on time, then on state client-side (single-field queries only).
   for (const [col, key, stateField] of [[C.SESSIONS, "sessions", "state"], [C.STATES, "states", "sessionState"]]) {
     const snap = await db.collection(col).where("updatedAt", "<", cutoff(T.RETENTION.endedSessionMs)).limit(batchLimit).get();
@@ -533,6 +538,8 @@ async function purgeExpiredTrackingData({ db, Timestamp, now, batchLimit = 300 }
   }
   return counts;
 }
+
+const { TRAIL_COLLECTION, TRAIL_KEEP_MS } = require("./offlineCompletion");
 
 module.exports = {
   TRACKING_COLLECTIONS: C,

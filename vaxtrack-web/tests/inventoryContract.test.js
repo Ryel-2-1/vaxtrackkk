@@ -22,6 +22,11 @@ const CALLABLE_NAMES = [
   "createOrderWithReservation",
   "cancelOrderWithInventoryRelease",
   "markOrderDeliveredWithInventoryConsumption",
+  // Offline delivery records (functions/src/offlineCompletion.js): the Rider's
+  // record completes through the same transaction as a live completion, or
+  // waits for a Dispatcher/Admin to approve (same transaction) or reject it.
+  "submitOfflineDeliveryCompletion",
+  "resolveOfflineCompletionReview",
   // A dispatcher-only destination correction changes an order's address and audit, not stock.
   "correctOrderDestination",
   "requestOrderDestinationChange",

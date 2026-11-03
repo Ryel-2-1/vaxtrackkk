@@ -163,6 +163,7 @@ void main() {
       'inaccurate': (refusal(kGeofenceInaccurate), kInaccurateLocationMessage),
       'tracking stopped': (refusal(kGeofenceUnavailable), kTrackingStoppedMessage),
       'destination invalid': (refusal(kGeofenceDestinationInvalid), kDestinationInvalidMessage),
+      'mock location': (refusal(kGeofenceMocked), kMockedLocationMessage),
       'reassigned': (refusal('not-assigned-rider'), kNotCompletableMessage),
       'inactive': (refusal('invalid-status-transition'), kNotCompletableMessage),
     };

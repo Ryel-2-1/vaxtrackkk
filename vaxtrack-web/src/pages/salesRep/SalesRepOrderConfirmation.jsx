@@ -2,11 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CalendarClock,
-  CheckCircle2,
   Copy,
   FileText,
   MapPin,
-  PackageCheck,
   Truck,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -69,6 +67,8 @@ function toDisplay(saved) {
     orderId: typeof saved.id === "string" && saved.id ? saved.id : null,
     orderNumber: saved.orderNumber || saved.id,
     status: friendlyStatus(saved.status),
+    // Colours the status pill (confirmation styles in salesrep-polish.css).
+    statusTone: statusTone(saved.status),
     doctorName: saved.doctorName || null,
     clinicName: saved.clinicName || saved.destinationName || "—",
     clinicAddress: saved.clinicAddress || "",
@@ -163,7 +163,9 @@ function SalesRepOrderConfirmation() {
         </button>
         {copied && <small>Copied</small>}
       </div>
-      {order.verified && <span className="processing">• {order.status}</span>}
+      {order.verified && (
+        <span className="processing confirmation-status" data-tone={order.statusTone}>{order.status}</span>
+      )}
       {liveNote && <small className="confirmation-live-note" role="status">{liveNote}</small>}
     </div>
   );
@@ -189,9 +191,9 @@ function SalesRepOrderConfirmation() {
 
   return (
     <>
-      <section className="confirmation-card confirmation-v2-card">
+      <section className="confirmation-card confirmation-v2-card confirmation-animated">
         <div className="confirmation-hero">
-          <CheckCircle2 size={34} />
+          <SuccessMark />
           <h2>{order.replayed ? "Order recovered" : "Order placed"}</h2>
           <p>
             {order.replayed
@@ -207,7 +209,6 @@ function SalesRepOrderConfirmation() {
         {order.items.map((item, index) => (
           <ConfirmItem
             key={item.inventoryId || `ITEM-${index + 1}`}
-            icon={<PackageCheck size={18} />}
             name={item.name || "Selected vaccine"}
             sku={`Batch: ${item.sku || "—"} · ${item.vatLabel || "Not recorded"}`}
             qty={`${Number(item.quantity || 0).toLocaleString()} ${
@@ -318,6 +319,32 @@ function SalesRepOrderConfirmation() {
   );
 }
 
+/** Pill tone for the order's current status. */
+function statusTone(raw) {
+  switch (raw) {
+    case "delivered":
+    case "completed": return "done";
+    case "delayed": return "warn";
+    case "cancelled":
+    case "canceled":
+    case "delivery_failed": return "bad";
+    default: return "active";
+  }
+}
+
+/**
+ * The success check: the ring draws itself, then the tick. Pure CSS
+ * (.confirmation-mark in salesrep-polish.css); still under reduced motion.
+ */
+function SuccessMark() {
+  return (
+    <svg className="confirmation-mark" viewBox="0 0 52 52" width="56" height="56" aria-hidden="true">
+      <circle className="confirmation-mark-ring" cx="26" cy="26" r="23" fill="none" />
+      <path className="confirmation-mark-tick" fill="none" d="M15 27 l7 7 l15 -16" />
+    </svg>
+  );
+}
+
 function friendlyStatus(raw) {
   switch (raw) {
     case "pending_dispatch": return "Processing";
@@ -341,11 +368,10 @@ function formatAmount(centavos) {
  * One ordered line. The agreed price is the one placed; a negotiated line also
  * shows its standard price and reason. Read-only: placed prices cannot be edited.
  */
-function ConfirmItem({ icon, name, sku, qty, price }) {
+function ConfirmItem({ name, sku, qty, price }) {
   const agreed = typeof price?.unitPriceCentavos === "number" ? price.unitPriceCentavos : null;
   return (
     <div className="confirm-item">
-      <span>{icon}</span>
       <div>
         <strong>{name}</strong>
         <p>{sku}</p>
