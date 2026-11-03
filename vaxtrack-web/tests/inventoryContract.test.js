@@ -128,10 +128,26 @@ test("the callables are the only inventory-affecting entry points", () => {
     // never inventory (checked below).
     "reconcileRiderDispatchOnOrderWrite",
   ];
+  // Staff accounts (functions/src/staffAccounts.js): users and Auth only, never inventory.
+  const STAFF_CALLABLES = ["createStaffAccount", "createStaffSetupLink", "setStaffStatus", "setStaffRole"];
+  assert.equal(
+    /inventory|reservedQuantity|Centavos/i.test(read("functions/src/staffAccounts.js").replace(/^\s*(\*|\/\/).*$/gm, "")),
+    false,
+    "staffAccounts.js never names inventory"
+  );
+  // Stock and expiry alerts (functions/src/stockAlertsOps.js): two triggers and
+  // the Admin's "Check stock now". They READ stock and write only alerts.
+  const STOCK_ALERT_EXPORTS = ["reviewStockAlertsOnInventoryWrite", "reviewStockAlertsOnConfigWrite", "recheckStockAlerts"];
+  {
+    const ops = read("functions/src/stockAlertsOps.js").replace(/^\s*(\*|\/\/).*$/gm, "");
+    assert.match(ops, /tx\.set\(db\.collection\(ALERTS\)\.doc\(w\.id\), w\.data, \{ merge: w\.merge \}\)/);
+    assert.equal((ops.match(/tx\.(set|update|create|delete)\(/g) || []).length, 1, "the only write is the alert");
+    assert.equal(/\.(update|set|add|delete)\(/.test(ops.replace("tx.set(db.collection(ALERTS)", "")), false, "no other write");
+  }
   const exported = [...index.matchAll(/^exports\.(\w+)\s*=/gm)].map((m) => m[1]);
   assert.deepEqual(
     exported.sort(),
-    [...CALLABLE_NAMES, "requestZeroRateApproval", "reviewZeroRateApproval", ...NON_CALLABLE_EXPORTS].sort(),
+    [...CALLABLE_NAMES, "requestZeroRateApproval", "reviewZeroRateApproval", ...STAFF_CALLABLES, ...STOCK_ALERT_EXPORTS, ...NON_CALLABLE_EXPORTS].sort(),
     "exactly these callables, plus the triggers / scheduled jobs listed above"
   );
   for (const p of ["functions/src/riderDispatch.js", "functions/src/riderDispatchOps.js"]) {

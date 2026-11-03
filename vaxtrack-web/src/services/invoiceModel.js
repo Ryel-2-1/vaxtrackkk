@@ -651,7 +651,7 @@ export function invoiceLineAmount(item) {
 }
 
 export const LINE_DISCOUNT_NOTE =
-  "Line amounts on this invoice are the final charged amounts, after any SC/PWD discount recorded on the order. The invoice shows no separate discount line.";
+  "Line amounts on this invoice are the final charged amounts, after any discount recorded on the order. The invoice shows no separate discount line.";
 
 export const NON_EXACT_UNIT_PRICE_NOTE =
   "— A unit price is shown only where the charged amount divides exactly by the quantity.";

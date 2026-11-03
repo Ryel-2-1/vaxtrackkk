@@ -127,8 +127,10 @@ async function loadUser(db, uid) {
  * `reservedQuantity` increment commit together or not at all — there is no
  * window in which an order exists without its reservation.
  */
-async function createOrderWithReservation({ db, FieldValue, uid, email = null, payload, now }) {
-  const result = await createOrderTransaction({ db, FieldValue, uid, email, payload, now });
+// statutoryDiscountsOffered: tests only (an order placed before SC/PWD was
+// withdrawn). index.js never passes it.
+async function createOrderWithReservation({ db, FieldValue, uid, email = null, payload, now, statutoryDiscountsOffered = false }) {
+  const result = await createOrderTransaction({ db, FieldValue, uid, email, payload, now, statutoryDiscountsOffered });
   const { productKeys, ...response } = result;
   // Allocation runs AFTER the order commits, per product, in its own bounded
   // transactions — so a new order competes for stock in priority order instead
@@ -194,12 +196,12 @@ function allocationFromOrder(order) {
   };
 }
 
-async function createOrderTransaction({ db, FieldValue, uid, email = null, payload, now }) {
+async function createOrderTransaction({ db, FieldValue, uid, email = null, payload, now, statutoryDiscountsOffered = false }) {
   const userData = await loadUser(db, uid);
   requireRole(userData, "salesrep");
 
   const requestId = validateRequestId(payload?.requestId);
-  const { doctorId, doctorAddressId, items } = validateCreatePayload(payload);
+  const { doctorId, doctorAddressId, items } = validateCreatePayload(payload, { statutoryDiscountsOffered });
   const zeroRateRequestId = payload?.zeroRateRequestId == null
     ? null : validateDocumentId(payload.zeroRateRequestId, "Select an approved zero-rating request.");
   // Parse the immutable request before looking up its key. A committed order

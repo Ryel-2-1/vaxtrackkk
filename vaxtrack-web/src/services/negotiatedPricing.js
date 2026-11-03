@@ -257,12 +257,7 @@ export function negotiatedRequestLine(line, review) {
     expectedQuotedUnitPriceCentavos: review.standardUnitPriceCentavos,
     agreedUnitPriceCentavos: review.agreedUnitPriceCentavos,
     ...(review.priceNegotiated ? { negotiationReason: review.negotiationReason } : {}),
-    ...(review.statutoryDiscountCentavos > 0
-      ? {
-          statutoryDiscountType: review.statutoryDiscountType,
-          statutoryDiscountCentavos: review.statutoryDiscountCentavos,
-          eligibilityConfirmed: review.eligibilityConfirmed === true,
-        }
-      : {}),
+    // No SC/PWD discount: not offered for new orders (2026-11-03); the server
+    // refuses one (statutory-discount-unavailable).
   };
 }

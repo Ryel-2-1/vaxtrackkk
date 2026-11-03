@@ -1480,7 +1480,9 @@ service cloud.firestore {
       allow list: if isAdmin()
         || (isDispatcher() && resource.data.role == 'rider');
 
-      // Admin may create user docs (broad write). Public self-application:
+      // No client creates a profile for someone else: an Admin adds staff only
+      // through createStaffAccount (functions/src/staffAccounts.js), which
+      // creates the sign-in account and profile together. Public self-application:
       // a visitor creates their OWN doc to apply for a staff position — sales
       // rep, dispatcher, or rider — which always lands pending.
       //
@@ -1493,8 +1495,7 @@ service cloud.firestore {
       // so the Flutter self-registration contract is unchanged. Together these
       // mean a modified client can create nothing but a pending, non-admin
       // account owned by the caller (and a rider only on a motorcycle).
-      allow create: if isAdmin()
-        || (
+      allow create: if (
           signedIn()
           && request.auth.uid == uid
           && request.resource.data.status == 'pending'
@@ -1528,7 +1529,14 @@ service cloud.firestore {
       // never re-activated, deactivated or returned to pending — and only an
       // application still awaiting a decision can be rejected. Mirrors
       // src/services/staffAccount.js.
+      //
+      // A ROLE never changes from a browser, and a STATUS only on a rider (the
+      // Riders page's approve / off-duty). Staff role and status changes go
+      // through setStaffRole / setStaffStatus, which also refuse to leave the
+      // system without an approved Admin — something rules cannot count.
       allow update: if (isAdmin() && isKnownRole() && isKnownStatus() && adminStatusChangeAllowed()
+            && !changedKeys().hasAny(['role'])
+            && (!changedKeys().hasAny(['status']) || resource.data.get('role', null) == 'rider')
             && (!changedKeys().hasAny(territoryUserFields()) || territoryWriteValid()))
         || (
           signedIn()
@@ -1542,6 +1550,12 @@ service cloud.firestore {
         );
 
       allow delete: if isAdmin();
+    }
+
+    // Who created staff and changed roles or status (staffAccounts.js). Server-written.
+    match /staffAccountEvents/{eventId} {
+      allow get, list: if isAdmin();
+      allow write: if false;
     }
 
     // ---------------- orders ----------------

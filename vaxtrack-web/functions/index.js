@@ -78,6 +78,8 @@ const riderDispatchOps = require("./src/riderDispatchOps");
 const riderLocationStaleOps = require("./src/riderLocationStaleOps");
 const arrivalProximityOps = require("./src/arrivalProximityOps");
 const offlineCompletionOps = require("./src/offlineCompletionOps");
+const staffAccounts = require("./src/staffAccounts");
+const stockAlertsOps = require("./src/stockAlertsOps");
 const riderRecoveryOps = require("./src/riderRecoveryOps");
 const { qaResetConfig } = require("./src/riderRecovery");
 
@@ -248,6 +250,21 @@ function toHttpsError(error, context) {
       "recovery-blocked": "failed-precondition",
       "recovery-too-large": "failed-precondition",
       "qa-reset-disabled": "permission-denied",
+      // SC/PWD discounts are no longer offered for new orders (policy.js).
+      "statutory-discount-unavailable": "failed-precondition",
+      // Stock alerts (stockAlertsOps.js).
+      "too-many-products": "failed-precondition",
+      // Staff accounts (staffAccounts.js).
+      "invalid-staff": "invalid-argument",
+      "email-in-use": "already-exists",
+      "staff-not-found": "not-found",
+      "staff-not-active": "failed-precondition",
+      "already-signed-in": "failed-precondition",
+      "self-change": "failed-precondition",
+      "last-admin": "failed-precondition",
+      "account-rejected": "failed-precondition",
+      "status-change-not-allowed": "failed-precondition",
+      "role-unchanged": "failed-precondition",
     };
     const httpsCode = map[error.code] ?? "invalid-argument";
     return new HttpsError(httpsCode, error.message, {
@@ -388,6 +405,30 @@ exports.resolveOfflineCompletionReview = callable(
   "resolveOfflineCompletionReview",
   ({ db, FieldValue, uid, email, data, now }) =>
     offlineCompletionOps.resolveOfflineCompletionReview({ db, FieldValue, uid, email, payload: data, now })
+);
+
+// Staff accounts (src/staffAccounts.js): only an approved Admin; the rules
+// stop browsers creating profiles or changing staff role/status directly.
+exports.createStaffAccount = callable(
+  "createStaffAccount",
+  ({ db, FieldValue, uid, email, data, now }) =>
+    staffAccounts.createStaffAccount({ db, authAdmin: admin.auth(), FieldValue, uid, email, payload: data, now })
+);
+
+exports.createStaffSetupLink = callable(
+  "createStaffSetupLink",
+  ({ db, FieldValue, uid, email, data, now }) =>
+    staffAccounts.createStaffSetupLink({ db, authAdmin: admin.auth(), FieldValue, uid, email, payload: data, now })
+);
+
+exports.setStaffStatus = callable(
+  "setStaffStatus",
+  ({ db, FieldValue, uid, email, data, now }) => staffAccounts.setStaffStatus({ db, FieldValue, uid, email, payload: data, now })
+);
+
+exports.setStaffRole = callable(
+  "setStaffRole",
+  ({ db, FieldValue, uid, email, data, now }) => staffAccounts.setStaffRole({ db, FieldValue, uid, email, payload: data, now })
 );
 
 exports.markOrderDeliveredWithInventoryConsumption = callable(
@@ -583,10 +624,39 @@ exports.reviewInventoryVisibility = onSchedule(
   async () => {
     const result = await inventoryVisibilityOps.reviewInventoryVisibilityRun({
       db, FieldPath: admin.firestore.FieldPath, now: new Date(),
+      // The same daily pass re-checks stock and expiry alerts, so a batch that
+      // crosses an expiry boundary with no stock change still alerts.
+      observe: async (args) => {
+        const visibility = await inventoryVisibilityOps.observeProductInventory(args);
+        await stockAlertsOps.reviewProductStockAlerts({ db, FieldValue, vaccineId: args.vaccineId, now: args.now });
+        return visibility;
+      },
       logFailure: (detail) => logger.error("inventory visibility review deferred", detail),
     });
     logger.info("inventory visibility review", result);
   }
+);
+
+// Stock and expiry alerts (src/stockAlerts.js): low / out of stock per vaccine,
+// expiring / expired per batch. Admin-only alerts; opened, updated and cleared
+// by the server. A separate trigger so a failure here never blocks allocation.
+exports.reviewStockAlertsOnInventoryWrite = onDocumentWritten(
+  { document: "inventory/{inventoryId}", retry: true },
+  async (event) => stockAlertsOps.reviewStockAlertsForInventoryWrite({
+    db, FieldValue, before: event.data?.before, after: event.data?.after, now: new Date(),
+  })
+);
+
+// A changed safety stock takes effect at once, not at the next stock change.
+exports.reviewStockAlertsOnConfigWrite = onDocumentWritten(
+  { document: "inventoryAnalyticsConfig/{vaccineId}", retry: true },
+  async (event) => stockAlertsOps.reviewProductStockAlerts({ db, FieldValue, vaccineId: event.params.vaccineId, now: new Date() })
+);
+
+// Admin "Check stock now" (Alerts page): runs the review across the catalog.
+exports.recheckStockAlerts = callable(
+  "recheckStockAlerts",
+  ({ db, FieldValue, uid, now }) => stockAlertsOps.recheckStockAlerts({ db, FieldValue, uid, now })
 );
 
 exports.allocateOnInventoryWrite = onDocumentWritten(

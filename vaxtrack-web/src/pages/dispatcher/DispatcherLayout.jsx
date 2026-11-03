@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { auth } from "../../firebase";
 import { subscribeActiveAlerts } from "../../services/alertService";
+import { isAdminOnlyAlert } from "../../services/alertPresentation";
 import { lateAlertLiveText } from "../../services/deliveryTiming";
 import { subscribeNotificationOrders } from "../../services/deliveryService";
 import { subscribeArrivalProximity } from "../../services/riderTrackingService";
@@ -113,7 +114,8 @@ function DispatcherLayout() {
     };
     const clearError = (source) => setFeedErrors((current) => ({ ...current, [source]: false }));
     const stopAlerts = subscribeActiveAlerts((alerts) => {
-      setOperationalAlerts(Array.isArray(alerts) ? alerts : []);
+      // Stock and expiry alerts are the Admin's (functions/src/stockAlerts.js).
+      setOperationalAlerts(Array.isArray(alerts) ? alerts.filter((a) => !isAdminOnlyAlert(a)) : []);
       clearError("alerts");
       ready("alerts");
     }, () => { setOperationalAlerts([]); failed("alerts"); });

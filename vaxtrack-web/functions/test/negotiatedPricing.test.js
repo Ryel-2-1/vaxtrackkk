@@ -6,6 +6,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const P = require("../src/policy");
+// An order placed before SC/PWD discounts were withdrawn (2026-11-03).
+const EARLIER = { statutoryDiscountsOffered: true };
 const N = require("../src/negotiatedPricing");
 const {
   allocateDiscountCentavos,
@@ -130,7 +132,7 @@ test("only Senior Citizen and PWD are accepted for new orders", () => {
   for (const type of ["naac", "medal_of_valor", "solo_parent"]) {
     assert.equal(codeOf(() => line({ statutoryDiscountType: type, statutoryDiscountCentavos: 500 })), "invalid-statutory-discount", type);
     assert.equal(
-      codeOf(() => P.validateCreatePayload(item({ statutoryDiscountType: type, statutoryDiscountCentavos: 500, eligibilityConfirmed: true }))),
+      codeOf(() => P.validateCreatePayload(item({ statutoryDiscountType: type, statutoryDiscountCentavos: 500, eligibilityConfirmed: true }), EARLIER)),
       "invalid-statutory-discount",
       type
     );
@@ -148,7 +150,7 @@ test("a discounted line needs the Med Rep's eligibility attestation, exactly tru
     );
     const payload = { statutoryDiscountType: "pwd", statutoryDiscountCentavos: 500 };
     if (bad !== undefined) payload.eligibilityConfirmed = bad;
-    assert.equal(codeOf(() => P.validateCreatePayload(item(payload))), "eligibility-not-confirmed", String(bad));
+    assert.equal(codeOf(() => P.validateCreatePayload(item(payload), EARLIER)), "eligibility-not-confirmed", String(bad));
   }
   // A line without a discount needs no attestation, and records none.
   assert.equal(line({ eligibilityConfirmed: undefined }).eligibilityConfirmed, false);
@@ -213,8 +215,23 @@ test("no floating-point drift", () => {
 const DEST = { doctorId: "doc1", doctorAddressId: "home" };
 const item = (over) => ({ ...DEST, items: [{ inventoryId: "a", quantity: 2, expectedUnitPriceCentavos: 12500, ...over }] });
 
+test("new orders: an SC/PWD discount is refused in any form; a line without one is unchanged", () => {
+  for (const over of [
+    { statutoryDiscountType: "senior_citizen", statutoryDiscountCentavos: 500, eligibilityConfirmed: true },
+    { statutoryDiscountType: "pwd", statutoryDiscountCentavos: 500 },
+    { statutoryDiscountCentavos: 100 },
+    { statutoryDiscountType: "pwd" },
+    { eligibilityConfirmed: true },
+  ]) {
+    assert.equal(codeOf(() => P.validateCreatePayload(item(over))), "statutory-discount-unavailable", JSON.stringify(over));
+  }
+  // Older carts may still send the empty fields; those are fine.
+  const v = P.validateCreatePayload(item({ statutoryDiscountType: null, statutoryDiscountCentavos: null, eligibilityConfirmed: false }));
+  assert.deepEqual([v.items[0].statutoryDiscountType, v.items[0].statutoryDiscountCentavos, v.items[0].eligibilityConfirmed], [null, 0, false]);
+});
+
 test("the payload accepts agreed price, reason and a line discount — never a total or VAT", () => {
-  const v = P.validateCreatePayload(item({ agreedUnitPriceCentavos: 12000, negotiationReason: " volume ", statutoryDiscountType: "senior_citizen", statutoryDiscountCentavos: 4800, eligibilityConfirmed: true }));
+  const v = P.validateCreatePayload(item({ agreedUnitPriceCentavos: 12000, negotiationReason: " volume ", statutoryDiscountType: "senior_citizen", statutoryDiscountCentavos: 4800, eligibilityConfirmed: true }), EARLIER);
   assert.deepEqual(v.items[0], {
     inventoryId: "a", quantity: 2, expectedUnitPriceCentavos: 12500, agreedUnitPriceCentavos: 12000,
     negotiationReason: "volume", statutoryDiscountType: "senior_citizen", statutoryDiscountCentavos: 4800,
@@ -233,9 +250,9 @@ test("the payload refuses bad prices, missing reasons and bad discounts before a
     assert.equal(codeOf(() => P.validateCreatePayload(item({ agreedUnitPriceCentavos: bad, negotiationReason: "r" }))), "invalid-agreed-price", String(bad));
   }
   assert.equal(codeOf(() => P.validateCreatePayload(item({ agreedUnitPriceCentavos: 12000 }))), "negotiation-reason-required");
-  assert.equal(codeOf(() => P.validateCreatePayload(item({ statutoryDiscountType: "pwd", statutoryDiscountCentavos: 25001, eligibilityConfirmed: true }))), "statutory-discount-exceeds-line");
-  assert.equal(codeOf(() => P.validateCreatePayload(item({ statutoryDiscountCentavos: 100, eligibilityConfirmed: true }))), "statutory-discount-type-required");
-  assert.equal(codeOf(() => P.validateCreatePayload(item({ statutoryDiscountType: "pwd", statutoryDiscountCentavos: 10.5, eligibilityConfirmed: true }))), "invalid-statutory-discount");
+  assert.equal(codeOf(() => P.validateCreatePayload(item({ statutoryDiscountType: "pwd", statutoryDiscountCentavos: 25001, eligibilityConfirmed: true }), EARLIER)), "statutory-discount-exceeds-line");
+  assert.equal(codeOf(() => P.validateCreatePayload(item({ statutoryDiscountCentavos: 100, eligibilityConfirmed: true }), EARLIER)), "statutory-discount-type-required");
+  assert.equal(codeOf(() => P.validateCreatePayload(item({ statutoryDiscountType: "pwd", statutoryDiscountCentavos: 10.5, eligibilityConfirmed: true }), EARLIER)), "invalid-statutory-discount");
   // Reset to standard: no reason kept.
   assert.equal(P.validateCreatePayload(item({ agreedUnitPriceCentavos: 12500, negotiationReason: "old note" })).items[0].negotiationReason, null);
 });

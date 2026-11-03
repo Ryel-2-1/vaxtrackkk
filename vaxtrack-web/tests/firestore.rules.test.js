@@ -643,9 +643,10 @@ async function main() {
 
   console.log("\n--- POSITIVE cases ---");
 
-  await check("P1 admin reads + writes a user doc", async () => {
+  await check("P1 admin reads a user doc; profiles for others are created only by the server", async () => {
     await assertSucceeds(getDoc(doc(admin, "users", riderUid)));
-    await assertSucceeds(setDoc(doc(admin, "users", "tmpUserByAdmin"), { role: "salesrep", status: "pending", email: "t@x.com" }));
+    // createStaffAccount (functions) creates the sign-in account and profile together.
+    await assertFails(setDoc(doc(admin, "users", "tmpUserByAdmin"), { role: "salesrep", status: "pending", email: "t@x.com" }));
   });
 
   await check("P2 admin reads + writes an order", async () => {
@@ -4247,25 +4248,47 @@ async function main() {
   });
 
   // Fresh user records for status-transition cases (BG-001).
-  const seedUser = (id, status, role = "salesrep") =>
+  // Riders: a browser may change only a rider's status (the Riders page);
+  // staff status goes through setStaffStatus. The same transition matrix applies.
+  const seedUser = (id, status, role = "rider") =>
     testEnv.withSecurityRulesDisabled((ctx) =>
       setDoc(doc(ctx.firestore(), "users", id), { role, status, email: `${id}@x.com`, name: id })
     );
   const setStatus = (ctx, id, status) =>
     updateDoc(doc(ctx, "users", id), { status, updatedAt: serverTimestamp() });
 
-  await check("Prole1 an admin may set any KNOWN role and status", async () => {
-    for (const role of ["admin", "dispatcher", "salesrep", "rider"]) {
-      await assertSucceeds(updateDoc(doc(admin, "users", salesRepUid), { role }));
+  await check("Prole1 a browser never changes a role or a staff status; a rider's status it may", async () => {
+    // Roles and staff status change only through setStaffRole / setStaffStatus
+    // (functions/src/staffAccounts.js), which also protect the last Admin.
+    for (const role of ["admin", "dispatcher", "rider"]) {
+      await assertFails(updateDoc(doc(admin, "users", salesRepUid), { role }));
     }
+    for (const status of ["disabled", "pending"]) {
+      await assertFails(updateDoc(doc(admin, "users", salesRepUid), { status }));
+    }
+    await seedUser("prole1Staff", "pending", "dispatcher");
+    await assertFails(updateDoc(doc(admin, "users", "prole1Staff"), { status: "approved" }));
+    await seedUser("prole1Rider", "approved");
+    await assertFails(updateDoc(doc(admin, "users", "prole1Rider"), { role: "admin" }));
+    // Later cases expect the shared account as the old walk left it.
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "users", salesRepUid), { role: "rider", status: "approved" }, { merge: true })
+    );
+  });
+
+  await check("Prole1b a rider's status walks every known status from a browser", async () => {
+    await seedUser("prole1Walk", "pending");
     // Every known status, each reached through a legitimate transition. This
     // used to walk ...→ rejected → disabled on one account, which is exactly
     // the BG-001 hole (a rejected application turned into another state);
     // rejected is final now, so it is reached on its own pending record. The
     // shared account still ends `disabled`, as before, for the cases below.
     for (const status of ["approved", "pending", "pending_approval", "approved", "disabled"]) {
-      await assertSucceeds(updateDoc(doc(admin, "users", salesRepUid), { status }));
+      await assertSucceeds(updateDoc(doc(admin, "users", "prole1Walk"), { status }));
     }
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "users", salesRepUid), { status: "disabled" }, { merge: true })
+    );
     await seedUser("prole1Rejected", "pending");
     await assertSucceeds(updateDoc(doc(admin, "users", "prole1Rejected"), { status: "rejected" }));
   });
@@ -4841,6 +4864,21 @@ async function main() {
     await assertSucceeds(updateDoc(doc(admin, "users", "accRejEdit"), { name: "Corrected Name", updatedAt: serverTimestamp() }));
   });
 
+  await check("ACC7 staff audit events: an admin reads them; no client writes them", async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "staffAccountEvents", "ev1"), { action: "created", targetUid: "x", actorUid: adminUid })
+    );
+    await assertSucceeds(getDoc(doc(admin, "staffAccountEvents", "ev1")));
+    await assertSucceeds(getDocs(collection(admin, "staffAccountEvents")));
+    for (const ctx of [dispatcher, salesRep, rider, anon]) {
+      await assertFails(getDoc(doc(ctx, "staffAccountEvents", "ev1")));
+    }
+    for (const ctx of [admin, dispatcher, salesRep, rider]) {
+      await assertFails(setDoc(doc(ctx, "staffAccountEvents", "ev2"), { action: "created" }));
+    }
+    await assertFails(updateDoc(doc(admin, "staffAccountEvents", "ev1"), { action: "forged" }));
+  });
+
   await check("ACC6 a rejected user reads only their own profile and cannot self-approve", async () => {
     await seedUser("accRejSelf", "rejected");
     const rejected = testEnv.authenticatedContext("accRejSelf").firestore();
@@ -5155,8 +5193,9 @@ async function main() {
     const ref = doc(admin, "users", "terrRep6");
     await assertFails(updateDoc(ref, territoryWrite(adminUid, { role: "dispatcher" })));
     await assertFails(updateDoc(ref, territoryWrite(adminUid, { status: "disabled" })));
-    // Role and status management by Admin is unchanged on its own.
-    await assertSucceeds(updateDoc(ref, { status: "disabled" }));
+    // A staff status changes only through setStaffStatus (functions), never a browser.
+    await assertFails(updateDoc(ref, { status: "disabled" }));
+    await assertSucceeds(updateDoc(ref, territoryWrite(adminUid)));
   });
 
   await check("TERR7 an applicant cannot register with a territory", async () => {

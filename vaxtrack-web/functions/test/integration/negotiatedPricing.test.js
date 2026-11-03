@@ -101,7 +101,7 @@ const payloadOf = (items, over = {}) => ({
   requestId: rid(), doctorId: DOCTOR, doctorAddressId: CLINIC, requestedDeliveryDate: DELIVERY_DATE, items, ...over,
 });
 const create = (uid, items, over = {}) =>
-  ops.createOrderWithReservation({ db, FieldValue, uid, now: NOW, payload: payloadOf(items, over) });
+  ops.createOrderWithReservation({ ...EARLIER, db, FieldValue, uid, now: NOW, payload: payloadOf(items, over) });
 
 const codeOf = async (p) => {
   try {
@@ -123,6 +123,11 @@ async function assertNothingWritten(label) {
 }
 
 /** The order reconciles: negotiated subtotal − discounts = final = VAT parts. */
+// Orders here model ones placed before SC/PWD discounts were withdrawn
+// (2026-11-03), so placed orders that carry a discount stay covered: allocation,
+// receipts and invoices. A NEW order with a discount is refused (test below).
+const EARLIER = { statutoryDiscountsOffered: true };
+
 function assertReconciles(o) {
   const sum = (k) => o.items.reduce((s, i) => s + i[k], 0);
   assert.equal(o.subtotalCentavos, sum("negotiatedGrossCentavos"));
@@ -159,7 +164,7 @@ test("standard price, no discount: no adjustment, no discount, no audits", async
 test("negotiated price only: recorded with its own audit", async () => {
   await seed();
   const requestId = rid();
-  const r = await ops.createOrderWithReservation({
+  const r = await ops.createOrderWithReservation({ ...EARLIER,
     db, FieldValue, uid: SR, now: NOW,
     payload: payloadOf([line("vat", 3, { agreedUnitPriceCentavos: 110050, negotiationReason: "  Volume  order " })], { requestId }),
   });
@@ -346,10 +351,10 @@ test("only an approved Med Rep can place an order", async () => {
 test("a repeated request replays the original prices and discounts; a changed discount under the same id is refused", async () => {
   await seed();
   const payload = payloadOf([line("vat", 2, { agreedUnitPriceCentavos: 115000, negotiationReason: "Contract", ...sc(23000) })]);
-  const first = await ops.createOrderWithReservation({ db, FieldValue, uid: SR, now: NOW, payload });
+  const first = await ops.createOrderWithReservation({ ...EARLIER, db, FieldValue, uid: SR, now: NOW, payload });
   const [a, b] = await Promise.all([
-    ops.createOrderWithReservation({ db, FieldValue, uid: SR, now: NOW, payload }),
-    ops.createOrderWithReservation({ db, FieldValue, uid: SR, now: NOW, payload }),
+    ops.createOrderWithReservation({ ...EARLIER, db, FieldValue, uid: SR, now: NOW, payload }),
+    ops.createOrderWithReservation({ ...EARLIER, db, FieldValue, uid: SR, now: NOW, payload }),
   ]);
   for (const replay of [a, b]) {
     assert.equal(replay.orderId, first.orderId);
@@ -363,14 +368,14 @@ test("a repeated request replays the original prices and discounts; a changed di
   assert.equal(await size("orderStatutoryDiscounts"), 1);
 
   const changed = { ...payload, items: [line("vat", 2, { agreedUnitPriceCentavos: 115000, negotiationReason: "Contract", ...sc(23001) })] };
-  assert.equal(await codeOf(ops.createOrderWithReservation({ db, FieldValue, uid: SR, now: NOW, payload: changed })), "idempotency-conflict");
+  assert.equal(await codeOf(ops.createOrderWithReservation({ ...EARLIER, db, FieldValue, uid: SR, now: NOW, payload: changed })), "idempotency-conflict");
   assert.equal((await order(first.orderId)).items[0].statutoryDiscountCentavos, 23000);
 });
 
 test("another Med Rep's request never touches a placed order", async () => {
   await seed();
   const requestId = rid();
-  const mk = (uid, agreed) => ops.createOrderWithReservation({
+  const mk = (uid, agreed) => ops.createOrderWithReservation({ ...EARLIER,
     db, FieldValue, uid, now: NOW,
     payload: payloadOf([line("vat", 1, { agreedUnitPriceCentavos: agreed, negotiationReason: "Deal" })], { requestId }),
   });
@@ -509,4 +514,16 @@ test("a negotiated order without line discounts saves its invoice; legacy priced
   assert.equal("amountIsFinalCharged" in legacy.items[0], false);
   assert.equal("lineAmountBasis" in legacy, false);
   assert.equal(legacy.grandTotalCentavos, 2 * STD.vat - 1000);
+});
+
+test("a NEW order carrying an SC/PWD discount is refused, and nothing is written", async () => {
+  await seed();
+  for (const discount of [sc(500), pwd(500)]) {
+    const payload = payloadOf([line("vat", 2, discount)]);
+    assert.equal(await codeOf(ops.createOrderWithReservation({ db, FieldValue, uid: SR, now: NOW, payload })), "statutory-discount-unavailable");
+  }
+  await assertNothingWritten("SC/PWD withdrawn");
+  // The same order without the discount places normally.
+  const r = await ops.createOrderWithReservation({ db, FieldValue, uid: SR, now: NOW, payload: payloadOf([line("vat", 2)]) });
+  assert.equal((await order(r.orderId)).statutoryDiscountTotalCentavos, 0);
 });

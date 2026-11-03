@@ -386,7 +386,7 @@ test("success appears only after the authoritative write", () => {
   const order = [
     ["src/pages/admin/Riders.jsx", "await updateRiderStatus(", 'showToast(meta.done(rider.name), "success")'],
     ["src/pages/admin/Alerts.jsx", "await resolveAlert(alertId);", 'showToast("Alert marked as resolved.", "success")'],
-    ["src/pages/admin/Settings.jsx", "await updateUserStatus(uid, firestoreStatus);", "showToast(`User status updated to"],
+    ["src/pages/admin/Settings.jsx", "await setStaffStatus(uid, firestoreStatus);", "showToast(`User status updated to"],
     ["src/pages/dispatcher/DispatcherCargoLoading.jsx", "await finalizeRiderDispatch(", "showToast(`Dispatch finalized for"],
     ["src/pages/salesRep/SalesRepOrderTracking.jsx", "await reviewOrderDestinationChange(", '"Destination approved. The order now uses the new address."'],
     ["src/pages/admin/AddStock.jsx", "const report = await addStockBatch(", 'showMessage("Stock added successfully.", "success")'],
@@ -647,4 +647,13 @@ test("existing business-domain messages remain intact", () => {
   assert.match(read("src/services/assignmentQueue.js"), /This order no longer exists\. The list has been updated\./);
   // Invoice domain messages keep theirs.
   assert.match(read("src/services/invoiceCallables.js"), /This invoice has already been issued and can no longer be edited\./);
+});
+
+test("the Functions SDK's trailing HTTP status never reaches the screen", async () => {
+  const { friendlyErrorMessage: friendly, withoutTransportStatus } = await import("../src/services/liveDataErrors.js");
+  const { UserMessageError: Trusted } = await import("../src/services/userMessageError.js");
+  assert.equal(withoutTransportStatus("Enter a valid work email address. [400]"), "Enter a valid work email address.");
+  assert.equal(withoutTransportStatus("Only 4 left in batch HEP-001. [412]"), "Only 4 left in batch HEP-001.");
+  assert.equal(withoutTransportStatus("Keep [brackets] in the middle."), "Keep [brackets] in the middle.");
+  assert.equal(friendly(new Trusted("This email already has a VaxTrack account. [409]"), "fallback"), "This email already has a VaxTrack account.");
 });

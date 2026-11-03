@@ -5,10 +5,12 @@ import {
   AlertTriangle,
   ArrowRight,
   Bell,
+  CalendarClock,
   CheckCircle2,
   ChevronRight,
   MapPin,
   Package,
+  RefreshCw,
   Route,
   Search,
   Truck,
@@ -20,7 +22,8 @@ import {
   subscribeAllAlerts,
 } from "../../services/alertService";
 import KpiCard from "../../components/ui/KpiCard";
-import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
+import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
+import { recheckStockAlerts } from "../../services/stockAlertCallables";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import { ToastRegion } from "../../components/ui/Feedback";
@@ -36,6 +39,18 @@ const TYPE_MAP = {
     display: "Route Deviation",
     iconKey: "route",
     recommendation: "Contact the rider and inspect the delivery route immediately.",
+  },
+  // Server-written (functions/src/stockAlerts.js): low / out of stock per
+  // vaccine against its safety stock, and expiring / expired batches.
+  stock_low: {
+    display: "Low Stock",
+    iconKey: "package",
+    recommendation: "Reorder or add stock for this vaccine. Its safety stock is set in AI Inventory Analytics.",
+  },
+  batch_expiry: {
+    display: "Expiring Stock",
+    iconKey: "package",
+    recommendation: "Use or allocate this batch first; quarantine or dispose of expired vials in Inventory.",
   },
   low_stock: {
     display: "Low Stock",
@@ -242,12 +257,36 @@ function Alerts() {
 
   const kpi = (count) => (loading || loadError ? "—" : count);
 
-  // These three server-generated alert types are live. Stock review has its
-  // own Inventory page; no automatic low-stock alert writer exists yet.
+  // Server-generated alert types. Stock and expiry alerts come from
+  // functions/src/stockAlerts.js (every stock change, the daily review, or
+  // "Check stock now").
   const categoryCounts = {
     route: kpi(activeAlertCountOfType(alerts, "route_deviation")),
     delivery: kpi(activeAlertCountOfType(alerts, "delivery_delay")),
     location: kpi(activeAlertCountOfType(alerts, "rider_location_stale")),
+    stock: kpi(activeAlertCountOfType(alerts, "stock_low")),
+    expiry: kpi(activeAlertCountOfType(alerts, "batch_expiry")),
+  };
+  const [stockCheckBusy, setStockCheckBusy] = useState(false);
+  const checkStockNow = async () => {
+    if (stockCheckBusy) return;
+    setStockCheckBusy(true);
+    try {
+      const r = await recheckStockAlerts();
+      const vaccines = `${r.checked} vaccine${r.checked === 1 ? "" : "s"}`;
+      const changes = r.changed === 0 ? "No alert changed." : `${r.changed} alert${r.changed === 1 ? "" : "s"} updated.`;
+      showToast(
+        r.failed > 0
+          ? `Checked ${r.checked - r.failed} of ${vaccines}; ${r.failed} could not be checked. Try again.`
+          : `Checked ${vaccines}. ${changes}`,
+        r.failed > 0 ? "warning" : "success"
+      );
+    } catch (error) {
+      logSafeError("Check stock now", error);
+      showToast(friendlyErrorMessage(error, "Stock could not be checked right now. Please try again."), "error");
+    } finally {
+      setStockCheckBusy(false);
+    }
   };
   const selectType = (typeKey) => {
     setTypeFilter((current) => current === typeKey ? null : typeKey);
@@ -498,7 +537,31 @@ function Alerts() {
                   disabled={loading || Boolean(loadError)}
                   onClick={() => selectType("rider_location_stale")}
                 />
+
+                <CategoryItem
+                  icon={<Package size={18} />}
+                  title="Low Stock"
+                  count={categoryCounts.stock}
+                  type="orange"
+                  selected={typeFilter === "stock_low"}
+                  disabled={loading || Boolean(loadError)}
+                  onClick={() => selectType("stock_low")}
+                />
+
+                <CategoryItem
+                  icon={<CalendarClock size={18} />}
+                  title="Expiring Stock"
+                  count={categoryCounts.expiry}
+                  type="red"
+                  selected={typeFilter === "batch_expiry"}
+                  disabled={loading || Boolean(loadError)}
+                  onClick={() => selectType("batch_expiry")}
+                />
               </div>
+              <button type="button" className="alert-stock-link" onClick={checkStockNow} disabled={stockCheckBusy} aria-busy={stockCheckBusy}>
+                <RefreshCw size={16} aria-hidden="true" />
+                <span>{stockCheckBusy ? "Checking stock…" : "Check stock now"}<small>Re-check low stock and expiry dates for every vaccine</small></span>
+              </button>
               <button type="button" className="alert-stock-link" onClick={() => navigate("/admin/inventory")}>
                 <Package size={16} aria-hidden="true" />
                 <span>Review stock in Inventory<small>Check stock levels and expiry dates</small></span>

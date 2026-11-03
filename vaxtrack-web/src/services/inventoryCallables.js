@@ -125,21 +125,12 @@ export async function createOrderWithReservation({
         expectedUnitPriceCentavos: item.expectedUnitPriceCentavos,
         ...(Number.isSafeInteger(item.expectedQuotedUnitPriceCentavos)
           ? { expectedQuotedUnitPriceCentavos: item.expectedQuotedUnitPriceCentavos } : {}),
-        // The Med Rep's negotiated VAT-inclusive UNIT price, the reason when it
-        // differs from the standard, and this line's statutory (SC/PWD)
-        // discount — category, amount and the Med Rep's eligibility
-        // attestation (which the server requires to be exactly `true`). Never
-        // a total or a VAT figure: the server computes those and refuses any
-        // it is sent.
+        // The Med Rep's negotiated VAT-inclusive UNIT price and the reason when
+        // it differs from the standard. Never a total or a VAT figure: the
+        // server computes those and refuses any it is sent. No SC/PWD discount
+        // is sent: it is not offered for new orders (the server refuses one).
         ...(Number.isInteger(item.agreedUnitPriceCentavos) ? { agreedUnitPriceCentavos: item.agreedUnitPriceCentavos } : {}),
         ...(typeof item.negotiationReason === "string" && item.negotiationReason ? { negotiationReason: item.negotiationReason } : {}),
-        ...(Number.isInteger(item.statutoryDiscountCentavos) && item.statutoryDiscountCentavos > 0
-          ? {
-              statutoryDiscountType: item.statutoryDiscountType,
-              statutoryDiscountCentavos: item.statutoryDiscountCentavos,
-              eligibilityConfirmed: item.eligibilityConfirmed === true,
-            }
-          : {}),
       })),
     });
     return result.data;

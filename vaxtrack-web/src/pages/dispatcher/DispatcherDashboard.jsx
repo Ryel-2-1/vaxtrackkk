@@ -28,7 +28,7 @@ import DispatcherTrackingOverview from "../../components/tracking/DispatcherTrac
 import { availableRiderCount } from "../../services/riderTracking";
 import { subscribeRiderDispatchStates } from "../../services/riderDispatchService";
 import { assignmentBlockReason } from "../../services/backorder";
-import { presentAlert } from "../../services/alertPresentation";
+import { isAdminOnlyAlert, presentAlert } from "../../services/alertPresentation";
 import { requestedArrivalLabel, requestedArrivalOf } from "../../services/requestedArrival";
 import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import VaccineBreakdown from "../../components/dispatch/VaccineBreakdown";
@@ -114,7 +114,8 @@ function DispatcherDashboard() {
     let unsubAlerts;
     try {
       unsubAlerts = subscribeActiveAlerts((alerts) => {
-        setActiveAlerts(alerts);
+        // Stock and expiry alerts are the Admin's (functions/src/stockAlerts.js).
+        setActiveAlerts(alerts.filter((a) => !isAdminOnlyAlert(a)));
         loaded.alerts = true;
         recover("alerts");
         checkDone();

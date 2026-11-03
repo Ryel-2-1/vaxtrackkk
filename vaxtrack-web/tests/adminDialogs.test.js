@@ -140,6 +140,7 @@ test("Settings › every User Management dialog is portaled with the page class 
     ["selectedStaff", "StaffDetailsModal"],
     ["territoryTarget", "MedRepTerritoryDialog"],
     ["roleChangeTarget", "RoleChangeModal"],
+    ["addStaffOpen", "AddStaffDialog"],
   ]) {
     assert.match(
       src,
@@ -147,7 +148,7 @@ test("Settings › every User Management dialog is portaled with the page class 
       `${cond} → ${comp}`
     );
   }
-  assert.equal((src.match(/<\/AdminDialogLayer>/g) || []).length, 5);
+  assert.equal((src.match(/<\/AdminDialogLayer>/g) || []).length, 6);
   // Staff details gains the shared hook (page lock, Escape — never mid-write — focus) and dialog semantics.
   const staff = fnSource(src, "StaffDetailsModal");
   assert.match(staff, /useDialogFocus\(\{ dialogRef, onDismiss: onClose, busy \}\);/);

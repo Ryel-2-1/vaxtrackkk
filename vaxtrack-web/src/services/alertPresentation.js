@@ -14,6 +14,15 @@
 
 export const ALERT_ACTION_LABEL = "View details";
 
+/**
+ * Stock and expiry alerts (functions/src/stockAlerts.js) are written for the
+ * Admin, who manages inventory; the Dispatcher's bell and dashboard skip them.
+ */
+export const ADMIN_ONLY_ALERT_TYPES = Object.freeze(["stock_low", "batch_expiry"]);
+export function isAdminOnlyAlert(raw) {
+  return raw?.audience === "admin" || ADMIN_ONLY_ALERT_TYPES.includes(raw?.type);
+}
+
 const DEVIATION_THRESHOLD_METERS = 500;
 const DEVIATION_MINUTES = 3;
 
@@ -153,6 +162,7 @@ export function presentAlert(raw, { role = "admin", nowMs = Date.now(), fallback
   const orderLinked = type === "route_deviation" || type === "delivery_delay" || type === "delivery_awaiting_completion" ||
     type === "offline_completion_review";
   const riderLinked = type === "rider_location_stale";
+  const inventoryLinked = ADMIN_ONLY_ALERT_TYPES.includes(type);
   const rider = nameOr(raw?.riderName, null);
   const code = orderCodeOf(raw?.orderNumber);
   const createdMs = millisOf(raw?.createdAt) ?? millisOf(raw?.lastDetectedAt);
@@ -230,6 +240,18 @@ export function presentAlert(raw, { role = "admin", nowMs = Date.now(), fallback
     const distance = formatDistanceMeters(raw.distanceMeters);
     if (distance) details.push({ label: "Distance from route", value: `${distance} (limit ${raw.thresholdMeters ?? DEVIATION_THRESHOLD_METERS} m)` });
   }
+  if (inventoryLinked) {
+    // Server-written figures only (functions/src/stockAlerts.js); never an id.
+    details.push({ label: "Vaccine", value: nameOr(raw?.vaccineName, "Not recorded") });
+    if (type === "batch_expiry") {
+      details.push({ label: "Batch", value: nameOr(raw?.batchId, "Not recorded") });
+      details.push({ label: "Expiry date", value: nameOr(raw?.expiryDate, "Not recorded") });
+      if (Number.isInteger(raw?.holdingQuantity)) details.push({ label: "Vials in stock", value: raw.holdingQuantity.toLocaleString("en-PH") });
+    } else {
+      if (Number.isInteger(raw?.availableQuantity)) details.push({ label: "Available to order", value: `${raw.availableQuantity.toLocaleString("en-PH")} vials` });
+      if (Number.isInteger(raw?.safetyStockQuantity)) details.push({ label: "Safety stock", value: `${raw.safetyStockQuantity.toLocaleString("en-PH")} vials` });
+    }
+  }
   if (createdMs !== null) details.push({ label: "Detected", value: friendlyTime(createdMs, nowMs) });
   if (resolved && resolvedMs !== null) details.push({ label: "Resolved", value: friendlyTime(resolvedMs, nowMs) });
 
@@ -244,7 +266,7 @@ export function presentAlert(raw, { role = "admin", nowMs = Date.now(), fallback
     metaText: meta.join(" · "),
     details,
     actionLabel: ALERT_ACTION_LABEL,
-    path: orderLinked ? pathFor(raw, role) : riderLinked ? riderPathFor(raw, role) : null,
-    searchText: [title, message, rider, raw?.orderNumber].filter(Boolean).join(" ").toLowerCase(),
+    path: orderLinked ? pathFor(raw, role) : riderLinked ? riderPathFor(raw, role) : inventoryLinked && role === "admin" ? "/admin/inventory" : null,
+    searchText: [title, message, rider, raw?.orderNumber, inventoryLinked ? raw?.batchId : null].filter(Boolean).join(" ").toLowerCase(),
   };
 }

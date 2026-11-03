@@ -527,7 +527,15 @@ function validateDocumentId(value, message) {
  * every one of those is snapshotted server-side from the inventory document,
  * and so is every figure of money.
  */
-function validateCreatePayload(payload) {
+/**
+ * Senior Citizen / PWD line discounts are NOT offered for new orders (client
+ * decision, 2026-11-03). A new order carrying one is refused here, before any
+ * read. Orders placed earlier keep their recorded discounts: allocation,
+ * receipts and invoicing still price them through validateStatutoryDiscount.
+ * `statutoryDiscountsOffered` exists only so tests can create such an earlier
+ * order; the callable never passes it.
+ */
+function validateCreatePayload(payload, { statutoryDiscountsOffered = false } = {}) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new PolicyError("invalid-payload", "The order request was malformed.");
   }
@@ -627,6 +635,16 @@ function validateCreatePayload(payload) {
     const agreedUnitPriceCentavos = agreed.value ?? quoted.value;
     const negotiationReason =
       agreedUnitPriceCentavos === quoted.value ? null : normalizeNegotiationReason(line.negotiationReason);
+    const discountSent =
+      (line.statutoryDiscountType ?? null) !== null ||
+      (line.statutoryDiscountCentavos ?? null) !== null ||
+      line.eligibilityConfirmed === true;
+    if (discountSent && !statutoryDiscountsOffered) {
+      throw new PolicyError(
+        "statutory-discount-unavailable",
+        "Senior Citizen and PWD discounts are not offered for new orders. Remove the discount and place the order again."
+      );
+    }
     // The statutory discount is checked against THIS line's negotiated gross
     // (quantity × agreed price), which is known from the request alone.
     const discount = validateStatutoryDiscount({

@@ -102,9 +102,13 @@ export function statusChangeRefusal(fromRaw) {
  * The actions offered for one staff row (menu and profile dialog alike).
  * A rejected account offers View Profile only: no Activate, no second Reject,
  * and no Change Role, since a refused application has no access to adjust.
+ * An Admin's OWN row offers neither a status nor a role change: the server
+ * (setStaffStatus / setStaffRole) refuses both, so another Admin must do it —
+ * which also means the system always keeps an approved Admin.
  */
 export function staffActionsFor(statusKey, { isSelf = false } = {}) {
   const actions = ["view"];
+  if (isSelf) return actions;
   if (statusKey === STAFF_STATUS.PENDING) actions.push("approve", "reject");
   if (statusKey === STAFF_STATUS.ACTIVE) actions.push("deactivate");
   if (statusKey === STAFF_STATUS.INACTIVE) actions.push("reactivate");
