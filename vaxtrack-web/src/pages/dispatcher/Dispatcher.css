@@ -4873,14 +4873,12 @@
 .start-load-btn:hover,
 .geo2-view-route-row button:hover,
 .geo2-controls button:hover {
-  transform: translateY(-1px) !important;
   box-shadow: 0 12px 22px rgba(37, 99, 235, 0.2) !important;
 }
 
 .dispatcher-outline-btn:hover,
 .dispatcher-dash-secondary-btn:hover,
 .filter-link-btn:hover {
-  transform: translateY(-1px) !important;
   background: #f8fbff !important;
 }
 
@@ -6210,7 +6208,6 @@
 }
 
 .geo3-status-box:hover {
-  transform: translateY(-2px) !important;
   box-shadow: 0 10px 20px rgba(15, 23, 42, 0.08) !important;
 }
 

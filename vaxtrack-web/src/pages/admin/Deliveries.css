@@ -248,7 +248,6 @@
 
 .deliveries-summary-card:hover,
 .deliveries-v4-fleet-card:hover {
-  transform: translateY(-2px);
   box-shadow: 0 18px 38px rgba(15, 23, 42, 0.1);
   border-color: #bfdbfe;
 }

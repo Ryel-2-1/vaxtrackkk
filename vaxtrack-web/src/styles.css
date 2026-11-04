@@ -2207,7 +2207,6 @@ select:focus {
 
 .blue-btn:hover,
 .outline-btn:hover {
-  transform: translateY(-1px);
 }
 
 .blue-btn:disabled,
@@ -5297,7 +5296,6 @@ textarea {
 .tracking-panel:hover,
 .alerts-panel:hover,
 .table-section:hover {
-  transform: translateY(-2px);
   box-shadow: var(--vt-shadow-hover);
   border-color: #9ec5ff;
 }
@@ -5370,7 +5368,6 @@ button:hover,
 .view-all-btn:hover,
 .assign-btn:hover,
 .dispatcher-outline-btn:hover {
-  transform: translateY(-1px);
 }
 
 button:active,
@@ -5858,7 +5855,6 @@ table:not([class]) td {
 .tracking-panel:hover,
 .alerts-panel:hover,
 .table-section:hover {
-  transform: translateY(-2px) !important;
   box-shadow: 0 16px 36px rgba(15, 23, 42, 0.12) !important;
 }
 /* =========================================================
@@ -6094,7 +6090,6 @@ table:not([class]) td {
 }
 
 .primary-button:hover {
-  transform: translateY(-1px) !important;
   box-shadow: 0 18px 36px rgba(11, 99, 246, 0.34) !important;
 }
 

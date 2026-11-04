@@ -38,8 +38,10 @@ function lockPage() {
   };
   // Keep the scrollbar's space while it is hidden: without it the page reflows
   // wider (and so shorter), and a page scrolled to its end is pulled up
-  // behind the dialog.
-  root.style.scrollbarGutter = "stable";
+  // behind the dialog. Only when <html> really has a scrollbar: on desktop the
+  // shells scroll inside <main>, so <html> has none, and a gutter here would
+  // ADD about 15px, jolting the whole page sideways on every open and close.
+  if (root.scrollHeight > root.clientHeight) root.style.scrollbarGutter = "stable";
   document.body.style.overflow = "hidden";
   root.style.overflow = "hidden";
 }

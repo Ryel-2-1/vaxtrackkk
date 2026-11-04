@@ -11,6 +11,7 @@ import "./pages/admin/admin-foundation.css"; /* Admin-only ops-console foundatio
 import "./pages/salesRep/salesrep-polish.css"; /* Sales-Rep-only cohesion layer (scoped to .salesrep-page / .salesrep-main / aside.salesrep-sidebar) */
 import "./pages/dispatcher/dispatcher-polish.css"; /* Dispatcher-only cohesion layer (scoped to .dispatcher-page / .dispatcher-main / aside.dispatcher-sidebar) */
 import "./styles/paged-tables.css";
+import "./styles/dialog-fit.css"; /* Every floating window fits the screen */
 import "./styles/shell-chrome.css"; /* One sidebar + top bar for all three roles (scoped to the role shells); last so it settles shell geometry */
 
 ReactDOM.createRoot(document.getElementById("root")).render(

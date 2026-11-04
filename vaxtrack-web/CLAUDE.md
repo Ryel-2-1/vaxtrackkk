@@ -32,7 +32,7 @@ Roles: **Admin**, **Dispatcher** and **Med Rep** (stored as `salesrep`) use the 
 - **User-facing errors:** only a `UserMessageError`'s own text is ever shown, through `friendlyErrorMessage()` (`liveDataErrors.js`). That function also strips the Functions SDK's trailing ` [400]` (`withoutTransportStatus`). Everything else is mapped by error code. `tests/userMessages.test.js` enforces this.
 - **Live data:** use `listenLive()` (it reconnects automatically). Edit forms use `useLiveDraft` + `StaleEditNotice`.
 - **Dialogs inside an Admin `<main>`** must portal through `AdminDialogLayer`. A transformed `<main>` traps fixed overlays, and `tests/adminDialogs.test.js` guards this.
-- **CSS import order** (`main.jsx`): `index.css` → `styles.css` → `styles/tokens.css` → `meridian-shell.css` → `shell-transitions.css` → the role layers (`admin-polish`, `admin-foundation`, `salesrep-polish`, `dispatcher-polish`) → `paged-tables.css` → `shell-chrome.css`.
+- **CSS import order** (`main.jsx`): `index.css` → `styles.css` → `styles/tokens.css` → `meridian-shell.css` → `shell-transitions.css` → the role layers (`admin-polish`, `admin-foundation`, `salesrep-polish`, `dispatcher-polish`) → `paged-tables.css` → `dialog-fit.css` → `shell-chrome.css`.
   - Role layers are strictly scoped to that role's root and are additive only.
   - `!important` is used only to beat the global `button` / `input` `min-height: 46px !important` resets in `styles.css`.
   - Colours come from `tokens.css`.

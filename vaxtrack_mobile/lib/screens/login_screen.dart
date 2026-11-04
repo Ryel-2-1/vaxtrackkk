@@ -12,9 +12,7 @@ import 'forgot_password_screen.dart';
 typedef RiderSignIn = Future<void> Function(String email, String password);
 
 Future<void> _firebaseSignIn(String email, String password) async {
-  await FirebaseAuth.instance
-      .signInWithEmailAndPassword(email: email, password: password)
-      .timeout(const Duration(seconds: 30));
+  await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: password).timeout(const Duration(seconds: 30));
 }
 
 class LoginScreen extends StatefulWidget {
@@ -97,7 +95,7 @@ class _LoginScreenState extends State<LoginScreen> {
           msg = 'Network error. Please try again.';
           break;
         default:
-          msg = e.message ?? 'Sign in failed. Please try again.';
+          msg = 'Sign in failed. Please try again.';
       }
       if (mounted) setState(() => _error = msg);
     } catch (e, stack) {
@@ -115,10 +113,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final send = widget.sendPasswordReset ?? (email) => AuthService().sendPasswordReset(email);
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => ForgotPasswordScreen(
-          initialEmail: _emailController.text,
-          sendReset: send,
-        ),
+        builder: (_) => ForgotPasswordScreen(initialEmail: _emailController.text, sendReset: send),
       ),
     );
   }
@@ -148,18 +143,18 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Center(child: VaxTrackLogo(size: 88)),
-                    const SizedBox(height: 18),
+                    const Center(child: VaxTrackLogo(size: 76)),
+                    const SizedBox(height: 16),
                     const Text(
                       'VaxTrack Rider',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: AppColors.textDark, letterSpacing: -0.3),
+                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.textDark, letterSpacing: -0.3),
                     ),
                     const SizedBox(height: 4),
                     const Text(
                       'Sign in to see and deliver your assigned orders.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 14, color: AppColors.textLight),
+                      style: TextStyle(fontSize: 14, color: AppColors.textLight, height: 1.4),
                     ),
                     if (AppBranding.isStaging) ...[
                       const SizedBox(height: 10),
@@ -167,82 +162,79 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                           decoration: BoxDecoration(color: AppColors.warningBg, borderRadius: BorderRadius.circular(999)),
-                          child: const Text('Staging — test data only',
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.warning)),
+                          child: const Text(
+                            'Staging — test data only',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.warning),
+                          ),
                         ),
                       ),
                     ],
                     const SizedBox(height: 28),
-                    Container(
-                      padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
-                      decoration: BoxDecoration(
-                        color: AppColors.surface,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: AppColors.border),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          TextField(
-                            key: const Key('loginEmailField'),
-                            controller: _emailController,
-                            keyboardType: TextInputType.emailAddress,
-                            textInputAction: TextInputAction.next,
-                            autofillHints: const [AutofillHints.email, AutofillHints.username],
-                            autocorrect: false,
-                            enableSuggestions: false,
-                            enabled: !_loading,
-                            onChanged: (_) => _clearError(),
-                            decoration: const InputDecoration(
-                              labelText: 'Email',
-                              hintText: 'you@example.com',
-                              prefixIcon: Icon(Icons.email_outlined),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        TextField(
+                          key: const Key('loginEmailField'),
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          textInputAction: TextInputAction.next,
+                          autofillHints: const [AutofillHints.email, AutofillHints.username],
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          enabled: !_loading,
+                          onChanged: (_) => _clearError(),
+                          decoration: const InputDecoration(
+                            labelText: 'Email',
+                            hintText: 'you@example.com',
+                            prefixIcon: Icon(Icons.email_outlined, color: AppColors.textLight),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          key: const Key('loginPasswordField'),
+                          controller: _passwordController,
+                          obscureText: _obscurePassword,
+                          textInputAction: TextInputAction.done,
+                          autofillHints: const [AutofillHints.password],
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          enabled: !_loading,
+                          onChanged: (_) => _clearError(),
+                          onSubmitted: (_) => _login(),
+                          decoration: InputDecoration(
+                            labelText: 'Password',
+                            prefixIcon: const Icon(Icons.lock_outlined, color: AppColors.textLight),
+                            suffixIcon: IconButton(
+                              tooltip: _obscurePassword ? 'Show password' : 'Hide password',
+                              icon: Icon(
+                                _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                                color: AppColors.textLight,
+                              ),
+                              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                             ),
                           ),
-                          const SizedBox(height: 14),
-                          TextField(
-                            key: const Key('loginPasswordField'),
-                            controller: _passwordController,
-                            obscureText: _obscurePassword,
-                            textInputAction: TextInputAction.done,
-                            autofillHints: const [AutofillHints.password],
-                            autocorrect: false,
-                            enableSuggestions: false,
-                            enabled: !_loading,
-                            onChanged: (_) => _clearError(),
-                            onSubmitted: (_) => _login(),
-                            decoration: InputDecoration(
-                              labelText: 'Password',
-                              prefixIcon: const Icon(Icons.lock_outlined),
-                              suffixIcon: IconButton(
-                                tooltip: _obscurePassword ? 'Show password' : 'Hide password',
-                                icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
-                                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-                              ),
+                        ),
+                        const SizedBox(height: 4),
+                        Align(
+                          alignment: AlignmentDirectional.centerEnd,
+                          child: TextButton(
+                            key: const Key('forgotPasswordButton'),
+                            onPressed: _loading ? null : _openForgotPassword,
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppColors.brand,
+                              minimumSize: const Size(48, 48),
+                              tapTargetSize: MaterialTapTargetSize.padded,
+                              textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                            ),
+                            child: Semantics(
+                              // Read as "Forgot password? Reset your password, button".
+                              label: 'Forgot password? Reset your password',
+                              excludeSemantics: true,
+                              child: const Text('Forgot password?', textAlign: TextAlign.end),
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          Align(
-                            alignment: AlignmentDirectional.centerEnd,
-                            child: TextButton(
-                              key: const Key('forgotPasswordButton'),
-                              onPressed: _loading ? null : _openForgotPassword,
-                              style: TextButton.styleFrom(
-                                foregroundColor: AppColors.primaryDark,
-                                minimumSize: const Size(48, 48),
-                                tapTargetSize: MaterialTapTargetSize.padded,
-                                textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-                              ),
-                              child: Semantics(
-                                // Read as "Forgot password? Reset your password, button".
-                                label: 'Forgot password? Reset your password',
-                                excludeSemantics: true,
-                                child: const Text('Forgot password?', textAlign: TextAlign.end),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                     if (_error != null) ...[
                       const SizedBox(height: 14),
@@ -256,58 +248,51 @@ class _LoginScreenState extends State<LoginScreen> {
                             children: [
                               const Icon(Icons.error_outline, size: 18, color: AppColors.urgent),
                               const SizedBox(width: 8),
-                              Expanded(child: Text(_error!, style: const TextStyle(color: AppColors.urgent, fontSize: 13))),
+                              Expanded(
+                                child: Text(_error!, style: const TextStyle(color: AppColors.urgent, fontSize: 13)),
+                              ),
                             ],
                           ),
                         ),
                       ),
                     ],
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 12),
                     SizedBox(
                       height: 52,
                       child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.brand),
                         onPressed: _loading ? null : _login,
                         child: _loading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                              )
+                            ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                             : const Text('Sign In'),
                       ),
                     ),
-                    const SizedBox(height: 28),
-                    const Row(
-                      children: [
-                        Expanded(child: Divider(color: AppColors.border)),
-                        Flexible(
-                          flex: 3,
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 12),
-                            child: Text('New rider?',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(fontSize: 13, color: AppColors.textLight)),
-                          ),
-                        ),
-                        Expanded(child: Divider(color: AppColors.border)),
-                      ],
+                    const SizedBox(height: 32),
+                    const Text(
+                      'New rider?',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textMedium),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
                     ConstrainedBox(
                       constraints: const BoxConstraints(minHeight: 48),
                       child: OutlinedButton.icon(
                         key: const Key('applyAsRiderButton'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.brand,
+                          side: const BorderSide(color: AppColors.brand),
+                        ),
                         onPressed: _loading ? null : () => Navigator.of(context).pushNamed('/register'),
                         icon: const Icon(Icons.two_wheeler),
                         label: const Text('Apply as a rider'),
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
                     const Text(
-                      'Applications are reviewed by a VaxTrack admin before you can sign in.\n'
-                      'Dispatchers, admins and med reps use the web portal.',
+                      'An admin reviews each application before you can sign in. '
+                      'Staff use the web portal.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12, color: AppColors.textMuted, height: 1.4),
+                      style: TextStyle(fontSize: 12, color: AppColors.textLight, height: 1.4),
                     ),
                   ],
                 ),

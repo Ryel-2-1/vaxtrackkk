@@ -2258,7 +2258,6 @@
 }
 
 .dashboard-action-card:hover {
-  transform: translateY(-2px) !important;
   border-color: #93c5fd !important;
   box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08) !important;
 }
@@ -3526,7 +3525,6 @@
 }
 
 .request-v2-product-card:hover {
-  transform: translateY(-2px) !important;
   border-color: var(--gray-300) !important;
   box-shadow: 0 4px 12px rgba(16, 24, 40, 0.08) !important;
 }
@@ -4080,7 +4078,6 @@
 }
 
 .alerts-v2-card:hover {
-  transform: translateY(-2px) !important;
   border-color: var(--gray-300) !important;
   box-shadow: 0 4px 12px rgba(16, 24, 40, 0.08) !important;
 }
@@ -4587,7 +4584,6 @@
 }
 
 .alerts-v2-card:hover {
-  transform: translateY(-2px) !important;
   border-color: var(--gray-300) !important;
   box-shadow: 0 4px 12px rgba(16, 24, 40, 0.08) !important;
 }
@@ -4992,7 +4988,6 @@
 }
 
 .alerts-v2-card:hover {
-  transform: translateY(-2px) !important;
   border-color: var(--gray-300) !important;
   box-shadow: 0 4px 12px rgba(16, 24, 40, 0.08) !important;
 }

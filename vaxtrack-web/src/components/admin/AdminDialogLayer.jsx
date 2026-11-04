@@ -1,10 +1,11 @@
 // An Admin dialog rendered at the top level of the page.
 //
-// Every Admin page's <main> keeps `transform: translateY(0)` after its entrance
-// animation (shell-transitions.css), which makes it the containing block for
-// `position: fixed` descendants: a dialog rendered inside it was centred in the
-// whole long page, not the screen, and opened off-screen once the page was
-// scrolled. AdminDialogLayer portals the dialog to <body> (DialogLayer) and
+// The Admin <main> used to keep a transform after its entrance animation, which
+// made it the containing block for `position: fixed` descendants: a dialog
+// rendered inside it was centred in the whole long page, not the screen, and
+// opened off-screen once the page was scrolled. The entrance is now a plain
+// fade, but any later transform there would bring that back, so dialogs stay
+// portaled. AdminDialogLayer portals the dialog to <body> (DialogLayer) and
 // re-applies the current route's shell wrapper classes, so the page-scoped
 // Admin styles still match while nothing of the page's layout comes along.
 //

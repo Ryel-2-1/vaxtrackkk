@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 class AppColors {
   static const Color primary = Color(0xFF16A34A);
+  /// The web portal's primary green (--green-700), for the sign-in screens.
+  static const Color brand = Color(0xFF1F5C41);
   static const Color primaryDark = Color(0xFF15803D);
   static const Color primaryLight = Color(0xFFDCFCE7);
   static const Color primaryBg = Color(0xFFF0FDF4);
