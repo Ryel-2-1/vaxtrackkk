@@ -5749,6 +5749,24 @@ async function main() {
       await assertFails(setDoc(myLoc, loc({ mockedLocation: null })));
     });
 
+    await check("PPUSH a rider keeps only their own push tokens (≤ 5); nobody else reads or writes them", async () => {
+      const mine = doc(rider, "riderPushTokens", riderUid);
+      const tokens = (n) => Array.from({ length: n }, (_, i) => `token-${i}`);
+      await assertSucceeds(setDoc(mine, { riderUid, tokens: tokens(2), updatedAt: serverTimestamp() }));
+      await assertSucceeds(getDoc(mine));
+      await assertSucceeds(setDoc(mine, { riderUid, tokens: tokens(5), updatedAt: serverTimestamp() }));
+      await assertFails(setDoc(mine, { riderUid, tokens: tokens(6), updatedAt: serverTimestamp() }), "at most 5");
+      await assertFails(setDoc(mine, { riderUid, tokens: tokens(1), updatedAt: serverTimestamp(), extra: 1 }));
+      await assertFails(setDoc(mine, { riderUid: otherRiderUid, tokens: tokens(1), updatedAt: serverTimestamp() }));
+      await assertFails(setDoc(doc(rider, "riderPushTokens", otherRiderUid), { riderUid: otherRiderUid, tokens: [], updatedAt: serverTimestamp() }));
+      for (const ctx of [admin, dispatcher, salesRep, anon]) {
+        await assertFails(getDoc(doc(ctx, "riderPushTokens", riderUid)));
+        await assertFails(setDoc(doc(ctx, "riderPushTokens", riderUid), { riderUid, tokens: [], updatedAt: serverTimestamp() }));
+      }
+      await assertFails(getDocs(collection(rider, "riderPushTokens")));
+      await assertSucceeds(deleteDoc(mine));
+    });
+
     await check("NTR1 a rider cannot write another rider's location or forge the rider uid", async () => {
       await assertFails(setDoc(doc(rider, "riderLocations", otherRiderUid), loc({ riderUid: otherRiderUid })));
       await assertFails(setDoc(myLoc, loc({ riderUid: otherRiderUid })));

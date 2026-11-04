@@ -10,6 +10,9 @@ import { subscribeVaccines } from "../../services/vaccineCatalogService";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { parsePesosToCentavos } from "../../services/money";
 import { validateStockBatchDates } from "../../services/stockBatchDates";
+import { isLargeStockQuantity, largeQuantityMessage } from "../../services/stockQuantityLimit";
+import ConfirmDialog from "../../components/ui/ConfirmDialog";
+import AdminDialogLayer from "../../components/admin/AdminDialogLayer";
 import "./AdminForms.css";
 
 // Each validated field's input id, and the id of the one field message shown
@@ -218,8 +221,11 @@ function AddStock() {
     return true;
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  // A quantity above the usual batch size waits here for the Admin's "yes".
+  const [largeQuantityPrompt, setLargeQuantityPrompt] = useState(null);
+
+  const handleSubmit = async (e, { largeQuantityConfirmed = false } = {}) => {
+    e?.preventDefault();
     // One write at a time. Set before the await, because validateForm queries
     // Firestore and a second submit could otherwise slip through behind it.
     if (submittingRef.current) return;
@@ -232,6 +238,12 @@ function AddStock() {
     try {
       const isValid = await validateForm();
       if (!isValid) return;
+
+      const typedQuantity = Number(String(quantity).trim());
+      if (isLargeStockQuantity(typedQuantity) && !largeQuantityConfirmed) {
+        setLargeQuantityPrompt(typedQuantity);
+        return;
+      }
 
       setSaving(true);
 
@@ -257,6 +269,7 @@ function AddStock() {
         // even if the two ever drift apart.
         sellingPriceCentavos: parsePesosToCentavos(unitPrice).value,
         priceIsVatInclusive: priceBasis === "included",
+        largeQuantityConfirmed,
       }, { submit: addStockBatchWithAllocation });
 
       setResult(report ?? null);
@@ -572,6 +585,29 @@ function AddStock() {
             </button>
           </div>
         </form>
+
+        {/* Portaled: this page's <main> is transformed (AdminDialogLayer). */}
+        {largeQuantityPrompt !== null && (
+          <AdminDialogLayer>
+            <ConfirmDialog
+              title="Is this quantity correct?"
+              target={`Batch ${batchId.trim().toUpperCase()}`}
+              consequence={`${largeQuantityMessage(largeQuantityPrompt)} Check the delivery documents. If the figure is right, it will be saved as entered.`}
+              confirmLabel={`Yes, add ${largeQuantityPrompt.toLocaleString("en-PH")} vials`}
+              busyLabel="Adding…"
+              cancelLabel="Change the quantity"
+              tone="primary"
+              onCancel={() => {
+                setLargeQuantityPrompt(null);
+                document.getElementById("stock-quantity")?.focus();
+              }}
+              onConfirm={async () => {
+                await handleSubmit(null, { largeQuantityConfirmed: true });
+                setLargeQuantityPrompt(null);
+              }}
+            />
+          </AdminDialogLayer>
+        )}
       </main>
   );
 }

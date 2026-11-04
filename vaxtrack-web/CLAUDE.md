@@ -1,827 +1,131 @@
-# VaxTrack Web — CLAUDE.md
+# VaxTrack — CLAUDE.md
 
-## Project Overview
+Vaccine cold-chain ordering and delivery for the Philippines (client: 3MGS Pharma). Three web roles and a rider phone app, on Firebase.
 
-VaxTrack is a vaccine cold-chain logistics platform for the Philippines. This repository is the **React web portal only**.
+**Current as of 2026-11-04** (branch `codex/ui-changes`, commit `e573146`). It describes the system as built. The chronological build log from July to September 2026 is archived in [`docs/CLAUDE-HISTORY.md`](docs/CLAUDE-HISTORY.md). That log is historical: many of its "deferred", "not built" and "do not" notes are now wrong. **Trust the code over any document**, this one included.
 
 ---
 
-## Current State — updated 2026-09-04
+## Rules for working here
 
-**`main` is at `ae69efd`.** Every feature branch is merged into `main` **except `feat/geofence-workflow`** — that is the only outstanding work.
+- **Never target production (`vaxtrack-bef1b`).** Run the Firebase CLI only with `--project vaxtrack-staging` or a `demo-vaxtrack-*` emulator project.
+- **Deploys need explicit approval each time.** Staging is the reference environment. Scheduled functions (`onSchedule`) are **not** deployed to staging without a separate decision, because Cloud Scheduler costs money.
+- **The user commits.** Don't commit, push, merge, reset or switch branches unless asked.
+- **Emulator ports.** Emulator tests use port 8181. `emulators:exec` on Windows sometimes leaves the Java process running. Stop it only after checking that its command line contains `--project_id demo-vaxtrack-`.
+- **Never print secrets or personal data.** `.env*` files are local-only; `.env.example` lists the keys.
+- **Deploy order** when rules tighten a client write: functions first, then `firestore:rules`, then hosting. Triggers that retry need `--force` in non-interactive deploys. With `--only` naming the functions, that deletes nothing.
 
-**Read this section before trusting anything below it.** Most of this file is a chronological build log written between 2026-07-02 and 2026-07-27. A large amount of work merged after that date is not reflected in those older sections, and a few of their statements are now wrong. The corrections here take precedence.
+## Layout
 
-### Corrections to older sections
-
-| Older claim | Reality now |
+| Path | What |
 |---|---|
-| "`AdminSidebar` is exported from `src/pages/admin/Inventory.jsx` … do not move it" | **Resolved.** It now lives at `src/components/admin/AdminSidebar.jsx` (+ `.css`), with `src/components/admin/AdminLayout.jsx` (+ `.css`) as the shell. Every admin page imports from there; `Inventory.jsx` no longer exports it. The old "do not move it" instruction is obsolete. |
-| "Route deviation is deferred" (stated in several places) | **No longer true.** Deviation detection is implemented, mostly on Flutter — see below. |
-| Rider app has minimal test coverage | Flutter now carries a real test suite (10 test files) plus production/staging entrypoints. |
+| `vaxtrack-web/` (this repo root) | React 18 + Vite web portal, the Firestore and Storage rules, and the tests |
+| `vaxtrack-web/functions/` | Cloud Functions (Node 22, 2nd gen, `asia-southeast1`). **All business authority lives here.** |
+| `../vaxtrack_mobile/` | Flutter rider app (same git repo, one level up) |
 
-One nuance to keep straight: the Dispatcher Geofence info banner still reads *"Geofence, route deviation, and destination markers will activate once clinics have coordinates."* That refers to the **web map visualisation**, which genuinely is still gated on clinic coordinates. It is not a claim that deviation detection is unimplemented — the Flutter detection path exists independently.
+Roles: **Admin**, **Dispatcher** and **Med Rep** (stored as `salesrep`) use the web; **Rider** uses Flutter only. The web login blocks rider accounts.
 
-### Work merged since the older log was written
+## Web architecture
 
-Recorded from **observed file structure and code, not runtime verification** — these features were not built or exercised while writing this. Treat behaviour as unconfirmed until tested.
+- **Routing:** `App.jsx` lazy-loads pages inside one persistent shell per role (`AdminShell`, `SalesRepShell`, `DispatcherLayout`). A page renders content only and registers inside its role's shell route; it never renders its own sidebar. Route guards are `AdminRoute`, `SalesRepRoute` and `DispatcherRoute`. They read `users/{uid}` after sign-in and fail closed on an unknown role or status.
+- **Services** (`src/services/`, about 120 modules): pure models (`*Model.js`, `*View.js`) are separate from Firebase wrappers. Callable wrappers turn server refusals into `UserMessageError` subclasses that carry the server's stable `code`.
+- **User-facing errors:** only a `UserMessageError`'s own text is ever shown, through `friendlyErrorMessage()` (`liveDataErrors.js`). That function also strips the Functions SDK's trailing ` [400]` (`withoutTransportStatus`). Everything else is mapped by error code. `tests/userMessages.test.js` enforces this.
+- **Live data:** use `listenLive()` (it reconnects automatically). Edit forms use `useLiveDraft` + `StaleEditNotice`.
+- **Dialogs inside an Admin `<main>`** must portal through `AdminDialogLayer`. A transformed `<main>` traps fixed overlays, and `tests/adminDialogs.test.js` guards this.
+- **CSS import order** (`main.jsx`): `index.css` → `styles.css` → `styles/tokens.css` → `meridian-shell.css` → `shell-transitions.css` → the role layers (`admin-polish`, `admin-foundation`, `salesrep-polish`, `dispatcher-polish`) → `paged-tables.css` → `shell-chrome.css`.
+  - Role layers are strictly scoped to that role's root and are additive only.
+  - `!important` is used only to beat the global `button` / `input` `min-height: 46px !important` resets in `styles.css`.
+  - Colours come from `tokens.css`.
+- **Maps:** Leaflet + OpenStreetMap tiles, no key.
+- **Routing:** Valhalla motorcycle profile, called from the browser on a keyless public endpoint (`VITE_MOTORCYCLE_ROUTING_URL`, default `valhalla1.openstreetmap.de`). Road flags are checked before a route is saved, with no car fallback. That endpoint is fair-use, so self-host it before real operations.
 
-- **Route deviation + monitoring:** decided only on the **server** (`functions/src/riderTracking.js` `routeForOrder` + `trackRiderLocation`), which also writes the `route_deviation` alert. The Rider app shows the saved plan through `lib/utils/saved_route_plan.dart` (same choice as `routeForOrder`, pinned by the shared fixture `vaxtrack_mobile/test/fixtures/saved_route_plan_cases.json`) on `lib/screens/route_monitoring_screen.dart`. The old device-side detector / monitor / alert writer (`deviation_detector.dart`, `route_monitor.dart`, `route_compliance_monitor.dart`, `route_deviation_alert_service.dart`) was **deleted 2026-11-01** — it was unused, and its alert writes were refused by the rules.
-- **Rider offline cache / sync visibility:** `lib/utils/sync_status.dart`, `lib/widgets/sync_indicator.dart`.
-- **Flutter environment separation + branding:** `lib/environment.dart`, `lib/bootstrap.dart`, `lib/main_production.dart`, `lib/main_staging.dart`, `lib/firebase_options.dart`, `lib/dev/`. Plus Android release signing.
-- **Flutter tests** (`vaxtrack_mobile/test/`): `deviation_utils_test`, `saved_route_plan_test`, `route_screen_state_test`, `navigation_honesty_test`, `sync_status_test`, `sync_indicator_test`, `environment_config_test`, `nav_availability_test`, `navigation_init_controller_test`.
-- **Invoice module:** `invoiceModel.js` split out from `invoiceService.js`.
-- **Web UI passes** across all three roles — see the CSS layering convention below.
+## Server authority (functions)
 
-### Current CSS architecture — read this before restyling any role
+Clients cannot write anything that moves stock, money, status or access; the rules refuse it, and a callable does it.
 
-`main.jsx` imports stylesheets in a **deliberate order**, with the per-role layers last so they win ties on equal specificity:
-
-```
-index.css → styles.css → styles/tokens.css → styles/meridian-shell.css
-→ pages/admin/admin-polish.css → pages/admin/admin-foundation.css
-→ pages/salesRep/salesrep-polish.css → pages/dispatcher/dispatcher-polish.css
-```
-
-Work in these layers rather than editing legacy per-page CSS. Their rules:
-
-- **Strictly role-scoped.** Every selector sits under that role's root — `.inventory-page` / `aside.inventory-sidebar` (Admin), `.salesrep-page` / `.salesrep-main` / `aside.salesrep-sidebar`, `.dispatcher-page` / `.dispatcher-main` / `aside.dispatcher-sidebar`. Nothing may reach another role, Login, or Flutter.
-- **Additive only** — they do not rebuild page internals.
-- **`!important` is used only to out-specify a legacy or global `!important`** — notably the global `button { min-height: 46px !important; … }` and `input { min-height: 46px !important; background: #fff !important }` resets in `styles.css`, which otherwise inflate every control. That is the documented reason, not blanket escalation.
-- **Behaviour-sensitive areas stay untouched** by these layers: Leaflet map, ORS route, geofence, rider location, assignment, status transitions.
-
-### Other current-architecture notes
-
-- **Route-level code splitting.** `App.jsx` loads pages via `lazy()` inside `<Suspense fallback={<RouteFallback />}>` (`src/components/RouteFallback.jsx` + `.css`). New routes should follow this pattern.
-- **Dispatcher Geofence live map is now the primary element.** `RiderLocationMap` is a component inside `DispatcherGeofence.jsx`, and the map card (`.geo3-live-map-card`) was promoted **out of the narrow right column to a full-width block above** the Active Shipments / Shipment Details grid. Heights live in `dispatcher-polish.css`: **440px desktop / 380px ≤1024px / 300px ≤640px**. The map's own `ResizeObserver` handles resizes, so no `invalidateSize` lifecycle change was needed. At narrow widths the order becomes Map → Active Shipments → Details.
-- **New Sales Rep page:** `SalesRepOrderConfirmation` at `/sales-rep/order-confirmation`.
-- **Login is email-only** and had a presentation/accessibility pass (`Login.jsx` + `Login.css`, merged `b2b154d`). Authentication authority is unchanged — `redirectUserByRole` still routes purely on the role stored in `users/{uid}`. There is deliberately **no role picker**: a UI-selected role could only ever contradict the account. Credential failures collapse to one generic `Invalid email or password.` so the form cannot be used to probe which emails have accounts, and only the Firebase error *code* is ever logged.
-
-### ⚠️ Known global CSS bug — affects every page, not just Login
-
-`src/index.css` still carries the Vite scaffold's `#root { width: 1126px; max-width: 100% }`, and `src/styles.css` then sets `html, body, #root { max-width: none !important }`, which **removes the cap** that kept that fixed width in check. Below 1126px the root stays 1126px wide and only *looks* contained because of the global `overflow-x: hidden` — children sized from it are silently **clipped**.
-
-A scoped workaround exists for the login route only:
-
-```css
-#root:has(> .vlogin) { width: 100%; max-width: 100% !important; }
-```
-
-**The global rule is still unfixed.** Correcting `index.css` is a one-line change but needs its own verification pass across all three role layouts — do it as a dedicated task.
-
-### Outstanding branch: `feat/geofence-workflow` (not merged)
-
-Worktree `C:\VAXTRACK-geofence`, at `433ae7f`. Two phases are committed but **not merged and not verified end to end**:
-
-- **Phase 00 — safety repairs (Flutter):** `lib/utils/map_fit.dart` (extent-based camera fit, replacing a count guard that produced a zero-area bounds → infinite zoom → `Infinity or NaN toInt` crash **on arrival**), quantity-parsing hardening in `lib/models/delivery.dart`, `lib/utils/order_mapping.dart` (per-document isolation so one malformed order cannot break the whole list), `lib/utils/safe_log.dart` (privacy-safe logging — component + opaque doc id + `error.runtimeType` only, outside debug builds).
-- **Phase 01 — Admin clinic coordinates + reusable geofence config:** `src/services/clinicLocation.js` (pure validation that **rejects** an out-of-range radius rather than clamping it), `clinicService.updateClinicLocation()`, and `src/pages/admin/ClinicLocationSection.jsx` (shared Leaflet click-to-place picker used by both the register form and a Manage-location dialog).
-- **Locked decisions:** geofence arrival is **advisory only** and must never auto-change an order to Delivered; per-clinic `geofenceRadiusM` is optional, defaulting to 300 m; the picker is Leaflet click-to-place.
-- **Pending:** the real Firestore save test on clinic `E7dOIaxZVH9bpt3Hy48W` was deliberately not performed — still pending end-to-end verification.
-
-### Worktrees
-
-| Path | Branch | Notes |
+| Area | Callables / triggers | Notes |
 |---|---|---|
-| `C:\VAXTRACK` | `feat/rider-navigation-polish` @ `de7b96f` | Primary working dir. Has 3 uncommitted files — `Login.jsx`, `Login.css`, `Dispatcher.css` — all **superseded by work already on `main`**. |
-| `C:\VAXTRACK-main` | `main` | Canonical |
-| `C:\VAXTRACK-geofence` | `feat/geofence-workflow` | Phase 00 + 01 above |
-| `C:\VAXTRACK-web-ui` | `feat/admin-dashboard-redesign` | Merged into main |
-| `C:\VAXTRACK-ui-sync` | `feat/login-ui-polish` | Merged into main |
-
-**Obsolete design reference:** the uncommitted `Dispatcher.css` edit in `C:\VAXTRACK` (which widened the geofence left column and raised `.geo3-live-map` to 560px) was retained as a design reference for enlarging the live map. That goal has since been **achieved differently and better on `main`** — the map is now a full-width card. Do not re-land that CSS.
-
----
-
-## Architecture: Role Boundaries
-
-| Role | Platform | Location |
-|---|---|---|
-| Admin | React Web (this repo) | `src/pages/admin/` |
-| Sales Representative | React Web (this repo) | `src/pages/salesRep/` |
-| Dispatcher | React Web (this repo) | `src/pages/dispatcher/` |
-| Rider | **Flutter mobile app only** | Sibling folder `vaxtrack_mobile/` (same git repo, one level up) |
-
-**Rider is NOT part of this codebase.** Any React Rider files found in this repo are accidental and should be deleted. The web login page already blocks rider accounts (`"Rider accounts must use the VaxTrack mobile app."`).
-
-## Tech Stack
-
-- React 18 + Vite
-- React Router v6 (BrowserRouter), with route-level `lazy()` + `Suspense`
-- Firebase: Auth, Firestore, Analytics
-- Lucide React (icons)
-- Leaflet + OpenStreetMap tiles (Dispatcher Geofence live map — **no API key**; added 2026-07-23)
-- OpenRouteService (route + ETA; client key, free tier)
-- No UI framework — custom CSS per page, plus the per-role cohesion layers described in **Current State**
-
-## Firebase Collections (source of truth)
-
-| Collection | Status | Used By |
-|---|---|---|
-| `users` | Exists | Login, route guards, Register, Settings (User Mgmt), Riders, Flutter Rider auth/profile |
-| `vaccines` | Exists | AddVaccine, AddStock |
-| `vaccineTypes` | Exists | AddVaccine |
-| `inventory` | Exists | Admin Inventory, AddStock, Sales Rep Inventory/Request Order |
-| `alerts` | Exists | Admin Alerts, AdminDashboard, Dispatcher Dashboard, Analytics |
-| `orders` | Exists | **Single source of truth for deliveries.** Admin Deliveries/Analytics, Sales Rep (create + own-order tracking), Dispatcher (assign + status updates + cargo loading), Flutter Rider (assigned orders) |
-| `clinics` | Exists | Admin Clinics, Sales Rep Place Order |
-| `invoices` | Exists (pulled Invoices module) | Admin Invoices/InvoiceEditor via invoiceService.js |
-| `counters` | Exists (pulled Invoices module) | Transactional invoice numbering (`counters/invoice_{year}`) |
-
-There is **no `deliveries` collection** — never create one; everything delivery-related lives on `orders`.
-
-**Canonical order status values:** `pending_dispatch` → `assigned` → `loading` → `in_transit` → `delivered` (terminal), with branches `delayed` (recoverable) and `cancelled` (terminal). Legacy variants `completed` and `canceled` are accepted on read via `deliveryService.normalizeStatusKey` but never written. Do not introduce new statuses (e.g. `picked_up` was rejected during the Rider merge).
-
-**Canonical dispatch path — DECIDED 2026-07-17: Cargo Loading.** The earlier two-path ambiguity (Shipments "Start loading"/"Dispatch" vs. Cargo Loading checklist) is resolved:
-- **Dispatcher Cargo Loading is the official dispatch-preparation path.** Confirming an order's checkbox writes `isLoaded: true` + `loadedAt/ByUid/ByEmail`, and when the order is still `assigned` it also promotes `status: "loading"` with the standard status audit fields. "Finalize dispatch" then batch-moves the rider's group to `in_transit` (`dispatchedAt`, `loadingFinalizedAt`, `startedAt`, status audit) atomically via `writeBatch`.
-- Unchecking clears `isLoaded` + loaded audit fields but **never regresses status** back to `assigned` — `loading` means preparation has begun, and silent backwards transitions would corrupt the audit trail.
-- **Dispatcher Shipments is monitoring + exception handling only.** Its "Start loading" (assigned → loading) and "Dispatch" (loading → in_transit) actions were **removed**. It keeps Delay, Cancel, Resume transit, and **"Mark delivered (override)"** — the latter is a dispatcher override; the normal completion path remains the Flutter Rider app.
-- This makes `loading` reachable again on the web (previously Cargo Loading skipped straight to `in_transit`), so the documented five-step flow is honest end-to-end.
-- **Recovery case (known, not solved):** Cargo Loading only lists riders with `role: "rider"` + `status: "approved"`. If a rider is disabled/off-duty *after* assignment, their assigned orders disappear from Cargo Loading. **Recovery path: reassign the order to an approved rider via Dispatcher → Assign Rider.** Shipments can still Delay/Cancel such orders but can no longer dispatch them.
-
-**External APIs / clinic geocoding — DEFERRED 2026-07-17 (decision):**
-- **Clinic geocoding is postponed.** `clinics` documents hold text addresses only — no coordinates — so no distance or containment math is possible yet.
-- **Do NOT add Google Maps, Google Geocoding, Mapbox, or OpenRouteService keys.** No map/routing/geocoding key exists in either project today; `.env` holds only `VITE_FIREBASE_*` variables.
-- Postponed *because* clinics lack coordinates: **geofence detection, route deviation, destination markers, ETA.**
-- **Continue with no-external-API integrations first, in this order:** (1) **Proof-of-delivery web display** (Firebase Storage download URLs already written by the Rider app), then (2) **continuous rider location** (device GPS via the `geolocator` package already in `pubspec.yaml`).
-- Note for future sessions: the API diagnosis lists "geocode clinics" as an early step — that step is **intentionally deferred**, not overlooked. Do not add a Maps key without an explicit new decision.
-
-**Proof-of-Delivery web display — IMPLEMENTED 2026-07-17, populated path BLOCKED:**
-- Admin Deliveries detail drawer gained a **"Proof of delivery"** section (between Rider and Activity). `normalizeDelivery` now passes through `proofOfDeliveryUrl` + `invoiceUrl` (the service layer already spread `...data`; the page's whitelist was dropping them).
-- **No Firebase Storage SDK was added to the web** — the Flutter app writes `getDownloadURL()` output, i.e. a full HTTPS download URL with a token, so the page renders it directly. `firebase.js` untouched, no new packages.
-- `orders.invoiceUrl` is the **rider's photo of the paper invoice** — completely unrelated to the `invoices` collection / Admin Invoices module. Surfaced as a secondary "Open invoice photo" link.
-- **Verified live (Admin):** section renders, empty state "No proof uploaded yet." correct on all 17 orders, no console errors (APD-001/002 Passed).
-- 🚧 **BLOCKED — Firebase Storage upload fails.** A rider proof upload was attempted 2026-07-17 (order VT-ORD-1783611813231, synthetic emulator camera): photo captured and attached, Submit tapped, upload rejected with `StorageException Code -13010, HttpResult 404` — *"Object does not exist at location" / "The server has terminated the upload session"*. **No `proofOfDeliveryUrl` was ever written, and zero orders in the collection have proof data**, so the populated image-preview path (APD-003/004/005) is **unproven**.
-- **Diagnosis:** 404 ≠ 403. A rules denial returns 403 "User does not have permission"; a 404 means the bucket does not exist at that location. Both apps target `vaxtrack-bef1b.firebasestorage.app` with identical, self-consistent config. Most likely **Firebase Storage was never provisioned** for the project. This also explains why proof upload has never worked — it is not a regression.
-- **Next step before ANY code change:** check Firebase Console → `vaxtrack-bef1b` → Storage. "Get started" button ⇒ not provisioned. An existing bucket with a different name (e.g. `.appspot.com`) ⇒ config mismatch, which would then be a small code fix.
-- **Diagnosis confirmed 2026-07-22 (CLI + REST):** firebase CLI is logged in; `firebase apps:sdkconfig WEB` returns the same `vaxtrack-bef1b.firebasestorage.app` bucket the apps use (so **not a name mismatch**). An unauthenticated GET of the Storage REST API for **both** `…firebasestorage.app` and the legacy `…appspot.com` bucket returns **HTTP 404 `"Not Found."`** (a rules denial would be 403, not 404). Project shows **Resource Location ID: [Not specified]**. Conclusion: **Storage is not provisioned.** No code change needed — the bucket name is correct, the bucket just doesn't exist. Enabling it likely requires the **Blaze** plan.
-
-**No-Blaze Proof-of-Delivery fallback — IMPLEMENTED 2026-07-22 (temporary, Flutter only):**
-- **Decision:** avoid Blaze for now, so the capstone demo can show proof end-to-end without Firebase Storage.
-- Rider `ProofScreen` gained a **"Use proof image URL instead"** toggle (clearly labelled *"Temporary demo fallback (Firebase Storage not enabled)"*). When on, a validated HTTPS URL is written straight to `orders/{id}.proofOfDeliveryUrl` via the **existing** `saveProofOfDelivery()` — **no Storage upload**. Validation: non-empty + must start with `https://`. Invoice photo is skipped in this mode (also Storage-dependent).
-- **The camera → Firebase Storage upload path is untouched** — kept intact for when Storage is provisioned. No Storage SDK removed, no service changed (`saveProofOfDelivery` already wrote `proofOfDeliveryUrl` + `updatedAt` from any string). No base64/data-URIs, no auto-inserted default images.
-- **Verified end-to-end 2026-07-22 (emulator rider.qa2 + Admin web):** toggle + URL field render; submitting a public HTTPS PNG on `VT-ORD-1783611813231` wrote `proofOfDeliveryUrl` with **no StorageException**; Admin Deliveries drawer switched from "No proof uploaded yet." to the populated state with the correct `<img src>` + "Open image" link; empty state still correct on a proofless order (`VT-ORD-1784056096300`).
-- ✅ **Real-Chrome confirmed 2026-07-22 (user's own browser):** the proof image **preview paints/loads** and **"Open image" opens the full image**, with no console errors (APD-003/004 Passed). The earlier non-paint was only the sandboxed in-app test browser blocking all external image hosts (wikimedia/google/picsum failed identically) — an environment limit, never a code fault.
-- This is a **temporary demo fallback, not the production upload path.** Once Firebase Storage is provisioned (a Blaze decision), the camera path is the real one and this toggle can be removed. Firebase Storage upload (RPU-001/002) **remains blocked until then**.
-
-**Continuous Rider Location — foreground tracking IMPLEMENTED + runtime-VERIFIED 2026-07-23:**
-- **Decision scope:** track `in_transit` orders only (not `loading`); foreground-only; background tracking explicitly deferred; no maps/geofence/route-deviation/geocoding; no Firestore-rules change.
-- **`location_service.dart`** gained `startTracking(riderId)` / `stopTracking()` / `_handleTick` using `Geolocator.getPositionStream(distanceFilter: 30, accuracy: high)` plus a **15 s min-write-interval** guard. The existing one-shot `updateRiderLocation`/`updateOrderLocation` methods are **untouched**. Each accepted tick writes `lastLocation`, `lastLocationUpdate`, `locationAccuracy`, `heading`, `speed` to **every `in_transit` order for the rider** (queried by `assignedRiderId` only — single-field, no composite index — then filtered client-side) **and** to `users/{uid}`.
-- **`delivery_detail_screen.dart`** owns the lifecycle: start in `initState` when the delivery is `in_transit`, stop in `dispose` and on transition to `delivered`/`cancelled`. Permission/stream/write failures are swallowed and never block the status flow (a one-line snackbar if permission is unavailable). Note: `_updateStatus` pops after a transition, so the effective tracking path is **opening an already-in_transit delivery** (foreground-only MVP).
-- **Web (Dispatcher Geofence only):** added a text-only **"· Stale (no recent update)"** badge (`isLocationStale`, >2 min threshold) next to the existing coords + "Updated Xm ago". No map. `Deliveries.jsx` (Admin) untouched.
-- **Runtime-verified live 2026-07-23 (emulator rider.qa2 + `adb emu geo fix`):** opening in_transit `VT-ORD-1784199396106` started tracking (no crash/prompt/error); moving >30m wrote all 5 fields to **both** the rider's in_transit orders (`VT-ORD-1784199396106` + `VT-ORD-1784056096300`) and to `users/{uid}` (accuracy 5 / heading 0 / speed ~0.0004 — non-null proves the new tracker, not the one-shot); staying still for ~2.5 min **froze** the timestamp (throttle works); navigating back **stopped** further order writes (a distant fix did not move the order); Dispatcher Geofence showed live coords → then the **Stale badge** after 2 min; no console or Flutter errors (RLT-001..007 Passed).
-- **Still deferred:** background/killed-app tracking, geofence detection, route deviation, ETA, clinic geocoding, and location-specific Firestore rules. (Rider-position map: see next section.)
-
-**Dispatcher Geofence live map — Leaflet + OpenStreetMap, IMPLEMENTED 2026-07-23 (no API key):**
-- Added `leaflet` (^1.9.4) — the **only** new dependency. OSM public tiles, **no Google/Mapbox/ORS key**, nothing in `.env`.
-- `/dispatcher/geofence` gained a **"Live map"** card that renders **only when the selected shipment has `lastLocation`**: Leaflet map centered on the rider, one Meridian-green `divIcon` dot marker (no image assets — Leaflet's default icon PNGs break under bundlers). Handles both GeoPoint shapes (`latitude/longitude` and `_lat/_long`). Existing coordinate text, stale badge, and the "No live location yet" fallback are all unchanged; a caption under the map states "Rider position only … destination markers and geofence require clinic coordinates (deferred)". The page's info banner was reworded from the outdated "Live GPS tracking not yet active" to honest "position only" wording.
-- **Rider marker only** — deliberately NO destination/clinic markers, NO route lines, NO geofence claims (all gated on clinic geocoding, still deferred).
-- ⚠️ **Legacy dead-CSS collision (fixed by naming, cleanup still pending):** the removed fake-map's rules still live in `Dispatcher.css` and actively collided — `.geo3-map` (min-height 520px + gradient bg) and `.geo3-rider-marker` (absolute `left:266px; top:320px`, defined twice) hijacked the real map's size and marker position. The new code uses **`geo3-live-map` / `geo3-live-rider-marker` / `geo3-live-rider-dot`** names to dodge them. This upgrades the "delete Dispatcher `geo3-*` fake-map leftovers" cleanup item from cosmetic to genuinely hazardous — do the cleanup, and don't reuse legacy `geo3-` names.
-- Implementation notes: map teardown on unmount (`map.remove()`) prevents "container already initialized" under HMR/StrictMode; `invalidateSize()` runs via `setTimeout` (not rAF — rAF is suspended in embedded panes) so the marker centers after flex layout settles.
-- **Verified live 2026-07-23 (Dispatcher, DLM-004/006 Passed):** map card renders with zoom controls + OSM attribution; marker **dead-center on the rider's fix** (offset −1,0 px; tile-URL math independently confirms 121.0°E/14.56°N); coords text + stale note kept; selecting a no-location order shows no map card and the original fallback; no console errors; `npm run build` passes.
-- 🐛 **CSP fix (DLM-005 root cause) — `vite.config.js`:** OSM tiles rendered gray even in real Chrome because the app's own **dev + preview CSP `img-src`** listed only `'self' data: blob: lh3.googleusercontent.com www.gstatic.com` — it omitted the tile host, so Chrome refused every tile `<img>`. Fixed by adding **`https://tile.openstreetmap.org`** to `img-src` in both `devCsp` and `previewCsp`. This was NOT a Leaflet/sandbox issue. **DLM-005 now Passed** (user confirmed tiles paint in own Chrome 2026-07-23). Lesson: check served response headers, not just `<meta>` CSP.
-- **Responsive layout (DLM-007 Passed 2026-07-23):** `.geo3-live-map` height is now breakpoint-based — **480px desktop / 390px ≤1024px / 320px ≤640px** — full card width, `max-width:100%`, no horizontal overflow at any size. A `ResizeObserver` + window-resize handler calls `map.invalidateSize()` so tiles/marker stay correct across breakpoints (marker re-centered to ≤1px each resize). Width is the detail card's width (≈315px in the two-column layout at desktop; full width once the grid collapses to one column) — the map was deliberately **not** promoted to a full-page-width row (that would be a page redesign, out of scope). Meridian card styling retained.
-
-**Manual Clinic Coordinates + Geofence Visualization — IMPLEMENTED on branch `feature/manual-geofence-map`, STAGING-VERIFIED 2026-07-26 (no geocoding API):**
-- **Clinics** gained **optional** `latitude`/`longitude` (numbers) — entered by hand in the Admin → Clinics register form (two optional inputs; stored only when both are finite). No Google/geocoding API. Clinics without coordinates are unchanged.
-- **Orders** gained **optional** `clinicLat`/`clinicLng` — copied from the selected clinic at order-creation time (`SalesRepPlaceOrder` → `createSalesRepOrder`, same conditional-add pattern as `region`/`deliveryInstructions`). Orders from coord-less clinics simply omit them.
-- **Dispatcher Geofence map** now draws, when the selected order has `clinicLat`/`clinicLng`: an amber **destination marker** + a **300 m geofence circle** (`GEOFENCE_RADIUS_M`), fits both rider+clinic in view, and shows **inside/outside** status with the Haversine distance ("Inside geofence — rider is 145 m from the destination (geofence radius 300 m)"). The **rider-only fallback** is preserved for orders without clinic coordinates. **No routing, no ETA, no automatic alerts, no route deviation** (all still deferred). New CSS: `.geo3-live-clinic-dot`, `.geo3-geofence-in/-out` (unique `geo3-live-*`/`geo3-geofence-*` names to avoid the legacy fake-map CSS).
-- **Firestore rules/tests: NO change needed** — the order **create** rule has no field allowlist (Sales-Rep-own creates carry the new fields fine), `clinics` writes are admin-only, and the dispatcher/rider **update** allowlists are untouched (clinic coords are set at creation, never updated). Rules tests remain **22/22**.
-- **Verified live on the STAGING project (`vaxtrack-staging`) 2026-07-26** (env-based config via `.env.staging`, tested rules deployed to staging only — NOT production): admin/salesrep/dispatcher staging logins; Clinics coord form saves `latitude`/`longitude` as numbers; the 3 seed clinics without coords still display; Sales Rep order stored `clinicLat`/`clinicLng`; Geofence showed rider marker + clinic marker + circle + **Inside (145 m)** and, after moving the rider, **Outside (400 m)**; removing the order's coords fell back to rider-only with the "add clinic coordinates" note; no feature console errors. Files: `clinicService.js`, `Clinics.jsx`, `Clinics.css`, `SalesRepPlaceOrder.jsx`, `orderService.js`, `DispatcherGeofence.jsx`, `Dispatcher.css`. **Merged to main 2026-07-26** (commit `8c33060` "add manual geofence visualization", fast-forward) and re-verified by the full staging smoke test — see the **Production hardening — FINAL wrap-up** section below.
-
-**Route + ETA foundation (OpenRouteService) — IMPLEMENTED on branch `feature/route-eta-foundation`, FULLY staging-verified 2026-07-27 (route generation live):**
-- **Scope of this phase:** route polyline + distance + duration/ETA **display only** on the Dispatcher Geofence map. **No route deviation, no OR-Tools, no automatic alerts, no Google Maps, no Mapbox** (all still deferred). This is the first paid-ish/open external routing integration and **reverses the 2026-07-17 "do not add OpenRouteService" line for the route+ETA case only** — geocoding, route deviation, and OR-Tools remain deferred.
-- **New service `src/services/routeService.js`** — OpenRouteService directions client (`/v2/directions/driving-car`, free tier). `isRouteServiceConfigured()`, `fetchRoute([lat,lng] rider, [lat,lng] clinic)` (ORS wants `[lng,lat]`; returns `{ polyline (encoded), distanceMeters, durationSeconds }`), a self-contained `decodePolyline` (precision-5, no `@mapbox/polyline` dep), and `formatDistance`/`formatDuration`/`formatEta`. Key read from **`import.meta.env.VITE_OPENROUTESERVICE_API_KEY`** (a rate-limited PUBLIC client key, like the Firebase web keys). **Called ONLY on the dispatcher's explicit button click — never automatically, never in a loop.**
-- **`orderService.saveOrderRoute(orderId, route)`** writes exactly six route fields + `updatedAt`: **`routePolyline`** (ORS-encoded string — compact ~1 byte/point, decoded client-side; NOT an array, to keep docs small), **`routeDistanceMeters`**, **`routeDurationSeconds`**, **`routeEtaText`** (arrival-clock snapshot at generation; the UI recomputes a live ETA from `routeGeneratedAt + routeDurationSeconds`), **`routeGeneratedAt`** (serverTimestamp), **`routeProvider: "openrouteservice"`**.
-- **`DispatcherGeofence.jsx`:** the live-map card gained a **"Route & ETA"** section. When the selected order already has `routePolyline`, the encoded string is decoded and drawn as a green Leaflet polyline (map fits the whole route), with Distance / Est. duration / ETA metrics. A **"Generate route & ETA"** button (→ "Refresh route" once a route exists) calls ORS then `saveOrderRoute`; the `subscribeDeliveries` snapshot redraws automatically. Button is **disabled when the order has no clinic coordinates** (rider `lastLocation` is required for the card to render at all), and shows a friendly per-order error on failure. When no key is configured it shows a safe **"Route ETA unavailable: API key not configured."** message instead of the button. Route generation state is scoped to the order id (no bleed across selections). CSS uses new `geo3-live-route-*` names (avoids the legacy `geo3-route-*` fake-map rules).
-- **CSP:** added `https://api.openrouteservice.org` to `connect-src` in **both** `devCsp` and `previewCsp` in `vite.config.js` — a browser `fetch` to ORS is blocked otherwise (same lesson as the OSM-tile `img-src` fix).
-- **Firestore rules:** added the six route fields to `dispatcherOrderFields()` in `firestore.rules` (dispatcher-only writes — set at generation, never by riders). Rider/salesrep allowlists untouched. **Rules tests now 24/24** (added **P13** dispatcher-writes-route-fields, **N11** rider-cannot-write-route-fields).
-- **`.env.example`** gained a documented `VITE_OPENROUTESERVICE_API_KEY=` placeholder (no real key committed).
-- **Known limitation:** the ORS key is exposed in the client bundle (inherent to a client-side call). Acceptable for the free rate-limited tier; a Cloud-Function proxy to fully hide it is a later hardening step. **Flutter untouched** (web-dispatcher-only feature).
-- **Staging rules deploy (route-field allowlist):** the updated `firestore.rules` (route fields added to `dispatcherOrderFields()`) was **deployed to STAGING only** — `firebase deploy --only firestore:rules --project staging` (2026-07-27). **Production/default (`vaxtrack-bef1b`) NOT touched; no indexes/storage/hosting deployed.** Before this deploy, staging ran the 2026-07-26 rules (no route fields), so the dispatcher route write hit `permission-denied` ("Missing or insufficient permissions.") — a rules-deployment gap, not a code bug; after the deploy it succeeds.
-- **Verified on STAGING 2026-07-27 — TWO passes:**
-  - **(a) missing-key safe state** (no ORS key): the "Route & ETA" section showed "Route ETA unavailable: API key not configured." with no button; existing geofence intact; no console errors.
-  - **(b) live route generation** (real `VITE_OPENROUTESERVICE_API_KEY` in `.env.staging` + updated rules deployed): dispatcher → Geofence → order `VT-ORD-1785072279117` → **Generate route & ETA** saved with no error; a green road-route polyline drew from rider→clinic along Quezon Blvd; metrics **Distance 163 m / Est. duration 22 s / ETA 1:51 PM**; **fields persisted across a full page reload** (proving the Firestore write); button flipped to "Refresh route"; rider marker + clinic marker + geofence circle ("Inside geofence — 145 m") all intact; no-coords order still shows the disabled button + "Add clinic coordinates" fallback; **no console errors**. `build:staging` + `test:rules` (24/24, incl. P13/N11) pass. (RTE-001..006 all Passed.)
-- **MERGED to main + PRODUCTION-DEPLOYED + verified 2026-07-27:** fast-forwarded into `main` (commits `0fd0366` + `d08894a`) and **`main` pushed to origin**. The route-field `firestore.rules` was then **deployed to PRODUCTION** (`firebase deploy --only firestore:rules --project default` → `vaxtrack-bef1b`; rules only — no indexes/storage/hosting; staging untouched). Verified live on production: the deployed ruleset was fetched and confirmed **byte-identical** to the emulator-tested file (route fields present in `dispatcherOrderFields()`); a faithful dispatcher route write (`dispatcher@vaxtrack.com`, real ORS route) **succeeded (HTTP 200)** and the saved route **drew + showed Distance/Duration/ETA + persisted across a full reload** on the production Geofence (no console errors); the **synthetic test route was then removed** (order restored to pre-test state). Note: an initial run hit `permission-denied` traced to a **test-harness bug** (I used the `orderNumber` `VT-ORD-…` as the Firestore doc ID, which is actually an auto-generated ID like `IwBLnhfY6qUqwQ28Z2co`) — the real app/Generate button uses `selected.id`, so it was never affected; the rules were correct all along.
-- **PRODUCTION LIMITATION — route generation is dormant on prod until a clinic gets coordinates:** no production clinic or order currently has `clinicLat`/`clinicLng` (the manual-geofence coordinate feature was only ever exercised on staging), so the **"Generate route & ETA" button is disabled on every production order**. To activate it: add `latitude`/`longitude` to a production clinic (Admin → Clinics), then place a new order from that clinic — that order will carry `clinicLat`/`clinicLng` and the dispatcher can generate a route. The no-coords fallback (disabled button + "Add clinic coordinates" note) is verified live on production.
-
-**Rider navigation map (Flutter) — OpenStreetMap / flutter_map, IMPLEMENTED on branch `feature/rider-google-maps-navigation`, build-verified 2026-07-27 (NOT runtime-tested):**
-- **Direction changed 2026-07-27: FREE OpenStreetMap (flutter_map), NOT Google Maps** — no API key, no billing, no credit/debit card. (An initial Google-Maps/`google_maps_flutter` build was made the same day, then replaced with flutter_map on this same branch to avoid the Google billing requirement. All `google_maps_flutter` deps + the `MAPS_API_KEY` manifest/gradle wiring + the Kotlin-2.3 bump were fully removed; Android config reverted to the original Kotlin 2.1.0 / `kotlinOptions` DSL.)
-- **Flutter-only, additive, display-only.** The Rider app (`vaxtrack_mobile/`) shows an in-app **OSM map** on the **Delivery Detail** screen: rider marker (green dot) + clinic destination marker (amber dot) + the **dispatcher-generated `routePolyline`** (green line) + an ETA/distance card + a recenter button + visible **OpenStreetMap attribution** + an external **"Open in Google Maps"** button for real turn-by-turn. **The Rider app calls NO Directions/Routes API and NO Google API** — it decodes and displays the route fields the web Dispatcher already saved (`clinicLat/clinicLng/routePolyline/routeDistanceMeters/routeDurationSeconds/routeEtaText/routeGeneratedAt`). No OR-Tools, no route deviation, no voice, no auto-rerouting.
-- **Deps:** removed `google_maps_flutter`; added **`flutter_map` (`^7.0.2`) + `latlong2` (`^0.9.1`)** (`url_launcher` already existed). New files: `lib/utils/route_utils.dart` (self-contained precision-5 polyline decoder → `latlong2` `LatLng`, + `formatDistance/formatDuration/formatEta`), `lib/widgets/delivery_map.dart` (the `FlutterMap` widget: `TileLayer` OSM tiles, `MarkerLayer`, `PolylineLayer`, `RichAttributionWidget`, recenter FAB). Changed: `lib/models/delivery.dart` (parses the 7 route fields + `hasClinicCoords`/`hasRoute` getters), `lib/screens/delivery_detail_screen.dart` (text-only route card → OSM map card + ETA card + coord-based "Open in Google Maps", keeping Mark Delivered / Report Delay), `pubspec.yaml`, `pubspec.lock`.
-- **NO API key, NO billing, NO Android key wiring.** OSM tiles are free public tiles (only INTERNET permission, already present). No `MAPS_API_KEY`, no `com.google.android.geo.API_KEY`, no `local.properties` Maps injection, no Kotlin bump. `google-services.json` + `local.properties` remain gitignored (Firebase only).
-- **Firestore rules: NO change.** The rider only READS the route fields on its own assigned orders (already permitted); it never writes them. Rules stay 24/24. `riderOrderFields()` untouched.
-- **Safe fallbacks:** no clinic coords → rider-only map (or, with no rider location either, a text route card + "Open in Google Maps" via address search); no `routePolyline` → markers only; no rider `lastLocation` → center on clinic; empty map (no points) → Metro-Manila default center. Login / assigned orders / status updates / location tracking / proof fallback untouched.
-- **Verified:** `flutter pub get` OK (google_maps_flutter fully gone from the lock), **`flutter analyze` → No issues found**, **`flutter build apk --debug` → built `app-debug.apk`** with the original Android config (no key). **NOT runtime-tested** — needs a device/emulator and an order that carries clinic coords + a route (no production/staging order currently has both), so the live tile render + markers + polyline are unverified. OSM tiles need no key, so a device test only needs such an order. **Not committed, not merged.**
-
-**Maps/API tooling alignment — corrected 2026-07-23:** `docs/VaxTrack-Maps-Routing-Plan.md` was an early aspirational plan that recommended **Google Maps as the primary renderer** and — worse — its status table falsely marked "Google Maps on Admin Dashboard: Implemented" (plus destination markers, route polyline, route deviation, ORS optimization all as "Implemented"). Those were template placeholders, never true. Added a **SUPERSEDED banner** at the top and **corrected the status table** to reality: implemented = **Leaflet + OSM** (no key), Rider GPS→Firestore, Dispatcher rider-position map, manual proof-URL fallback; NOT implemented = Google Maps/Geocoding, Mapbox, OpenRouteService, OR-Tools, clinic geocoding, destination markers, geofence detection, route deviation, ETA. The academic manuscript was not touched (not provided).
-
-**Companion docs:** `docs/VaxTrack-Test-Case-Tracker.md` (full-system, 123 cases), `docs/VaxTrack-Admin-Test-Case-Tracker.md`, `docs/VaxTrack-Maps-Routing-Plan.md`. A production Firestore rules plan was drafted in-session (2026-07-11).
-
-**Production hardening — Step 1 DONE 2026-07-24: Employee-ID login removed (email/password only).** `Login.jsx` previously resolved an employee ID → email via an **unauthenticated** `getDocs(query(users, where employeeId == input))` *before* sign-in — which forced the whole `users` collection (staff names/emails/roles/IDs) to be world-readable and blocked any `users` rules lockdown. **Fix (Option A):** deleted `getEmailFromEmployeeId` and its `collection/getDocs/query/where` imports; login now takes an email directly (input `type="email"` + a JS `@` guard), signs in, then `redirectUserByRole` reads `users/{uid}` **post-auth** (unchanged). Employee-ID login is **disabled/deferred for production security** — all accounts sign in by email. The `employeeId` field itself is untouched (still collected at Register, shown read-only in Riders/Settings/AssignRider). Route guards already read `users/{uid}` only after `onAuthStateChanged` — no unauthenticated `users` read remains anywhere. **Verified live 2026-07-24:** Admin/Dispatcher/Sales Rep email+password login → correct dashboards; Rider blocked ("Rider accounts must use the VaxTrack mobile app."); non-email input blocked by native validation before any query; no console errors.
-
-**Production hardening — Step 2 DONE 2026-07-24: `users` reads server-filtered to role == "rider".** `riderService.subscribeRiders` and `cargoLoadingService.subscribeCargoLoadingGroups` previously read the **whole `users` collection** and filtered client-side — so any authed user pulled all-role PII. Both now use `query(collection(db,"users"), where("role","==","rider"))` (single-field equality — **no composite index needed**), letting rules restrict `users` reads. **Dirty-data audit first (live, all 13 user docs):** role distribution = rider ×5 (all exactly `"rider"`), dispatcher ×2, admin ×2, salesrep ×1, plus legacy corrupt `"pending"` ×1 + `"staff"` ×2 (non-riders, correctly excluded either way); **zero** case/whitespace rider variants — so the exact-match query returns the identical rider set. Client-side normalization filters were kept as harmless defensive layers. **Verified live 2026-07-24:** `/admin/riders` lists all 5 riders (Total KPI 5, 5 cards); `/dispatcher/assign-rider` rider list intact; `/dispatcher` Available riders 5/5; `/dispatcher/cargo-loading` runs error-free (0 groups is correct — no assigned/loading orders currently); no console errors; `npm run build` passes. **Still open for full lockdown:** whole-`orders` client reads (`deliveryService`, `invoiceService`, `cargoLoadingService`) remain — deferred to a later step because Admin/Dispatcher legitimately need broad order visibility and tightening needs role-specific services + composite indexes.
-
-**Production hardening — Step 3 DONE 2026-07-24: dead/dangerous/demo code cleanup.**
-- **Deleted `src/services/__diag.js`** — dead (not imported) but shipped live Firebase Auth `createUserWithEmailAndPassword`/`deleteUser` + `users` write/delete logic in the source tree. Removed.
-- **Deleted repo-root `SalesRepDashboard_backup.jsx`** — dead (not imported), git-tracked 10 KB backup. Removed. (The real `src/pages/salesRep/SalesRepDashboard.jsx` is untouched.)
-- **Removed the fake "Assign Delivery" panel from `Riders.jsx`** — hardcoded `pendingDeliveries` array + `assignTarget`/`selectedDelivery` state + `handleAssignDelivery` fake toast + the row "Assign" button + the modal "Assign Delivery" button + the whole `AssignRiderModal` component + the now-unused `Truck` icon import. **Not connected to Firestore** (fake toast only). The **real** rider approval/status system — `subscribeRiders`, `updateRiderStatus`, Approve/Reject/Mark Off Duty/Reactivate — is fully preserved. Verified live: `/admin/riders` shows 5 riders, fake Assign buttons gone (rows + detail modal), Mark Off Duty + approval controls intact.
-- **Verified:** `npm run build` passes; `/admin/riders`, `/dispatcher/geofence` (Leaflet map + marker + empty state) all work; no console errors.
-- ⏸ **DEFERRED — legacy `geo3-*` fake-map CSS.** Confirmed ~30 dead selectors in `Dispatcher.css` (`.geo3-map`, `.geo3-map-controls`, `.geo3-map-legend`, `.geo3-rider-marker`, `.geo3-rider-label`, `.geo3-road`, `.geo3-route-line`, `.geo3-checkpoint`, `.geo3-geofence-shape`, `.geo3-timeline`/`-item`/`-dot`/`-content`, `.geo3-status-pill`/`-box`/`-options`, `.geo3-badge`, `.geo3-tag`, `.geo3-alert-banner`/`-icon`, `.geo3-view-route-btn`/`-refresh-btn`, `.geo3-next-arrival`, `.geo3-critical-delay`, `.geo3-mini-box`, `.geo3-info-split`, `.geo3-layer-badge`, `.geo3-map-canvas`/`-card`/`-footer`, `.geo3-header-actions`, `.geo3-route-tag`). They are genuinely unused (only comment-mentions in the JSX) BUT span **1000+ interleaved lines (≈6147–7159+)**, with duplicate blocks, `@media` queries, and the **still-live `.geo3-timeline-card`** sitting inside the same region — too risky to remove in a general cleanup pass right after the map polish. Do it as a **focused, dedicated task** with a per-selector removal + visual re-verify of the live geofence map. Zero runtime/security impact; pure bloat.
-- 📌 **Proof manual-URL fallback (inspect only, NOT changed):** the `proof_screen.dart` "Use proof image URL instead" toggle (labelled "Temporary demo fallback") is still present and is demo-only. **Removal plan for later:** once Firebase Storage is provisioned (Blaze decision) and the real camera→Storage upload path is verified, delete the toggle + `_useManualUrl`/`_manualUrlController` state + the URL-write branch in `_submit`, leaving only the camera→Storage path. Until then it's the only working proof path for the demo — do not remove yet.
-
-**Production hardening — Step 4 DONE 2026-07-24: Firebase rules + config scaffolding (drafted, NOT deployed).** Added six versioned files under `vaxtrack-web/`: `firebase.json` (Firestore rules+indexes, Storage rules, Hosting: `public: dist`, SPA rewrite to `/index.html`, ignores node_modules/hidden/firebase.json), `.firebaserc` (`default: vaxtrack-bef1b`), `firestore.indexes.json` (empty `indexes` + `fieldOverrides` — no composite index needed today since all queries are single-field), `firestore.rules`, `storage.rules`, and `.env.example` (keys only).
-- **Firestore rules (role/status from `users/{uid}`):** deny-by-default; helpers `isAdmin/isDispatcher/isSalesRep/isRider` all require `status == "approved"`. **users:** self-read at any status (login/guards need it), admin reads all, dispatcher reads only `role=="rider"` docs (matches the Step-2 server-filtered query); rider self-registration allowed only with `role=="rider"`+`status=="pending"`; self-update can't change own role/status (no self-approval); admin manages all. **orders:** Admin+Dispatcher read all, Sales Rep reads own (`createdByUid`), Rider reads assigned (`assignedRiderId`); Sales Rep creates own; **field-level update allowlists** — Dispatcher limited to the exact assign/cargo/status field set, Rider limited to status/location/proof fields on their own order and cannot reassign, Admin full. **inventory/vaccines/vaccineTypes/clinics:** approved-user read, admin write. **alerts:** admin+dispatcher read, admin write. **invoices/counters:** admin only (Sales Rep has NO invoice access — no SR page reads invoices). The order field allowlists mirror the app's real writes as of 2026-07-24 (enumerated from orderService/cargoLoadingService/Flutter delivery+location services) — **if the app adds an order field, update the allowlist or that write is denied.**
-- **Storage rules:** proof_of_delivery/{orderId}/ and invoices/{orderId}/ — write only by the assigned rider (cross-checks `orders/{orderId}.assignedRiderId` via `firestore.get`), read by admin/dispatcher/creating-salesrep; image contentType + <10 MB limit; deny all else. {orderId} in the path = Firestore order doc ID.
-- **Validation:** `firestore.rules` **compiled successfully** via `firebase deploy --only firestore:rules --dry-run` (NO deploy). `storage.rules` **could NOT be CLI-validated** — the CLI errors with "Firebase Storage has not been set up on project vaxtrack-bef1b" (re-confirming Storage is **not provisioned**); its syntax was reviewed manually (standard v2 + `firestore.get`). `npm run build` passes.
-- **NOT deployed. NOT tested against live data.** Must be tested in a **staging** Firebase project before production — the field-level order allowlists and the list-query/rule consistency are the highest-risk parts. **Expected future composite indexes** (needed only if/when whole-`orders` reads become server-filtered per role): `orders` on `createdByUid + createdAt`, `assignedRiderId + createdAt`, `status + createdAt` — none required by the current app.
-- **Known limitations:** (1) rules unverified against real role sessions — staging test needed; (2) Storage rules uncompilable until Storage is provisioned; (3) field allowlists are brittle to app changes; (4) `firebase.js` still hardcodes config (the new `.env.example` documents the intended env-based setup, but wiring `import.meta.env.*` is a separate task); (5) legacy corrupt `users` docs (`role:"pending"`/`"staff"`) will be denied most access under these rules — clean them up in the console.
-
-**Production hardening — Step 5 DONE 2026-07-24: Firestore rules tested in the local emulator (all 22 pass).** Added dev dep `@firebase/rules-unit-testing@5.0.1`, a `test:rules` npm script (`firebase emulators:exec --only firestore "node tests/firestore.rules.test.js"`), an `emulators` block in `firebase.json` (firestore port 8080, `singleProjectMode`), and `tests/firestore.rules.test.js` (self-contained node script, no test framework, ESM). Requires a JRE (Java 21 present); NOT a deploy — the emulator runs locally and shuts down.
-- **12 positive cases pass:** admin read/write users + orders + inventory/clinics/alerts/invoices/counters; **dispatcher `where role=="rider"` query** (query-compat, not just doc reads); dispatcher reads orders + updates allowed order fields; sales rep creates own order + reads own (direct + query) + reads inventory/clinics; rider reads assigned order (direct + query) + updates status/location/proof fields; fresh rider self-registers (`rider`+`pending`).
-- **10 negative cases pass:** unauth can't read users; sales rep can't read another SR's order; sales rep + dispatcher can't read invoices/counters; rider can't read unassigned order; rider can't change `assignedRiderId`; pending rider can't self-approve + rider can't change own role; disabled user can't read protected data; **dispatcher can't read users via an unrestricted query or a non-rider doc** (broad-read denial verified); sales rep can't create an order for another `createdByUid`.
-- **Rules adjusted during testing (1 real gap found, not a weakening):** the `users` and `orders` `allow create` rules originally covered only rider self-registration / sales-rep-own — **admin couldn't create** either, contradicting the intended "admin broad read/write." Added `isAdmin() ||` to both create rules (admin already had update+delete). Re-verified: 22/22 pass + `firestore.rules` still compiles via dry-run. No rule was loosened to pass a test; no real app flow is blocked by the rules.
-- **Still NOT deployed. Storage rules still blocked** (Storage not provisioned — can't emulate/compile). Emulator debug log (`firestore-debug.log`) is gitignored.
-
-**Production hardening — Step 6 DONE 2026-07-25: env-based Firebase config.** `src/firebase.js` no longer hardcodes the project — it reads all seven values from `import.meta.env.VITE_FIREBASE_*` (apiKey, authDomain, projectId, storageBucket, messagingSenderId, appId, measurementId). Adds a **fail-fast guard**: if any of the six required vars is missing it throws a clear error naming the missing **keys** (never the values); `measurementId` is optional (Analytics, production-only, which stays PROD-guarded). **Pre-flight verified** the existing `.env` values match the previously-hardcoded config exactly (all 7 MATCH, non-empty), so the switch is behavior-neutral against `vaxtrack-bef1b`. **Verified live 2026-07-25:** `npm run build` passes; login page loads (no missing-env error); **Admin/Dispatcher/Sales Rep email+password login all still work** (→ `/admin`, `/dispatcher`, `/sales-rep`); rules tests still 22/22; no console errors. **`.env` is local-only and gitignored — must NOT be committed**; only `.env.example` (keys, no values) is committed. **Staging/prod separation is now config-only:** point a staging build at a different Firebase project by changing `.env` (or a `.env.staging`/`.env.production` for `vite build --mode`) — no code change. **Nothing deployed.** This resolves the Step-4 known-limitation #4 (hardcoded config).
-
-**Production hardening — Step 7 DONE 2026-07-26: staging Firebase project + full staging validation.** A separate **`vaxtrack-staging`** Firebase project was created (by the user); `.firebaserc` now carries two aliases — `default: vaxtrack-bef1b` (production), `staging: vaxtrack-staging`. Repo workflow adds: `.env.staging` (local-only, gitignored — **never committed**), `build:staging`/`dev -- --mode staging` npm scripts. **The drafted Firestore rules + indexes were deployed to STAGING ONLY** (`firebase deploy --only firestore:rules,firestore:indexes --project staging`) — never to production in this step. **Full end-to-end staging smoke test PASSED 2026-07-26** with the strict rules enforced: admin/salesrep/dispatcher logins; Admin pages (Dashboard/Riders/Clinics incl. manual coord form/Inventory/Deliveries/Alerts); Sales Rep create-order-from-coord-clinic (`clinicLat`/`clinicLng` written) + Order Tracking; Dispatcher assign-rider → `assigned`, Cargo Loading checkbox `assigned→loading`, Finalize → `in_transit` (rider + clinic coords preserved), Geofence rider+clinic markers + 300 m circle + Inside/Outside distance; cross-role reflection (Admin Deliveries, Sales Rep Tracking); and all negative/security checks (rider web-block, wrong-role redirects, unauth redirects). No permission errors, no console errors. The manual-geofence feature branch was merged to main (`8c33060`) before this test.
-
-**Production hardening — FINAL wrap-up 2026-07-26: production Firestore rules DEPLOYED to `vaxtrack-bef1b` + verified.**
-
-**Production Firestore rules deployed:**
-- Preceded by a **read-only production preflight audit** (signed in as the `dispatcher@vaxtrack.com` production test account, Firestore REST, no writes). Confirmed: 13 users (≥1 **approved admin** = `admin@vaxtrack.com`; approved dispatcher×2 / salesrep×1 / rider×5), 18 orders (0 `assigned/loading/in_transit` missing `assignedRiderId`, 0 missing `status`), and all catalog/alert/invoice collections present. Confirmed production was still running **permissive dev rules** before this deploy.
-- **Deployed rules-only:** `firebase deploy --only firestore:rules --project default` → **released `firestore.rules` to cloud.firestore on `vaxtrack-bef1b`** (2026-07-26). **`firestore:indexes` NOT deployed** (empty index file; deferred to avoid any index-deletion prompt and because every app query is single-field). **Storage rules NOT deployed** (Storage still not provisioned). Hosting NOT deployed.
-
-**What was verified (post-deploy, live production):**
-- **19/19 live rules checks passed** (Firestore REST, read-only): Dispatcher reads orders + `role==rider` user query + alerts/inventory/clinics (ALLOW), and is now **denied** the unrestricted `users` list + `invoices`/`counters` (403, the intended tightening); Sales Rep own-orders query + inventory/clinics (ALLOW), denied unrestricted orders/invoices/users; Rider own user doc + own assigned-orders query (ALLOW), denied unrestricted orders/users/invoices.
-- **Browser UI against production** (via a temporary, gitignored `.env` built from `firebase apps:sdkconfig`, deleted afterward; production-only `@vaxtrack.com` logins prove it was production): Dispatcher login → all 4 pages loaded real data (Pending 4 / Riders 5 / Active 4), **zero console errors**; Sales Rep login → Dashboard (Total orders 9 = own) + Order Tracking loaded, **zero console errors**; wrong-role blocked (dispatcher→/admin, salesrep→/dispatcher); unauthenticated `/admin` → `/login`.
-- **22/22 local emulator rules tests** + **`build:staging`** pass (re-confirmed at wrap-up).
-
-**What remains deferred (non-blocking):**
-- **Production data hygiene** (found in preflight, does NOT block the deploy — a working approved admin exists): `rjgoesbrrt@gmail.com` is `role:"admin"` with **missing `status`** → now has **no admin access** under the strict rules (set `status:"approved"` if it's a real admin, else delete); 3 junk role docs (`role:"pending"` test321@gmail.com, `role:"staff"` jho@gmail.com + rider@email.com); 1 cancelled order `VT-ORD-1781772678494` missing `createdByUid` (still admin/dispatcher-visible, only its creating salesrep can't read it). Clean up in the Firebase Console.
-- **`firestore:indexes` deploy** — only needed if/when whole-`orders` reads become server-filtered per role (would need `orders` composite indexes `createdByUid+createdAt`, `assignedRiderId+createdAt`, `status+createdAt`). Not required by the current app.
-- **Firebase Storage rules + real camera→Storage proof upload** — blocked on Storage provisioning (a Blaze decision). The Flutter `proof_screen.dart` manual-URL demo fallback stays until then.
-- **Legacy `geo3-*` fake-map dead CSS** cleanup in `Dispatcher.css` (see Step 3) — cosmetic bloat, dedicated task.
-- **Push `main`** — not pushed by request; `main == origin/main` as of this wrap-up (feature + all hardening commits already on origin).
-
-**Rollback instructions (production rules):** Firebase auto-versions every ruleset, so the pre-deploy rules are recoverable. **Fastest:** Firebase Console → Firestore Database → Rules → **History** → select the pre-deploy ruleset → **Restore** → Publish. **CLI:** put the prior rules into `firestore.rules` and run `firebase deploy --only firestore:rules --project default`. (The previous production rules were **not** captured to a local file — no gcloud/OAuth token was available to fetch the deployed ruleset — but Console History retains them, so restore is guaranteed. For future deploys, copy the current Console rules to a `firestore.rules.prod-backup-<date>` first.)
-
-**Known limitations:**
-1. **Admin UI not browser-tested against production** — the `admin@vaxtrack.com` production password was unavailable in-session (not `123456`); admin rule correctness is covered by the 22/22 emulator tests + the audit confirming `admin@vaxtrack.com` is `role:admin`/`status:approved`.
-2. **Rider web-block + full unauth sweep of `/dispatcher`,`/sales-rep` not re-demonstrated in-browser** — the sandboxed in-app browser hit transient `auth/network-request-failed` to Google Auth (an environment limit; dispatcher/salesrep auth succeeded moments earlier, and the Node REST test authenticated the rider account fine). Both are **client-side behaviors, unaffected by a rules-only deploy**; rider auth + own-data access under the new rules was confirmed via REST.
-3. **Order field-level update allowlists are brittle to app changes** — if the app starts writing a new `orders` field, add it to `dispatcherOrderFields()`/`riderOrderFields()` in `firestore.rules` or that write is denied.
-4. **AdminRoute redirects wrong-role/unauth users to `/login`** while DispatcherRoute/SalesRepRoute send wrong-role users to their own dashboard — a pre-existing client-side UX inconsistency (access is correctly denied either way), unrelated to rules.
-5. **Storage rules remain uncompilable/undeployed** until Firebase Storage is provisioned.
-
-## Firestore User Document Schema
-
-```
-users/{uid}
-  role:   "admin" | "dispatcher" | "salesrep" | "rider"
-  status: "approved" | "pending" | "pending_approval" | "rejected" | "disabled"
-  email:  string
-  employeeId: string (optional)
-  name:   string
-```
-
-Status values must be consistent across Login.jsx, the route guards (AdminRoute/SalesRepRoute/DispatcherRoute), userService.js, and the Flutter AuthGate. Do not write "active" or "inactive" as status — these are UI display labels only.
-
-## Dev Server
-
-```
-npm run dev
-```
-
-The `.claude/launch.json` is configured to run Vite on port 5176 to avoid conflicts with other running Node processes.
-
----
-
-## Completed Changes
-
-### Phase 1 — Admin Audit (read-only)
-- Audited all 12 admin pages, 2 service files, firebase.js, Login.jsx, App.jsx
-- Identified: all admin pages except AddStock/AddVaccine use hardcoded data
-- Identified: AdminSidebar lives inside Inventory.jsx (architectural smell, not yet fixed)
-- Identified: missing service layer for inventory, deliveries, riders, clinics, users, alerts
-- Identified: navigation bugs (missing /admin/ prefix in some navigate() calls)
-- Identified: RegisterClinic.jsx form saves nothing to Firestore
-
-### Phase 2 — Admin Route Protection ✅ CONFIRMED WORKING
-Files changed:
-- `src/components/AdminRoute.jsx` — **new file**
-- `src/App.jsx` — all 12 admin routes wrapped in `<Route element={<AdminRoute />}>`
-
-Behaviour:
-- Unauthenticated → `/login`
-- Pending/pending_approval → `/pending`
-- Rejected/disabled → `/login`
-- Wrong role (Dispatcher, SalesRep) → their correct dashboard
-- Admin + approved → page renders
-- Loading state returns `null` (no flash of protected content)
-
-Runtime verified: all 9 tested admin routes redirect unauthenticated users to `/login`.
-
-Known gap to fix later: `status: "inactive"` (used in Settings.jsx UI) is not blocked by AdminRoute or Login.jsx. Safe for now because Settings.jsx does not yet write to Firestore.
-
-### Phase 3 Steps 1–3.5 ✅ CONFIRMED WORKING
-
-**Step 1 — alertService.js + Alerts.jsx**
-- `subscribeAllAlerts`, `resolveAlert`, `markAlertRead` added to alertService.js
-- Alerts.jsx wired to Firestore; hardcoded data removed
-- Confirmed: Firestore alerts appear, modal opens, Mark Resolved updates Firestore status, Mark Read updates read field
-
-**Step 2 — userService.js + Settings.jsx User Management**
-- `userService.js` created: `subscribeUsers`, `updateUserStatus`
-- Settings.jsx User Management wired to Firestore `users` collection
-- Status flow confirmed: pending → approved (Active) → disabled (Inactive) → approved (Active)
-- Bug fixed: StaffDetailsModal was missing Reactivate button for inactive users
-
-**Step 3 — inventoryService.js + Inventory.jsx**
-- `inventoryService.js` created: `subscribeInventory`
-- Inventory.jsx wired to Firestore; hardcoded vaccine array removed
-- Real summary counts (Total / Critical / Warning / Stable) from live subscription
-- Loading state + smart empty state added
-- Navigation bugs fixed: AddVaccine + AddStock both navigated to `/inventory` → fixed to `/admin/inventory`
-- Duplicate `<small>` temp helper in AddStock.jsx removed
-
-**Step 6 — deliveryService.js + Deliveries.jsx ✅ CONFIRMED WORKING**
-- `deliveryService.js` created: `subscribeDeliveries` listens on `orders` collection (no separate `deliveries` collection exists yet), client-side sort by `createdAt`, error callback
-- Status normalization centralized in `deliveryService.js` with shared helpers: `normalizeStatusKey`, `getOrderStatusValue`, `mapOrderStatusLabel`, `mapOrderStatusType`
-- `getOrderStatusValue` checks multiple field names: `status`, `orderStatus`, `deliveryStatus`, `shipmentStatus`, `dispatchStatus`
-- Each order object from the service includes: `rawStatus` (original Firestore value), `statusKey` (normalized key), `statusLabel` (display text), `statusType` (CSS/filter category)
-- Full status mapping: `pending`/`pending_dispatch`/`assigned`/`loading` → Loading, `in_transit` → In Transit, `delayed` → Delayed, `cancelled`/`canceled` → Cancelled, `completed`/`delivered` → Delivered
-- Deliveries.jsx wired to Firestore; hardcoded `initialDeliveries` removed; `normalizeDelivery` maps service-computed fields to UI shape
-- Summary cards show real counts; alert strip only appears when delayed deliveries exist; region filter populated dynamically
-- "New Delivery" button shows notice (deliveries are created through Sales Rep → Dispatcher flow)
-- All keys use `delivery.uid` (Firestore doc ID); loading/error/empty states added
-- Detail modal shows vaccine name and quantity from order data
-- Bug fixed: `status: "delayed"` not reflecting — root cause was direct `STATUS_MAP[raw.status]` lookup with no normalization and missing status keys; fixed by centralizing normalization in the service layer
-- Firebase Analytics disabled during local development (`import.meta.env.PROD` guard in `firebase.js`); only initializes in production builds. Eliminates CSP errors from `firebase.googleapis.com`, `firebaseinstallations.googleapis.com`, `googletagmanager.com` during `npm run dev`
-- **Firestore rules note:** Admin Deliveries uses the existing `orders` collection. During development, Firestore rules were temporarily updated to allow authenticated users to read/write orders so Admin Deliveries can subscribe. Before production deployment, these rules must be tightened so only approved admin/authorized roles can access the correct order operations.
-
-**Step 7 — riderService.js + Riders.jsx ✅ CONFIRMED WORKING**
-- `riderService.js` created: `subscribeRiders` queries `users` where `role == "rider"`, `updateRiderStatus` writes to `users/{uid}`
-- Riders.jsx rewritten: hardcoded array removed; Firestore subscription is sole source of truth
-- Status mapping: `approved`→Standby, `pending`/`pending_approval`→Pending Approval, `disabled`→Off Duty, `rejected`→Rejected
-- Field mapping: `fullName||name||displayName||email`, `vehiclePlate||motorcycle||motorcycleId||vehicle`, `employeeId` for display ID only
-- Rider lifecycle: pending→Approve/Reject, approved→Mark Off Duty, disabled→Set Available, rejected stays
-- All keys use `rider.uid` (Firestore doc ID); duplicate key bug fixed
-- "New Rider" shows notice about Firebase Auth requirement
-
-**Step 4 — vaccineService.js + AddVaccine.jsx + AddStock.jsx**
-- `vaccineService.js` created: `getVaccineTypes`, `addVaccineType`, `skuExists`, `addVaccine`, `getVaccines`, `batchIdExists`, `addStockBatch`
-- AddVaccine.jsx and AddStock.jsx refactored to use service; all Firestore imports removed from components
-- Confirmed: Add Vaccine saves, duplicate SKU blocked; Add Stock saves, duplicate Batch ID blocked; new stock appears in Inventory real-time
-
-**Step 8 — AdminDashboard.jsx real counts ✅ CONFIRMED WORKING**
-- Wired to 4 Firestore subscriptions: `subscribeDeliveries` (orders), `subscribeAllAlerts` (alerts), `subscribeRiders` (users), `subscribeInventory` (inventory)
-- KPI cards show real counts: total orders, delayed/missing, critical stock, registered riders
-- Recent alerts sidebar populated from Firestore alerts (unresolved, most recent 5)
-- Trend percentages removed (no historical data to compute from); "Riders Online" renamed to "Registered Riders"
-- Loading/error states added; `subscribeAllAlerts` and `subscribeInventory` wrapped in try/catch (no error callback in those services)
-
-**Step 9 — Analytics.jsx ✅ CONFIRMED WORKING**
-- No separate `analyticsService.js` needed — reuses `subscribeDeliveries` and `subscribeAllAlerts`
-- Real data from Firestore:
-  - Total Orders: count from `orders`, filtered by time range (7/30/90 days) and vaccine
-  - Active Alerts: unresolved count from `alerts`
-  - Completion Rate: `(delivered + completed) / total` from orders in range
-  - Volume Chart: orders grouped by `createdAt` into day buckets (7d) or period buckets (30d/90d)
-  - Vaccine Filter: dynamically populated from unique `vaccineName` values in orders
-  - Heatmap: computed from order `createdAt` timestamps (day of week × morning/afternoon/evening)
-  - AI Insight: semi-dynamic, references actual delayed order count
-  - Region Distribution: computed from orders `region` field if present; graceful empty state if not
-- Hardcoded sections kept (with reason):
-  - Hub Performance Ranking: no `hubs` collection exists
-  - Average Delivery Time: no dispatch/arrival timestamps on orders (shows "—" with explanation)
-- "On-Time Rate" renamed to "Completion Rate" (honest label for delivered/completed ÷ total)
-- Loading/error states added
-
-**Step 3.5 — Inventory.jsx real-time overview sections**
-- "Current Stock Overview" card: horizontal colored bar chart, total doses grouped by vaccineType, sorted highest-to-lowest, bars scaled to max quantity with per-type colors (blue/green/gold/red/purple). Matches Sales Rep Inventory graph style.
-- "Critical & Expiring" card: shows critical-status batches + batches expiring within 30 days (up to 4), sorted soonest-first. Replaces the static Cold Storage card.
-- Both sections powered by the existing `subscribeInventory` subscription (no new Firestore query needed).
-- Known gap: batches with no `vaccineType` field appear under "Unknown" — not fixed, data quality issue in existing Firestore docs.
-
-**Step 10 — Sales Rep Inventory wired to Firestore ✅ CONFIRMED WORKING**
-- `SalesRepInventory.jsx` rewritten: all hardcoded `inventoryData` (10 fake items) and `vaccineTypes` array removed
-- Subscribes to Firestore `inventory` collection via `subscribeInventory` from `inventoryService.js` — same data source as Admin Inventory
-- `inventoryService.js` updated: `subscribeInventory` now accepts optional `onError` callback (backward compatible)
-- `normalizeStock` maps Firestore fields to UI shape: `vaccineName`→name, `vaccineType`→type, `manufacturer`, `batchId`, `expiryDate`, `quantity`/`remainingQty`/`remainingQuantity`/`stock` (safe fallback chain), `temperature`/`storageTemp`, status derived from quantity thresholds
-- Horizontal colored bar chart ("Available Stock by Vaccine Type"): groups by `vaccineType`, sums real quantities, bars scaled to max with per-type colors, shows dose counts (not percentages)
-- Vaccine type tabs dynamically generated from Firestore data
-- Metrics (Expiring ≤ 30 Days, Total Safe Stock, Cold-Chain Alerts) computed from real data
-- Loading/error/empty states: spinner, permission-denied message, "No inventory data" notice
-- Selection + "Request Selected" stores real batch data to localStorage, navigates to request-order
-- Search, status filter, expiry filter, pagination all work with real data
-- **Firestore rules required:** salesrep users need read access to `inventory` collection
-
-**Step 11 — Sales Rep Request Order wired to Firestore ✅ CONFIRMED WORKING**
-- `SalesRepRequestOrder.jsx` rewritten: hardcoded `productCatalog` (6 fake vaccines) removed
-- Now subscribes to Firestore `inventory` via `subscribeInventory` — same data source as Admin/Sales Rep Inventory
-- `normalizeProduct` maps Firestore fields to product card shape: `vaccineName`→name, `batchId`→sku, `vaccineType`→category, `quantity`→stock, `storageTemp`→temp (with smart °C suffix detection to avoid double °C)
-- Reads `salesRepSelectedInventory` from localStorage on load and auto-adds pre-selected items to cart (from Inventory "Request Selected" flow)
-- Search, stock filter ("All Products" / "In Stock Only"), quantity controls, cart add/remove all work with real data
-- Loading/error states: spinner, permission-denied message
-- Cart saves to `salesRepQuickCart` localStorage, navigates to Place Order page
-
-**Step 12 — Sales Rep Place Order wired to Firestore ✅ CONFIRMED WORKING**
-- `SalesRepPlaceOrder.jsx` rewritten: hardcoded `fallbackItems` (3 fake items), `unitPriceMap` (6 fake SKU prices), and `clinics` (3 hardcoded Manila clinics) all removed
-- Reads cart items from `salesRepQuickCart` localStorage (written by Request Order page); empty cart shows dedicated state with "Browse Catalog" button
-- Clinic dropdown wired to Firestore `clinics` collection via `subscribeClinics` from `clinicService.js`; loading state while clinics load; graceful empty state if no clinics exist
-- Fake pricing section removed (unit prices, handling fee, urgent fee were not real); replaced with "Order Summary" showing vial count, item count, and priority
-- `createSalesRepOrder` (already in `orderService.js`) saves to `orders` collection with `status: "pending_dispatch"`, `serverTimestamp()` for `createdAt`/`updatedAt`
-- Fields written: `orderNumber`, `clinicName`, `clinicAddress`, `vaccineName`, `vaccineType`, `quantity`, `unit`, `storageTemp`, `priority`, `deliveryInstructions`, `items[]`, `createdByRole`, `createdByUid`, `createdByEmail`, `createdAt`, `updatedAt`
-- Clears `salesRepQuickCart` from localStorage after successful order
-- Admin Deliveries compatibility confirmed: new orders appear in Admin Deliveries with correct status mapping
-- **Firestore rules required:** salesrep users need read access to `clinics` collection and write access to `orders` collection
-
-**Step 13 — Sales Rep Order Tracking wired to Firestore ✅ CONFIRMED WORKING**
-- `SalesRepOrderTracking.jsx` rewritten: hardcoded `defaultOrders` (4 fake orders), `loadLatestOrder` localStorage reader, and `formatCurrency` pricing all removed
-- Subscribes to `subscribeSalesRepOrders(user.uid, ...)` — shows only orders created by the logged-in Sales Rep
-- Reuses `normalizeStatusKey` and `getOrderStatusValue` from `deliveryService.js`; custom `mapTrackingLabel` for Sales Rep display labels
-- `statusProgress` maps each status to a progress percentage (15–100%)
-- Active/History tabs: delivered/completed/cancelled = history, everything else = active
-- Sidebar shows order details, rider info, vaccine items, delivery instructions, total quantity
-- Removed fake pricing section; replaced with total quantity display
-- Loading/error/empty states; search by order ID, clinic, vaccine, or status
-
-**Step 14 — Sales Rep Dashboard wired to Firestore ✅ CONFIRMED WORKING**
-- `SalesRepDashboard.jsx` rewritten: hardcoded `inventoryRows` (12 fake vaccines), `requestRows` (3 fake orders), `trackingRows` (3 fake tracking), `quickActions` with `<a href>` all removed
-- Subscribes to `subscribeSalesRepOrders(user.uid, ...)` and `subscribeInventory`
-- KPI cards: Total Orders, Pending Dispatch, Delivered, In Transit — all real counts from Firestore
-- Inventory table: real Firestore batches with computed status from quantity/expiry
-- My Order Requests: latest 3 real orders; Recent Activity: latest 3 orders
-- Order Tracking Preview: latest 3 active (non-delivered/cancelled) orders
-- Quick Actions converted from `<a href>` to `<button onClick={() => navigate(route)}>` for SPA navigation
-- "Place Order" routes to `/sales-rep/request-order` (catalog) not `/sales-rep/place-order` (checkout)
-- Loading state shows spinner while both subscriptions load
-
-**Step 15 — Sales Rep Alerts wired to Firestore ✅ CONFIRMED WORKING**
-- `SalesRepAlerts.jsx` rewritten: hardcoded `initialActiveAlerts` (4 fake alerts) and `initialHistoryAlerts` (3 fake resolved alerts) all removed
-- Subscribes to `subscribeSalesRepOrders(user.uid, ...)` — derives alert-like entries from order statuses
-- Alert mapping: `delayed`→Critical, `cancelled`→Critical, `assigned`→Update, `in_transit`→Update, `delivered/completed`→Delivered, `pending/pending_dispatch`→Pending, `loading`→Update
-- Active tab shows non-terminal orders (pending, assigned, loading, in_transit, delayed); History tab shows terminal orders (delivered, completed, cancelled)
-- Filters: All, Critical, Updates (active tab); adds Delivered filter on history tab
-- Search by order ID, title, body text, or clinic name
-- Detail modal shows severity, priority, clinic, time, vaccine, quantity
-- Success tone CSS added for delivered/completed alert cards (green border, icon, badge)
-- Loading/error/empty states; no hardcoded alerts remain
-
-**Step 16 — Sales Rep Settings wired to Firestore ✅ CONFIRMED WORKING**
-- `SalesRepSettings.jsx` completely rewritten: was a duplicate of old SalesRepAlerts code with 7 hardcoded alerts — replaced with a real profile/settings page
-- Loads user profile from Firestore `users/{uid}` via `getUserProfile` (new function in `userService.js`)
-- Displays real data: name, email, phone, organization, role, status, employeeId, UID
-- Editable fields: name, phone/contactNumber, organization — saved via `updateUserProfile` (new function in `userService.js`)
-- Protected fields (read-only): role, status, employeeId, email, UID — with note "managed by your administrator"
-- `userService.js` updated: added `getUserProfile(uid)` (getDoc), `updateUserProfile(uid, profileData)` with whitelist of editable fields
-- Status display labels: approved→Active, pending/pending_approval→Pending Approval, disabled→Inactive, rejected→Rejected
-- Role display labels: salesrep→Sales Representative, admin→Administrator, dispatcher→Dispatcher, rider→Rider
-- Save button disabled when no changes detected; loading/saving spinners; success/error toast messages
-- Field fallback chain: `name||fullName||displayName`, `phone||contactNumber`, `organization||company||clinic`
-- CSS: added `.settings-page-header`, `.settings-field`, `.settings-save-btn`, `.settings-detail-row`, `.settings-status.*`, `.settings-uid`, `.settings-readonly-note`
-- Loading/error states; no hardcoded data remains
-
----
-
-**Step 17 — Dispatcher Dashboard + Assign Rider wired to Firestore ✅ CONFIRMED WORKING**
-- `DispatcherDashboard.jsx` rewritten: hardcoded `mockOrders` (3 fake orders) removed; hardcoded KPI values (`availableRiders=12`, `activeDeliveries=8`, `delayedDeliveries=2`) removed
-- Subscribes to 4 Firestore sources: `subscribePendingDispatchOrders` (pending orders table), `subscribeDeliveries` (all orders for active/delayed counts), `subscribeRiders` (available rider count), `subscribeActiveAlerts` (alert banner)
-- KPI cards show real counts: Pending Orders, Available Riders (approved status), Active Deliveries (assigned/in_transit/loading), Urgent Orders + delayed count
-- Pending Dispatch Queue table shows only `pending_dispatch` orders from Firestore; empty state when no orders pending
-- Operation Summary sidebar uses real counts with dynamic text
-- Map monitor footer shows real pending/rider counts instead of hardcoded values
-- Loading state with spinner; error banner for data load failures
-- `DispatcherAssignRider.jsx` rewritten: hardcoded `riders` array (3 fake riders) removed
-- Subscribes to `subscribeRiders` from `riderService.js`; shows approved riders as available, others as unavailable with status labels
-- Rider fields mapped: `fullName||name||displayName||email`, `vehiclePlate||motorcycle||motorcycleId||vehicle`, `phone||contactNumber`, `employeeId`
-- Order details panel reads from localStorage (set by Dashboard's "Assign Rider" button); shows real order data (vaccine, quantity, clinic, address, instructions, priority)
-- `assignRiderToOrder` in `orderService.js` updated: now accepts optional `dispatcher` param to write `assignedByUid`, `assignedByEmail`; also writes `assignedRiderPhone` if available
-- On successful assignment: clears localStorage, shows success toast, redirects to Dashboard after 1.2s
-- Confirm Assignment button disabled when no rider selected or no order data
-- Loading/error/empty states for rider list; error toast for failed assignments
-- CSS: added `.dispatcher-loading-state`, `.dispatcher-empty-queue`, `.unavailable-riders-heading`, `.rider-phone`, `.alerts-v2-toast.error`
-- **Firestore rules note:** dispatcher users need read access to `orders`, `users` (riders), and `alerts` collections, plus write access to `orders` for assignment updates
-- **Manual test confirmed 2026-07-02:** Sales Rep order appears in Dispatcher Dashboard → Dispatcher assigns rider → order status changes to `assigned` → assigned order reflects across all three roles (Dispatcher, Admin Deliveries, Sales Rep Order Tracking)
-
-**Step 18 — Dispatcher Shipments / Cargo Loading Queue wired to Firestore ✅ CONFIRMED WORKING**
-- `DispatcherShipments.jsx` rewritten: hardcoded `pendingLoads` (2 fake loads), hardcoded in-progress cards (2 fake), hardcoded logistics efficiency stats all removed
-- Subscribes to `subscribeDeliveries` from `deliveryService.js` — shows all orders with real-time status
-- Filter bar: Active (assigned+loading+in_transit+delayed), Assigned, Loading, In Transit, Delayed, Delivered, Cancelled — all with real counts
-- Queue Status bar shows real proportional segments (active/delivered/cancelled)
-- Shipment Summary sidebar shows real counts per status category
-- Status update actions wired to Firestore via `updateOrderStatus` (new function in `orderService.js`):
-  - assigned → Start Loading / Mark Delayed / Cancel
-  - loading → Dispatch / Mark Delayed / Cancel
-  - in_transit → Mark Delivered / Mark Delayed / Cancel
-  - delayed → Resume Transit / Cancel
-- `updateOrderStatus` writes: `status`, `updatedAt`, `statusUpdatedAt`, `statusUpdatedByUid`, `statusUpdatedByEmail`; plus `deliveredAt` for delivered, `delayedAt` for delayed, `startedAt` for in_transit, `cancelledAt` for cancelled, `cancelReason` if provided
-- Preserves all assigned rider fields (assignedRiderId, assignedRiderName, etc.)
-- Shipment cards show: order number, vaccine name, clinic, quantity, rider name/phone, priority tag, status tag with color coding
-- Terminal orders (delivered/cancelled) show with reduced opacity, no action buttons
-- Loading/error/empty states; toast notifications for status updates
-- CSS: added `.shipments-filter-bar`, `.shipment-filter-btn`, `.shipment-card-v2` with status color variants, `.status-tag.*`, `.shipment-actions-row`, `.shipment-action-btn` with tone variants
-- **Manual test confirmed 2026-07-06:** Sales Rep order → Dispatcher assigns rider → order appears in Shipments as Assigned → Start Loading → Dispatch → Mark Delivered. Status changes reflect across Dispatcher, Admin Deliveries, and Sales Rep Order Tracking in real time. Firestore remains single source of truth.
-
-**Step 19 — Dispatcher Live Monitoring / Geofence wired to Firestore ✅ CONFIRMED WORKING**
-- `DispatcherGeofence.jsx` rewritten from scratch (previously 100% mock data)
-- Removed hardcoded: rider "Juan Dela Cruz", delivery ID "TRK-9824", batch "PFZ-2023-A01", location "Quezon City (GPS Unverified)", "1.2km from Planned Route", fake destinations, ETA/coldChain/nextArrival/criticalDelay, all mock timeline entries, all fake map roads/routes/checkpoints/geofence shape, zoom/layer/refresh controls
-- Subscribes to `subscribeDeliveries` from `deliveryService.js` — filters to active statuses: assigned, loading, in_transit, delayed
-- Left panel: "Active Shipments (N)" list with real orderNumber, clinicName, assignedRiderName, and status pill per order; clicking selects
-- Right panel: shipment detail card with real rider name/phone, order + vaccine + quantity + unit, priority, destination + clinicAddress, live location, last status update
-- Live Location fallback: if `lastLocation` (GeoPoint) is null, shows "No live location yet — Waiting for Rider mobile app location update." No fake coordinates, no fake route paths
-- Info banner explains: "Live GPS tracking not yet active. Map view, geofence, and route deviation detection will activate once the Rider mobile app begins sending location updates."
-- Loading/error/empty states added; error state distinguishes permission-denied from generic load failure
-- CSS: added `.geo3-info-banner`, `.geo3-order-list`, `.geo3-order-item` (with `.active` state), `.geo3-status-pill` (with assigned/loading/transit/delayed tones), `.geo3-badge` (same tones), `.geo3-muted`
-- No maps/GPS/route optimization/geofence logic implemented yet — deferred until Rider mobile begins writing `lastLocation`
-- **Manual test confirmed 2026-07-06:** Dispatcher opens Geofence → sees 7 real active shipments (IN TRANSIT, DELAYED) with real rider names, real clinics, real vaccine quantities. "No live location yet" fallback works. No mock data remains.
-
-**Step 20 — Dispatcher Final QA Pass ✅ CONFIRMED WORKING**
-- Full inspection of all Dispatcher pages + supporting services confirmed:
-  - No hardcoded/mock shipment/order/rider/GPS data in completed pages
-  - All 4 completed pages (Dashboard, Assign Rider, Shipments, Geofence) subscribe to Firestore and treat it as the sole source of truth
-  - Status normalization is centralized in `deliveryService.normalizeStatusKey` — consistent across Dashboard/Shipments/Geofence
-  - Loading/error/empty states present on every completed page; permission-denied is distinguished from generic load failure
-  - No `console.log`/`debugger`/`TODO`/`FIXME` in completed pages (only legitimate `console.error` in subscription error callbacks)
-- **Round 1 fix:** Dashboard hardcoded `Cold-chain Status: Stable` MonitorInfo replaced with real `Delayed Routes: {delayedDeliveries} delayed` count
-- **Round 2 fixes:** removed 3 unused Lucide imports — `MapPin` (Dashboard), `Filter` (Shipments), `CheckCircle2` (Geofence)
-- **Manual test confirmed 2026-07-06:** All completed Dispatcher pages Firestore-backed, no hardcoded data, status flow consistent, build passed
-
-## Dispatcher Role — PHASE COMPLETE ✅
-
-All 4 primary Dispatcher pages are Firestore-backed. Manual testing confirmed on 2026-07-06.
-
-| Page | Status | Data Source |
-|---|---|---|
-| Dashboard | ✅ Complete | `orders` + `users` (riders) + `alerts` |
-| Assign Rider | ✅ Complete | `users` (riders); writes to `orders` |
-| Shipments / Cargo Loading Queue | ✅ Complete | `orders`; writes status updates |
-| Geofence / Live Monitoring | ✅ Complete | `orders` (active statuses); `lastLocation` fallback |
-| Settings | ⚠️ Deferred | Still hardcoded profile/preferences (localStorage only) |
-
-**Confirmed working end-to-end:**
-1. Sales Rep places order → Dispatcher Dashboard shows in Pending Dispatch Queue
-2. Dispatcher assigns rider → status: assigned; reflects on Admin Deliveries + Sales Rep Order Tracking
-3. Dispatcher Shipments → Start Loading → Dispatch → Mark Delivered; each transition writes audit fields and syncs across all roles
-4. Dispatcher Geofence shows only active orders (assigned/loading/in_transit/delayed) with real rider/clinic/vaccine data
-5. "No live location yet" fallback works when `lastLocation` is absent
-6. All statuses (pending_dispatch/assigned/loading/in_transit/delayed/delivered/completed/cancelled/canceled) normalized consistently
-
-**Deferred (not required for Dispatcher phase completion):**
-- DispatcherSettings.jsx — hardcoded profile; can be wired later like SalesRepSettings using `getUserProfile`/`updateUserProfile`
-- Real GPS/map/geofence/route deviation — requires Flutter Rider `lastLocation` writes first
-- Decorative "Metro Manila Delivery Network" CSS art on Dashboard — pure visual dressing, no fake numeric data
-
----
-
-## Meridian UI Redesign — in progress (visual/layout only, no logic changes)
-
-Dark-green "Meridian" design system rollout. **Visual/CSS only** — no Firestore services, data logic, route guards, status values, or Firebase reads/writes changed in any Meridian phase.
-
-**Foundations (shipped):**
-- `src/styles/tokens.css` — CSS custom properties (`--green-950…50`, `--gray-*`, semantic success/danger/warning/info-teal, radii, shadows, `.tnum`); imported globally in `main.jsx`
-- `src/styles/meridian-shell.css` — dark-green sidebar + white topbar re-skin for all three role layouts
-- `src/pages/StyleGuide.jsx` (+ `.css`) — live style guide at `/style-guide` (isolated, no Firestore)
-- Shared primitives in `src/components/ui/`: `StatusBadge.jsx` (consumes normalized `statusKey`), `KpiCard.jsx`, `ui.css`
-
-**Design rules:** dark-green brand; green=success/delivered/approved, red=urgent/delayed/cancelled, amber=loading/warning, teal=assigned/in-transit, neutral gray structure. No bright blue, no emoji avatars, no fake map art, no uppercase microlabels, no heavy shadows. Tabular numerals on all figures.
-
-**Pages redesigned & CONFIRMED WORKING:**
-| Page | Notes | Confirmed |
-|---|---|---|
-| Auth (Login / Register / Pending) | Green brand/logo/buttons/links/focus; `Auth.css` override layer appended (beat the shared `styles.css` blue rules with specificity, no `styles.css` edit) | ✅ live |
-| Admin Deliveries (table + filter bar + detail drawer) | Modal → right-side drawer with audit trail; shared StatusBadge/KpiCard | ✅ live |
-| Admin Dashboard | Removed fake "Metro Manila" map + hardcoded rider panel + fake inspect modal; added real delivery status breakdown + recent orders (derived from same `orders` array) | ✅ live |
-| Sales Rep Dashboard | Consolidated 4 redundant order widgets into one Active-orders table + Stock-to-watch + quiet quick actions | ✅ live |
-| Dispatcher Cargo Loading | Summary cards + rider checklist cards. **Finalize dispatch + cross-role reflection LIVE-VERIFIED 2026-07-17** with real order `VT-ORD-1784056096300` (finalized `assigned` → `in_transit`; reflected on Dispatcher Shipments + Admin Deliveries + Sales Rep Order Tracking). DCL-001/003/004 Passed; only DCL-002 (per-checkbox `isLoaded` write) + DCL-005 (empty/error states) still Pending Manual Test | ✅ mostly live-verified |
-| Dispatcher Assign Rider | Emoji avatars → initials; green selected state; StatusBadge; green Confirm w/ clear disabled state | ✅ **manual real-assignment test passed 2026-07-14** — real pending order → select approved rider → Confirm → order `status: "assigned"`, `assignedRiderId/name/phone` written, reflected on Admin Deliveries + Sales Rep Order Tracking |
-| Dispatcher Dashboard | **Removed the fake "Metro Manila Delivery Network" map** (animated grid, glowing routes, node dots, moving-rider truck, floating labels) from JSX + deleted its CSS; replaced with an honest "Live map view not yet active" info note (real active/delayed badges + pending/riders/delayed footer counts kept). Hero gradient → white card; blue → green on Assign-from-queue/assign buttons, order-id, live pill, monitor icons, operation accents, vaccine dot; de-uppercased kickers/table/badge microlabels; green row hover; neutral View-Shipments button; softened weights + lighter shadows (KPI grid already shared KpiCard). `subscribePendingDispatchOrders`/`subscribeDeliveries`/`subscribeRiders`/`subscribeActiveAlerts` + assign handoff (`localStorage`+navigate) untouched | ✅ **manual test passed 2026-07-16** — page opens, fake map gone, honest note appears, real KPI counts + queue load, Assign from queue works, View Shipments works, no console errors |
-| Dispatcher Geofence / Live Monitoring | Bespoke `geo3-status-pill`/`geo3-badge` → shared **StatusBadge** (order list + detail); honest info banner blue → **teal**; card headings de-uppercased; blue → green order-item hover/selected; info-row sub-text forced-red → neutral gray (carries phone/address/location, not errors); cards to subtle border + light shadow. Still honest — no fake GPS/route/map. `subscribeDeliveries` + active-status filter + selection untouched | ✅ **manual test passed 2026-07-16** — page opens, active deliveries load, StatusBadge displays correctly, selecting an order works, no fake GPS/map claims, no console errors |
-| Dispatcher Settings | Save Profile button + preference toggles (on-state) blue → green; form inputs gained green focus rings + neutral borders; softened label/heading weights; page title de-blued/tightened; save-confirmation stays green (success). Profile/preferences state + toggle handlers + `localStorage` save untouched | ✅ **manual test passed 2026-07-16** — page opens, toggles/settings work, Save preferences works, no console errors |
-| Sales Rep Inventory | Blue → green detox in the `-v2` block: green Request-selected/type-tabs/checkboxes/pagination, sentence-case non-uppercase table headers on quiet gray row, green row hover (no zebra), semantic stock-status chips (Critical=red, Warning=amber, Stable=green), neutral batch/temp chips, teal cold-chain icon, green search/select focus, subtle card shadows. No data/logic/localStorage/route changes | ✅ **manual test passed 2026-07-15** — page opens, real Firestore inventory loads, search/filter/type tabs work, selection works, Request Selected routes correctly, no console errors |
-| Sales Rep Order Tracking | Bespoke `track-status` chips → shared **StatusBadge** (rows + selected panel, custom labels via `label`); removed fake gradient mini-map + route line → clean status strip; removed `⚡` emoji; blue → green on primary button/active tab/hover/selected/progress bar/focus/action buttons; de-uppercased side + header labels. No subscription/filter/selection logic changed | ✅ **manual test passed 2026-07-15** — page opens, real Sales Rep orders load, StatusBadge displays correctly, row/details selection works, no console errors |
-| Sales Rep Request Order | Blue → green in `request-v2` block + shared base: green stock-filter tabs/Add-to-order button (green hover, gray disabled)/Quick Cart badge/cart-item qty/Place-order button; neutral quantity steppers; sentence-case non-uppercase product chips (category neutral, stock semantic); lighter product-card hover (subtle shadow, no heavy lift); green search/cart-input focus. **CSS only — no JSX changes.** localStorage preselect/cart flow, quantity math, navigation untouched | ✅ **manual test passed 2026-07-15** — page opens, `salesRepSelectedInventory` preselect appears, quantity controls work, Place Order navigation works, no console errors |
-| Sales Rep Place Order | Order Summary card flipped bright-blue → deep pine `--green-800` (green-tint labels, tabular nums, white/green Finalize button); "Add more items" → neutral secondary; blue → green/neutral on session highlight, quantity steppers, shipping-address box; gray sentence-case Order Items header + green row hover; green focus rings on clinic select/instructions/search; removed decorative `⊙` glyph (only JSX change). `createSalesRepOrder` payload, `subscribeClinics`, `salesRepQuickCart` flow, validation, submit handler untouched | ✅ **manual test passed 2026-07-15** — page opens, real Firestore clinics load, Order Summary correct, Finalize creates an order → appears in Sales Rep Order Tracking + Admin Deliveries + Dispatcher pending/assignment flow, no console errors |
-| Sales Rep Alerts | Semantic tones enforced (critical=red, info/updates=**teal** was blue, delivered=green, warning=amber) on card left-border/badge/icon; filter chips "All"=green + "Updates"=teal; alert status badges rendered **sentence case via CSS `::first-letter`** (no change to derived `tag` strings); "View Details" button was inheriting red base → neutral secondary; green tab underline + search focus; neutral location chip; lighter card hover; modal labels de-uppercased, accent/Close button green. **CSS only — no JSX changes.** `subscribeSalesRepOrders`, `deriveAlertFromOrder`, tab/filter/search state untouched | ✅ **manual test passed 2026-07-15** — page opens, Active/History tabs + filter chips + search work, cards display correctly, View Details modal opens/closes, no console errors |
-| Sales Rep Settings | Save button + input focus rings blue → green; labels softened to sentence weight/neutral; heading de-blued/tightened; account-status values kept semantic (Active=green, Pending=amber, Inactive=gray, Rejected=red); shared `.inventory-loading-state` icon blue → neutral gray (also de-blues transient loading/error states on the other SR pages). **CSS only — no JSX changes.** `getUserProfile`/`updateUserProfile`, save handler + field whitelist, name validation, `hasChanges` untouched | ✅ **manual test passed 2026-07-15** — page opens, profile loads, editing a field activates Save, Save persists after refresh, no console errors |
-| Admin Riders | **Removed the fake "Live Fleet Map"** (grid bg, drawn roads, hardcoded Manila/Makati/QC labels, positioned markers, zoom/recenter) + orphan `mapZoom` state + unused map icon imports; icon-tile `RiderSummaryCard` → shared **KpiCard** ×4 (clickable filters preserved); blue → green on New Rider/filter chips/Assign+modal primary actions/initials avatars (standby=green, off-duty=gray); semantic status pills; neutral secondary buttons; green search/select focus; softened weights + lighter card/modal shadows. `subscribeRiders`/`updateRiderStatus` + approve/reject/off-duty/reactivate untouched; fake "Assign delivery" toast + `pendingDeliveries` left as-is (flagged for future functional cleanup) | ✅ **manual test passed 2026-07-16** — page opens, fake map gone, real riders load, filters/search work, detail modal opens, approve/reject/off-duty/reactivate work, no console errors |
-| Admin Inventory | Icon-tile `SummaryCard` → shared **KpiCard** ×4 (Total/Critical=danger+red rule/Warning=warning/Stable=success, clickable filters); table sentence-case headers on quiet gray row (was blue uppercase) + green row hover + green checkboxes (were blue); blue → green on Add Vaccine/Add Stock/filter chips/pagination/expiry-select focus/vaccine-cell icon/stock-overview blue bar; **Warning stock chip fixed indigo → amber**; temp pill neutralized; Export/light → neutral secondary; bulk bar green tint + neutral buttons; softened weights + lighter shadows. `subscribeInventory` + filters/search/pagination/bulk-select + `normalizeInventoryItem` + Add Vaccine/Add Stock routing untouched | ✅ **manual test passed 2026-07-16** — page opens, real inventory loads, search/filter/pagination work, checkboxes/bulk-select work, Add Vaccine/Add Stock route correctly, no console errors |
-| Admin Clinics | Icon-tile `ClinicSummaryCard` → shared **KpiCard** ×4 (Total/Active=success/Pending=warning/Overdue=danger+red rule, clickable filters); table sentence-case headers on quiet gray row + green row hover; **contact-person initials avatars** + clinic-name icon tile blue → green; blue → green on Register-New-Clinic/filter chips/pagination/form focus/modal primary; row actions + modal secondary + grid-view btn → neutral; status pills to semantic tokens; softened weights + lighter card/modal shadows. `subscribeClinics`/`clinicNameExists`/`addClinic` + required-field & duplicate-name checks + `normalizeClinic` + routes untouched | ✅ **manual test passed 2026-07-16** — page opens, real clinics load, search/filter/pagination work, register modal opens, required-field validation + duplicate check work, new clinic saves, no console errors |
-| Admin Alerts | Icon-tile `AlertKpi` → shared **KpiCard** ×4 with **semantic tones** (Critical=danger+red rule / Warnings=warning / Pending notices=**info/teal** was blue / Resolved=success); alert-row + modal **notice** accent/icon blue → teal, unread dot blue → green, category "Inventory warning" tile blue → teal; blue → green on Alert-Settings btn/filter chips/priority-action/settings toggles/modal Mark-Resolved; Mark-All-Read + Review + modal secondary → neutral; severity chip neutralized; softened weights + lighter card/modal shadows + green search focus. `subscribeAllAlerts`/`markAlertRead`/`resolveAlert` + mark-read/resolve/priority/category logic + `normalizeAlert` + routes untouched | ✅ **manual test passed 2026-07-16** — page opens, real alerts load, filter tabs work, review modal opens, mark read / Mark Resolved work, Alert Settings toggles work, no console errors |
-| Admin Settings | Icon-tile `SettingsSummaryCard` ×4 (both General + User Management tabs) → shared **KpiCard**; blue → green on tab underline/save btn/feature toggles/pagination/form+select focus/card-title accent/staff-avatar; staff **pending** avatar+status sky-blue → amber, inactive → neutral; sentence-case staff-table headers + green row hover; Discard/menu/light buttons → neutral; softened weights + lighter card/menu/modal shadows. **Follow-up 2026-07-16:** System-Features toggles resized 48×28→**46×24** (knob 22→18, on=green/off=gray, `:focus-visible` ring, vertically centered). `subscribeUsers`/`updateUserStatus`/`updateUserRole` + approve/reject/deactivate/reactivate/change-role + feature-toggle state + save/discard + routes untouched | ✅ **manual test passed 2026-07-16** — both tabs work, real users load, status actions + role change work, feature toggles behave, save/discard work, toggles now compact, no console errors |
-| Admin Add Vaccine / Add Stock | Scoped Meridian override in **new `AdminForms.css`** (all rules under `.inventory-main`, the `<main>` used only by these two forms — global `styles.css` untouched): blue → green on breadcrumb accent/heading icon tiles/Add-Type link/step-tabs active/primary buttons, green input+select focus rings, neutral form-card borders + 12px radius + light shadow, neutral Cancel/stepper/add-type box, softened labels. **Follow-up 2026-07-16 (Add Vaccine align fix):** two-col grid gap/`align-items:start`, equal-height label rows so Manufacturer input + Vaccine Type select line up, "Add Type" seated in the label row, field icons vertically centered, SKU section + helper/error spacing. `addVaccine`/`addVaccineType`/`skuExists`/`addStockBatch`/`batchIdExists` + SKU-format regex + duplicate SKU/batch checks + date/qty/temp validation + saves + routes untouched | ✅ **manual test passed 2026-07-16** — Add Vaccine: layout aligned, required + SKU-format validation + duplicate-SKU check + save all work; Add Stock: opens correctly after shared spacing changes, required + duplicate-batch + quantity/temp/date validation + save all work; no console errors |
-
-| Admin Analytics | Icon-tile `MetricCard` ×4 → shared **KpiCard** (Total orders=neutral / Avg delivery time=neutral honest "—" / Completion rate=success / Active alerts=danger+red rule, each still opens its detail modal); **chart palette blue → Meridian green** (volume bars `--green-600/700`, region progress green on gray track, heatmap 4-step green sequential + green legend); **fabricated `STATIC_HUBS` "Hub Performance Ranking" table removed** → honest "Hub ranking not available yet" empty state (no hub data fabricated); **"AI Logistics Insight" renamed "Operational insight"** (rule-based on real delayed/alert counts, modal description updated — no AI/ML claims); Export → neutral secondary, selects green focus, sentence-case labels, lighter shadows, green modal icon/Close. `subscribeDeliveries`/`subscribeAllAlerts` + time/region/vaccine filters + all computations (`computeVolumeBuckets`/`computeHeatmap`/`computeRegions`, completion rate) untouched; no new Firestore reads/writes | ✅ **manual test passed 2026-07-16** — page opens, KPI cards + detail modals work, filters work, volume/region/heatmap display with Meridian palette, hub section shows honest unavailable state, "Operational insight" replaces AI wording, no console errors |
-
-| Admin Invoices (queue) | Icon-tile `SummaryCard` ×4 → shared **KpiCard** (Pending/Total=neutral, High priority=danger+red rule, Issued today=success); table sentence-case headers on quiet gray row + green row hover + tabular order-id; blue → green on Create/Continue/Print/Issue buttons + search/filter/priority-select focus; **local invoice `StatusBadge` kept** (invoice statuses ≠ order statuses) but de-uppercased + semantic tokens incl. "Ready to Print" blue → **teal**; de-uppercased filter labels; subtle card border + light shadow. `subscribeInvoiceQueue` + `updateInvoicePriority` write + filters/sort/pagination untouched | ✅ **manual test passed 2026-07-16** — queue opens, orders/invoices load, search/filter/sort/pagination work, priority change persists, no console errors |
-| Admin InvoiceEditor | **CSS-only** (chrome inherits the detoxed `Invoices.css`; no JSX edited): blue → green primary buttons (Save Draft/Mark as Issued/dialog), editable-field **focus outlines** blue → green, dialog subtle border + lighter shadow. **Printable A4 `.inv-doc` deliberately preserved** — black print borders, cream item-table header, red invoice number, green grand total, `@media print` block all untouched. `createInvoiceDraft`/`updateInvoiceDraft`/`issueInvoice` + numbering/counter + one-invoice-per-order (doc id = orderId) + issued read-only lock + `validateForIssue` + save-before-issue gate + routes untouched | ✅ **manual test passed 2026-07-16** — Create Invoice opens, draft editing + Save Draft persist, reopening draft works, Mark as Issued works, issued invoice locks read-only, one-invoice-per-order still enforced, Print A4 layout correct, no console errors |
-
-**Admin role — Meridian UI COMPLETE ✅ (2026-07-16):** all Admin pages (Dashboard, Deliveries + detail drawer, Inventory, Riders, Clinics, Alerts, Settings, Add Vaccine, Add Stock, Analytics, **Invoices, InvoiceEditor**) migrated to the Meridian dark-green system, each manually verified. Visual/CSS + presentational-JSX only — no Firestore services/subscriptions/writes, status/approval/resolve/issue logic, duplicate/SKU/batch/one-invoice-per-order checks, calculations, numbering, validation, route guards, or real data changed (only fabricated hub data removed).
-
-**🎉 WEB MERIDIAN UI MIGRATION COMPLETE ✅ (2026-07-16):** all three web roles fully migrated — **Admin** (12 pages incl. Invoices), **Sales Rep** (7 pages), **Dispatcher** (6 pages) + shared Auth pages. Every page manually verified. Visual/CSS + presentational-JSX only across all batches — no Firestore services, subscriptions, writes, business logic, validation, route guards, or real data changed; fake maps + fabricated hub/AI content removed and replaced with honest states. Outstanding non-Meridian item: Cargo Loading finalize + **cross-role web reflection now live-verified 2026-07-17** (order `VT-ORD-1784056096300`: `assigned` → `in_transit` reflected on Dispatcher Shipments + Admin Deliveries + Sales Rep Order Tracking, no console errors; DCL-001/003/004 Passed) — only DCL-002 (per-checkbox `isLoaded` write) + DCL-005 (empty/error states) remain Pending Manual Test. Rider app is Flutter-only (not part of this web migration).
-
-**Dispatcher role — Meridian UI COMPLETE ✅ (2026-07-16):** all 6 Dispatcher pages (Dashboard, Assign Rider, Cargo Loading, Shipments, Geofence/Live Monitoring, Settings) are on the Meridian dark-green system, each manually verified. Visual/CSS + presentational-JSX only — no Firestore services/subscriptions, assignment/status/cargo logic, `localStorage`, validation, or route guards changed. Fake maps removed (Dashboard's "Metro Manila Delivery Network"); Geofence stays honest (no fake GPS/route/map).
-
-**Dispatcher Cargo Loading — canonical dispatch path runtime QA ✅ FULLY VERIFIED (2026-07-22, order VT-ORD-1784199396106):** the canonical-path changes are confirmed end-to-end on a fresh assigned order (rider QA / 09179876543):
-- **Shipments is monitoring + exception/override only (DSH-010/011 Passed):** the assigned order showed **only Delay + Cancel** (no "Start loading"); after promotion to `loading` it showed **only Delay + Cancel** (no "Dispatch"); `in_transit` orders show **"Mark delivered (override)"** + Delay + Cancel; the `delayed` order shows **"Resume transit"** + Cancel.
-- **Cargo Loading checkbox promotes assigned → loading (DCL-006 Passed):** ticking wrote `isLoaded`, moved status `Assigned → Loading`, updated progress 0%→100%, flipped the card to "Ready", kept the order visible, and enabled Finalize.
-- **Uncheck does not regress status (DCL-007 Passed):** unticking cleared `isLoaded` (progress 100%→0%, "Confirm" returns, Finalize re-disabled) but **status stayed `Loading`** — no backwards transition.
-- **Finalize → in_transit + cross-role reflection (DCL-004 Passed, now full):** Finalize moved the order to **in_transit** with **assigned rider fields preserved (QA / 09179876543)**; reflected as **In Transit** on Dispatcher Shipments, Admin Deliveries, and Sales Rep Order Tracking ("Out for Delivery" 75%, the SR label for in_transit); **no console errors** on any page.
-- **Earlier (2026-07-17) partial run** on VT-ORD-1784056096300 covered the Dispatcher-side only; the Admin/SR reflection gap is now closed. DCL-005 (empty/error states) remains the only Cargo Loading case still Pending.
-
-**Sales Rep role — Meridian UI COMPLETE ✅ (2026-07-15):** all 7 Sales Rep pages (Dashboard, Inventory, Order Tracking, Request Order, Place Order, Alerts, Settings) are on the Meridian dark-green system, each manually verified. Visual/CSS only across all batches — no Firestore services, subscriptions, order-creation/inventory logic, localStorage flows, validation, route guards, or Firebase reads/writes changed.
-
-**Verification method note:** admin/sales-rep pages were verified live by logging in as dispatcher (who can read `orders`/`alerts`/`users`/`inventory` under dev rules) via a temporary preview route that was removed after each check. All temporary routes/harnesses have been removed.
-
-**Remaining (Meridian migration):** ✅ **NONE — all web pages migrated (Admin, Sales Rep, Dispatcher, Auth).** Optional cleanup only (not blocking): delete dead `RegisterClinic.jsx`/`ClinicSuccess.jsx` and unused legacy CSS blocks (incl. Dispatcher `geo3-*` fake-map leftovers; Analytics `.compact-analytics`/`.analytics-metric-card`/hub-table; per-page dead `*-summary-card`/`*-metric-card`/`*-kpi` rules left after KpiCard conversions). Outstanding functional (not Meridian): Cargo Loading DCL-002 (per-checkbox `isLoaded` write) + DCL-005 (empty/error states) — finalize + cross-role reflection (DCL-001/003/004) live-verified 2026-07-17.
-
----
-
-## Pulled Changes (2026-07-10, commits b67c443 + e977da4) — statically audited, runtime test pending
-
-Code pulled from a collaborator. Post-pull diagnosis (2026-07-10): builds pass, no regressions, architecture intact. **Not yet runtime-tested** — see Pending Manual Test items in `docs/VaxTrack-Test-Case-Tracker.md`.
-
-**New: Admin Invoices module**
-- `pages/admin/Invoices.jsx` (queue), `pages/admin/InvoiceEditor.jsx`, `services/invoiceService.js`, routes `/admin/invoices` + `/admin/invoices/:orderId`, sidebar link
-- Reads `orders`; writes new `invoices` collection (doc ID = orderId, one invoice per order) and `counters` (transactional sequential numbering `INV-YYYY-######`)
-- Issued invoices are locked from edits; amounts show a dash when items carry no real prices
-
-**New: Dispatcher Cargo Loading**
-- `pages/dispatcher/DispatcherCargoLoading.jsx`, `services/cargoLoadingService.js`, route `/dispatcher/cargo-loading`, sidebar link
-- Groups assigned/loading orders per approved rider; per-order `isLoaded` checkbox persisted to Firestore with `loadedAt/By` audit fields
-- "Finalize dispatch" batch-moves a rider's whole group to `in_transit` atomically (writeBatch) with standard status audit fields
-- **Process note (RESOLVED 2026-07-17):** finalize originally skipped the `loading` status and dispatchers had two competing dispatch paths. **Cargo Loading is now the canonical path** — the checkbox promotes `assigned → loading`, finalize moves `loading → in_transit`, and Shipments' competing "Start loading"/"Dispatch" actions were removed. See "Canonical dispatch path" in the Architecture section
-
-**New: Sales Rep + Dispatcher route protection**
-- `components/SalesRepRoute.jsx` and `components/DispatcherRoute.jsx` — mirror AdminRoute exactly (pending → /pending, rejected/disabled → /login, wrong role → own dashboard); all /sales-rep/* and /dispatcher/* routes now wrapped in App.jsx
-- Closes the gap where those routes were previously unprotected
-
-**Also in pull:** Auth.css forgot-password layout fix; `getOrderById` added to orderService.js
-
----
-
-## Flutter Rider — Registration / Approval / Login ✅ CONFIRMED WORKING (2026-07-07)
-
-Rider mobile app lives in the separate `vaxtrack_mobile` repo (structured lib/: models, screens, services, theme). Full registration → admin approval → login cycle manually tested and confirmed.
-
-**Registration (Flutter):**
-- `RegisterScreen` → `AuthService.registerRider()` creates the Firebase Auth account, then writes Firestore `users/{uid}` (doc ID = Auth UID) with: `role: "rider"`, `status: "pending"`, `fullName`, `email`, `phone`, `vehiclePlate`, `createdAt`, `updatedAt`
-- Signs out after registration; success screen: "Rider application submitted. Please wait for admin approval."
-- 30s timeouts on Auth create + Firestore write; mapped error messages (email-already-in-use, weak-password, invalid-email, network, operation-not-allowed, permission-denied); Auth account deleted if the Firestore write fails so the email stays reusable
-- **AuthGate registration race fixed:** creating the Auth account fires `authStateChanges`; AuthGate previously loaded the new pending profile and signed out mid-write, corrupting registration. Fixed with `AuthService.registrationInProgress` flag — AuthGate stays passive (spinner, no profile load, no sign-out) while registration runs
-
-**Login (Flutter):**
-- LoginScreen only performs Firebase Auth sign-in; role/status validation is centralized in AuthGate (root `home` widget)
-- `AppUser.fromFirestore` normalizes: `role`/`status` are `trim().toLowerCase()`; approved rider condition is `role == "rider" && status == "approved"`
-- Blocked states surface via `AuthService.pendingLoginMessage` (set by AuthGate before signOut, displayed by the next LoginScreen mount): pending → "pending admin approval", disabled/rejected → "not active", non-rider → "riders only, use web portal", missing doc → "Rider profile not found", Firestore permission-denied → "check Firestore rules"
-- **Navigation stack bug fixed:** register-success and logout previously pushed `/login` as a route on top of (or replacing) AuthGate, so a successful sign-in never became visible. Now all flows return to root `'/'` (AuthGate decides); LoginScreen pops to root after sign-in
-
-**Admin Riders (web) compatibility:**
-- `riderService.subscribeRiders` now subscribes to the whole `users` collection and filters client-side with normalized role check (`trim().toLowerCase() === "rider"`) — the old exact-match `where("role", "==", "rider")` silently missed docs with case/whitespace role variants
-- Pending riders appear as "Pending Approval" with Approve/Reject in the details modal; `updateRiderStatus` writes `approved`/`rejected` to `users/{uid}`
-- Known data-quality note: two legacy corrupt docs exist from the old monolithic app's signup (`role: "pending"` on test321@gmail.com, `role: "staff"` on rider@email.com) — invisible to rider lists by design; clean up in Firebase Console when convenient
-
-**Confirmed end-to-end (manual + emulator):** register in Flutter → pending rider appears in Admin Riders → Admin approves → rider logs in → Rider Dashboard opens (with location permission flow). Temporary debug logs removed after confirmation; `flutter analyze` passes with 0 issues.
-
-**Assigned Deliveries ✅ CONFIRMED WORKING (2026-07-10):**
-- `DeliveryService.riderDeliveries()` subscribes to `orders` where `assignedRiderId == FirebaseAuth.currentUser.uid` (real-time snapshots, client-side sort by `createdAt`)
-- `Delivery` model maps: orderNumber, clinicName, clinicAddress, vaccineName, vaccineType, quantity, unit, priority, normalized status + label, deliveryInstructions, items[] summaries, assignedAt/createdAt/updatedAt, lastLocation
-- Status labels match web: Assigned/Loading/In Transit/Delayed/Delivered/Cancelled; Active lists exclude cancelled; empty state "No assigned deliveries yet."
-- **Verified live:** Dispatcher assigned an order on web → order appeared on Rider Dashboard in real time (urgent banner, badges, card) → detail screen showed all fields + status timeline
-
-**Rider Status Updates — PARTIAL runtime QA ✅ (2026-07-17, emulator, rider.qa2@vaxtrack.com):**
-- ✅ **PASSED — Rider receives assigned orders:** dashboard shows only own orders via `assignedRiderId == FirebaseAuth.currentUser.uid` query (re-confirmed live)
-- ✅ **PASSED — Mark Delivered** (VT-ORD-1783611813231): snackbar "Status updated to delivered", order moved to Completed with Delivered badge, KPI Completed count updated live
-- ✅ **PASSED — Report Delay with reason** (VT-ORD-1783010866286): reason submitted via dialog, snackbar "Status updated to delayed", Delayed badge on dashboard — `delayReason` write path exercised
-- ✅ **PASSED — Rider status updates reflect immediately in the Rider's own live subscription** (no refresh needed — proves Firestore write + snapshot round-trip)
-- ✅ **PASSED — Flutter runtime clean:** no permission-denied, no exceptions during status writes (only benign emulator GMS/App Check warnings)
-- ⏳ **NOT yet verified:** Start Loading / Start Transit taps (both test orders were already in_transit); web-side reflection of Rider status updates on Admin/Sales Rep/Dispatcher pages (session browser block); Sales Rep fresh-order creation; Admin order visibility; Dispatcher rider assignment; Cargo Loading real rider checklist card / isLoaded toggle / Finalize dispatch
-- 📌 **Order VT-ORD-1784056096300 (rider: QA Rider Two) was consumed 2026-07-17 by the Cargo Loading real-rider-card test (DCL-001..003 Passed) and is now `in_transit`** — no longer reserved
-
-**Implemented but NOT yet e2e-tested (next phase):**
-- Rider Start Loading / Start Transit taps (assigned → loading → in_transit) — code exists in `delivery_detail_screen.dart` + `delivery_service.dart` with audit fields; delivered/delayed paths verified 2026-07-17
-- Proof of delivery / invoice photo upload to Firebase Storage (`proof_of_delivery/{orderId}/`, `invoices/{orderId}/`)
-- Location writes: `users/{uid}.lastLocation` on dashboard load, `orders/{id}.lastLocation` on status change — these will activate the web Geofence page's live-location display
-
-**Firestore rules needed for rider (report, not yet deployed):**
-- Rider can `create` own `users/{uid}` only with `role == "rider"` and `status == "pending"`
-- Rider can read/update own doc; cannot approve self
-- Admin (approved) can read/update rider users for approval
-
-**Firestore rules needed for pulled Invoices module (report, not yet deployed):**
-- `invoices` collection: approved admin read/write only
-- `counters` collection: approved admin write/update only (used for transactional invoice numbering, `counters/invoice_{year}`)
-
----
-
-## Sales Rep Role — PHASE COMPLETE ✅
-
-All 7 Sales Rep pages are now Firestore-backed. Manual testing confirmed on 2026-07-02.
-
-| Page | Status | Data Source |
-|---|---|---|
-| Dashboard | ✅ Complete | `orders` (user-filtered) + `inventory` |
-| Inventory | ✅ Complete | `inventory` collection |
-| Request Order | ✅ Complete | `inventory` collection |
-| Place Order | ✅ Complete | `clinics` + writes to `orders` |
-| Order Tracking | ✅ Complete | `orders` (user-filtered) |
-| Alerts | ✅ Complete | `orders` (user-filtered, derived alerts) |
-| Settings | ✅ Complete | `users/{uid}` (read + profile update) |
-
-**Confirmed working end-to-end:**
-1. Dashboard — KPIs, inventory table, order requests, tracking preview, quick actions all Firestore-backed
-2. Inventory — real batches with quantity/expiry status, horizontal bar chart by vaccine type
-3. Request Order — real inventory catalog, cart flow, pre-selection from Inventory page
-4. Place Order — real clinics dropdown, order saves to `orders` with `status: "pending_dispatch"`
-5. Order Tracking — real orders filtered by `createdByUid`, active/history tabs, progress bars
-6. Alerts — derived from order statuses (delayed→Critical, cancelled→Critical, assigned/in_transit→Update, delivered→Delivered)
-7. Settings — real profile from `users/{uid}`, editable name/phone/organization, read-only role/status/employeeId
-8. Quick Actions navigate correctly (SPA navigation, not full page reload)
-9. Sales Rep-created orders reflect on Admin Deliveries with correct status mapping
-
-**Deferred (UI polish, not functional):**
-- SalesRepLayout sidebar notifications are still hardcoded (cosmetic)
-- Responsive/mobile polish
-- Any remaining CSS inconsistencies across pages
-
----
-
-## Phase 3 — Admin Service Layer ✅ COMPLETE
-
-All admin pages are Firestore-backed through the service layer below. (Historical goal: replace hardcoded demo data with real Firestore reads/writes.)
-
-### Service Files Plan
-
-| File | Status | Serves |
-|---|---|---|
-| `src/services/alertService.js` | ✅ Complete | Alerts.jsx, AdminDashboard.jsx, Analytics.jsx |
-| `src/services/orderService.js` | ✅ Complete | SalesRepPlaceOrder.jsx, SalesRepOrderTracking.jsx, SalesRepDashboard.jsx, SalesRepAlerts.jsx, Dispatcher |
-| `src/services/inventoryService.js` | ✅ Complete | Inventory.jsx, SalesRepInventory.jsx, SalesRepRequestOrder.jsx, AdminDashboard.jsx |
-| `src/services/userService.js` | ✅ Complete | Settings.jsx (User Management tab), SalesRepSettings.jsx |
-| `src/services/vaccineService.js` | ✅ Complete | AddVaccine.jsx, AddStock.jsx |
-| `src/services/deliveryService.js` | ✅ Complete | Deliveries.jsx, AdminDashboard.jsx, Analytics.jsx, SalesRepOrderTracking.jsx, SalesRepAlerts.jsx |
-| `src/services/riderService.js` | ✅ Complete | Riders.jsx, AdminDashboard.jsx |
-| `src/services/clinicService.js` | ✅ Complete | Clinics.jsx, SalesRepPlaceOrder.jsx |
-
-### Implementation Order
-
-1. Expand `alertService.js` + wire `Alerts.jsx` ✅ COMPLETE
-2. `userService.js` + wire Settings.jsx User Management ✅ COMPLETE (bug fix: added Reactivate to modal + try/catch on updateStatus)
-3. `inventoryService.js` + wire `Inventory.jsx` ✅ COMPLETE
-4. `vaccineService.js` + refactor `AddVaccine.jsx` + `AddStock.jsx` ✅ COMPLETE
-5. `clinicService.js` + wire `Clinics.jsx` ✅ COMPLETE
-6. `deliveryService.js` + wire `Deliveries.jsx` ✅ COMPLETE
-7. `riderService.js` + wire `Riders.jsx` (reads + status updates only) ✅ COMPLETE
-8. Wire `AdminDashboard.jsx` real counts (depends on steps 1–7) ✅ COMPLETE
-9. `Analytics.jsx` wired to Firestore ✅ COMPLETE
-
-### Deferred Items (do not implement yet)
-
-- "New Rider" Firestore write — requires Firebase Auth account creation first, not a simple addDoc
-- `settingsService.js` — org profile / feature toggles have no downstream effect yet
-- AdminSidebar extraction from Inventory.jsx — architectural cleanup, not urgent
-- Firestore rules: salesrep users need `inventory` collection read access for Sales Rep Inventory to work
-
-### Alerts.jsx Architecture Decisions
-
-- `alertService.js` handles Firestore only — no UI logic
-- `Alerts.jsx` keeps all UI, modal, and filter logic inline — do not split yet
-- Future cleanup phase (separate session) may extract:
-  - `AlertDetailsModal.jsx`
-  - `AlertCard.jsx`
-  - `utils/formatRelativeTime.js`
-
----
-
-## Known Issues / Navigation Bugs (not yet fixed)
-
-These exist in the codebase but have not been addressed:
-
-| File | Bug |
+| Orders and stock | `createOrderWithReservation`, `cancelOrderWithInventoryRelease`, `markOrderDeliveredWithInventoryConsumption`, allocation triggers | Atomic reservation, allocation by priority, stock consumed exactly once |
+| Pricing | inside order creation | VAT-inclusive **integer centavos**. A negotiated (agreed) price needs a reason. **SC/PWD discounts were withdrawn for new orders on 2026-11-03** (`statutory-discount-unavailable`); orders that already carry one keep it |
+| Zero-rating | `requestZeroRateApproval`, `reviewZeroRateApproval` | Destination-based zero-rating policy still awaits business confirmation. There is no free toggle for Med Reps |
+| Destinations | `correctOrderDestination`, `requestOrderDestinationChange`, `reviewOrderDestinationChange` | Doctor-first destinations (home or a linked clinic) |
+| Dispatch and trips | `assignRiderToOrder`, `finalizeRiderDispatch`, `confirmRiderReturnToHub`, `rescheduleOrderDelivery` | Server-owned `riderDispatchStates` and `riderTrips` |
+| Delivery completion | `validateDeliveryCompletionGeofence` + completion | Must be inside the clinic geofence, with accuracy ≤ 100 m and a fix ≤ 3 min old. A mock-location fix is refused (`rider-location-mocked`) |
+| Offline completion | `submitOfflineDeliveryCompletion`, `resolveOfflineCompletionReview` | Accepted automatically within 3 h if it fits the clinic area and the rider's server trail; otherwise a dispatcher reviews it |
+| Failures and returns | `reportDeliveryFailure`, `confirmReturnDisposition`, `requeueFailedOrder` | |
+| Tracking | `trackRiderLocation`, `trackNavigationSession`, `syncRiderTrackingOnOrderWrite` | Deviation (500 m for 3 min), near destination and awaiting completion are all **decided on the server**. Trails are kept 4 h (TTL + purge) |
+| Inventory | `addStockBatchWithAllocation`, `updateBatchMetadata`, `correctStockQuantity`, `voidInventoryBatch`, `removeUnusableStock`, `setVaccineArchived` | Each writes an `inventoryAuditEvents` entry. A batch quantity above 5,000 vials needs the Admin's confirmation (`largeQuantityConfirmed`, `large-quantity-unconfirmed`; `stockQuantityLimit.js`) |
+| Stock alerts | `reviewStockAlertsOnInventoryWrite`, `reviewStockAlertsOnConfigWrite`, `recheckStockAlerts` | `stock_low` (low or out) and `batch_expiry` (≤ 30 days, or expired). Admin-only. Safety stock comes from `inventoryAnalyticsConfig`; no threshold is invented |
+| Invoices | `saveInvoiceDraftForPricedOrder`, `issueInvoiceForPricedOrder` | One invoice per order; transactional numbering. The invoice no longer prints SC/PWD rows |
+| Staff accounts | `createStaffAccount`, `createStaffSetupLink`, `setStaffStatus`, `setStaffRole` | Staff role and status change only here. An admin can't change their own account, so there is always an approved admin. Changes are logged in `staffAccountEvents`. First admin of a new install: `functions/scripts/createFirstAdmin.mjs` |
+| Scheduled (not on staging) | `evaluateDeliveryTiming`, `purgeRiderTrackingData`, `reviewInventoryVisibility` | Deploy only with explicit approval |
+
+Every callable goes through `callable()` in `functions/index.js`. It requires sign-in and maps a `PolicyError` code to an `HttpsError`, using the map in `toHttpsError`; a new code goes there. `tests/inventoryContract.test.js` pins the exact export list, so update it when adding a function.
+
+## Data (Firestore)
+
+- **`orders`** is the single source of truth for deliveries. There is **no** `deliveries` collection.
+- **Statuses:** `pending_dispatch` → `assigned` → `loading` → `in_transit` → `delivered`, plus the branches `delayed`, `delivery_failed` and `cancelled`.
+- **`users/{uid}`:**
+  - `role` is `admin`, `dispatcher`, `salesrep` or `rider`;
+  - `status` is `approved`, `pending`, `pending_approval`, `rejected` or `disabled`;
+  - "Active" and "Inactive" are display labels only.
+- **Other key collections:**
+
+  | Area | Collections |
+  |---|---|
+  | Catalog and stock | `vaccines`, `inventory`, `inventoryReservations`, `inventoryAuditEvents` |
+  | Clinics and doctors | `areas`, `clinics`, `doctors/{id}/deliveryAddresses` |
+  | Orders and billing | `orderReceipts`, `orderHistory*`, `invoices`, `counters`, `zeroRateRequests` |
+  | Alerts | `alerts` |
+  | Rider tracking | `riderLocations`, `riderNavigationSessions`, `riderDispatchStates`, `riderTrips`, `riderLocationTrails` |
+  | Accounts | `staffAccountEvents` |
+  | Analytics | `inventoryAnalyticsConfig` |
+
+- **Rules:** `firestore.rules` is deny-by-default, with per-role, per-field allowlists. Adding a client-written field means updating the allowlist and `tests/firestore.rules.test.js`.
+
+## Rider app (Flutter, `../vaxtrack_mobile`)
+
+- **Flavors:** `production` and `staging`. Entry points are `lib/main_production.dart` and `lib/main_staging.dart`. Staging installs as "VaxTrack Rider (Staging)".
+- **Build:**
+  ```
+  flutter build apk --debug --flavor staging -t lib/main_staging.dart
+  ```
+- **Structure:**
+  - `lib/tracking/`: the tracking controller, write policy and contract;
+  - `lib/offline/`: offline records, tied to the signed-in rider;
+  - `lib/screens/`, `lib/widgets/`, `lib/services/`, `lib/utils/`.
+- **Delivery decisions are the server's.** The app shows the saved route plan (`SavedRoutePlan`), and navigation moves to the next stop automatically.
+- **Sign-up:** riders apply in the app with a password policy of 8+ characters, mixed case and a number.
+
+## Commands
+
+| What | Command |
 |---|---|
-| `AddStock.jsx` | `navigate("/inventory")` → ✅ fixed `/admin/inventory` |
-| `AddVaccine.jsx` | `navigate("/inventory")` → ✅ fixed `/admin/inventory` |
-| `RegisterClinic.jsx` | `navigate("/clinic-success")` should be `/admin/clinic-success` |
-| `ClinicSuccess.jsx` | navigates to `/clinics` and `/register-clinic` — missing `/admin/` prefix |
-| `Clinics.jsx` | `window.location.href = "/login"` should use `navigate("/login")` |
+| Dev server | `npm run dev -- --mode staging --port 5176` (the `vaxtrack-web-staging` entry in `.claude/launch.json`) |
+| Web unit tests | `npm test` |
+| Lint | `npm run lint` |
+| Build | `npm run build:staging` |
+| Firestore rules tests | `npm run test:rules` (emulator, `demo-vaxtrack-rules`) |
+| Functions unit tests | `cd functions && npm test` |
+| Functions integration tests | `cd functions && npm run test:emulator` (`demo-vaxtrack-functions`). A couple of concurrency tests sometimes fail with "Transaction is invalid or closed"; rerun that file alone |
+| Flutter | `flutter analyze`, `flutter test` |
 
-## Files Safe to Delete (not yet deleted)
+## Open items (2026-11-04)
 
-- ~~`src/pages/rider/`~~ — ✅ deleted (Rider is Flutter-only; no React rider pages remain)
-- `src/pages/admin/RegisterClinic.jsx` — redundant with Clinics.jsx inline modal; form saves nothing
-- `src/pages/admin/ClinicSuccess.jsx` — hardcoded, only reachable from dead RegisterClinic flow
+1. **MOD-10** is done:
+   - stock and expiry alerts;
+   - rider push via FCM (`notifyRiderOnOrderWrite`, `riderPushTokens`, `lib/services/push_service.dart`);
+   - the channel list.
 
-## Test Accounts (exist in vaxtrack-bef1b)
-
-- **Admin:** admin@vaxtrack.com (`role: "admin"`, approved)
-- **Dispatcher:** dispatcher@vaxtrack.com / 123456 (`role: "dispatcher"`, approved); also dispatcher@gmail.com
-- **Sales Representative:** test12@gmail.com (`role: "salesrep"`, approved)
-- **Riders (approved):** rider@vaxtrack.com, test@gmail.com, rider.test@vaxtrack.com, rider.qa2@vaxtrack.com / rider123456 (QA Rider Two)
-- **Rider (pending):** rider.qa1@vaxtrack.com (riders rider / QA-1234)
-- **Legacy corrupt docs (ignore/clean up in console):** test321@gmail.com (`role: "pending"`), rider@email.com (`role: "staff"`) — from the old monolithic app's signup; invisible to rider lists by design
-
-## AdminSidebar Note — ✅ RESOLVED
-
-**Historical:** `AdminSidebar` used to be exported from `src/pages/admin/Inventory.jsx` and imported by every other admin page — a known architectural smell, deliberately left alone during active service-layer work.
-
-**Current:** it has been extracted to `src/components/admin/AdminSidebar.jsx` (+ `AdminSidebar.css`), alongside `src/components/admin/AdminLayout.jsx` (+ `AdminLayout.css`) as the shell. All admin pages import from `../../components/admin/AdminSidebar`, and `Inventory.jsx` no longer exports it. Nothing here is blocked any more.
+   **SMS and email are out of scope** (decision, 2026-11-04). Don't build them.
+2. **App Check:**
+   - the web hook is wired (`VITE_APPCHECK_*`);
+   - enforcement is controlled by `functions/.env.<projectId>` `ENFORCE_APP_CHECK` and is off;
+   - the console registration hasn't been done.
+3. **Field tests on a phone** with the current APK: offline completion, fake GPS, shared phones, the route screen, and a 15–20 minute locked-screen ride.
+4. **Data:** production has users with a missing or invalid status.
+5. **Scope decisions for the adviser:** hub ranking (recommend descoping), cold chain, rider rating, fleet-wide optimization, the zero-rating policy, the price floor.
+6. **Production rollout:**
+   - production is far behind staging;
+   - it needs the data cleanup, App Check, the inventory migration and Storage provisioning first.

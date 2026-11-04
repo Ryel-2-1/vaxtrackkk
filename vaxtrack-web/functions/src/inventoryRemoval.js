@@ -45,6 +45,7 @@ const {
   isVaccineArchived,
   MAX_REASON_LENGTH,
   MAX_STOCK_QUANTITY,
+  requireLargeQuantityConfirmed,
 } = require("./policy");
 const { readCounter, allocateProducts } = require("./allocation");
 // The bounded retry for transient transaction failures only (ABORTED, or the
@@ -444,13 +445,14 @@ async function removeUnusableStock({ db, FieldValue, uid, email = null, payload,
 // ---------------------------------------------------------------- correct stock
 
 function validateCorrectionPayload(payload) {
-  rejectUnknownKeys(payload, ["requestId", "inventoryId", "expectedQuantity", "newQuantity", "reasonCode", "reason"]);
+  rejectUnknownKeys(payload, ["requestId", "inventoryId", "expectedQuantity", "newQuantity", "reasonCode", "reason", "largeQuantityConfirmed"]);
   const requestId = validateRequestId(payload?.requestId);
   const inventoryId = validateDocumentId(payload?.inventoryId, "That batch could not be identified.");
   const newQuantity = payload?.newQuantity;
   if (!Number.isInteger(newQuantity) || newQuantity < 0 || newQuantity > MAX_STOCK_QUANTITY) {
     throw new PolicyError("invalid-correction-quantity", "Enter the corrected quantity as a whole number of doses (0 or more).");
   }
+  requireLargeQuantityConfirmed(newQuantity, payload?.largeQuantityConfirmed);
   // The on-hand figure the Admin was looking at, exactly as stored (a legacy
   // batch may hold text) — so a figure that moved since is never overwritten.
   const expected = payload?.expectedQuantity;
@@ -470,7 +472,10 @@ function validateCorrectionPayload(payload) {
   if (reason.length > MAX_REASON_LENGTH) {
     throw new PolicyError("reason-too-long", `Please keep the reason under ${MAX_REASON_LENGTH} characters.`);
   }
-  return { requestId, inventoryId, expectedQuantity: expected, newQuantity, reasonCode: payload.reasonCode, reason };
+  return {
+    requestId, inventoryId, expectedQuantity: expected, newQuantity, reasonCode: payload.reasonCode, reason,
+    largeQuantityConfirmed: payload?.largeQuantityConfirmed === true,
+  };
 }
 
 /**
@@ -592,6 +597,7 @@ async function correctStockQuantity({ db, FieldValue, uid, email = null, payload
       quantity: plan.change,
       reasonCode: input.reasonCode,
       reason: input.reason,
+      largeQuantityConfirmed: input.largeQuantityConfirmed,
       before: plan.before,
       after: plan.after,
     });

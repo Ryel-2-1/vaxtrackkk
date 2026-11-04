@@ -1387,7 +1387,6 @@
   background: var(--gray-50);
   color: var(--gray-700);
   font-size: 12px;
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 
 .staff-setup-link-row .settings-primary-action {

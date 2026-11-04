@@ -29,6 +29,7 @@ const {
   readReservedQuantity,
   readSellingPriceCentavos,
   MAX_STOCK_QUANTITY,
+  requireLargeQuantityConfirmed,
   isVaccineArchived,
 } = require("./policy");
 const {
@@ -90,7 +91,7 @@ function statusFromExpiry(expiryIso, todayIso) {
 
 /** Server-side Add Stock validation; mirrors src/services/stockBatchDates.js. */
 function validateStockBatchPayload(payload, now) {
-  const allowed = ["vaccineId", "batchId", "manufacturingDate", "arrivalDate", "expiryDate", "quantity", "sellingPriceCentavos", "priceIsVatInclusive", "manufacturer"];
+  const allowed = ["vaccineId", "batchId", "manufacturingDate", "arrivalDate", "expiryDate", "quantity", "sellingPriceCentavos", "priceIsVatInclusive", "manufacturer", "largeQuantityConfirmed"];
   for (const key of Object.keys(payload ?? {})) {
     if (!allowed.includes(key)) throw new PolicyError("unknown-field", `Unexpected field: ${key}.`);
   }
@@ -117,6 +118,7 @@ function validateStockBatchPayload(payload, now) {
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_STOCK_QUANTITY) {
     fail("invalid-stock-batch", "Quantity must be a whole number of at least 1.");
   }
+  requireLargeQuantityConfirmed(quantity, payload?.largeQuantityConfirmed);
   const price = readSellingPriceCentavos(payload?.sellingPriceCentavos);
   if (!price.ok) fail("invalid-stock-batch", "A stock batch needs a selling price in whole centavos.");
   if (payload?.priceIsVatInclusive !== undefined && typeof payload.priceIsVatInclusive !== "boolean") {
@@ -197,6 +199,8 @@ async function addStockBatchWithAllocation({ db, FieldValue, uid, payload, now }
     const reservedFromNew = r.extraReserved.get(batchRef.id) ?? 0;
     tx.set(batchRef, {
       ...batchData,
+      // Who confirmed a figure above the usual batch size.
+      ...(payload?.largeQuantityConfirmed === true ? { largeQuantityConfirmedByUid: uid } : {}),
       reservedQuantity: reservedFromNew,
       ...(reservedFromNew > 0 ? usageMark(null, FieldValue, "allocation") : {}),
       createdAt: FieldValue.serverTimestamp(),

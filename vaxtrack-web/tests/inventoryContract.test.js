@@ -138,6 +138,14 @@ test("the callables are the only inventory-affecting entry points", () => {
   // Stock and expiry alerts (functions/src/stockAlertsOps.js): two triggers and
   // the Admin's "Check stock now". They READ stock and write only alerts.
   const STOCK_ALERT_EXPORTS = ["reviewStockAlertsOnInventoryWrite", "reviewStockAlertsOnConfigWrite", "recheckStockAlerts"];
+  // Rider push (functions/src/riderPushOps.js): reads an order change and the
+  // Rider's own tokens; its only write removes dead tokens. Never stock or orders.
+  const PUSH_EXPORTS = ["notifyRiderOnOrderWrite"];
+  {
+    const ops = read("functions/src/riderPushOps.js").replace(/^\s*(\*|\/\/).*$/gm, "");
+    assert.equal(/inventory|reservedQuantity|collection\("orders"\)/i.test(ops), false, "riderPushOps never names stock or writes an order");
+    assert.equal((ops.match(/\.(update|set|add|delete|create)\(/g) || []).length, 1, "the only write is the dead-token removal");
+  }
   {
     const ops = read("functions/src/stockAlertsOps.js").replace(/^\s*(\*|\/\/).*$/gm, "");
     assert.match(ops, /tx\.set\(db\.collection\(ALERTS\)\.doc\(w\.id\), w\.data, \{ merge: w\.merge \}\)/);
@@ -147,7 +155,7 @@ test("the callables are the only inventory-affecting entry points", () => {
   const exported = [...index.matchAll(/^exports\.(\w+)\s*=/gm)].map((m) => m[1]);
   assert.deepEqual(
     exported.sort(),
-    [...CALLABLE_NAMES, "requestZeroRateApproval", "reviewZeroRateApproval", ...STAFF_CALLABLES, ...STOCK_ALERT_EXPORTS, ...NON_CALLABLE_EXPORTS].sort(),
+    [...CALLABLE_NAMES, "requestZeroRateApproval", "reviewZeroRateApproval", ...STAFF_CALLABLES, ...STOCK_ALERT_EXPORTS, ...PUSH_EXPORTS, ...NON_CALLABLE_EXPORTS].sort(),
     "exactly these callables, plus the triggers / scheduled jobs listed above"
   );
   for (const p of ["functions/src/riderDispatch.js", "functions/src/riderDispatchOps.js"]) {

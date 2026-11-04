@@ -9,6 +9,7 @@ import '../utils/rider_registration.dart';
 import '../tracking/tracking_contract.dart';
 import 'rider_tracking_service.dart';
 import '../offline/offline_delivery_service.dart';
+import 'push_service.dart';
 
 class RegistrationError implements Exception {
   final String code;
@@ -144,6 +145,11 @@ class AuthService {
       } catch (_) {
         // Never let this stop the rider from signing out.
       }
+      // This phone stops receiving this rider's pushes (a shared phone must
+      // never show the previous rider's deliveries).
+      try {
+        await riderPush.stop(uid).timeout(const Duration(seconds: 5));
+      } catch (_) {}
     }
     await _auth.signOut();
   }

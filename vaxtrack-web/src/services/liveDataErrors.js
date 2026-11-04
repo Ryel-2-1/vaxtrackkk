@@ -177,6 +177,8 @@ const DOMAIN_KINDS = Object.freeze({
   "invalid-statutory-discount": "pricing",
   "statutory-discount-type-required": "pricing",
   "statutory-discount-exceeds-line": "pricing",
+  // A batch above the usual size, sent without the Admin's confirmation.
+  "large-quantity-unconfirmed": "pricing",
   // SC/PWD discounts are no longer offered for new orders.
   "statutory-discount-unavailable": "pricing",
   "discount-exceeds-subtotal": "pricing",

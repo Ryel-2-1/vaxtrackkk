@@ -147,6 +147,7 @@ export async function addStockBatch({
   quantity,
   sellingPriceCentavos,
   priceIsVatInclusive,
+  largeQuantityConfirmed,
 }, { todayIso, submit } = {}) {
   if (typeof submit !== "function") {
     throw new UserMessageError("Stock can only be added through the server.");
@@ -184,6 +185,8 @@ export async function addStockBatch({
     sellingPriceCentavos,
     priceIsVatInclusive,
     ...(typeof manufacturer === "string" && manufacturer.trim() ? { manufacturer: manufacturer.trim() } : {}),
+    // Above the usual batch size the Admin confirmed the figure (stockQuantityLimit.js).
+    ...(largeQuantityConfirmed === true ? { largeQuantityConfirmed: true } : {}),
   });
 }
 

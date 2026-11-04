@@ -176,6 +176,7 @@ export async function addStockBatchWithAllocation({
   sellingPriceCentavos,
   priceIsVatInclusive,
   manufacturer,
+  largeQuantityConfirmed,
 }) {
   try {
     const result = await callables().addStock({
@@ -188,6 +189,7 @@ export async function addStockBatchWithAllocation({
       sellingPriceCentavos,
       priceIsVatInclusive,
       ...(manufacturer ? { manufacturer } : {}),
+      ...(largeQuantityConfirmed === true ? { largeQuantityConfirmed: true } : {}),
     });
     return result.data;
   } catch (error) {

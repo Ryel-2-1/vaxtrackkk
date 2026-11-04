@@ -80,6 +80,7 @@ const arrivalProximityOps = require("./src/arrivalProximityOps");
 const offlineCompletionOps = require("./src/offlineCompletionOps");
 const staffAccounts = require("./src/staffAccounts");
 const stockAlertsOps = require("./src/stockAlertsOps");
+const riderPushOps = require("./src/riderPushOps");
 const riderRecoveryOps = require("./src/riderRecoveryOps");
 const { qaResetConfig } = require("./src/riderRecovery");
 
@@ -252,6 +253,8 @@ function toHttpsError(error, context) {
       "qa-reset-disabled": "permission-denied",
       // SC/PWD discounts are no longer offered for new orders (policy.js).
       "statutory-discount-unavailable": "failed-precondition",
+      // A batch above 5,000 vials needs the Admin's confirmation (policy.js).
+      "large-quantity-unconfirmed": "failed-precondition",
       // Stock alerts (stockAlertsOps.js).
       "too-many-products": "failed-precondition",
       // Staff accounts (staffAccounts.js).
@@ -657,6 +660,22 @@ exports.reviewStockAlertsOnConfigWrite = onDocumentWritten(
 exports.recheckStockAlerts = callable(
   "recheckStockAlerts",
   ({ db, FieldValue, uid, now }) => stockAlertsOps.recheckStockAlerts({ db, FieldValue, uid, now })
+);
+
+// Rider push notifications (src/riderPush.js): new assignment, reassignment,
+// cancellation and offline-review decisions, sent through FCM to the Rider's
+// own devices. Best effort and NOT retried, so nobody is notified twice.
+exports.notifyRiderOnOrderWrite = onDocumentWritten(
+  { document: "orders/{orderId}", retry: false },
+  async (event) => riderPushOps.notifyRiderOnOrderWrite({
+    db,
+    messaging: admin.messaging(),
+    FieldValue,
+    orderId: event.params.orderId,
+    before: event.data?.before?.exists ? event.data.before.data() : null,
+    after: event.data?.after?.exists ? event.data.after.data() : null,
+    log: (detail) => logger.warn("rider push not delivered", detail),
+  })
 );
 
 exports.allocateOnInventoryWrite = onDocumentWritten(

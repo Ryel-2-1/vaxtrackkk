@@ -236,8 +236,8 @@ function GeneralSettings() {
 
         <KpiCard
           label="Alert delivery"
-          value="In-app"
-          context="Push and email not configured"
+          value="In-app + push"
+          context="Rider push for deliveries; SMS and email not used"
           tone="info"
         />
 
@@ -357,27 +357,43 @@ function GeneralSettings() {
               disabling it "may prevent admins from receiving rider route
               warnings", which it could not do. */}
           <p className="settings-readonly-lede">
-            Alerts cannot be switched off. Every alert written to Firestore is
-            shown to admins and dispatchers.
+            Alerts cannot be switched off. The channels below are the ones the
+            system actually uses.
           </p>
 
+          {/* Channel list (MOD-10). Each entry names its real source; nothing
+              here is a setting. Rider push: functions/src/riderPush.js. */}
           <dl className="settings-fact-list">
             <div>
               <dt>In-app alerts</dt>
               <dd>
                 <strong>Always on</strong>
                 <span>
-                  Read live on the Alerts page and the dashboard.
+                  Admins and dispatchers read alerts live on the Alerts page,
+                  the dashboard and the bell. Stock and expiry alerts are for
+                  admins only.
                 </span>
               </dd>
             </div>
             <div>
-              <dt>Push and email</dt>
+              <dt>Rider push (rider app)</dt>
               <dd>
-                <strong>Not configured</strong>
+                <strong>On</strong>
                 <span>
-                  No messaging or email channel exists, so alerts do not leave
-                  the dashboard.
+                  Riders get a phone notification when a delivery is assigned to
+                  them, moved to another rider or cancelled, and when an offline
+                  delivery is approved or rejected. Sent through Firebase Cloud
+                  Messaging to the phones they are signed in on.
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt>SMS and email</dt>
+              <dd>
+                <strong>Not used</strong>
+                <span>
+                  Out of scope by decision: staff alerts stay in the portal and
+                  riders are notified in the rider app.
                 </span>
               </dd>
             </div>

@@ -57,6 +57,9 @@ dependencies:
   latlong2: ^0.9.1
   google_navigation_flutter: ^0.10.0
   path_provider: ^2.1.6
+  # Rider push notifications (functions/src/riderPush.js). Kept to the version
+  # that fits the locked firebase_core 4.9 so no other Firebase package moves.
+  firebase_messaging: ^16.0.0
 
 dev_dependencies:
   flutter_test:

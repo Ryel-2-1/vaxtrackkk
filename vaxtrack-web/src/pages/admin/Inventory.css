@@ -1153,6 +1153,9 @@
 
   .v2-inventory-search {
     width: 100% !important;
+    /* The toolbar is a column here, so the base flex-basis (260px) would become
+       the box's HEIGHT and stretch the pill into a large oval. */
+    flex: 0 0 auto !important;
   }
 }
 /* Stock-integrity flags (workflow checkpoint 5). Data problems are shown, not
@@ -1789,3 +1792,20 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Correct Stock: a figure above the usual batch size waits for a "yes"
+   (stockQuantityLimit.js). */
+.inv-large-quantity {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-control);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.inv-large-quantity p { margin: 0; }
+.inv-large-quantity-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 4px; }

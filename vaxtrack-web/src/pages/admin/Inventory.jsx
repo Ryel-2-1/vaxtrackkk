@@ -54,6 +54,7 @@ import {
 } from "./InventoryRemovalDialogs";
 import { OUT_OF_STOCK_LABEL, removalSource } from "../../services/inventoryRemovalModel";
 import { MAX_STOCK_QUANTITY } from "../../services/orderEligibility";
+import { isLargeStockQuantity, largeQuantityMessage } from "../../services/stockQuantityLimit";
 import { buildVaccineAvailabilitySummary } from "../../services/inventoryOverview";
 import {
   describePriceReconfirmation,
@@ -305,6 +306,13 @@ function Inventory() {
   const [correctError, setCorrectError] = useState("");
   // Which field the correction message belongs to: "quantity" | "reasonCode" | "reason" | null.
   const [correctErrorField, setCorrectErrorField] = useState(null);
+  // A figure above the usual batch size waits here for the Admin's "yes".
+  const [correctLargePrompt, setCorrectLargePrompt] = useState(null);
+  // It opens at the bottom of a scrolling dialog; bring its buttons into view.
+  useEffect(() => {
+    if (correctLargePrompt === null) return;
+    document.querySelector(".inv-large-quantity")?.scrollIntoView({ block: "nearest" });
+  }, [correctLargePrompt]);
 
   // The price and correction dialogs keep the batch as it was when opened.
   // The live row is compared with it on every snapshot: a change made
@@ -465,6 +473,7 @@ function Inventory() {
     setCorrectReasonCode("");
     setCorrectError("");
     setCorrectErrorField(null);
+    setCorrectLargePrompt(null);
   };
 
   /**
@@ -475,7 +484,7 @@ function Inventory() {
    * is refused before any write. The write itself re-reads the batch and is
    * bounded again server-side, so a stale on-screen figure cannot slip through.
    */
-  const handleSaveCorrection = async () => {
+  const handleSaveCorrection = async ({ largeQuantityConfirmed = false } = {}) => {
     if (savingCorrection || !correcting || correctionBlocked) return;
 
     const raw = correctInput.trim();
@@ -507,6 +516,14 @@ function Inventory() {
       return;
     }
 
+    if (isLargeStockQuantity(pre.value.newQuantity) && !largeQuantityConfirmed) {
+      setCorrectError("");
+      setCorrectErrorField(null);
+      setCorrectLargePrompt(pre.value.newQuantity);
+      return;
+    }
+
+    setCorrectLargePrompt(null);
     setSavingCorrection(true);
     setCorrectError("");
     setCorrectErrorField(null);
@@ -521,6 +538,7 @@ function Inventory() {
         newQuantity: pre.value.newQuantity,
         reasonCode: pre.value.reasonCode,
         reason: pre.value.reason,
+        largeQuantityConfirmed,
       });
       const batch = correcting.batch;
       const freed = (result?.reallocated ?? []).reduce((sum, a) => sum + (a.units || 0), 0);
@@ -1414,7 +1432,10 @@ function Inventory() {
               inputMode="numeric"
               placeholder="e.g. 120"
               value={correctInput}
-              onChange={(e) => setCorrectInput(e.target.value)}
+              onChange={(e) => {
+                setCorrectInput(e.target.value);
+                setCorrectLargePrompt(null);
+              }}
               aria-invalid={correctErrorField === "quantity" ? "true" : undefined}
               aria-describedby={
                 correctError && correctErrorField !== "reason" ? "inv-correct-error inv-correct-help" : "inv-correct-help"
@@ -1478,7 +1499,33 @@ function Inventory() {
               )}
             </div>
 
-            <div className="inv-price-actions">
+            {correctLargePrompt !== null && (
+              <div className="inv-large-quantity" role="alert">
+                <strong>Is this quantity correct?</strong>
+                <p>{largeQuantityMessage(correctLargePrompt)} If the figure is right, it will be saved as entered.</p>
+                <div className="inv-large-quantity-actions">
+                  <button
+                    type="button"
+                    className="inv-price-cancel"
+                    onClick={() => {
+                      setCorrectLargePrompt(null);
+                      document.getElementById("inv-correct-input")?.focus();
+                    }}
+                  >
+                    Change the quantity
+                  </button>
+                  <button
+                    type="button"
+                    className="inv-price-save"
+                    onClick={() => handleSaveCorrection({ largeQuantityConfirmed: true })}
+                  >
+                    Yes, save {correctLargePrompt.toLocaleString("en-PH")} vials
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="inv-price-actions" hidden={correctLargePrompt !== null}>
               <button
                 type="button"
                 className="inv-price-cancel"

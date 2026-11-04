@@ -5,6 +5,7 @@ import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/register_screen.dart';
 import 'services/auth_service.dart';
+import 'services/push_service.dart';
 import 'models/app_user.dart';
 import 'widgets/skeleton.dart';
 
@@ -20,6 +21,8 @@ class VaxTrackRiderApp extends StatelessWidget {
       title: 'VaxTrack Rider',
       theme: AppTheme.theme,
       debugShowCheckedModeBanner: false,
+      // Shows a push that arrives while the app is open (push_service.dart).
+      scaffoldMessengerKey: pushMessengerKey,
       home: const AuthGate(),
       routes: {
         '/login': (_) => const LoginScreen(),

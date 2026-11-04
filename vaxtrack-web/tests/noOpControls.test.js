@@ -68,8 +68,11 @@ test("alert delivery status lives in Admin Settings without a duplicate Alerts d
   assert.doesNotMatch(alerts, /AlertChannelsModal|showSettings|Alert delivery/);
   assert.match(settings, /<h2>Alert delivery<\/h2>/);
   assert.match(settings, /<dt>In-app alerts<\/dt>/);
-  assert.match(settings, /<dt>Push and email<\/dt>/);
-  assert.match(settings, /<strong>Not configured<\/strong>/);
+  // The channel list states only what exists: rider push (FCM, server-sent)
+  // is on; SMS and email are out of scope (decision, 2026-11-04).
+  assert.match(settings, /<dt>Rider push \(rider app\)<\/dt>/);
+  assert.match(settings, /<dt>SMS and email<\/dt>\s*<dd>\s*<strong>Not used<\/strong>/);
+  assert.match(read("functions/index.js"), /exports\.notifyRiderOnOrderWrite = onDocumentWritten\(/, "rider push really exists");
 });
 
 test("no push or email delivery was implemented by this change", () => {

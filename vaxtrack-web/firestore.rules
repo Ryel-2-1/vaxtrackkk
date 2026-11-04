@@ -1879,6 +1879,23 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // riderPushTokens/{riderUid}: the Rider app's FCM tokens, one per phone it
+    // is signed in on (newest last, at most 5). Only that Rider writes or reads
+    // them; the server (functions/src/riderPushOps.js) sends with them. A
+    // signed-out Rider removes their phone's token first (any status may, so a
+    // disabled Rider can still clean up).
+    match /riderPushTokens/{riderUid} {
+      allow get: if signedIn() && request.auth.uid == riderUid;
+      allow create, update: if isRider() && request.auth.uid == riderUid
+        && request.resource.data.keys().hasOnly(['riderUid', 'tokens', 'updatedAt'])
+        && request.resource.data.riderUid == riderUid
+        && request.resource.data.tokens is list
+        && request.resource.data.tokens.size() <= 5
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if signedIn() && request.auth.uid == riderUid;
+      allow list: if false;
+    }
+
     // notificationReadStates/{uid}: which bell notifications this user has
     // read, so it follows them across devices. Private to its owner; a bounded
     // list of short ids, stamped with the server time.

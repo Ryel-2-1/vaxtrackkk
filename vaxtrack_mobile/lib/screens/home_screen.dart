@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../offline/offline_delivery_service.dart';
+import '../services/push_service.dart';
 import '../services/rider_tracking_service.dart';
 import '../tracking/tracking_session_scope.dart';
 import 'dashboard_screen.dart';
@@ -30,6 +33,10 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _lifecycle;
     offlineDeliveries.sync();
+    // Only an approved Rider reaches this screen: register this phone for
+    // their push notifications (best effort; never blocks the app).
+    final uid = signedInRiderUid();
+    if (uid != null) unawaited(riderPush.start(uid));
   }
 
   @override

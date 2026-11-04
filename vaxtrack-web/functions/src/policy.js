@@ -140,6 +140,23 @@ const MAX_LINE_QUANTITY = 1000000;
  */
 const MAX_STOCK_QUANTITY = 100000000;
 
+/**
+ * A batch above this many vials is accepted only when the Admin confirms the
+ * figure: a typo here (99,999,999,999,900 once reached staging) misstates
+ * every stock number downstream. Mirrors src/services/stockQuantityLimit.js.
+ */
+const LARGE_STOCK_QUANTITY = 5000;
+
+/** Refuses a quantity above LARGE_STOCK_QUANTITY without exactly `true`. */
+function requireLargeQuantityConfirmed(quantity, confirmed) {
+  if (quantity > LARGE_STOCK_QUANTITY && confirmed !== true) {
+    throw new PolicyError(
+      "large-quantity-unconfirmed",
+      `${quantity.toLocaleString("en-PH")} vials is above the usual ${LARGE_STOCK_QUANTITY.toLocaleString("en-PH")} per batch. Confirm the figure to save it.`
+    );
+  }
+}
+
 /** True for an integer on-hand figure above MAX_STOCK_QUANTITY. */
 function isUnconfirmedStockQuantity(quantity) {
   return Number.isInteger(quantity) && quantity > MAX_STOCK_QUANTITY;
@@ -1445,6 +1462,8 @@ module.exports = {
   MAX_ORDER_LINES,
   MAX_LINE_QUANTITY,
   MAX_STOCK_QUANTITY,
+  LARGE_STOCK_QUANTITY,
+  requireLargeQuantityConfirmed,
   isUnconfirmedStockQuantity,
   MAX_REASON_LENGTH,
   DESTINATION_VERSION,
