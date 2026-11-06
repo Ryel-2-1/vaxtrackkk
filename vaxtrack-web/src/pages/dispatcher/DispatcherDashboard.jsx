@@ -30,6 +30,7 @@ import { subscribeRiderDispatchStates } from "../../services/riderDispatchServic
 import { assignmentBlockReason } from "../../services/backorder";
 import { isAdminOnlyAlert, presentAlert } from "../../services/alertPresentation";
 import { requestedArrivalLabel, requestedArrivalOf } from "../../services/requestedArrival";
+import { isRunningLate, requestedArrivalMiss } from "../../services/deliveryTiming";
 import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import VaccineBreakdown from "../../components/dispatch/VaccineBreakdown";
 
@@ -179,7 +180,9 @@ function DispatcherDashboard() {
   const activeDeliveries = allOrders.filter(
     (o) => o.statusKey === "in_transit" || o.statusKey === "assigned" || o.statusKey === "loading"
   ).length;
-  const delayedDeliveries = allOrders.filter((o) => o.statusKey === "delayed").length;
+  // A Rider's hold or the server's automatic delay: either means the route is behind.
+  const delayedDeliveries = allOrders.filter(isRunningLate).length;
+  const pastRequested = allOrders.filter((o) => requestedArrivalMiss(o) !== null).length;
 
   // Only orders with a valid date whose day has begun (Manila) are dispatch
   // work. A future-dated order is Upcoming — visible, read-only, not counted.
@@ -201,6 +204,7 @@ function DispatcherDashboard() {
   const availableShown = shown(["riders", "all"], availableRiders);
   const activeShown = shown(["all"], activeDeliveries);
   const delayedShown = shown(["all"], delayedDeliveries);
+  const pastRequestedShown = shown(["all"], pastRequested);
   const liveMonitor = failed.all
     ? { tone: "error", label: "Monitoring unavailable", detail: "Order updates could not be loaded" }
     : monitoringStatus;
@@ -365,6 +369,13 @@ function DispatcherDashboard() {
                 value={`${delayedShown} delayed`}
                 text={failed.all ? "Deliveries could not be loaded." : delayedDeliveries > 0 ? "Monitor geofence and traffic alerts." : "All routes running smoothly."}
                 warning={delayedDeliveries > 0}
+              />
+
+              <OperationItem
+                title="Requested Arrival"
+                value={`${pastRequestedShown} past requested time`}
+                text={failed.all ? "Deliveries could not be loaded." : pastRequested > 0 ? "Update the Med Rep or reschedule. Open Shipments for details." : "Every open delivery is within its requested time."}
+                warning={pastRequested > 0}
               />
             </div>
 

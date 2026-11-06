@@ -45,7 +45,12 @@ export function manilaTime(ms) {
   return new Date(ms).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" });
 }
 
-const minutesText = (m) => `${m} minute${m === 1 ? "" : "s"}`;
+/** "12 minutes"; from an hour up, "24 hr 18 min" reads better than "1458 minutes". */
+const minutesText = (m) => {
+  if (m < 60) return `${m} minute${m === 1 ? "" : "s"}`;
+  const rest = m % 60;
+  return rest === 0 ? `${Math.floor(m / 60)} hr` : `${Math.floor(m / 60)} hr ${rest} min`;
+};
 
 const normalized = (order) =>
   String(order?.statusKey ?? order?.status ?? "").trim().toLowerCase().replace(/[-\s]+/g, "_");
@@ -63,6 +68,12 @@ function combinedLabel(lifecycle, status) {
   if (status === "at_risk") return "In Transit — At Risk";
   if (status === "delayed") return "In Transit — Automatically delayed";
   return "In Transit";
+}
+
+/** Behind on the road: a Rider's hold, or the server's automatic delay. */
+export function isRunningLate(order) {
+  const lifecycle = normalized(order);
+  return lifecycle === "delayed" || (lifecycle === "in_transit" && order?.timingStatus === "delayed");
 }
 
 /**
@@ -106,6 +117,30 @@ export function deliveryTiming(order, nowMs = Date.now()) {
     detail,
     combinedLabel: combinedLabel(lifecycle, status),
   };
+}
+
+/** A rider has the order and it has not arrived (functions requestedArrival.js). */
+const REQUESTED_ARRIVAL_WATCHED = Object.freeze(["assigned", "loading", "in_transit", "delayed"]);
+
+export const PAST_REQUESTED_LABEL = "Past requested arrival";
+
+/**
+ * The server's record that an order's requested arrival has gone by and it is
+ * still not delivered, or null. A separate fact from `timingStatus`, which
+ * measures against the route: an order dispatched after its window can be on
+ * pace for its route and still past what the clinic asked for.
+ *
+ * Shown from the server's marker only, never worked out from the viewer's clock.
+ */
+export function requestedArrivalMiss(order) {
+  if (!REQUESTED_ARRIVAL_WATCHED.includes(normalized(order))) return null;
+  if (millisOf(order?.requestedArrivalMissedAt) === null) return null;
+  const deadline = millisOf(order?.requestedArrivalDeadlineAt);
+  if (deadline === null) return null;
+  // The deadline is the minute after the last acceptable one.
+  const last = deadline - 60000;
+  const day = new Date(last).toLocaleDateString("en-PH", { month: "short", day: "numeric", timeZone: "Asia/Manila" });
+  return { label: PAST_REQUESTED_LABEL, detail: `Requested by ${manilaTime(last)}, ${day}` };
 }
 
 /**

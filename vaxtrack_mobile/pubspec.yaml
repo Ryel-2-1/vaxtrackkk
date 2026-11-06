@@ -60,6 +60,9 @@ dependencies:
   # Rider push notifications (functions/src/riderPush.js). Kept to the version
   # that fits the locked firebase_core 4.9 so no other Firebase package moves.
   firebase_messaging: ^16.0.0
+  # App Check proves requests come from this app (lib/bootstrap.dart). Kept to the
+  # version that fits the locked firebase_core 4.9, like firebase_messaging above.
+  firebase_app_check: ^0.4.0
 
 dev_dependencies:
   flutter_test:

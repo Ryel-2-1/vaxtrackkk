@@ -410,6 +410,35 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   font-size: 12px;
   line-height: 1.35;
 }
+/* Same size and weight as Cancel order, in the review colour. */
+.dispatcher-main .shp-actions .review-offline {
+  background: #fff;
+  border-color: var(--green-700);
+  color: var(--green-800);
+}
+.dispatcher-main .shp-actions .review-offline:hover:not(:disabled) {
+  background: var(--green-50);
+}
+/* Status cell: one even stack of chips, then one line of explanation. */
+.dispatcher-main .shp-status-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding-block: 6px;
+}
+.dispatcher-main .shp-status-stack .m-timing {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 0;
+}
+.dispatcher-main .shp-status-stack .m-timing-label {
+  padding: 3px 10px;
+}
+.dispatcher-main .shp-status-stack .m-timing-detail {
+  line-height: 1.4;
+}
 .dispatcher-main .shp-actions .request-change {
   background: var(--green-800);
   border-color: var(--green-800);

@@ -68,6 +68,14 @@ function signedQuantity(value) {
   return formatQuantity(value);
 }
 
+/** The quick views above the table: what an Admin usually wants first. */
+const ROW_FILTERS = [
+  { key: "all", label: "All vaccines", test: () => true },
+  { key: "high", label: "High risk", test: (r) => r.risk === "high" },
+  { key: "setup", label: "Needs reorder setup", test: (r) => r.needsConfiguration },
+  { key: "history", label: "Not enough history", test: (r) => r.insufficient },
+];
+
 function RiskBadge({ level }) {
   const meta = RISK_META[level] ?? RISK_META.unknown;
   return <span className={`aia-risk aia-risk--${meta.tone}`}>{meta.label}</span>;
@@ -347,6 +355,7 @@ function ForecastDetail({ horizons, config, onClose }) {
 
       <h3>Reorder configuration</h3>
       {savedNote && <p className="aia-note aia-note--low" role="status">{savedNote}</p>}
+      <p className="aia-muted">Set how long a reorder takes and how much stock to keep in reserve, so risk can be judged and a reorder amount suggested.</p>
       <ConfigEditor
         key={primary.vaccineId}
         vaccineId={primary.vaccineId}
@@ -365,6 +374,13 @@ function AiInventoryAnalytics() {
   const [selected, setSelected] = useState(null);
   const [page, setPage] = useState(1);
   const [now] = useState(() => Date.now());
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+
+  // The details open below the table: bring them into view, wherever the row was.
+  useEffect(() => {
+    if (selected) document.getElementById("aia-detail-title")?.scrollIntoView({ block: "start" });
+  }, [selected]);
 
   useEffect(() => {
     // Data arriving after a failure (automatic reconnect or the shell's
@@ -388,8 +404,13 @@ function AiInventoryAnalytics() {
     [byVaccine]
   );
   const totals = summarize(rows);
-  const currentPage = Math.min(page, Math.max(1, Math.ceil(rows.length / PAGE_SIZE)));
-  const pageRows = rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const needle = search.trim().toLowerCase();
+  const activeFilter = ROW_FILTERS.find((f) => f.key === filter) ?? ROW_FILTERS[0];
+  const shownRows = rows.filter(
+    (r) => activeFilter.test(r) && (needle === "" || `${r.name} ${r.sku}`.toLowerCase().includes(needle))
+  );
+  const currentPage = Math.min(page, Math.max(1, Math.ceil(shownRows.length / PAGE_SIZE)));
+  const pageRows = shownRows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   let body;
   if (error === "permission") {
@@ -437,32 +458,61 @@ function AiInventoryAnalytics() {
           <KpiCard label="Low-confidence forecasts" value={totals.lowConfidence} context="low or insufficient history" />
         </section>
 
-        <p className="aia-run-meta aia-muted">
-          Run {run.runId} · {run.engineLabel ?? BASELINE_LABEL} ({run.modelVersion}) · as of {run.asOfDate} · training weeks up to{" "}
-          {run.trainingWindowEnd} · generated {formatGeneratedAt(run.generatedAt)}
+        <p className="aia-run-meta aia-muted" title={`Run ${run.runId} · ${run.engineLabel ?? BASELINE_LABEL} (${run.modelVersion})`}>
+          Updated {formatGeneratedAt(run.generatedAt)} · based on orders up to {run.trainingWindowEnd}
         </p>
 
         <section className="aia-card" aria-labelledby="aia-table-title">
           <header>
             <h2 id="aia-table-title">30-day forecast</h2>
-            <p className="aia-muted">Requested demand from orders (backorders included, cancellations excluded). Select a vaccine for its details.</p>
+            <p className="aia-muted">
+              Highest risk first. Choose a vaccine to see why, and to set up reordering. Confidence shows how many weeks of
+              orders the forecast rests on.
+            </p>
           </header>
+
+          <div className="aia-toolbar">
+            <div className="aia-filters" role="group" aria-label="Show">
+              {ROW_FILTERS.map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  className={`aia-filter${filter === f.key ? " is-active" : ""}`}
+                  aria-pressed={filter === f.key}
+                  onClick={() => {
+                    setFilter(f.key);
+                    setPage(1);
+                  }}
+                >
+                  {f.label} <span className="tnum">{rows.filter(f.test).length}</span>
+                </button>
+              ))}
+            </div>
+            <input
+              id="aia-search"
+              className="aia-search"
+              type="search"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              placeholder="Search vaccine or SKU"
+              aria-label="Search vaccine or SKU"
+            />
+          </div>
+
           <div className="aia-table-wrap">
             <table className="aia-table aia-main-table">
               <thead>
                 <tr>
                   <th>Vaccine</th>
-                  <th>SKU</th>
-                  <th>Available</th>
-                  <th>Reserved</th>
-                  <th>Backordered</th>
-                  <th>Predicted 30-day demand</th>
-                  <th>Current shortage</th>
-                  <th>Forecasted shortage</th>
+                  <th className="aia-num">Available</th>
+                  <th className="aia-num">Predicted demand</th>
+                  <th className="aia-num">Current shortage</th>
+                  <th className="aia-num">Forecasted shortage</th>
                   <th>Recommended reorder</th>
                   <th>Risk</th>
-                  <th>Confidence</th>
-                  <th>Generated</th>
                 </tr>
               </thead>
               <tbody>
@@ -472,27 +522,40 @@ function AiInventoryAnalytics() {
                       <button type="button" className="aia-link" onClick={() => setSelected(r.vaccineId)}>
                         <span className={r.nameMissing ? "aia-missing" : ""}>{r.name}</span>
                       </button>
+                      <small className={`aia-sku${r.skuMissing ? " aia-missing" : ""}`}>{r.sku}</small>
                     </td>
-                    <td className={`aia-sku${r.skuMissing ? " aia-missing" : ""}`}>{r.sku}</td>
-                    <td className="tnum">{r.available}</td>
-                    <td className="tnum">{r.reserved}</td>
-                    <td className="tnum">{r.backordered}</td>
-                    <td className="tnum">{r.insufficient ? <span className="aia-muted">Insufficient history</span> : r.predicted}</td>
-                    <td className={`tnum${r.hasCurrentShortage ? " aia-current-shortage" : ""}`}>{r.currentShortage}</td>
-                    <td className={r.insufficient ? "aia-muted-cell" : "tnum"}>{r.forecastShortage}</td>
-                    <td className={r.needsConfiguration ? "aia-config-required" : "tnum"}>{r.reorder}</td>
+                    <td className="aia-num">
+                      {r.available}
+                      <small className="aia-sub">{r.reserved} reserved · {r.backordered} backordered</small>
+                    </td>
+                    <td className="aia-num">{r.insufficient ? <span className="aia-muted-cell">Insufficient history</span> : r.predicted}</td>
+                    <td className={`aia-num${r.hasCurrentShortage ? " aia-current-shortage" : ""}`}>{r.currentShortage}</td>
+                    <td className="aia-num">{r.insufficient ? <span className="aia-muted-cell">{r.forecastShortage}</span> : r.forecastShortage}</td>
+                    <td>
+                      {r.needsConfiguration ? (
+                        <button type="button" className="aia-setup" onClick={() => setSelected(r.vaccineId)}>
+                          Set up reorder
+                        </button>
+                      ) : (
+                        <span className="tnum">{r.reorder}</span>
+                      )}
+                    </td>
                     <td>
                       <RiskBadge level={r.risk} />
-                      {r.riskBasisLabel && <small className="aia-basis">{r.riskBasisLabel}</small>}
+                      {r.riskBasisLabel && <small className="aia-sub">{r.riskBasisLabel}</small>}
+                      <small className="aia-sub">Confidence: {r.confidence}</small>
                     </td>
-                    <td>{r.confidence}</td>
-                    <td className="tnum">{r.generatedAt}</td>
                   </tr>
                 ))}
+                {pageRows.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="aia-no-match">No vaccines match. Try another filter or search.</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
-          <PageNav page={currentPage} total={rows.length} onPageChange={setPage} label="Forecast pages" />
+          <PageNav page={currentPage} total={shownRows.length} onPageChange={setPage} label="Forecast pages" />
         </section>
 
         {selectedHorizons && (

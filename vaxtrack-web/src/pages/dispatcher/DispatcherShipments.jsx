@@ -1062,11 +1062,10 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
         </div>
       </td>
       <td>
+        <div className="shp-status-stack">
         <StatusBadge statusKey={sKey} />
-        <div>
-          <TimingIndicator order={order} />
-        </div>
-        {offlineReview && <div><span className="dispatch-anomaly">Offline record — needs review</span></div>}
+        <TimingIndicator order={order} detail="primary" />
+        {offlineReview && <div><span className="dispatch-anomaly">Offline — needs review</span></div>}
         {isCompleted && offlineCompletionNote(order) && <div><span className="shp-muted">Completed offline</span></div>}
         {earlyDispatch && (
           <div>
@@ -1078,6 +1077,7 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
             </span>
           </div>
         )}
+        </div>
       </td>
       <td className="shp-td-meta">{updated}</td>
       <td className="shp-actions-cell">
@@ -1095,10 +1095,10 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
           ) : (
           <>
           {offlineReview && (
-            <button type="button" className="shp-act-btn primary review-offline" disabled={updating}
+            <button type="button" className="shp-act-btn review-offline" disabled={updating}
               aria-label={`Review the offline delivery record for ${orderNumberPhrase(order)}`}
               onClick={() => onReviewOffline(order)}>
-              Review offline delivery
+              Review offline
             </button>
           )}
           {awaitingApproval && <span className="shp-muted shp-action-note">Awaiting Med Rep approval</span>}
@@ -1108,7 +1108,7 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
               Request change
             </button>
           )}
-          {!correctable && (
+          {!correctable && !offlineReview && (
             <span className="shp-action-placeholder" aria-hidden="true">
               {!cancellable && !reassignable && !legacyReturned && !awaitingApproval ? "—" : null}
             </span>
@@ -1123,7 +1123,7 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
               Return to queue
             </button>
           )}
-          {!reassignable && <span className="shp-action-placeholder" aria-hidden="true" />}
+          {!reassignable && !offlineReview && <span className="shp-action-placeholder" aria-hidden="true" />}
           {legacyReturned && (
             <span className="shp-muted shp-action-note">
               Placed before future orders — its stock was returned. Cancel it and place a new order.
@@ -1140,7 +1140,7 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
             </button>
           )}
           {!cancellable && <span className="shp-action-placeholder" aria-hidden="true" />}
-          <span className="shp-action-placeholder" aria-hidden="true" />
+          {!offlineReview && <span className="shp-action-placeholder" aria-hidden="true" />}
           </>
           )}
         </div>

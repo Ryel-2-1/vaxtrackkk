@@ -81,6 +81,7 @@ const offlineCompletionOps = require("./src/offlineCompletionOps");
 const staffAccounts = require("./src/staffAccounts");
 const stockAlertsOps = require("./src/stockAlertsOps");
 const riderPushOps = require("./src/riderPushOps");
+const requestedArrivalOps = require("./src/requestedArrivalOps");
 const riderRecoveryOps = require("./src/riderRecoveryOps");
 const { qaResetConfig } = require("./src/riderRecovery");
 
@@ -948,6 +949,14 @@ exports.evaluateDeliveryTiming = onSchedule(
     } catch (error) {
       failed = error;
       logger.error("delivery-timing pass failed", { errorType: error?.constructor?.name ?? typeof error });
+    }
+    // Late against what was REQUESTED, a separate fact from late against the route.
+    try {
+      const counts = await requestedArrivalOps.evaluateRequestedArrivalRun({ db, FieldValue, Timestamp, now });
+      if (counts.marked + counts.cleared + counts.failed > 0) logger.info("requested-arrival", counts);
+    } catch (error) {
+      failed = failed ?? error;
+      logger.error("requested-arrival pass failed", { errorType: error?.constructor?.name ?? typeof error });
     }
     try {
       const counts = await riderLocationStaleOps.evaluateStaleLocationsRun({ db, FieldValue, Timestamp, now });

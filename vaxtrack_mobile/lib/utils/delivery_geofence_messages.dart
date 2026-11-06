@@ -81,3 +81,15 @@ String? deliveryLocationMessage(String code, {Map<Object?, Object?>? info, Strin
   }
   return null;
 }
+
+/// The rider's notice when a dispatcher refuses an offline record. The note is
+/// free text, so it gets its own closing stop and never runs into the advice.
+String offlineRefusedMessage(String? note) {
+  const advice = 'Complete it here while at the clinic, or report a failed delivery.';
+  final text = note?.trim() ?? '';
+  if (text.isEmpty) {
+    return 'Your offline record was not accepted by the dispatcher. $advice';
+  }
+  final closed = RegExp(r'[.!?]$').hasMatch(text) ? text : '$text.';
+  return 'Your offline record was not accepted by the dispatcher: $closed $advice';
+}

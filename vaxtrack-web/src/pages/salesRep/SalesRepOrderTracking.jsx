@@ -180,6 +180,8 @@ function normalizeOrder(raw) {
     timingStatus: raw.timingStatus ?? null,
     expectedArrivalAt: raw.expectedArrivalAt ?? null,
     automaticDelayedAt: raw.automaticDelayedAt ?? null,
+    requestedArrivalMissedAt: raw.requestedArrivalMissedAt ?? null,
+    requestedArrivalDeadlineAt: raw.requestedArrivalDeadlineAt ?? null,
     // Current schedule (an Admin may have moved it) and the original request.
     scheduledDeliveryTime: raw.scheduledDeliveryTime || null,
     originalRequestedDeliveryDate: raw.originalRequestedDeliveryDate || null,

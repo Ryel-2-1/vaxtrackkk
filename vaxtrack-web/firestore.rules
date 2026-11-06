@@ -707,6 +707,8 @@ service cloud.firestore {
         'timingStatus', 'expectedArrivalAt', 'automaticDelayedAt', 'timingEtaSeconds',
         'timingGraceSeconds', 'timingRouteSource', 'timingBaselineAt', 'timingStatusChangedAt',
         'timingDelayedAt', 'timingDelayReason', 'timingUnknownReason',
+        // Past the requested arrival (functions/src/requestedArrivalOps.js).
+        'requestedArrivalMissedAt', 'requestedArrivalDeadlineAt',
         // The dispatch attempt and scheduler eligibility (timingActive and
         // timingNextCheckAt are what the due query reads): a client that could
         // set them could hide a delivery from the evaluator, delay its check,

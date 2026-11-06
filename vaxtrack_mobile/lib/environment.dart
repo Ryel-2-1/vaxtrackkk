@@ -12,6 +12,14 @@
 /// The two build environments the Rider app supports.
 enum AppEnvironment { production, staging }
 
+/// How a build proves to Firebase that it is the real app (App Check).
+///
+///  * [playIntegrity]: Google vouches for the install. Needs a Play Store build.
+///  * [debug]: a token registered by hand in the Firebase console, for the
+///    staging APK installed directly on a phone. Never used in production: a
+///    debug token is a shared key, not proof of a genuine install.
+enum AppCheckAttestation { playIntegrity, debug }
+
 /// Thrown when the Firebase project the app actually connected to does not match
 /// the project the selected [AppEnvironment] REQUIRES, or when the environment
 /// itself is unknown/blank. This is never caught-and-ignored during startup: a
@@ -45,6 +53,12 @@ class EnvConfig {
     environment: AppEnvironment.staging,
     expectedProjectId: 'vaxtrack-staging',
   );
+
+  /// Production only ever attests through Play Integrity.
+  AppCheckAttestation get appCheckAttestation =>
+      environment == AppEnvironment.production
+      ? AppCheckAttestation.playIntegrity
+      : AppCheckAttestation.debug;
 
   /// Human-readable label used in logs / the startup-error screen
   /// ("production" / "staging").

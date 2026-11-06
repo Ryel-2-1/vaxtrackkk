@@ -58,7 +58,8 @@ Clients cannot write anything that moves stock, money, status or access; the rul
 | Stock alerts | `reviewStockAlertsOnInventoryWrite`, `reviewStockAlertsOnConfigWrite`, `recheckStockAlerts` | `stock_low` (low or out) and `batch_expiry` (≤ 30 days, or expired). Admin-only. Safety stock comes from `inventoryAnalyticsConfig`; no threshold is invented |
 | Invoices | `saveInvoiceDraftForPricedOrder`, `issueInvoiceForPricedOrder` | One invoice per order; transactional numbering. The invoice no longer prints SC/PWD rows |
 | Staff accounts | `createStaffAccount`, `createStaffSetupLink`, `setStaffStatus`, `setStaffRole` | Staff role and status change only here. An admin can't change their own account, so there is always an approved admin. Changes are logged in `staffAccountEvents`. First admin of a new install: `functions/scripts/createFirstAdmin.mjs` |
-| Scheduled (not on staging) | `evaluateDeliveryTiming`, `purgeRiderTrackingData`, `reviewInventoryVisibility` | Deploy only with explicit approval |
+| Delivery timing | `evaluateDeliveryTiming` (schedule, every 5 min) | Two separate facts: `timingStatus` is late against the ROUTE (dispatch + ETA + grace); `requestedArrivalMissedAt` is past what the Med Rep REQUESTED (`requestedArrivalOps.js`). The chip "Past requested arrival" replaces "On time" |
+| Scheduled (not on staging) | `purgeRiderTrackingData` | Deploy only with explicit approval. `evaluateDeliveryTiming` and `reviewInventoryVisibility` went onto staging on 2026-11-05 |
 
 Every callable goes through `callable()` in `functions/index.js`. It requires sign-in and maps a `PolicyError` code to an `HttpsError`, using the map in `toHttpsError`; a new code goes there. `tests/inventoryContract.test.js` pins the exact export list, so update it when adding a function.
 
@@ -121,6 +122,7 @@ Every callable goes through `callable()` in `functions/index.js`. It requires si
    **SMS and email are out of scope** (decision, 2026-11-04). Don't build them.
 2. **App Check:**
    - the web hook is wired (`VITE_APPCHECK_*`);
+   - the rider app activates it in `lib/bootstrap.dart` (production Play Integrity, staging debug token through `--dart-define=APP_CHECK_DEBUG_TOKEN`);
    - enforcement is controlled by `functions/.env.<projectId>` `ENFORCE_APP_CHECK` and is off;
    - the console registration hasn't been done.
 3. **Field tests on a phone** with the current APK: offline completion, fake GPS, shared phones, the route screen, and a 15–20 minute locked-screen ride.

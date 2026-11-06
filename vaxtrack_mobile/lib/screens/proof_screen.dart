@@ -12,6 +12,7 @@ import '../services/image_upload_service.dart';
 import '../services/proof_service.dart';
 import '../services/rider_tracking_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/delivery_geofence_messages.dart';
 import '../utils/proof_eligibility.dart';
 import '../utils/proof_validation.dart';
 import '../widgets/complete_delivery_confirm_sheet.dart';
@@ -517,9 +518,7 @@ class _ProofScreenState extends State<ProofScreen> {
         _Notice(
           key: const ValueKey('offline-rejected'),
           icon: Icons.error_outline,
-          text: 'Your offline record was not accepted by the dispatcher'
-              '${order.offlineReviewNote == null ? '.' : ': ${order.offlineReviewNote}'} '
-              'Complete it here while at the clinic, or report a failed delivery.',
+          text: offlineRefusedMessage(order.offlineReviewNote),
           tone: AppColors.urgent,
           background: AppColors.urgentBg,
         ),

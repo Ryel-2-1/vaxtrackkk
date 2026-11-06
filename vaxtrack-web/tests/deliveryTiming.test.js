@@ -36,6 +36,11 @@ test("the status names match the server's", () => {
   assert.deepEqual(Object.keys(TIMING_LABELS).sort(), [...server.TIMING_STATUSES].sort());
 });
 
+test("a delay of an hour or more reads in hours", () => {
+  const late = deliveryTiming(order({ timingStatus: "delayed" }), T0 + 1458 * MIN);
+  assert.ok(late.detail.startsWith("Delayed by 23 hr 48 min "), late.detail);
+});
+
 test("in transit: expected by / grace ends at / automatically delayed by N minutes, in Manila time", () => {
   assert.equal(manilaTime(T0 + 30 * MIN), "6:30 PM");
   const onTime = deliveryTiming(order(), T0);

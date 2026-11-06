@@ -19,6 +19,19 @@ void main() {
     });
   });
 
+  group('App Check attestation', () {
+    test('production only ever uses Play Integrity', () {
+      expect(
+        EnvConfig.production.appCheckAttestation,
+        AppCheckAttestation.playIntegrity,
+      );
+    });
+
+    test('the directly installed staging APK uses a debug token', () {
+      expect(EnvConfig.staging.appCheckAttestation, AppCheckAttestation.debug);
+    });
+  });
+
   group('assertProjectMatches accepts the matching project', () {
     test('production accepts its own project id', () {
       expect(

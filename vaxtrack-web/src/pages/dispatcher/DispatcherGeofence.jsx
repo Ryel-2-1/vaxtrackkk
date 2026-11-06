@@ -38,6 +38,7 @@ import TripProgress, { StopProgressBadge } from "../../components/dispatch/TripP
 import { shipmentProgress, tripProgress } from "../../services/stopProgress";
 import { routingSettingsOf } from "../../services/routingSettings";
 import StatusBadge from "../../components/ui/StatusBadge";
+import TimingIndicator from "../../components/ui/TimingIndicator";
 import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import { savedRouteDescription } from "../../services/routeMetadata.js";
 import { manilaTime } from "../../services/deliveryTiming";
@@ -696,6 +697,7 @@ function DispatcherGeofence() {
                           <StatusBadge statusKey={order.statusKey} label={order.statusLabel} />
                         </div>
                         <p>{order.clinicName || "—"}</p>
+                        <TimingIndicator order={order} detail={false} />
                         <StopProgressBadge progress={stop} />
                         {progress?.navigationTarget?.order.id === order.id && (
                           <span className="stop-progress-nav"><Navigation size={13} aria-hidden="true" />Navigation target</span>
@@ -976,6 +978,7 @@ function DispatcherGeofence() {
                       <h3>Shipment overview</h3>
                       <StatusBadge statusKey={selected.statusKey} label={selected.statusLabel} />
                     </div>
+                    <TimingIndicator order={selected} />
 
                     <div className="geo3-info-list">
                       <div className="geo3-info-row">

@@ -87,6 +87,8 @@ function normalizeDelivery(raw) {
     timingStatus: raw.timingStatus ?? null,
     expectedArrivalAt: raw.expectedArrivalAt ?? null,
     automaticDelayedAt: raw.automaticDelayedAt ?? null,
+    requestedArrivalMissedAt: raw.requestedArrivalMissedAt ?? null,
+    requestedArrivalDeadlineAt: raw.requestedArrivalDeadlineAt ?? null,
     // Rider-uploaded photos: Firebase Storage download URLs written by the
     // Rider app. `invoiceUrl` is the rider's photo of the paper invoice —
     // unrelated to the `invoices` collection / Admin Invoices module. A link
