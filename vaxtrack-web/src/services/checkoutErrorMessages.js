@@ -22,6 +22,8 @@ export function messageForCallableError(error) {
     }
     case "batch-expired":
       return "One of these batches has expired and can no longer be ordered. Remove it and pick another.";
+    case "batch-expires-today":
+      return "One of these batches expires today and can no longer be ordered. Remove it and pick another.";
     case "price-changed": {
       // The whole point of the check is that a rep sees the real numbers and
       // decides, so both figures are named rather than summarised as "changed".

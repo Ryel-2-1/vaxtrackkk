@@ -74,7 +74,7 @@ test("Admin Mark Read and the bell use the same read flag", () => {
   const bell = source("src/components/admin/AdminAlertsBell.jsx");
   assert.match(page, /const unreadAlerts = alerts\.filter\(\(alert\) => !alert\.read\);/);
   assert.match(page, /Promise\.allSettled\(unread\.map\(\(a\) => markAlertRead\(a\.id\)\)\)/);
-  assert.match(page, /disabled=\{markingAll \|\| loading \|\| Boolean\(loadError\) \|\| unreadAlerts\.length === 0\}/);
+  assert.match(page, /disabled=\{markingAll \|\| loading \|\| Boolean\(loadError\) \|\| unreadActive === 0\}/);
   assert.match(bell, /rows\.filter\(\(alert\) => alert\.read !== true\)\.length/);
   assert.doesNotMatch(bell, /subscribeDeliveryExceptions/);
 });

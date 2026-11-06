@@ -1,4 +1,5 @@
 import { getOrderStatusValue, normalizeStatusKey } from "./deliveryService.js";
+import { lateNotice } from "./deliveryTiming.js";
 import { orderDestination, orderReference } from "./orderLabel.js";
 
 function formatTime(ts) {
@@ -83,10 +84,24 @@ export function deriveSalesRepOrderAlert(order) {
       body = `Order to ${clinic} status: ${rawStatus || "unknown"}.`;
   }
 
+  // Late or past the requested time says more than the plain status, and it
+  // reads as a new update even if that status was already read.
+  const notice = lateNotice({ ...order, status: statusKey });
+  const late = notice === "running_late";
+  if (notice) {
+    tone = "critical";
+    tag = "NEEDS ATTENTION";
+    title = `${late ? "Running Late" : "Past Requested Arrival"} — ${orderNum}`;
+    body = late
+      ? `Your order of ${vaccine} to ${clinic} is running late. Check order tracking for updates.`
+      : `Your order of ${vaccine} to ${clinic} is past its requested arrival. Check order tracking for updates.`;
+  }
+
   const ts = order.updatedAt || order.createdAt;
   return {
     id: order.id,
-    readId: `${order.id}:${statusKey}`,
+    readId: `${order.id}:${statusKey}${notice ? ":late" : ""}`,
+    needsAttention: notice !== null,
     tone,
     tag,
     title,

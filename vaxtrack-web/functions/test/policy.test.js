@@ -311,6 +311,7 @@ test("batch evaluation", async (t) => {
       "inventory-not-found"
     );
     assert.equal(codeOf(() => evaluate({ expiryDate: "2020-01-01" })), "batch-expired");
+    assert.equal(codeOf(() => evaluate({ expiryDate: "2026-09-06" })), "batch-expires-today");
     assert.equal(codeOf(() => evaluate({ expiryDate: "not-a-date" })), "batch-expired");
     for (const status of ["Expired", "Recalled", "quarantine", "", null, 5]) {
       assert.equal(codeOf(() => evaluate({ status })), "batch-unavailable", String(status));

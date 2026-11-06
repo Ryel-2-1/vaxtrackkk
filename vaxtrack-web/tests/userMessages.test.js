@@ -194,6 +194,7 @@ test("stable server codes map to their message — decided by code, never by pro
     "reservation-already-settled": "transition",
     "insufficient-stock": "stock",
     "batch-expired": "stock",
+    "batch-expires-today": "stock",
     "order-not-fully-reserved": "stock",
     "price-changed": "price",
     "price-not-confirmed": "price",

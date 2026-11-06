@@ -164,5 +164,8 @@ test("one alert per order and dispatch attempt; unsafe ids refused", () => {
   assert.throws(() => D.timingAlertId("a/b", 0));
   assert.equal(D.minutesLate(T0, T0 + 12.5 * MIN), 12);
   assert.equal(D.minutesLate(T0, T0 - MIN), 0);
+  assert.equal(D.durationText(12), "12 min");
+  assert.equal(D.durationText(120), "2 hr");
+  assert.equal(D.durationText(645), "10 hr 45 min");
   for (const f of ["timingActive", "timingEpoch", "timingNextCheckAt"]) assert.ok(D.TIMING_FIELDS.includes(f), f);
 });

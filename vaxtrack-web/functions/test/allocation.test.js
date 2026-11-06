@@ -377,3 +377,9 @@ test("an on-hand figure above the Add Stock ceiling is unconfirmed: never alloca
   assert.equal(settleBatch({ inventoryId: "OCvs", data: typo, quantity: 70, mode: "consume" }).quantity, 99999999999830);
   assert.equal(settleBatch({ inventoryId: "OCvs", data: typo, quantity: 70, mode: "release" }).reservedQuantity, 0);
 });
+
+test("a batch expiring today is never allocated; tomorrow's still is", () => {
+  const data = { status: "Stable", quantity: 10, reservedQuantity: 0 };
+  assert.equal(allocatableUnits({ ...data, expiryDate: "2026-10-05" }, NOW), 0, "today, Manila");
+  assert.equal(allocatableUnits({ ...data, expiryDate: "2026-10-06" }, NOW), 10, "tomorrow");
+});

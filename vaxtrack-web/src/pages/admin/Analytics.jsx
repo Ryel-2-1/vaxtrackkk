@@ -20,6 +20,8 @@ import {
   formatRate,
   onTimeStats,
 } from "../../services/deliveryMetrics";
+import { isRunningLate } from "../../services/deliveryTiming";
+import { orderVaccineNames } from "../../services/orderLabel";
 
 const MS_PER_DAY = 86400000;
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -259,18 +261,18 @@ function Analytics() {
   }, [allOrders, days, nowMs]);
 
   const vaccineNames = useMemo(() => {
-    const set = new Set(allOrders.map((o) => o.vaccineName).filter(Boolean));
+    const set = new Set(allOrders.flatMap(orderVaccineNames));
     return Array.from(set).sort();
   }, [allOrders]);
 
   const filtered = useMemo(() => {
     let result = timeFiltered;
-    if (vaccineFilter !== "all") result = result.filter((o) => o.vaccineName === vaccineFilter);
+    if (vaccineFilter !== "all") result = result.filter((o) => orderVaccineNames(o).includes(vaccineFilter));
     return result;
   }, [timeFiltered, vaccineFilter]);
 
   const totalDeliveries = filtered.length;
-  const delayedCount = filtered.filter((o) => o.statusKey === "delayed").length;
+  const delayedCount = filtered.filter(isRunningLate).length;
   const completedCount = filtered.filter((o) => o.statusKey === "delivered" || o.statusKey === "completed").length;
   const completionRate = totalDeliveries > 0
     ? `${Math.round((completedCount / totalDeliveries) * 100)}%`

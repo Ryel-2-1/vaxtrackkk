@@ -45,6 +45,8 @@ import { fetchCancelledShipmentAudit } from "../../services/cancelledShipmentAud
 import { orderArrivalNote } from "../../services/requestedArrival";
 import { proofPhotoView } from "../../services/deliveryEvidenceView";
 import { storageBucket } from "../../firebase";
+import { quantityText } from "../../services/quantityText";
+import { isRunningLate } from "../../services/deliveryTiming";
 
 // A local status-label copy used to live here for the status-change toasts.
 // Those toasts are gone with the Delivered/Delay/Resume actions, and the
@@ -176,7 +178,10 @@ function DispatcherShipments() {
     const failed = orders.filter((o) => o.statusKey === "delivery_failed");
     const delivered = orders.filter((o) => o.statusKey === "delivered" || o.statusKey === "completed");
     const cancelled = orders.filter((o) => o.statusKey === "cancelled" || o.statusKey === "canceled");
-    return { pending, assigned, loading: loadingO, transit, delayed, failed, delivered, cancelled };
+    // Everything running late, the Rider's holds and the server's automatic
+    // delays alike. It overlaps "in transit", so it is never added to a total.
+    const late = orders.filter(isRunningLate);
+    return { pending, assigned, loading: loadingO, transit, delayed, late, failed, delivered, cancelled };
   }, [orders]);
 
   const activeOrders = useMemo(() => {
@@ -194,7 +199,7 @@ function DispatcherShipments() {
     if (filterStatus === "assigned") return grouped.assigned;
     if (filterStatus === "loading") return grouped.loading;
     if (filterStatus === "in_transit") return grouped.transit;
-    if (filterStatus === "delayed") return grouped.delayed;
+    if (filterStatus === "delayed") return grouped.late;
     if (filterStatus === "delivery_failed") return grouped.failed;
     if (filterStatus === "delivered") return grouped.delivered;
     if (filterStatus === "cancelled") return grouped.cancelled;
@@ -385,7 +390,7 @@ function DispatcherShipments() {
     { id: "assigned", label: "Assigned", count: grouped.assigned.length },
     { id: "loading", label: "Loading", count: grouped.loading.length },
     { id: "in_transit", label: "In transit", count: grouped.transit.length },
-    { id: "delayed", label: "Delayed", count: grouped.delayed.length },
+    { id: "delayed", label: "Delayed", count: grouped.late.length },
     { id: "delivery_failed", label: "Delivery failed", count: grouped.failed.length },
     { id: "delivered", label: "Delivered", count: totalDone },
     { id: "cancelled", label: "Cancelled", count: grouped.cancelled.length },
@@ -429,10 +434,10 @@ function DispatcherShipments() {
           <KpiCard label="In transit" value={grouped.transit.length} context="On the road" tone="info" />
           <KpiCard
             label="Delayed"
-            value={grouped.delayed.length}
-            context={grouped.delayed.length > 0 ? "Needs attention" : "None delayed"}
+            value={grouped.late.length}
+            context={grouped.late.length > 0 ? "Needs attention" : "None delayed"}
             tone="danger"
-            attention={grouped.delayed.length > 0}
+            attention={grouped.late.length > 0}
           />
           <KpiCard label="Delivered" value={totalDone} context="Completed" tone="success" />
         </section>
@@ -481,7 +486,7 @@ function DispatcherShipments() {
             </div>
           ) : (
             <div className="shp-table-wrap">
-              <table className="shp-table">
+              <table className="shp-table m-phone-cards">
                 <colgroup>
                   <col style={{ width: "15%" }} /><col style={{ width: "21%" }} />
                   <col style={{ width: "12%" }} /><col style={{ width: "11%" }} />
@@ -706,8 +711,8 @@ function CancelledShipmentDialog({ order, onDismiss }) {
             const batches = slices.filter((slice) => slice.lineIndex === index);
             return <li key={`${line.productKey || line.name || "item"}-${index}`}>
               <strong>{line.name || "Vaccine not recorded"}</strong>
-              <span>{Number.isFinite(Number(line.quantity)) ? Number(line.quantity).toLocaleString() : "—"} vials</span>
-              <small>Allocated batch{batches.length === 1 ? "" : "es"}: {audit ? (batches.length ? batches.map((slice) => `${slice.batchId || "Unknown lot"} (${slice.quantity} vials)`).join(", ") : "None recorded") : auditError ? "Unavailable" : "Checking…"}</small>
+              <span>{Number.isFinite(Number(line.quantity)) ? quantityText(line.quantity) : "—"}</span>
+              <small>Allocated batch{batches.length === 1 ? "" : "es"}: {audit ? (batches.length ? batches.map((slice) => `${slice.batchId || "Unknown lot"} (${quantityText(slice.quantity)})`).join(", ") : "None recorded") : auditError ? "Unavailable" : "Checking…"}</small>
               <small>Storage requirements: Not recorded for this order</small>
             </li>;
           })}</ul>
@@ -1029,8 +1034,6 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
   const orderNum = orderReference(order, "No order number");
   const clinic = order.clinicName || "—";
   const address = order.clinicAddress || "";
-  const qty = order.quantity || 0;
-  const unit = order.unit || "vials";
   const updated = formatTime(order.updatedAt || order.assignedAt || order.createdAt);
 
   return (
@@ -1041,7 +1044,7 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
           <RequestedArrivalNote order={order} />
         </div>
       </td>
-      <td>
+      <td data-label="Destination">
         <div className="shp-cell">
           <strong>{clinic}</strong>
           {address && <small>{address}</small>}
@@ -1049,19 +1052,19 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
           <DestinationNotes order={order} clinic={clinicDoc} />
         </div>
       </td>
-      <td>
+      <td data-label="Vaccine">
         <div className="shp-cell">
           <strong><VaccineBreakdown order={order} /></strong>
-          <small className="tnum">{qty.toLocaleString()} {unit}</small>
+          <small className="tnum">{quantityText(order.quantity, order.unit)}</small>
         </div>
       </td>
-      <td>
+      <td data-label="Rider">
         <div className="shp-cell">
           <strong className={riderName === "Unassigned" ? "shp-muted" : ""}>{riderName}</strong>
           {riderPhone && <small>{riderPhone}</small>}
         </div>
       </td>
-      <td>
+      <td data-label="Status">
         <div className="shp-status-stack">
         <StatusBadge statusKey={sKey} />
         <TimingIndicator order={order} detail="primary" />
@@ -1079,7 +1082,7 @@ function ShipmentRow({ order, now, updating, onRequestCancel, onRequestReassign,
         )}
         </div>
       </td>
-      <td className="shp-td-meta">{updated}</td>
+      <td data-label="Updated" className="shp-td-meta">{updated}</td>
       <td className="shp-actions-cell">
         <div className="shp-actions">
           {isCompleted ? (

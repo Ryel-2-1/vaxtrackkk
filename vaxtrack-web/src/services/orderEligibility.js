@@ -49,6 +49,8 @@ export const ELIGIBILITY_REASONS = Object.freeze({
   CRITICAL: "critical",
   UNAVAILABLE: "unavailable",
   EXPIRED: "expired",
+  // Usable today, too late to order. Mirrors the server's batch-expires-today.
+  EXPIRES_TODAY: "expires-today",
   MISSING_EXPIRY: "missing-expiry",
   MISSING_PRICE: "missing-price",
   // The price was recorded VAT-exclusive (before the VAT-inclusive rule) and
@@ -72,6 +74,7 @@ const REASON_MESSAGES = Object.freeze({
   critical: "Critical batch is not orderable",
   unavailable: "Batch is not available to order",
   expired: "Expired batch",
+  "expires-today": "Expires today, so it can't be ordered",
   "missing-expiry": "Expiry date missing",
   "missing-price": "Price not available",
   "legacy-price-convention": "Price basis not recorded; awaiting Admin confirmation",
@@ -199,6 +202,9 @@ export function evaluateBatchEligibility(batch, todayIso, context = {}) {
   const expiry = deriveExpiryCondition(batch, todayIso);
   if (expiry.level === "expired") {
     return ineligible(ELIGIBILITY_REASONS.EXPIRED, availableQuantity, normalizedStatus);
+  }
+  if (expiry.expiryDate === todayIso) {
+    return ineligible(ELIGIBILITY_REASONS.EXPIRES_TODAY, availableQuantity, normalizedStatus);
   }
   if (expiry.level === "unknown") {
     return ineligible(ELIGIBILITY_REASONS.MISSING_EXPIRY, availableQuantity, normalizedStatus);

@@ -277,15 +277,15 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
 
         <form className="ohx-filters" onSubmit={submitSearch} aria-label="Filter order history">
           <label className="ohx-filter-search">
-            <span>Filter loaded orders</span>
+            <span>Search orders</span>
             <input
               type="search"
               value={filters.search}
               onChange={setFilter("search")}
               placeholder={isAdmin ? "Reference, Med Rep, doctor, clinic or SKU" : "Reference, doctor or clinic"}
               title={isAdmin
-                ? "Type to filter loaded orders. Press Enter on a full order reference (VT-ORD-…), SKU or Batch ID to search all history."
-                : "Type to filter loaded orders. Enter a full order reference (VT-ORD-…) and press Enter to search all your history."}
+                ? "Type to filter the orders shown. Press Enter on a full order reference (VT-ORD-…), SKU or Batch ID to search all history."
+                : "Type to filter the orders shown. Enter a full order reference (VT-ORD-…) and press Enter to search all your history."}
             />
           </label>
           <label>
@@ -356,7 +356,7 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
         !loading && !shownError && (
           <>
             <p className="ohx-muted" role="status">
-              Showing {visiblePage.length ? (currentPage - 1) * HISTORY_PAGE_SIZE + 1 : 0}–{Math.min(currentPage * HISTORY_PAGE_SIZE, visible.length)} of {visible.length} matching loaded order{visible.length === 1 ? "" : "s"}, newest first
+              Showing {visiblePage.length ? (currentPage - 1) * HISTORY_PAGE_SIZE + 1 : 0}–{Math.min(currentPage * HISTORY_PAGE_SIZE, visible.length)} of {visible.length}{hasMore ? "+" : ""} order{visible.length === 1 ? "" : "s"}, newest first
               {range.dateFrom || range.dateTo ? ` (${range.dateFrom || "…"} to ${range.dateTo || "…"})` : ""}.
             </p>
             {loadedNotice && <p className="ohx-loaded-notice" role="note">{loadedNotice}</p>}
@@ -378,7 +378,7 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
         </div>
       ) : (
         <div className="ohx-table-wrap ohx-list-table-wrap">
-          <table className="ohx-table">
+          <table className="ohx-table m-phone-cards">
             <thead>
               <tr>
                 <th scope="col">Order reference</th>
@@ -400,26 +400,26 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
                     {row.priority === "Urgent" && <span className="ohx-chip ohx-chip-danger">Urgent</span>}
                     <RequestedArrivalNote order={row.order} />
                   </td>
-                  <td className="tnum">{formatDateTime(row.createdAtMs)}</td>
+                  <td data-label="Placed" className="tnum">{formatDateTime(row.createdAtMs)}</td>
                   {isAdmin && (
-                    <td>
+                    <td data-label="Med Rep">
                       {row.medRep || medRepLabel.get(row.medRepUid) || (
                         <span className="ohx-muted">{medRepsError ? "Couldn't load name" : "Not recorded"}</span>
                       )}
                     </td>
                   )}
-                  <td>
+                  <td data-label="Doctor / clinic">
                     <span>{row.doctor || "—"}</span>
-                    <small className="ohx-muted">{row.clinic}</small>
+                    <small className="ohx-muted">{row.doctor && row.clinic.startsWith(`${row.doctor} — `) ? row.clinic.slice(row.doctor.length + 3) : row.clinic}</small>
                   </td>
-                  <td><span className={`ohx-stage ohx-stage-${row.stage.value}`}>{row.stage.label}</span></td>
-                  <td className="tnum">
+                  <td data-label="Status"><span className={`ohx-stage ohx-stage-${row.stage.value}`}>{row.stage.label}</span></td>
+                  <td data-label="Allocation" className="tnum">
                     {row.allocationLabel}
-                    {row.allocationState !== "untracked" && (
+                    {row.allocationState !== "untracked" && !row.allocationReleased && (
                       <small className="ohx-muted">{row.reserved} of {row.requested} reserved</small>
                     )}
                   </td>
-                  <td>
+                  <td data-label="Receipt">
                     {row.receiptStatus === "original" ? "Original"
                       : row.receiptStatus === "reconstructed" ? "Reconstructed"
                         : <span className="ohx-muted">Legacy — none</span>}
@@ -433,10 +433,10 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
 
       {!loading && !shownError && !lookupResult && (visible.length > 0 || hasMore) && (
         <nav className="page-nav ohx-history-pager" aria-label="Order history pages">
-          <span>Showing {visiblePage.length ? (currentPage - 1) * HISTORY_PAGE_SIZE + 1 : 0}–{Math.min(currentPage * HISTORY_PAGE_SIZE, visible.length)} of {visible.length} loaded</span>
+          <span>Showing {visiblePage.length ? (currentPage - 1) * HISTORY_PAGE_SIZE + 1 : 0}–{Math.min(currentPage * HISTORY_PAGE_SIZE, visible.length)} of {visible.length}{hasMore ? "+" : ""}</span>
           <div className="page-nav-actions">
             <button type="button" disabled={currentPage === 1 || loadingMore} onClick={() => changeHistoryPage(currentPage - 1)}>Previous</button>
-            <span>Page {currentPage} of {Math.max(1, Math.ceil(visible.length / HISTORY_PAGE_SIZE)) + (hasMore ? 1 : 0)}{hasMore ? "+" : ""}</span>
+            <span>{hasMore ? `Page ${currentPage}` : `Page ${currentPage} of ${Math.max(1, Math.ceil(visible.length / HISTORY_PAGE_SIZE))}`}</span>
             <button type="button" disabled={loadingMore || (!hasMore && currentPage >= Math.ceil(visible.length / HISTORY_PAGE_SIZE))} onClick={() => changeHistoryPage(currentPage + 1)}>{loadingMore ? "Loading…" : "Next"}</button>
           </div>
         </nav>

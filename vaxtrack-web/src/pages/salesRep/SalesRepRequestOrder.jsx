@@ -441,7 +441,7 @@ function RequestOrderCart({ uid }) {
           <div className="request-header-row request-v2-header">
             <div>
               <h2>Available vaccines</h2>
-              <p>Live hub availability from Firestore inventory.</p>
+              <p>Stock at the hub, updated live.</p>
             </div>
 
             <div className="request-search request-v2-search">
@@ -486,7 +486,7 @@ function RequestOrderCart({ uid }) {
           <div className="rq-table-card">
           <div ref={catalogTableRef} className="rq-table-wrap">
             {filteredProducts.length > 0 ? (
-              <table className="rq-table">
+              <table className="rq-table m-phone-cards">
                 <thead>
                   <tr>
                     <th scope="col">Vaccine / batch</th>
@@ -510,21 +510,21 @@ function RequestOrderCart({ uid }) {
                         <small>Batch: {product.sku}</small>
                         {!product.orderable && <small className="rq-table-reason" id={`rq-table-reason-${product.inventoryId}`}>{product.blockedReason}</small>}
                       </td>
-                      <td>
+                      <td data-label="Type / VAT">
                         <span>{product.category}</span>
                         <small>{product.vatLabel}</small>
                       </td>
-                      <td>
+                      <td data-label="Availability">
                         <strong>{product.available === null ? "—" : product.available.toLocaleString()}</strong>
-                        <small>{!product.orderable ? "Can't order yet" : product.backorderOnly ? "Future order" : "In stock"}</small>
-                        <small>{product.available === null ? "Needs migration" : `${product.onHand ?? 0} on hand · ${Math.max((product.onHand ?? 0) - product.available, 0)} reserved or held`}</small>
+                        <small>{!product.orderable ? (product.expired || product.blockedReasonCode === "expires-today" ? "Can't order" : "Can't order yet") : product.backorderOnly ? "Future order" : "In stock"}</small>
+                        <small>{product.available === null ? "Needs migration" : `${(product.onHand ?? 0).toLocaleString()} on hand · ${Math.max((product.onHand ?? 0) - product.available, 0).toLocaleString()} reserved or held`}</small>
                       </td>
-                      <td className="rq-table-price">
+                      <td data-label="Unit price" className="rq-table-price">
                         <strong>{product.priceLabel}</strong>
                         {product.vatClassification === "vatable" && <small>{product.priceIsVatInclusive ? "VAT included" : "12% VAT added"}</small>}
                         {product.unitPriceCentavos === null && <small>Not priced yet</small>}
                       </td>
-                      <td>
+                      <td data-label="Quantity">
                         <div className="rq-table-qty" role="group" aria-label={`Quantity for ${product.name}, batch ${product.sku}`}>
                           <button type="button" className="rq-table-qty-btn" aria-label={`Decrease ${product.name} quantity`} onClick={() => changeQuantity(product.inventoryId, "minus")} disabled={!product.orderable}><Minus size={14} /></button>
                           <input

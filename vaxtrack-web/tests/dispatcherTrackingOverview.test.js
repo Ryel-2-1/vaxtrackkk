@@ -95,7 +95,7 @@ test("a row carries the name, delivery count, order ids, state badge and last up
   const [row] = T.trackingOverviewRows(fleet, NOW).rows;
   assert.deepEqual(
     { name: row.name, state: row.state, label: row.label, deliveryLabel: row.deliveryLabel, orderNumbers: row.orderNumbers, age: row.age },
-    { name: "Maria Clara Santos-Dela Cruz y Villanueva of Quezon City", state: "stale", label: "Stale", deliveryLabel: "2 deliveries", orderNumbers: "VT-ORD-1, VT-ORD-2", age: "4m ago" },
+    { name: "Maria Clara Santos-Dela Cruz y Villanueva of Quezon City", state: "stale", label: "Updates delayed", deliveryLabel: "2 deliveries", orderNumbers: "VT-ORD-1, VT-ORD-2", age: "4m ago" },
   );
   const [one] = T.trackingOverviewRows(fleetOf([order("9", "r9")], { r9: loc(1000) }), NOW).rows;
   assert.equal(one.deliveryLabel, "1 delivery");
@@ -115,7 +115,7 @@ test("all five badges, with the unchanged 3-minute and 10-minute boundaries", ()
   assert.deepEqual(T.FRESHNESS, { freshMs: 3 * MIN, offlineMs: 10 * MIN });
   assert.deepEqual(
     ["fresh", "stale", "offline", "unavailable", "deviating"].map((s) => T.MARKER_LABELS[s]),
-    ["Fresh", "Stale", "Offline", "Location Unavailable", "Route Deviating"],
+    ["Live", "Updates delayed", "Offline", "No location", "Off route"],
   );
   // The overview never re-implements thresholds or labels.
   for (const src of [VIEW, MAP]) {
@@ -166,7 +166,8 @@ test("header chips and summary cells use the dashboard's real counts and wording
   assert.match(VIEW, /<dt>Pending orders<\/dt>\s*<dd className="tnum">\{pendingCount\} waiting for dispatch<\/dd>/);
   assert.match(VIEW, /<dt>Riders available<\/dt>[\s\S]*title="Approved riders not currently on a delivery"[\s\S]*\{availableCount\} free to assign/);
   assert.match(VIEW, /<dt>Delayed deliveries<\/dt>/);
-  assert.match(DASH, /delayed \$\{delayedDeliveries === 1 \? "delivery" : "deliveries"\}/);
+  // The Urgent card speaks only about urgent orders; delayed has its own tile.
+  assert.match(DASH, /label="Urgent orders"[\s\S]*?context=\{urgentOrders > 0 \? "Assign these first" : "None waiting"\}/);
 });
 
 test("Open Live Tracking links to the existing, role-guarded Dispatcher route", () => {

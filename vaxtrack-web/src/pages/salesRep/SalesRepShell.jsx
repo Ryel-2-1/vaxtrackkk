@@ -12,6 +12,7 @@ import {
   LogOut,
   MapPin,
   MapPinned,
+  Menu,
   Settings,
   Truck,
 } from "lucide-react";
@@ -58,6 +59,10 @@ function SalesRepShell() {
   const active = meta.key;
 
   const notificationRef = useRef(null);
+  // Phones only: the bar holds four tabs, the rest open from More.
+  const navRef = useRef(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreActive = ["monitoring", "history", "alerts", "settings"].includes(active);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const uid = auth.currentUser?.uid ?? null;
   // Read marks: this browser's cache + the user's shared copy in Firestore.
@@ -100,6 +105,9 @@ function SalesRepShell() {
       if (notificationRef.current && !notificationRef.current.contains(event.target)) {
         setNotificationOpen(false);
       }
+      if (navRef.current && !navRef.current.contains(event.target)) {
+        setMoreOpen(false);
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -110,6 +118,7 @@ function SalesRepShell() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setNotificationOpen(false);
+    setMoreOpen(false);
   }, [location.pathname]);
 
   const handleLogout = async () => {
@@ -151,7 +160,7 @@ function SalesRepShell() {
 
         <SidebarProfile fallbackRole="Med Rep" />
 
-        <nav className="salesrep-nav">
+        <nav className="salesrep-nav" ref={navRef} onKeyDown={(event) => { if (event.key === "Escape") setMoreOpen(false); }}>
           <Link className={active === "dashboard" ? "active" : ""} to="/sales-rep">
             <LayoutDashboard size={17} />
             <span>Dashboard</span>
@@ -172,6 +181,18 @@ function SalesRepShell() {
             <span>Order Tracking</span>
           </Link>
 
+          <button
+            type="button"
+            className={`salesrep-more-btn${moreActive || moreOpen ? " active" : ""}`}
+            aria-expanded={moreOpen}
+            aria-controls="salesrep-more"
+            onClick={() => setMoreOpen((open) => !open)}
+          >
+            <Menu size={17} aria-hidden="true" />
+            <span>More</span>
+          </button>
+
+          <div id="salesrep-more" className={`salesrep-nav-more${moreOpen ? " is-open" : ""}`}>
           <Link className={active === "monitoring" ? "active" : ""} to="/sales-rep/live-monitoring">
             <MapPinned size={17} />
             <span>Live Monitoring</span>
@@ -191,6 +212,12 @@ function SalesRepShell() {
             <Settings size={17} />
             <span>Settings</span>
           </Link>
+
+          <button type="button" className="salesrep-more-logout" onClick={handleLogout} disabled={loggingOut} aria-busy={loggingOut}>
+            <LogOut size={17} aria-hidden="true" />
+            <span>{loggingOut ? "Logging out…" : "Logout"}</span>
+          </button>
+          </div>
         </nav>
 
         <button

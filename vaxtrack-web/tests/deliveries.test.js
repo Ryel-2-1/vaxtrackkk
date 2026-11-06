@@ -83,7 +83,7 @@ test("a delivered order is not counted as in transit, nor a cancelled one as del
   assert.equal(mapOrderStatusType("canceled"), "cancelled");
   // Each card counts exactly the status it names.
   assert.match(PAGE, /const inTransitCount = countOf\("in_transit"\);/);
-  assert.match(PAGE, /const delayedCount = countOf\("delayed"\);/);
+  assert.match(PAGE, /const delayedCount = deliveryList\.filter\(isLate\)\.length;/);
 });
 
 // ------------------------------------------------------ the unknown state

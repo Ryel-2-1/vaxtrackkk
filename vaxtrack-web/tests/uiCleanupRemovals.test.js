@@ -72,7 +72,7 @@ test("the inventory table shows exactly the five intended columns, in order", ()
     "Vaccine name",
     "Batch ID",
     "Expiry date",
-    "Remaining qty",
+    "On hand",
     "Status",
   ]);
 });

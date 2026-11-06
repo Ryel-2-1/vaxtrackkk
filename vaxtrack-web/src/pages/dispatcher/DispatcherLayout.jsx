@@ -44,7 +44,7 @@ const ROUTE_META = {
   "/dispatcher/assign-rider": { key: "assign-rider", title: "Assign Rider" },
   "/dispatcher/shipments": { key: "shipments", title: "Shipments" },
   "/dispatcher/cargo-loading": { key: "cargo-loading", title: "Cargo Loading" },
-  "/dispatcher/geofence": { key: "geofence", title: "Live Monitoring" },
+  "/dispatcher/geofence": { key: "geofence", title: "Delivery Monitoring" },
   "/dispatcher/live-tracking": { key: "live-tracking", title: "Live Tracking" },
   "/dispatcher/settings": { key: "settings", title: "Settings" },
 };
@@ -352,7 +352,7 @@ function DispatcherLayout() {
             onClick={selectDestination}
           >
             <MapPinned size={16} />
-            <span>Geofence</span>
+            <span>Delivery Monitoring</span>
           </NavLink>
 
           <NavLink

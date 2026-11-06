@@ -155,7 +155,7 @@ test("no KPI states a verdict its field cannot support", () => {
   // and never recomputed. The KPI now measures the expiry date itself — see
   // tests/expiryStatus.test.js for the derivation and its boundaries.
   assert.equal(/Stock healthy/.test(CODE), false);
-  assert.match(SRC, /label: "Expiring or expired stock"/);
+  assert.match(SRC, /label: "Expired or within 30 days"/);
   // Counted by the shared helper, which derives each batch's condition from
   // its expiry date (and leaves voided batches out — adminDashboardExpiringStock).
   assert.match(SRC, /countExpiringOrExpiredBatches\(batches, manilaToday\(Date\.now\(\)\)\)/);

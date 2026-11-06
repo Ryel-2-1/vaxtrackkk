@@ -257,7 +257,7 @@ test("'On hand' is labelled as what it is: not yet delivered, including stock ou
   assert.match(inv, /title="Every unit not yet delivered: includes reserved stock, stock out with riders[^"]*">\s*<dt>On hand<\/dt>[\s\S]*?<small>Not yet delivered \(includes reserved\)<\/small>/);
   assert.match(read("src/components/admin/ReservationProvenance.jsx"), /On hand \(not yet delivered\)/);
   // The Med Rep card's two figures add up: available + held = on hand.
-  assert.match(read("src/pages/salesRep/SalesRepRequestOrder.jsx"), /\(product\.onHand \?\? 0\) - product\.available, 0\)\} reserved or held/);
+  assert.match(read("src/pages/salesRep/SalesRepRequestOrder.jsx"), /\(product\.onHand \?\? 0\) - product\.available, 0\)\.toLocaleString\(\)\} reserved or held/);
   // And the server's consumption is the only automatic decrement of quantity.
   const policy = read("functions/src/policy.js");
   assert.match(policy, /if \(mode === "consume"\)/);
