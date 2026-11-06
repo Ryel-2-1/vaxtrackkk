@@ -43,3 +43,16 @@ export function capitalizedOrderPhrase(order) {
   const phrase = orderPhrase(order);
   return phrase.charAt(0).toUpperCase() + phrase.slice(1);
 }
+
+/**
+ * The real vaccines in an order, one name each. `vaccineName` on a mixed order
+ * is a display summary ("ARV +1 more"), not a vaccine.
+ */
+export function orderVaccineNames(order) {
+  const fromItems = (Array.isArray(order?.items) ? order.items : [])
+    .map((item) => (typeof item?.name === "string" ? item.name.trim() : ""))
+    .filter(Boolean);
+  if (fromItems.length > 0) return [...new Set(fromItems)];
+  const summary = typeof order?.vaccineName === "string" ? order.vaccineName.replace(/\s\+\d+ more$/, "").trim() : "";
+  return summary ? [summary] : [];
+}

@@ -33,6 +33,7 @@ import StatusBadge from "../../components/ui/StatusBadge";
 import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
 import DeliveryEventCard from "../../components/schedule/DeliveryEventCard";
 import { kpiValue, liveErrorMessage } from "../../services/liveDataErrors";
+import { quantityText } from "../../services/quantityText";
 
 // The key the planner leaves for the checkout page to pick up, so a day chosen
 // here pre-fills the order's requested delivery date. Read once and cleared by
@@ -67,7 +68,7 @@ function formatExpiry(dateStr) {
   if (!dateStr) return "—";
   const date = new Date(dateStr + "T00:00:00");
   if (isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function getDaysUntilExpiry(dateStr) {
@@ -472,7 +473,7 @@ function SalesRepDashboard() {
           <div className="srd-card">
             <div className="srd-card-head">
               <div>
-                <h2>Active orders</h2>
+                <h2>Recent orders</h2>
                 <p>Your most recent orders.</p>
               </div>
               <button
@@ -510,7 +511,7 @@ function SalesRepDashboard() {
               </div>
             ) : (
               <div className="srd-table-wrap">
-                <table className="srd-table">
+                <table className="srd-table m-phone-cards">
                   <thead>
                     <tr>
                       <th>Order</th>
@@ -530,19 +531,19 @@ function SalesRepDashboard() {
                           <span className="srd-order-id">{o.orderNumber}</span>
                           <RequestedArrivalNote order={o} />
                         </td>
-                        <td>{o.clinicName}</td>
-                        <td>
+                        <td data-label="Clinic">{o.clinicName}</td>
+                        <td data-label="Vaccine">
                           <div className="srd-vaccine-cell">
                             <strong>{o.vaccineName}</strong>
                             <small className="tnum">
-                              {o.quantity.toLocaleString()} {o.unit}
+                              {quantityText(o.quantity, o.unit)}
                             </small>
                           </div>
                         </td>
-                        <td>
+                        <td data-label="Status">
                           <StatusBadge statusKey={o.statusKey} />
                         </td>
-                        <td className="srd-td-meta">{o.date}</td>
+                        <td data-label="Created" className="srd-td-meta">{o.date}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -33,6 +33,7 @@ import { requestedArrivalLabel, requestedArrivalOf } from "../../services/reques
 import { isRunningLate, requestedArrivalMiss } from "../../services/deliveryTiming";
 import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import VaccineBreakdown from "../../components/dispatch/VaccineBreakdown";
+import { quantityText } from "../../services/quantityText";
 
 function shortDate(iso) {
   const d = new Date(`${iso}T00:00:00.000Z`);
@@ -318,16 +319,16 @@ function DispatcherDashboard() {
           <KpiCard
             label="Active deliveries"
             value={activeShown}
-            context="Currently in transit"
+            context="Loading or in transit"
             tone="info"
           />
 
           <KpiCard
             label="Urgent orders"
             value={urgentShown}
-            context={failed.all ? "Delayed deliveries unavailable" : delayedDeliveries > 0 ? `${delayedDeliveries} delayed ${delayedDeliveries === 1 ? "delivery" : "deliveries"}` : "No delayed deliveries"}
+            context={urgentOrders > 0 ? "Assign these first" : "None waiting"}
             tone="danger"
-            attention={urgentOrders > 0 || delayedDeliveries > 0}
+            attention={urgentOrders > 0}
           />
         </section>
 
@@ -409,14 +410,16 @@ function DispatcherDashboard() {
               <h2>Approved Orders Waiting for Rider Assignment</h2>
             </div>
 
-            <div className="dispatcher-dash-live-pill" data-tone={failed.pending ? "error" : "loaded"} role="status">
-              <span aria-hidden="true" />
-              {failed.pending ? "Queue unavailable" : "Queue data loaded"}
-            </div>
+            {failed.pending && (
+              <div className="dispatcher-dash-live-pill" data-tone="error" role="status">
+                <span aria-hidden="true" />
+                Queue unavailable
+              </div>
+            )}
           </div>
 
           <div className="dispatcher-dash-table-wrap">
-            <table className="dispatcher-dash-table">
+            <table className="dispatcher-dash-table m-phone-cards">
               <thead>
                 <tr>
                   <th>Order ID</th>
@@ -445,23 +448,23 @@ function DispatcherDashboard() {
                           </strong>
                         </td>
 
-                        <td>
+                        <td data-label="Destination">
                           <strong>
                             {order.clinicName || "No destination"}
                           </strong>
                           <p>{order.clinicAddress || ""}</p>
                         </td>
 
-                        <td>
+                        <td data-label="Vaccine">
                           <span className="dispatcher-dash-vaccine-dot"></span>
                           <VaccineBreakdown order={order} />
                         </td>
 
-                        <td>
-                          {order.quantity || 0} {order.unit || "vials"}
+                        <td data-label="Quantity">
+                          {quantityText(order.quantity, order.unit)}
                         </td>
 
-                        <td>
+                        <td data-label="Requested date">
                           {dateMeta.kind === "none" ? (
                             // Unreachable for an actionable order (every one
                             // has a valid date); kept so a bad row never
@@ -480,7 +483,7 @@ function DispatcherDashboard() {
                           <p className="dispatcher-dash-arrival">{requestedArrivalLabel(requestedArrivalOf(order))}</p>
                         </td>
 
-                        <td>
+                        <td data-label="Priority">
                           <span
                             className={`dispatcher-dash-priority ${
                               isUrgent ? "urgent" : "standard"
@@ -596,7 +599,7 @@ function ReadOnlyQueue({ id, kicker, title, note, orders, now }) {
       </div>
 
       <div className="dispatcher-dash-table-wrap">
-        <table className="dispatcher-dash-table">
+        <table className="dispatcher-dash-table m-phone-cards is-scheduled">
           <thead>
             <tr>
               <th>Order ID</th>
@@ -619,15 +622,15 @@ function ReadOnlyQueue({ id, kicker, title, note, orders, now }) {
                       {order.orderNumber || order.id}
                     </strong>
                   </td>
-                  <td>
+                  <td data-label="Destination">
                     <strong>{order.clinicName || "No destination"}</strong>
                     <p>{order.clinicAddress || ""}</p>
                   </td>
-                  <td><VaccineBreakdown order={order} /></td>
-                  <td>
-                    {order.quantity || 0} {order.unit || "vials"}
+                  <td data-label="Vaccine"><VaccineBreakdown order={order} /></td>
+                  <td data-label="Quantity">
+                    {quantityText(order.quantity, order.unit)}
                   </td>
-                  <td>
+                  <td data-label="Requested date">
                     {schedule.iso ? (
                       <span className="dispatcher-dash-date scheduled">
                         {shortDate(schedule.iso)}
@@ -639,7 +642,7 @@ function ReadOnlyQueue({ id, kicker, title, note, orders, now }) {
                     )}
                     <p className="dispatcher-dash-arrival">{requestedArrivalLabel(requestedArrivalOf(order))}</p>
                   </td>
-                  <td>
+                  <td data-label="Priority">
                     <span
                       className={`dispatcher-dash-priority ${
                         priority.toLowerCase() === "urgent" ? "urgent" : "standard"
@@ -648,7 +651,7 @@ function ReadOnlyQueue({ id, kicker, title, note, orders, now }) {
                       {priority}
                     </span>
                   </td>
-                  <td>
+                  <td data-label="Dispatch">
                     <p className="dispatcher-dash-not-yet">{schedule.message}</p>
                   </td>
                 </tr>

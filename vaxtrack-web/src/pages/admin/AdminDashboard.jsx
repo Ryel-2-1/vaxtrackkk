@@ -14,6 +14,7 @@ import StatusBadge from "../../components/ui/StatusBadge";
 import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
 import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { presentAlert } from "../../services/alertPresentation";
+import { isRunningLate } from "../../services/deliveryTiming";
 
 // Small shimmer placeholder used while the first snapshots load, so sections
 // don't flash their empty state before real data arrives.
@@ -129,7 +130,7 @@ function AdminDashboard() {
     const unsubDeliveries = subscribeDeliveries(
       (orders) => {
         setDeliveryCount(orders.length);
-        setExceptionCount(orders.filter((o) => DELIVERY_EXCEPTION_STATUSES.includes(o.statusKey)).length);
+        setExceptionCount(orders.filter((o) => DELIVERY_EXCEPTION_STATUSES.includes(o.statusKey) || isRunningLate(o)).length);
         // Derived from the same orders array — no extra Firestore read.
         const breakdown = {};
         orders.forEach((o) => {
@@ -218,7 +219,7 @@ function AdminDashboard() {
     // batch that had since expired still counted as healthy stock. The label
     // says what is measured; quantity and reserved figures are separate
     // concerns and are not folded into it.
-    { label: "Expiring or expired stock", source: "inventory", value: criticalCount, note: criticalCount > 0 ? "Within 30 days or past expiry" : "None within 30 days", to: "/admin/inventory", tone: criticalCount > 0 ? " is-attention" : "" },
+    { label: "Expired or within 30 days", source: "inventory", value: criticalCount, note: criticalCount > 0 ? "Within 30 days or past expiry" : "None within 30 days", to: "/admin/inventory", tone: criticalCount > 0 ? " is-attention" : "" },
     { label: "Registered riders", source: "riders", value: riderCount, note: "On the platform", to: "/admin/riders", tone: "" },
   ].map((c) => (failed[c.source] ? { ...c, value: "—", note: "Unavailable", tone: "" } : c));
 

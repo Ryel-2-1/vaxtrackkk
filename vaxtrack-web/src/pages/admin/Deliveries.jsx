@@ -27,6 +27,8 @@ import { invoicePhotoView, proofPhotoView } from "../../services/deliveryEvidenc
 import { offlineCompletionNote, pendingOfflineReview } from "../../services/offlineCompletionView";
 import { storageBucket } from "../../firebase";
 import "./Deliveries.css";
+import { quantityText } from "../../services/quantityText";
+import { isRunningLate } from "../../services/deliveryTiming";
 
 // The "Preparing" card counts — and its filter shows — orders not yet on the
 // road: pending dispatch, assigned or loading.
@@ -142,6 +144,9 @@ function formatDateTime(ts) {
   });
 }
 
+// A Rider's hold or the server's automatic delay.
+const isLate = (delivery) => isRunningLate({ status: delivery.statusType, timingStatus: delivery.timingStatus });
+
 function Deliveries() {
 
   const [deliveryList, setDeliveryList] = useState([]);
@@ -207,7 +212,7 @@ function Deliveries() {
       const matchesStatus =
         statusFilter === "all" ||
         (statusFilter === PREPARING_FILTER && PREPARING_STATUSES.has(delivery.statusType)) ||
-        delivery.statusType === statusFilter;
+        (statusFilter === "delayed" ? isLate(delivery) : delivery.statusType === statusFilter);
       return matchesSearch && matchesStatus;
     });
   }, [deliveryList, searchTerm, statusFilter]);
@@ -221,7 +226,7 @@ function Deliveries() {
   const inTransitCount = countOf("in_transit");
   // A dash while loading or after a failed read — never a false zero.
   const kpiState = { loading, error: loadError };
-  const delayedCount = countOf("delayed");
+  const delayedCount = deliveryList.filter(isLate).length;
   const failedCount = countOf("delivery_failed");
   const preparingCount = deliveryList.filter((d) => PREPARING_STATUSES.has(d.statusType)).length;
   const unknownCount = countOf(UNKNOWN_STATUS_KEY);
@@ -590,7 +595,7 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
             <div className="mdl-drawer-row">
               <span>Quantity</span>
               <strong className="tnum">
-                {delivery.quantity} {delivery.unit}
+                {quantityText(delivery.quantity, delivery.unit)}
               </strong>
             </div>
             <div className="mdl-drawer-row">

@@ -195,6 +195,8 @@ function Alerts() {
 
   const resolvedCount = alerts.filter((alert) => alert.status === "resolved").length;
   const unreadAlerts = alerts.filter((alert) => !alert.read);
+  // The figure on the button is the bell's: unread and still active.
+  const unreadActive = unreadAlerts.filter((alert) => alert.status !== "resolved").length;
 
   const priorityAlert =
     alerts.find((alert) => alert.status !== "resolved" && alert.severity === "critical") ||
@@ -319,12 +321,12 @@ function Alerts() {
               type="button"
               className="alerts-outline-btn"
               onClick={handleMarkAllRead}
-              disabled={markingAll || loading || Boolean(loadError) || unreadAlerts.length === 0}
+              disabled={markingAll || loading || Boolean(loadError) || unreadActive === 0}
               aria-busy={markingAll}
               title="Marks system alerts as read; does not resolve them or clear delivery exceptions"
             >
               <CheckCircle2 size={16} />
-              {markingAll ? "Marking as read…" : unreadAlerts.length > 0 ? `Mark ${unreadAlerts.length} read` : "All alerts read"}
+              {markingAll ? "Marking as read…" : unreadActive > 0 ? `Mark ${unreadActive} read` : "All alerts read"}
             </button>
 
           </div>

@@ -87,8 +87,8 @@ function readCounter(raw) {
  * The batch's units that may be allocated right now, or 0 when the batch is
  * unusable. Unusable: corrupt counters, an on-hand figure above the
  * MAX_STOCK_QUANTITY ceiling (unconfirmed), a status outside USABLE_STATUSES
- * (disabled, quarantined, critical …), a missing/invalid expiry, or expired
- * (Manila calendar day), or voided by an Admin. return-pending and quarantined
+ * (disabled, quarantined, critical …), a missing/invalid expiry, expired or
+ * expiring today (Manila calendar day), or voided by an Admin. return-pending and quarantined
  * units never count.
  */
 function allocatableUnits(data, now) {
@@ -103,7 +103,7 @@ function allocatableUnits(data, now) {
   if (isUnconfirmedStockQuantity(onHand.value)) return 0;
   if (!isUsableStatus(data.status)) return 0;
   const expiry = isoDateOnly(data.expiryDate);
-  if (expiry === null || expiry < manilaDateString(now)) return 0;
+  if (expiry === null || expiry <= manilaDateString(now)) return 0;
   const available = onHand.value - reserved.value - returning.value - quarantined.value;
   return available > 0 ? available : 0;
 }

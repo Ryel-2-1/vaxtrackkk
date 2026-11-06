@@ -48,7 +48,7 @@ function mapTrackingLabel(statusKey) {
       return "Loading";
     case "in_transit":
     case "out_for_delivery":
-      return "Out for Delivery";
+      return "In Transit";
     case "delayed":
       return "Delayed";
     // Without this a failed order fell through to "Processing" and read to the
@@ -105,9 +105,12 @@ function deriveProgress(raw, statusKey) {
     case "delivered":
     case "completed":
       return { progress: 100, indeterminate: false };
+    // Stopped, not early: a percentage would read like an order on its way.
+    case "delivery_failed":
+      return { progress: 0, indeterminate: false, text: "Failed" };
     case "cancelled":
     case "canceled":
-      return { progress: 0, indeterminate: false };
+      return { progress: 0, indeterminate: false, text: "Cancelled" };
     case "delayed": {
       // A delayed order keeps its LAST legitimate stage — recovered from the
       // audit fields the dispatch/cargo/rider flow writes — rather than an
@@ -139,7 +142,7 @@ function normalizeOrder(raw) {
   const rawStatus = getOrderStatusValue(raw);
   const statusKey = normalizeStatusKey(rawStatus);
   const label = mapTrackingLabel(statusKey);
-  const { progress: rawProgress, indeterminate: progressIndeterminate } =
+  const { progress: rawProgress, indeterminate: progressIndeterminate, text: progressWord } =
     deriveProgress(raw, statusKey);
   const progress = clampPct(rawProgress);
 
@@ -165,7 +168,7 @@ function normalizeOrder(raw) {
     statusKey,
     progress,
     progressIndeterminate,
-    progressText: progressIndeterminate ? "Delayed" : `${progress}%`,
+    progressText: progressWord ?? (progressIndeterminate ? "Delayed" : `${progress}%`),
     driver: raw.assignedRiderId || "Pending",
     driverName: raw.assignedRiderName || "Awaiting rider assignment",
     vaccineName: raw.vaccineName || "—",
@@ -191,6 +194,12 @@ function normalizeOrder(raw) {
     assignedRiderId: raw.assignedRiderId || "",
     clinicLat: raw.clinicLat,
     clinicLng: raw.clinicLng,
+    clinicGeofenceRadiusM: raw.clinicGeofenceRadiusM,
+    // The order's own arrival point and radius, what the server checks. Without
+    // these the map fell back to the 300 m default and disagreed with Dispatch.
+    destinationLat: raw.destinationLat,
+    destinationLng: raw.destinationLng,
+    destinationGeofenceRadiusM: raw.destinationGeofenceRadiusM,
     routePolyline: raw.routePolyline || "",
     routeProvider: raw.routeProvider ?? null,
     routeProfile: raw.routeProfile ?? null,
@@ -233,6 +242,8 @@ function SalesRepOrderTracking() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedOrderId, setSelectedOrderId] = useState("");
+  const listRef = useRef(null);
+  const detailsRef = useRef(null);
   const { toast, showToast, dismissToast } = useToast();
   // The destination decision awaiting confirmation: "approve" | "reject" | null.
   const [pendingDecision, setPendingDecision] = useState(null);
@@ -345,6 +356,10 @@ function SalesRepOrderTracking() {
     setCorrectionsError("");
     setPendingDecision(null);
     setSelectedOrderId(id);
+    // On a phone the details sit below the list, so go to them, and back on close.
+    if (window.matchMedia("(max-width: 768px)").matches) {
+      setTimeout(() => (id ? detailsRef : listRef).current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+    }
   };
 
   if (loading) {
@@ -411,7 +426,9 @@ function SalesRepOrderTracking() {
               <option value="all">All Status</option>
               <option value="pending-dispatch">Pending Dispatch</option>
               <option value="assigned">Assigned</option>
-              <option value="out-for-delivery">Out for Delivery</option>
+              <option value="loading">Loading</option>
+              <option value="in-transit">In Transit</option>
+              <option value="delivery-failed">Delivery Failed</option>
               <option value="delayed">Delayed</option>
               <option value="delivered">Delivered</option>
               <option value="cancelled">Cancelled</option>
@@ -422,8 +439,8 @@ function SalesRepOrderTracking() {
         <section className="tracking-layout tracking-v2-layout">
           <div className="tracking-left">
             <div className="tracking-v2-table-wrap">
-              <div className="tracking-v2-table-scroll">
-                <table className="tracking-table tracking-v2-table">
+              <div className="tracking-v2-table-scroll" ref={listRef}>
+                <table className="tracking-table tracking-v2-table m-phone-cards">
                 <thead>
                   <tr>
                     <th>Order ID</th>
@@ -461,7 +478,7 @@ function SalesRepOrderTracking() {
             </div>
           </div>
 
-          <aside className="tracking-side tracking-v2-side" key={selectedOrder?.id ?? "none"}>
+          <aside className="tracking-side tracking-v2-side" key={selectedOrder?.id ?? "none"} ref={detailsRef}>
             {selectedOrder ? (
               <>
                 <div className="tracking-side-title">
@@ -638,7 +655,7 @@ function SalesRepOrderTracking() {
 }
 
 function TrackingRow({ selected, order, onSelect }) {
-  const isDanger = order.statusKey === "delayed";
+  const isDanger = order.statusKey === "delayed" || order.statusKey === "delivery_failed";
 
   return (
     <tr
@@ -657,7 +674,7 @@ function TrackingRow({ selected, order, onSelect }) {
         <small className="tnum">{order.date}</small>
       </td>
 
-      <td>
+      <td data-label="Destination">
         <strong>{order.destination}</strong>
         <small>{order.vaccineName}</small>
         <RequestedArrivalNote order={order} />
@@ -671,14 +688,14 @@ function TrackingRow({ selected, order, onSelect }) {
       </td>
 
 
-      <td>
+      <td data-label="Status">
         <StatusBadge statusKey={order.statusKey} label={order.status} />
         <div>
           <TimingIndicator order={order} detail={false} />
         </div>
       </td>
 
-      <td>
+      <td data-label="Progress">
         <div
           className={`track-progress${isDanger ? " is-delayed" : ""}${
             order.progressIndeterminate ? " is-indeterminate" : ""

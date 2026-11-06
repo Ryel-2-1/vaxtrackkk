@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Home,
-  Info,
   Loader2,
   Package,
   RotateCcw,
@@ -44,6 +43,7 @@ const DEPARTURE_PLANNER_ENABLED =
   import.meta.env?.VITE_DEPARTURE_PLANNER_ENABLED === "true" || import.meta.env?.MODE === "motorcycle-qa";
 import { requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
 import "./CargoLoading.css";
+import { quantityText } from "../../services/quantityText";
 
 // Loading-state badge shown on each rider card. Text + icon (not colour alone)
 // so the state is clear without relying on colour perception.
@@ -343,14 +343,6 @@ function DispatcherCargoLoading() {
           </div>
         ) : (
           <>
-            <div className="cl-note">
-              <Info size={15} />
-              <span>
-                Live route mapping isn&apos;t active yet — orders follow each
-                rider&apos;s delivery sequence below.
-              </span>
-            </div>
-
             <div className="cl-cards">
               {groups.map((group) => (
                 <RiderCard
@@ -525,7 +517,7 @@ function RiderCard({
                   {order.vaccineName || "Unknown vaccine"}
                   <span className="tnum">
                     {" · "}
-                    {(order.quantity || 0).toLocaleString()} {order.unit || "vials"}
+                    {quantityText(order.quantity, order.unit)}
                   </span>
                   {order.batchId ? ` · Batch ${order.batchId}` : ""}
                 </small>

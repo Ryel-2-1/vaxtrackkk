@@ -151,6 +151,7 @@ function toHttpsError(error, context) {
       "note-required": "invalid-argument",
       "insufficient-stock": "failed-precondition",
       "batch-expired": "failed-precondition",
+      "batch-expires-today": "failed-precondition",
       "batch-unavailable": "failed-precondition",
       "inventory-migration-required": "failed-precondition",
       "inventory-invalid-quantity": "failed-precondition",

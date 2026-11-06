@@ -204,11 +204,11 @@ test("web deviation display matches the server", () => {
 
 test("UI labels are exactly the five marker states", () => {
   assert.deepEqual(web.MARKER_LABELS, {
-    fresh: "Fresh",
-    stale: "Stale",
+    fresh: "Live",
+    stale: "Updates delayed",
     offline: "Offline",
-    deviating: "Route Deviating",
-    unavailable: "Location Unavailable",
+    deviating: "Off route",
+    unavailable: "No location",
   });
   assert.deepEqual([...web.MARKER_STATES].sort(), Object.keys(web.MARKER_LABELS).sort());
 });

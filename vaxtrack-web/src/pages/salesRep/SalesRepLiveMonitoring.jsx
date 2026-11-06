@@ -16,6 +16,7 @@ import {
   riderUidsOnDelivery,
 } from "../../services/riderTracking";
 import "../../components/tracking/LiveTracking.css";
+import TimingIndicator from "../../components/ui/TimingIndicator";
 
 /**
  * Med Rep › Live Monitoring — the same map + sidebar layout as Admin and
@@ -128,6 +129,7 @@ function SalesRepLiveMonitoring() {
                             <strong className="tnum">{o.orderNumber}</strong>{" "}
                             <StatusBadge statusKey={normalizeStatusKey(getOrderStatusValue(order || {}))} />
                             {o.clinicName && <span className="ltp-muted"> · {o.clinicName}</span>}
+                            {order && <TimingIndicator order={order} detail={false} />}
                             {order && <RequestedArrivalNote order={order} />}
                           </li>
                         );

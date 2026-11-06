@@ -153,7 +153,7 @@ function ConfigEditor({ vaccineId, config, onSaved }) {
           Keep in reserve, counted in
           <select value={form.safetyMode} onChange={set("safetyMode")}>
             <option value="quantity">Vials</option>
-            <option value="days">Days of demand</option>
+            <option value="days">Days of orders</option>
           </select>
         </label>
         <label>
@@ -537,7 +537,7 @@ function AiInventoryAnalytics() {
   const environment = environmentNotice(import.meta.env.VITE_FIREBASE_PROJECT_ID || run?.projectId);
 
   return (
-    <AdminLayout description={`${BASELINE_LABEL} of vaccine demand and stockout risk from VaxTrack's own orders and stock.`}>
+    <AdminLayout description="Which vaccines may run out soon, based on VaxTrack's own orders and stock.">
       {body}
       <p className="aia-disclaimer" role="note">
         <strong>{ANALYTICS_DISCLAIMER}</strong> Recommendations are informational and need a human decision; nothing is

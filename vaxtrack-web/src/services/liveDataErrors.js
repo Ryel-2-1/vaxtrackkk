@@ -162,6 +162,7 @@ const DOMAIN_KINDS = Object.freeze({
   // stock
   "insufficient-stock": "stock",
   "batch-expired": "stock",
+  "batch-expires-today": "stock",
   "batch-unavailable": "stock",
   "order-not-fully-reserved": "stock",
   "inventory-quantity-unconfirmed": "stock",

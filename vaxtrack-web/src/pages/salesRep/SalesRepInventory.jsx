@@ -19,6 +19,7 @@ import { abbreviateBatchId } from "../../services/batchIdDisplay";
 import CatalogFilterDialog from "../../components/inventory/CatalogFilterDialog";
 import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import "../../components/ui/feedback.css";
+import { computeAvailableQuantity } from "../../services/orderEligibility";
 
 // The derived expiry levels, in the order a rep cares about them. These are
 // labels from the shared helper, not values of the stored `status` field.
@@ -58,6 +59,8 @@ function normalizeStock(raw, todayIso) {
     expiryRaw: raw.expiryDate || "",
     daysRemaining,
     quantity: raw.quantity != null ? Number(raw.quantity) : 0,
+    // Free to order today: reserved, held, expired and expiring-today vials are not.
+    orderable: level === "expired" || daysRemaining === 0 ? 0 : computeAvailableQuantity(raw) ?? 0,
     status: label,
     statusLower: level,
   };
@@ -172,7 +175,7 @@ function SalesRepInventory() {
 
     for (const stock of inventory) {
       const key = stock.type || "Unknown";
-      totals[key] = (totals[key] || 0) + stock.quantity;
+      totals[key] = (totals[key] || 0) + stock.orderable;
     }
 
     const sorted = Object.entries(totals).sort(([, a], [, b]) => b - a);
@@ -319,7 +322,7 @@ function SalesRepInventory() {
           ) && (
             <p>
               <AlertTriangle size={14} />
-              Expired batches cannot be ordered; batches within 30 days should be
+              Expired batches and batches expiring today cannot be ordered; batches within 30 days should be
               requested first.
             </p>
           )}
@@ -329,13 +332,13 @@ function SalesRepInventory() {
             remaining viewport space under a sticky header, with the pager
             outside the scroll area (salesrep-polish.css). */}
         <div className="inventory-v2-table-region">
-          <table className="salesrep-inventory-table inventory-v2-table">
+          <table className="salesrep-inventory-table inventory-v2-table m-phone-cards">
             <thead>
               <tr>
                 <th>Vaccine name</th>
                 <th>Batch ID</th>
                 <th>Expiry date</th>
-                <th>Remaining qty</th>
+                <th>On hand</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -433,7 +436,7 @@ function StockRow({ stock }) {
           </dialog>
         </div>
       </td>
-      <td>
+      <td data-label="Batch ID">
         {abbreviatedBatchId ? (
           <span className="batch-chip is-abbreviated">
             <span aria-hidden="true">{abbreviatedBatchId}</span>
@@ -443,14 +446,14 @@ function StockRow({ stock }) {
           <span className="batch-chip">{stock.batchId}</span>
         )}
       </td>
-      <td className="inventory-expiry-cell">
+      <td data-label="Expiry date" className="inventory-expiry-cell">
         <strong>{stock.expiryDate}</strong>
         {stock.daysRemaining !== Infinity && (
           <small>{stock.daysRemaining} Days Remaining</small>
         )}
       </td>
-      <td className="inventory-qty-cell">{formatNumber(stock.quantity)}</td>
-      <td><span className={`status-chip ${stock.statusLower}`}>• {stock.status}</span></td>
+      <td data-label="On hand" className="inventory-qty-cell">{formatNumber(stock.quantity)}</td>
+      <td data-label="Status"><span className={`status-chip ${stock.statusLower}`}>• {stock.status}</span></td>
     </tr>
   );
 }

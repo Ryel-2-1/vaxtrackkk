@@ -49,7 +49,7 @@ test("Admin detail dialogs are real modals with shared focus handling", () => {
 
 test("the Med Rep vaccine catalog is a compact table with every field kept", () => {
   const src = read("src/pages/salesRep/SalesRepRequestOrder.jsx");
-  assert.match(src, /<table className="rq-table">/);
+  assert.match(src, /<table className="rq-table m-phone-cards">/);
   assert.equal(src.includes("rq-view-switch"), false);
   // Still shown on each row: name, batch, type, status, VAT, stock, price, quantity, action.
   for (const piece of ["{product.name}", "Batch: {product.sku}", "{product.category}", "{product.vatLabel}", "Availability", "Unit price", "changeQuantity(", 'addToCart(product, "immediate")']) {
@@ -63,7 +63,7 @@ test("the Med Rep vaccine catalog is a compact table with every field kept", () 
   assert.match(src, /review\.kind === "future" && \(/);
   assert.match(src, /type="number"[\s\S]*?min="1"/);
   // One compact stock line: "7 on hand · 7 reserved or held".
-  assert.match(src, /`\$\{product\.onHand \?\? 0\} on hand · \$\{Math\.max\(\(product\.onHand \?\? 0\) - product\.available, 0\)\} reserved or held`/);
+  assert.match(src, /`\$\{\(product\.onHand \?\? 0\)\.toLocaleString\(\)\} on hand · \$\{Math\.max\(\(product\.onHand \?\? 0\) - product\.available, 0\)\.toLocaleString\(\)\} reserved or held`/);
   assert.match(src, /aria-describedby=\{!product\.orderable \? `rq-table-reason-\$\{product\.inventoryId\}` : review\.kind !== "immediate" \? quantityNoteId : undefined\}/);
   // The price convention is said once for the list.
   assert.match(src, /className="rq-price-convention">Unit prices are per vial · VAT-inclusive for VATable products\./);

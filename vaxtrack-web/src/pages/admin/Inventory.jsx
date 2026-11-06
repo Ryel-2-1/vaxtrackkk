@@ -841,7 +841,7 @@ function Inventory() {
               breakdown keeps each band visible; each band is still its own
               option in the expiry filter. */}
           <KpiCard
-            label="Expiring & expired stock"
+            label="Expired or within 90 days"
             value={loading || loadError ? "—" : expiredCount + criticalCount + warningCount}
             context={loading || loadError ? "By expiry date" : `${expiredCount} expired · ${criticalCount} within 30d · ${warningCount} in 31–90d`}
             tone={expiredCount > 0 ? "danger" : "warning"}
@@ -1006,7 +1006,7 @@ function Inventory() {
             <div className="v2-empty-inventory">
               <Package size={28} />
               <strong>Loading inventory...</strong>
-              <p>Fetching vaccine batches from Firestore.</p>
+              <p>Loading vaccine batches.</p>
             </div>
           )}
 

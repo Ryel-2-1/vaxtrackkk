@@ -59,7 +59,9 @@ export function friendlyTime(ms, nowMs = Date.now()) {
   if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"} ago`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
-  if (hours < 48) return "yesterday";
+  // Calendar days in Manila: 47 hours ago can be two days ago on the calendar.
+  const manilaDay = (t) => Math.floor((t + 8 * 3600000) / 86400000);
+  if (manilaDay(nowMs) - manilaDay(ms) === 1) return "yesterday";
   return new Date(ms).toLocaleDateString("en-PH", { month: "short", day: "numeric", timeZone: "Asia/Manila" });
 }
 

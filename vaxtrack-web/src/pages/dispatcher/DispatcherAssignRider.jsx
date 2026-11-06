@@ -39,6 +39,7 @@ import { createSingleFlight } from "../../services/singleFlight";
 import { requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
 import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
 import VaccineBreakdown from "../../components/dispatch/VaccineBreakdown";
+import { quantityText } from "../../services/quantityText";
 
 function initialsOf(name) {
   return (
@@ -383,7 +384,7 @@ function DispatcherAssignRider() {
                     </div>
                     <div className="arq-row-vaccine">
                       <VaccineBreakdown order={o} />
-                      <span className="tnum">{o.quantity || 0} {o.unit || "vials"}</span>
+                      <span className="tnum">{quantityText(o.quantity, o.unit)}</span>
                     </div>
                     {o.stockBlock && <p className="arq-hold">{o.stockBlock}</p>}
                     <button
@@ -443,7 +444,7 @@ function DispatcherAssignRider() {
               <div className="ar-order-meta">
                 <span>
                   <Package size={13} />
-                  {selectedOrder.quantity || 0} {selectedOrder.unit || "vials"}
+                  {quantityText(selectedOrder.quantity, selectedOrder.unit)}
                 </span>
               </div>
               <div className="ar-order-row">

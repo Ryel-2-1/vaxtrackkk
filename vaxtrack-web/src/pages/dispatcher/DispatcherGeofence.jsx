@@ -41,7 +41,7 @@ import StatusBadge from "../../components/ui/StatusBadge";
 import TimingIndicator from "../../components/ui/TimingIndicator";
 import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import { savedRouteDescription } from "../../services/routeMetadata.js";
-import { manilaTime } from "../../services/deliveryTiming";
+import { isRunningLate, manilaTime } from "../../services/deliveryTiming";
 import { manilaClock, requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
 
 /** Epoch ms of a Firestore Timestamp / Date / number, or null. */
@@ -816,8 +816,10 @@ function DispatcherGeofence() {
                           </div>
                         )}
 
-                        {hasStoredRoute && genAt && (() => {
+                        {hasStoredRoute && genAt && !selected.requestedArrivalMissedAt && !isRunningLate(selected) && (() => {
                           // The arrival with the traffic buffer, against the requested time.
+                          // Only while it can still happen: once the order is late the old
+                          // plan's "meets the requested time" would contradict the chips above.
                           const buffered = bufferedMinutes(selected.routeDurationSeconds, routing.trafficBufferPercent);
                           const check = buffered === null ? null : arrivalCheck(selected, new Date(genAt.getTime() + buffered * 60000));
                           return check ? (

@@ -152,7 +152,7 @@ test("dashboard overview rows say 'Returning to hub' instead of a delivery count
   const { rows } = web.trackingOverviewRows(fleet, NOW);
   assert.equal(rows[0].deliveryLabel, "Returning to hub");
   assert.equal(rows[0].orderNumbers, "");
-  assert.equal(rows[0].label, "Fresh");
+  assert.equal(rows[0].label, "Live");
 });
 
 // ---------------------------------------------------------------- privacy (server)

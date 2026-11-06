@@ -201,6 +201,13 @@ function endedTimingAttempt(event, after) {
 }
 
 /** Whole minutes `nowMs` is past `fromMs`; never negative. */
+/** "12 min"; from an hour up, "10 hr 45 min". */
+function durationText(minutes) {
+  if (minutes < 60) return `${minutes} min`;
+  const rest = minutes % 60;
+  return rest === 0 ? `${Math.floor(minutes / 60)} hr` : `${Math.floor(minutes / 60)} hr ${rest} min`;
+}
+
 function minutesLate(fromMs, nowMs) {
   return Math.max(0, Math.floor((nowMs - fromMs) / 60000));
 }
@@ -222,4 +229,5 @@ module.exports = {
   timingAlertId,
   endedTimingAttempt,
   minutesLate,
+  durationText,
 };

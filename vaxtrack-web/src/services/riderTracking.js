@@ -48,11 +48,11 @@ export const TRACKING_COLLECTIONS = Object.freeze({
 export const MARKER_STATES = Object.freeze(["deviating", "fresh", "stale", "offline", "unavailable"]);
 
 export const MARKER_LABELS = Object.freeze({
-  fresh: "Fresh",
-  stale: "Stale",
+  fresh: "Live",
+  stale: "Updates delayed",
   offline: "Offline",
-  deviating: "Route Deviating",
-  unavailable: "Location Unavailable",
+  deviating: "Off route",
+  unavailable: "No location",
 });
 
 /**

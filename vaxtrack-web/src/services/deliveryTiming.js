@@ -76,6 +76,14 @@ export function isRunningLate(order) {
   return lifecycle === "delayed" || (lifecycle === "in_transit" && order?.timingStatus === "delayed");
 }
 
+/** What a Med Rep must be told about an open order: running late, past the requested arrival, or nothing. */
+export function lateNotice(order) {
+  const lifecycle = normalized(order);
+  if (lifecycle === "in_transit" && isRunningLate(order)) return "running_late";
+  if (["assigned", "loading", "in_transit"].includes(lifecycle) && order?.requestedArrivalMissedAt) return "past_requested";
+  return null;
+}
+
 /**
  * The timing indicator, or null when there is nothing to show: the order is
  * not in transit or on a Rider-reported hold, or it was dispatched before

@@ -58,7 +58,7 @@ test("the three bands are exclusive and cover every day", () => {
 
 test("Admin Inventory's expiry card labels each band with what it actually counts", () => {
   // One card, three exclusive bands, each counted on its own derived level.
-  assert.match(INV, /label="Expiring & expired stock"/);
+  assert.match(INV, /label="Expired or within 90 days"/);
   for (const [name, level] of [["expiredCount", "expired"], ["criticalCount", "critical"], ["warningCount", "warning"]]) {
     assert.match(INV, new RegExp(`const ${name} = useMemo\\(\\s*\\(\\) => stockBatches\\.filter\\(\\(i\\) => i\\.level === "${level}"\\)\\.length,`), name);
   }
@@ -106,7 +106,7 @@ test("the Dashboard KPI counts critical AND expired, and nothing else", () => {
 
   // And the page really uses that helper, under a label naming both.
   assert.match(DASH, /setCriticalCount\(countExpiringOrExpiredBatches\(batches, manilaToday\(Date\.now\(\)\)\)\)/);
-  assert.match(DASH, /label: "Expiring or expired stock"/);
+  assert.match(DASH, /label: "Expired or within 30 days"/);
   assert.match(DASH, /note: criticalCount > 0 \? "Within 30 days or past expiry"/);
 });
 
@@ -152,8 +152,9 @@ test("missing, malformed and expired batches are unavailable in the catalog", ()
     );
   }
 
-  // Same-day expiry stays orderable, matching the server.
-  assert.equal(check(TODAY).eligible, true, "expires today — still orderable");
+  // Expiring today is too late to order, matching the server.
+  assert.equal(check(TODAY).reasonCode, "expires-today");
+  assert.equal(check("2026-09-09").eligible, true, "tomorrow is the first orderable date");
   assert.equal(check("2030-12-31").eligible, true);
 
   // And the page derives orderability from that shared helper, not its own rules.
@@ -188,8 +189,8 @@ test("no client-side gate can pass a batch the server would refuse", async () =>
     }
   };
   const clientBlocks = (expiryDate) => {
-    const { level } = deriveExpiryCondition({ expiryDate }, TODAY);
-    return level === "expired" || level === "unknown";
+    const { level, daysRemaining } = deriveExpiryCondition({ expiryDate }, TODAY);
+    return level === "expired" || level === "unknown" || daysRemaining === 0;
   };
 
   for (const expiryDate of [

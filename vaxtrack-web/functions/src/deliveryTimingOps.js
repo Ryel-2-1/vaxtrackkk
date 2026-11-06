@@ -146,7 +146,7 @@ function writeFirstDelay(tx, { FieldValue, orderId, order, prep, nowMs }) {
     read: false,
     title: "Delivery running late",
     message: `Order ${number} with ${rider} to ${dest} was expected by ${timeText(expectedMs)}; ` +
-      `the grace period ended at ${timeText(deadlineMs)} (${late} min past expected arrival when detected). ` +
+      `the grace period ended at ${timeText(deadlineMs)} (${D.durationText(late)} past expected arrival when detected). ` +
       (hold ? "The rider has it on hold." : "It is still in transit."),
     orderId,
     deliveryId: orderId,

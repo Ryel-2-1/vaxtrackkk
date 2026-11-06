@@ -218,10 +218,10 @@ test("no surface calls stock healthy or safe on expiry alone", () => {
 test("the derived levels are what the surfaces label and filter by", () => {
   // One summary card over the three exclusive bands; tests/expiryRanges.test.js
   // pins how each is counted and labelled.
-  assert.match(INV, /label="Expiring & expired stock"/);
+  assert.match(INV, /label="Expired or within 90 days"/);
   assert.match(INV, /changeStatusFilter\("watch"\)/);
   assert.match(INV, /\{ value: "unknown", label: "No valid expiry date" \}/);
-  assert.match(DASH, /label: "Expiring or expired stock"/);
+  assert.match(DASH, /label: "Expired or within 30 days"/);
   // Every level a batch can take is reachable from the compact Admin filter
   // (its options render from EXPIRY_OPTIONS).
   assert.match(INV, /\{EXPIRY_OPTIONS\.map\(\(option\) => \(\s*<option key=\{option\.value\} value=\{option\.value\}>\{option\.label\}<\/option>/);

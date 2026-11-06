@@ -80,7 +80,7 @@ function SalesRepAlerts() {
   const filteredAlerts = useMemo(() => {
     const search = searchTerm.trim().toLowerCase();
     return currentAlerts.filter((alert) => {
-      const matchesFilter = statusFilter === "all" || STATUS_GROUPS[statusFilter]?.includes(alert.statusKey);
+      const matchesFilter = statusFilter === "all" || STATUS_GROUPS[statusFilter]?.includes(alert.statusKey) || (statusFilter === "attention" && alert.needsAttention);
       const matchesSearch =
         alert.orderNumber.toLowerCase().includes(search) ||
         alert.title.toLowerCase().includes(search) ||

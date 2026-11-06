@@ -990,6 +990,15 @@ function evaluateBatch({ inventoryId, data, requested, expectedUnitPriceCentavos
       expiryDate: expiry,
     });
   }
+  // Still usable today for an order that already holds it, but too late to
+  // order: it would reach the clinic with no shelf life left.
+  if (expiry === manilaDateString(now)) {
+    throw new PolicyError("batch-expires-today", "That batch expires today and cannot be ordered.", {
+      inventoryId,
+      batchId: data.batchId ?? null,
+      expiryDate: expiry,
+    });
+  }
 
   // ---- price: a property of the batch, then a contract with the cart ----
   //
