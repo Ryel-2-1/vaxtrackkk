@@ -26,19 +26,6 @@
   color: var(--warning-text);
 }
 
-.inventory-page .aia-kpis {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.inventory-page .aia-run-meta {
-  margin: 0 0 16px;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
 .inventory-page .aia-card {
   background: #fff;
   border: 1px solid var(--gray-200);
@@ -163,12 +150,6 @@
 .inventory-page .aia-main-table .aia-num {
   text-align: right;
 }
-.inventory-page .aia-sub {
-  display: block;
-  margin-top: 3px;
-  font-size: 11px;
-  color: var(--gray-500);
-}
 .inventory-page .aia-no-match {
   padding: 24px 10px;
   text-align: center;
@@ -231,21 +212,109 @@
   box-shadow: 0 0 0 3px var(--green-100);
 }
 
-/* The missing setup is an action, not a warning to read and leave. */
-.inventory-page .aia-setup {
-  min-height: 32px !important; /* out-specifies the global button reset */
-  padding: 4px 10px;
-  border: 1px solid var(--warning-border);
-  border-radius: 8px;
-  background: var(--warning-bg);
-  color: var(--warning-text);
-  font-size: 12px;
-  font-weight: 600;
+/* One quiet action per row: the status and the instruction do the talking. */
+.inventory-page .aia-row-action {
+  text-align: right;
   white-space: nowrap;
+}
+.inventory-page .aia-row-btn {
+  min-height: 34px !important; /* out-specifies the global button reset */
+  padding: 4px 14px;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--green-800);
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
 }
-.inventory-page .aia-setup:hover {
-  border-color: var(--warning-text);
+.inventory-page .aia-row-btn:hover {
+  border-color: var(--green-700);
+  background: var(--green-50);
+}
+.inventory-page .aia-row-btn:focus-visible {
+  outline: 2px solid var(--green-700);
+  outline-offset: 2px;
+}
+.inventory-page .aia-main-table .aia-name > span {
+  color: var(--gray-900);
+  font-weight: 600;
+}
+.inventory-page .aia-advice strong {
+  display: block;
+  color: var(--gray-900);
+  font-size: 15px;
+  font-weight: 600;
+}
+.inventory-page .aia-advice small {
+  display: block;
+  margin-top: 2px;
+  color: var(--gray-600);
+  font-size: 13px;
+}
+.inventory-page .aia-main-table .aia-risk {
+  white-space: nowrap;
+}
+.inventory-page .aia-list-head {
+  margin-bottom: 16px;
+}
+.inventory-page .aia-list-head h2 {
+  font-size: 22px;
+}
+
+/* The answer at the top of a vaccine's details. */
+.inventory-page .aia-answer {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.inventory-page .aia-answer strong {
+  color: var(--gray-900);
+  font-size: 22px;
+  font-weight: 700;
+}
+.inventory-page .aia-answer p {
+  margin: 0;
+  color: var(--gray-600);
+}
+.inventory-page .aia-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px 24px;
+  margin: 0 0 8px;
+}
+.inventory-page .aia-facts dt {
+  color: var(--gray-600);
+  font-size: 13px;
+}
+.inventory-page .aia-facts dd {
+  margin: 2px 0 0;
+  color: var(--gray-900);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+/* The workings stay one click away. */
+.inventory-page .aia-workings summary {
+  padding: 8px 0;
+  color: var(--green-800);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.inventory-page .aia-workings summary:focus-visible {
+  outline: 2px solid var(--green-700);
+  outline-offset: 2px;
+}
+.inventory-page .aia-detail .aia-workings {
+  margin-top: 20px;
+  padding-top: 8px;
+  border-top: 1px solid var(--gray-200);
+}
+.inventory-page .aia-disclaimer,
+.inventory-page .aia-environment {
+  margin-top: 16px;
 }
 .inventory-page .aia-selected td {
   background: var(--green-50);
@@ -257,23 +326,6 @@
 
 /* The vaccine name opens the detail panel. Out-specifies the global
    button min-height reset (styles.css), which would inflate a table row. */
-.inventory-page .aia-link {
-  min-height: 0 !important;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--green-700);
-  font: inherit;
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
-}
-.inventory-page .aia-link:hover,
-.inventory-page .aia-link:focus-visible {
-  text-decoration: underline;
-}
-
-/* A known shortage (placed orders) reads in red; "Insufficient history" in gray. */
 .inventory-page .aia-current-shortage {
   color: var(--danger-text);
   font-weight: 600;
@@ -480,6 +532,39 @@
 }
 
 @media (max-width: 640px) {
+  /* Each vaccine becomes a short stack, so nothing scrolls sideways. */
+  .inventory-page .aia-main-table thead {
+    display: none;
+  }
+  .inventory-page .aia-main-table,
+  .inventory-page .aia-main-table tbody,
+  .inventory-page .aia-main-table tr,
+  .inventory-page .aia-main-table td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  .inventory-page .aia-main-table tr {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--gray-200);
+  }
+  .inventory-page .aia-main-table td {
+    padding: 4px 0;
+    border: 0;
+    text-align: left;
+  }
+  .inventory-page .aia-main-table td.aia-num {
+    display: flex;
+    justify-content: space-between;
+  }
+  .inventory-page .aia-main-table td.aia-num::before {
+    content: attr(data-label);
+    color: var(--gray-600);
+    font-size: 13px;
+  }
+  .inventory-page .aia-row-action {
+    text-align: left;
+  }
   .inventory-page .aia-search {
     flex-basis: 100%;
   }
