@@ -52,16 +52,14 @@ export function roleLabelOf(rawRole) {
   return ROLE_LABELS[normalizeRole(rawRole)] ?? "—";
 }
 
-/** Up to two initials for an avatar, or "?" when there is no name. */
+/**
+ * Up to three initials for an avatar ("Ryel Jan Espinili" → "RJE"), or "?" when
+ * there is no name. A longer name keeps its first two words and its surname.
+ */
 export function initialsOf(name) {
-  const letters = tidyName(name)
-    .split(" ")
-    .filter(Boolean)
-    .map((word) => word[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-  return letters || "?";
+  const words = tidyName(name).split(" ").filter(Boolean);
+  const picked = words.length > 3 ? [words[0], words[1], words[words.length - 1]] : words;
+  return picked.map((word) => word[0]).join("").toUpperCase() || "?";
 }
 
 /**

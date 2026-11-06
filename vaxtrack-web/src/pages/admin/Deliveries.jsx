@@ -71,7 +71,7 @@ function normalizeDelivery(raw) {
     priority: raw.priority || "Normal",
     vaccineName: raw.vaccineName || "—",
     quantity: raw.quantity || 0,
-    unit: raw.unit || "doses",
+    unit: raw.unit || "vials",
     // Read-only pass-throughs displayed in the detail drawer.
     riderPhone: raw.assignedRiderPhone || "",
     instructions: raw.deliveryInstructions || "",

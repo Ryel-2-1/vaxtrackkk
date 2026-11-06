@@ -73,7 +73,7 @@ export async function voidInventoryBatch({ inventoryId, reason }) {
 }
 
 /**
- * Quarantine free doses or dispose of quarantined ones. `requestId` identifies
+ * Quarantine free vials or dispose of quarantined ones. `requestId` identifies
  * this ATTEMPT: pass the same one when retrying an uncertain call so the server
  * replays instead of removing twice. A new one is generated when omitted.
  */
@@ -98,7 +98,7 @@ export async function removeUnusableStock({ requestId = newRequestId(), inventor
  * Correct a batch's RECORDED on-hand figure (a data-entry error or a recount).
  * `expectedQuantity` is the stored figure the Admin was looking at, exactly as
  * stored — the server refuses if it has moved since. Damaged, expired or
- * recalled doses are not a correction: use removeUnusableStock. Pass the same
+ * recalled vials are not a correction: use removeUnusableStock. Pass the same
  * `requestId` when retrying an uncertain call; the server replays it.
  * Resolves `{ inventoryId, newQuantity, replayed, reallocated }`.
  */

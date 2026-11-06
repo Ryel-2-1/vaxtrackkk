@@ -525,7 +525,7 @@ function RiderCard({
                   {order.vaccineName || "Unknown vaccine"}
                   <span className="tnum">
                     {" · "}
-                    {(order.quantity || 0).toLocaleString()} {order.unit || "doses"}
+                    {(order.quantity || 0).toLocaleString()} {order.unit || "vials"}
                   </span>
                   {order.batchId ? ` · Batch ${order.batchId}` : ""}
                 </small>

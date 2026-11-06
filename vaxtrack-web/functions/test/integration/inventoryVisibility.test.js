@@ -36,7 +36,7 @@ test("VIS-E1 first observation starts a legacy clock now, not from ancient creat
   assert.equal((await read()).inventoryEmptySince.toMillis(), at(1).getTime());
 });
 
-test("VIS-E2 a different batch's stock prevents hiding, including fully reserved doses", async () => {
+test("VIS-E2 a different batch's stock prevents hiding, including fully reserved vials", async () => {
   await reset();
   await observe(1);
   await batchRef("b2").set({ vaccineId: "v1", quantity: 10, reservedQuantity: 10 });
@@ -75,7 +75,7 @@ test("VIS-E4 delayed/out-of-order positive snapshots cannot backdate or repeated
   assert.ok((await productRef().get()).updateTime.isEqual(ref.updateTime));
 });
 
-test("VIS-E5 invalid stock and held doses fail open, and recovery starts a new clock", async () => {
+test("VIS-E5 invalid stock and held vials fail open, and recovery starts a new clock", async () => {
   await reset();
   await observe(1);
   for (const fields of [{ quantity: "0" }, { quantity: 0, reservedQuantity: 1 },

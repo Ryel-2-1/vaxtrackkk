@@ -20,7 +20,7 @@ export const REMOVAL_REASON_LABELS = Object.freeze({
   recalled: "Recalled",
 });
 
-/** quarantine: free doses → quarantined. dispose: quarantined doses → written off. */
+/** quarantine: free vials → quarantined. dispose: quarantined vials → written off. */
 export const REMOVAL_ACTIONS = Object.freeze(["quarantine", "dispose"]);
 
 /** Same bound as the server and the rules. */
@@ -60,7 +60,7 @@ export function isVaccineArchived(vaccine) {
  * The Admin Dashboard's "Expiring or expired stock" figure: batches whose
  * expiry date is past or within CRITICAL_WITHIN_DAYS, derived from the date
  * (never the stored status). A voided batch is a record of a mistaken entry,
- * not stock, so it is never counted; expired or quarantined doses on a batch
+ * not stock, so it is never counted; expired or quarantined vials on a batch
  * that is not voided are real stock and still count.
  */
 export function countExpiringOrExpiredBatches(batches, todayIso) {
@@ -108,7 +108,7 @@ export function voidEligibility(batch) {
       ok: false,
       code: "batch-usage-unproven",
       message:
-        "This batch was added before VaxTrack recorded batch usage, so it cannot be proven unused and cannot be voided. To take its doses out of stock, use Remove unusable stock instead.",
+        "This batch was added before VaxTrack recorded batch usage, so it cannot be proven unused and cannot be voided. To take its vials out of stock, use Remove unusable stock instead.",
     };
   }
   if (batch.firstUsedAt) {
@@ -116,7 +116,7 @@ export function voidEligibility(batch) {
       ok: false,
       code: "batch-in-use",
       message:
-        "This batch has already been used by an order, so it cannot be voided. To take its doses out of stock, use Remove unusable stock instead.",
+        "This batch has already been used by an order, so it cannot be voided. To take its vials out of stock, use Remove unusable stock instead.",
     };
   }
   for (const f of ["reservedQuantity", "returnPendingQuantity", "quarantinedQuantity", "writtenOffQuantity"]) {
@@ -128,7 +128,7 @@ export function voidEligibility(batch) {
       return {
         ok: false,
         code: "batch-in-use",
-        message: "This batch has reserved, returned, quarantined or written-off doses, so it cannot be voided.",
+        message: "This batch has reserved, returned, quarantined or written-off vials, so it cannot be voided.",
       };
     }
   }
@@ -172,7 +172,7 @@ export function validateStockRemoval({ action, quantity, reason, notes, batch, e
     return { ok: false, field: "reason", message: "This batch has not expired. Choose damaged or recalled, or check its expiry date." };
   }
   if (!Number.isInteger(quantity) || quantity < 1) {
-    return { ok: false, field: "quantity", message: "Enter a whole number of doses of at least 1." };
+    return { ok: false, field: "quantity", message: "Enter a whole number of vials of at least 1." };
   }
   const limit = action === "quarantine" ? counters.free : counters.quarantined;
   if (quantity > limit) {
@@ -182,11 +182,11 @@ export function validateStockRemoval({ action, quantity, reason, notes, batch, e
       message:
         action === "quarantine"
           ? limit === 0
-            ? "No doses on this batch are free to quarantine. Reserved doses and returned doses awaiting a decision cannot be removed here."
-            : `Only ${limit} dose${limit === 1 ? " is" : "s are"} free to quarantine. Reserved doses and returned doses awaiting a decision cannot be removed here.`
+            ? "No vials on this batch are free to quarantine. Reserved vials and returned vials awaiting a decision cannot be removed here."
+            : `Only ${limit} vial${limit === 1 ? " is" : "s are"} free to quarantine. Reserved vials and returned vials awaiting a decision cannot be removed here.`
           : limit === 0
-            ? "This batch has no quarantined doses. Quarantine doses before disposing of them."
-            : `Only ${limit} dose${limit === 1 ? " is" : "s are"} in quarantine. Quarantine doses before disposing of them.`,
+            ? "This batch has no quarantined vials. Quarantine vials before disposing of them."
+            : `Only ${limit} vial${limit === 1 ? " is" : "s are"} in quarantine. Quarantine vials before disposing of them.`,
     };
   }
   const note = typeof notes === "string" ? notes.trim() : "";
@@ -199,13 +199,13 @@ export function validateStockRemoval({ action, quantity, reason, notes, batch, e
 /** One audit entry as the Admin batch history shows it. */
 export function describeAuditEvent(event) {
   const qty = Number.isInteger(event?.quantity) ? event.quantity : null;
-  const doses = qty === null ? "" : `${qty} dose${qty === 1 ? "" : "s"}`;
+  const vials = qty === null ? "" : `${qty} vial${qty === 1 ? "" : "s"}`;
   const reason = REMOVAL_REASON_LABELS[event?.reason] ?? null;
   switch (event?.action) {
     case "stock_quarantined":
-      return `Quarantined ${doses}${reason ? ` — ${reason.toLowerCase()}` : ""}`;
+      return `Quarantined ${vials}${reason ? ` — ${reason.toLowerCase()}` : ""}`;
     case "stock_disposed":
-      return `Disposed of ${doses}${reason ? ` — ${reason.toLowerCase()}` : ""}`;
+      return `Disposed of ${vials}${reason ? ` — ${reason.toLowerCase()}` : ""}`;
     case "stock_corrected": {
       const from = Number.isInteger(event?.before?.onHand) ? event.before.onHand : null;
       const to = Number.isInteger(event?.after?.onHand) ? event.after.onHand : null;

@@ -177,13 +177,11 @@ function SalesRepInventory() {
 
     const sorted = Object.entries(totals).sort(([, a], [, b]) => b - a);
     const maxQty = sorted.length > 0 ? sorted[0][1] : 1;
-    const tones = ["blue", "green", "gold", "red", "purple"];
 
-    return sorted.map(([label, qty], i) => ({
+    return sorted.map(([label, qty]) => ({
       label,
       qty,
       barHeight: maxQty > 0 ? Math.max(Math.round((qty / maxQty) * 100), 4) : 0,
-      tone: tones[i % tones.length],
     }));
   }, [inventory]);
 
@@ -248,14 +246,14 @@ function SalesRepInventory() {
           <div className="inventory-card-head">
             <div>
               <h2>Available Stock by Vaccine Type</h2>
-              <p>Total doses grouped by vaccine type</p>
+              <p>Vials available now, most stock first</p>
             </div>
           </div>
 
           <div className={`stock-hbar-list${showAllTypes ? " is-expanded" : ""}`}>
             {stockByType.length > 0 ? (
               (showAllTypes ? stockByType : stockByType.slice(0, TOP_TYPES)).map((bar) => (
-                <HBar key={bar.label} label={bar.label} qty={bar.qty} barWidth={bar.barHeight} tone={bar.tone} />
+                <HBar key={bar.label} label={bar.label} qty={bar.qty} barWidth={bar.barHeight} />
               ))
             ) : (
               <p className="chart-empty">No stock data available</p>
@@ -457,14 +455,14 @@ function StockRow({ stock }) {
   );
 }
 
-function HBar({ label, qty, barWidth, tone }) {
+function HBar({ label, qty, barWidth }) {
   return (
     <div className="hbar-row">
       <span className="hbar-label" title={label}>{label}</span>
       <div className="hbar-track">
-        <div className={`hbar-fill ${tone}`} style={{ width: `${barWidth}%` }} />
+        <div className="hbar-fill" style={{ width: `${barWidth}%` }} />
       </div>
-      <span className="hbar-qty">{formatCompact(qty)} doses</span>
+      <span className="hbar-qty">{formatNumber(qty)} {Number(qty) === 1 ? "vial" : "vials"}</span>
     </div>
   );
 }

@@ -132,7 +132,7 @@
   border-radius: var(--radius-pill);
   background: var(--green-700);
   color: #ffffff;
-  font-size: 13px;
+  font-size: 12px; /* three initials fit the 36px circle */
   font-weight: 600;
 }
 

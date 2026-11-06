@@ -1442,10 +1442,10 @@ function Inventory() {
               }
             />
             <small id="inv-correct-help">
-              Fixes the recorded on-hand figure. It cannot go below the doses
+              Fixes the recorded on-hand figure. It cannot go below the vials
               reserved, returned awaiting a decision or quarantined, and
               it does not change reservations or any order already placed.
-              Damaged, expired or recalled doses are not a correction — use
+              Damaged, expired or recalled vials are not a correction — use
               Remove unusable stock.
             </small>
 
@@ -1560,8 +1560,8 @@ function StockOverviewCard({ summary, loading, unavailable }) {
   const emptyEnd = summary.total > 0 ? ((summary.stocked + summary.empty) / summary.total) * 100 : 0;
   const chartBackground = `conic-gradient(#19744f 0 ${stockedEnd}%, #d99024 ${stockedEnd}% ${emptyEnd}%, #c5483f ${emptyEnd}% 100%)`;
   const segments = [
-    { key: "stocked", label: "Has available doses", detail: "At least one dated batch has stock", tone: "is-stocked", heading: "Available doses by vaccine" },
-    { key: "empty", label: "No available doses", detail: "Dated batches are empty or fully held", tone: "is-empty", heading: "Vaccines with no available doses" },
+    { key: "stocked", label: "Has available vials", detail: "At least one dated batch has stock", tone: "is-stocked", heading: "Available vials by vaccine" },
+    { key: "empty", label: "No available vials", detail: "Dated batches are empty or fully held", tone: "is-empty", heading: "Vaccines with no available vials" },
     { key: "review", label: "Needs batch review", detail: "Expired, undated, invalid, or oversized", tone: "is-review", heading: "Vaccines needing batch review" },
   ];
   return (
@@ -1581,7 +1581,7 @@ function StockOverviewCard({ summary, loading, unavailable }) {
         <>
           <div className="vaccine-availability-chart">
             <div className="vaccine-availability-ring" role="img"
-              aria-label={`${summary.stocked} vaccine products have available doses, ${summary.empty} have no available doses, and ${summary.review} need batch review`}
+              aria-label={`${summary.stocked} vaccine products have available vials, ${summary.empty} have no available vials, and ${summary.review} need batch review`}
               style={{ background: chartBackground }}>
               <div className="vaccine-availability-center">
                 <strong>{summary.total}</strong>
@@ -1616,13 +1616,13 @@ function StockOverviewCard({ summary, loading, unavailable }) {
                 {categoryProducts[activeCategory].map((product) => (
                   <div key={product.key} className="vaccine-available-row">
                     <div><strong>{product.name}</strong><small>{product.type}{product.reasons?.length ? ` · ${product.reasons.join(", ")}` : ""}</small></div>
-                    <span>{activeCategory === "stocked" ? product.availableDoses.toLocaleString() : activeCategory === "review" && product.availableDoses > 0 ? product.availableDoses.toLocaleString() : "0"} <small>{activeCategory === "review" && product.availableDoses > 0 ? "valid doses" : "doses"}</small></span>
+                    <span>{activeCategory === "stocked" ? product.availableDoses.toLocaleString() : activeCategory === "review" && product.availableDoses > 0 ? product.availableDoses.toLocaleString() : "0"} <small>{activeCategory === "review" && product.availableDoses > 0 ? "valid vials" : "vials"}</small></span>
                   </div>
                 ))}
               </div>}
             </div>
           )}
-          <p className="vaccine-overview-note">A flagged batch places its vaccine in Review even when another batch has valid available doses. Pricing and product visibility are checked separately before ordering.</p>
+          <p className="vaccine-overview-note">A flagged batch places its vaccine in Review even when another batch has valid available vials. Pricing and product visibility are checked separately before ordering.</p>
         </>
       )}
     </div>

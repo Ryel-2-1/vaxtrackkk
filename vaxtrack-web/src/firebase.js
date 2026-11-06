@@ -84,7 +84,8 @@ if (localQa) {
   connectStorageEmulator(getStorage(app), "127.0.0.1", 9197);
 }
 
-if (import.meta.env.PROD) {
+// Production only. A staging build also counts as PROD, so check the mode.
+if (import.meta.env.MODE === "production") {
   import("firebase/analytics").then(({ getAnalytics, isSupported }) => {
     isSupported().then((supported) => {
       if (supported) getAnalytics(app);

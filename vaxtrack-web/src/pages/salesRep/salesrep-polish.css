@@ -2377,7 +2377,7 @@ aside.salesrep-sidebar .salesrep-logout-error {
   width: auto !important;
   min-width: 72px;
 }
-/* A very large total (staging carries 100,000,000,001,560 doses) squeezed
+/* A very large total (staging carries 100,000,000,001,560 vials) squeezed
    the bar to 0px on a phone; the figure may wrap, the bar keeps a width. */
 .salesrep-page .hbar-track {
   min-width: 40px;

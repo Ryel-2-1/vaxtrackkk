@@ -1306,7 +1306,7 @@ async function completeDelivery({ db, FieldValue, orderId, riderUid, actorUid, a
       const snaps = [];
       for (const ref of refs) snaps.push(await tx.get(ref));
       // A batch can expire while the order is out (a delivery that ran past
-      // midnight, a corrected expiry): an expired dose is never recorded as
+      // midnight, a corrected expiry): an expired vial is never recorded as
       // delivered.
       assertBatchesCover(
         perBatch.map(([inventoryId], index) => ({ id: inventoryId, data: snaps[index].exists ? snaps[index].data() : null })),

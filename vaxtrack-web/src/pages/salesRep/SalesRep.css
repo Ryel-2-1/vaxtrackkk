@@ -3021,27 +3021,22 @@
 
 .hbar-track {
   flex: 1 !important;
-  height: 22px !important;
-  background: #f1f5f9 !important;
-  border-radius: 6px !important;
+  height: 10px !important;
+  background: var(--gray-100) !important;
+  border-radius: var(--radius-pill) !important;
   overflow: hidden !important;
 }
 
 .hbar-fill {
   height: 100% !important;
-  border-radius: 6px !important;
+  border-radius: var(--radius-pill) !important;
   min-width: 4px !important;
+  background: var(--green-700) !important; /* one colour: length is the only signal here */
   transition: width 0.4s ease !important;
 }
 
-.hbar-fill.blue { background: var(--green-700) !important; }
-.hbar-fill.green { background: var(--green-600) !important; }
-.hbar-fill.gold { background: var(--warning-text) !important; }
-.hbar-fill.red { background: var(--danger-text) !important; }
-.hbar-fill.purple { background: var(--info-text) !important; }
-
 .hbar-qty {
-  flex: 0 0 85px !important;
+  flex: 0 0 100px !important;
   text-align: right !important;
   font-size: 13px !important;
   font-weight: 700 !important;

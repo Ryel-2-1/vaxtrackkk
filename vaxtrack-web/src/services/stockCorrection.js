@@ -4,7 +4,7 @@
  * Correcting a batch's on-hand quantity fixes a RECORD: a data-entry error in
  * Add Stock, or a physical recount that differs from what was recorded. It is
  * deliberately NOT a general stock mover and NOT a way to remove unusable
- * doses: damaged, expired or recalled doses leave stock through Remove unusable
+ * vials: damaged, expired or recalled vials leave stock through Remove unusable
  * stock (quarantine, then dispose), which keeps their own audit trail.
  *
  * This mirrors the server's correctStockQuantity callable
@@ -117,13 +117,13 @@ export function validateStockCorrection({
     };
   }
 
-  // Expired doses are unusable physical stock: quarantine, then dispose.
+  // Expired vials are unusable physical stock: quarantine, then dispose.
   if (expired && Number.isInteger(currentQuantity) && newQuantity < currentQuantity) {
     return {
       ok: false,
       field: "quantity",
       message:
-        "This batch has expired. Expired doses must leave stock through Remove unusable stock (quarantine, then dispose), not a correction.",
+        "This batch has expired. Expired vials must leave stock through Remove unusable stock (quarantine, then dispose), not a correction.",
     };
   }
 

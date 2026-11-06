@@ -124,8 +124,8 @@ test("removalSource copies the stored figures by value and nothing else", () => 
 });
 
 test("audit entries read as plain sentences", () => {
-  assert.equal(describeAuditEvent({ action: "stock_quarantined", quantity: 3, reason: "recalled" }), "Quarantined 3 doses — recalled");
-  assert.equal(describeAuditEvent({ action: "stock_disposed", quantity: 1, reason: "damaged" }), "Disposed of 1 dose — damaged");
+  assert.equal(describeAuditEvent({ action: "stock_quarantined", quantity: 3, reason: "recalled" }), "Quarantined 3 vials — recalled");
+  assert.equal(describeAuditEvent({ action: "stock_disposed", quantity: 1, reason: "damaged" }), "Disposed of 1 vial — damaged");
   assert.equal(describeAuditEvent({ action: "batch_voided" }), "Batch voided");
   assert.equal(describeAuditEvent({ action: "something" }), "Inventory change");
 });
@@ -193,8 +193,8 @@ test("Admin Inventory keeps voided batches as records and never deletes anything
   // Every destructive dialog explains its consequence before the action.
   assert.match(dialogs, /This cannot be undone/);
   assert.match(dialogs, /Existing orders, reservations, batches and history are kept/);
-  assert.match(dialogs, /Reserved doses and returned doses awaiting a decision are not affected/);
-  assert.match(dialogs, /I confirm these doses have been physically disposed of/);
+  assert.match(dialogs, /Reserved vials and returned vials awaiting a decision are not affected/);
+  assert.match(dialogs, /I confirm these vials have been physically disposed of/);
 });
 
 // ---------------------------------------------------------------- service

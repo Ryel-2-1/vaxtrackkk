@@ -15,7 +15,7 @@ import { countExpiringOrExpiredBatches } from "../src/services/inventoryRemovalM
  * unfiltered count, the two voided cases below failed (expected 3, got 5).
  *
  * Expired or quarantined stock that is NOT voided is real and still counts:
- * quarantine holds doses for disposal, it does not make the batch disappear.
+ * quarantine holds vials for disposal, it does not make the batch disappear.
  */
 
 const TODAY = "2026-10-26";
