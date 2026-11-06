@@ -2,9 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
-  ChevronDown,
-  Filter,
-  PhoneCall,
+  RotateCcw,
   Search,
   Truck,
   X,
@@ -19,12 +17,21 @@ import StatusBadge from "../../components/ui/StatusBadge";
 import TimingIndicator from "../../components/ui/TimingIndicator";
 import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
 import KpiCard from "../../components/ui/KpiCard";
+import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import OrderCancellationAction from "../../components/orders/OrderCancellationAction";
 import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 import { subscribeOrderStatusEvents } from "../../services/statusEventService";
 import { kpiValue, liveErrorMessage } from "../../services/liveDataErrors";
+import { invoicePhotoView, proofPhotoView } from "../../services/deliveryEvidenceView";
+import { offlineCompletionNote, pendingOfflineReview } from "../../services/offlineCompletionView";
+import { storageBucket } from "../../firebase";
 import "./Deliveries.css";
+
+// The "Preparing" card counts — and its filter shows — orders not yet on the
+// road: pending dispatch, assigned or loading.
+const PREPARING_FILTER = "preparing";
+const PREPARING_STATUSES = new Set(["pending_dispatch", "assigned", "loading"]);
 
 function normalizeDelivery(raw) {
   const riderName = raw.assignedRiderName || "Unassigned";
@@ -75,17 +82,26 @@ function normalizeDelivery(raw) {
     assignedAt: raw.assignedAt || null,
     statusUpdatedAt: raw.statusUpdatedAt || null,
     statusUpdatedByEmail: raw.statusUpdatedByEmail || "",
-    // Rider-uploaded photos. Both are full Firebase Storage download URLs
-    // written by the Flutter Rider app, so the web renders them directly and
-    // needs no Storage SDK. `invoiceUrl` is the rider's photo of the paper
-    // invoice — unrelated to the `invoices` collection / Admin Invoices module.
     // Server-evaluated delivery timing (functions/src/deliveryTiming.js) —
     // shown next to the lifecycle status, never instead of it.
     timingStatus: raw.timingStatus ?? null,
     expectedArrivalAt: raw.expectedArrivalAt ?? null,
     automaticDelayedAt: raw.automaticDelayedAt ?? null,
+    requestedArrivalMissedAt: raw.requestedArrivalMissedAt ?? null,
+    requestedArrivalDeadlineAt: raw.requestedArrivalDeadlineAt ?? null,
+    // Rider-uploaded photos: Firebase Storage download URLs written by the
+    // Rider app. `invoiceUrl` is the rider's photo of the paper invoice —
+    // unrelated to the `invoices` collection / Admin Invoices module. A link
+    // is shown only when it is this order's own stored object; any other
+    // recorded link is reported as unverified, never opened.
     proofOfDeliveryUrl: raw.proofOfDeliveryUrl || "",
     invoiceUrl: raw.invoiceUrl || "",
+    proofPhoto: proofPhotoView(raw, storageBucket),
+    invoicePhoto: invoicePhotoView(raw, storageBucket),
+    // Recorded on the rider's phone without signal (offlineCompletionView.js):
+    // how it was completed, or why it waits for a dispatcher's review.
+    offlineNote: offlineCompletionNote(raw),
+    offlineReview: pendingOfflineReview(raw),
     // The rider whose live location the map reads (riderLocations/{uid} — the
     // order itself no longer carries a location copy), then the saved-route
     // fields. The map tolerates missing values and shows an honest fallback.
@@ -133,7 +149,7 @@ function Deliveries() {
   const [loadError, setLoadError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [showMoreFilters, setShowMoreFilters] = useState(false);
+  const [page, setPage] = useState(1);
   const [selectedDelivery, setSelectedDelivery] = useState(null);
   // An alert’s "Open delivery" link (/admin/deliveries?order=<order id>)
   // opens that order’s drawer as soon as the live list has it. Derived, not
@@ -189,10 +205,14 @@ function Deliveries() {
       // what the list shows. The old four buckets meant "In transit" also
       // returned delivered orders and "Delayed" also returned cancelled ones.
       const matchesStatus =
-        statusFilter === "all" || delivery.statusType === statusFilter;
+        statusFilter === "all" ||
+        (statusFilter === PREPARING_FILTER && PREPARING_STATUSES.has(delivery.statusType)) ||
+        delivery.statusType === statusFilter;
       return matchesSearch && matchesStatus;
     });
   }, [deliveryList, searchTerm, statusFilter]);
+  const currentPage = Math.min(page, Math.max(1, Math.ceil(filteredDeliveries.length / PAGE_SIZE)));
+  const pageDeliveries = filteredDeliveries.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   // Counted per canonical status. `delivered` and `cancelled` are no longer
   // folded into "in transit" and "delayed", and `delivery_failed` — which had
@@ -203,19 +223,15 @@ function Deliveries() {
   const kpiState = { loading, error: loadError };
   const delayedCount = countOf("delayed");
   const failedCount = countOf("delivery_failed");
-  const preparingCount =
-    countOf("pending_dispatch") + countOf("assigned") + countOf("loading");
+  const preparingCount = deliveryList.filter((d) => PREPARING_STATUSES.has(d.statusType)).length;
   const unknownCount = countOf(UNKNOWN_STATUS_KEY);
-
-  // The banner covers orders that have stopped and need a person: delayed and
-  // failed. A cancelled order is closed, not stalled, and used to be counted here.
-  const needsReview = useMemo(
-    () =>
-      deliveryList.filter(
-        (d) => d.statusType === "delayed" || d.statusType === "delivery_failed"
-      ),
-    [deliveryList]
-  );
+  // Delayed and failed deliveries are listed on the Alerts page (Delivery
+  // exceptions) and counted on the top bar's bell — no banner here.
+  const filtersActive = statusFilter !== "all" || searchTerm !== "";
+  const resetFilters = () => {
+    setStatusFilter("all");
+    setSearchTerm("");
+  };
 
   // Every stop in the selected order's trip, numbered by visiting order. Admin
   // can read all orders, so it plots the whole tour; the map falls back to the
@@ -239,53 +255,64 @@ function Deliveries() {
     <>
     <main className="deliveries-v4-page">
 
-        <header className="mdl-header">
-          <div>
-            {/* Was "Monitor and route active cold-chain shipments." Admin does
-                not route anything and this page performs no cold-chain
-                measurement; it reads the orders collection. */}
-            <p>Review every order and its current status. Eligible orders can be cancelled before loading.</p>
-          </div>
+        <section className="deliveries-summary-grid">
+          <KpiCard
+            label="Total deliveries"
+            value={kpiValue(deliveryList.length, kpiState)}
+            context="All orders"
+            tone="neutral"
+            active={statusFilter === "all"}
+            onClick={() => setStatusFilter("all")}
+          />
 
-          {/* A "New delivery" button stood here and raised a toast explaining
-              that deliveries are created elsewhere. A control that cannot do
-              the thing it is labelled with is not a control — the same fact is
-              stated as text, where it belongs. */}
-          <p className="mdl-header-note">
-            Orders are created by Med Reps and dispatched by a Dispatcher.
-          </p>
-        </header>
+          {/* "In transit" counted delivered and completed orders too, so
+              finished deliveries were reported as on route. It now counts the
+              one status it names. */}
+          <KpiCard
+            label="In transit"
+            value={kpiValue(inTransitCount, kpiState)}
+            context="On route"
+            tone="info"
+            active={statusFilter === "in_transit"}
+            onClick={() => setStatusFilter("in_transit")}
+          />
 
-        {needsReview.length > 0 && (
-          <section className="mdl-banner mdl-banner-danger">
-            <AlertTriangle size={16} aria-hidden="true" />
-            <div>
-              <strong>
-                {needsReview.length} deliver{needsReview.length === 1 ? "y" : "ies"}{" "}
-                stopped and need{needsReview.length === 1 ? "s" : ""} review
-              </strong>
-              {/* Names the two statuses it covers, so the figure can be checked
-                  against the cards below it. It used to say "delayed" while
-                  counting cancelled orders too. */}
-              <p>
-                {delayedCount} delayed, {failedCount} failed. Oldest:{" "}
-                {needsReview[0].id}.
-              </p>
-            </div>
-            {/* The order number stays in the sentence above rather than in the
-                label: at 375px a button carrying a full VT-ORD- number is wider
-                than the banner can give it. */}
-            <button
-              type="button"
-              className="mdl-btn mdl-btn-danger-ghost"
-              onClick={() => setSelectedDelivery(needsReview[0])}
-              aria-label={`Review ${needsReview[0].id}`}
-            >
-              Review
-            </button>
-          </section>
-        )}
+          {/* "Delayed" counted cancelled orders as well, which both overstated
+              the figure and put closed orders behind a "Needs review" label. */}
+          <KpiCard
+            label="Delayed"
+            value={kpiValue(delayedCount, kpiState)}
+            context="Still open"
+            tone="danger"
+            attention={delayedCount > 0}
+            active={statusFilter === "delayed"}
+            onClick={() => setStatusFilter("delayed")}
+          />
 
+          {/* A canonical status with no count anywhere before this pass: a
+              failed delivery was in the total and in the filter, and in no card. */}
+          <KpiCard
+            label="Delivery failed"
+            value={kpiValue(failedCount, kpiState)}
+            context="Rider stopped"
+            tone="danger"
+            attention={failedCount > 0}
+            active={statusFilter === "delivery_failed"}
+            onClick={() => setStatusFilter("delivery_failed")}
+          />
+
+          <KpiCard
+            label="Preparing"
+            value={kpiValue(preparingCount, kpiState)}
+            context="Pending, assigned or loading"
+            tone="warning"
+            active={statusFilter === PREPARING_FILTER}
+            onClick={() => setStatusFilter(PREPARING_FILTER)}
+          />
+        </section>
+
+        {/* The cards provide quick status filters; this row adds search and
+            specific statuses. Reset appears only when a filter is active. */}
         <section className="mdl-filterbar">
           <label className="mdl-search">
             <Search size={15} />
@@ -298,6 +325,7 @@ function Deliveries() {
 
           <select
             className="mdl-select"
+            aria-label="Filter by status"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
@@ -306,6 +334,7 @@ function Deliveries() {
                 offered too — a document carrying a value the system does not
                 define is findable rather than buried in another bucket. */}
             <option value="all">All statuses</option>
+            <option value={PREPARING_FILTER}>Preparing (pending, assigned or loading)</option>
             {ORDER_STATUSES.map((key) => (
               <option key={key} value={key}>
                 {STATUS_LABELS[key]}
@@ -314,101 +343,16 @@ function Deliveries() {
             <option value={UNKNOWN_STATUS_KEY}>{UNKNOWN_STATUS_LABEL}</option>
           </select>
 
-          {/* The region select was removed with the field behind it. `region` is
-              written only by the superseded client order path, so no order
-              created today has one and the list was permanently empty. */}
-
-          <button
-            type="button"
-            className="mdl-btn mdl-btn-secondary"
-            onClick={() => setShowMoreFilters((prev) => !prev)}
-          >
-            <Filter size={14} />
-            More filters
-            <ChevronDown size={14} />
-          </button>
-        </section>
-
-        {showMoreFilters && (
-          <section className="mdl-quickfilters">
+          {filtersActive && (
             <button
               type="button"
-              className="mdl-chip"
-              onClick={() => setStatusFilter("delayed")}
+              className="mdl-btn mdl-btn-secondary"
+              onClick={resetFilters}
             >
-              Show delayed only
-            </button>
-
-            <button
-              type="button"
-              className="mdl-chip"
-              onClick={() => setStatusFilter("transit")}
-            >
-              Show in-transit only
-            </button>
-
-            <button
-              type="button"
-              className="mdl-chip"
-              onClick={() => {
-                setStatusFilter("all");
-                setSearchTerm("");
-              }}
-            >
+              <RotateCcw size={14} aria-hidden="true" />
               Reset filters
             </button>
-          </section>
-        )}
-
-        <section className="deliveries-summary-grid">
-          <KpiCard
-            label="Total deliveries"
-            value={kpiValue(deliveryList.length, kpiState)}
-            context="All orders"
-            tone="neutral"
-            onClick={() => setStatusFilter("all")}
-          />
-
-          {/* "In transit" counted delivered and completed orders too, so
-              finished deliveries were reported as on route. It now counts the
-              one status it names. */}
-          <KpiCard
-            label="In transit"
-            value={kpiValue(inTransitCount, kpiState)}
-            context="On route"
-            tone="info"
-            onClick={() => setStatusFilter("in_transit")}
-          />
-
-          {/* "Delayed" counted cancelled orders as well, which both overstated
-              the figure and put closed orders behind a "Needs review" label. */}
-          <KpiCard
-            label="Delayed"
-            value={kpiValue(delayedCount, kpiState)}
-            context="Still open"
-            tone="danger"
-            attention={delayedCount > 0}
-            onClick={() => setStatusFilter("delayed")}
-          />
-
-          {/* A canonical status with no count anywhere before this pass: a
-              failed delivery was in the total and in the filter, and in no card. */}
-          <KpiCard
-            label="Delivery failed"
-            value={kpiValue(failedCount, kpiState)}
-            context="Rider stopped"
-            tone="danger"
-            attention={failedCount > 0}
-            onClick={() => setStatusFilter("delivery_failed")}
-          />
-
-          <KpiCard
-            label="Preparing"
-            value={kpiValue(preparingCount, kpiState)}
-            context="Pending, assigned or loading"
-            tone="warning"
-            onClick={() => setStatusFilter("pending_dispatch")}
-          />
+          )}
         </section>
 
         {/* Only rendered when such a document exists, so it is a real finding
@@ -460,7 +404,7 @@ function Deliveries() {
               </thead>
 
               <tbody>
-                {filteredDeliveries.map((delivery) => (
+                {pageDeliveries.map((delivery) => (
                   <tr
                     key={delivery.uid}
                     className={
@@ -506,19 +450,6 @@ function Deliveries() {
                           View
                         </button>
 
-                        {/* Was a button that raised "Contacting {rider}…" and
-                            placed no call. The order does carry the assigned
-                            rider's number, so this is now a real tel: link —
-                            and it only appears when there is a number to dial. */}
-                        {delivery.riderPhone ? (
-                          <a
-                            className="mdl-btn mdl-btn-ghost mdl-btn-sm"
-                            href={`tel:${delivery.riderPhone}`}
-                            aria-label={`Call ${delivery.rider} on ${delivery.riderPhone}`}
-                          >
-                            Call
-                          </a>
-                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -563,14 +494,13 @@ function Deliveries() {
               </div>
             )}
           </div>
+          {filteredDeliveries.length > 0 && (
+            <PageNav page={currentPage} total={filteredDeliveries.length} onPageChange={setPage} label="Delivery pages" />
+          )}
         </section>
       </main>
 
-      {/* `onResolve`, `onContact` and `onRoute` are gone with the buttons they
-          drove. "Mark Reviewed" announced a state change nothing wrote — there
-          is no reviewed field, and Admin is a read-only view of the orders
-          collection. "View Route" promised a live route Admin has no source
-          for. "Contact Rider" is now a tel: link inside the drawer. */}
+      {/* Admin delivery details remain a read-only view of the order. */}
       {openDelivery && (
         <DeliveryModal
           delivery={openDelivery}
@@ -691,23 +621,35 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
             </section>
           )}
 
-          <section className="mdl-drawer-section">
-            <h3>Live location</h3>
-            <LiveDeliveryMap order={delivery} tripStops={tripStops} showDeviation />
-          </section>
+          {delivery.statusType === "in_transit" && (
+            <section className="mdl-drawer-section">
+              <h3>Live location</h3>
+              <LiveDeliveryMap order={delivery} tripStops={tripStops} showDeviation />
+            </section>
+          )}
 
           <section className="mdl-drawer-section">
             <h3>Proof of delivery</h3>
-            {delivery.proofOfDeliveryUrl ? (
+            {delivery.offlineNote && <p className="mdl-drawer-note">{delivery.offlineNote}</p>}
+            {delivery.offlineReview && (
+              <p className="mdl-drawer-note">
+                Recorded offline on the rider's phone{delivery.offlineReview.recordedAt ? ` at ${delivery.offlineReview.recordedAt}` : ""}
+                {delivery.offlineReview.distanceMeters != null
+                  ? `, ${delivery.offlineReview.distanceMeters} m from the clinic (area ${delivery.offlineReview.radiusMeters} m)`
+                  : ""}
+                . Waiting for dispatcher review: {delivery.offlineReview.reasonText} Decide it in Dispatcher → Shipments.
+              </p>
+            )}
+            {delivery.proofPhoto.state === "verified" ? (
               <div className="mdl-proof">
                 <a
                   className="mdl-proof-thumb"
-                  href={delivery.proofOfDeliveryUrl}
+                  href={delivery.proofPhoto.url}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
                   <img
-                    src={delivery.proofOfDeliveryUrl}
+                    src={delivery.proofPhoto.url}
                     alt={`Proof of delivery for order ${delivery.id}`}
                     loading="lazy"
                   />
@@ -715,16 +657,16 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
                 <div className="mdl-proof-actions">
                   <a
                     className="mdl-proof-link"
-                    href={delivery.proofOfDeliveryUrl}
+                    href={delivery.proofPhoto.url}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
                     Open image
                   </a>
-                  {delivery.invoiceUrl && (
+                  {delivery.invoicePhoto.state === "verified" && (
                     <a
                       className="mdl-proof-link secondary"
-                      href={delivery.invoiceUrl}
+                      href={delivery.invoicePhoto.url}
                       target="_blank"
                       rel="noopener noreferrer"
                     >
@@ -732,7 +674,16 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
                     </a>
                   )}
                 </div>
+                {delivery.invoicePhoto.state === "unverified" && (
+                  <p className="mdl-drawer-note">
+                    The invoice photo link doesn't match this order's stored photo, so it isn't shown.
+                  </p>
+                )}
               </div>
+            ) : delivery.proofPhoto.state === "unverified" ? (
+              <p className="mdl-drawer-note">
+                A proof link was recorded, but it isn't this order's stored photo, so it isn't shown.
+              </p>
             ) : (
               <p className="mdl-drawer-note">No proof uploaded yet.</p>
             )}
@@ -799,20 +750,6 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
         </div>
 
         <footer className="mdl-drawer-actions">
-          {delivery.riderPhone ? (
-            <a
-              className="mdl-btn mdl-btn-secondary"
-              href={`tel:${delivery.riderPhone}`}
-            >
-              <PhoneCall size={14} aria-hidden="true" />
-              Call {delivery.rider} on {delivery.riderPhone}
-            </a>
-          ) : (
-            <p className="mdl-drawer-note">
-              No rider phone number on this order.
-            </p>
-          )}
-
           <button type="button" className="mdl-btn mdl-btn-ghost" onClick={onClose}>
             Close
           </button>

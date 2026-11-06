@@ -9,6 +9,7 @@ const String kGeofenceStale = 'rider-location-stale';
 const String kGeofenceInaccurate = 'rider-location-inaccurate';
 const String kGeofenceUnavailable = 'rider-location-unavailable';
 const String kGeofenceDestinationInvalid = 'delivery-destination-invalid';
+const String kGeofenceMocked = 'rider-location-mocked';
 
 /// Codes meaning "not provably at the clinic right now" — retryable once the
 /// Rider's location changes. Never a reason to upload again.
@@ -18,6 +19,7 @@ const Set<String> kDeliveryLocationCodes = {
   kGeofenceInaccurate,
   kGeofenceUnavailable,
   kGeofenceDestinationInvalid,
+  kGeofenceMocked,
 };
 
 /// The server code for a Delayed delivery (resume it before completing).
@@ -38,6 +40,9 @@ const String kInaccurateLocationMessage =
 const String kTrackingStoppedMessage = 'Location sharing must be active before completing this delivery.';
 const String kDestinationInvalidMessage =
     "This order's clinic location is not configured correctly. Contact the Dispatcher.";
+const String kMockedLocationMessage =
+    'Your phone is using a mock-location app, so VaxTrack cannot confirm where you are. '
+    'Turn it off in Developer options, then try again.';
 const String kNotCompletableMessage = 'This delivery is no longer assigned to you or cannot be completed.';
 
 String outsideGeofenceMessage(int distanceM, int radiusM) =>
@@ -66,6 +71,8 @@ String? deliveryLocationMessage(String code, {Map<Object?, Object?>? info, Strin
       return kTrackingStoppedMessage;
     case kGeofenceDestinationInvalid:
       return kDestinationInvalidMessage;
+    case kGeofenceMocked:
+      return kMockedLocationMessage;
     case kDeliveryDelayed:
       return kDelayedNotCompletableMessage;
     case 'not-assigned-rider':
@@ -73,4 +80,16 @@ String? deliveryLocationMessage(String code, {Map<Object?, Object?>? info, Strin
       return kNotCompletableMessage;
   }
   return null;
+}
+
+/// The rider's notice when a dispatcher refuses an offline record. The note is
+/// free text, so it gets its own closing stop and never runs into the advice.
+String offlineRefusedMessage(String? note) {
+  const advice = 'Complete it here while at the clinic, or report a failed delivery.';
+  final text = note?.trim() ?? '';
+  if (text.isEmpty) {
+    return 'Your offline record was not accepted by the dispatcher. $advice';
+  }
+  final closed = RegExp(r'[.!?]$').hasMatch(text) ? text : '$text.';
+  return 'Your offline record was not accepted by the dispatcher: $closed $advice';
 }

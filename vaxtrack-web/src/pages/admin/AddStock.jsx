@@ -9,8 +9,10 @@ import { addStockBatchWithAllocation } from "../../services/inventoryCallables";
 import { subscribeVaccines } from "../../services/vaccineCatalogService";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { parsePesosToCentavos } from "../../services/money";
-import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
 import { validateStockBatchDates } from "../../services/stockBatchDates";
+import { isLargeStockQuantity, largeQuantityMessage } from "../../services/stockQuantityLimit";
+import ConfirmDialog from "../../components/ui/ConfirmDialog";
+import AdminDialogLayer from "../../components/admin/AdminDialogLayer";
 import "./AdminForms.css";
 
 // Each validated field's input id, and the id of the one field message shown
@@ -24,6 +26,7 @@ const STOCK_FIELD_IDS = {
   expiryDate: "stock-expiry-date",
   quantity: "stock-quantity",
   unitPrice: "stock-unit-price",
+  priceBasis: "stock-price-basis",
 };
 const STOCK_FIELD_ERROR_ID = "stock-field-error";
 
@@ -44,6 +47,7 @@ function AddStock() {
   // Also starts empty. A default price would be worse than a default quantity:
   // a plausible-looking figure nobody chose is exactly what gets invoiced.
   const [unitPrice, setUnitPrice] = useState("");
+  const [priceBasis, setPriceBasis] = useState("");
 
   const [loadingVaccines, setLoadingVaccines] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -177,19 +181,19 @@ function AddStock() {
     }
 
     if (String(quantity).trim() === "" || Number.isNaN(quantityNumber)) {
-      return failField("quantity", "Unit quantity is required.");
+      return failField("quantity", "Vial quantity is required.");
     }
 
     if (!Number.isInteger(quantityNumber)) {
-      return failField("quantity", "Quantity must be a whole number.");
+      return failField("quantity", "Vial quantity must be a whole number.");
     }
 
     if (quantityNumber <= 0) {
-      return failField("quantity", "Quantity must be greater than zero.");
+      return failField("quantity", "Vial quantity must be greater than zero.");
     }
 
     if (quantityNumber > 1000000) {
-      return failField("quantity", "Quantity is too large. Please check the encoded amount.");
+      return failField("quantity", "Vial quantity is too large. Please check the encoded amount.");
     }
 
     // A batch cannot enter inventory unpriced. Sales Rep ordering reads this
@@ -208,6 +212,7 @@ function AddStock() {
           "Enter the selling price in pesos, e.g. 1250 or 1250.50."
       );
     }
+    if (!priceBasis) return failField("priceBasis", "Choose whether the entered price includes VAT.");
 
     if (await batchIdExists(cleanedBatchId)) {
       return failField("batchId", "This Batch ID already exists in inventory.");
@@ -216,8 +221,11 @@ function AddStock() {
     return true;
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  // A quantity above the usual batch size waits here for the Admin's "yes".
+  const [largeQuantityPrompt, setLargeQuantityPrompt] = useState(null);
+
+  const handleSubmit = async (e, { largeQuantityConfirmed = false } = {}) => {
+    e?.preventDefault();
     // One write at a time. Set before the await, because validateForm queries
     // Firestore and a second submit could otherwise slip through behind it.
     if (submittingRef.current) return;
@@ -230,6 +238,12 @@ function AddStock() {
     try {
       const isValid = await validateForm();
       if (!isValid) return;
+
+      const typedQuantity = Number(String(quantity).trim());
+      if (isLargeStockQuantity(typedQuantity) && !largeQuantityConfirmed) {
+        setLargeQuantityPrompt(typedQuantity);
+        return;
+      }
 
       setSaving(true);
 
@@ -254,6 +268,8 @@ function AddStock() {
         // text in one place means the value written is the value validated,
         // even if the two ever drift apart.
         sellingPriceCentavos: parsePesosToCentavos(unitPrice).value,
+        priceIsVatInclusive: priceBasis === "included",
+        largeQuantityConfirmed,
       }, { submit: addStockBatchWithAllocation });
 
       setResult(report ?? null);
@@ -442,12 +458,12 @@ function AddStock() {
 
             <div className="two-col-form stock-controls">
               <div>
-                <label htmlFor="stock-quantity">Unit Quantity (Doses)</label>
+                <label htmlFor="stock-quantity">Unit Quantity (Vials)</label>
 
                 <div className="number-stepper">
                   <button
                     type="button"
-                    aria-label="Decrease quantity by 100"
+                    aria-label="Decrease vial quantity by 100"
                     onClick={() =>
                       setQuantity(Math.max(1, Number(quantity || 0) - 100))
                     }
@@ -468,7 +484,7 @@ function AddStock() {
 
                   <button
                     type="button"
-                    aria-label="Increase quantity by 100"
+                    aria-label="Increase vial quantity by 100"
                     onClick={() => setQuantity(Number(quantity || 0) + 100)}
                   >
                     +
@@ -489,13 +505,19 @@ function AddStock() {
                   {...a11y("unitPrice", "stock-unit-price-help")}
                 />
                 {fieldMessage("unitPrice")}
-                {/* Says which convention applies: the entered price is
-                    VAT-inclusive for VATable products, and VAT is never added
-                    on top of it (pricingConfig.js). */}
                 <small id="stock-unit-price-help">
-                  Price per vial charged to the clinic. {VAT_INCLUSIVE_NOTE} Applies
-                  to this batch only.
+                  Enter the amount per vial; choose its VAT basis below. This applies to this batch only.
                 </small>
+              </div>
+
+              <div>
+                <label htmlFor="stock-price-basis">Entered price basis</label>
+                <select id="stock-price-basis" value={priceBasis} onChange={(e) => setPriceBasis(e.target.value)} {...a11y("priceBasis")}>
+                  <option value="">Choose price basis</option>
+                  <option value="before">Before VAT — 12% is added for a standard VATable sale</option>
+                  <option value="included">VAT included — 12% is already in the entered amount</option>
+                </select>
+                {fieldMessage("priceBasis")}
               </div>
 
             </div>
@@ -563,6 +585,29 @@ function AddStock() {
             </button>
           </div>
         </form>
+
+        {/* Portaled: this page's <main> is transformed (AdminDialogLayer). */}
+        {largeQuantityPrompt !== null && (
+          <AdminDialogLayer>
+            <ConfirmDialog
+              title="Is this quantity correct?"
+              target={`Batch ${batchId.trim().toUpperCase()}`}
+              consequence={`${largeQuantityMessage(largeQuantityPrompt)} Check the delivery documents. If the figure is right, it will be saved as entered.`}
+              confirmLabel={`Yes, add ${largeQuantityPrompt.toLocaleString("en-PH")} vials`}
+              busyLabel="Adding…"
+              cancelLabel="Change the quantity"
+              tone="primary"
+              onCancel={() => {
+                setLargeQuantityPrompt(null);
+                document.getElementById("stock-quantity")?.focus();
+              }}
+              onConfirm={async () => {
+                await handleSubmit(null, { largeQuantityConfirmed: true });
+                setLargeQuantityPrompt(null);
+              }}
+            />
+          </AdminDialogLayer>
+        )}
       </main>
   );
 }

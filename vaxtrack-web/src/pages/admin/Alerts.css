@@ -51,8 +51,7 @@
   justify-content: flex-end;
 }
 
-.alerts-outline-btn,
-.alerts-blue-btn {
+.alerts-outline-btn {
   height: 44px;
   border-radius: 10px;
   padding: 0 16px;
@@ -74,17 +73,6 @@
 
 .alerts-outline-btn:hover {
   background: var(--gray-50);
-}
-
-.alerts-blue-btn {
-  border: 0;
-  background: var(--green-700);
-  color: #ffffff;
-  box-shadow: var(--shadow-card);
-}
-
-.alerts-blue-btn:hover {
-  background: var(--green-800);
 }
 
 /* KPI */
@@ -435,82 +423,145 @@
 .alert-category-stack {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-top: 18px;
+  gap: 8px;
+  margin-top: 14px;
 }
 
 .alert-category-item {
   width: 100%;
-  min-height: 78px;
+  min-height: 60px;
   border: 1px solid var(--gray-200);
-  border-radius: 12px;
+  border-radius: 10px;
   background: #ffffff;
-  padding: 14px;
-  display: flex;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto 16px;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   text-align: left;
   cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
 }
 
-.alert-category-item > div {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
+.alert-category-item:hover:not(:disabled),
+.alert-category-item.is-selected {
+  border-color: var(--green-600);
+  background: var(--green-50);
+}
+
+.alert-category-item:disabled { cursor: default; }
+
+.alert-category-item .alert-category-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
   display: grid;
   place-items: center;
 }
 
-.alert-category-item.red > div {
+.alert-category-item.red .alert-category-icon {
   background: #fee2e2;
   color: #dc2626;
 }
 
-.alert-category-item.orange > div {
+.alert-category-item.orange .alert-category-icon {
   background: #ffedd5;
   color: #ea580c;
 }
 
-.alert-category-item.blue > div {
+.alert-category-item.blue .alert-category-icon {
   background: var(--info-bg);
   color: var(--info-text);
 }
 
-.alert-category-item.green > div {
-  background: #dcfce7;
-  color: #16a34a;
-}
-
 .alert-category-item strong {
   color: var(--gray-900);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.alert-category-item p {
-  margin: 5px 0 0;
-  color: #475569;
   font-size: 13px;
   font-weight: 600;
 }
 
-.priority-alert-card {
-  margin-top: 18px;
-  border: 1px solid #fed7aa;
-  border-radius: 16px;
-  background: #fff7ed;
-  padding: 18px;
+.alert-category-count {
+  min-width: 30px;
+  color: var(--gray-900);
+  text-align: right;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.1;
 }
 
-.priority-alert-card > div {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
+.alert-category-count small {
+  display: block;
+  margin-top: 2px;
+  color: var(--gray-600);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.alert-category-chevron { color: var(--gray-500); }
+
+.alert-stock-link {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--gray-200);
+  border-radius: 10px;
+  background: var(--gray-50);
+  color: var(--green-700);
+  text-align: left;
+  cursor: pointer;
+}
+.alert-stock-link:hover { border-color: var(--green-600); background: var(--green-50); }
+.alert-stock-link > span { flex: 1; font-size: 12px; font-weight: 600; }
+.alert-stock-link small { display: block; margin-top: 2px; color: var(--gray-600); font-size: 11px; font-weight: 400; }
+
+.alerts-type-selection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: -6px 0 14px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--green-50);
+  color: var(--green-700);
+  font-size: 12px;
+  font-weight: 600;
+}
+.alerts-type-selection button {
+  border: 0;
+  padding: 3px 5px;
+  background: transparent;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.priority-alert-card {
+  margin-top: 14px;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  background: #fff7ed;
+  padding: 14px;
+}
+
+.priority-alert-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.priority-alert-icon {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 9px;
   background: #ffedd5;
   color: #ea580c;
   display: grid;
   place-items: center;
-  margin-bottom: 12px;
 }
 
 .priority-alert-card.critical {
@@ -518,43 +569,42 @@
   background: #fff1f2;
 }
 
-.priority-alert-card.critical > div {
+.priority-alert-card.critical .priority-alert-icon {
   background: #fee2e2;
   color: #dc2626;
 }
 
-.priority-alert-card.resolved {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
+.priority-alert-card.notice {
+  border-color: var(--info-border);
+  background: var(--info-bg);
 }
-
-.priority-alert-card.resolved > div {
-  background: #dcfce7;
-  color: #16a34a;
+.priority-alert-card.notice .priority-alert-icon {
+  background: #fff;
+  color: var(--info-text);
 }
 
 .priority-alert-card h3 {
   margin: 0;
   color: var(--gray-900);
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 700;
 }
 
 .priority-alert-card p {
-  margin: 8px 0 14px;
+  margin: 10px 0 12px;
   color: #475569;
-  font-size: 14px;
-  line-height: 1.5;
-  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 400;
 }
 
 .priority-alert-card button {
-  height: 38px;
+  min-height: 34px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 8px;
   background: var(--green-700);
   color: #ffffff;
-  padding: 0 14px;
+  padding: 0 11px;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -650,11 +700,6 @@
   color: #16a34a;
 }
 
-.alerts-modal-icon.settings {
-  background: var(--green-100);
-  color: var(--green-700);
-}
-
 .alerts-modal h2 {
   margin: 0;
   color: var(--gray-900);
@@ -743,71 +788,6 @@
   background: var(--gray-50);
 }
 
-/* Settings modal */
-
-.settings-modal {
-  width: 620px;
-}
-
-.alerts-settings-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-bottom: 20px;
-}
-
-.alerts-setting-row {
-  border: 1px solid var(--gray-200);
-  border-radius: 12px;
-  background: var(--gray-50);
-  padding: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-}
-
-.alerts-setting-row strong {
-  display: block;
-  color: var(--gray-900);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.alerts-setting-row p {
-  margin: 5px 0 0;
-  color: #64748b;
-  font-size: 12px;
-}
-
-.alerts-toggle {
-  width: 48px;
-  height: 28px;
-  border: 0;
-  border-radius: 999px;
-  background: #cbd5e1;
-  padding: 3px;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.alerts-toggle span {
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  background: #ffffff;
-  display: block;
-  transition: 0.18s ease;
-}
-
-.alerts-toggle.on {
-  background: var(--green-700);
-}
-
-.alerts-toggle.on span {
-  transform: translateX(20px);
-}
-
 /* Toast */
 
 .alerts-toast {
@@ -851,8 +831,7 @@
   .alerts-v2-topbar,
   .alerts-v2-actions,
   .alerts-list-toolbar,
-  .alerts-modal-actions,
-  .alerts-setting-row {
+  .alerts-modal-actions {
     flex-direction: column;
     align-items: stretch;
   }
@@ -887,8 +866,8 @@
 /* Make all alert icons centered and visible */
 .alert-kpi-icon,
 .alert-row-icon,
-.alert-category-item > div,
-.priority-alert-card > div,
+.alert-category-icon,
+.priority-alert-icon,
 .alerts-modal-icon {
   display: grid !important;
   place-items: center !important;
@@ -897,8 +876,8 @@
 /* Force lucide icons to display correctly */
 .alert-kpi-icon svg,
 .alert-row-icon svg,
-.alert-category-item svg,
-.priority-alert-card svg,
+.alert-category-icon svg,
+.priority-alert-icon svg,
 .alerts-modal-icon svg {
   width: 22px !important;
   height: 22px !important;
@@ -941,7 +920,6 @@
 
 /* Fix icon size inside action buttons */
 .alerts-outline-btn svg,
-.alerts-blue-btn svg,
 .alert-view-btn svg,
 .alerts-primary-action svg,
 .alerts-light-action svg {
@@ -951,36 +929,6 @@
   fill: none !important;
   display: block !important;
 }
-/* ---------------- alert delivery status (read-only) ----------------
-   Replaces the toggle that used to sit at the end of each row. A word, not a
-   control: green for a channel that works, neutral grey for one that does not
-   exist. Deliberately NOT red — an unconfigured channel is a gap, not a fault.
-   Meridian tokens only; no new colour is introduced. */
-.alerts-channel-state {
-  flex: none;
-  /* The row becomes a column at <=760px with align-items: stretch, which was
-     harmless for the fixed-size toggle this replaced but stretched a text pill
-     to the full row width - reading as a banner rather than a status. Hugging
-     its own content keeps it a chip at every width. */
-  align-self: flex-start;
-  padding: 5px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-  border: 1px solid transparent;
-}
-.alerts-channel-state.on {
-  background: var(--green-50, #f0f7f3);
-  border-color: var(--green-600, #27714f);
-  color: var(--green-700, #1f5c41);
-}
-.alerts-channel-state.off {
-  background: var(--gray-100, #f3f4f6);
-  border-color: var(--gray-300, #d1d5db);
-  color: var(--gray-600, #4b5563);
-}
-
 /* Live-data states: the dismissable "record removed" notice and the review
    dialog's write error. `!important` only out-specifies the global button
    min-height reset in styles.css. */
@@ -1008,16 +956,200 @@
 }
 
 
-/* Alert details: actions that are not built yet are visibly disabled, and
-   this note (their aria-describedby) says why. */
-.alerts-light-action:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+/* Delivery exceptions (delayed / failed orders) — moved here from the
+   Deliveries banner (2026-10-31). Derived live from the orders. */
+.alerts-v2-main .alerts-exceptions {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--danger-border);
+  border-left: 3px solid var(--danger-text);
+  border-radius: var(--radius-card);
+  background: var(--danger-bg);
+}
+.alerts-v2-main .alerts-exceptions-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--danger-text);
+}
+.alerts-v2-main .alerts-exceptions h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+.alerts-v2-main .alerts-exceptions-head p,
+.alerts-v2-main .alerts-exceptions-error {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--gray-600);
+}
+.alerts-v2-main .alerts-exceptions-list {
+  display: grid;
+  gap: 6px;
+  max-height: 168px;
+  margin: 10px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.alerts-v2-main .alerts-exceptions-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 10px;
+  border-radius: var(--radius-control);
+  background: #fff;
+  font-size: 13px;
+}
+.alerts-v2-main .alerts-exceptions-where {
+  flex: 1 1 180px;
+  min-width: 0;
+  color: var(--gray-600);
+}
+.alerts-v2-main .alerts-exceptions-review {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  color: var(--green-700);
+  font-weight: 600;
+  text-decoration: none;
+}
+.alerts-v2-main .alerts-exceptions-review:hover { text-decoration: underline; }
+.alerts-v2-main .alerts-exceptions-review:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
-.alerts-unavailable-note {
-  margin: 10px 0 0;
+/* The approval queue is a separate action surface from system alerts. */
+.alerts-v2-main .zero-rate-reviews {
+  margin-bottom: 16px;
+  padding: 20px 22px;
+  color: var(--gray-900);
+}
+
+.alerts-v2-main .zero-rate-reviews-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.alerts-v2-main .zero-rate-reviews-eyebrow {
+  color: var(--green-700);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.alerts-v2-main .zero-rate-reviews h2 {
+  margin: 3px 0 0;
+  color: var(--gray-900);
+  font-size: 21px;
+  line-height: 1.25;
+}
+
+.alerts-v2-main .zero-rate-reviews-head p {
+  margin: 4px 0 0;
   color: var(--gray-600);
   font-size: 13px;
-  line-height: 1.45;
+}
+
+.alerts-v2-main .zero-rate-reviews-count {
+  flex: none;
+  border-radius: 999px;
+  padding: 6px 11px;
+  background: #e7f4ec;
+  color: #176143;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.alerts-v2-main .zero-rate-reviews-count.is-error {
+  background: #fff0ed;
+  color: #a52b23;
+}
+
+.alerts-v2-main .zero-rate-reviews-empty {
+  margin: 16px 0 0;
+  color: var(--gray-600);
+  font-size: 14px;
+}
+
+.alerts-v2-main .zero-rate-reviews-feedback,
+.alerts-v2-main .zero-rate-reviews-load-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 16px 0 0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 13px;
+}
+
+.alerts-v2-main .zero-rate-reviews-feedback svg,
+.alerts-v2-main .zero-rate-reviews-load-error > svg { flex: none; }
+.alerts-v2-main .zero-rate-reviews-feedback.is-success { background: #eaf7ef; color: #176143; }
+.alerts-v2-main .zero-rate-reviews-feedback.is-error,
+.alerts-v2-main .zero-rate-reviews-load-error { background: #fff2f0; color: #a52b23; }
+.alerts-v2-main .zero-rate-reviews-load-error div { flex: 1; min-width: 0; }
+.alerts-v2-main .zero-rate-reviews-load-error p { margin: 3px 0 0; line-height: 1.45; }
+.alerts-v2-main .zero-rate-reviews-load-error button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  border: 1px solid #ecaea9;
+  border-radius: 8px;
+  background: #fff;
+  color: #922922;
+  padding: 7px 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.alerts-v2-main .zero-rate-review-item {
+  margin-top: 14px;
+  border: 1px solid var(--gray-200);
+  border-left: 3px solid var(--green-600);
+  border-radius: 11px;
+  padding: 16px;
+}
+
+.alerts-v2-main .zero-rate-review-item-head,
+.alerts-v2-main .zero-rate-review-meta,
+.alerts-v2-main .zero-rate-review-items li,
+.alerts-v2-main .zero-rate-review-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.alerts-v2-main .zero-rate-review-item-head strong { color: var(--gray-900); font-size: 15px; }
+.alerts-v2-main .zero-rate-review-item-head span { display: block; margin-top: 3px; color: var(--gray-600); font-size: 12px; }
+.alerts-v2-main .zero-rate-review-item-date { flex: none; font-weight: 700; }
+.alerts-v2-main .zero-rate-review-meta { justify-content: flex-start; gap: 18px; margin-top: 12px; color: var(--gray-600); font-size: 12px; }
+.alerts-v2-main .zero-rate-review-meta strong { color: var(--gray-900); }
+.alerts-v2-main .zero-rate-review-reason { margin-top: 14px; border-radius: 8px; background: var(--gray-50); padding: 11px 13px; }
+.alerts-v2-main .zero-rate-review-reason span { color: var(--gray-600); font-size: 12px; font-weight: 700; }
+.alerts-v2-main .zero-rate-review-reason p { margin: 4px 0 0; color: var(--gray-900); font-size: 14px; overflow-wrap: anywhere; }
+.alerts-v2-main .zero-rate-review-items { margin-top: 13px; font-size: 13px; }
+.alerts-v2-main .zero-rate-review-items ul { margin: 6px 0 0; padding: 0; list-style: none; }
+.alerts-v2-main .zero-rate-review-items li { border-top: 1px solid var(--gray-200); padding: 7px 0; }
+.alerts-v2-main .zero-rate-review-items li strong { flex: none; }
+.alerts-v2-main .zero-rate-review-actions { justify-content: flex-end; margin-top: 10px; }
+.alerts-v2-main .zero-rate-review-actions button { border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.alerts-v2-main .zero-rate-review-actions button:disabled { opacity: 0.6; cursor: wait; }
+.alerts-v2-main .zero-rate-accept { border: 1px solid var(--green-700); background: var(--green-700); color: #fff; }
+.alerts-v2-main .zero-rate-deny { border: 1px solid var(--gray-300); background: #fff; color: var(--gray-900); }
+
+@media (max-width: 640px) {
+  .alerts-v2-main .zero-rate-reviews-head,
+  .alerts-v2-main .zero-rate-review-item-head,
+  .alerts-v2-main .zero-rate-reviews-load-error { flex-wrap: wrap; }
+  .alerts-v2-main .zero-rate-review-actions button { flex: 1; }
 }

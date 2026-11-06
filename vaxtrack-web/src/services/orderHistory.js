@@ -32,7 +32,7 @@ export const RECEIPT_DISCLAIMER =
 export const NO_HISTORY_MESSAGE =
   "No allocation history is recorded for this order. History is kept for orders placed after it was introduced; earlier events were not recorded and are not reconstructed.";
 
-export const HISTORY_PAGE_SIZE = 25;
+export const HISTORY_PAGE_SIZE = 10;
 
 /** The receipt's provenance: "original", "reconstructed" or "legacy" (none). */
 export function receiptStatus(receipt) {

@@ -150,12 +150,12 @@ test("the batch dialog is portaled to document.body on a box-less scoped layer",
   assert.equal((DIALOG.match(/<DialogLayer scope=\{INVENTORY_DIALOG_SCOPE\}>/g) || []).length, 2);
 });
 
-test("why the portal is required: the Admin <main> keeps a transform after its entrance animation", () => {
-  // If this ever stops being true the portal is still correct; while it is
-  // true, any overlay rendered inside <main> is positioned against <main>.
+test("dialogs stay portaled even though the Admin <main> no longer keeps a transform", () => {
+  // The entrance became a plain fade (no transform left on <main>), so nothing
+  // traps fixed overlays today. The portal stays: any later transform or
+  // animation on <main> would bring that bug straight back.
   const transitions = read("src/styles/shell-transitions.css");
   assert.match(transitions, /\.inventory-page > main \{\s*animation: routeViewIn 0\.26s ease both;/);
-  assert.match(transitions, /transform: translateY\(0\);/);
   // The Inventory page itself renders no viewport overlay of its own for the batch or correction dialogs.
   assert.doesNotMatch(PAGE, /\{correcting && \(\s*<div className="v2-inventory-modal-backdrop"/);
   assert.doesNotMatch(PAGE, /\{(selectedVaccine|drawerItem) && \(\s*<div className="v2-inventory-modal-backdrop"/);
@@ -213,7 +213,7 @@ test("dialog semantics, close button and Escape are unchanged", () => {
   const head = DIALOG.slice(DIALOG.indexOf('<header className="inv-batch-head">'), DIALOG.indexOf("</header>"));
   assert.match(head, /ref=\{closeRef\}/);
   assert.match(head, /aria-label="Close batch details"/);
-  assert.match(PAGE, /onClose=\{\(\) => setSelectedVaccine\(null\)\}/);
+  assert.match(PAGE, /onClose=\{closeBatchDetails\}/);
   // The batch dialog has no backdrop-click close (it never had one); the stacked one keeps its own.
   assert.doesNotMatch(DIALOG.slice(0, DIALOG.indexOf("export function InventoryDialog")), /backdrop[^>]*onClick/);
 });

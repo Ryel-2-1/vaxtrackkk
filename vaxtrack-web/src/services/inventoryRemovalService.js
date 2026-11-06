@@ -109,6 +109,7 @@ export async function correctStockQuantity({
   newQuantity,
   reasonCode,
   reason,
+  largeQuantityConfirmed,
 }) {
   try {
     const result = await callables().correct({
@@ -118,6 +119,7 @@ export async function correctStockQuantity({
       newQuantity,
       reasonCode,
       reason: typeof reason === "string" ? reason.trim() : reason,
+      ...(largeQuantityConfirmed === true ? { largeQuantityConfirmed: true } : {}),
     });
     return result.data;
   } catch (error) {

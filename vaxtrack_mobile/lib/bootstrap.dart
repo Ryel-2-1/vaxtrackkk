@@ -1,9 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'app.dart';
 import 'environment.dart';
+import 'theme/app_branding.dart';
 import 'firebase_options.dart';
 
 /// Upper bound for the on-device Firestore offline cache.
@@ -15,6 +17,13 @@ import 'firebase_options.dart';
 /// [Settings.CACHE_SIZE_UNLIMITED]. 40 MB is far more than a rider's handful of
 /// orders needs and stays inside the SDK's allowed 1 MB–100 MB range.
 const int _firestoreCacheBytes = 40 * 1024 * 1024;
+
+/// Optional staging debug token, from
+/// `--dart-define=APP_CHECK_DEBUG_TOKEN=...`. Never committed. Left empty, the
+/// SDK makes one per install and prints it to the device log.
+const String _appCheckDebugToken = String.fromEnvironment(
+  'APP_CHECK_DEBUG_TOKEN',
+);
 
 /// Shared startup used by every entrypoint (`main.dart`, `main_production.dart`,
 /// `main_staging.dart`).
@@ -30,6 +39,8 @@ Future<void> bootstrapAndRun(EnvConfig config) async {
     final projectId = await _initFirebaseProjectId(config);
     // Hard gate: refuse to continue unless we are on the expected project.
     assertProjectMatches(config, projectId);
+    // App Check goes first, so the first Firestore or Auth call carries a token.
+    await _activateAppCheck(config);
     // Configure the offline cache BEFORE any Firestore read/listener runs.
     _configureFirestorePersistence();
     if (kDebugMode) {
@@ -40,10 +51,36 @@ Future<void> bootstrapAndRun(EnvConfig config) async {
         'firebaseProjectId=$projectId',
       );
     }
+    // Sign-in shows the same icon as this build's launcher icon.
+    AppBranding.environment = config.environment;
     runApp(const VaxTrackRiderApp());
   } catch (e, stack) {
     debugPrint('Startup failed for ${config.label} environment: $e\n$stack');
     runApp(StartupErrorApp(environment: config.label, error: e.toString()));
+  }
+}
+
+/// Start App Check for this build (see [AppCheckAttestation]).
+///
+/// Best-effort, like the cache settings below: a failure is logged and startup
+/// continues, because a rider must still be able to open the app and read saved
+/// deliveries with no signal. If enforcement is on, the server refuses requests
+/// that have no valid token, so nothing is weakened by carrying on here. The
+/// token itself is never logged by this code.
+Future<void> _activateAppCheck(EnvConfig config) async {
+  if (defaultTargetPlatform != TargetPlatform.android) return;
+  try {
+    await FirebaseAppCheck.instance.activate(
+      providerAndroid: switch (config.appCheckAttestation) {
+        AppCheckAttestation.playIntegrity =>
+          const AndroidPlayIntegrityProvider(),
+        AppCheckAttestation.debug => AndroidDebugProvider(
+          debugToken: _appCheckDebugToken.isEmpty ? null : _appCheckDebugToken,
+        ),
+      },
+    );
+  } catch (e) {
+    debugPrint('[VaxTrack] App Check did not start: ${e.runtimeType}');
   }
 }
 

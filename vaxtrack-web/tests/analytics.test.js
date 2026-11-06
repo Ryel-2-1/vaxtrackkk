@@ -138,13 +138,7 @@ test("the live order-creation path still writes no region", () => {
     false,
     "createOrderWithReservation writes no region — Analytics may not imply one"
   );
-  // The only writer that ever set it is the superseded client path, which the
-  // rules refuse.
-  assert.match(
-    read("src/services/orderService.js"),
-    /⚠️ SUPERSEDED[\s\S]*?export async function createSalesRepOrder/,
-    "the one region writer must still be marked superseded"
-  );
+  assert.doesNotMatch(read("src/services/orderService.js"), /createSalesRepOrder|\baddDoc\(/);
 });
 
 test("the clock is read to stamp a reference time, never during render", () => {
@@ -175,9 +169,8 @@ test("the clock is read to stamp a reference time, never during render", () => {
   }
 });
 
-test("hub performance stays an honest empty state", () => {
-  assert.match(SRC, /Hub ranking not available yet/);
-  assert.match(SRC, /No hub data\s*\n?\s*is fabricated in the meantime/);
+test("analytics omits hub ranking until hub metrics exist", () => {
+  assert.doesNotMatch(SRC, /Hub performance ranking|Hub ranking not available yet|analytics-hub-card/);
 });
 
 // ------------------------------------------------- honest derivations

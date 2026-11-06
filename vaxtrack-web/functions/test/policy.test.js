@@ -687,13 +687,11 @@ test("normalizeRequestedDeliveryDate: required, real, and never in the past", ()
   }
 });
 
-test("a batch priced under the legacy VAT-exclusive convention is never quoted onto a new order", () => {
-  // Recorded VAT-exclusive (`false`) or with no recorded convention at all:
-  // quoting it would silently re-interpret the figure as VAT-inclusive.
-  for (const flag of [false, undefined, null, "true"]) {
+test("a batch requires an explicit price basis before ordering", () => {
+  for (const flag of [undefined, null, "true"]) {
     assert.equal(codeOf(() => evaluate({ priceIsVatInclusive: flag })), "batch-price-convention-legacy", String(flag));
   }
-  // Re-confirmed by an Admin (stamped VAT-inclusive): orderable again.
+  assert.equal(evaluate({ priceIsVatInclusive: false }).unitPriceCentavos, PRICE);
   assert.equal(evaluate({ priceIsVatInclusive: true }).unitPriceCentavos, PRICE);
   // An unpriced batch is still reported as unpriced first.
   assert.equal(codeOf(() => evaluate({ sellingPriceCentavos: null, priceIsVatInclusive: false })), "batch-unpriced");

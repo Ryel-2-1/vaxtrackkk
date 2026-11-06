@@ -133,8 +133,8 @@ test("5 + 6. inactive keeps Reactivate; pending keeps Approve and Reject", () =>
   assert.deepEqual(staffActionsFor(STAFF_STATUS.INACTIVE), ["view", "reactivate", "changeRole"]);
   assert.deepEqual(staffActionsFor(STAFF_STATUS.PENDING), ["view", "approve", "reject", "changeRole"]);
   assert.deepEqual(staffActionsFor(STAFF_STATUS.ACTIVE), ["view", "deactivate", "changeRole"]);
-  // An admin still cannot change their own role.
-  assert.equal(staffActionsFor(STAFF_STATUS.ACTIVE, { isSelf: true }).includes("changeRole"), false);
+  // An Admin changes neither their own role nor their own status (the server refuses both).
+  assert.deepEqual(staffActionsFor(STAFF_STATUS.ACTIVE, { isSelf: true }), ["view"]);
 });
 
 test("the transition matrix matches the required behaviour", () => {

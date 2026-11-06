@@ -361,6 +361,86 @@ aside.salesrep-sidebar .salesrep-logout {
 .salesrep-main .place-v2-pricing-card small {
   color: var(--gray-500) !important;
 }
+
+.salesrep-main .zero-rate-checkout-card {
+  display: grid;
+  gap: 12px;
+}
+.salesrep-main .zero-rate-checkout-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.salesrep-main .zero-rate-checkout-heading h2 {
+  margin: 0 !important;
+  color: var(--gray-900) !important;
+  font-size: 16px !important;
+}
+.salesrep-main .zero-rate-checkout-heading span {
+  border-radius: 999px;
+  background: var(--gray-100);
+  color: var(--gray-600);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.salesrep-main .zero-rate-checkout-intro,
+.salesrep-main .zero-rate-checkout-form > p {
+  margin: 0 !important;
+  color: var(--gray-600) !important;
+  font-size: 13px !important;
+  line-height: 1.5;
+}
+.salesrep-main .zero-rate-checkout-toggle,
+.salesrep-main .zero-rate-checkout-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  border-radius: 9px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.salesrep-main .zero-rate-checkout-toggle {
+  justify-self: start;
+  border: 1px solid var(--gray-300);
+  background: #fff;
+  color: var(--green-700);
+}
+.salesrep-main .zero-rate-checkout-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+.salesrep-main .zero-rate-checkout-form { display: grid; gap: 9px; padding-top: 3px; }
+.salesrep-main .zero-rate-checkout-form label { margin: 0 !important; }
+.salesrep-main .zero-rate-checkout-form textarea { width: 100%; }
+.salesrep-main .zero-rate-checkout-submit {
+  border: 1px solid var(--green-700);
+  background: var(--green-700);
+  color: #fff;
+}
+.salesrep-main .zero-rate-checkout-submit:disabled { opacity: 0.55; cursor: not-allowed; }
+.salesrep-main .zero-rate-checkout-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid #c2dfd0;
+  border-radius: 10px;
+  background: #eef8f1;
+  color: #175c3f;
+  padding: 12px;
+}
+.salesrep-main .zero-rate-checkout-status.is-pending {
+  border-color: #f0d9a7;
+  background: #fff9e9;
+  color: #80510a;
+}
+.salesrep-main .zero-rate-checkout-status svg { flex: none; margin-top: 1px; }
+.salesrep-main .zero-rate-checkout-status strong { font-size: 13px; }
+.salesrep-main .zero-rate-checkout-status p { margin: 4px 0 0 !important; color: inherit !important; font-size: 12px !important; line-height: 1.5; }
+.salesrep-main .zero-rate-checkout-denied,
+.salesrep-main .zero-rate-checkout-error { margin: 0 !important; color: #a52b23 !important; font-size: 12px !important; line-height: 1.5; }
 /* Compact delete control on the checkout rows (kept ≥36px target) */
 .salesrep-main .place-v2-remove-btn {
   min-height: 36px !important;
@@ -415,17 +495,13 @@ aside.salesrep-sidebar .salesrep-logout {
    46px square by the global `button { min-height:46px !important }`
    reset, hold it compact while keeping a usable click area. The
    catalog qty steppers already carry explicit sizes; this covers
-   the cart delete + confirmation copy/print controls. */
+   the cart delete controls. */
 .salesrep-main .request-v2-cart-item button {
   min-height: 34px !important;
   height: 34px !important;
   width: 34px !important;
   border-radius: 8px !important;
 }
-.salesrep-main .confirmation-print-btn {
-  min-height: 0 !important;
-}
-
 /* ============================================================
    9 · Sidebar full-height fix + checkout nested-scroll fix
    ============================================================ */
@@ -690,6 +766,26 @@ aside.salesrep-sidebar .salesrep-logout {
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 10px;
   margin-top: 10px;
+}
+.salesrep-page .place-v2-side {
+  overflow-anchor: none;
+}
+.salesrep-page .place-v2-side .arrival-time-slot {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 180ms ease, margin-top 180ms ease;
+}
+.salesrep-page .place-v2-side .arrival-time-slot.is-empty {
+  grid-template-rows: 0fr;
+}
+.salesrep-page .place-v2-side .arrival-time-slot .arrival-times {
+  min-height: 0;
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .salesrep-page .place-v2-side .arrival-time-slot {
+    transition: none;
+  }
 }
 .salesrep-page .arrival-field select,
 .salesrep-page .arrival-field input[type="time"] {
@@ -1325,21 +1421,36 @@ aside.salesrep-sidebar .salesrep-logout {
 .salesrep-main .inventory-v2-table th {
   border-bottom: 1px solid var(--gray-300) !important;
 }
-/* Pagination: only the current page is rendered. The header and every row
-   have one fixed height, and each cell's content is bounded to fit inside it
-   (the name clamps and opens a popover; dates, quantities and status never
-   wrap; batch IDs wrap to at most two lines). A paged result reserves the
-   header plus a full page of rows, so a short last page leaves the pager
-   where it was; one page or an empty result keeps its natural height.
-   The table is `table-layout: fixed` with a 720px minimum, so column widths
-   never depend on the rows shown. Sizes are px, like the type they hold, so
-   browser zoom scales them together. */
+/* Pagination: only the current page (10 rows) is rendered, inside a box of
+   one FIXED height — the header plus 7½ rows, so the half row shows there is
+   more to scroll. Rows scroll inside it under a sticky header; a short last
+   page or a narrow filter never changes the box, so the toolbar, callouts,
+   cards above and the pager below stay exactly where they are.
+   Cell content is bounded to fit (the name opens a details dialog; dates,
+   quantities and status do not wrap; batch IDs use at most two lines), so
+   every row is exactly --inv-row-h tall. The table is `table-layout: fixed`
+   with a 720px minimum, so column widths never depend on the rows shown.
+   Sizes are px, like the type they hold, so browser zoom scales them
+   together. */
 .salesrep-main .inventory-v2-table-region {
   --inv-head-h: 52px;
   --inv-row-h: 77px;
+  height: calc(var(--inv-head-h) + 7.5 * var(--inv-row-h));
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
-.salesrep-main .inventory-v2-table-region.is-paged {
-  min-height: calc(var(--inv-head-h) + var(--inv-page-rows) * var(--inv-row-h));
+.salesrep-main .inventory-v2-table-region thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--gray-50, #f9fafb);
+}
+.salesrep-main .inventory-v2-page-nav {
+  padding: 0 20px;
+  border-top: 1px solid var(--gray-200);
+  background: #fff;
 }
 /* Separate borders with no spacing: each border sits inside its cell's
    border-box height, so a page is exactly header + rows × row height. */
@@ -1538,13 +1649,14 @@ aside.salesrep-sidebar .salesrep-logout {
 }
 
 /* ---- Order Tracking ---- */
-/* The filter toolbar (tabs, search, status) stays in reach on a long list.
+/* The filter toolbar (tabs, search, status) spans the list and details panel.
    The window is the only scroll container and the shell top bar is not
-   fixed, so it pins at the top of the viewport, inside the list column.
+   fixed, so it pins at the top of the viewport.
    Above 768px only: the phone layout makes the list column and <main>
    scroll containers (overflow), and the stacked toolbar would cover a
    third of the screen, so there it scrolls with the page. */
 .salesrep-main .tracking-v2-toolbar {
+  align-items: center !important;
   gap: 10px 12px !important;
   margin: var(--mr-header-gap) 0 12px !important;
   padding: 10px 12px !important;
@@ -1555,8 +1667,8 @@ aside.salesrep-sidebar .salesrep-logout {
 @media (min-width: 769px) {
   .salesrep-main .tracking-v2-toolbar {
     position: sticky;
-    top: 0;
-    z-index: 5;
+    top: var(--shell-topbar-height);
+    z-index: 20;
     box-shadow: 0 6px 12px -10px rgba(17, 24, 39, 0.35);
   }
 }
@@ -1571,10 +1683,135 @@ aside.salesrep-sidebar .salesrep-logout {
 }
 .salesrep-main .tracking-v2-tabs {
   border: 1px solid var(--gray-300) !important;
+  flex: 0 0 auto;
+}
+.salesrep-main .tracking-v2-status-filter {
+  align-self: center;
+  min-height: 42px;
+  white-space: nowrap;
+}
+.salesrep-main .tracking-v2-status-filter span {
+  line-height: 42px;
+}
+.salesrep-main .tracking-v2-layout {
+  width: 100%;
+  min-width: 0;
+  gap: 16px !important;
+}
+.salesrep-main .tracking-left {
+  min-width: 0;
+  width: 100%;
 }
 .salesrep-main .tracking-v2-table-wrap,
 .salesrep-main .tracking-v2-side {
   border: 1px solid var(--gray-300) !important;
+}
+/* The default card height is a fallback for short and stacked layouts. The
+   desktop viewport rule below lets a short table collapse while keeping a
+   full page inside the viewport; its header and pager remain outside the row
+   scroll area. */
+.salesrep-main .tracking-v2-layout {
+  --trk-pane-h: min(62dvh, 640px);
+}
+@media (min-width: 1201px) {
+  .salesrep-main .tracking-v2-layout {
+    --trk-pane-h: max(380px, calc(100dvh - var(--shell-topbar-height) - var(--trk-offset, 190px)));
+    align-items: stretch !important;
+  }
+  .salesrep-main .tracking-v2-side {
+    position: static !important;
+    height: var(--trk-pane-h);
+    max-height: none !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+  }
+}
+.salesrep-main .tracking-v2-table-wrap {
+  display: flex;
+  flex-direction: column;
+  height: var(--trk-pane-h);
+  max-height: none;
+  overflow: hidden !important;
+}
+.salesrep-main .tracking-v2-table-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.salesrep-main .tracking-v2-table-wrap > .page-nav {
+  flex: none;
+}
+.salesrep-main .tracking-v2-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+/* Status fits its longest label ("Pending Dispatch") on one line. */
+.salesrep-main .tracking-v2-table th:nth-child(4),
+.salesrep-main .tracking-v2-table td:nth-child(4) {
+  width: 150px !important;
+}
+.salesrep-main .tracking-v2-table td:nth-child(4) .m-badge {
+  max-width: none;
+}
+.salesrep-main .tracking-v2-table th,
+.salesrep-main .tracking-v2-table td {
+  padding: 10px 12px !important;
+}
+.salesrep-main .tracking-v2-table tr.selected {
+  border-left: 0 !important;
+  box-shadow: inset 4px 0 var(--green-700);
+}
+.salesrep-main .tracking-v2-table-wrap .page-nav {
+  padding: 10px 12px;
+  border-top: 1px solid var(--gray-300);
+}
+.salesrep-main .tracking-v2-side {
+  padding: 16px !important;
+}
+.salesrep-main .tracking-v2-side > p,
+.salesrep-main .tracking-v2-side > h3 {
+  margin: 12px 0 0 !important;
+}
+.salesrep-main .tracking-v2-side > p:first-of-type {
+  margin-top: 8px !important;
+}
+.salesrep-main .tracking-v2-side > .tracking-v2-status-strip,
+.salesrep-main .tracking-v2-side > .tracking-v2-info-box,
+.salesrep-main .tracking-v2-side > .tracking-destination-request,
+.salesrep-main .tracking-v2-side > .tracking-destination-history,
+.salesrep-main .tracking-v2-side > .order-cancellation-action {
+  margin: 8px 0 0 !important;
+}
+.salesrep-main .tracking-v2-side > .ldm,
+.salesrep-main .tracking-v2-side > .order-content,
+.salesrep-main .tracking-v2-side > .tracking-total {
+  margin-top: 8px !important;
+}
+.salesrep-main .tracking-v2-side > .order-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  margin-top: 0 !important;
+  margin-bottom: 0;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--gray-200);
+  border-radius: 0;
+  background: transparent;
+}
+.salesrep-main .tracking-v2-side .order-content > div {
+  min-width: 0;
+}
+.salesrep-main .tracking-v2-side .order-content-quantity {
+  color: var(--gray-900);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 .salesrep-main .tracking-v2-table td {
   border-top: 0 !important;
@@ -1590,6 +1827,17 @@ aside.salesrep-sidebar .salesrep-logout {
 }
 
 /* ---- Order History (shared component; Med Rep scope only) ---- */
+@media (min-width: 769px) {
+  .salesrep-order-history .ohx-filter-dock {
+    position: sticky;
+    top: var(--shell-topbar-height);
+    z-index: 10;
+    padding: 10px 0;
+    background: var(--gray-50);
+    box-shadow: 0 8px 14px -14px rgba(17, 24, 39, 0.5);
+  }
+}
+
 /* index.css still colours every h1/h2 with the scaffold's --text-h, which
    is near-white (#f3f4f6) under a dark OS theme; the order title and the
    section headings set no colour of their own and vanished on white. */
@@ -1617,6 +1865,55 @@ aside.salesrep-sidebar .salesrep-logout {
 .salesrep-order-history .ohx-table th {
   border-bottom: 1px solid var(--gray-300);
 }
+.salesrep-order-history .ohx {
+  gap: 12px;
+}
+.salesrep-order-history .ohx-list-table-wrap {
+  scrollbar-gutter: stable;
+}
+.salesrep-order-history .ohx-history-pager {
+  padding: 10px 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-card);
+  background: #fff;
+}
+/* One FIXED table height (2026-10-31): rows scroll inside under a sticky
+   header, the pager sits directly below, and a filter that leaves 3 rows —
+   or none, or the loading state — keeps the same footprint, so nothing
+   below moves. On a tall screen the page then fits without scrolling. */
+.salesrep-order-history {
+  --ohx-list-h: min(62dvh, 640px);
+}
+@media (min-width: 1201px) {
+  .salesrep-order-history {
+    --ohx-list-h: max(320px, calc(100dvh - var(--shell-topbar-height) - var(--ohx-list-offset, 300px)));
+  }
+}
+.salesrep-order-history .ohx-list-table-wrap {
+  height: var(--ohx-list-h);
+  max-height: none;
+  overflow-y: auto;
+}
+.salesrep-order-history .ohx-list-table-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.salesrep-order-history .ohx > .ohx-state {
+  min-height: var(--ohx-list-h);
+  box-sizing: border-box;
+}
+/* A tighter filter row: the single search row now holds every control. */
+.salesrep-order-history .ohx-filter-dock {
+  gap: 8px;
+}
+.salesrep-order-history .ohx-filters {
+  padding: 8px 12px;
+  gap: 8px 10px;
+}
+.salesrep-order-history .ohx > .ohx-muted {
+  margin: 0;
+}
 .salesrep-order-history .ohx-card > h2,
 .salesrep-order-history .ohx-receipt-head {
   padding-bottom: 10px;
@@ -1635,27 +1932,106 @@ aside.salesrep-sidebar .salesrep-logout {
 }
 
 /* ---- Alerts ---- */
-/* Lifecycle tabs, category chips and search on one toolbar row; it wraps
-   on narrow screens. The groups keep their own look so lifecycle and
-   category stay distinguishable. */
+@media (min-width: 769px) {
+  .salesrep-main .alerts-v2-sticky-head {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--gray-200);
+    background: var(--gray-50);
+    box-shadow: 0 8px 14px -14px rgba(17, 24, 39, 0.5);
+  }
+}
+.salesrep-main .alerts-v2-sticky-head {
+  margin-bottom: 14px;
+}
+.salesrep-main .alerts-v2-sticky-head .alerts-v2-header {
+  margin: 0 0 10px !important;
+}
+/* Order lifecycle tabs, status, and search share one compact toolbar. */
 .salesrep-main .alerts-v2-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px 24px;
-  margin: 0 0 var(--mr-section-gap);
+  margin: 0;
 }
-.salesrep-main .alerts-v2-toolbar .alerts-v2-tabs,
-.salesrep-main .alerts-v2-toolbar .alerts-v2-filters {
+.salesrep-main .alerts-v2-toolbar .alerts-v2-tabs {
   margin: 0 !important;
+}
+.salesrep-main .alerts-v2-status-select {
+  min-height: 42px !important;
+  height: 42px !important;
+  min-width: 174px;
+  padding: 0 12px;
+  border: 1px solid var(--gray-500);
+  border-radius: var(--radius-control);
+  background: #fff;
+  color: var(--gray-900);
+  font: inherit;
+  font-weight: 600;
 }
 .salesrep-main .alerts-v2-search {
   border: 1px solid var(--gray-500) !important;
+}
+@media (max-width: 640px) {
+  .salesrep-main .alerts-v2-status-select,
+  .salesrep-main .alerts-v2-search {
+    width: 100% !important;
+    max-width: none !important;
+  }
 }
 .salesrep-main .alerts-v2-card {
   border-top-color: var(--gray-300) !important;
   border-right-color: var(--gray-300) !important;
   border-bottom-color: var(--gray-300) !important;
+  padding: 14px !important;
+}
+.salesrep-main .alerts-v2-card .sales-alert-card-top {
+  gap: 6px;
+  margin-bottom: 8px !important;
+}
+.salesrep-main .alerts-v2-card .sales-alert-card-top span {
+  width: 28px;
+  height: 28px;
+  flex-basis: 28px !important;
+}
+.salesrep-main .alerts-v2-card .sales-alert-card-top small {
+  font-size: 11px;
+}
+.salesrep-main .alerts-v2-card h2 {
+  margin-bottom: 6px !important;
+  font-size: 15px !important;
+  line-height: 1.3 !important;
+  overflow-wrap: anywhere;
+}
+.salesrep-main .alerts-v2-card p {
+  margin-bottom: 8px !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+}
+.salesrep-main .alerts-v2-card .alert-location {
+  margin: 6px 0 10px !important;
+  padding: 7px 9px !important;
+  font-size: 12px;
+}
+.salesrep-main .alerts-v2-card .alert-actions button {
+  min-height: 36px !important;
+  height: 36px !important;
+  font-size: 12px !important;
+}
+@media (min-width: 1280px) {
+  .salesrep-main .alerts-v2-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 14px !important;
+  }
+}
+@media (min-width: 769px) and (max-width: 1279px) {
+  .salesrep-main .alerts-v2-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 14px !important;
+  }
 }
 
 /* Logout failure, shown beside the button on the dark sidebar (never a
@@ -2162,6 +2538,13 @@ aside.salesrep-sidebar .salesrep-logout-error {
 .salesrep-page .request-v2-layout > .request-catalog {
   container: rqcat / inline-size;
 }
+.salesrep-page .request-v2-product-grid {
+  align-content: start !important;
+  grid-auto-rows: max-content !important;
+}
+.salesrep-page .request-v2-product-card.rq-item {
+  min-height: 0 !important;
+}
 
 /* ---- sticky needs non-scrolling ancestors ----
    `overflow-x: hidden` on .salesrep-page (SalesRep.css) and on body/#root
@@ -2211,7 +2594,7 @@ body:has(> #root > .salesrep-page),
   flex: 0 0 auto;
 }
 
-/* ---- wide screens: catalog | 312px sticky cart ---- */
+/* ---- wide screens: catalog | 312px cart ---- */
 @media (min-width: 1101px) {
   .salesrep-page .request-order-layout.request-v2-layout {
     grid-template-columns: minmax(0, 1fr) 312px !important;
@@ -2275,7 +2658,7 @@ body:has(> #root > .salesrep-page),
   }
   .salesrep-page .rq-cart-bar {
     position: sticky;
-    top: 0; /* the Med Rep top bar scrolls away; this pins to the viewport top */
+    top: var(--shell-topbar-height); /* sit below the sticky Med Rep top bar */
     z-index: 5;
     display: flex;
     justify-content: flex-end;
@@ -2460,4 +2843,702 @@ body:has(> #root > .salesrep-page),
     padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)) !important;
     border-radius: 16px 16px 0 0 !important;
   }
+}
+
+/* Med Rep catalog filters share one compact toolbar control. */
+.salesrep-page .catalog-filter-trigger {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  min-height: 42px !important;
+  padding: 0 14px !important;
+  border: 1px solid var(--gray-300) !important;
+  border-radius: 10px !important;
+  background: #fff !important;
+  color: var(--green-800) !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  cursor: pointer;
+}
+.salesrep-page .catalog-filter-trigger span {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--green-100);
+  font-size: 12px;
+}
+.salesrep-page .catalog-filter-trigger:focus-visible { outline: 2px solid var(--green-700); outline-offset: 2px; }
+.salesrep-page .request-v2-tabs > .catalog-filter-trigger { min-width: 0 !important; }
+.salesrep-page .rq-table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  background: #fff;
+}
+.salesrep-page .rq-table {
+  width: 100%;
+  min-width: 840px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+}
+.salesrep-page .rq-table th {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--gray-200);
+  background: var(--gray-50);
+  color: var(--gray-600);
+  font-weight: 600;
+  text-align: left;
+}
+.salesrep-page .rq-table th:nth-child(1) { width: 20%; }
+.salesrep-page .rq-table th:nth-child(2) { width: 12%; }
+.salesrep-page .rq-table th:nth-child(3) { width: 19%; }
+.salesrep-page .rq-table th:nth-child(4) { width: 12%; }
+.salesrep-page .rq-table th:nth-child(5) { width: 17%; }
+.salesrep-page .rq-table th:nth-child(6) { width: 20%; }
+.salesrep-page .rq-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--gray-200);
+  color: var(--gray-900);
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+.salesrep-page .rq-table tbody tr:last-child td { border-bottom: 0; }
+.salesrep-page .rq-table tbody tr:hover { background: var(--green-50); }
+.salesrep-page .rq-table td strong,
+.salesrep-page .rq-table td small { display: block; }
+.salesrep-page .rq-table td strong { font-size: 12px; font-weight: 600; }
+.salesrep-page .rq-table td small { margin-top: 2px; color: var(--gray-600); font-size: 11px; line-height: 1.3; }
+.salesrep-page .rq-table .rq-table-reason { color: var(--danger-text); }
+.salesrep-page .rq-table .rq-table-price { font-variant-numeric: tabular-nums; }
+.salesrep-page .rq-table-qty {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control);
+  background: #fff;
+}
+.salesrep-page .rq-table-qty button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  min-width: 26px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--gray-700);
+  cursor: pointer;
+}
+.salesrep-page .rq-table-qty button:disabled { opacity: .45; cursor: not-allowed; }
+.salesrep-page .rq-table-qty input {
+  width: 58px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gray-900);
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  appearance: textfield;
+}
+.salesrep-page .rq-table-qty input::-webkit-inner-spin-button,
+.salesrep-page .rq-table-qty input::-webkit-outer-spin-button { appearance: none; }
+.salesrep-page .rq-table-qty input:focus-visible { outline: 2px solid var(--green-700); outline-offset: 1px; }
+.salesrep-page .rq-table-qty:has(input[aria-invalid="true"]) {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
+.salesrep-page .rq-table .rq-quantity-feedback {
+  max-width: 170px;
+  margin-top: 3px;
+  color: var(--danger-text);
+  line-height: 1.25;
+}
+.salesrep-page .rq-table-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 5px;
+  align-items: center;
+}
+.salesrep-page .rq-table-actions.has-future {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.salesrep-page .rq-table-add {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--green-700);
+  border-radius: var(--radius-control);
+  background: var(--green-700);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.salesrep-page .rq-table-add:hover:not(:disabled) { background: var(--green-800); }
+.salesrep-page .rq-table-add:disabled {
+  border-color: var(--gray-300);
+  background: var(--gray-100);
+  color: var(--gray-500);
+  cursor: not-allowed;
+}
+.salesrep-page .rq-table-add-future {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-control);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.salesrep-page .rq-table-qty button:focus-visible,
+.salesrep-page .rq-table-add:focus-visible,
+.salesrep-page .rq-table-add-future:focus-visible { outline: 2px solid var(--green-700); outline-offset: 2px; }
+.salesrep-page .rq-table-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  background: #fff;
+  overflow: hidden;
+}
+.salesrep-page .rq-table-card .rq-table-wrap {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  scroll-margin-top: calc(var(--shell-topbar-height) + 8px);
+}
+.salesrep-page .rq-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 0;
+  padding: 10px 14px;
+  border-top: 1px solid var(--gray-200);
+  background: #fff;
+  color: var(--gray-600);
+  font-size: 13px;
+}
+.salesrep-page .rq-pagination > div { display: flex; align-items: center; gap: 8px; }
+.salesrep-page .rq-pagination button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--green-800);
+  cursor: pointer;
+}
+.salesrep-page .rq-pagination button:disabled { opacity: .45; cursor: not-allowed; }
+.salesrep-page .rq-pagination button:focus-visible { outline: 2px solid var(--green-700); outline-offset: 2px; }
+@media (min-width: 1101px) {
+  #root .salesrep-route-view:has(> .request-order-layout) {
+    height: calc(100dvh - var(--shell-topbar-height));
+    min-height: 0;
+    overflow: hidden;
+  }
+  .salesrep-page .request-order-layout.request-v2-layout {
+    height: 100%;
+    min-height: 0 !important;
+    align-items: stretch !important;
+    overflow: hidden;
+  }
+  .salesrep-page .request-v2-layout > .request-catalog {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .salesrep-page .request-catalog .rq-table-card {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .salesrep-page .request-catalog .rq-table-wrap {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    scrollbar-gutter: stable;
+  }
+  .salesrep-page .rq-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  .salesrep-page .request-order-layout aside.rq-cart-side {
+    position: relative !important;
+    top: auto !important;
+    height: 100% !important;
+    max-height: none !important;
+    align-self: stretch !important;
+  }
+}
+@media (max-width: 640px) {
+  .salesrep-page .inventory-v2-toolbar { grid-template-columns: 1fr !important; }
+  .salesrep-page .catalog-filter-trigger { justify-self: start; }
+}
+
+/* The shell header stays visible in the main pane's desktop scroller and in
+   the window scroller at smaller widths. It is outside each route's animated
+   content, so navigation never resets its position. */
+#root .salesrep-main > header.salesrep-topbar.m-topbar {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 1000 !important;
+  background: #fff !important;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, .07) !important;
+}
+
+/* `overflow-x: hidden` on these mobile ancestors creates a non-scrolling
+   overflow container and prevents sticky from following the window. `clip`
+   keeps horizontal overflow contained without taking over vertical scroll. */
+@media (max-width: 1024px) {
+  body:has(> #root > .salesrep-page),
+  #root:has(> .salesrep-page),
+  #root > .salesrep-page,
+  #root > .salesrep-page > .salesrep-main {
+    overflow-x: clip !important;
+    overflow-y: visible !important;
+  }
+}
+
+/* Delivery planner (2026-10-31): with the description removed, the Status and
+   Priority filters sit directly under the title and share the row with the
+   "N of N orders shown" summary and legend when they fit. */
+.salesrep-main .srd-planner-controls-main {
+  flex: 0 1 auto;
+}
+/* The selected day's orders use the shared DeliveryEventCard (as on the
+   Dispatcher/Admin calendar); this is only the list wrapper. */
+.salesrep-main .srd-planner-events {
+  margin: 0;
+  padding: 0 4px 0 0;
+  list-style: none;
+}
+
+/* Live Monitoring (2026-11-01): the shared Live Tracking layout (LiveTracking
+   .css). No summary-card row here, so the map starts higher: a smaller offset
+   lets the map and sidebar fill the viewport below the top bar. */
+.salesrep-main .srl-monitor {
+  --ltp-offset: 60px;
+}
+
+/* Inventory and tracking use the space below the shell header on desktop.
+   Rows scroll inside their cards; the table headings and pager stay visible.
+   On small/short screens the normal document scroll remains available so no
+   controls are clipped. */
+/* Needs room for the overview AND about four table rows (~1040px of window);
+   shorter windows scroll as a normal page with the fixed 7½-row table. */
+@media (min-width: 1101px) and (min-height: 1040px) {
+  #root .salesrep-route-view:has(> .inventory-v2-title) {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - var(--shell-topbar-height));
+    min-height: 0;
+    overflow: hidden;
+  }
+  .salesrep-main .inventory-v2-title {
+    flex: 0 0 auto;
+  }
+  /* The overview keeps its natural height (top types + toggle); only the
+     table gives way. It was capped at 25dvh and clipped, which at 100% zoom
+     left ~70px for the chart. */
+  .salesrep-main .inventory-v2-summary {
+    flex: 0 0 auto;
+  }
+  .salesrep-main .inventory-stock-chart-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .salesrep-main .stock-hbar-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none !important;
+  }
+  .salesrep-main .inventory-side-metrics,
+  .salesrep-main .inventory-side-metrics .small-metric-card {
+    min-height: 0 !important;
+  }
+  .salesrep-main .inventory-v2-table-card {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden !important;
+  }
+  .salesrep-main .inventory-v2-table-region {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+    overflow: auto;
+  }
+  .salesrep-main .inventory-v2-page-nav {
+    flex: 0 0 auto;
+  }
+}
+
+/* Order Tracking: both cards use the same viewport-based height. The toolbar
+   stays in normal flow, table rows scroll below their sticky headings, and
+   pagination stays anchored at the bottom of the left card. */
+@media (min-width: 1201px) and (min-height: 540px) {
+  #root .salesrep-route-view:has(> .tracking-v2-page) {
+    padding-top: 12px !important;
+    padding-bottom: 12px !important;
+  }
+  .salesrep-main .tracking-v2-toolbar {
+    position: static;
+    margin: 0 0 12px !important;
+  }
+  .salesrep-main .tracking-v2-layout {
+    --trk-pane-h: max(320px, calc(100dvh - var(--shell-topbar-height) - 112px));
+  }
+  .salesrep-main .tracking-v2-table-wrap {
+    height: var(--trk-pane-h);
+    max-height: none;
+  }
+  .salesrep-main .tracking-v2-table-scroll {
+    flex: 1 1 auto;
+  }
+  .salesrep-main .tracking-v2-side {
+    height: var(--trk-pane-h);
+  }
+}
+
+/* ---- Order Confirmation · Meridian green + arrival animation --------------
+   Brings the confirmation in line with the other Med Rep pages: green
+   accents instead of the legacy blue (SalesRep.css), sentence-case labels,
+   no box icons on the order lines, a status pill. `!important` only where the
+   legacy confirmation rules in SalesRep.css carry their own. */
+.salesrep-main .confirmation-v2-card .confirmation-hero svg.confirmation-mark {
+  color: var(--green-700);
+}
+.salesrep-main .confirmation-mark-ring,
+.salesrep-main .confirmation-mark-tick {
+  stroke: var(--green-700);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.salesrep-main .confirmation-mark-ring {
+  stroke: var(--green-600);
+  fill: var(--green-100) !important;
+}
+.salesrep-main .order-reference .confirmation-status {
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--info-border);
+  background: var(--info-bg);
+  color: var(--info-text) !important;
+  white-space: nowrap;
+}
+.salesrep-main .order-reference .confirmation-status[data-tone="done"] {
+  border-color: var(--success-border); background: var(--success-bg); color: var(--success-text) !important;
+}
+.salesrep-main .order-reference .confirmation-status[data-tone="warn"] {
+  border-color: var(--warning-border); background: var(--warning-bg); color: var(--warning-text) !important;
+}
+.salesrep-main .order-reference .confirmation-status[data-tone="bad"] {
+  border-color: var(--danger-border); background: var(--danger-bg); color: var(--danger-text) !important;
+}
+/* Order lines without the package icon: name/batch left, quantity/price right. */
+.salesrep-main .confirmation-v2-card .confirm-item {
+  gap: 16px;
+}
+.salesrep-main .confirmation-v2-card .confirm-item > div:first-child {
+  min-width: 0;
+}
+.salesrep-main .confirmation-v2-card .confirm-item strong {
+  color: var(--gray-900);
+}
+.salesrep-main .confirmation-v2-card .confirm-item .confirm-negotiated {
+  color: var(--green-700);
+}
+.salesrep-main .confirmation-v2-card .alloc-summary {
+  margin: 14px 24px 0;
+}
+/* Detail cards, notes and totals: green accents on a quiet neutral ground. */
+.salesrep-main .confirmation-v2-details > div,
+.salesrep-main .confirmation-notes-card {
+  background: var(--gray-50) !important;
+  border-color: var(--gray-200) !important;
+}
+.salesrep-main .confirmation-v2-details svg,
+.salesrep-main .confirmation-notes-card svg {
+  color: var(--green-700) !important;
+}
+.salesrep-main .confirmation-v2-details span,
+.salesrep-main .confirmation-notes-card span,
+.salesrep-main .confirmation-v2-total span {
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  color: var(--gray-600) !important;
+}
+.salesrep-main .confirmation-v2-total {
+  border-color: var(--gray-200) !important;
+}
+.salesrep-main .confirmation-v2-total strong {
+  font-variant-numeric: tabular-nums;
+}
+.salesrep-main .confirmation-v2-total .grand-total {
+  background: var(--green-50) !important;
+  border-top: 1px solid var(--green-100) !important;
+}
+.salesrep-main .confirmation-v2-total .grand-total span {
+  color: var(--green-800) !important;
+}
+.salesrep-main .confirmation-v2-total .grand-total strong {
+  color: var(--green-800) !important;
+  font-size: 22px !important;
+}
+.salesrep-main .confirmation-v2-actions button {
+  background: var(--green-700) !important;
+  border-radius: 10px !important;
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+.salesrep-main .confirmation-v2-actions button:hover {
+  background: var(--green-800) !important;
+}
+.salesrep-main .confirmation-v2-actions button:active {
+  transform: translateY(1px);
+}
+.salesrep-main .confirmation-v2-actions button:focus-visible {
+  outline: 2px solid var(--green-700);
+  outline-offset: 2px;
+}
+.salesrep-main .confirmation-v2-reference small {
+  color: var(--green-700) !important;
+}
+
+/* Arrival animation: the check draws itself, then the receipt settles in,
+   section by section. Everything is visible at rest; with reduced motion
+   nothing moves. */
+@media (prefers-reduced-motion: no-preference) {
+  .salesrep-main .confirmation-mark {
+    animation: mr-confirm-pop 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+  }
+  .salesrep-main .confirmation-mark-ring {
+    stroke-dasharray: 145;
+    stroke-dashoffset: 145;
+    animation: mr-confirm-draw 0.6s ease-out 0.1s forwards;
+  }
+  .salesrep-main .confirmation-mark-tick {
+    stroke-dasharray: 34;
+    stroke-dashoffset: 34;
+    animation: mr-confirm-draw 0.35s ease-out 0.6s forwards;
+  }
+  .salesrep-main .confirmation-animated > * {
+    animation: mr-confirm-rise 0.45s ease-out both;
+  }
+  .salesrep-main .confirmation-animated > :nth-child(2) { animation-delay: 0.25s; }
+  .salesrep-main .confirmation-animated > :nth-child(3) { animation-delay: 0.32s; }
+  .salesrep-main .confirmation-animated > :nth-child(n + 4) { animation-delay: 0.4s; }
+  .salesrep-main .confirmation-animated > :nth-child(n + 7) { animation-delay: 0.5s; }
+  .salesrep-main .confirmation-animated > :nth-child(n + 9) { animation-delay: 0.6s; }
+}
+@keyframes mr-confirm-draw {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes mr-confirm-pop {
+  from { transform: scale(0.6); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+@keyframes mr-confirm-rise {
+  from { transform: translateY(8px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+/* ---- Order Tracking · finishing pass + motion ------------------------------
+   Same treatment as the confirmation: sentence-case labels and green accents
+   in place of the legacy blue/uppercase rules in SalesRep.css, then motion
+   that explains what changed: rows settle in, progress bars fill, and the
+   details panel rises in each time another order is picked (the <aside> is
+   re-keyed per order). Everything is readable at rest; nothing moves under
+   reduced motion. */
+.salesrep-main .tracking-v2-side h3 {
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: var(--gray-900) !important;
+}
+.salesrep-main .tracking-v2-side .tracking-side-title span {
+  text-transform: none !important;
+  letter-spacing: normal !important;
+}
+.salesrep-main .tracking-v2-side .tracking-side-title button {
+  border-radius: 8px;
+  transition: background-color 0.15s ease;
+}
+.salesrep-main .tracking-v2-side .tracking-side-title button:hover {
+  background: var(--gray-100) !important;
+}
+.salesrep-main .tracking-v2-info-box svg,
+.salesrep-main .tracking-v2-no-selected svg {
+  color: var(--green-700) !important;
+}
+.salesrep-main .tracking-total p strong {
+  color: var(--green-800) !important;
+  font-variant-numeric: tabular-nums;
+}
+.salesrep-main .tracking-v2-table tbody tr {
+  transition: background-color 0.18s ease, box-shadow 0.18s ease;
+}
+.salesrep-main .tracking-v2-table tbody tr.selected {
+  background: var(--green-50) !important;
+}
+.salesrep-page .track-progress span {
+  transition: width 0.5s ease-out;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .salesrep-main .tracking-v2-table tbody tr {
+    animation: mr-track-row 0.32s ease-out both;
+  }
+  .salesrep-main .tracking-v2-table tbody tr:nth-child(2) { animation-delay: 0.03s; }
+  .salesrep-main .tracking-v2-table tbody tr:nth-child(3) { animation-delay: 0.06s; }
+  .salesrep-main .tracking-v2-table tbody tr:nth-child(4) { animation-delay: 0.09s; }
+  .salesrep-main .tracking-v2-table tbody tr:nth-child(5) { animation-delay: 0.12s; }
+  .salesrep-main .tracking-v2-table tbody tr:nth-child(n + 6) { animation-delay: 0.15s; }
+  .salesrep-page .track-progress:not(.is-indeterminate) span {
+    transform-origin: left center;
+    animation: mr-track-fill 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) 0.15s both;
+  }
+  .salesrep-main .tracking-v2-side > * {
+    animation: mr-confirm-rise 0.36s ease-out both;
+  }
+  .salesrep-main .tracking-v2-side > :nth-child(n + 3) { animation-delay: 0.05s; }
+  .salesrep-main .tracking-v2-side > :nth-child(n + 6) { animation-delay: 0.1s; }
+  .salesrep-main .tracking-v2-side > :nth-child(n + 10) { animation-delay: 0.15s; }
+}
+@keyframes mr-track-row {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes mr-track-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+/* "Details unavailable" confirmation: no reference block between the hero and
+   the button, so give the button its own breathing room. */
+.salesrep-main .confirmation-hero + .confirmation-v2-actions {
+  margin-top: 18px !important;
+}
+
+/* ---- Order Tracking · column widths ----------------------------------------
+   Order ID (with its date beneath) | Destination | Status | Progress. The Date
+   column is folded into Order ID, the order number is set a touch smaller,
+   Status and Progress are sized to their content, and the details panel is a
+   little narrower on laptop widths — so Destination, the column with the most
+   to say, gets the room (≈260px at 1366px instead of ≈70px). Overrides the
+   earlier per-column rules above and in SalesRep.css (hence !important). */
+.salesrep-page .tracking-v2-table {
+  min-width: 600px !important;
+}
+.salesrep-main .tracking-v2-table td:first-child {
+  display: table-cell !important;
+}
+/* The number may wrap at its hyphens (…-1793613665790- / QL0A) rather than
+   reserve 240px of one-line width; the earlier rule kept it on one line. */
+.salesrep-page .tracking-v2-table td:first-child strong {
+  display: block;
+  white-space: normal !important;
+  overflow-wrap: normal;
+}
+.salesrep-main .tracking-v2-table td:first-child small {
+  display: block;
+  margin-top: 4px;
+}
+.salesrep-page .tracking-v2-table th:nth-child(1),
+.salesrep-page .tracking-v2-table td:nth-child(1) {
+  width: 184px !important;
+}
+.salesrep-page .tracking-v2-table th:nth-child(2),
+.salesrep-page .tracking-v2-table td:nth-child(2) {
+  width: auto !important;
+}
+.salesrep-main .tracking-v2-table th:nth-child(3),
+.salesrep-main .tracking-v2-table td:nth-child(3) {
+  width: 160px !important;
+}
+.salesrep-main .tracking-v2-table td:nth-child(3) .m-badge {
+  max-width: none;
+}
+.salesrep-main .tracking-v2-table th:nth-child(4),
+.salesrep-main .tracking-v2-table td:nth-child(4) {
+  width: 112px !important;
+}
+@media (min-width: 1201px) and (max-width: 1500px) {
+  .salesrep-main .tracking-v2-layout {
+    grid-template-columns: minmax(0, 1fr) 336px !important;
+  }
+}
+@media (min-width: 1201px) and (max-width: 1340px) {
+  .salesrep-main .tracking-v2-layout {
+    grid-template-columns: minmax(0, 1fr) 304px !important;
+  }
+}
+
+/* ---- Inventory · stock overview ---------------------------------------------
+   Top 5 vaccine types at a fixed row height; "Show all N types" opens the rest
+   in a short scroll so the table below keeps its place. The window-fitted
+   desktop layout (above) now needs 1040px of height; shorter windows scroll as
+   a normal page instead of squeezing every card. */
+.salesrep-page .stock-hbar-list {
+  max-height: none !important;
+  overflow: visible !important;
+}
+.salesrep-page .stock-hbar-list.is-expanded {
+  max-height: 232px !important;
+  overflow-y: auto !important;
+  padding-right: 4px;
+}
+.salesrep-page .stock-hbar-toggle {
+  align-self: flex-start;
+  margin-top: 10px;
+  min-height: 0 !important;
+  padding: 4px 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--green-700) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  cursor: pointer;
+}
+.salesrep-page .stock-hbar-toggle:hover {
+  text-decoration: underline;
+}
+.salesrep-page .stock-hbar-toggle:focus-visible {
+  outline: 2px solid var(--green-700);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.salesrep-page .inventory-v2-summary .small-metric-card h2 {
+  overflow-wrap: anywhere;
 }

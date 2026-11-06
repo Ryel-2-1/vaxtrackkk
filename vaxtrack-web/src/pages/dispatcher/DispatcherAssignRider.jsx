@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
-  ArrowLeft,
   Bike,
   CheckCircle2,
   Loader2,
@@ -34,11 +32,13 @@ import useManilaDayNow from "../../components/useManilaDayNow";
 // from the session inside assignRiderToOrder, so this page cannot supply — or
 // mis-supply — who performed the assignment.
 import StatusBadge from "../../components/ui/StatusBadge";
+import PageNav from "../../components/ui/PageNav";
 import "./DispatcherAssignRider.css";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { createSingleFlight } from "../../services/singleFlight";
 import { requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
 import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
+import VaccineBreakdown from "../../components/dispatch/VaccineBreakdown";
 
 function initialsOf(name) {
   return (
@@ -73,7 +73,6 @@ const getRiderEmployeeId = (r) => r.employeeId || "";
  * opens its dialog, and the queue stays underneath.
  */
 function DispatcherAssignRider() {
-  const navigate = useNavigate();
   const now = useManilaDayNow();
 
   const [orders, setOrders] = useState(null); // null until the first snapshot
@@ -175,7 +174,7 @@ function DispatcherAssignRider() {
     () => buildAssignmentQueue({ orders: orders || [], now, search, filter }),
     [orders, now, search, filter]
   );
-  const { rows, page: currentPage, pageCount } = pageOf(queue, page);
+  const { rows, page: currentPage } = pageOf(queue, page);
 
   // The dialog's order is always the LIVE pending order; once the snapshot no
   // longer has it, it cannot be assigned from here.
@@ -279,14 +278,6 @@ function DispatcherAssignRider() {
     <>
       <div className="ar-page">
         <header className="ar-header">
-          <button
-            type="button"
-            className="ar-back"
-            onClick={() => navigate("/dispatcher")}
-            aria-label="Back to dashboard"
-          >
-            <ArrowLeft size={16} />
-          </button>
           <div>
             <h2 className="disp-section-title">Rider assignment</h2>
             <p>Orders waiting for a rider · updates live</p>
@@ -350,6 +341,10 @@ function DispatcherAssignRider() {
             </div>
           </div>
 
+          {/* One fixed-height body: the list scrolls inside it and the pager is
+              pinned to its foot, so a filter pill that leaves two orders — or
+              none — never shrinks it or moves the pager. */}
+          <div className="arq-body">
           {ordersError ? (
             <div className="ar-state" role="alert">
               <span className="ar-state-icon">
@@ -376,21 +371,20 @@ function DispatcherAssignRider() {
               <ul className="arq-list">
                 {rows.map((o) => (
                   <li key={o.id} className="arq-row">
-                    <div className="arq-row-main">
-                      <strong className="arq-order tnum" title={o.orderNumber || o.id}>{o.orderNumber || o.id}</strong>
-                      {(o.priority || "").toLowerCase() === "urgent" && <span className="arq-tag urgent">Urgent</span>}
-                      {o.dateKind === "overdue" && <span className="arq-tag overdue">Overdue</span>}
-                      {o.dateKind === "today" && <span className="arq-tag">Due today</span>}
+                    <div className="arq-row-details">
+                      <div className="arq-row-main">
+                        <strong className="arq-order tnum" title={o.orderNumber || o.id}>{o.orderNumber || o.id}</strong>
+                        {(o.priority || "").toLowerCase() === "urgent" && <span className="arq-tag urgent">Urgent</span>}
+                        {o.dateKind === "overdue" && <span className="arq-tag overdue">Overdue</span>}
+                        {o.dateKind === "today" && <span className="arq-tag">Due today</span>}
+                      </div>
+                      <RequestedArrivalNote order={o} />
+                      <p className="arq-destination"><strong>{o.clinicName || "Clinic not recorded"}</strong>{o.clinicAddress && <span>{o.clinicAddress}</span>}</p>
                     </div>
-                    <p className="arq-row-meta">
-                      <span title={o.clinicName}>
-                        {o.clinicName || "—"}
-                        <RequestedArrivalNote order={o} />
-                      </span>
-                      <span>
-                        {o.vaccineName || "—"} · <span className="tnum">{o.quantity || 0}</span> {o.unit || "vials"}
-                      </span>
-                    </p>
+                    <div className="arq-row-vaccine">
+                      <VaccineBreakdown order={o} />
+                      <span className="tnum">{o.quantity || 0} {o.unit || "vials"}</span>
+                    </div>
                     {o.stockBlock && <p className="arq-hold">{o.stockBlock}</p>}
                     <button
                       type="button"
@@ -403,21 +397,10 @@ function DispatcherAssignRider() {
                   </li>
                 ))}
               </ul>
-              {pageCount > 1 && (
-                <nav className="arq-pager" aria-label="Queue pages">
-                  <button type="button" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>
-                    Previous
-                  </button>
-                  <span className="tnum">
-                    Page {currentPage} of {pageCount}
-                  </span>
-                  <button type="button" disabled={currentPage >= pageCount} onClick={() => setPage(currentPage + 1)}>
-                    Next
-                  </button>
-                </nav>
-              )}
+              <PageNav page={currentPage} total={queue.length} onPageChange={setPage} label="Queue pages" />
             </>
           )}
+          </div>
         </section>
       </div>
 

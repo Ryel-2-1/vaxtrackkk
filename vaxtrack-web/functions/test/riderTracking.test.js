@@ -334,7 +334,12 @@ test("display state of the server deviation record", () => {
   assert.equal(T.deviationDisplayState({ sessionState: "navigating", routeStatus: "unavailable" }), "route_unavailable");
   assert.equal(T.deviationDisplayState({ sessionState: "navigating", routeStatus: "available", phase: "deviating" }), "deviating");
   assert.equal(T.deviationDisplayState({ sessionState: "navigating", routeStatus: "available", phase: "on_route", pendingOffSinceMs: T0 }), "pending_deviation");
-  assert.equal(T.deviationDisplayState({ sessionState: "navigating", routeStatus: "available", phase: "on_route", pendingOffSinceMs: null }), "on_route");
+  assert.equal(T.deviationDisplayState({ sessionState: "navigating", routeStatus: "available", phase: "on_route", pendingOffSinceMs: null, lastQualifyingFixAtMs: T0 }), "on_route");
+  // A new session starts in phase on_route before any fix is measured: that is
+  // "checking", never a claim that the rider is on the route.
+  assert.equal(T.deviationDisplayState({ sessionState: "navigating", routeStatus: "available", phase: "on_route", pendingOffSinceMs: null, lastQualifyingFixAtMs: null }), "checking");
+  assert.equal(T.deviationDisplayState({ sessionState: "navigating", routeStatus: "available", phase: "deviating", lastQualifyingFixAtMs: null }), "deviating",
+    "a deviation carried over from the previous session on the same route shows at once");
 });
 
 

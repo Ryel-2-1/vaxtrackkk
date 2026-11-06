@@ -449,6 +449,8 @@ export function canonicalSubmission(submission) {
       quantity: Number(item?.quantity),
       expectedUnitPriceCentavos:
         typeof item?.expectedUnitPriceCentavos === "number" ? item.expectedUnitPriceCentavos : null,
+      ...(Number.isSafeInteger(item?.expectedQuotedUnitPriceCentavos)
+        ? { expectedQuotedUnitPriceCentavos: item.expectedQuotedUnitPriceCentavos } : {}),
       // The negotiated price and its reason are part of the attempt: a retry
       // under the same request id must agree on them too (absent = standard).
       agreedUnitPriceCentavos:
@@ -468,6 +470,7 @@ export function canonicalSubmission(submission) {
   return {
     doctorId: String(submission?.doctorId ?? ""),
     doctorAddressId: String(submission?.doctorAddressId ?? ""),
+    ...(submission?.zeroRateRequestId ? { zeroRateRequestId: String(submission.zeroRateRequestId) } : {}),
     requestedDeliveryDate: typeof date === "string" && date.trim() !== "" ? date.trim() : null,
     // The requested arrival as sent: the chosen mode and only its own times.
     // An attempt saved before this existed had none, which is any time.
@@ -489,6 +492,7 @@ export function diffSubmission(saved, current) {
   const changed = [];
   if (a.doctorId !== b.doctorId) changed.push("doctor");
   if (a.doctorAddressId !== b.doctorAddressId) changed.push("destination");
+  if (a.zeroRateRequestId !== b.zeroRateRequestId) changed.push("zero-rating approval");
   if (a.requestedDeliveryDate !== b.requestedDeliveryDate) changed.push("requested date");
   if (arrivalKey(a.requestedArrival) !== arrivalKey(b.requestedArrival)) changed.push("requested time");
   if (a.priority !== b.priority) changed.push("priority");
@@ -500,7 +504,8 @@ export function diffSubmission(saved, current) {
     changed.push("items");
   } else {
     if (a.items.some((item, i) => item.quantity !== b.items[i].quantity)) changed.push("quantity");
-    if (a.items.some((item, i) => item.expectedUnitPriceCentavos !== b.items[i].expectedUnitPriceCentavos)) {
+    if (a.items.some((item, i) => item.expectedUnitPriceCentavos !== b.items[i].expectedUnitPriceCentavos ||
+      item.expectedQuotedUnitPriceCentavos !== b.items[i].expectedQuotedUnitPriceCentavos)) {
       changed.push("price");
     }
     if (

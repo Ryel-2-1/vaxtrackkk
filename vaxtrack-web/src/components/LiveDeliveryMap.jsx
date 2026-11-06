@@ -12,13 +12,15 @@ import {
 import {
   MARKER_LABELS,
   deviationDisplayState,
-  deviationText,
+  deviationTextForFreshness,
   formatAge,
+  locationFreshness,
   isTrackedStatus,
   locationLatLng,
   locationTimeMs,
   riderMarkerState,
 } from "../services/riderTracking";
+import { arrivalGeofence, geofenceStatus } from "../services/destinationFreshness.js";
 import { useNow, useRiderLiveLocation } from "./useRiderLiveLocation";
 import "./LiveDeliveryMap.css";
 
@@ -27,8 +29,8 @@ import "./LiveDeliveryMap.css";
  * (Order Tracking). It shows the rider's last reported position (read from
  * riderLocations/{assignedRiderId} while the order is active, labelled
  * Fresh / Stale / Offline), and — when the
- * order carries clinic coordinates — the destination marker, the 300 m geofence
- * circle, and the dispatcher-generated route. It NEVER writes: no route
+ * order carries clinic coordinates — the destination marker, the order's own
+ * arrival geofence circle (300 m default), and the dispatcher-generated route. It NEVER writes: no route
  * generation, no status changes. Route generation stays a Dispatcher action; the
  * other roles only view what has been saved.
  *
@@ -38,7 +40,6 @@ import "./LiveDeliveryMap.css";
  * its own Leaflet lifecycle and its own CSS and never depends on Dispatcher.css.
  */
 
-const GEOFENCE_RADIUS_M = 300;
 // Stable empty stops list — a fresh `[]` each render would re-run the map effect
 // (its deps include `stops`) on every render.
 const NO_STOPS = Object.freeze([]);
@@ -98,7 +99,7 @@ function toDate(ts) {
 // Dispatcher map's lifecycle (fit, delayed invalidateSize, resize observer,
 // unmount teardown) so it renders correctly inside a drawer/panel that lays out
 // after mount.
-function MapCanvas({ lat, lng, clinicLat, clinicLng, routePolyline, stopLabel, stops = [] }) {
+function MapCanvas({ lat, lng, clinicLat, clinicLng, geofenceRadiusM, routePolyline, stopLabel, stops = [] }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
@@ -164,7 +165,7 @@ function MapCanvas({ lat, lng, clinicLat, clinicLng, routePolyline, stopLabel, s
     if (hasClinic) {
       if (!circleRef.current) {
         circleRef.current = L.circle([clinicLat, clinicLng], {
-          radius: GEOFENCE_RADIUS_M,
+          radius: geofenceRadiusM,
           color: "#b45309",
           weight: 2,
           fillColor: "#f59e0b",
@@ -172,7 +173,7 @@ function MapCanvas({ lat, lng, clinicLat, clinicLng, routePolyline, stopLabel, s
         }).addTo(map);
       } else {
         circleRef.current.setLatLng([clinicLat, clinicLng]);
-        circleRef.current.setRadius(GEOFENCE_RADIUS_M);
+        circleRef.current.setRadius(geofenceRadiusM);
       }
     } else {
       if (clinicMarkerRef.current) {
@@ -226,7 +227,7 @@ function MapCanvas({ lat, lng, clinicLat, clinicLng, routePolyline, stopLabel, s
       fit();
     }, 50);
     return () => clearTimeout(timer);
-  }, [lat, lng, clinicLat, clinicLng, hasClinic, routePolyline, stopLabel, hasStops, stops]);
+  }, [lat, lng, clinicLat, clinicLng, geofenceRadiusM, hasClinic, routePolyline, stopLabel, hasStops, stops]);
 
   useEffect(() => {
     const onResize = () => mapRef.current && mapRef.current.invalidateSize();
@@ -316,10 +317,15 @@ function LiveDeliveryMap({ order, tripStops = NO_STOPS, showDeviation = false })
   const rel = formatAge(locationTimeMs(live.location), nowMs);
   const accuracy = Number.isFinite(live.location?.accuracyMeters) ? Math.round(live.location.accuracyMeters) : null;
 
+  // The order's own arrival pin + radius (what the server checks); a stale
+  // position is labelled as where the rider was, never as current.
+  const freshness = locationFreshness(live.location, nowMs);
+  const arrival = arrivalGeofence(order);
+  const destLL = arrival?.latLng ?? clinicLL;
   let geofence = null;
-  if (clinicLL) {
-    const dist = Math.round(distanceMeters(riderLL, clinicLL));
-    geofence = { inside: dist <= GEOFENCE_RADIUS_M, dist };
+  if (arrival) {
+    const dist = Math.round(distanceMeters(riderLL, arrival.latLng));
+    geofence = { ...geofenceStatus({ distanceM: dist, radiusM: arrival.radiusM, stale: freshness !== "fresh" }), dist, radiusM: arrival.radiusM, defaultRadius: arrival.defaultRadius };
   }
 
   // A multi-stop trip (optimized by the dispatcher) is drawn in preference to
@@ -343,8 +349,9 @@ function LiveDeliveryMap({ order, tripStops = NO_STOPS, showDeviation = false })
       <MapCanvas
         lat={riderLL[0]}
         lng={riderLL[1]}
-        clinicLat={clinicLL ? clinicLL[0] : undefined}
-        clinicLng={clinicLL ? clinicLL[1] : undefined}
+        clinicLat={destLL ? destLL[0] : undefined}
+        clinicLng={destLL ? destLL[1] : undefined}
+        geofenceRadiusM={arrival?.radiusM}
         routePolyline={hasTrip ? order.tripPolyline : order?.routePolyline}
         stopLabel={hasTrip ? order.stopSequence : undefined}
         stops={hasTrip ? tripStops : NO_STOPS}
@@ -360,15 +367,15 @@ function LiveDeliveryMap({ order, tripStops = NO_STOPS, showDeviation = false })
 
         {showDeviation && deviation !== "not_navigating" && (
           <div className={`ldm-deviation ldm-deviation-${deviation}`}>
-            Route monitoring: {deviationText(live.deviation)}
+            Route monitoring: {deviationTextForFreshness(live.deviation, freshness)}
           </div>
         )}
 
         {geofence && (
-          <div className={`ldm-geofence ${geofence.inside ? "in" : "out"}`}>
-            {geofence.inside ? "Inside geofence" : "Outside geofence"} — rider is{" "}
+          <div className={`ldm-geofence ${geofence.tone}`}>
+            {geofence.label} — rider {geofence.tone === "stale" ? "was" : "is"}{" "}
             {geofence.dist.toLocaleString()} m from the destination (radius{" "}
-            {GEOFENCE_RADIUS_M} m)
+            {geofence.radiusM} m{geofence.defaultRadius ? ", default" : ""})
           </div>
         )}
 

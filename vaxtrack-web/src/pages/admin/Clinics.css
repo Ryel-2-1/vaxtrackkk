@@ -859,7 +859,7 @@
 
 .clinics-v2-topbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 22px;
   margin-bottom: 18px;
@@ -889,12 +889,11 @@
   justify-content: flex-end;
   gap: 9px;
   flex-wrap: wrap;
-  max-width: 760px;
 }
 
-/* Fixed search bar */
 .clinics-v2-search {
   width: 300px;
+  flex-shrink: 0;
   height: 42px;
   border: 1px solid var(--gray-300);
   background: #ffffff;
@@ -2563,18 +2562,9 @@
 }
 
 
-/* Clinic details: Edit is not built yet, so it is visibly disabled and this
-   note (its aria-describedby) says why. Register-form summary spacing. */
 .clinics-light-action:disabled {
   opacity: 0.55;
   cursor: not-allowed;
-}
-
-.clinics-unavailable-note {
-  margin: 10px 0 0;
-  color: var(--gray-600);
-  font-size: 13px;
-  line-height: 1.45;
 }
 
 .clinics-register-modal .clinics-form-notice {

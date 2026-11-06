@@ -39,7 +39,7 @@ import { focusFirstInvalid } from "../../services/formValidation";
  * until Firestore has accepted the write.
  *
  * `showEmployeeId={false}` leaves the Employee ID row out of Account details
- * (the Med Rep page). Display only: the stored field is untouched.
+ * (Med Rep and Dispatcher pages). Display only: the stored field is untouched.
  */
 export default function MyProfile({ showEmployeeId = true }) {
   const { uid, profile: raw, loading, error } = useOwnProfile();
@@ -142,7 +142,9 @@ export default function MyProfile({ showEmployeeId = true }) {
     }
   };
 
-  const showOrganization = stored.roleKey === "salesrep" || stored.organization !== "";
+  // Med Rep and Dispatcher cards always list Organization (a dash until an
+  // administrator records one); other roles only when it is stored.
+  const showOrganization = stored.roleKey === "salesrep" || stored.roleKey === "dispatcher" || stored.organization !== "";
 
   return (
     <div className="my-profile">

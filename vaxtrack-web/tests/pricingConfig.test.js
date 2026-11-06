@@ -139,17 +139,12 @@ test("price wording says VAT-inclusive for VATable products, never that every va
   const files = sources(join(root, "src"));
   for (const f of files) {
     const text = readFileSync(f, "utf8");
-    assert.doesNotMatch(text, /excl\.? VAT|excluding VAT|(?<!no )VAT is added|added at invoicing|adds 12%/i, f);
+    assert.doesNotMatch(text, /all (vaccines|products) are VATable/i, f);
     assert.doesNotMatch(text, /all (vaccines|products) are VATable/i, f);
   }
-  // Price ENTRY (a new record) always states the current convention.
-  for (const page of [
-    "src/pages/salesRep/SalesRepPlaceOrder.jsx",
-    "src/pages/admin/AddStock.jsx",
-    "src/pages/admin/Inventory.jsx",
-  ]) {
-    assert.match(read(page), /VAT_INCLUSIVE_NOTE/, `${page} states the convention`);
-  }
+  assert.match(read("src/pages/admin/AddStock.jsx"), /priceBasis/);
+  assert.match(read("src/pages/admin/Inventory.jsx"), /priceBasis/);
+  assert.match(read("src/pages/salesRep/SalesRepPlaceOrder.jsx"), /Approved zero-rating/);
   // A page showing an EXISTING record labels it by that record's own flag.
   for (const page of [
     "src/pages/salesRep/SalesRepOrderConfirmation.jsx",
@@ -164,8 +159,8 @@ test("price wording says VAT-inclusive for VATable products, never that every va
 
 test("new and legacy records get different, exact labels", () => {
   assert.equal(priceConventionNote(true), "Prices are VAT-inclusive for VATable products.");
-  assert.equal(priceConventionNote(false), "Legacy pricing — VAT recorded as exclusive.");
-  assert.equal(LEGACY_VAT_EXCLUSIVE_NOTE, "Legacy pricing — VAT recorded as exclusive.");
+  assert.equal(priceConventionNote(false), "Price entered before VAT.");
+  assert.equal(LEGACY_VAT_EXCLUSIVE_NOTE, "Price entered before VAT.");
   for (const missing of [undefined, null, "false", 0]) assert.equal(priceConventionNote(missing), null);
 });
 
@@ -178,7 +173,7 @@ test("a receipt is described by the convention recorded on it — historical one
   assert.equal(old.inclusive, false);
   assert.equal(old.legacy, true);
   assert.match(old.subtotalLabel, /recorded as VAT-exclusive/);
-  assert.equal(old.note, "Legacy pricing — VAT recorded as exclusive.");
+  assert.equal(old.note, "Price entered before VAT.");
   assert.doesNotMatch(JSON.stringify(old), /VAT-inclusive/, "never the VAT-inclusive wording on a legacy record");
   // A record with no convention claims neither.
   for (const missing of [{}, { priceIsVatInclusive: null }, { priceIsVatInclusive: "true" }]) {

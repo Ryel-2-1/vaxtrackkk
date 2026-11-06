@@ -1,34 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  CalendarClock,
   CalendarDays,
-  Clock,
   Loader2,
   Package,
   X,
 } from "lucide-react";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeUsers } from "../../services/userService";
+import { fetchOrderMedRepNames } from "../../services/orderMedRepNames";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { ORDER_STATUSES, STATUS_LABELS } from "../../services/orderWorkflow";
-import { addMonths, manilaToday, monthOf } from "../../services/deliveryCalendar";
-import {
-  dispatchEligibility,
-  isEarlyDispatchAnomaly,
-  SCHEDULED_DATE_NOT_REACHED,
-} from "../../services/dispatchEligibility";
+import { addMonths, isInMonth, manilaToday, monthOf } from "../../services/deliveryCalendar";
 import {
   PRIORITY_FILTERS,
   calendarCounts,
   calendarDay,
-  canReschedule,
-  eventDestination,
   filterCalendarOrders,
   isUrgent,
   medRepNameFor,
   originalRequestNote,
-  priorityLabel,
   scheduleLabel,
   scheduledDateOf,
   scheduledTimeOf,
@@ -38,11 +29,11 @@ import {
 import { rescheduleOrderDelivery } from "../../services/scheduleCallables";
 import useManilaDayNow from "../useManilaDayNow";
 import MonthCalendar from "../ui/MonthCalendar";
+import PageNav, { PAGE_SIZE } from "../ui/PageNav";
 import { useDialogFocus } from "../ui/useDialogFocus";
 import AdminDialogLayer from "../admin/AdminDialogLayer";
-import StatusBadge from "../ui/StatusBadge";
+import DeliveryEventCard from "./DeliveryEventCard";
 import { capitalizedOrderPhrase, orderDestination, orderReference } from "../../services/orderLabel";
-import { requestedArrivalLabel, requestedArrivalOf } from "../../services/requestedArrival";
 import "./DeliveryCalendar.css";
 
 /**
@@ -57,25 +48,6 @@ import "./DeliveryCalendar.css";
  * Urgent orders are listed first and marked, but urgency changes no figure.
  */
 
-// Statuses still waiting to (re-)enter dispatch, where a blocked date matters.
-const PRE_DISPATCH = new Set(["pending_dispatch", "assigned", "loading", "delivery_failed"]);
-
-// The schedule's own reading of an order, from the same rule the dispatch
-// queue, the services and firestore.rules apply. Null when there is nothing
-// to add to the status badge.
-function scheduleNote(order, now) {
-  const schedule = dispatchEligibility(order, now);
-  if (isEarlyDispatchAnomaly(order, order.statusKey, now)) {
-    return { tone: "anomaly", text: "Early dispatch — dispatched before its scheduled date" };
-  }
-  if (!PRE_DISPATCH.has(order.statusKey) || schedule.eligible) return null;
-  if (schedule.code === SCHEDULED_DATE_NOT_REACHED) {
-    return { tone: "hold", text: "Upcoming — not dispatchable until 00:00 that day" };
-  }
-  // Missing or invalid: the exact operator message from the shared rule.
-  return { tone: "anomaly", text: schedule.message };
-}
-
 function longDate(iso) {
   const d = new Date(`${iso}T00:00:00.000Z`);
   if (Number.isNaN(d.getTime())) return iso;
@@ -86,76 +58,6 @@ function longDate(iso) {
     year: "numeric",
     timeZone: "UTC",
   });
-}
-
-function Field({ label, value }) {
-  return (
-    <div className="dcal-field">
-      <dt>{label}</dt>
-      <dd className={value ? "" : "dcal-field-missing"}>{value || "Not recorded"}</dd>
-    </div>
-  );
-}
-
-function EventCard({ order, now, medRep, isAdmin, onReschedule }) {
-  const urgent = isUrgent(order);
-  const where = eventDestination(order);
-  const original = originalRequestNote(order);
-  const note = scheduleNote(order, now);
-  const titleId = `dcal-ev-${order.id}`;
-
-  return (
-    <li className={`dcal-event${urgent ? " dcal-event-urgent" : ""}`} aria-labelledby={titleId}>
-      <div className="dcal-event-head">
-        <strong id={titleId} className="dcal-event-id">{orderReference(order, orderDestination(order) || "Order without a number")}</strong>
-        <span className={`dcal-priority${urgent ? " dcal-priority-urgent" : ""}`}>
-          {urgent ? <AlertTriangle size={12} aria-hidden="true" /> : null}
-          {priorityLabel(order)}
-        </span>
-        <StatusBadge statusKey={order.statusKey} />
-      </div>
-
-      <p className="dcal-event-when">
-        <Clock size={13} aria-hidden="true" />
-        <span className="tnum">{scheduleLabel(order)}</span>
-        {!scheduledTimeOf(order) && scheduledDateOf(order) ? (
-          <span className="dcal-muted"> · no set time</span>
-        ) : null}
-      </p>
-      {original ? <p className="dcal-event-original">{original}</p> : null}
-
-      <dl className="dcal-fields">
-        {/* The Med Rep's requested ARRIVAL at the destination — separate from
-            any time an Admin schedule sets above. */}
-        <Field label="Requested arrival" value={requestedArrivalLabel(requestedArrivalOf(order))} />
-        <Field label="Doctor" value={where.doctor} />
-        <Field label="Clinic" value={where.clinic} />
-        <Field label="Location" value={where.location} />
-        <Field label="Med Rep" value={medRep} />
-      </dl>
-
-      {note ? (
-        <p className={note.tone === "anomaly" ? "dcal-note dcal-note-anomaly" : "dcal-note"}>
-          {note.text}
-        </p>
-      ) : null}
-
-      {isAdmin ? (
-        canReschedule(order) ? (
-          <button
-            type="button"
-            className="dcal-action"
-            onClick={(e) => onReschedule(order, e.currentTarget)}
-          >
-            <CalendarClock size={14} aria-hidden="true" />
-            Change date &amp; time
-          </button>
-        ) : (
-          <p className="dcal-muted dcal-closed-note">Closed orders keep their final schedule.</p>
-        )
-      ) : null}
-    </li>
-  );
 }
 
 function RescheduleDialog({ order, todayIso, onClose, onSaved }) {
@@ -305,11 +207,14 @@ function DeliveryCalendar({ role }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [usersById, setUsersById] = useState(null);
+  const [medRepLookup, setMedRepLookup] = useState({ query: null, names: {}, failed: false });
 
   const now = useManilaDayNow();
   const today = manilaToday(now);
   const [view, setView] = useState(() => monthOf(today) || { year: 2026, month: 0 });
   const [selectedDate, setSelectedDate] = useState(today);
+  const [dayPage, setDayPage] = useState(1);
+  const [unscheduledPage, setUnscheduledPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [editing, setEditing] = useState(null);
@@ -331,8 +236,8 @@ function DeliveryCalendar({ role }) {
     return unsubscribe;
   }, []);
 
-  // Med Rep names come from the user directory, which only an Admin may read.
-  // A failure here is not fatal: entries fall back to the order's own snapshot.
+  // Admin may read the staff directory. Dispatcher gets only the names of
+  // owners for orders visible on the current calendar pages from a callable.
   useEffect(() => {
     if (!isAdmin) return undefined;
     return subscribeUsers(
@@ -345,20 +250,60 @@ function DeliveryCalendar({ role }) {
     () => filterCalendarOrders(deliveries, { status: statusFilter, priority: priorityFilter }),
     [deliveries, statusFilter, priorityFilter]
   );
-  const { counts, urgent } = useMemo(() => calendarCounts(filtered), [filtered]);
+  const { counts, urgent } = useMemo(
+    () => calendarCounts(filtered, { includeCancelled: statusFilter === "cancelled" }),
+    [filtered, statusFilter]
+  );
   const dayOrders = useMemo(
     () => (selectedDate ? calendarDay(filtered, selectedDate) : []),
     [filtered, selectedDate]
   );
   const unscheduled = useMemo(() => unscheduledOrders(filtered), [filtered]);
-  const dayUrgent = dayOrders.filter(isUrgent).length;
+  const currentDayPage = Math.min(dayPage, Math.max(1, Math.ceil(dayOrders.length / PAGE_SIZE)));
+  const pageDayOrders = dayOrders.slice((currentDayPage - 1) * PAGE_SIZE, currentDayPage * PAGE_SIZE);
+  const currentUnscheduledPage = Math.min(unscheduledPage, Math.max(1, Math.ceil(unscheduled.length / PAGE_SIZE)));
+  const pageUnscheduled = unscheduled.slice((currentUnscheduledPage - 1) * PAGE_SIZE, currentUnscheduledPage * PAGE_SIZE);
+  const visibleLookupIds = useMemo(() => [...new Set([
+    ...dayOrders.slice((currentDayPage - 1) * PAGE_SIZE, currentDayPage * PAGE_SIZE),
+    ...unscheduled.slice((currentUnscheduledPage - 1) * PAGE_SIZE, currentUnscheduledPage * PAGE_SIZE),
+  ].filter((order) => order.createdByUid && order.id).map((order) => order.id))],
+  [dayOrders, currentDayPage, unscheduled, currentUnscheduledPage]);
+  useEffect(() => {
+    if (isAdmin || visibleLookupIds.length === 0) return undefined;
+    let cancelled = false;
+    fetchOrderMedRepNames(visibleLookupIds)
+      .then((names) => {
+        if (!cancelled) setMedRepLookup({ query: visibleLookupIds, names, failed: false });
+      })
+      .catch((error) => {
+        logSafeError("Calendar Med Rep names", error);
+        if (!cancelled) setMedRepLookup({ query: visibleLookupIds, names: {}, failed: true });
+      });
+    return () => { cancelled = true; };
+  }, [isAdmin, visibleLookupIds]);
+  const dayCancelled = dayOrders.filter((o) => o.statusType === "cancelled").length;
+  const dayScheduled = dayOrders.length - dayCancelled;
+  const dayUrgent = dayOrders.filter((o) => o.statusType !== "cancelled" && isUrgent(o)).length;
   const filtersActive = statusFilter !== "all" || priorityFilter !== "all";
 
-  const goPrevMonth = () => setView((v) => addMonths(v.year, v.month, -1));
-  const goNextMonth = () => setView((v) => addMonths(v.year, v.month, 1));
+  const showMonth = (next) => {
+    setView(next);
+    if (selectedDate && !isInMonth(selectedDate, next)) setSelectedDate(null);
+    setDayPage(1);
+  };
+  const goPrevMonth = () => showMonth(addMonths(view.year, view.month, -1));
+  const goNextMonth = () => showMonth(addMonths(view.year, view.month, 1));
+  const jumpToMonth = (year, month) => showMonth({ year, month });
   const goCurrentMonth = () => {
     setView(monthOf(today) || view);
     setSelectedDate(today);
+    setDayPage(1);
+  };
+
+  const selectDay = (date) => {
+    setSelectedDate(date);
+    setView(monthOf(date) || view);
+    setDayPage(1);
   };
 
   const openReschedule = (order, trigger) => {
@@ -381,30 +326,30 @@ function DeliveryCalendar({ role }) {
     const target = result?.requestedDeliveryDate;
     if (target) {
       setSelectedDate(target);
+      setDayPage(1);
       const m = monthOf(target);
       if (m) setView(m);
     }
   };
 
-  const medRepOf = (order) => medRepNameFor(order, isAdmin ? usersById : null);
+  const medRepOf = (order) => {
+    const resolvedName = medRepLookup.query === visibleLookupIds ? medRepLookup.names[order.id] : null;
+    const name = medRepNameFor(order, isAdmin ? usersById : null, resolvedName);
+    if (name || isAdmin || !order.createdByUid) return name;
+    return medRepLookup.query !== visibleLookupIds
+      ? "Looking up Med Rep…"
+      : medRepLookup.failed ? "Name unavailable" : null;
+  };
 
   return (
     <div className="dcal">
-      {/* The shell top bar owns the page <h1>; this is the intro line only. */}
-      <header className="dcal-head">
-        <div>
-          <p>
-            Orders appear on their scheduled day — the date the Med Rep requested,
-            unless an Admin has since changed it. Dates and times are Asia/Manila.
-            Urgent orders are listed first.
-          </p>
-        </div>
-      </header>
-
+      {/* The shell top bar owns the page <h1>. The toolbar matches the Med Rep
+          Delivery planner's: Status and Priority on the left, the count and
+          legend on the right. (The intro line was removed 2026-10-31.) */}
       <div className="dcal-filters" role="group" aria-label="Calendar filters">
         <label className="dcal-filter">
           Status
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setDayPage(1); setUnscheduledPage(1); }}>
             <option value="all">All statuses</option>
             {ORDER_STATUSES.map((s) => (
               <option key={s} value={s}>
@@ -415,7 +360,7 @@ function DeliveryCalendar({ role }) {
         </label>
         <label className="dcal-filter">
           Priority
-          <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)}>
+          <select value={priorityFilter} onChange={(e) => { setPriorityFilter(e.target.value); setDayPage(1); setUnscheduledPage(1); }}>
             {PRIORITY_FILTERS.map((p) => (
               <option key={p.value} value={p.value}>
                 {p.label}
@@ -430,16 +375,24 @@ function DeliveryCalendar({ role }) {
             onClick={() => {
               setStatusFilter("all");
               setPriorityFilter("all");
+              setDayPage(1);
+              setUnscheduledPage(1);
             }}
           >
             Clear filters
           </button>
         ) : null}
-        {!loading && !error ? (
-          <p className="dcal-filter-summary" aria-live="polite">
-            {filtered.length} of {deliveries.length} order{deliveries.length === 1 ? "" : "s"} shown
-          </p>
-        ) : null}
+        <div className="dcal-filter-meta">
+          {!loading && !error ? (
+            <p className="dcal-filter-summary" aria-live="polite">
+              {filtered.length} of {deliveries.length} order{deliveries.length === 1 ? "" : "s"} shown
+            </p>
+          ) : null}
+          <span className="dcal-legend">
+            <CalendarDays size={14} aria-hidden="true" />
+            {statusFilter === "cancelled" ? "Numbers = cancelled orders" : "Numbers = scheduled orders · red dot = urgent"}
+          </span>
+        </div>
       </div>
 
       {notice ? (
@@ -475,22 +428,25 @@ function DeliveryCalendar({ role }) {
               counts={counts}
               urgentCounts={urgent}
               selectedDate={selectedDate}
-              onSelectDate={setSelectedDate}
+              onSelectDate={selectDay}
               onPrevMonth={goPrevMonth}
               onNextMonth={goNextMonth}
               onCurrentMonth={goCurrentMonth}
-              caption="Numbers show scheduled orders · red dot = urgent"
+              onJumpToMonth={jumpToMonth}
               ariaLabel="Delivery calendar"
             />
           </div>
 
           <div className="dcal-side">
-            <section className="dcal-card" aria-labelledby="dcal-day-title">
+            <section className="dcal-card dcal-day-card" aria-labelledby="dcal-day-title">
               <div className="dcal-card-head">
                 <h2 id="dcal-day-title">{selectedDate ? longDate(selectedDate) : "Select a day"}</h2>
                 <p>
-                  {dayOrders.length} scheduled order{dayOrders.length === 1 ? "" : "s"}
+                  {statusFilter === "cancelled"
+                    ? `${dayCancelled} cancelled order${dayCancelled === 1 ? "" : "s"}`
+                    : `${dayScheduled} scheduled order${dayScheduled === 1 ? "" : "s"}`}
                   {dayUrgent > 0 ? ` · ${dayUrgent} urgent` : ""}
+                  {statusFilter !== "cancelled" && dayCancelled > 0 ? ` · ${dayCancelled} cancelled` : ""}
                   {filtersActive ? " (filtered)" : ""}
                 </p>
               </div>
@@ -506,9 +462,9 @@ function DeliveryCalendar({ role }) {
                   </p>
                 </div>
               ) : (
-                <ul className="dcal-list">
-                  {dayOrders.map((o) => (
-                    <EventCard
+                <ul className="dcal-list dcal-day-list">
+                  {pageDayOrders.map((o) => (
+                    <DeliveryEventCard
                       key={o.id}
                       order={o}
                       now={now}
@@ -519,28 +475,28 @@ function DeliveryCalendar({ role }) {
                   ))}
                 </ul>
               )}
+              {dayOrders.length > PAGE_SIZE && <PageNav page={currentDayPage} total={dayOrders.length} onPageChange={setDayPage} label="Selected day order pages" />}
             </section>
 
-            <section className="dcal-card" aria-labelledby="dcal-unscheduled-title">
+            <section className={`dcal-card dcal-unscheduled-card${unscheduled.length === 0 ? " is-empty" : ""}`} aria-labelledby="dcal-unscheduled-title">
               <div className="dcal-card-head">
                 <h2 id="dcal-unscheduled-title">Unscheduled — needs scheduling</h2>
-                <p>
+                {unscheduled.length > 0 && <p>
                   {unscheduled.length} active order{unscheduled.length === 1 ? "" : "s"} without
                   a usable delivery date. None can be dispatched until an Admin
                   {isAdmin ? " gives it a date with Change date & time." : " stores a valid date."}
-                </p>
+                </p>}
               </div>
 
               {unscheduled.length === 0 ? (
                 <div className="dcal-empty">
                   <CalendarDays size={18} aria-hidden="true" />
-                  <strong>All active orders are dated</strong>
-                  <p>Every open order has a delivery date.</p>
+                  <strong>{filtersActive ? "No unscheduled orders match these filters" : "All active orders are dated"}</strong>
                 </div>
               ) : (
                 <ul className="dcal-list dcal-list-scroll">
-                  {unscheduled.map((o) => (
-                    <EventCard
+                  {pageUnscheduled.map((o) => (
+                    <DeliveryEventCard
                       key={o.id}
                       order={o}
                       now={now}
@@ -551,6 +507,7 @@ function DeliveryCalendar({ role }) {
                   ))}
                 </ul>
               )}
+              {unscheduled.length > PAGE_SIZE && <PageNav page={currentUnscheduledPage} total={unscheduled.length} onPageChange={setUnscheduledPage} label="Unscheduled order pages" />}
             </section>
           </div>
         </div>

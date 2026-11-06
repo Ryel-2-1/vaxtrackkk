@@ -3,12 +3,9 @@
 /**
  * THE pricing configuration — the one authoritative definition on the server.
  *
- * Two rules confirmed by the client:
- *   1. VATable sales carry VAT at exactly 12%.
- *   2. Vaccine prices entered and displayed in VaxTrack are VAT-INCLUSIVE.
- *
- * So VAT is never added on top of a price: for an amount already known to be
- * VATable, the VAT is EXTRACTED from it and the amount itself stays the total.
+ * VATable sales carry 12% VAT. Batch price basis is chosen by Admin for each
+ * batch; the charged order amount is normalized to VAT-inclusive before the
+ * receipt and invoice calculations run.
  *
  * Nothing here decides WHETHER an amount is VATable. Classification (VATable /
  * VAT-exempt / unclassified) is unresolved and stays wherever it already was;

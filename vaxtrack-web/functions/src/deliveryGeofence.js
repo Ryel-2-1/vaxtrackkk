@@ -41,6 +41,8 @@ const GEOFENCE_CODES = Object.freeze({
   INACCURATE: "rider-location-inaccurate",
   UNAVAILABLE: "rider-location-unavailable",
   DESTINATION_INVALID: "delivery-destination-invalid",
+  // The phone said the fix came from a mock-location ("fake GPS") app.
+  MOCKED: "rider-location-mocked",
 });
 
 function isValidCoordinate(lat, lng) {
@@ -103,6 +105,9 @@ function trustedRiderPosition(location, { uid, nowMs }) {
     return { problem: GEOFENCE_CODES.UNAVAILABLE };
   }
   if (!isValidCoordinate(location.latitude, location.longitude)) return { problem: GEOFENCE_CODES.UNAVAILABLE };
+  // Reported by the phone itself (Android's isMock), so it only catches the
+  // honest case — but that is the common one: a fake-GPS app left on.
+  if (location.mockedLocation === true) return { problem: GEOFENCE_CODES.MOCKED };
   const captured = millisOf(location.capturedAt);
   const written = millisOf(location.updatedAt);
   if (captured === null || written === null) return { problem: GEOFENCE_CODES.STALE };
@@ -121,6 +126,8 @@ const MESSAGES = Object.freeze({
     "Your GPS accuracy is too low to confirm that you are at the clinic. Move to an open area and try again.",
   [GEOFENCE_CODES.UNAVAILABLE]: "Location sharing must be active before completing this delivery.",
   [GEOFENCE_CODES.DESTINATION_INVALID]: "This order's clinic location is not configured correctly. Contact the Dispatcher.",
+  [GEOFENCE_CODES.MOCKED]:
+    "Your phone is using a mock-location app, so VaxTrack cannot confirm where you are. Turn it off in Developer options, then try again.",
 });
 
 /** Rounded for display only; never used for the decision. */
@@ -165,6 +172,8 @@ module.exports = {
   RIDER_LOCATIONS,
   GEOFENCE_CODES,
   haversineMeters,
+  isValidCoordinate,
+  millisOf,
   normalizeOrderDestination,
   trustedRiderPosition,
   evaluateDeliveryGeofence,

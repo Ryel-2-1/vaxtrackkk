@@ -29,17 +29,47 @@ const OPS = strip(read("functions/src/operations.js"));
 const INDEX = strip(read("functions/index.js"));
 
 test("completion decides the geofence inside its transaction, after evidence, before any write", () => {
-  const body = fnBody(OPS, "markOrderDeliveredWithInventoryConsumption");
-  const evidence = body.indexOf("deliveryEvidenceProblem(order, orderId, uid)");
-  const locationRead = body.indexOf("await tx.get(db.collection(RIDER_LOCATIONS).doc(uid))");
-  const decision = body.indexOf("evaluateDeliveryGeofence(");
-  const firstWrite = Math.min(...["tx.update(", "tx.set(", "tx.create("].map((k) => body.indexOf(k)).filter((i) => i >= 0));
-  assert.ok(evidence > 0 && locationRead > evidence && decision > locationRead, "evidence → location read (in tx) → decision");
-  assert.ok(firstWrite > decision, "the decision precedes every write");
-  // The already-delivered replay returns before the decision: retries stay idempotent.
-  assert.ok(body.indexOf('order.status === "delivered"') < decision);
+  // The live callable hands its location decision to the shared completion
+  // transaction (completeDelivery), which runs it after the evidence check
+  // and before any write.
+  const live = fnBody(OPS, "markOrderDeliveredWithInventoryConsumption");
+  const locationRead = live.indexOf("await tx.get(db.collection(RIDER_LOCATIONS).doc(uid))");
+  const decision = live.indexOf("evaluateDeliveryGeofence(");
+  assert.ok(live.indexOf("verifyLocation: async (tx, order) =>") > 0, "decided inside the transaction");
+  assert.ok(locationRead > 0 && decision > locationRead, "location read (in tx) → decision");
   // The location is the authenticated caller's own tracking document.
-  assert.match(body, /RIDER_LOCATIONS\)\.doc\(uid\)/);
+  assert.match(live, /RIDER_LOCATIONS\)\.doc\(uid\)/);
+  assert.match(live, /riderUid: uid,\s+actorUid: uid,/);
+
+  const body = fnBody(OPS, "completeDelivery");
+  const evidence = body.indexOf("deliveryEvidenceProblem(order, orderId, uid)");
+  const verify = body.indexOf("await verifyLocation(tx, order)");
+  const firstWrite = Math.min(...["tx.update(", "tx.set(", "tx.create("].map((k) => body.indexOf(k)).filter((i) => i >= 0));
+  assert.ok(evidence > 0 && verify > evidence, "evidence → location decision");
+  assert.ok(firstWrite > verify, "the decision precedes every write");
+  // The already-delivered replay returns before the decision: retries stay idempotent.
+  assert.ok(body.indexOf('order.status === "delivered"') < verify);
+});
+
+test("an offline record is the only device-sent position, and the server never trusts it alone", () => {
+  const rules = strip(read("functions/src/offlineCompletion.js"));
+  // Same geofence rule and accuracy limit as live completion, plus the server-owned trail.
+  assert.match(rules, /distanceM <= destination\.radiusM/);
+  assert.match(rules, /capture\.accuracyM > MAX_ACCURACY_M/);
+  assert.match(rules, /if \(!before\) return review\("no_track"/);
+  assert.match(rules, /MAX_OFFLINE_AGE_MS = 3 \* 60 \* 60 \* 1000/);
+  // The trail only takes fixes stored promptly (never ones queued offline).
+  assert.match(rules, /if \(written - captured > TRAIL_MAX_STORE_DELAY_MS\) return null;/);
+  // Anything unverified waits for a person; a verified record uses the same
+  // completion transaction as a live one.
+  const ops = strip(read("functions/src/offlineCompletionOps.js"));
+  const submit = ops.slice(ops.indexOf("async function submitOfflineDeliveryCompletion("), ops.indexOf("async function loadReviewer("));
+  assert.match(submit, /if \(decision\.ok\) \{/);
+  assert.match(submit, /return \{ stop: \{ orderId, status: "needs_review"/);
+  assert.match(submit, /completeDelivery\(/);
+  // The Rider app sends it from one place, with the order id and the fix only.
+  const sender = read("../vaxtrack_mobile/lib/offline/offline_delivery_service.dart");
+  assert.match(sender, /httpsCallable\('submitOfflineDeliveryCompletion'\)\s*\.call<Map<String, dynamic>>\(\{'orderId': orderId, 'capture': capture\.toPayload\(\)\}\)/);
 });
 
 test("the preflight only reads, and decides with the same function", () => {

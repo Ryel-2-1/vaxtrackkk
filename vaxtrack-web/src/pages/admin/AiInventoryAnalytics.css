@@ -143,10 +143,109 @@
   overflow-wrap: anywhere;
 }
 .inventory-page .aia-main-table .aia-sku {
+  display: block;
+  margin-top: 2px;
   white-space: normal;
   overflow-wrap: anywhere;
+  color: var(--gray-500);
   font-size: 12px;
   letter-spacing: 0.01em;
+}
+.inventory-page .aia-main-table td {
+  padding-block: 12px;
+}
+/* Sentence case and full words: the headers are read, not scanned as codes. */
+.inventory-page .aia-main-table th {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+}
+.inventory-page .aia-main-table .aia-num {
+  text-align: right;
+}
+.inventory-page .aia-sub {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--gray-500);
+}
+.inventory-page .aia-no-match {
+  padding: 24px 10px;
+  text-align: center;
+  color: var(--gray-600);
+}
+
+/* Quick filters and search above the table. */
+.inventory-page .aia-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-bottom: 12px;
+}
+.inventory-page .aia-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.inventory-page .aia-filter {
+  min-height: 34px !important; /* out-specifies the global button reset */
+  padding: 4px 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-pill);
+  background: #fff;
+  color: var(--gray-700);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.inventory-page .aia-filter span {
+  margin-left: 2px;
+  color: var(--gray-500);
+  font-weight: 500;
+}
+.inventory-page .aia-filter:hover {
+  border-color: var(--green-700);
+}
+.inventory-page .aia-filter.is-active {
+  border-color: var(--green-700);
+  background: var(--green-700);
+  color: #fff;
+}
+.inventory-page .aia-filter.is-active span {
+  color: var(--green-100);
+}
+.inventory-page .aia-search {
+  flex: 0 1 260px;
+  min-width: 0;
+  min-height: 34px !important; /* out-specifies the global input reset */
+  padding: 4px 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.inventory-page .aia-search:focus {
+  outline: none;
+  border-color: var(--green-700);
+  box-shadow: 0 0 0 3px var(--green-100);
+}
+
+/* The missing setup is an action, not a warning to read and leave. */
+.inventory-page .aia-setup {
+  min-height: 32px !important; /* out-specifies the global button reset */
+  padding: 4px 10px;
+  border: 1px solid var(--warning-border);
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.inventory-page .aia-setup:hover {
+  border-color: var(--warning-text);
 }
 .inventory-page .aia-selected td {
   background: var(--green-50);
@@ -381,6 +480,9 @@
 }
 
 @media (max-width: 640px) {
+  .inventory-page .aia-search {
+    flex-basis: 100%;
+  }
   .inventory-page .aia-detail-head {
     flex-direction: column;
   }

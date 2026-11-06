@@ -491,13 +491,8 @@
   gap: 16px;
 }
 
-/* These span the full content width so the second column is never left blank
-   beside them (no other meaningful panel occupies their row). The hub card
-   joined them when the Region section was removed: it had been the second card
-   of that row, and without it the hub card sat alone against 488px of nothing.
-   Below 1200px the grid is a single column and this is a no-op. */
-.analytics-heatmap-card,
-.analytics-hub-card {
+/* The heatmap spans both columns. */
+.analytics-heatmap-card {
   grid-column: 1 / -1;
 }
 
@@ -543,36 +538,6 @@
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-}
-
-/* Honest empty state (e.g., hub ranking with no data source) */
-.analytics-empty-state {
-  min-height: 180px;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 6px;
-  text-align: center;
-  color: var(--gray-500);
-  padding: 24px;
-}
-
-.analytics-empty-state svg {
-  color: var(--gray-500);
-}
-
-.analytics-empty-state strong {
-  color: var(--gray-900);
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.analytics-empty-state p {
-  margin: 0;
-  max-width: 420px;
-  color: var(--gray-600);
-  font-size: 13px;
-  line-height: 1.5;
 }
 
 /* Bar chart */
@@ -686,66 +651,6 @@
 
 .analytics-ai-card button:hover {
   background: var(--green-800);
-}
-
-/* Hub */
-
-.analytics-hub-card {
-  min-height: 280px;
-}
-
-.analytics-hub-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.analytics-hub-table th {
-  text-align: left;
-  color: #64748b;
-  font-size: 12px;
-  padding: 13px 12px;
-  background: #f8fbff;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.analytics-hub-table td {
-  padding: 14px 12px;
-  border-bottom: 1px solid #e2e8f0;
-  font-size: 14px;
-  color: #0f172a;
-}
-
-.analytics-hub-table tbody tr {
-  cursor: pointer;
-  transition: 0.14s ease;
-}
-
-.analytics-hub-table tbody tr:hover {
-  background: #f8fbff;
-}
-
-.analytics-hub-status {
-  display: inline-flex;
-  border-radius: 999px;
-  padding: 6px 10px;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.analytics-hub-status.optimal {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.analytics-hub-status.review {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.analytics-hub-status.critical {
-  background: #fee2e2;
-  color: #b91c1c;
 }
 
 /* Heatmap */
@@ -996,14 +901,6 @@
   .analytics-kpi-grid,
   .analytics-modal-grid {
     grid-template-columns: 1fr;
-  }
-
-  .analytics-hub-table {
-    min-width: 760px;
-  }
-
-  .analytics-hub-card {
-    overflow-x: auto;
   }
 
   .analytics-modal-actions {

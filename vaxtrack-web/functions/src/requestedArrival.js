@@ -38,7 +38,7 @@
  * tests/requestedArrival.test.js checks the two agree.
  */
 
-const { PolicyError } = require("./policy");
+const { PolicyError, isoDateOnly } = require("./policy");
 
 const REQUESTED_ARRIVAL_VERSION = 1;
 const ARRIVAL_MODES = Object.freeze(["any_time", "window", "before", "exact"]);
@@ -181,7 +181,52 @@ function requestedArrivalOf(order) {
   return { ...ANY_TIME };
 }
 
+/** Orders still expected to arrive: a rider has them, and they are not finished. */
+const REQUESTED_ARRIVAL_WATCHED = Object.freeze(["assigned", "loading", "in_transit", "delayed"]);
+
+const millisOf = (value) => {
+  if (value == null) return null;
+  if (typeof value.toMillis === "function") return value.toMillis();
+  if (value instanceof Date) return value.getTime();
+  return null;
+};
+
+/**
+ * The first instant PAST what was requested, in epoch millis: one minute after
+ * the latest arrival minute on the order's requested date (Manila), so an
+ * arrival at a window's last minute still counts. any_time runs to the end of
+ * the day. Null for an order with no valid requested date.
+ */
+function requestedArrivalDeadlineMs(order) {
+  const date = isoDateOnly(order?.requestedDeliveryDate);
+  const bounds = arrivalBounds(requestedArrivalOf(order));
+  if (date === null || !bounds) return null;
+  return Date.parse(`${date}T00:00:00+08:00`) + (bounds[1] + 1) * 60 * 1000;
+}
+
+/**
+ * What the sweep does with one order at server time `nowMs`, or null for
+ * nothing:
+ *   { action: "mark", deadlineMs, firstMiss }  past the request (firstMiss false
+ *                                              when only the deadline moved);
+ *   { action: "clear" }                        marked, but a reschedule moved the
+ *                                              request back into the future.
+ * An order that left the watched lifecycles keeps its marker as a record.
+ */
+function requestedArrivalDecision(order, nowMs) {
+  const status = typeof order?.status === "string" ? order.status.trim().toLowerCase() : "";
+  if (!REQUESTED_ARRIVAL_WATCHED.includes(status)) return null;
+  const deadlineMs = requestedArrivalDeadlineMs(order);
+  const marked = order.requestedArrivalMissedAt != null;
+  if (deadlineMs === null || nowMs < deadlineMs) return marked ? { action: "clear" } : null;
+  if (marked && millisOf(order.requestedArrivalDeadlineAt) === deadlineMs) return null;
+  return { action: "mark", deadlineMs, firstMiss: !marked };
+}
+
 module.exports = {
+  REQUESTED_ARRIVAL_WATCHED,
+  requestedArrivalDeadlineMs,
+  requestedArrivalDecision,
   REQUESTED_ARRIVAL_VERSION,
   ARRIVAL_MODES,
   normalizeRequestedArrival,

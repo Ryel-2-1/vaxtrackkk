@@ -76,7 +76,7 @@ test("the page lock keeps the scrollbar's space, so the page does not reflow (or
   globalThis.window = { scrollX: 0, scrollY: 1737, scrollTo: (o) => calls.push(o) };
   globalThis.document = {
     body: { style: { overflow: "" } },
-    documentElement: { style: { overflow: "", scrollbarGutter: "auto" } },
+    documentElement: { scrollHeight: 2400, clientHeight: 768, style: { overflow: "", scrollbarGutter: "auto" } },
   };
   const t = {};
   enterDialog(t);
@@ -85,6 +85,22 @@ test("the page lock keeps the scrollbar's space, so the page does not reflow (or
   leaveDialog(t);
   assert.equal(document.documentElement.style.scrollbarGutter, "auto", "the previous inline value comes back");
   assert.deepEqual(calls, [{ left: 0, top: 1737, behavior: "instant" }]);
+});
+
+test("no gutter is added when <html> has no scrollbar, so the page never jolts sideways behind a dialog", () => {
+  // Desktop: the shells scroll inside <main>, so <html> does not scroll. A
+  // gutter here took 15px from every page on each open and gave it back on close.
+  globalThis.window = { scrollX: 0, scrollY: 0, scrollTo: () => {} };
+  globalThis.document = {
+    body: { style: { overflow: "" } },
+    documentElement: { scrollHeight: 768, clientHeight: 768, style: { overflow: "", scrollbarGutter: "" } },
+  };
+  const t = {};
+  enterDialog(t);
+  assert.equal(document.documentElement.style.scrollbarGutter, "", "no gutter appears");
+  assert.equal(document.documentElement.style.overflow, "hidden", "the page is still locked");
+  leaveDialog(t);
+  assert.equal(document.documentElement.style.scrollbarGutter, "");
 });
 
 // ------------------------------------------------------------ the shared Admin portal
@@ -140,6 +156,7 @@ test("Settings › every User Management dialog is portaled with the page class 
     ["selectedStaff", "StaffDetailsModal"],
     ["territoryTarget", "MedRepTerritoryDialog"],
     ["roleChangeTarget", "RoleChangeModal"],
+    ["addStaffOpen", "AddStaffDialog"],
   ]) {
     assert.match(
       src,
@@ -147,7 +164,7 @@ test("Settings › every User Management dialog is portaled with the page class 
       `${cond} → ${comp}`
     );
   }
-  assert.equal((src.match(/<\/AdminDialogLayer>/g) || []).length, 5);
+  assert.equal((src.match(/<\/AdminDialogLayer>/g) || []).length, 6);
   // Staff details gains the shared hook (page lock, Escape — never mid-write — focus) and dialog semantics.
   const staff = fnSource(src, "StaffDetailsModal");
   assert.match(staff, /useDialogFocus\(\{ dialogRef, onDismiss: onClose, busy \}\);/);
@@ -226,7 +243,7 @@ test("pages whose dialogs render inside <main> keep every dialog portaled", () =
 
 test("pages whose dialogs render after </main> keep them there (the safe placement)", () => {
   const safe = {
-    "src/pages/admin/Alerts.jsx": ["<AlertReviewModal", "<ConfirmDialog", "<AlertChannelsModal"],
+    "src/pages/admin/Alerts.jsx": ["<AlertReviewModal", "<ConfirmDialog"],
     "src/pages/admin/Clinics.jsx": ["<ClinicDetailsModal", "<NewClinicModal", "<AreasModal", "<DoctorsModal", "<ManageLocationModal"],
     "src/pages/admin/Deliveries.jsx": ["<DeliveryModal"],
     "src/pages/admin/Riders.jsx": ["<RiderDetailsModal", "<ConfirmDialog"],

@@ -6,6 +6,7 @@ import FleetMap from "./FleetMap";
 import TrackingStateBadge from "./TrackingStateBadge";
 import useRiderTrackingFeeds from "./useRiderTrackingFeeds";
 import { subscribeDeliveries } from "../../services/deliveryService";
+import { manilaTime } from "../../services/deliveryTiming";
 import { subscribeRiders } from "../../services/riderService";
 import {
   DEVIATION_RULES,
@@ -34,6 +35,15 @@ import "./LiveTracking.css";
 
 const STATE_TONE = { deviating: "danger", fresh: "success", stale: "warning", offline: "neutral", unavailable: "neutral" };
 
+// What the states mean — shown on hover over the summary cards.
+const TRACKING_LEGEND =
+  "Riders appear while they have an active delivery, and while returning to the hub until a Dispatcher confirms " +
+  `their return. Fresh: updated within ${FRESHNESS.freshMs / 60000} min · ` +
+  `Stale: ${FRESHNESS.freshMs / 60000}–${FRESHNESS.offlineMs / 60000} min · ` +
+  `Offline: over ${FRESHNESS.offlineMs / 60000} min or sharing stopped. ` +
+  `Route deviation: more than ${DEVIATION_RULES.offRouteMeters} m from the assigned route for ` +
+  `${DEVIATION_RULES.confirmDeviationMs / 60000} minutes while the rider is navigating.`;
+
 function RiderDetails({ rider, nowMs }) {
   if (!rider) {
     return <p className="ltp-muted">Select a rider on the map or in the list.</p>;
@@ -48,7 +58,7 @@ function RiderDetails({ rider, nowMs }) {
       {rider.phone && (
         <p className="ltp-row">
           <span>Phone</span>
-          <a href={`tel:${rider.phone}`}>{rider.phone}</a>
+          <strong>{rider.phone}</strong>
         </p>
       )}
       {rider.returningToHub && (
@@ -76,7 +86,8 @@ function RiderDetails({ rider, nowMs }) {
           {rider.deviationText}
           {(rider.deviation === "deviating" || rider.deviation === "pending_deviation") &&
             rider.deviationDistanceMeters !== null &&
-            ` · ${Math.round(rider.deviationDistanceMeters).toLocaleString()} m from route when this began`}
+            ` · ${Math.round(rider.deviationDistanceMeters).toLocaleString()} m from route${
+              rider.deviationDistanceAtMs !== null ? ` at ${manilaTime(rider.deviationDistanceAtMs)}` : ""}`}
         </strong>
       </p>
       <div className="ltp-orders">
@@ -205,7 +216,9 @@ function LiveTrackingPanel() {
 
   return (
     <div className="ltp">
-      <div className="ltp-kpis">
+      {/* The explanatory line under these cards was removed (2026-10-31) to
+          give the map the height; its definitions stay one hover away. */}
+      <div className="ltp-kpis" title={TRACKING_LEGEND}>
         <KpiCard label="Riders on delivery" value={onDelivery} context="With an active delivery" onClick={() => setFilter("all")} />
         <KpiCard
           label={RETURNING_TO_HUB_LABEL}
@@ -226,14 +239,6 @@ function LiveTrackingPanel() {
         ))}
       </div>
 
-      <p className="ltp-note">
-        Riders appear while they have an active delivery, and while returning to the hub until a Dispatcher confirms
-        their return (no route is monitored then). Fresh: updated within {FRESHNESS.freshMs / 60000} min ·
-        Stale: {FRESHNESS.freshMs / 60000}–{FRESHNESS.offlineMs / 60000} min · Offline: over{" "}
-        {FRESHNESS.offlineMs / 60000} min or sharing stopped. Route deviation is decided by VaxTrack: more than{" "}
-        {DEVIATION_RULES.offRouteMeters} m from the assigned route for {DEVIATION_RULES.confirmDeviationMs / 60000}{" "}
-        minutes while the rider is navigating.
-      </p>
       {deviationError && (
         <p className="ltp-warn" role="status">Route-deviation status could not be loaded; positions are still live.</p>
       )}

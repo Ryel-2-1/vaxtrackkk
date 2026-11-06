@@ -341,8 +341,11 @@ service cloud.firestore {
     }
     function validRiderLocation(riderUid) {
       let d = request.resource.data;
-      return d.keys().hasOnly(riderLocationFields())
+      // mockedLocation (optional): true when Android reports the fix came from
+      // a mock-location app. Older builds never send it.
+      return d.keys().hasOnly(riderLocationFields().concat(['mockedLocation']))
         && d.keys().hasAll(riderLocationFields())
+        && (!('mockedLocation' in d) || d.mockedLocation is bool)
         && d.riderUid == riderUid
         && d.updatedAt == request.time
         && d.capturedAt is timestamp
@@ -704,6 +707,8 @@ service cloud.firestore {
         'timingStatus', 'expectedArrivalAt', 'automaticDelayedAt', 'timingEtaSeconds',
         'timingGraceSeconds', 'timingRouteSource', 'timingBaselineAt', 'timingStatusChangedAt',
         'timingDelayedAt', 'timingDelayReason', 'timingUnknownReason',
+        // Past the requested arrival (functions/src/requestedArrivalOps.js).
+        'requestedArrivalMissedAt', 'requestedArrivalDeadlineAt',
         // The dispatch attempt and scheduler eligibility (timingActive and
         // timingNextCheckAt are what the due query reads): a client that could
         // set them could hide a delivery from the evaluator, delay its check,
@@ -972,18 +977,15 @@ service cloud.firestore {
     // null. Pinned to request.auth.uid and request.time, so the audit trail on
     // a price change is evidence rather than a claim.
     //
-    // The price CONVENTION travels with the price. A price entered now is
-    // VAT-inclusive, so a re-price must stamp `priceIsVatInclusive == true`,
-    // and the flag can only ever be set to true — by the same audited act. A
-    // legacy batch recorded VAT-exclusive therefore becomes orderable again
-    // only through an Admin re-confirming its price; nothing flips it silently.
+    // The Admin's chosen price basis travels with the price. Both "Before VAT"
+    // and "VAT included" are valid; the audited write must record one of them.
     function stockPriceAuditValid() {
       let d = request.resource.data;
       return !changedKeys().hasAny(['sellingPriceCentavos', 'priceIsVatInclusive'])
         || (
           d.priceSetAt == request.time
           && d.priceSetByUid == request.auth.uid
-          && d.get('priceIsVatInclusive', null) == true
+          && d.get('priceIsVatInclusive', null) is bool
         );
     }
 
@@ -1480,7 +1482,9 @@ service cloud.firestore {
       allow list: if isAdmin()
         || (isDispatcher() && resource.data.role == 'rider');
 
-      // Admin may create user docs (broad write). Public self-application:
+      // No client creates a profile for someone else: an Admin adds staff only
+      // through createStaffAccount (functions/src/staffAccounts.js), which
+      // creates the sign-in account and profile together. Public self-application:
       // a visitor creates their OWN doc to apply for a staff position — sales
       // rep, dispatcher, or rider — which always lands pending.
       //
@@ -1493,8 +1497,7 @@ service cloud.firestore {
       // so the Flutter self-registration contract is unchanged. Together these
       // mean a modified client can create nothing but a pending, non-admin
       // account owned by the caller (and a rider only on a motorcycle).
-      allow create: if isAdmin()
-        || (
+      allow create: if (
           signedIn()
           && request.auth.uid == uid
           && request.resource.data.status == 'pending'
@@ -1528,7 +1531,14 @@ service cloud.firestore {
       // never re-activated, deactivated or returned to pending — and only an
       // application still awaiting a decision can be rejected. Mirrors
       // src/services/staffAccount.js.
+      //
+      // A ROLE never changes from a browser, and a STATUS only on a rider (the
+      // Riders page's approve / off-duty). Staff role and status changes go
+      // through setStaffRole / setStaffStatus, which also refuse to leave the
+      // system without an approved Admin — something rules cannot count.
       allow update: if (isAdmin() && isKnownRole() && isKnownStatus() && adminStatusChangeAllowed()
+            && !changedKeys().hasAny(['role'])
+            && (!changedKeys().hasAny(['status']) || resource.data.get('role', null) == 'rider')
             && (!changedKeys().hasAny(territoryUserFields()) || territoryWriteValid()))
         || (
           signedIn()
@@ -1544,7 +1554,21 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Who created staff and changed roles or status (staffAccounts.js). Server-written.
+    match /staffAccountEvents/{eventId} {
+      allow get, list: if isAdmin();
+      allow write: if false;
+    }
+
     // ---------------- orders ----------------
+    // One-use, pre-order zero-rating requests. Only the named callables write
+    // decisions or consume an approval. A Med Rep sees only their own requests.
+    match /zeroRateRequests/{requestId} {
+      allow get, list: if isAdmin()
+        || (isSalesRep() && resource.data.requesterUid == request.auth.uid);
+      allow write: if false;
+    }
+
     match /orders/{orderId} {
       // Request and decision records are written by the named callables only.
       // The Med Rep who owns the order can read the reason and decision trail.
@@ -1840,6 +1864,52 @@ service cloud.firestore {
       allow get, list: if isAdmin() || isDispatcher();
       allow write: if false;
     }
+
+    // arrivalProximity/{orderId}: server-owned (functions/src/arrivalProximity
+    // Ops.js) — exists only while an in-transit order's Rider is provably near
+    // its destination. Read by the Dispatcher bell and Admin; never written by
+    // a client.
+    match /arrivalProximity/{orderId} {
+      allow get, list: if isAdmin() || isDispatcher();
+      allow write: if false;
+    }
+
+    // riderLocationTrails/{uid}: server-owned (functions/src/offlineCompletion
+    // Ops.js) — the Rider's recent trusted fixes, used only to check an offline
+    // delivery record. Never read or written by a client.
+    match /riderLocationTrails/{riderUid} {
+      allow read, write: if false;
+    }
+
+    // riderPushTokens/{riderUid}: the Rider app's FCM tokens, one per phone it
+    // is signed in on (newest last, at most 5). Only that Rider writes or reads
+    // them; the server (functions/src/riderPushOps.js) sends with them. A
+    // signed-out Rider removes their phone's token first (any status may, so a
+    // disabled Rider can still clean up).
+    match /riderPushTokens/{riderUid} {
+      allow get: if signedIn() && request.auth.uid == riderUid;
+      allow create, update: if isRider() && request.auth.uid == riderUid
+        && request.resource.data.keys().hasOnly(['riderUid', 'tokens', 'updatedAt'])
+        && request.resource.data.riderUid == riderUid
+        && request.resource.data.tokens is list
+        && request.resource.data.tokens.size() <= 5
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if signedIn() && request.auth.uid == riderUid;
+      allow list: if false;
+    }
+
+    // notificationReadStates/{uid}: which bell notifications this user has
+    // read, so it follows them across devices. Private to its owner; a bounded
+    // list of short ids, stamped with the server time.
+    match /notificationReadStates/{uid} {
+      allow get: if isApprovedUser() && request.auth.uid == uid;
+      allow create, update: if isApprovedUser() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['ids', 'updatedAt'])
+        && request.resource.data.ids is list
+        && request.resource.data.ids.size() <= 500
+        && request.resource.data.updatedAt == request.time;
+      allow list, delete: if false;
+    }
     // Rider trips (functions/src/riderDispatchOps.js): one server-owned state
     // per Rider and an audit record per trip. Written only by the callables and
     // the order-write trigger. A Rider may read their own state.
@@ -1937,13 +2007,17 @@ service cloud.firestore {
       allow delete: if false;
     }
     match /doctors/{doctorId} {
-      allow read: if isApprovedUser();
+      // The staff who order for or route to a doctor. Riders never read doctors.
+      allow read: if isAdmin() || isDispatcher() || isSalesRep();
       allow create: if isAdmin() && validNewDoctor();
       allow update: if isAdmin() && validDoctorStatusUpdate();
       allow delete: if false;
     }
     match /doctors/{doctorId}/deliveryAddresses/{addressId} {
-      allow read: if isApprovedUser();
+      // Private Home addresses live here. Admin manages them and Dispatcher
+      // corrects destinations; a Med Rep gets only the links inside their
+      // territory from the listMedRepDoctorAddresses callable, never directly.
+      allow read: if isAdmin() || isDispatcher();
       // `home` is the doctor's one private doorstep destination. Every other
       // nested document id is a linked clinic id, so clinic links stay unique.
       allow create: if isAdmin()
@@ -1995,7 +2069,7 @@ service cloud.firestore {
     // or deletes one. An Admin may only acknowledge it — mark it read, or
     // resolve it — which is all the Alerts page writes (alertService.js).
     function serverAlertTypes() {
-      return ['route_deviation', 'delivery_delay', 'rider_location_stale'];
+      return ['route_deviation', 'delivery_delay', 'rider_location_stale', 'delivery_awaiting_completion'];
     }
     function isAlertAcknowledgement() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'status'])

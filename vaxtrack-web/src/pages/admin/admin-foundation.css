@@ -68,7 +68,8 @@ aside.inventory-sidebar nav a.active::before {
 
 /* small workflow section markers between nav groups */
 aside.inventory-sidebar .admin-nav-group {
-  margin: 14px 0 6px;
+  /* five groups: one uniform, compact rhythm for every heading */
+  margin: 12px 0 4px;
   padding: 0 12px;
   font-size: 10px;
   font-weight: 700;

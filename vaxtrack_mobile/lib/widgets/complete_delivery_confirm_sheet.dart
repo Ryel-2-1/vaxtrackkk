@@ -40,6 +40,8 @@ class CompleteDeliveryConfirmSheet extends StatefulWidget {
     this.confirmLabel = 'Confirm Delivery',
     this.progress,
     this.progressText,
+    this.offlineAvailable,
+    this.onSaveOffline,
   }) : assert(proofImageUrl != null || proofImage != null),
        assert(invoiceImageUrl != null || invoiceImage != null);
 
@@ -64,6 +66,13 @@ class CompleteDeliveryConfirmSheet extends StatefulWidget {
   final Listenable? progress;
   final String? Function()? progressText;
 
+  /// No signal: after a failure that was only a lost connection
+  /// ([offlineAvailable] says so), offer [onSaveOffline] right here — keep the
+  /// delivery on the phone and send it later. The sheet closes (false) once
+  /// it is saved; a failure to save stays shown.
+  final bool Function()? offlineAvailable;
+  final Future<void> Function()? onSaveOffline;
+
   /// Runs the trusted completion. Resolves on authoritative success; throws with
   /// a rider-facing message on failure.
   final Future<void> Function() onConfirm;
@@ -76,7 +85,23 @@ class CompleteDeliveryConfirmSheet extends StatefulWidget {
 class _CompleteDeliveryConfirmSheetState
     extends State<CompleteDeliveryConfirmSheet> {
   bool _submitting = false;
+  bool _savingOffline = false;
   String? _error;
+
+  Future<void> _saveOffline() async {
+    if (_submitting || _savingOffline) return;
+    setState(() => _savingOffline = true);
+    try {
+      await widget.onSaveOffline!();
+      if (mounted) Navigator.of(context).pop(false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _savingOffline = false;
+        _error = _messageFor(e);
+      });
+    }
+  }
 
   Future<void> _confirm() async {
     // Synchronous guard: several taps in one event turn all arrive before the
@@ -290,6 +315,29 @@ class _CompleteDeliveryConfirmSheetState
                       ],
                     ),
                   ),
+                  if (widget.onSaveOffline != null && (widget.offlineAvailable?.call() ?? false)) ...[
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        key: const ValueKey('confirm-sheet-save-offline'),
+                        onPressed: _savingOffline ? null : _saveOffline,
+                        icon: _savingOffline
+                            ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.save_alt),
+                        label: Text(_savingOffline ? 'Getting your GPS position…' : 'No signal? Save on phone and send later'),
+                        style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46)),
+                      ),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.only(top: 6),
+                      child: Text(
+                        'VaxTrack records where you are now and sends everything when you are back online. '
+                        'The server checks your position against the clinic area before completing it.',
+                        style: TextStyle(fontSize: 11, color: AppColors.textLight),
+                      ),
+                    ),
+                  ],
                 ],
                 const SizedBox(height: 20),
                 // A matched pair: equal widths (Expanded), equal heights

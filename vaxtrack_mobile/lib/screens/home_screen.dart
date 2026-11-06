@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../offline/offline_delivery_service.dart';
+import '../services/push_service.dart';
 import '../services/rider_tracking_service.dart';
 import '../tracking/tracking_session_scope.dart';
 import 'dashboard_screen.dart';
@@ -17,6 +21,29 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
+
+  // Deliveries recorded on the phone without signal are sent by themselves:
+  // now, whenever the app comes back to the foreground, and on the queue's own
+  // retry timer while any is waiting.
+  late final AppLifecycleListener _lifecycle =
+      AppLifecycleListener(onResume: () => offlineDeliveries.sync());
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycle;
+    offlineDeliveries.sync();
+    // Only an approved Rider reaches this screen: register this phone for
+    // their push notifications (best effort; never blocks the app).
+    final uid = signedInRiderUid();
+    if (uid != null) unawaited(riderPush.start(uid));
+  }
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    super.dispose();
+  }
 
   final _screens = const [
     DashboardScreen(),
@@ -39,37 +66,101 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Tabs are built the first time they are opened and then kept: switching
+  // back is instant, keeps scroll position and typed proof details, and never
+  // re-opens a live feed. Tabs not yet visited cost nothing.
+  final Set<int> _visited = {0};
+
+  void _select(int i) {
+    if (i == _currentIndex) return;
+    setState(() {
+      _currentIndex = i;
+      _visited.add(i);
+    });
+  }
+
+  static const _tabs = [
+    (Icons.dashboard_outlined, Icons.dashboard, 'Dashboard'),
+    (Icons.local_shipping_outlined, Icons.local_shipping, 'Deliveries'),
+    (Icons.camera_alt_outlined, Icons.camera_alt, 'Proof'),
+    (Icons.person_outlined, Icons.person, 'Profile'),
+  ];
+
   Widget _shell() {
-    return Scaffold(
-      body: _screens[_currentIndex],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (i) => setState(() => _currentIndex = i),
-        backgroundColor: AppColors.surface,
-        indicatorColor: AppColors.primaryLight,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.dashboard_outlined),
-            selectedIcon: Icon(Icons.dashboard, color: AppColors.primary),
-            label: 'Dashboard',
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Tablets and landscape: a side rail, and content kept to a readable
+        // width instead of stretching across the screen.
+        final wide = constraints.maxWidth >= 840;
+        // Each tab fades in when shown (hidden tabs sit at 0, so showing one
+        // animates it up); the stack itself is never rebuilt, so no tab loses
+        // its state.
+        final body = IndexedStack(
+          index: _currentIndex,
+          children: [
+            for (var i = 0; i < _screens.length; i++)
+              // Hidden tabs keep their state but run no animations.
+              TickerMode(
+                enabled: i == _currentIndex,
+                child: AnimatedOpacity(
+                  opacity: i == _currentIndex ? 1 : 0,
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  child: _visited.contains(i) ? _screens[i] : const SizedBox.shrink(),
+                ),
+              ),
+          ],
+        );
+        if (!wide) {
+          return Scaffold(
+            body: body,
+            bottomNavigationBar: NavigationBar(
+              selectedIndex: _currentIndex,
+              onDestinationSelected: _select,
+              backgroundColor: AppColors.surface,
+              indicatorColor: AppColors.primaryLight,
+              destinations: [
+                for (final (icon, selected, label) in _tabs)
+                  NavigationDestination(
+                    icon: Icon(icon),
+                    selectedIcon: Icon(selected, color: AppColors.primary),
+                    label: label,
+                  ),
+              ],
+            ),
+          );
+        }
+        return Scaffold(
+          body: SafeArea(
+            child: Row(
+              children: [
+                NavigationRail(
+                  selectedIndex: _currentIndex,
+                  onDestinationSelected: _select,
+                  backgroundColor: AppColors.surface,
+                  indicatorColor: AppColors.primaryLight,
+                  labelType: NavigationRailLabelType.all,
+                  destinations: [
+                    for (final (icon, selected, label) in _tabs)
+                      NavigationRailDestination(
+                        icon: Icon(icon),
+                        selectedIcon: Icon(selected, color: AppColors.primary),
+                        label: Text(label),
+                      ),
+                  ],
+                ),
+                const VerticalDivider(width: 1, color: AppColors.border),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 760), child: body),
+                  ),
+                ),
+              ],
+            ),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.local_shipping_outlined),
-            selectedIcon: Icon(Icons.local_shipping, color: AppColors.primary),
-            label: 'Deliveries',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.camera_alt_outlined),
-            selectedIcon: Icon(Icons.camera_alt, color: AppColors.primary),
-            label: 'Proof',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outlined),
-            selectedIcon: Icon(Icons.person, color: AppColors.primary),
-            label: 'Profile',
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

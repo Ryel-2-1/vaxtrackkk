@@ -30,6 +30,14 @@ const String motorcycleModeNote =
     'Opens in motorcycle mode. If Google Maps shows car directions, '
     'tap the motorcycle option.';
 
+/// What a hand-off does NOT carry. A Maps URL takes stops, never a route, so
+/// Google computes its own roads between them — possibly ones the VaxTrack
+/// plan avoids — and VaxTrack cannot see or check that route. Shown beside
+/// every hand-off button, with [motorcycleModeNote].
+const String googleRouteNote =
+    'Google Maps chooses its own roads, which may differ from the VaxTrack plan. '
+    'Where they differ, follow the plan.';
+
 /// `lat,lng` exactly as Google Maps expects it.
 String googleMapsCoord(double lat, double lng) => '$lat,$lng';
 

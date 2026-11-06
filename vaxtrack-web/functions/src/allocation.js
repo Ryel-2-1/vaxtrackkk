@@ -54,6 +54,7 @@ const { isUsableStatus, isBatchVoided, isoDateOnly, manilaDateString, isUnconfir
 // Every allocation writes its Stock Allocation History event in the same
 // transaction (orderHistory.js).
 const { allocationEvents, prepareEvents, createPreparedEvents } = require("./orderHistory");
+const { usableThrough, coversDate } = require("./expiryGuard");
 
 const ALLOCATION_VERSION_BACKORDER = 2;
 const ALLOCATION_STATES = Object.freeze(["awaiting_stock", "partially_reserved", "fully_reserved"]);
@@ -257,6 +258,10 @@ function planAllocation({ productKey, batches, orders, now }) {
     const items = (Array.isArray(order.data.items) ? order.data.items : []).map((l) => ({ ...l }));
     const slices = [];
     let got = 0;
+    // A batch is reserved only for an order delivered on or before its expiry
+    // date: FEFO would otherwise hand a batch expiring tomorrow to an order
+    // delivered next week. Skipped batches stay free for earlier deliveries.
+    const needUsableThrough = usableThrough(order.data, now);
     items.forEach((line, lineIndex) => {
       if (line.productKey !== productKey) return;
       const c = lineCounts(line);
@@ -264,6 +269,7 @@ function planAllocation({ productKey, batches, orders, now }) {
       for (const batch of pool) {
         if (need === 0) break;
         if (batch.free === 0) continue;
+        if (!coversDate(batch.data, needUsableThrough)) continue;
         const take = Math.min(need, batch.free);
         batch.free -= take;
         need -= take;

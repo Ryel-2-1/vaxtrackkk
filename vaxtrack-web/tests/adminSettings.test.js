@@ -200,6 +200,10 @@ test("no admin page reports success without an awaited write", () => {
     const src = read(p);
     const messages = [...src.matchAll(/showToast\(\s*["']([^"']*)["']/g)].map((m) => m[1]);
     for (const message of messages) {
+      if (p.endsWith("Inventory.jsx") && message.startsWith("Batch details saved.")) {
+        assert.match(src, /await saveBatchMetadata\(/);
+        continue;
+      }
       assert.equal(
         CLAIM.test(message),
         false,

@@ -198,9 +198,9 @@ test("assigning never navigates, reloads, refetches or submits a form", () => {
   const buttons = [...PAGE.matchAll(/<button\b[^>]*>/g)].map((m) => m[0]);
   assert.ok(buttons.length >= 6);
   for (const b of buttons) assert.match(b, /type="button"/, b);
-  // The only navigation is the explicit Back to dashboard control.
-  assert.deepEqual([...PAGE.matchAll(/navigate\(/g)].length, 1);
-  assert.match(PAGE, /aria-label="Back to dashboard"/);
+  // The sidebar handles navigation; assignment does not navigate away.
+  assert.deepEqual([...PAGE.matchAll(/navigate\(/g)].length, 0);
+  assert.doesNotMatch(PAGE, /aria-label="Back to dashboard"/);
 });
 
 test("success closes the dialog and says so; failures keep the user's context", () => {

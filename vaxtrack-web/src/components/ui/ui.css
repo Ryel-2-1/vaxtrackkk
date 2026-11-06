@@ -154,6 +154,13 @@ button.m-kpi:hover {
   background: var(--gray-50) !important;
 }
 
+/* The selected filter tab among clickable cards. */
+button.m-kpi.m-kpi-active {
+  border-color: var(--green-600) !important;
+  background: var(--green-50) !important;
+  box-shadow: inset 0 0 0 1px var(--green-600) !important;
+}
+
 button.m-kpi:focus-visible {
   outline: 2px solid var(--green-100) !important;
   outline-offset: 1px !important;

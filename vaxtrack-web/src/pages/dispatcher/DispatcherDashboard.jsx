@@ -14,6 +14,7 @@ import {
 } from "../../services/dispatchEligibility";
 import useManilaDayNow from "../../components/useManilaDayNow";
 import {
+  Activity,
   AlertTriangle,
   CalendarClock,
   Loader2,
@@ -27,8 +28,11 @@ import DispatcherTrackingOverview from "../../components/tracking/DispatcherTrac
 import { availableRiderCount } from "../../services/riderTracking";
 import { subscribeRiderDispatchStates } from "../../services/riderDispatchService";
 import { assignmentBlockReason } from "../../services/backorder";
-import { presentAlert } from "../../services/alertPresentation";
+import { isAdminOnlyAlert, presentAlert } from "../../services/alertPresentation";
 import { requestedArrivalLabel, requestedArrivalOf } from "../../services/requestedArrival";
+import { isRunningLate, requestedArrivalMiss } from "../../services/deliveryTiming";
+import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
+import VaccineBreakdown from "../../components/dispatch/VaccineBreakdown";
 
 function shortDate(iso) {
   const d = new Date(`${iso}T00:00:00.000Z`);
@@ -43,6 +47,7 @@ function shortDate(iso) {
 
 function DispatcherDashboard() {
   const navigate = useNavigate();
+  const [queuePage, setQueuePage] = useState(1);
 
   const [pendingOrders, setPendingOrders] = useState([]);
   const [allOrders, setAllOrders] = useState([]);
@@ -58,6 +63,9 @@ function DispatcherDashboard() {
   // listener can no longer hold the whole page on its loading state.)
   const [failed, setFailed] = useState({});
   const anyFailed = Object.values(failed).some(Boolean);
+  const [monitoringStatus, setMonitoringStatus] = useState({
+    tone: "waiting", label: "Connecting", detail: "Checking Rider locations",
+  });
   const [assignNotice, setAssignNotice] = useState("");
   // Advances at each 00:00 Manila, so a scheduled order moves from Upcoming to
   // the actionable queue on its day without a reload.
@@ -107,7 +115,8 @@ function DispatcherDashboard() {
     let unsubAlerts;
     try {
       unsubAlerts = subscribeActiveAlerts((alerts) => {
-        setActiveAlerts(alerts);
+        // Stock and expiry alerts are the Admin's (functions/src/stockAlerts.js).
+        setActiveAlerts(alerts.filter((a) => !isAdminOnlyAlert(a)));
         loaded.alerts = true;
         recover("alerts");
         checkDone();
@@ -171,7 +180,9 @@ function DispatcherDashboard() {
   const activeDeliveries = allOrders.filter(
     (o) => o.statusKey === "in_transit" || o.statusKey === "assigned" || o.statusKey === "loading"
   ).length;
-  const delayedDeliveries = allOrders.filter((o) => o.statusKey === "delayed").length;
+  // A Rider's hold or the server's automatic delay: either means the route is behind.
+  const delayedDeliveries = allOrders.filter(isRunningLate).length;
+  const pastRequested = allOrders.filter((o) => requestedArrivalMiss(o) !== null).length;
 
   // Only orders with a valid date whose day has begun (Manila) are dispatch
   // work. A future-dated order is Upcoming — visible, read-only, not counted.
@@ -193,6 +204,10 @@ function DispatcherDashboard() {
   const availableShown = shown(["riders", "all"], availableRiders);
   const activeShown = shown(["all"], activeDeliveries);
   const delayedShown = shown(["all"], delayedDeliveries);
+  const pastRequestedShown = shown(["all"], pastRequested);
+  const liveMonitor = failed.all
+    ? { tone: "error", label: "Monitoring unavailable", detail: "Order updates could not be loaded" }
+    : monitoringStatus;
 
   // Schedule-aware queue: sort by requested delivery date (soonest first, so
   // overdue rises to the top), urgent within a date, undated last.
@@ -201,6 +216,8 @@ function DispatcherDashboard() {
     () => [...actionable].sort(comparePending),
     [actionable]
   );
+  const currentQueuePage = Math.min(queuePage, Math.max(1, Math.ceil(sortedPending.length / PAGE_SIZE)));
+  const pagePending = sortedPending.slice((currentQueuePage - 1) * PAGE_SIZE, currentQueuePage * PAGE_SIZE);
   const sortedUpcoming = useMemo(
     () => [...upcoming].sort(comparePending),
     [upcoming]
@@ -227,20 +244,20 @@ function DispatcherDashboard() {
     <>
       <div className="dispatcher-dash-page">
         <section className="dispatcher-dash-hero">
-          <div>
-            <span className="dispatcher-dash-eyebrow">
-              Dispatch Control Center
-            </span>
-            <h2 className="disp-section-title">Operations overview</h2>
-            <p>
-              Review approved orders, monitor live deliveries, and assign riders
-              for vaccine distribution.
-            </p>
+          <div className="dispatcher-dash-hero-heading">
+            <span className="dispatcher-dash-hero-icon" aria-hidden="true"><Activity size={20} /></span>
+            <div>
+              <h2 className="disp-section-title">Dispatch overview</h2>
+              <p>Orders, riders, and delivery progress in one place.</p>
+            </div>
           </div>
 
-          <div className="dispatcher-dash-hero-status">
-            <span className="status-dot"></span>
-            Real-time monitoring active
+          <div className="dispatcher-dash-hero-status" data-tone={liveMonitor.tone} role="status" aria-live="polite">
+            <span className="status-dot" aria-hidden="true" />
+            <div>
+              <strong>{liveMonitor.label}</strong>
+              <small>{liveMonitor.detail}</small>
+            </div>
           </div>
         </section>
 
@@ -322,6 +339,7 @@ function DispatcherDashboard() {
             delayedCount={delayedShown}
             pendingCount={pendingShown}
             availableCount={availableShown}
+            onMonitoringStatus={setMonitoringStatus}
           />
 
           <aside className="dispatcher-dash-side-card">
@@ -351,6 +369,13 @@ function DispatcherDashboard() {
                 value={`${delayedShown} delayed`}
                 text={failed.all ? "Deliveries could not be loaded." : delayedDeliveries > 0 ? "Monitor geofence and traffic alerts." : "All routes running smoothly."}
                 warning={delayedDeliveries > 0}
+              />
+
+              <OperationItem
+                title="Requested Arrival"
+                value={`${pastRequestedShown} past requested time`}
+                text={failed.all ? "Deliveries could not be loaded." : pastRequested > 0 ? "Update the Med Rep or reschedule. Open Shipments for details." : "Every open delivery is within its requested time."}
+                warning={pastRequested > 0}
               />
             </div>
 
@@ -384,9 +409,9 @@ function DispatcherDashboard() {
               <h2>Approved Orders Waiting for Rider Assignment</h2>
             </div>
 
-            <div className="dispatcher-dash-live-pill">
-              <span></span>
-              Real-time update active
+            <div className="dispatcher-dash-live-pill" data-tone={failed.pending ? "error" : "loaded"} role="status">
+              <span aria-hidden="true" />
+              {failed.pending ? "Queue unavailable" : "Queue data loaded"}
             </div>
           </div>
 
@@ -406,7 +431,7 @@ function DispatcherDashboard() {
 
               <tbody>
                 {sortedPending.length > 0 ? (
-                  sortedPending.map((order) => {
+                  pagePending.map((order) => {
                     const priority = order.priority || "Standard";
                     const isUrgent = priority.toLowerCase() === "urgent";
                     const dateMeta = requestedDateMeta(order, today);
@@ -429,7 +454,7 @@ function DispatcherDashboard() {
 
                         <td>
                           <span className="dispatcher-dash-vaccine-dot"></span>
-                          {order.vaccineName || "—"}
+                          <VaccineBreakdown order={order} />
                         </td>
 
                         <td>
@@ -506,7 +531,7 @@ function DispatcherDashboard() {
           </div>
 
           <div className="dispatcher-dash-table-bottom">
-            Showing {actionable.length} pending dispatch order{actionable.length !== 1 ? "s" : ""}
+            Showing {actionable.length === 0 ? 0 : (currentQueuePage - 1) * PAGE_SIZE + 1}–{Math.min(currentQueuePage * PAGE_SIZE, actionable.length)} of {actionable.length} pending dispatch orders
             {(overdueCount > 0 || dueTodayCount > 0) && (
               <span className="dispatcher-dash-table-bottom-meta">
                 {overdueCount > 0 && (
@@ -522,6 +547,7 @@ function DispatcherDashboard() {
               </span>
             )}
           </div>
+          {sortedPending.length > PAGE_SIZE && <PageNav page={currentQueuePage} total={sortedPending.length} onPageChange={setQueuePage} label="Dispatch queue pages" />}
         </section>
 
         <ReadOnlyQueue
@@ -549,6 +575,9 @@ function DispatcherDashboard() {
 // A pending order that is NOT dispatch work yet: shown so nothing is hidden,
 // but with no dispatch control — the last column states why instead.
 function ReadOnlyQueue({ id, kicker, title, note, orders, now }) {
+  const [page, setPage] = useState(1);
+  const currentPage = Math.min(page, Math.max(1, Math.ceil(orders.length / PAGE_SIZE)));
+  const pageOrders = orders.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   if (orders.length === 0) return null;
   return (
     <section
@@ -580,7 +609,7 @@ function ReadOnlyQueue({ id, kicker, title, note, orders, now }) {
             </tr>
           </thead>
           <tbody>
-            {orders.map((order) => {
+            {pageOrders.map((order) => {
               const priority = order.priority || "Standard";
               const schedule = dispatchEligibility(order, now);
               return (
@@ -594,7 +623,7 @@ function ReadOnlyQueue({ id, kicker, title, note, orders, now }) {
                     <strong>{order.clinicName || "No destination"}</strong>
                     <p>{order.clinicAddress || ""}</p>
                   </td>
-                  <td>{order.vaccineName || "—"}</td>
+                  <td><VaccineBreakdown order={order} /></td>
                   <td>
                     {order.quantity || 0} {order.unit || "vials"}
                   </td>
@@ -628,6 +657,7 @@ function ReadOnlyQueue({ id, kicker, title, note, orders, now }) {
           </tbody>
         </table>
       </div>
+      {orders.length > PAGE_SIZE && <PageNav page={currentPage} total={orders.length} onPageChange={setPage} label={`${title} pages`} />}
     </section>
   );
 }

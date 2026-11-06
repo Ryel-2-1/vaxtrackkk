@@ -191,11 +191,15 @@ test("web deviation display matches the server", () => {
     { sessionState: "ended", routeStatus: "available", phase: "deviating" },
     { sessionState: "navigating", routeStatus: "unavailable", phase: "deviating" },
     { sessionState: "navigating", routeStatus: "available", phase: "on_route", pendingOffSinceMs: null },
+    { sessionState: "navigating", routeStatus: "available", phase: "on_route", pendingOffSinceMs: null, lastQualifyingFixAtMs: 5 },
     { sessionState: "navigating", routeStatus: "available", phase: "on_route", pendingOffSinceMs: 5 },
     { sessionState: "navigating", routeStatus: "available", phase: "deviating" },
   ];
   for (const s of states) assert.equal(web.deviationDisplayState(s), server.deviationDisplayState(s));
   assert.equal(web.DEVIATION_LABELS.route_unavailable, "Route not available");
+  // Before the server has measured a fix of the session, nothing claims "On route".
+  assert.equal(web.deviationText({ sessionState: "navigating", routeStatus: "available", phase: "on_route" }), "Checking position…");
+  assert.equal(web.deviationText({ sessionState: "navigating", routeStatus: "available", phase: "on_route", lastQualifyingFixAtMs: 5 }), "On route");
 });
 
 test("UI labels are exactly the five marker states", () => {
@@ -242,7 +246,7 @@ test("fleet: only riders with an active delivery, grouped, most urgent first", (
       r4: loc({ capturedAt: NOW - 5 * 60_000, updatedAt: NOW - 5 * 60_000 }),
       r5: loc(),
     },
-    deviations: { r5: { sessionState: "navigating", routeStatus: "available", phase: "deviating", orderId: "f", distanceAtTransitionMeters: 720 } },
+    deviations: { r5: { sessionState: "navigating", routeStatus: "available", phase: "deviating", orderId: "f", distanceAtTransitionMeters: 720, lastTransitionAtMs: NOW - 60_000 } },
     riders: { r1: { fullName: "Ana" }, r4: { name: "Ben" }, r5: { fullName: "Cy" } },
     nowMs: NOW,
   });
@@ -251,6 +255,7 @@ test("fleet: only riders with an active delivery, grouped, most urgent first", (
   assert.deepEqual(fleet[1].orders.map((o) => o.id), ["a", "b"], "multiple active orders stay on one rider");
   assert.equal(fleet[0].navigatingOrderId, "f");
   assert.equal(fleet[0].deviationDistanceMeters, 720);
+  assert.equal(fleet[0].deviationDistanceAtMs, NOW - 60_000, "the distance is shown with the time it was measured");
 });
 
 test("fleet: a rider with an active order but no position is listed as unavailable", () => {
@@ -310,6 +315,17 @@ test("Live Tracking routes, nav entries and titles exist for Admin and Dispatche
   assert.match(app, /<Route path="\/admin\/live-tracking" element=\{<AdminLiveTracking \/>\} \/>/);
   assert.match(app, /<Route path="\/dispatcher\/live-tracking" element=\{<DispatcherLiveTracking \/>\} \/>/);
   assert.equal(/sales-rep\/live-tracking/.test(app), false);
+  // Med Rep has Live Monitoring (2026-11-01) — scoped to the rep's OWN orders,
+  // never the fleet: one location listener per rider carrying them (allowed
+  // by riderLocationViewers), no fleet list, no deviation states.
+  assert.match(app, /<Route path="\/sales-rep\/live-monitoring" element=\{<SalesRepLiveMonitoring \/>\} \/>/);
+  const rep = strip(read("src/pages/salesRep/SalesRepLiveMonitoring.jsx"));
+  assert.match(rep, /subscribeSalesRepOrders\(\s*uid,/);
+  assert.match(rep, /riderUidsOnDelivery\(orders \|\| \[\]\)/);
+  assert.match(rep, /subscribeRiderLocation\(\s*riderUid,/);
+  assert.match(rep, /buildFleet\(\{ orders, locations, deviations: null, riders: null, nowMs \}\)/);
+  assert.doesNotMatch(rep, /useRiderTrackingFeeds|subscribeAllRiderLocations|subscribeAllDeviationStates|subscribeDeliveries|subscribeRiders\b/);
+  assert.match(read("src/pages/salesRep/SalesRepShell.jsx"), /"\/sales-rep\/live-monitoring": \{ key: "monitoring", title: "Live Monitoring" \}/);
   const shell = read("src/components/admin/AdminShell.jsx");
   assert.match(shell, /"\/admin\/live-tracking": "Live Tracking"/);
   const sidebar = read("src/components/admin/AdminSidebar.jsx");
@@ -335,7 +351,10 @@ test("route-unavailable reasons agree with the server and are shown to staff", (
   assert.deepEqual(Object.keys(web.ROUTE_UNAVAILABLE_LABELS).sort(), Object.values(server.ROUTE_UNAVAILABLE_REASONS).sort());
   const stale = { sessionState: "navigating", routeStatus: "unavailable", routeUnavailableReason: "generated_before_assignment" };
   assert.equal(web.deviationText(stale), "Route not available (saved before the current assignment — regenerate it)");
-  assert.equal(web.deviationText({ sessionState: "navigating", routeStatus: "available", phase: "on_route" }), "On route");
+  assert.equal(web.deviationText({ sessionState: "navigating", routeStatus: "available", phase: "on_route", lastQualifyingFixAtMs: 1 }), "On route");
+  const panel = strip(read("src/components/tracking/LiveTrackingPanel.jsx"));
+  assert.doesNotMatch(panel, /when this began/, "the distance is the last change's, not the start's");
+  assert.match(panel, /m from route\$\{\s*rider\.deviationDistanceAtMs !== null \? ` at \$\{manilaTime\(rider\.deviationDistanceAtMs\)\}` : ""\}/);
   for (const file of ["src/components/tracking/LiveTrackingPanel.jsx", "src/components/LiveDeliveryMap.jsx", "src/pages/dispatcher/DispatcherGeofence.jsx"]) {
     assert.match(strip(read(file)), /deviationText/, file);
   }
@@ -432,4 +451,28 @@ test("DEV-2 guard: navigation fixes arrive well inside the server's continuity w
     capturedAt: { toMillis: () => 5000 }, updatedAt: { toMillis: () => 5000 } };
   const session = { sessionId: "sessXYZ00001", orderId: "o1", startedAt: { toMillis: () => 1000 } };
   assert.notEqual(server.navigationFixDecision({ session, location: ordinary }).action, "evaluate");
+});
+
+test("route monitoring never reads as a current 'On route' while the position is stale or offline", () => {
+  const onRoute = { sessionState: "navigating", routeStatus: "available", phase: "on_route", lastQualifyingFixAtMs: 1 };
+  const deviating = { sessionState: "navigating", routeStatus: "available", phase: "deviating", lastQualifyingFixAtMs: 1 };
+  assert.equal(web.deviationTextForFreshness(onRoute, "fresh"), "On route");
+  assert.equal(web.deviationTextForFreshness(onRoute, "stale"), "No recent position — last: On route");
+  assert.equal(web.deviationTextForFreshness(onRoute, "offline"), "No recent position — last: On route");
+  assert.match(web.deviationTextForFreshness(deviating, "stale"), /^No recent position — last: Route deviating/);
+  assert.equal(web.deviationTextForFreshness(null, "stale"), web.deviationText(null), "not navigating: unchanged");
+  const NOW = 10 * 60 * 1000 + 5_000_000;
+  const at = (ms) => ({ toMillis: () => ms });
+  const fleet = web.buildFleet({
+    orders: [{ id: "o", assignedRiderId: "r", status: "in_transit" }],
+    locations: { r: { trackingState: "active", latitude: 14.3, longitude: 121.07, capturedAt: at(NOW - 4 * 60_000), updatedAt: at(NOW - 4 * 60_000) } },
+    deviations: { r: onRoute },
+    riders: {},
+    nowMs: NOW,
+  });
+  assert.equal(fleet[0].state, "stale");
+  assert.equal(fleet[0].deviationText, "No recent position — last: On route");
+  for (const file of ["src/pages/dispatcher/DispatcherGeofence.jsx", "src/components/LiveDeliveryMap.jsx"]) {
+    assert.doesNotMatch(readFileSync(file, "utf8"), /Route monitoring:.*\{deviationText\(/, file);
+  }
 });

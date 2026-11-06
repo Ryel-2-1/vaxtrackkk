@@ -194,10 +194,11 @@ test("Med Rep wording offers a future order and never promises a date", () => {
   }
   // Requested / reserved / backordered all shown.
   assert.match(summary, /Requested<\/th>[\s\S]*Reserved<\/th>[\s\S]*Backordered<\/th>/);
-  // The catalog no longer caps quantity at available stock.
+  // Requests above available stock remain possible through an explicit future-order action.
   const req = read("src/pages/salesRep/SalesRepRequestOrder.jsx");
   assert.doesNotMatch(req, /Math\.min\(item\.quantity \+ quantity, product\.stock\)/);
-  assert.match(req, /const maxQty = MAX_LINE_QUANTITY;/);
+  assert.match(req, /assessRequestQuantity\(quantityDraft, product\.available, alreadyInCart\)/);
+  assert.match(req, /Add future order/);
   // Tracking shows the split for orders still waiting to be dispatched.
   const tracking = read("src/pages/salesRep/SalesRepOrderTracking.jsx");
   assert.match(tracking, /allocation: statusKey === "pending_dispatch" \? describeAllocation\(raw\) : null/);
@@ -251,7 +252,9 @@ test("'On hand' is labelled as what it is: not yet delivered, including stock ou
   // Admin correction — so a unit loaded onto a rider is still on hand (and reserved).
   const inv = read("src/pages/admin/Inventory.jsx");
   assert.match(inv, /On hand counts every unit not yet delivered, including stock reserved for orders, out with\s+riders/);
-  assert.match(inv, /On hand \(not yet delivered\) \/ Reserved \/ Available/);
+  // The batch drawer's On hand tile says "not yet delivered"; its tooltip
+  // names stock out with riders.
+  assert.match(inv, /title="Every unit not yet delivered: includes reserved stock, stock out with riders[^"]*">\s*<dt>On hand<\/dt>[\s\S]*?<small>Not yet delivered \(includes reserved\)<\/small>/);
   assert.match(read("src/components/admin/ReservationProvenance.jsx"), /On hand \(not yet delivered\)/);
   // The Med Rep card's two figures add up: available + held = on hand.
   assert.match(read("src/pages/salesRep/SalesRepRequestOrder.jsx"), /\(product\.onHand \?\? 0\) - product\.available, 0\)\} reserved or held/);

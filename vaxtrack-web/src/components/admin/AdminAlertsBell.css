@@ -1,0 +1,66 @@
+/* Admin top bar — alerts button. The button itself uses the shared
+   `.m-topbar-icon-btn` (shell-chrome.css); this adds only the count badge. */
+.admin-alerts-bell {
+  position: relative;
+  color: var(--gray-700);
+  text-decoration: none;
+}
+.admin-alerts-bell:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+}
+.admin-alerts-bell-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: var(--danger-text);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.admin-alerts-bell-badge.is-unavailable { background: #b45309; }
+
+.admin-zero-rate-notice {
+  position: fixed;
+  top: calc(var(--shell-topbar-height) + 12px);
+  right: 20px;
+  z-index: 45;
+  width: min(340px, calc(100vw - 40px));
+  box-sizing: border-box;
+  border: 1px solid #bedbca;
+  border-left: 4px solid var(--green-700);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--gray-900);
+  padding: 15px 42px 15px 16px;
+  box-shadow: 0 18px 42px rgba(16, 24, 40, 0.18);
+}
+
+.admin-zero-rate-notice strong { font-size: 14px; }
+.admin-zero-rate-notice p { margin: 4px 0 12px; color: var(--gray-600); font-size: 13px; line-height: 1.45; }
+.admin-zero-rate-notice a { color: var(--green-700); font-size: 13px; font-weight: 700; text-decoration: underline; }
+.admin-zero-rate-notice-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--gray-600);
+  cursor: pointer;
+}
+.admin-zero-rate-notice-close:hover { background: var(--gray-100); }

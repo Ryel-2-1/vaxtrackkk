@@ -109,7 +109,7 @@ test("the Dispatcher portal carries the shell scope and nothing else", () => {
   assert.doesNotMatch(layer, /DISPATCHER_DIALOG_SCOPE = "[^"]*route-view/, "the animated class is never applied");
   assert.match(layer, /<DialogLayer scope=\{DISPATCHER_DIALOG_SCOPE\}>\{children\}<\/DialogLayer>/);
   // The transform that makes the portal necessary is on the content area, not the shell.
-  assert.match(read("src/pages/dispatcher/DispatcherLayout.jsx"), /className="dispatcher-content route-view"/);
+  assert.match(read("src/pages/dispatcher/DispatcherLayout.jsx"), /className=\{`dispatcher-content route-view\$\{location\.pathname === "\/dispatcher\/settings" \? " dispatcher-settings-content" : ""\}`\}/);
   assert.match(read("src/styles/shell-transitions.css"), /\.route-view \{\s*animation: routeViewIn 0\.26s ease both;/);
 });
 

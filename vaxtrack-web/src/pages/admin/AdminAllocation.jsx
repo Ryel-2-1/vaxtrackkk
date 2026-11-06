@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import AdminLayout from "../../components/admin/AdminLayout";
 import KpiCard from "../../components/ui/KpiCard";
+import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import AdminDialogLayer from "../../components/admin/AdminDialogLayer";
 import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
@@ -75,6 +76,21 @@ function AdminAllocation() {
   const [returns, setReturns] = useState([]);
   const [returnsLoading, setReturnsLoading] = useState(true);
   const [returnsError, setReturnsError] = useState("");
+  // `?return=<id>` (from a batch's drawer in Inventory) names one pending
+  // return to review: its page opens, it is scrolled to and highlighted. The
+  // page is DERIVED until the Admin pages by hand (`returnsPage` then holds
+  // their choice), so it follows the data as soon as the return loads.
+  const [searchParams] = useSearchParams();
+  const focusReturnId = searchParams.get("return") || "";
+  const focusIndex = focusReturnId ? returns.findIndex((r) => r.id === focusReturnId) : -1;
+  const focusMissing = Boolean(focusReturnId) && !returnsLoading && !returnsError && focusIndex < 0;
+  const [returnsPage, setReturnsPage] = useState(null);
+  const [queuePage, setQueuePage] = useState(1);
+  const autoReturnsPage = focusIndex >= 0 ? Math.floor(focusIndex / PAGE_SIZE) + 1 : 1;
+  const currentReturnsPage = Math.min(returnsPage ?? autoReturnsPage, Math.max(1, Math.ceil(returns.length / PAGE_SIZE)));
+  const pageReturns = returns.slice((currentReturnsPage - 1) * PAGE_SIZE, currentReturnsPage * PAGE_SIZE);
+  const currentQueuePage = Math.min(queuePage, Math.max(1, Math.ceil(queue.length / PAGE_SIZE)));
+  const pageQueue = queue.slice((currentQueuePage - 1) * PAGE_SIZE, currentQueuePage * PAGE_SIZE);
   // Per-return draft notes and the one return currently being decided.
   const [notes, setNotes] = useState({});
   const [busyId, setBusyId] = useState(null);
@@ -86,6 +102,19 @@ function AdminAllocation() {
   // Per-return "record by quantity" form: which are open, and their figures.
   const [splitOpen, setSplitOpen] = useState({});
   const [splitDraft, setSplitDraft] = useState({});
+
+  // Bring the named return into view once, when it first renders. Later
+  // live updates (another return confirmed, the list re-sorting) never pull
+  // the page back to it.
+  const scrolledToReturn = useRef("");
+  const focusVisible = focusIndex >= 0 && pageReturns.some((r) => r.id === focusReturnId);
+  useEffect(() => {
+    if (!focusVisible || scrolledToReturn.current === focusReturnId) return;
+    scrolledToReturn.current = focusReturnId;
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    document.getElementById(`alloc-return-${focusReturnId}`)
+      ?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
+  }, [focusVisible, focusReturnId]);
 
   useEffect(() => {
     const unsubQueue = subscribeBackorderQueue(
@@ -258,6 +287,11 @@ function AdminAllocation() {
             Until then these vials are neither reserved nor available.
           </p>
         </header>
+        {focusMissing && (
+          <p className="alloc-muted" role="status">
+            The return you opened is no longer waiting — its condition has already been confirmed.
+          </p>
+        )}
         {returnsLoading ? (
           <p className="alloc-muted">Loading returns…</p>
         ) : returnsError ? (
@@ -265,9 +299,15 @@ function AdminAllocation() {
         ) : returns.length === 0 ? (
           <p className="alloc-muted">No returned stock is waiting for a decision.</p>
         ) : (
+          <>
           <ul className="alloc-return-list">
-            {returns.map((ret) => (
-              <li key={ret.id} className="alloc-return">
+            {pageReturns.map((ret) => (
+              <li
+                key={ret.id}
+                id={`alloc-return-${ret.id}`}
+                className={`alloc-return${ret.id === focusReturnId ? " is-focused" : ""}`}
+                aria-current={ret.id === focusReturnId ? "true" : undefined}
+              >
                 <div className="alloc-return-head">
                   <strong>{ret.orderNumber || ret.orderId}</strong>
                   <span className="tnum">{(Number(ret.totalQuantity) || 0).toLocaleString()} vials</span>
@@ -389,6 +429,8 @@ function AdminAllocation() {
               </li>
             ))}
           </ul>
+          <PageNav page={currentReturnsPage} total={returns.length} onPageChange={setReturnsPage} label="Pending return pages" />
+          </>
         )}
       </section>
 
@@ -407,6 +449,7 @@ function AdminAllocation() {
         ) : queue.length === 0 ? (
           <p className="alloc-muted">No orders are waiting for stock.</p>
         ) : (
+          <>
           <div className="alloc-table-wrap">
             <table className="alloc-table">
               <thead>
@@ -421,11 +464,11 @@ function AdminAllocation() {
                 </tr>
               </thead>
               <tbody>
-                {queue.map((order, index) => {
+                {pageQueue.map((order, index) => {
                   const info = describeAllocation(order);
                   return (
                     <tr key={order.id}>
-                      <td className="tnum">{index + 1}</td>
+                      <td className="tnum">{(currentQueuePage - 1) * PAGE_SIZE + index + 1}</td>
                       <td>
                         <strong>{order.orderNumber || order.id}</strong>
                         <RequestedArrivalNote order={order} />
@@ -454,6 +497,8 @@ function AdminAllocation() {
               </tbody>
             </table>
           </div>
+          <PageNav page={currentQueuePage} total={queue.length} onPageChange={setQueuePage} label="Backorder queue pages" />
+          </>
         )}
       </section>
     </AdminLayout>

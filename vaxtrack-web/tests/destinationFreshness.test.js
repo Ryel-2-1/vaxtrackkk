@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import {
+  arrivalGeofence,
   clinicPinDrift,
   clinicsById,
+  geofenceStatus,
   orderArrival,
   routeNeedsRegenerating,
 } from "../src/services/destinationFreshness.js";
@@ -116,4 +118,30 @@ test("wiring: Dispatch sees the notes, can request the refresh, and the Med Rep 
   assert.match(dialog, /\.filter\(\(item\) => item\.id !== order\.doctorAddressId \|\| drift\)/);
   assert.match(dialog, /Use the clinic's corrected pin/);
   assert.match(read("src/pages/salesRep/SalesRepOrderTracking.jsx"), /changeRequest\.refresh/);
+});
+
+test("staff maps draw the order's own arrival radius; the 300 m default only when it has none", () => {
+  const canonical = { destinationLat: 14.3, destinationLng: 121.07, destinationGeofenceRadiusM: 50, clinicLat: 1, clinicLng: 2, clinicGeofenceRadiusM: 400 };
+  assert.deepEqual(arrivalGeofence(canonical), { latLng: [14.3, 121.07], radiusM: 50, defaultRadius: false });
+  assert.deepEqual(arrivalGeofence({ clinicLat: 14.3, clinicLng: 121.07, clinicGeofenceRadiusM: 120 }).radiusM, 120);
+  for (const radius of [undefined, null, 49, 1001, 75.5, "50"]) {
+    const g = arrivalGeofence({ destinationLat: 14.3, destinationLng: 121.07, destinationGeofenceRadiusM: radius });
+    assert.deepEqual([g.radiusM, g.defaultRadius], [300, true], String(radius));
+  }
+  assert.equal(arrivalGeofence({ destinationGeofenceRadiusM: 50 }), null, "no pin, no circle");
+  assert.equal(arrivalGeofence({ destinationLat: Number.NaN, destinationLng: 121 }), null);
+});
+
+test("a stale position is never shown as currently inside (green) or outside the geofence", () => {
+  assert.deepEqual(geofenceStatus({ distanceM: 9, radiusM: 50, stale: false }), { tone: "in", label: "Inside geofence" });
+  assert.deepEqual(geofenceStatus({ distanceM: 50, radiusM: 50, stale: false }).tone, "in");
+  assert.deepEqual(geofenceStatus({ distanceM: 51, radiusM: 50, stale: false }), { tone: "out", label: "Outside geofence" });
+  assert.deepEqual(geofenceStatus({ distanceM: 9, radiusM: 50, stale: true }), { tone: "stale", label: "Last known position inside geofence" });
+  assert.deepEqual(geofenceStatus({ distanceM: 90, radiusM: 50, stale: true }), { tone: "stale", label: "Last known position outside geofence" });
+  for (const file of ["src/pages/dispatcher/DispatcherGeofence.jsx", "src/components/LiveDeliveryMap.jsx"]) {
+    const src = read(file);
+    assert.doesNotMatch(src, /GEOFENCE_RADIUS_M = 300/, file + ": no fixed 300 m radius");
+    assert.match(src, /arrivalGeofence\(/, file);
+    assert.match(src, /geofenceStatus\(/, file);
+  }
 });

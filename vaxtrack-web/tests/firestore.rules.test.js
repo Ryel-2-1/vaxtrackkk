@@ -643,9 +643,10 @@ async function main() {
 
   console.log("\n--- POSITIVE cases ---");
 
-  await check("P1 admin reads + writes a user doc", async () => {
+  await check("P1 admin reads a user doc; profiles for others are created only by the server", async () => {
     await assertSucceeds(getDoc(doc(admin, "users", riderUid)));
-    await assertSucceeds(setDoc(doc(admin, "users", "tmpUserByAdmin"), { role: "salesrep", status: "pending", email: "t@x.com" }));
+    // createStaffAccount (functions) creates the sign-in account and profile together.
+    await assertFails(setDoc(doc(admin, "users", "tmpUserByAdmin"), { role: "salesrep", status: "pending", email: "t@x.com" }));
   });
 
   await check("P2 admin reads + writes an order", async () => {
@@ -1001,11 +1002,10 @@ async function main() {
     }));
   });
 
-  // P14b/P14c reproduce the REAL service path (route_deviation_alert_service):
-  // the idempotent upsert runs in a TRANSACTION that reads the deterministic doc
-  // BEFORE it exists. The rider `get` rule must therefore allow reading a
-  // NON-EXISTENT own alert, or the transaction is denied at the read — the
-  // Phase 6C2 persistence root cause (direct setDoc in P14 never hit this path).
+  // P14b/P14c reproduce the path of the removed Rider-app alert writer
+  // (route_deviation_alert_service.dart, deleted 2026-11-01): an idempotent
+  // upsert in a TRANSACTION that read the deterministic doc BEFORE it existed.
+  // Deviation alerts are server-owned now, so both stay refused.
   await check("P14b (now refused) rider can get a non-existent own route-deviation alert (tx pre-read)", async () => {
     await assertFails(getDoc(doc(rider, "alerts", "route_deviation_ordRider3_rider1")));
   });
@@ -1606,13 +1606,16 @@ async function main() {
     await assertSucceeds(setDoc(doc(admin, "doctors", doctorId), validDoctor));
   });
 
-  await check("Pdoctor2 approved roles read and query doctors", async () => {
-    for (const db of [admin, dispatcher, salesRep, rider]) {
+  await check("Pdoctor2 Admin, Dispatcher and Med Rep read and query doctors", async () => {
+    for (const db of [admin, dispatcher, salesRep]) {
       await assertSucceeds(getDoc(doc(db, "doctors", doctorId)));
       await assertSucceeds(
         getDocs(query(collection(db, "doctors"), where("active", "==", true)))
       );
     }
+    // Riders never read the doctor roster.
+    await assertFails(getDoc(doc(rider, "doctors", doctorId)));
+    await assertFails(getDocs(query(collection(rider, "doctors"), where("active", "==", true))));
   });
 
   await check("Pdoctor3 admin deactivates a doctor without changing identity", async () => {
@@ -1696,10 +1699,19 @@ async function main() {
     await assertSucceeds(setDoc(addressRef(admin), validDoctorAddress));
   });
 
-  await check("Paddress2 approved roles read a doctor's delivery addresses", async () => {
-    for (const db of [admin, dispatcher, salesRep, rider]) {
+  await check("Paddress2 only Admin and Dispatcher read a doctor's delivery addresses", async () => {
+    for (const db of [admin, dispatcher]) {
       await assertSucceeds(getDoc(addressRef(db)));
       await assertSucceeds(
+        getDocs(collection(db, "doctors", doctorId, "deliveryAddresses"))
+      );
+    }
+    // A Med Rep gets territory-filtered links from listMedRepDoctorAddresses;
+    // no other role reads them (or a private Home) directly.
+    for (const db of [salesRep, rider]) {
+      await assertFails(getDoc(addressRef(db)));
+      await assertFails(getDoc(homeAddressRef(db)));
+      await assertFails(
         getDocs(collection(db, "doctors", doctorId, "deliveryAddresses"))
       );
     }
@@ -1760,9 +1772,12 @@ async function main() {
     }));
   });
 
-  await check("PaddressHome3 approved roles can read the Home destination", async () => {
-    for (const db of [admin, dispatcher, salesRep, rider]) {
+  await check("PaddressHome3 only Admin and Dispatcher read the private Home destination", async () => {
+    for (const db of [admin, dispatcher]) {
       await assertSucceeds(getDoc(homeAddressRef(db)));
+    }
+    for (const db of [salesRep, rider]) {
+      await assertFails(getDoc(homeAddressRef(db)));
     }
   });
 
@@ -1946,6 +1961,57 @@ async function main() {
     await assertFails(deleteDoc(addressRef(dispatcher, "legacy-standalone")));
     await assertSucceeds(deleteDoc(addressRef(admin, "legacy-standalone")));
     await assertFails(getDoc(addressRef(anon)));
+  });
+
+  // ---- arrival proximity + notification read state (2026-11-01) ----
+  await testEnv.withSecurityRulesDisabled((ctx) =>
+    setDoc(doc(ctx.firestore(), "arrivalProximity", "proxOrder1"), {
+      orderId: "proxOrder1", riderUid, firstFixMs: 1, lastFixMs: 2, confirmedAtMs: 2, radiusM: 300, distanceM: 40,
+    })
+  );
+
+  await check("Pprox1 Admin and Dispatcher read arrival proximity (the bell's near-destination feed)", async () => {
+    for (const db of [admin, dispatcher]) {
+      await assertSucceeds(getDoc(doc(db, "arrivalProximity", "proxOrder1")));
+      await assertSucceeds(getDocs(collection(db, "arrivalProximity")));
+    }
+  });
+
+  await check("Nprox1 arrival proximity is server-owned: no client writes it, no Rider or Med Rep reads it", async () => {
+    for (const db of [admin, dispatcher, rider, salesRep]) {
+      await assertFails(setDoc(doc(db, "arrivalProximity", "forged"), { orderId: "forged", riderUid }));
+      await assertFails(updateDoc(doc(db, "arrivalProximity", "proxOrder1"), { confirmedAtMs: 1 }));
+      await assertFails(deleteDoc(doc(db, "arrivalProximity", "proxOrder1")));
+    }
+    for (const db of [rider, salesRep, anon]) {
+      await assertFails(getDoc(doc(db, "arrivalProximity", "proxOrder1")));
+    }
+  });
+
+  await check("Nprox2 no client can create an awaiting-completion alert", async () => {
+    await assertFails(setDoc(doc(admin, "alerts", "forgedAwait"), {
+      type: "delivery_awaiting_completion", severity: "warning", status: "active", read: false, title: "x", message: "y",
+    }));
+  });
+
+  const readState = (db, uid) => doc(db, "notificationReadStates", uid);
+  await check("Pread1 a user keeps their own notification read state", async () => {
+    await assertSucceeds(setDoc(readState(dispatcher, dispatcherUid), { ids: ["a", "b"], updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(readState(dispatcher, dispatcherUid), { ids: ["a", "b", "c"], updatedAt: serverTimestamp() }));
+    await assertSucceeds(getDoc(readState(dispatcher, dispatcherUid)));
+    await assertSucceeds(setDoc(readState(salesRep, salesRepUid), { ids: ["o1:delivered"], updatedAt: serverTimestamp() }));
+  });
+
+  await check("Nread1 read state is private, bounded and shaped", async () => {
+    await assertFails(getDoc(readState(salesRep, dispatcherUid)), "another user's");
+    await assertFails(setDoc(readState(salesRep, dispatcherUid), { ids: [], updatedAt: serverTimestamp() }));
+    await assertFails(setDoc(readState(dispatcher, dispatcherUid), { ids: Array.from({ length: 501 }, (_, i) => `id${i}`), updatedAt: serverTimestamp() }), "over 500");
+    await assertFails(setDoc(readState(dispatcher, dispatcherUid), { ids: [], updatedAt: serverTimestamp(), extra: true }), "extra field");
+    await assertFails(setDoc(readState(dispatcher, dispatcherUid), { ids: "a", updatedAt: serverTimestamp() }), "not a list");
+    await assertFails(setDoc(readState(dispatcher, dispatcherUid), { ids: [], updatedAt: Timestamp.fromMillis(0) }), "client time");
+    await assertFails(deleteDoc(readState(dispatcher, dispatcherUid)));
+    await assertFails(getDocs(collection(dispatcher, "notificationReadStates")), "no listing");
+    await assertFails(getDoc(readState(anon, dispatcherUid)));
   });
 
   // ---- clinic location / geofence (Phase 01) ----
@@ -4023,7 +4089,7 @@ async function main() {
   });
 
   // ---- VAT price convention on a batch ----
-  await check("Nprice-conv a re-price must stamp VAT-inclusive; the flag never flips silently", async () => {
+  await check("Nprice-conv a price basis change needs an Admin audit", async () => {
     await testEnv.withSecurityRulesDisabled((ctx) =>
       setDoc(doc(ctx.firestore(), "inventory", "invConvLegacy"), {
         vaccineName: "Legacy priced", batchId: "CONV-1", expiryDate: "2027-12-31",
@@ -4032,9 +4098,9 @@ async function main() {
       })
     );
     const audit = { priceSetAt: serverTimestamp(), priceSetByUid: adminUid };
-    // A new price that does not say it is VAT-inclusive (false, or omitted).
-    await assertFails(updateDoc(doc(admin, "inventory", "invConvLegacy"), { sellingPriceCentavos: 110000, ...audit }));
-    await assertFails(updateDoc(doc(admin, "inventory", "invConvLegacy"), { sellingPriceCentavos: 110000, priceIsVatInclusive: false, ...audit }));
+    // The existing Before VAT basis can be retained by an audited re-price.
+    await assertSucceeds(updateDoc(doc(admin, "inventory", "invConvLegacy"), { sellingPriceCentavos: 110000, ...audit }));
+    await assertSucceeds(updateDoc(doc(admin, "inventory", "invConvLegacy"), { sellingPriceCentavos: 110000, priceIsVatInclusive: false, ...audit }));
     // Flipping the flag alone is a re-confirmation — it needs the audit.
     await assertFails(updateDoc(doc(admin, "inventory", "invConvLegacy"), { priceIsVatInclusive: true }));
     // ...and nobody but an Admin may do it.
@@ -4043,13 +4109,12 @@ async function main() {
     }
   });
 
-  await check("Pprice-conv an Admin re-confirms a legacy batch's price as VAT-inclusive, audited", async () => {
+  await check("Pprice-conv an Admin can choose either basis with an audit", async () => {
     await assertSucceeds(updateDoc(doc(admin, "inventory", "invConvLegacy"), {
       sellingPriceCentavos: 100000, priceIsVatInclusive: true,
       priceSetAt: serverTimestamp(), priceSetByUid: adminUid,
     }));
-    // Once VAT-inclusive, it cannot be turned back to the legacy convention.
-    await assertFails(updateDoc(doc(admin, "inventory", "invConvLegacy"), {
+    await assertSucceeds(updateDoc(doc(admin, "inventory", "invConvLegacy"), {
       priceIsVatInclusive: false, priceSetAt: serverTimestamp(), priceSetByUid: adminUid,
     }));
   });
@@ -4183,25 +4248,47 @@ async function main() {
   });
 
   // Fresh user records for status-transition cases (BG-001).
-  const seedUser = (id, status, role = "salesrep") =>
+  // Riders: a browser may change only a rider's status (the Riders page);
+  // staff status goes through setStaffStatus. The same transition matrix applies.
+  const seedUser = (id, status, role = "rider") =>
     testEnv.withSecurityRulesDisabled((ctx) =>
       setDoc(doc(ctx.firestore(), "users", id), { role, status, email: `${id}@x.com`, name: id })
     );
   const setStatus = (ctx, id, status) =>
     updateDoc(doc(ctx, "users", id), { status, updatedAt: serverTimestamp() });
 
-  await check("Prole1 an admin may set any KNOWN role and status", async () => {
-    for (const role of ["admin", "dispatcher", "salesrep", "rider"]) {
-      await assertSucceeds(updateDoc(doc(admin, "users", salesRepUid), { role }));
+  await check("Prole1 a browser never changes a role or a staff status; a rider's status it may", async () => {
+    // Roles and staff status change only through setStaffRole / setStaffStatus
+    // (functions/src/staffAccounts.js), which also protect the last Admin.
+    for (const role of ["admin", "dispatcher", "rider"]) {
+      await assertFails(updateDoc(doc(admin, "users", salesRepUid), { role }));
     }
+    for (const status of ["disabled", "pending"]) {
+      await assertFails(updateDoc(doc(admin, "users", salesRepUid), { status }));
+    }
+    await seedUser("prole1Staff", "pending", "dispatcher");
+    await assertFails(updateDoc(doc(admin, "users", "prole1Staff"), { status: "approved" }));
+    await seedUser("prole1Rider", "approved");
+    await assertFails(updateDoc(doc(admin, "users", "prole1Rider"), { role: "admin" }));
+    // Later cases expect the shared account as the old walk left it.
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "users", salesRepUid), { role: "rider", status: "approved" }, { merge: true })
+    );
+  });
+
+  await check("Prole1b a rider's status walks every known status from a browser", async () => {
+    await seedUser("prole1Walk", "pending");
     // Every known status, each reached through a legitimate transition. This
     // used to walk ...→ rejected → disabled on one account, which is exactly
     // the BG-001 hole (a rejected application turned into another state);
     // rejected is final now, so it is reached on its own pending record. The
     // shared account still ends `disabled`, as before, for the cases below.
     for (const status of ["approved", "pending", "pending_approval", "approved", "disabled"]) {
-      await assertSucceeds(updateDoc(doc(admin, "users", salesRepUid), { status }));
+      await assertSucceeds(updateDoc(doc(admin, "users", "prole1Walk"), { status }));
     }
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "users", salesRepUid), { status: "disabled" }, { merge: true })
+    );
     await seedUser("prole1Rejected", "pending");
     await assertSucceeds(updateDoc(doc(admin, "users", "prole1Rejected"), { status: "rejected" }));
   });
@@ -4777,6 +4864,21 @@ async function main() {
     await assertSucceeds(updateDoc(doc(admin, "users", "accRejEdit"), { name: "Corrected Name", updatedAt: serverTimestamp() }));
   });
 
+  await check("ACC7 staff audit events: an admin reads them; no client writes them", async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "staffAccountEvents", "ev1"), { action: "created", targetUid: "x", actorUid: adminUid })
+    );
+    await assertSucceeds(getDoc(doc(admin, "staffAccountEvents", "ev1")));
+    await assertSucceeds(getDocs(collection(admin, "staffAccountEvents")));
+    for (const ctx of [dispatcher, salesRep, rider, anon]) {
+      await assertFails(getDoc(doc(ctx, "staffAccountEvents", "ev1")));
+    }
+    for (const ctx of [admin, dispatcher, salesRep, rider]) {
+      await assertFails(setDoc(doc(ctx, "staffAccountEvents", "ev2"), { action: "created" }));
+    }
+    await assertFails(updateDoc(doc(admin, "staffAccountEvents", "ev1"), { action: "forged" }));
+  });
+
   await check("ACC6 a rejected user reads only their own profile and cannot self-approve", async () => {
     await seedUser("accRejSelf", "rejected");
     const rejected = testEnv.authenticatedContext("accRejSelf").firestore();
@@ -5091,8 +5193,9 @@ async function main() {
     const ref = doc(admin, "users", "terrRep6");
     await assertFails(updateDoc(ref, territoryWrite(adminUid, { role: "dispatcher" })));
     await assertFails(updateDoc(ref, territoryWrite(adminUid, { status: "disabled" })));
-    // Role and status management by Admin is unchanged on its own.
-    await assertSucceeds(updateDoc(ref, { status: "disabled" }));
+    // A staff status changes only through setStaffStatus (functions), never a browser.
+    await assertFails(updateDoc(ref, { status: "disabled" }));
+    await assertSucceeds(updateDoc(ref, territoryWrite(adminUid)));
   });
 
   await check("TERR7 an applicant cannot register with a territory", async () => {
@@ -5636,6 +5739,32 @@ async function main() {
       await assertSucceeds(setDoc(myLoc, loc()));
       await assertSucceeds(setDoc(myLoc, loc({ latitude: 14.601, activeOrderId: "trkMoving", navigationSessionId: "sess_trk00001" })));
       await assertSucceeds(setDoc(myLoc, loc({ headingDegrees: null, speedMps: null, trackingState: "paused" })));
+    });
+
+    await check("PTR1b the optional mock-location flag is a boolean, never anything else", async () => {
+      await assertSucceeds(setDoc(myLoc, loc({ mockedLocation: true })));
+      await assertSucceeds(setDoc(myLoc, loc({ mockedLocation: false })));
+      await assertSucceeds(setDoc(myLoc, loc()), "older builds omit it");
+      await assertFails(setDoc(myLoc, loc({ mockedLocation: "no" })));
+      await assertFails(setDoc(myLoc, loc({ mockedLocation: null })));
+    });
+
+    await check("PPUSH a rider keeps only their own push tokens (≤ 5); nobody else reads or writes them", async () => {
+      const mine = doc(rider, "riderPushTokens", riderUid);
+      const tokens = (n) => Array.from({ length: n }, (_, i) => `token-${i}`);
+      await assertSucceeds(setDoc(mine, { riderUid, tokens: tokens(2), updatedAt: serverTimestamp() }));
+      await assertSucceeds(getDoc(mine));
+      await assertSucceeds(setDoc(mine, { riderUid, tokens: tokens(5), updatedAt: serverTimestamp() }));
+      await assertFails(setDoc(mine, { riderUid, tokens: tokens(6), updatedAt: serverTimestamp() }), "at most 5");
+      await assertFails(setDoc(mine, { riderUid, tokens: tokens(1), updatedAt: serverTimestamp(), extra: 1 }));
+      await assertFails(setDoc(mine, { riderUid: otherRiderUid, tokens: tokens(1), updatedAt: serverTimestamp() }));
+      await assertFails(setDoc(doc(rider, "riderPushTokens", otherRiderUid), { riderUid: otherRiderUid, tokens: [], updatedAt: serverTimestamp() }));
+      for (const ctx of [admin, dispatcher, salesRep, anon]) {
+        await assertFails(getDoc(doc(ctx, "riderPushTokens", riderUid)));
+        await assertFails(setDoc(doc(ctx, "riderPushTokens", riderUid), { riderUid, tokens: [], updatedAt: serverTimestamp() }));
+      }
+      await assertFails(getDocs(collection(rider, "riderPushTokens")));
+      await assertSucceeds(deleteDoc(mine));
     });
 
     await check("NTR1 a rider cannot write another rider's location or forge the rider uid", async () => {
@@ -6598,6 +6727,27 @@ async function main() {
       } catch (error) {
         throw new Error(`VIS2 ${role} server-only cursor: ${error.message}`, { cause: error });
       }
+    }
+  });
+
+  await check("Zero-rating requests are readable only by Admin and their owning Med Rep; all client writes are denied", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "zeroRateRequests", "zeroRateRulesQa"), {
+        requesterUid: salesRepUid, status: "pending", doctorId: "doctor1",
+        doctorAddressId: "clinic1", requestedDeliveryDate: "2026-11-10",
+      });
+    });
+    await assertSucceeds(getDoc(doc(admin, "zeroRateRequests", "zeroRateRulesQa")));
+    await assertSucceeds(getDoc(doc(salesRep, "zeroRateRequests", "zeroRateRulesQa")));
+    for (const ctx of [dispatcher, rider, testEnv.authenticatedContext(otherSalesRepUid).firestore(), anon]) {
+      await assertFails(getDoc(doc(ctx, "zeroRateRequests", "zeroRateRulesQa")));
+    }
+    await assertSucceeds(getDocs(query(collection(salesRep, "zeroRateRequests"), where("requesterUid", "==", salesRepUid))));
+    await assertFails(getDocs(collection(salesRep, "zeroRateRequests")));
+    await assertSucceeds(getDocs(query(collection(admin, "zeroRateRequests"), where("status", "==", "pending"))));
+    for (const ctx of [admin, salesRep, dispatcher, rider]) {
+      await assertFails(updateDoc(doc(ctx, "zeroRateRequests", "zeroRateRulesQa"), { status: "approved" }));
+      await assertFails(setDoc(doc(ctx, "zeroRateRequests", `forged${ctx === admin ? "Admin" : "User"}`), { requesterUid: salesRepUid, status: "approved" }));
     }
   });
 

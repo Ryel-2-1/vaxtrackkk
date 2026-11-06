@@ -190,7 +190,7 @@ test("the page wires a Correct stock control through the real service", () => {
 
 test("the correction reports success only after an awaited write, and blocks double-submit", () => {
   const src = read(PAGE);
-  const handler = /const handleSaveCorrection = async \(\) => \{[\s\S]*?\n {2}\};/.exec(src);
+  const handler = /const handleSaveCorrection = async \(\{ largeQuantityConfirmed = false \} = \{\}\) => \{[\s\S]*?\n {2}\};/.exec(src);
   assert.ok(handler, "handleSaveCorrection must exist");
   const body = handler[0];
 

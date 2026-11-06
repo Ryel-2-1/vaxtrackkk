@@ -31,11 +31,11 @@ const server = createRequire(import.meta.url)("../functions/src/inventoryRemoval
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const TODAY = "2026-10-05";
 
-test("inventory status badges never inherit the package icon's fixed square", () => {
+test("inventory names render without icon tiles while status badges remain readable", () => {
   const css = read("src/pages/admin/Inventory.css");
   const page = read("src/pages/admin/Inventory.jsx");
-  assert.match(css, /\.v2-vaccine-cell > span\s*\{[^}]*width: 36px;[^}]*height: 36px;/);
-  assert.doesNotMatch(css, /\.v2-vaccine-cell\s+span\s*\{/);
+  assert.doesNotMatch(page, /<div className="v2-vaccine-cell">\s*<span>/);
+  assert.doesNotMatch(css, /\.v2-vaccine-cell > span\s*\{/);
   assert.match(css, /\.inventory-page \.inv-tag\s*\{[^}]*max-width: 100%;[^}]*white-space: normal;[^}]*overflow-wrap: break-word;[^}]*word-break: normal;/);
   for (const label of ["Voided", "Vaccine archived", "Inactive — long-empty stock"]) {
     assert.ok(page.includes(label), `${label} must stay visible as a status label`);
@@ -168,8 +168,10 @@ test("Med Rep pages hide voided batches and archived vaccines from new ordering"
   const request = read("src/pages/salesRep/SalesRepRequestOrder.jsx");
   assert.match(request, /\.filter\(\(product\) => !product\.voided && !vaccinesById\.get\(product\.vaccineId\)\?\.archived\)/);
   assert.match(request, /\{ vaccine: batch \? vaccinesById\.get\(batch\.vaccineId\) \?\? null : null \}/);
-  const place = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
-  assert.match(place, /liveCartLines\(items, liveStock\.batches, liveStock\.todayIso, catalog\.byId\)/);
+  // Checkout's cart lines come from useCartLiveStock, which passes the cart's
+  // products so an archived one blocks its line.
+  assert.match(read("src/pages/salesRep/SalesRepPlaceOrder.jsx"), /= useCartLiveStock\(items\);/);
+  assert.match(read("src/pages/salesRep/useCartLiveStock.js"), /liveCartLines\(items, liveStock\.batches, liveStock\.todayIso, catalog\.byId\)/);
   const inventory = read("src/pages/salesRep/SalesRepInventory.jsx");
   assert.match(inventory, /raw\.filter\(\(item\) => item\.voided !== true\)/);
   assert.match(inventory, /stocks\.filter\(\(stock\) => !archivedIds\.has\(stock\.vaccineId\) && \(showInactive \|\| !inactiveIds\.has\(stock\.vaccineId\)\)\)/);

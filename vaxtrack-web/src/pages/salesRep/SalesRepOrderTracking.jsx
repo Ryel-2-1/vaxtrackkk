@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  Box,
   CalendarDays,
   ClipboardCheck,
   Loader2,
   MapPin,
-  PackageCheck,
   Search,
   Truck,
 } from "lucide-react";
@@ -33,6 +31,7 @@ import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 import AllocationSummary from "../../components/ui/AllocationSummary";
 import { describeAllocation } from "../../services/backorder";
 import OrderCancellationAction from "../../components/orders/OrderCancellationAction";
+import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 
 function mapTrackingLabel(statusKey) {
   switch (statusKey) {
@@ -181,6 +180,8 @@ function normalizeOrder(raw) {
     timingStatus: raw.timingStatus ?? null,
     expectedArrivalAt: raw.expectedArrivalAt ?? null,
     automaticDelayedAt: raw.automaticDelayedAt ?? null,
+    requestedArrivalMissedAt: raw.requestedArrivalMissedAt ?? null,
+    requestedArrivalDeadlineAt: raw.requestedArrivalDeadlineAt ?? null,
     // Current schedule (an Admin may have moved it) and the original request.
     scheduledDeliveryTime: raw.scheduledDeliveryTime || null,
     originalRequestedDeliveryDate: raw.originalRequestedDeliveryDate || null,
@@ -228,6 +229,7 @@ function SalesRepOrderTracking() {
   );
 
   const [activeTab, setActiveTab] = useState("active");
+  const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedOrderId, setSelectedOrderId] = useState("");
@@ -327,9 +329,12 @@ function SalesRepOrderTracking() {
       return matchesTab && matchesStatus && matchesSearch;
     });
   }, [activeTab, orders, searchTerm, statusFilter]);
+  const currentPage = Math.min(page, Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE)));
+  const pageOrders = filteredOrders.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
+    setPage(1);
     setStatusFilter("all");
     setSearchTerm("");
     dismissToast();
@@ -367,69 +372,62 @@ function SalesRepOrderTracking() {
   return (
     <>
       <section className="tracking-v2-page">
-        <div className="tracking-v2-header">
-          <div>
-            <h2>Deliveries overview</h2>
-            <p>Monitor active deliveries, shipment progress, and completed orders.</p>
-          </div>
-        </div>
-
         <ToastRegion toast={toast} onDismiss={dismissToast} />
+
+        <div className="tracking-toolbar tracking-v2-toolbar" role="group" aria-label="Order tracking filters">
+          <div className="tracking-v2-tabs">
+            <button
+              type="button"
+              className={activeTab === "active" ? "active" : ""}
+              onClick={() => handleTabChange("active")}
+            >
+              Active
+            </button>
+
+            <button
+              type="button"
+              className={activeTab === "history" ? "active" : ""}
+              onClick={() => handleTabChange("history")}
+            >
+              History
+            </button>
+          </div>
+
+          <div className="tracking-v2-search">
+            <Search size={15} />
+            <input
+              value={searchTerm}
+              onChange={(event) => { setSearchTerm(event.target.value); setPage(1); }}
+              placeholder="Search order ID, clinic, vaccine, or status..."
+            />
+          </div>
+
+          <label className="tracking-v2-status-filter">
+            <span className="m-visually-hidden">Filter by status</span>
+            <select
+              value={statusFilter}
+              onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }}
+            >
+              <option value="all">All Status</option>
+              <option value="pending-dispatch">Pending Dispatch</option>
+              <option value="assigned">Assigned</option>
+              <option value="out-for-delivery">Out for Delivery</option>
+              <option value="delayed">Delayed</option>
+              <option value="delivered">Delivered</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </label>
+        </div>
 
         <section className="tracking-layout tracking-v2-layout">
           <div className="tracking-left">
-            <div className="tracking-toolbar tracking-v2-toolbar">
-              <div className="tracking-v2-tabs">
-                <button
-                  type="button"
-                  className={activeTab === "active" ? "active" : ""}
-                  onClick={() => handleTabChange("active")}
-                >
-                  Active
-                </button>
-
-                <button
-                  type="button"
-                  className={activeTab === "history" ? "active" : ""}
-                  onClick={() => handleTabChange("history")}
-                >
-                  History
-                </button>
-              </div>
-
-              <div className="tracking-v2-search">
-                <Search size={15} />
-                <input
-                  value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="Search order ID, clinic, vaccine, or status..."
-                />
-              </div>
-
-              <label className="tracking-v2-status-filter">
-                <span>Filter by Status</span>
-                <select
-                  value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value)}
-                >
-                  <option value="all">All Status</option>
-                  <option value="pending-dispatch">Pending Dispatch</option>
-                  <option value="assigned">Assigned</option>
-                  <option value="out-for-delivery">Out for Delivery</option>
-                  <option value="delayed">Delayed</option>
-                  <option value="delivered">Delivered</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
-              </label>
-            </div>
-
             <div className="tracking-v2-table-wrap">
-              <table className="tracking-table tracking-v2-table">
+              <div className="tracking-v2-table-scroll">
+                <table className="tracking-table tracking-v2-table">
                 <thead>
                   <tr>
                     <th>Order ID</th>
                     <th>Destination</th>
-                    <th>Date</th>
                     <th>Status</th>
                     <th>Progress</th>
                   </tr>
@@ -437,7 +435,7 @@ function SalesRepOrderTracking() {
 
                 <tbody>
                   {filteredOrders.length > 0 ? (
-                    filteredOrders.map((order) => (
+                    pageOrders.map((order) => (
                       <TrackingRow
                         key={order.id}
                         order={order}
@@ -447,7 +445,7 @@ function SalesRepOrderTracking() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan="5">
+                      <td colSpan="4">
                         <div className="tracking-v2-empty">
                           {orders.length === 0
                             ? "You haven't placed any orders yet."
@@ -457,16 +455,18 @@ function SalesRepOrderTracking() {
                     </tr>
                   )}
                 </tbody>
-              </table>
+                </table>
+              </div>
+              <PageNav page={currentPage} total={filteredOrders.length} onPageChange={setPage} label="Order tracking pages" />
             </div>
           </div>
 
-          <aside className="tracking-side tracking-v2-side">
+          <aside className="tracking-side tracking-v2-side" key={selectedOrder?.id ?? "none"}>
             {selectedOrder ? (
               <>
                 <div className="tracking-side-title">
                   <div>
-                    <span>Selected Order</span>
+                    <span>Selected order</span>
                     <h2>{selectedOrder.orderNumber}</h2>
                   </div>
                   <button type="button" onClick={() => selectOrder("")}>
@@ -478,7 +478,7 @@ function SalesRepOrderTracking() {
                   {selectedOrder.priority === "Urgent" ? "Urgent" : "Standard"} · {selectedOrder.date}
                 </p>
 
-                <h3>Delivery Status</h3>
+                <h3>Delivery status</h3>
                 <div className="tracking-v2-status-strip">
                   <StatusBadge statusKey={selectedOrder.statusKey} label={selectedOrder.status} />
                   <span>Rider: {selectedOrder.driverName}</span>
@@ -598,7 +598,7 @@ function SalesRepOrderTracking() {
                   </div>
                 )}
 
-                <h3>Order Content</h3>
+                <h3>Order contents</h3>
 
                 {selectedOrder.items.length > 0 ? (
                   selectedOrder.items.map((item, i) => (
@@ -610,18 +610,15 @@ function SalesRepOrderTracking() {
                     />
                   ))
                 ) : (
-                  <div className="tracking-v2-info-box">
-                    <PackageCheck size={15} />
-                    <div>
-                      <strong>{selectedOrder.vaccineName}</strong>
-                      <p>{selectedOrder.quantity.toLocaleString()} {selectedOrder.quantity === 1 ? "vial" : "vials"}</p>
-                    </div>
-                  </div>
+                  <OrderContent
+                    name={selectedOrder.vaccineName}
+                    qty={`${selectedOrder.quantity.toLocaleString()} ${selectedOrder.quantity === 1 ? "vial" : "vials"}`}
+                  />
                 )}
 
                 <div className="tracking-total">
                   <p>
-                    Total Quantity
+                    Total quantity
                     <strong>{selectedOrder.quantity.toLocaleString()} {selectedOrder.quantity === 1 ? "vial" : "vials"}</strong>
                   </p>
                 </div>
@@ -653,9 +650,11 @@ function TrackingRow({ selected, order, onSelect }) {
         if (event.key === "Enter") onSelect();
       }}
     >
+      {/* The order date sits under its number: a separate Date column took
+          the width the destination needs. */}
       <td>
-        {isDanger ? <AlertTriangle size={17} /> : <Box size={17} />}
         <strong>{order.orderNumber}</strong>
+        <small className="tnum">{order.date}</small>
       </td>
 
       <td>
@@ -671,7 +670,6 @@ function TrackingRow({ selected, order, onSelect }) {
         {order.changeRequest && <small>Destination change awaiting your approval</small>}
       </td>
 
-      <td>{order.date}</td>
 
       <td>
         <StatusBadge statusKey={order.statusKey} label={order.status} />
@@ -706,11 +704,11 @@ function TrackingRow({ selected, order, onSelect }) {
 function OrderContent({ name, batch, qty }) {
   return (
     <div className="order-content">
-      <PackageCheck size={18} />
       <div>
         <strong>{name}</strong>
-        <p>Batch: {batch} · {qty}</p>
+        {batch && <p>Batch: {batch}</p>}
       </div>
+      <span className="order-content-quantity">{qty}</span>
     </div>
   );
 }

@@ -19,6 +19,7 @@ import {
 } from "../../services/orderHistoryService";
 import OrderHistoryDetail from "./OrderHistoryDetail";
 import RequestedArrivalNote from "../schedule/RequestedArrivalNote";
+import "../ui/PageNav.css";
 import "./OrderHistory.css";
 import { liveErrorMessage } from "../../services/liveDataErrors";
 
@@ -32,7 +33,7 @@ import { liveErrorMessage } from "../../services/liveDataErrors";
  *                    SKU / Batch ID lookups.
  *
  * Loading is bounded: a LIVE window of the newest orders, one page at first,
- * grown a page at a time by "Load older orders" — every loaded row stays
+ * grown a page at a time by Med Rep Next or Admin's Load older action — every loaded row stays
  * current without a reload. The date range narrows the query itself; status, allocation,
  * priority and the text search filter the orders already loaded, and the page
  * says so. Exact reference / SKU / Batch ID lookups search the whole history.
@@ -42,6 +43,10 @@ const EMPTY_FILTERS = { search: "", dateFrom: "", dateTo: "", stage: "", allocat
 
 // One mapping for every failure: permission, offline, signed-out and a
 // missing index each read differently, and none is shown as "no orders".
+// A complete order reference, as printed on the receipt (VT-ORD-<digits>-<code>,
+// or the older VT-ORD-<digits>): Enter on one searches the whole history.
+const FULL_ORDER_REFERENCE = /^VT-ORD-\d{6,}(-[A-Z0-9]{3,8})?$/i;
+
 function errorMessage(err, what) {
   return liveErrorMessage(err, what);
 }
@@ -51,7 +56,9 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
   const scopeUid = isAdmin ? null : medRepUid;
 
   const [filters, setFilters] = useState(EMPTY_FILTERS);
-  // The date range in effect for the loaded pages (applied on submit).
+  const [appliedFilters, setAppliedFilters] = useState(EMPTY_FILTERS);
+  // The date range in effect for the live window (debounced for Med Rep,
+  // applied on submit for Admin).
   const [range, setRange] = useState({ dateFrom: "", dateTo: "" });
   const [repFilter, setRepFilter] = useState("");
   const [medReps, setMedReps] = useState([]);
@@ -63,19 +70,40 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
   const [rows, setRows] = useState([]);
   // How many of the newest orders the live window holds.
   const [windowSize, setWindowSize] = useState(HISTORY_PAGE_SIZE);
+  const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(!signedOut);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
 
   // Exact lookups across the whole history (not limited to loaded pages).
-  const [lookup, setLookup] = useState({ kind: "reference", value: "" });
   const [lookupResult, setLookupResult] = useState(null); // { label, rows } | null
   const [lookupBusy, setLookupBusy] = useState(false);
   const [lookupError, setLookupError] = useState("");
 
   const [selectedId, setSelectedId] = useState(null);
   const requestSeq = useRef(0);
+
+  // Text and date controls settle before changing the live query; selectors
+  // apply immediately. The same for Admin and Med Rep.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setAppliedFilters((current) => ({
+        ...current,
+        search: filters.search,
+        dateFrom: filters.dateFrom,
+        dateTo: filters.dateTo,
+      }));
+      setPage(1);
+      if (range.dateFrom !== filters.dateFrom || range.dateTo !== filters.dateTo) {
+        setLookupResult(null);
+        setLoading(true);
+        setWindowSize(HISTORY_PAGE_SIZE);
+        setRange({ dateFrom: filters.dateFrom, dateTo: filters.dateTo });
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [filters.search, filters.dateFrom, filters.dateTo, range]);
 
   // Receipts are written once, in the order's own creation transaction, so
   // each is read once per order and cached (a legacy order's absence too).
@@ -154,24 +182,44 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
   const loadMore = () => {
     if (!hasMore || loadingMore) return;
     setLoadingMore(true);
+    setPage((current) => current + 1);
     setWindowSize((n) => n + HISTORY_PAGE_SIZE);
   };
+  const changeHistoryPage = (next) => {
+    if (next > Math.ceil(visible.length / HISTORY_PAGE_SIZE) && hasMore && !lookupResult) {
+      loadMore();
+    } else {
+      setPage(next);
+    }
+  };
 
-  const runLookup = async (event) => {
+  // One search row for both roles: typing filters the loaded orders; Enter on
+  // a full order reference (VT-ORD-…) searches the whole history. For Admin,
+  // Enter on any other value runs the exact SKU and Batch ID lookups (they
+  // replaced the separate "Search all history by" bar, removed 2026-10-31).
+  const submitSearch = (event) => {
     event.preventDefault();
-    const value = lookup.value.trim();
+    const value = filters.search.trim();
+    if (!value) return;
+    if (FULL_ORDER_REFERENCE.test(value)) searchWholeHistory("reference", value);
+    else if (isAdmin) searchWholeHistory("sku-or-batch", value);
+  };
+
+  const searchWholeHistory = async (kind, raw) => {
+    const value = raw.trim();
     if (!value) return;
     setLookupBusy(true);
     setLookupError("");
     try {
       let orders = [];
-      if (lookup.kind === "reference") orders = await findOrdersByReference(value, scopeUid);
-      else if (isAdmin && lookup.kind === "sku") orders = await fetchOrdersByIds(await findOrderIdsBySku(value));
-      else if (isAdmin && lookup.kind === "batch") orders = await fetchOrdersByIds(await findOrderIdsByBatchId(value));
+      if (kind === "reference") orders = await findOrdersByReference(value, scopeUid);
+      else if (isAdmin && kind === "sku-or-batch") {
+        const [bySku, byBatch] = await Promise.all([findOrderIdsBySku(value), findOrderIdsByBatchId(value)]);
+        orders = await fetchOrdersByIds([...new Set([...bySku, ...byBatch])]);
+      }
       const label =
-        lookup.kind === "reference" ? `order reference ${value.toUpperCase()}`
-          : lookup.kind === "sku" ? `SKU ${value}`
-            : `Batch ID ${value.toUpperCase()}`;
+        kind === "reference" ? `order reference ${value.toUpperCase()}`
+          : `SKU or Batch ID ${value}`;
       setLookupResult({ label, rows: await toRows(orders) });
     } catch (err) {
       setLookupError(errorMessage(err, "search results"));
@@ -181,34 +229,35 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
     }
   };
 
-  const visible = useMemo(() => {
-    const source = lookupResult ? lookupResult.rows : rows;
-    return source.filter((r) => matchesHistoryFilters(r, { ...filters, dateFrom: "", dateTo: "" }));
-  }, [rows, lookupResult, filters]);
+  const effectiveFilters = isAdmin ? filters : appliedFilters;
+  const source = lookupResult ? lookupResult.rows : rows;
+  const visible = source.filter((r) => matchesHistoryFilters(r, { ...effectiveFilters, dateFrom: "", dateTo: "" }));
+  const currentPage = Math.min(page, Math.max(1, Math.ceil(visible.length / HISTORY_PAGE_SIZE)));
+  const visiblePage = visible.slice((currentPage - 1) * HISTORY_PAGE_SIZE, currentPage * HISTORY_PAGE_SIZE);
 
   const selected = useMemo(() => {
     const all = [...(lookupResult?.rows ?? []), ...rows];
     return all.find((r) => r.id === selectedId) ?? null;
   }, [rows, lookupResult, selectedId]);
 
-  const setFilter = (key) => (e) => setFilters((f) => ({ ...f, [key]: e.target.value }));
-  const applyRange = (e) => {
-    e.preventDefault();
-    if (range.dateFrom === filters.dateFrom && range.dateTo === filters.dateTo) return;
-    setLookupResult(null);
-    setLoading(true);
-    setWindowSize(HISTORY_PAGE_SIZE);
-    setRange({ dateFrom: filters.dateFrom, dateTo: filters.dateTo });
+  const setFilter = (key) => (e) => {
+    const value = e.target.value;
+    setFilters((f) => ({ ...f, [key]: value }));
+    if (isAdmin || !["search", "dateFrom", "dateTo"].includes(key)) {
+      if (!isAdmin) setAppliedFilters((f) => ({ ...f, [key]: value }));
+      setPage(1);
+    }
   };
   const changeRep = (e) => {
     if (e.target.value === repFilter) return;
     setLookupResult(null);
     setLoading(true);
     setWindowSize(HISTORY_PAGE_SIZE);
+    setPage(1);
     setRepFilter(e.target.value);
   };
   const shownError = signedOut ? "You must be signed in to view your order history." : error;
-  const clientFiltered = Boolean(filters.search || filters.stage || filters.allocationState || filters.priority);
+  const clientFiltered = Boolean(effectiveFilters.search || effectiveFilters.stage || effectiveFilters.allocationState || effectiveFilters.priority);
   // Shown whenever a filter acts on loaded records only. The exact-reference
   // lookup above is not one: it queries the whole authorized history.
   const loadedNotice = loadedFilterNotice({ filtersActive: clientFiltered, hasMore, loadedCount: rows.length });
@@ -223,103 +272,81 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
 
   return (
     <div className="ohx">
-      <p className="ohx-scope-note">
-        <strong>History</strong> lists every accepted order — delivered, cancelled and failed included — with its
-        original Order Confirmation Receipt and Stock Allocation History. For orders still waiting for stock right
-        now, {isAdmin ? "see the Stock Allocation backlog." : "see Order Tracking."}
-      </p>
+      <div className="ohx-filter-dock">
+        {lookupError && <p className="ohx-error" role="alert">{lookupError}</p>}
 
-      <form className="ohx-lookup" onSubmit={runLookup} role="search" aria-label="Search all history">
-        <label>
-          <span>Search all history by</span>
-          <select value={lookup.kind} onChange={(e) => setLookup((l) => ({ ...l, kind: e.target.value }))}>
-            <option value="reference">Full order reference</option>
-            {isAdmin && <option value="sku">SKU</option>}
-            {isAdmin && <option value="batch">Batch ID</option>}
-          </select>
-        </label>
-        <input
-          type="search"
-          value={lookup.value}
-          onChange={(e) => setLookup((l) => ({ ...l, value: e.target.value }))}
-          placeholder={lookup.kind === "reference" ? "VT-ORD-…" : lookup.kind === "sku" ? "e.g. ATV-001" : "e.g. BT-3131-3131"}
-          aria-label="Exact value"
-        />
-        <button type="submit" className="ohx-btn ohx-btn-primary" disabled={lookupBusy || !lookup.value.trim()}>
-          {lookupBusy ? "Searching…" : "Search"}
-        </button>
-        {lookupResult && (
-          <button type="button" className="ohx-btn" onClick={() => setLookupResult(null)}>
-            Back to all orders
-          </button>
-        )}
-      </form>
-      {lookupError && <p className="ohx-error" role="alert">{lookupError}</p>}
-
-      <form className="ohx-filters" onSubmit={applyRange} aria-label="Filter order history">
-        <label className="ohx-filter-search">
-          <span>Filter loaded orders</span>
-          <input
-            type="search"
-            value={filters.search}
-            onChange={setFilter("search")}
-            placeholder={isAdmin ? "Reference, Med Rep, doctor, clinic or SKU" : "Reference, doctor or clinic"}
-          />
-        </label>
-        <label>
-          <span>From</span>
-          <input type="date" value={filters.dateFrom} onChange={setFilter("dateFrom")} />
-        </label>
-        <label>
-          <span>To</span>
-          <input type="date" value={filters.dateTo} onChange={setFilter("dateTo")} />
-        </label>
-        <button type="submit" className="ohx-btn">Apply dates</button>
-        <label>
-          <span>Status</span>
-          <select value={filters.stage} onChange={setFilter("stage")}>
-            <option value="">All statuses</option>
-            {STAGE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Allocation</span>
-          <select value={filters.allocationState} onChange={setFilter("allocationState")}>
-            <option value="">All allocation states</option>
-            {ALLOCATION_FILTER_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </label>
-        {isAdmin && (
-          <label>
-            <span>Priority</span>
-            <select value={filters.priority} onChange={setFilter("priority")}>
-              <option value="">All priorities</option>
-              <option value="Urgent">Urgent</option>
-              <option value="Standard">Standard</option>
-            </select>
+        <form className="ohx-filters" onSubmit={submitSearch} aria-label="Filter order history">
+          <label className="ohx-filter-search">
+            <span>Filter loaded orders</span>
+            <input
+              type="search"
+              value={filters.search}
+              onChange={setFilter("search")}
+              placeholder={isAdmin ? "Reference, Med Rep, doctor, clinic or SKU" : "Reference, doctor or clinic"}
+              title={isAdmin
+                ? "Type to filter loaded orders. Press Enter on a full order reference (VT-ORD-…), SKU or Batch ID to search all history."
+                : "Type to filter loaded orders. Enter a full order reference (VT-ORD-…) and press Enter to search all your history."}
+            />
           </label>
-        )}
-        {isAdmin && (
           <label>
-            <span>Med Rep</span>
-            <select value={repFilter} onChange={changeRep}>
-              <option value="">All Med Reps</option>
-              {medRepsError && (
-                <option value="" disabled>
-                  Med Rep list could not be loaded
-                </option>
-              )}
-              {medReps.map((m) => (
-                <option key={m.uid} value={m.uid}>{m.label}</option>
+            <span>From</span>
+            <input type="date" value={filters.dateFrom} onChange={setFilter("dateFrom")} />
+          </label>
+          <label>
+            <span>To</span>
+            <input type="date" value={filters.dateTo} onChange={setFilter("dateTo")} />
+          </label>
+          <label>
+            <span>Status</span>
+            <select value={filters.stage} onChange={setFilter("stage")}>
+              <option value="">All statuses</option>
+              {STAGE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
           </label>
-        )}
-      </form>
+          <label>
+            <span>Allocation</span>
+            <select value={filters.allocationState} onChange={setFilter("allocationState")}>
+              <option value="">All allocation states</option>
+              {ALLOCATION_FILTER_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </label>
+          {isAdmin && (
+            <label>
+              <span>Priority</span>
+              <select value={filters.priority} onChange={setFilter("priority")}>
+                <option value="">All priorities</option>
+                <option value="Urgent">Urgent</option>
+                <option value="Standard">Standard</option>
+              </select>
+            </label>
+          )}
+          {isAdmin && (
+            <label>
+              <span>Med Rep</span>
+              <select value={repFilter} onChange={changeRep}>
+                <option value="">All Med Reps</option>
+                {medRepsError && (
+                  <option value="" disabled>
+                    Med Rep list could not be loaded
+                  </option>
+                )}
+                {medReps.map((m) => (
+                  <option key={m.uid} value={m.uid}>{m.label}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {(lookupBusy || lookupResult) && (
+            <button type="button" className="ohx-btn ohx-filters-back" onClick={() => setLookupResult(null)} disabled={lookupBusy}>
+              {lookupBusy ? "Searching…" : "Back to all orders"}
+            </button>
+          )}
+        </form>
+      </div>
 
       {lookupResult ? (
         <p className="ohx-muted" role="status">
@@ -329,7 +356,7 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
         !loading && !shownError && (
           <>
             <p className="ohx-muted" role="status">
-              Showing {visible.length} of {rows.length} loaded order{rows.length === 1 ? "" : "s"}, newest first
+              Showing {visiblePage.length ? (currentPage - 1) * HISTORY_PAGE_SIZE + 1 : 0}–{Math.min(currentPage * HISTORY_PAGE_SIZE, visible.length)} of {visible.length} matching loaded order{visible.length === 1 ? "" : "s"}, newest first
               {range.dateFrom || range.dateTo ? ` (${range.dateFrom || "…"} to ${range.dateTo || "…"})` : ""}.
             </p>
             {loadedNotice && <p className="ohx-loaded-notice" role="note">{loadedNotice}</p>}
@@ -350,7 +377,7 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
             : "No orders match these filters."}
         </div>
       ) : (
-        <div className="ohx-table-wrap">
+        <div className="ohx-table-wrap ohx-list-table-wrap">
           <table className="ohx-table">
             <thead>
               <tr>
@@ -364,7 +391,7 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
               </tr>
             </thead>
             <tbody>
-              {visible.map((row) => (
+              {visiblePage.map((row) => (
                 <tr key={row.id}>
                   <td>
                     <button type="button" className="ohx-link ohx-ref" onClick={() => setSelectedId(row.id)}>
@@ -404,10 +431,15 @@ export default function OrderHistoryView({ mode, medRepUid = null }) {
         </div>
       )}
 
-      {!lookupResult && hasMore && !loading && !shownError && (
-        <button type="button" className="ohx-btn ohx-more" onClick={loadMore} disabled={loadingMore}>
-          {loadingMore ? "Loading…" : `Load ${HISTORY_PAGE_SIZE} older orders`}
-        </button>
+      {!loading && !shownError && !lookupResult && (visible.length > 0 || hasMore) && (
+        <nav className="page-nav ohx-history-pager" aria-label="Order history pages">
+          <span>Showing {visiblePage.length ? (currentPage - 1) * HISTORY_PAGE_SIZE + 1 : 0}–{Math.min(currentPage * HISTORY_PAGE_SIZE, visible.length)} of {visible.length} loaded</span>
+          <div className="page-nav-actions">
+            <button type="button" disabled={currentPage === 1 || loadingMore} onClick={() => changeHistoryPage(currentPage - 1)}>Previous</button>
+            <span>Page {currentPage} of {Math.max(1, Math.ceil(visible.length / HISTORY_PAGE_SIZE)) + (hasMore ? 1 : 0)}{hasMore ? "+" : ""}</span>
+            <button type="button" disabled={loadingMore || (!hasMore && currentPage >= Math.ceil(visible.length / HISTORY_PAGE_SIZE))} onClick={() => changeHistoryPage(currentPage + 1)}>{loadingMore ? "Loading…" : "Next"}</button>
+          </div>
+        </nav>
       )}
     </div>
   );

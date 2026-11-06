@@ -7,41 +7,43 @@
 | Document title | VaxTrack System Handbook for 3MGS Pharma Inc. |
 | System name | VaxTrack |
 | Client | 3MGS Pharma Inc. |
-| Repository worktree inspected | `C:\VAXTRACK-web-ui` |
-| Branch inspected | `feat/order-delivery-workflow` |
-| Commit inspected | `72fba43` — *fix: derive inventory expiry status from current dates* |
-| Working-tree state at inspection | **Not clean.** Four uncommitted Admin Deliveries changes were present: modified `vaxtrack-web/src/pages/admin/Deliveries.jsx`, `vaxtrack-web/src/pages/admin/Deliveries.css`, `vaxtrack-web/src/services/deliveryService.js`, plus untracked `vaxtrack-web/tests/deliveries.test.js`. Claims that depend on those files are marked **uncommitted** in this handbook. |
-| Date generated | 2026-09-08 |
+| Repository inspected | `C:\VAXTRACK` (`vaxtrack-web/` and `vaxtrack_mobile/`) |
+| Branch inspected | `codex/ui-changes` |
+| Base commit | `e573146`, plus the uncommitted rider-push, stock-quantity and documentation work described here |
+| First generated | 2026-09-08 |
+| Last updated | 2026-11-04 |
 | Document status | **Draft / Living document** |
 
-**Evidence-first disclaimer.** Every claim in this handbook was checked against executable source in this repository at the commit above. Where source and older documentation disagreed, source won — several `.md` files in `vaxtrack-web/docs/` and the project `CLAUDE.md` contain statements that are now stale, and this handbook does not repeat them. Nothing here describes planned functionality as implemented. Where a fact could not be established from source, it is marked *Verification pending* or *Uncertain* rather than guessed. No credentials, API keys, environment values, or test-account details appear in this document.
+**What was updated on 2026-11-04.** §1–§5, §10–§14, §17 and §18 were rewritten from the current source. §6 (detailed modules), §7 (workflows), §9 (data dictionary), §15 and §16 (Jira hierarchy and table) are **kept from 2026-09-08** and carry a notice. Where they disagree with the updated sections, the updated sections win.
+
+**Evidence-first disclaimer.** Claims in the updated sections were checked against executable source. "Implemented" never means "deployed", and "deployed" never means "tested on a real phone". §12 and §13 state each separately. No credentials, API keys, environment values, or test-account details appear in this document.
 
 ---
 
 ## 2. Executive overview
 
-VaxTrack is a vaccine delivery and cold-chain **logistics record system** for 3MGS Pharma Inc. It tracks a vaccine order from the moment a Sales Representative places it, through dispatcher assignment and cargo loading, out to a rider carrying it to a clinic, and finally to proof of delivery and an invoice.
+VaxTrack is a vaccine delivery and cold-chain **logistics record system** for 3MGS Pharma Inc. It tracks a vaccine order from the moment a Medical Representative (Med Rep; stored as `salesrep`) places it, through dispatcher assignment and cargo loading, out to a rider carrying it to a doctor's clinic or home, and finally to proof of delivery and an invoice.
 
-Its operational purpose is **traceability and stock integrity**: at any moment the business can say which batch of which vaccine is committed to which clinic order, who is carrying it, what stage it has reached, and what it was priced at when the order was agreed.
+Its operational purpose is **traceability and stock integrity**: at any moment the business can say which batch of which vaccine is committed to which order, who is carrying it, what stage it has reached, and what was charged when the order was agreed.
 
 **Platforms**
 
-- **Admin, Dispatcher, and Sales Representative** use the React web application (`vaxtrack-web/`).
+- **Admin, Dispatcher, and Med Rep** use the React web application (`vaxtrack-web/`).
 - **Rider** uses the Flutter mobile application (`vaxtrack_mobile/`). Riders are blocked from the web portal by design.
-- **Firebase** provides the backend confirmed by source: Authentication, Firestore, Cloud Functions (gen 2), and Storage.
+- **Firebase** provides the backend: Authentication, Firestore, Cloud Functions (gen 2), Storage, and Cloud Messaging for rider push notifications.
+
+**Design rule.** Clients do not decide anything that moves stock, money, status or access. They ask a server function, and the Firestore rules refuse the direct write. Rider location is the same: the phone reports where it is, and the server decides what that means.
 
 **Current boundaries — what VaxTrack does NOT do.** The following are stated explicitly because they are commonly assumed:
 
-| Not present | Evidence |
+| Not present | Evidence or decision |
 |---|---|
-| SMS notifications | No SMS provider, gateway, or send call anywhere in the repository. |
-| Push notifications | No Firebase Cloud Messaging registration or `getMessaging` call in web or Flutter source. |
-| Email delivery | No mail transport, template, or send call. Firebase Auth's own password-reset email is the only email path (`vaxtrack-web/src/pages/ForgotPassword.jsx`). |
-| AI or ML route optimization | No optimizer, no OR-Tools, no solver. |
-| Automatic geofence **enforcement** | Deviation is *detected and recorded* on the rider device; nothing auto-changes an order's status from a geofence. |
-| Cold-chain temperature sensing | No sensor integration and no temperature field written by any live path. `vaxtrack-web/src/pages/admin/AddStock.jsx` explicitly collects no storage temperature. |
-| Driver rating | No rating field, collection, or UI. |
-| Admin live rider map | Deliberately not implemented; blocked on a client decision (§14). |
+| SMS and email notifications | **Out of scope by decision (2026-11-04).** Staff alerts stay in the portal; riders get push notifications. Firebase Auth's own password-reset and set-password email is the only email path. |
+| Fleet-wide route optimization | No OR-Tools or vehicle-routing solver. Each trip's stops are planned and timed with Valhalla motorcycle routing. |
+| Automatic Delivered status | Arrival near a destination is advisory. An order completes only when the rider completes it, inside the geofence, or through a verified or reviewed offline record. |
+| Cold-chain temperature sensing | No sensor integration and no temperature capture. Add Stock collects no storage temperature. |
+| Rider rating | No rating field, collection, or UI. |
+| SC/PWD discounts on new orders | **Withdrawn 2026-11-03.** Orders that already carry one keep it. |
 
 ---
 
@@ -50,80 +52,94 @@ Its operational purpose is **traceability and stock integrity**: at any moment t
 ```mermaid
 graph TB
   subgraph Clients
-    W["React web app<br/>Admin · Dispatcher · Sales Rep<br/>vaxtrack-web/"]
+    W["React web app<br/>Admin · Dispatcher · Med Rep<br/>vaxtrack-web/"]
     M["Flutter app<br/>Rider only<br/>vaxtrack_mobile/"]
   end
 
   subgraph Firebase
     A["Authentication<br/>email + password"]
-    F["Firestore<br/>11 collections"]
-    C["Cloud Functions gen 2<br/>5 callables"]
+    F["Firestore<br/>deny-by-default rules"]
+    C["Cloud Functions gen 2<br/>38 callables + triggers"]
     S["Storage<br/>proof + invoice photos"]
+    P["Cloud Messaging<br/>rider push"]
   end
 
-  ORS["OpenRouteService<br/>directions API<br/>optional - key-gated"]
+  V["Valhalla motorcycle routing<br/>public keyless endpoint"]
 
   W --> A
   M --> A
   W -->|"reads + narrow writes"| F
-  M -->|"reads + narrow writes"| F
-  W -->|"order + invoice operations"| C
-  C -->|"transactional writes"| F
+  M -->|"reads, location, narrow writes"| F
+  W -->|"every stock, money, status, access change"| C
+  M -->|"completion, offline records"| C
+  C -->|"transactions"| F
+  F -->|"triggers: tracking, allocation, alerts, push"| C
+  C --> P
+  P --> M
   M -->|"proof + invoice photo"| S
   W -->|"renders download URL"| S
-  W -.->|"dispatcher click only"| ORS
-
-  classDef gated stroke-dasharray: 5 5
-  class ORS gated
+  W -.->|"route planning"| V
 ```
 
 **Diagram notes**
 
-- **OpenRouteService** is the only external provider confirmed in source (`vaxtrack-web/src/services/routeService.js`). It is **key-gated**: `isRouteServiceConfigured()` returns false when no key is present, and the Dispatcher Geofence page then shows an unavailable state instead of a route. It is called only on an explicit dispatcher button click — never automatically, never in a loop.
-- **App Check is not enforced.** The callables authenticate the *user* but do not attest the *client* (§11).
-- Firestore composite indexes are **not deployed** — `vaxtrack-web/firestore.indexes.json` contains empty `indexes` and `fieldOverrides`. Every current query is single-field.
+- **Maps:** Leaflet with OpenStreetMap tiles on the web and `flutter_map` on the phone. No key.
+- **Routing:** Valhalla, motorcycle profile, called from the browser on a public keyless endpoint (`VITE_MOTORCYCLE_ROUTING_URL`). Road restrictions are checked before a route is saved, with no car fallback. The endpoint is fair-use with no uptime promise, so it should be replaced by a self-hosted server before real operations (LIM-05). OpenRouteService is no longer used.
+- **Turn-by-turn:** handed off to the installed Google Maps app. Google's road choice is labelled as such.
+- **App Check is not enforced** (§11).
+- **Function configuration:** region `asia-southeast1`, set once by `setGlobalOptions`.
 
 ---
 
 ## 4. Role and access matrix
 
-| Role | Platform | Main responsibilities | Accessible modules | Permitted writes | Approval requirement | Explicit restrictions |
+| Role | Platform | Main responsibilities | Accessible modules | Permitted client writes | Approval requirement | Explicit restrictions |
 |---|---|---|---|---|---|---|
-| **Admin** | React web | Catalog and stock, clinics, rider approval, monitoring, invoicing | All `/admin/*` routes | Vaccines, vaccine types, stock batches (create + re-price), clinics, user role/status, alerts (create/resolve/read), invoice drafts and issuance | `role: "admin"` **and** `status: "approved"` | Cannot change `quantity` or `reservedQuantity` on a batch from the client — those move only inside a callable transaction |
-| **Sales Representative** | React web | Browse catalog, build a cart, place clinic orders, track own orders | `/sales-rep/*` | Creates orders **only** through the `createOrderWithReservation` callable | `role: "salesrep"` + `approved` | Cannot read other reps' orders; no invoice or counter access; cannot write an order document directly |
-| **Dispatcher** | React web | Assign riders, run cargo loading, monitor shipments, generate a route | `/dispatcher/*` | Order assignment fields, loading metadata, status promotions within dispatcher authority, route fields, cancellation, failed-order recovery | `role: "dispatcher"` + `approved` | Cannot read the whole `users` collection — only `role == "rider"` documents; no invoice or counter access; cannot mark an order delivered |
-| **Rider** | Flutter mobile | Carry assigned orders, report transit outcomes, upload proof | Mobile screens only | Status transitions from `in_transit`/`delayed`, own location fields, proof/invoice URLs, own route-deviation alert | `role: "rider"` + `approved` | **Blocked from the web portal**; cannot reassign, cancel, or self-approve; cannot write `delivered` directly (server callable only) |
+| **Admin** | React web | Catalog and stock, clinics and doctors, staff and riders, monitoring, invoicing | All `/admin/*` routes | Catalog details, clinics, a rider's status, alert read/resolve, Med Rep territory | `role: "admin"` **and** `status: "approved"` | Stock counters, staff accounts and roles change only through callables. Cannot change their own role or status |
+| **Med Rep** | React web | Browse stock, place orders for their doctors, track own orders | `/sales-rep/*` | Own profile fields | `role: "salesrep"` + `approved` | Orders go through `createOrderWithReservation` only. Sees only own orders and assigned territory. No invoice access |
+| **Dispatcher** | React web | Assign riders, run cargo loading, monitor shipments, plan routes, review offline records | `/dispatcher/*` | Route and loading fields within the order allowlist | `role: "dispatcher"` + `approved` | Reads only `role == "rider"` users. No invoice access. Stock and expiry alerts are not shown. Cannot mark an order delivered directly |
+| **Rider** | Flutter mobile | Carry assigned orders, report outcomes, upload proof | Mobile screens only | Own location, navigation session, proof metadata, push tokens | `role: "rider"` + `approved` | **Blocked from the web portal.** Cannot reassign, cancel, or self-approve. Completion and offline records go through callables |
 
-Role and status normalization is centralized in `vaxtrack-web/src/services/authorization.js` (`resolveAccess`, `normalizeRole`, `normalizeStatus`), which **fails closed** — an unknown role or status denies access rather than defaulting. The web route guards are `AdminRoute`, `SalesRepRoute`, and `DispatcherRoute` in `vaxtrack-web/src/components/`. On mobile, `vaxtrack_mobile/lib/services/auth_service.dart` performs the equivalent check and signs out a non-approved or non-rider account.
+Role and status normalization is centralized in `vaxtrack-web/src/services/authorization.js`, which **fails closed**: an unknown role or status denies access. The web route guards are `AdminRoute`, `SalesRepRoute`, and `DispatcherRoute`. On mobile, `AuthGate` performs the equivalent check.
 
-### Unsupported: staff provisioning
+### Staff provisioning
 
-**Status: Unsupported.** There is no in-application way to create an Admin, Dispatcher, or Sales Representative account. Self-registration in source creates **riders only** — `registerRider` in `vaxtrack_mobile/lib/services/auth_service.dart` writes `role: "rider"`, `status: "pending"`, and the Firestore rule for `users` create permits a self-registration only in that exact shape. Staff accounts must currently be created out-of-band (Firebase Console) and then have their role set by an Admin through Settings (`updateUserRole` in `vaxtrack-web/src/services/userService.js`). A supported provisioning method is an open client decision (§14).
+Staff accounts have three supported paths:
+
+1. **First Admin of a new installation:** the installer runs `functions/scripts/createFirstAdmin.mjs` once with their own Firebase credentials. It refuses when an approved Admin already exists.
+2. **Add staff** (Admin → Settings → User Management): `createStaffAccount` creates a Dispatcher, Med Rep or Admin with no password. The person sets their own through Firebase's email or a one-time link. Nobody else ever knows it.
+3. **Apply for access:** a visitor applies from the web or rider app and lands `pending` until an Admin decides. Admin can never be self-applied.
+
+Staff role and status changes run through `setStaffRole` and `setStaffStatus`. An Admin cannot change their own account, so at least one approved Admin always remains, and every change is logged in `staffAccountEvents`.
 
 ---
 
 ## 5. High-level module catalog
 
+Status here means **development** state on this branch. Testing and deployment are in §12 and §13.
+
 | Epic ID | Module | Purpose | Primary actors | Main data source | Status |
 |---|---|---|---|---|---|
-| EPIC-01 | Identity, Authentication, and Role Access | Prove who a user is and what they may reach | All roles | `users` | Implemented and verified |
-| EPIC-02 | Vaccine Catalog and Inventory | Define products and hold priced, dated stock batches | Admin, Sales Rep (read) | `vaccines`, `vaccineTypes`, `inventory` | Implemented and verified |
-| EPIC-03 | Clinic Management | Maintain delivery destinations and optional coordinates | Admin, Sales Rep (read) | `clinics` | Implemented and verified |
-| EPIC-04 | Sales Representative Ordering | Turn catalog stock into a submitted clinic order | Sales Rep | `inventory`, `clinics`, `orders` | Implemented and verified |
-| EPIC-05 | Server Order and Stock Lifecycle | Reserve, release, and consume stock atomically | Server (callables) | `orders`, `inventory`, `inventoryReservations`, `orderRequestKeys` | Implemented and verified |
-| EPIC-06 | Dispatcher Assignment and Cargo Loading | Give an order to a rider and confirm the cargo | Dispatcher | `orders`, `users` | Implemented and verified |
-| EPIC-07 | Rider Mobile Delivery Execution | Carry and complete the delivery | Rider | `orders` | Implemented — runtime verification pending |
-| EPIC-08 | Routing, Geofencing, and Location Tracking | Show where a rider is and the planned road route | Dispatcher, Rider | `orders`, `users` | Partial |
-| EPIC-09 | Proof of Delivery and Failed-Delivery Recovery | Capture evidence; recover a stopped delivery | Rider, Dispatcher | Storage, `orders` | Partial |
-| EPIC-10 | Alerts and Notifications | Record and resolve operational incidents | Rider (create), Admin, Dispatcher | `alerts` | Partial |
-| EPIC-11 | Pricing, Invoicing, and Financial Integrity | Price an order immutably and issue an invoice | Admin, Server | `orders`, `invoices`, `counters` | Partial — blocked by client decision |
-| EPIC-12 | Admin Monitoring, Deliveries, and Analytics | Give Admin an honest operational picture | Admin | `orders`, `inventory`, `alerts`, `users` | Implemented and verified |
-| EPIC-13 | Firebase Security, Storage, and Platform Configuration | Enforce the security boundary | Platform | Rules, config | Partial |
-| EPIC-14 | Migration, Deployment, Testing, and Documentation | Keep the system releasable and evidenced | Developers | Tooling | Partial |
+| EPIC-01 | Identity, Authentication, and Role Access | Prove who a user is and what they may reach | All roles | `users`, `staffAccountEvents` | Implemented |
+| EPIC-02 | Vaccine Catalog and Inventory | Products and priced, dated stock batches | Admin, Med Rep (read) | `vaccines`, `vaccineTypes`, `inventory`, `inventoryAuditEvents` | Implemented |
+| EPIC-03 | Area, Clinic, Doctor, and Destination Management | Doctor-first delivery destinations | Admin, Med Rep (read) | `areas`, `clinics`, `doctors` | Implemented |
+| EPIC-04 | Med Rep Ordering | Turn stock into a confirmed order with a requested date | Med Rep | `inventory`, `doctors`, `orders` | Implemented |
+| EPIC-05 | Server Order and Stock Lifecycle | Reserve, allocate, release, and consume stock atomically | Server | `orders`, `inventory`, `inventoryReservations` | Implemented |
+| EPIC-06 | Dispatcher Assignment and Cargo Loading | Give orders to a rider and send out a trip | Dispatcher | `orders`, `riderDispatchStates`, `riderTrips` | Implemented |
+| EPIC-07 | Rider Mobile Delivery Execution | Carry and complete the delivery | Rider | `orders` | Implemented; device testing pending |
+| EPIC-08 | Routing, Geofencing, and Location Tracking | Live location, planned routes, deviation, geofence | Dispatcher, Admin, Rider | `riderLocations`, `riderNavigationSessions`, `riderLocationTrails` | Implemented; locked-screen test pending |
+| EPIC-09 | Proof of Delivery and Failed-Delivery Recovery | Evidence, offline completion, recovery | Rider, Dispatcher | Storage, `orders` | Implemented; device testing pending |
+| EPIC-10 | Alerts and Notifications | Operational alerts, stock and expiry alerts, rider push | Server, Admin, Dispatcher, Rider | `alerts`, `riderPushTokens` | Implemented. SMS and email out of scope |
+| EPIC-11 | Pricing, Invoicing, and Financial Integrity | Immutable pricing, negotiated prices, invoices | Admin, Med Rep, Server | `orders`, `invoices`, `counters` | Implemented; zero-rating policy awaiting decision |
+| EPIC-12 | Admin Monitoring, Deliveries, and Analytics | Honest operational picture, inventory forecasting | Admin | `orders`, `inventory`, `alerts` | Implemented. Hub ranking: recommend descoping |
+| EPIC-13 | Firebase Security, Storage, and Platform Configuration | Enforce the security boundary | Platform | Rules, config | Implemented except App Check enforcement |
+| EPIC-14 | Migration, Deployment, Testing, and Documentation | Keep the system releasable and evidenced | Developers | Tooling | Partial; production rollout pending |
 
 ---
 
 ## 6. Detailed module handbook
+
+> **Kept from 2026-09-08.** This section predates later work (server-side tracking, rider trips, offline completion, staff accounts, stock alerts, rider push, Valhalla routing, the withdrawal of SC/PWD). Where it disagrees with §1–§5 or §10–§14, those sections are correct.
 
 ### EPIC-01 — Identity, Authentication, and Role Access
 
@@ -469,6 +485,8 @@ Role and status normalization is centralized in `vaxtrack-web/src/services/autho
 
 ## 7. Workflow handbook
 
+> **Kept from 2026-09-08.** This section predates later work (server-side tracking, rider trips, offline completion, staff accounts, stock alerts, rider push, Valhalla routing, the withdrawal of SC/PWD). Where it disagrees with §1–§5 or §10–§14, those sections are correct.
+
 ### 7.1 Authentication and role authorization
 
 ```mermaid
@@ -707,6 +725,8 @@ A status value that is neither canonical nor a listed alias resolves to **Unknow
 
 ## 9. Firestore data dictionary
 
+> **Kept from 2026-09-08.** This section predates later work (server-side tracking, rider trips, offline completion, staff accounts, stock alerts, rider push, Valhalla routing, the withdrawal of SC/PWD). Where it disagrees with §1–§5 or §10–§14, those sections are correct.
+
 Eleven collections are proven by source. Fields listed are those referenced by executable code; this is not an exhaustive dump and **no field has been invented**.
 
 ### `users`
@@ -827,136 +847,114 @@ Eleven collections are proven by source. Fields listed are those referenced by e
 
 ## 10. Function and service catalog
 
-### Web services (`vaxtrack-web/src/services/`)
+`functions/index.js` exports 55 functions: 38 callables, plus Firestore triggers and scheduled jobs. Every callable goes through one `callable()` wrapper that requires sign-in and maps a domain `PolicyError` to a stable code the client can branch on. `tests/inventoryContract.test.js` pins the exact export list.
 
-| Function/service | Layer | Purpose | Inputs | Output/write | Authorization | Main consumers |
-|---|---|---|---|---|---|---|
-| `authorization.resolveAccess` | Pure | Decide whether a profile may reach a role surface | profile, requiredRole | Decision object | — (pure) | Route guards |
-| `deliveryService.subscribeDeliveries` | Data | Live all-orders feed with derived status fields | callback, onError | Read | Rules-enforced | Admin, Dispatcher, Sales Rep pages |
-| `orderService.assignRiderToOrder` | Data | Assign a rider transactionally | orderId, rider, dispatcher | `orders` write | Dispatcher | Assign Rider |
-| `orderService.reassignFailedOrder` | Data | Recover a failed delivery | orderId, rider | `orders` write | Dispatcher | Shipments |
-| `orderService.cancelOrderByDispatcher` | Callable wrapper | Cancel with stock release | orderId, reason | Server call | Dispatcher | Shipments |
-| `orderService.saveOrderRoute` | Data | Persist a generated route | orderId, route | `orders` write | Dispatcher | Geofence |
-| `cargoLoadingService.updateOrderLoadedState` | Data | Confirm cargo, promote to `loading` | orderId, loaded | `orders` write | Dispatcher | Cargo Loading |
-| `cargoLoadingService.finalizeRiderDispatch` | Data | Batch a rider's group to `in_transit` | riderId | `orders` batch write | Dispatcher | Cargo Loading |
-| `inventoryCallables.createOrderWithReservation` | Callable wrapper | Place an order | items, clinic, requestId | Server call | Sales Rep | Place Order |
-| `invoiceCallables.*` | Callable wrapper | Draft and issue invoices | order/invoice payload | Server call | Admin | Invoice Editor |
-| `vaccineService.addStockBatch` | Data | Create a priced batch | batch fields | `inventory` write | Admin | Add Stock |
-| `vaccineService.updateStockPrice` | Data | Re-price a batch forward-only | inventoryId, centavos | `inventory` write | Admin | Inventory |
-| `riderService.subscribeRiders` / `updateRiderStatus` | Data | Rider list and lifecycle | — / uid, status | Read / `users` write | Admin, Dispatcher (read) | Riders, Assign Rider |
-| `userService.*` | Data | User list, role/status, own profile | uid, values | `users` write | Admin / self | Settings |
-| `alertService.*` | Data | Alert feed, resolve, mark read | — / alertId | `alerts` write | Admin | Alerts |
-| `clinicService.*` | Data | Clinic list, create, set location | clinic fields | `clinics` write | Admin | Clinics |
-| `inventoryService.subscribeInventory` | Data | Live batch feed | callback, onError | Read | Approved user | Inventory, catalog |
-| `routeService.fetchRoute` | Integration | Fetch a road route | rider + clinic coords | HTTP to ORS | Dispatcher click | Geofence |
+### Callables by area
 
-### Flutter services (`vaxtrack_mobile/lib/services/`)
+| Area | Callables | Who | Notes |
+|---|---|---|---|
+| Orders and stock | `createOrderWithReservation`, `cancelOrderWithInventoryRelease`, `markOrderDeliveredWithInventoryConsumption` | Med Rep, Dispatcher/Admin, Rider | Stock reserved and consumed exactly once. New orders with an SC/PWD discount are refused |
+| Zero-rating | `requestZeroRateApproval`, `reviewZeroRateApproval` | Med Rep, Admin | No free toggle for Med Reps |
+| Destinations | `correctOrderDestination`, `requestOrderDestinationChange`, `reviewOrderDestinationChange`, `listMedRepDoctorAddresses` | Dispatcher, Med Rep, Admin | Doctor-first destinations |
+| Schedule | `rescheduleOrderDelivery` | Dispatcher, Admin | Refuses a date the reserved batches cannot reach |
+| Dispatch and trips | `assignRiderToOrder`, `finalizeRiderDispatch`, `confirmRiderReturnToHub`, `recheckRiderTripStates`, `previewRiderRecovery`, `applyRiderRecovery` | Dispatcher, Admin | Server-owned trip state |
+| Delivery completion | `validateDeliveryCompletionGeofence` | Rider | Inside the geofence, accuracy ≤ 100 m, fix ≤ 3 min old, not a mock location |
+| Offline completion | `submitOfflineDeliveryCompletion`, `resolveOfflineCompletionReview` | Rider, Dispatcher/Admin | Automatic within 3 h if verifiable; otherwise reviewed |
+| Failures and returns | `reportDeliveryFailure`, `confirmReturnDisposition`, `requeueFailedOrder` | Rider, Admin, Dispatcher | |
+| Inventory | `addStockBatchWithAllocation`, `updateBatchMetadata`, `correctStockQuantity`, `voidInventoryBatch`, `removeUnusableStock`, `setVaccineArchived`, `getReservationProvenance` | Admin | Audited. A quantity above 5,000 vials needs the Admin's confirmation |
+| Stock alerts | `recheckStockAlerts` | Admin | "Check stock now" |
+| Invoices | `saveInvoiceDraftForPricedOrder`, `issueInvoiceForPricedOrder` | Admin | One invoice per order; transactional numbering |
+| Staff accounts | `createStaffAccount`, `createStaffSetupLink`, `setStaffStatus`, `setStaffRole` | Admin | Logged in `staffAccountEvents` |
 
-| Function/service | Layer | Purpose | Inputs | Output/write | Authorization | Main consumers |
-|---|---|---|---|---|---|---|
-| `AuthService.signIn` / `registerRider` / `signOut` | Auth | Rider sign-in and self-registration | credentials / profile | Auth + `users` write | Rider | Login, Register |
-| `DeliveryService.riderDeliveriesWithSync` | Data | Stream own assignments with sync state | riderId | Read | Rider | Dashboard, Deliveries |
-| `DeliveryService.reportDelay` / `resumeTransit` / `reportDeliveryFailure` | Data | Record transit outcomes | orderId, reason | `orders` write | Rider | Delivery Detail |
-| `DeliveryService.markDelivered` | Callable wrapper | Complete a delivery | orderId | Server call | Rider | Delivery Detail |
-| `ImageUploadService.uploadProof` / `uploadInvoice` | Storage | Upload evidence to canonical paths | image file, orderId | Storage write | Assigned rider | Proof screen |
-| `ProofService.saveProofOfDelivery` / `saveInvoicePhoto` | Data | Attach evidence URL to the order | orderId, url | `orders` write | Assigned rider | Proof screen |
-| `LocationService.startTracking` / `stopTracking` | Device | Foreground position updates | riderId | `orders` + `users` write | Rider | Delivery Detail |
-| `RouteDeviationAlertService.recordDeviation` / `recordReturn` | Data | Upsert and resolve a deviation incident | context, coords | `alerts` write | Assigned rider | Route Monitoring |
+### Triggers and scheduled jobs
 
-### Cloud Functions / callables (`vaxtrack-web/functions/`)
+| Function | Runs on | Purpose |
+|---|---|---|
+| `trackRiderLocation` | `riderLocations` write | Deviation, near-destination and trail updates |
+| `trackNavigationSession`, `syncRiderTrackingOnOrderWrite` | Session or order write | Keep tracking in step with order status |
+| `allocateOnInventoryWrite`, `allocateOnOrderWrite`, `continueAllocation` | Inventory or order write | Allocate stock to waiting orders by priority |
+| `reviewStockAlertsOnInventoryWrite`, `reviewStockAlertsOnConfigWrite` | Stock or safety-stock write | Open, update and clear stock and expiry alerts |
+| `notifyRiderOnOrderWrite` | Order write | Rider push. Not retried, so nobody is notified twice |
+| `recordOrderStatusEvent`, `materializeOrderHistory` | Order write | Status and order history |
+| `reconcileRiderDispatchOnOrderWrite` | Order write | Trip membership and settlement |
+| `observeInventoryVisibility` | Inventory write | List housekeeping |
+| `settleClientReportedFailure` | Order write | Compatibility for older rider builds |
+| `evaluateDeliveryTiming`, `purgeRiderTrackingData`, `reviewInventoryVisibility` | **Schedule** | **Not deployed to staging** (Cloud Scheduler cost) |
 
-| Function/service | Layer | Purpose | Inputs | Output/write | Authorization | Main consumers |
-|---|---|---|---|---|---|---|
-| `createOrderWithReservation` | Callable | Create an order and reserve stock atomically | items, clinicDocId, priority, instructions, requestId | `orders`, `inventory`, `inventoryReservations`, `orderRequestKeys` | Authenticated `salesrep` | Sales Rep Place Order |
-| `cancelOrderWithInventoryRelease` | Callable | Cancel and release reserved stock | orderId, reason | `orders`, `inventory`, reservation | Authenticated dispatcher/admin | Dispatcher Shipments |
-| `markOrderDeliveredWithInventoryConsumption` | Callable | Complete and consume stock | orderId | `orders`, `inventory`, reservation | Authenticated rider | Flutter Delivery Detail |
-| `saveInvoiceDraftForPricedOrder` | Callable | Build an invoice draft from the order snapshot | orderId, presentation fields | `invoices` | Authenticated admin | Invoice Editor |
-| `issueInvoiceForPricedOrder` | Callable | Number and lock an invoice | orderId | `invoices`, `counters` | Authenticated admin | Invoice Editor |
+### Web and mobile layers
 
-*All five are gen 2 (`firebase-functions/v2`), configured by a single `setGlobalOptions`: region `asia-southeast1`, `minInstances: 0` (nothing idle is reserved, so staging costs nothing at rest), `maxInstances: 10` (a deliberately low ceiling bounding accidental cost), `memory: "256MiB"`, `timeoutSeconds: 60`. **`enforceAppCheck` is off.***
-
-### Pure policy / normalization helpers
-
-| Function/service | Layer | Purpose | Inputs | Output/write | Authorization | Main consumers |
-|---|---|---|---|---|---|---|
-| `orderWorkflow.canTransition` / `assertTransition` | Pure (web) | Decide whether an actor may move a status | actor, from, to | Decision | — | Dispatcher + rider paths |
-| `orderWorkflow.normalizeStatus` / `isKnownStatus` | Pure (web) | Canonicalize a stored value | value | string / boolean | — | All order surfaces |
-| `deliveryService.resolveStatusKey` | Pure (web) | Resolve to a canonical status or null | statusKey | string \| null | — | Admin Deliveries *(uncommitted)* |
-| `expiry.deriveExpiryCondition` | Pure (web) | Current expiry condition from the date | batch, todayIso | `{level,label,daysRemaining}` | — | Inventory, Dashboard, SR catalog |
-| `expiry.manilaToday` | Pure (web) | Date-only Manila reference date | epoch ms | `YYYY-MM-DD` | — | All expiry consumers |
-| `money.parsePesosToCentavos` | Pure (web) | Parse a typed price without float error | text | integer centavos | — | Add Stock, Inventory |
-| `policy.evaluateBatch` | Pure (server) | Decide whether a batch may fulfil a line | batch data, requested, expected price, now | Decision or `PolicyError` | — | `createOrderWithReservation` |
-| `policy.isExpired` / `manilaDateString` / `isoDateOnly` | Pure (server) | Date-only Manila expiry rule | date, now | boolean / string | — | `evaluateBatch` |
-| `policy.settleBatch` | Pure (server) | Release/consume arithmetic with floors | batch data, quantity, mode | Update object | — | Cancel and deliver callables |
-| `invoicePricing.*` | Pure (server) | VAT classification and totals | order snapshot + presentation | Computed invoice figures | — | Invoice callables |
-| `clinicLocation.validateClinicLocation` | Pure (web) | Validate coordinates and radius | lat, lng, radius | Decision | — | Clinics |
-| `authorization.normalizeRole` / `normalizeStatus` | Pure (web) | Fail-closed identity normalization | value | string | — | Guards, Login |
+- **Web services** (`vaxtrack-web/src/services/`, about 120 modules): pure models are separate from Firebase wrappers. Callable wrappers turn a refusal into a `UserMessageError` subclass carrying the server's code. Only that type's text reaches the screen, through `friendlyErrorMessage`.
+- **Rider app** (`vaxtrack_mobile/lib/`): `tracking/` (controller, write policy, contract), `offline/` (records tied to the signed-in rider), `services/` (auth, delivery, proof, tracking, push), `utils/`, `screens/`, `widgets/`.
 
 ---
 
 ## 11. Security handbook
 
-**Authentication.** Firebase Authentication with email and password only. Employee-ID login was **removed** because it required an unauthenticated read of the whole `users` collection before sign-in; every role now signs in by email, and `users/{uid}` is read only *after* authentication. Credential failures collapse to one generic message so the form cannot be used to discover which emails have accounts.
+**Authentication.** Firebase Authentication with email and password only. Employee-ID login was **removed** because it required an unauthenticated read of the whole `users` collection. Credential failures collapse to one generic message, so the form cannot be used to discover which emails have accounts. Rider passwords need 8+ characters with upper- and lowercase letters and a number; this is checked in the app, not yet by Firebase (LIM-03).
 
-**Role authorization.** Role comes from `users/{uid}.role` and nothing else — there is deliberately **no role picker**, because a UI-selected role could only ever contradict the account. Normalization is fail-closed: an unrecognized role or status denies.
+**Role authorization.** Role comes from `users/{uid}.role` and nothing else. There is deliberately **no role picker**. Normalization is fail-closed.
 
-**Approved-status enforcement.** Every rules helper — `isAdmin()`, `isDispatcher()`, `isSalesRep()`, `isRider()` — requires `status == "approved"`. A pending, rejected, or disabled user passes authentication but fails authorization.
+**Approved-status enforcement.** Every rules helper requires `status == "approved"`. A pending, rejected, or disabled user passes authentication but fails authorization, immediately.
 
-**Firestore rule boundaries.** Deny-by-default. Highlights: Dispatcher may read `users` **only** where `role == "rider"`; Sales Rep may read only their own orders; Rider may read only assigned orders; `invoices`/`counters` are admin-only; `inventoryReservations` and `orderRequestKeys` are sealed from every client. Order writes are constrained by **field-level allowlists plus named transition validators**, and status audit timestamps must equal `request.time` — a client clock is never accepted as evidence.
+**Firestore rule boundaries.** Deny-by-default across 46 matched collections. Order writes are constrained by **field-level allowlists plus named transition validators**, and status audit timestamps must equal `request.time`. A browser cannot create another person's profile, can never change a role, and can change status only on a rider. Server-owned collections (trails, reservations, staff events, audit events) refuse all client writes.
 
-**Storage rule boundaries.** Evidence objects are pinned to canonical filenames (`proof.jpg`, `invoice.jpg`) under `proof_of_delivery/{orderId}/` and `invoices/{orderId}/`. Write is permitted only to the rider **currently assigned** to that order, cross-checked against the Firestore order document; read is limited to admin, dispatcher, the creating sales rep, and that rider. Everything else is denied.
+**Storage rule boundaries.** Evidence objects are pinned to canonical filenames under `proof_of_delivery/{orderId}/` and `invoices/{orderId}/`. Write is permitted only to the rider currently assigned, cross-checked against the order.
 
-**Server-authoritative operations.** Stock reservation, release, and consumption; order creation; delivery completion; invoice numbering and issuance. These exist only inside Cloud Functions transactions. No client can move stock.
+**Server-authoritative operations.** Stock, order creation and status, delivery completion, invoices, staff accounts, route deviation, geofence checks, and offline verification. No client can move stock.
 
-**Document-ID authority.** A Firestore document's ID is its only identity. Every mapper spreads document data **first** and assigns the id **last**, so a stored field named `id` can never shadow the real one — a defect that previously existed and is now covered by `tests/documentIdentity.test.js` and `tests/orderIdentity.test.js`. `orderNumber` is a display label, never an identity.
+**Location integrity.**
+- Completion is refused outside the clinic geofence, with poor accuracy, or with a stale fix.
+- A fix the phone reports as coming from a mock-location app is refused for live completion and arrival, never enters the trail, and sends an offline record to review. **Limit:** this relies on the phone's own report, so it catches a fake-GPS app left on, not a rider who modifies the app. App Check is the next step.
+- Offline records are checked against a server-held trail at a plausible speed (25 m/s + 150 m).
 
-**Immutable pricing snapshots.** The price a clinic was quoted is written onto the order at reservation time and never recomputed. A later price change on the batch does not reach back into a placed order. A cart quoted at a stale price is refused in **both** directions with `price-changed`.
+**Privacy.** Location is shared only during active deliveries and cleared at sign-out. The verification trail is deleted after 4 hours. Offline records are tied to the rider who saved them; finished ones leave the phone at sign-out, and none stays more than 7 days. Push text names the order code and destination only, and a home delivery reads "Doctor's private address". Logs carry error types, not personal data.
 
-**Proof ownership.** Evidence belongs to the order and the assigned rider; the canonical-filename rule means a second upload cannot shadow the first under a different name.
+**Document-ID authority.** A Firestore document's ID is its only identity. Every mapper assigns the id last, so a stored `id` field can never shadow the real one.
 
-**App Check status. — NOT ENFORCED.** `enforceAppCheck` is deliberately off, documented in the header of `functions/index.js`. The callables authenticate the **user** but do not attest the **client**: a valid signed-in token from any client reaches them. Firebase Authentication is not App Check. Enabling App Check enforcement is a **required release-security gate before production**.
+**Immutable pricing snapshots.** What a clinic was charged is written onto the order when it is placed and never recomputed.
 
-**Known production-data cleanup blocker.** Production `users` contains legacy documents with corrupt values (`role: "pending"`, `role: "staff"`, and at least one `role: "admin"` with a **missing** `status`). Under the hardened rules these accounts have no access. This is correct fail-closed behaviour, but it means production data hygiene must be completed before or alongside a production rules rollout, and at least one working approved admin must be confirmed first. *(Status: open — see §14 LIM-06.)*
+**App Check — NOT ENFORCED.** The web hook is wired (`VITE_APPCHECK_*`), and enforcement is a per-project switch (`ENFORCE_APP_CHECK`). The console registration has not been done, so callables authenticate the **user** but do not attest the **client**. Enforcing it is a **required gate before production**.
+
+**Known production-data blocker.** Production `users` contains legacy documents with invalid values, including an admin with a missing `status`. Under the hardened rules those accounts have no access. Cleanup must happen before a production rollout (LIM-02).
 
 ---
 
 ## 12. Environment and deployment matrix
 
-| Aspect | Local / emulator | Staging | Production |
+| Aspect | Local / emulator | Staging (`vaxtrack-staging`) | Production (`vaxtrack-bef1b`) |
 |---|---|---|---|
-| Firebase project | Emulator projects used by the test scripts | `staging` alias in `.firebaserc` | `default` alias in `.firebaserc` |
-| Web configuration | `.env.local` (gitignored) | `.env.staging` (gitignored), `build:staging` script | `build:production` script; env supplied at build time |
-| Functions deployment | Not deployed; unit tests run the modules directly, integration tests run against the Firestore emulator | **Verification pending** — no deployment evidence in the repository | **Verification pending** — no deployment evidence in the repository |
-| Firestore rules | Exercised by `tests/firestore.rules.test.js` under the emulator | Deployed (evidenced by commit `4f50cc5`, *"validate and deploy storage rules to staging"*) | **Verification pending from source.** Deployment state cannot be confirmed from the repository |
-| Storage provisioning + rules | Exercised by `tests/storage.rules.test.js` under the Storage emulator | Provisioned and rules deployed (commits `4f50cc5`, `c8c1a3b`, `687fea5`) | **Verification pending** |
-| Composite indexes | `firestore.indexes.json` is empty | Not deployed | Not deployed — not currently required (all queries single-field) |
-| Migrations | `previewMigration.mjs` is **read-only preview**; no migration has been executed | None executed | None executed |
-| Test data | Emulator seed data inside the suites | Hand-seeded batches, three of which are unpriced by design | Real operational data; contains legacy corrupt user documents |
-| Mobile configuration | `main.dart` dev entrypoint | `main_staging.dart` | `main_production.dart` |
-| Runtime verification | Unit and emulator suites pass at this commit | Partial — several features runtime-verified historically | **Not performed for the current branch** |
+| Web portal | `npm run dev -- --mode staging` | Deployed: https://vaxtrack-staging.web.app | **Behind staging** |
+| Web configuration | `.env.local` (gitignored) | `.env.staging` (gitignored), `build:staging` | `build:production` |
+| Functions | Tested on the Firestore emulator (port 8181, `demo-vaxtrack-*`) | Deployed, except the three scheduled jobs | **Behind staging** |
+| Firestore rules | `tests/firestore.rules.test.js` on the emulator | Deployed | **Behind staging** |
+| Indexes and TTL | `firestore.indexes.json` | Deployed, including the `riderLocationTrails` TTL | **Behind staging** |
+| Storage | `tests/storage.rules.test.js` | Provisioned, rules deployed | Not provisioned at last check |
+| Scheduled jobs | Not applicable | **Off** (cost decision pending) | Off |
+| Migrations | `previewMigration.mjs` is a read-only preview | Not run | Not run |
+| Rider app | `flutter run` | `--flavor staging -t lib/main_staging.dart`, installs as "VaxTrack Rider (Staging)" | `--flavor production` |
+| Device testing | Not applicable | **Pending** for recent features (§13) | Not performed |
 
-**Important distinction.** Everything on `feat/order-delivery-workflow` is **implemented locally and committed to a feature branch**. Nothing in this branch has been demonstrated as deployed to production. "Implemented" in this handbook never means "deployed".
+**Deploy order** when rules tighten a client write: functions, then rules, then hosting. Rules first would block the old path before the new one exists.
 
 ---
 
 ## 13. Testing and quality gates
 
-Totals below are **observations at the inspected commit**, not permanent facts. They will change as the suites grow.
+Totals are **observations on 2026-11-04**, not permanent facts.
 
-| Suite | Command | Observed at `72fba43` | Notes |
+| Suite | Command | Observed | Notes |
 |---|---|---|---|
-| Web Node contract/unit tests | `node --test tests/*.test.js` (excluding rules suites) | **486 passing** | Includes the uncommitted `tests/deliveries.test.js`; without it the figure is lower |
-| Functions unit tests | `node --test test/policy.test.js test/invoicePricing.test.js test/migrationPreview.test.js` | **105 passing** | The packaged `npm test` script (`node --test test/`) **fails to resolve** on the Node version in this environment — a script defect, not a test failure |
-| Functions emulator integration | `npm run test:emulator` | Not run during this documentation pass | `functions/test/integration/operations.test.js`, `invoiceOperations.test.js` |
-| Firestore rules tests | `npm run test:rules` | Not run during this documentation pass | Requires a JRE and the Firestore emulator |
-| Storage rules tests | `npm run test:storage-rules` | Not run during this documentation pass | Requires the Storage emulator |
-| Flutter tests | `flutter test` | Not run — **no mobile files changed** | 19 test files present |
-| Flutter analyze | `flutter analyze` | Not run — no mobile files changed | — |
-| Web build | `npm run build` | Passing | Vite production build |
-| ESLint | `npm run lint` | **15 errors** project-wide — a stable pre-existing baseline | Focused lint on files changed in recent work returns 0 errors |
-| Browser / UAT checks | Manual | Historical passes recorded in `docs/VaxTrack-Test-Case-Tracker.md` and `docs/VaxTrack-Admin-Test-Case-Tracker.md` | Those trackers are **partly stale**; treat entries as historical unless re-confirmed |
+| Web unit and contract | `npm test` | **1,558 passing** | 128 test files |
+| Functions unit | `cd functions && npm test` | **516 passing** | |
+| Functions integration | `cd functions && npm run test:emulator` | **618 passing** | Real Firestore emulator. A few concurrency tests sometimes fail with "Transaction is invalid or closed" and pass when rerun alone (LIM-08) |
+| Firestore rules | `npm run test:rules` | **425 passing** | Tests refusals as well as permissions |
+| Storage rules | `npm run test:storage-rules` | Not rerun for this update | |
+| Rider app | `flutter test`, `flutter analyze` | **755 passing**, analyze clean | 54 test files |
+| Lint and build | `npm run lint`, `npm run build:staging` | Clean | Warnings count as failures |
+| Browser checks | Manual, on staging | Add Staff refusal, invoice layout, Alerts categories and Check Stock Now, Correct Stock checked 2026-11-03/04 | |
+| **Field tests on a phone** | Field test checklist | **Pending** | Login and apply, route screen, automatic next stop, offline records, fake GPS, shared phones, push, locked-screen ride |
 
-Per the instruction not to run application suites for a documentation-only task, the emulator, rules, and Flutter suites were **not executed** during this pass. The web and Functions totals above were observed during the immediately preceding work on this branch.
+Automated suites prove the rules and logic. They do not prove behaviour on a real phone, real GPS, or real battery saving. That is what the field checklist is for.
 
 ---
 
@@ -964,41 +962,44 @@ Per the instruction not to run application suites for a documentation-only task,
 
 ### Verified technical limitations
 
-| ID | Limitation | Evidence | Impact | Status |
-|---|---|---|---|---|
-| LIM-01 | **App Check is not enforced.** Callables authenticate the user but do not attest the client | `functions/index.js` header | Any signed-in client can reach the callables | Open — release gate |
-| LIM-02 | **Background location tracking is not implemented.** Tracking is foreground-only | `lib/services/location_service.dart` | Position stops updating when the app is backgrounded | Open |
-| LIM-03 | **`inventory.status` is stale by design** — stamped at creation, never recomputed | `addStockBatch`; only `updateStockPrice` updates a batch, and it never touches `status` | Web surfaces now ignore it and derive from `expiryDate`; the stored field remains misleading to any future reader | Open — mitigated |
-| LIM-04 | **Some staging batches store `quantity` as text**, making them unorderable | `readStockInteger` returns `legacy-string`; Inventory flags the row | Those batches cannot be ordered until migrated | Open |
-| LIM-05 | **No admin stock-correction path.** No callable exists to adjust `quantity` | Rules refuse client writes; no function exports one | A mis-keyed batch must be corrected in the Firebase Console | Open |
-| LIM-06 | **Production `users` contains corrupt legacy documents** (`role: "pending"`, `role: "staff"`, an admin with missing `status`) | Documented in §11 | Those accounts have no access under hardened rules | Open — blocks a clean production rules rollout |
-| LIM-07 | **Global CSS root-width bug.** `#root` computes to 1126px at any viewport, masked by `overflow-x: hidden` | `src/index.css` vs `src/styles.css` | Content is silently squeezed below 1126px on **every** page | Open — needs a dedicated pass across all three role layouts |
-| LIM-08 | **Legacy dead CSS in `Dispatcher.css`** — **66 distinct `geo3-*` selectors** from a removed fake map | `src/pages/dispatcher/Dispatcher.css` (counted at this commit) | Bundle bloat; risk of name collisions with the real map, which deliberately uses `geo3-live-*` names to avoid them | Open — cosmetic |
-| LIM-09 | **`functions` `npm test` script does not resolve** on current Node (`node --test test/`) | `functions/package.json` | CI or a newcomer running the documented command sees a false failure | Open — one-line fix |
-| LIM-10 | **Route generation is dormant without clinic coordinates**, which are entered manually | `DispatcherGeofence.jsx`; no geocoder | The Generate route button is disabled for orders from coord-less clinics | Open — by design |
-| LIM-11 | **Older documentation is stale.** `CLAUDE.md` and the two test trackers contain claims contradicted by source | Compared during this audit | Readers may act on out-of-date statements | Open — this handbook supersedes them for the areas it covers |
-| LIM-12 | **`StatusBadge` still defaults an unrecognized key to "Pending"** | `src/components/ui/StatusBadge.jsx` | Admin Deliveries passes only canonical or `unknown` keys so it renders correctly there, but a future caller could surface a wrong label | Open — low |
+| ID | Limitation | Impact | Status |
+|---|---|---|---|
+| LIM-01 | **App Check is not enforced** | Any signed-in client can reach the callables | Open — release gate |
+| LIM-02 | **Production `users` contains invalid legacy documents** | Those accounts have no access | Open — blocks production rollout |
+| LIM-03 | **Password rules are app-side; no email verification** | A direct Firebase call could skip them | Open — enable Firebase's password policy |
+| LIM-04 | **Fake-GPS detection trusts the phone's own report** | Catches a mock app left on, not a modified app | Open — App Check, rooted-device checks |
+| LIM-05 | **Routing uses a public fair-use endpoint** | No uptime promise | Open — self-host before real operations |
+| LIM-06 | **Scheduled jobs are off on staging** | "Running late" and day-based expiry alerts need another trigger or "Check stock now" | Open — cost decision |
+| LIM-07 | **Locked-screen tracking is unproven on aggressive battery savers** | A vivo phone may pause location | Open — field test |
+| LIM-08 | **Some emulator concurrency tests are flaky** | A test run may show one false failure | Open — low |
+| LIM-09 | **Arrival times are estimates** | No live traffic | Open — by design |
+| LIM-10 | **`inventory.status` is stale by design**; pages derive expiry from `expiryDate` | The stored field is misleading to a future reader | Open — mitigated |
+| LIM-11 | **Legacy dead CSS** in `Dispatcher.css` (78 `geo3-*` selectors) | Bundle bloat | Open — cosmetic |
+| LIM-12 | **Add Stock's form caps a quantity at 1,000,000** while the server allows 100,000,000 | Harmless inconsistency | Open — low |
 
-### Client/adviser decisions required
+### Limitations resolved since 2026-09-08
 
-| Decision | Why needed | Affected module | Current safe behavior | Blocking |
-|---|---|---|---|---|
-| **Three VAT-exclusive per-vial selling prices** | Batches cannot be ordered without a price | EPIC-11, EPIC-04 | Unpriced batches are refused with `batch-unpriced` rather than quoting ₱0.00 | Yes — blocks ordering those batches end to end |
-| **Whether prices vary by batch** | Determines whether price belongs to the batch or the product | EPIC-02, EPIC-11 | Price is currently **batch-owned**, which supports both models | No — current model is the safer superset |
-| **Who may change future prices** | Determines the authorization boundary for re-pricing | EPIC-02, EPIC-13 | Admin-only, forward-only, with a server-stamped audit trail | No |
-| **Invoice discount policy** | No discount mechanism exists | EPIC-11 | No discounts are applied or displayed | Yes — blocks final invoice sign-off |
-| **Route optimization / OR-Tools requirement** | Determines whether multi-stop optimization is in scope | EPIC-08 | Single-destination route only, generated on explicit dispatcher click | Yes — scope |
-| **Numeric driver-rating requirement** | No rating data model exists | EPIC-07, EPIC-12 | Not implemented; nothing fabricated | Yes — scope |
-| **Automatic deviation-monitoring requirement** | Determines whether deviation should auto-act | EPIC-08, EPIC-10 | Detection records an advisory incident; nothing auto-changes an order | Yes — scope |
-| **Admin live rider-map requirement** | Determines whether Admin gets live tracking | EPIC-08, EPIC-12 | Not implemented; Admin surfaces make no live-tracking claim | Yes — scope |
-| **Cold-chain method** | No sensing or temperature capture exists | EPIC-02, EPIC-12 | No temperature is displayed or claimed anywhere | Yes — scope |
-| **Staff-provisioning method** | No supported way to create Admin/Dispatcher/Sales Rep accounts | EPIC-01 | Out-of-band creation, then Admin sets the role | Yes — operational blocker |
-| **Physical-device proof-of-delivery validation** | Camera→Storage path unverified on real hardware | EPIC-09 | Rules and client code implemented and emulator-tested | Yes — acceptance evidence |
-| **App Check rollout** | Client attestation is a release-security gate | EPIC-13 | Documented as not enforced; not claimed as present | Yes — production gate |
+Admin stock correction (`correctStockQuantity`); staff provisioning; background tracking through a foreground service; Admin live map; the global `#root` width bug; the `npm test` script; `StatusBadge`'s false "Pending" default; route deviation moved to the server; multi-stop trips.
+
+### Client and adviser decisions
+
+| Decision | Why needed | Current safe behavior | Status |
+|---|---|---|---|
+| **Destination-based zero-rating policy** | Tax treatment is a business decision | No free toggle for Med Reps | **Awaiting business confirmation** |
+| **Price floor** | Whether negotiated prices have a minimum | A reason is required; no minimum | Open |
+| **Route optimization (OR-Tools)** | Whether fleet-wide solving is in scope | Per-trip planning with Valhalla | Open — scope |
+| **Rider rating** | No rating data model exists | Not implemented; nothing fabricated | Open — scope |
+| **Cold-chain method** | No sensing exists | No temperature is claimed anywhere | Open — scope |
+| **Hub performance ranking** | Only one hub exists | Not implemented | Recommend descoping |
+| **Scheduled jobs on staging** | Cloud Scheduler has a small cost | Off | Open |
+| ~~SC/PWD discounts~~ | Client decision | Withdrawn for new orders 2026-11-03 | Decided |
+| ~~SMS and email~~ | Client decision | Out of scope; rider push only | Decided 2026-11-04 |
 
 ---
 
 ## 15. Jira work-item hierarchy
+
+> **Kept from 2026-09-08.** This section predates later work (server-side tracking, rider trips, offline completion, staff accounts, stock alerts, rider push, Valhalla routing, the withdrawal of SC/PWD). Where it disagrees with §1–§5 or §10–§14, those sections are correct.
 
 Reference shape:
 
@@ -1377,6 +1378,8 @@ These were verified defects, are fixed at this commit, and are listed only for t
 
 ## 16. Jira-ready master table
 
+> **Kept from 2026-09-08.** This section predates later work (server-side tracking, rider trips, offline completion, staff accounts, stock alerts, rider push, Valhalla routing, the withdrawal of SC/PWD). Where it disagrees with §1–§5 or §10–§14, those sections are correct.
+
 | ID | Type | Parent | Summary | Actor | Priority | Status | Dependency | Acceptance summary | Evidence |
 |---|---|---|---|---|---|---|---|---|---|
 | EPIC-01 | Epic | — | Identity, Authentication, and Role Access | All | Critical | Done | — | All roles resolve fail-closed | `authorization.js` |
@@ -1442,23 +1445,16 @@ These were verified defects, are fixed at this commit, and are listed only for t
 
 ## 17. Finish-line roadmap
 
-**Important caveat.** No canonical roadmap document exists in this repository. The sequence below is **reconstructed** from the 17 commits on `feat/order-delivery-workflow` and the open items proven in §14. It is presented as a working plan for agreement, not as a previously ratified artifact. **Creating this handbook does not advance any checkpoint** — step 12 is marked in progress because the handbook is one of its deliverables, not because it is complete.
-
-| # | Checkpoint | State | Evidence / remaining work |
+| # | Step | State | Remaining work |
 |---|---|---|---|
-| 1 | Order identity and rider assignment hardening | **Complete** | `c58e636` |
-| 2 | Delivery status lifecycle enforcement | **Complete** | `22273e9` |
-| 3 | Failed-delivery recovery | **Complete** | `6263d72` |
-| 4 | Storage rules for proof evidence | **Complete** | `4f50cc5`, `c8c1a3b`, `687fea5` |
-| 5 | Rider proof-of-delivery hardening | **Complete** | `5629b4b` |
-| 6 | Server-side stock reservation, release, consumption | **Complete** | `35733d3` |
-| 7 | Server-authoritative pricing | **Complete** | `17357b5` |
-| 8 | Role-based access control hardening | **Complete** | `8f85236` |
-| 9 | Document-identity integrity sweep | **Complete** | `7816cb0` |
-| 10 | Honest-UI sweep across Admin surfaces | **Complete** | `1e56d28`, `26987bd`, `79d7853`, `46db87e`, `721288a`, `72fba43` |
-| 11 | Admin Deliveries status correctness | **Current — awaiting commit** | Implemented; four files uncommitted at this commit |
-| 12 | Documentation consolidation | **In progress** | This handbook created; TASK-14.2 (retiring stale docs) outstanding |
-| 13 | Release-readiness gates | **Blocked** | App Check (TASK-13.1), production data cleanup (TASK-13.2), deployment confirmation (TASK-13.3), client pricing decisions (TASK-11.3/11.4), physical-device proof run |
+| 1 | Core order, stock, dispatch, delivery and invoice flows | **Complete** | |
+| 2 | Server-side tracking, deviation, geofence completion | **Complete** | |
+| 3 | Offline completion, fake-GPS handling | **Complete** | Field test |
+| 4 | Staff accounts, stock and expiry alerts, rider push | **Complete** | Field test |
+| 5 | App Check | **Next** | Console registration, then enforcement |
+| 6 | Field test on a phone | **Pending** | Run the checklist; record results in the tracker's Testing column |
+| 7 | Adviser decisions | **Pending** | §14 |
+| 8 | Production rollout | **Blocked** | LIM-01, LIM-02, inventory migration, Storage provisioning, deployment |
 
 ---
 
@@ -1466,20 +1462,24 @@ These were verified defects, are fixed at this commit, and are listed only for t
 
 | Term | Plain-language meaning |
 |---|---|
-| **Batch** | One physical consignment of a vaccine, with its own batch id, arrival date, expiry date, quantity, and selling price. Orders are placed against a specific batch, not against a product in general. |
-| **Reserved quantity** | Units already committed to placed-but-undelivered orders. They are still physically present but are no longer available to sell. |
-| **Available quantity** | On-hand quantity minus reserved quantity. Always calculated, never stored, so it cannot drift out of step. |
-| **Order snapshot** | The copy of the price, currency, and VAT convention written onto an order when it is placed. It is never recalculated, so a later price change cannot rewrite what a clinic was quoted. |
-| **Selling price per vial** | The VAT-exclusive amount 3MGS charges a clinic for one vial of a given batch, stored as a whole number of centavos to avoid rounding error. |
-| **Pricing version** | A marker on an order recording which pricing rules produced its snapshot. Version 1 is the current server-authoritative scheme. |
-| **Pending dispatch** | An order has been placed and its stock reserved, but no rider has been given it yet. |
-| **Loading** | A dispatcher has confirmed the cargo for this order; it is being prepared to leave. |
+| **Batch** | One physical consignment of a vaccine, with its own batch id, dates, quantity, and selling price. |
+| **Reserved quantity** | Units committed to placed-but-undelivered orders. Still physically present, but no longer available. |
+| **Available quantity** | On hand minus reserved, returning and quarantined units. Always calculated, never stored. |
+| **Large quantity** | A batch figure above 5,000 vials. It is accepted only after the Admin confirms it, and the server records who did. |
+| **Safety stock** | The vial level, set by an Admin per vaccine, at or below which a low-stock alert opens. |
+| **Order snapshot** | The prices and VAT written onto an order when it is placed. Never recalculated. |
+| **Negotiated price** | A VAT-inclusive unit price agreed with the client that differs from the standard price. It requires a reason. |
+| **Pending dispatch** | An order is placed and awaiting a rider. |
+| **Loading** | A dispatcher has confirmed the cargo for this order. |
 | **In transit** | A rider is carrying the order. |
-| **Delivery failed** | The rider stopped and could not complete the delivery. It is not finished and not cancelled — it waits for a dispatcher to send it out again or cancel it. |
-| **Proof of delivery** | The photograph a rider captures on completion, stored under a fixed filename against that order so it cannot be replaced by a differently-named file. |
-| **Geofence** | A radius drawn around a clinic on the dispatcher's map. In VaxTrack it is **advisory only** — it is displayed, and it never changes an order's status by itself. |
-| **Route deviation** | The rider's device detecting that they have moved away from the planned road route beyond a threshold. It records an incident for the office; it takes no automatic action. |
-| **App Check** | A Firebase feature that verifies a request came from your genuine app rather than a script holding a stolen token. **VaxTrack does not currently enforce it** — the system checks *who* the user is, not *what* app they are using. |
+| **Delivery failed** | The rider could not complete the delivery. It waits for a dispatcher to send it out again or cancel it. |
+| **Proof of delivery** | The photograph a rider captures on completion, stored under a fixed filename against that order. |
+| **Geofence** | A radius around a clinic. The **server** requires the rider to be inside it to complete a delivery. Arrival near it is advisory and never changes a status by itself. |
+| **Route deviation** | The rider being 500 m off the planned route for 3 minutes, decided on the server. It raises an alert and takes no automatic action. |
+| **Offline completion** | A delivery recorded on the phone with no signal, sent later. Accepted automatically if the server can verify it, otherwise reviewed by a dispatcher. |
+| **Mock location** | A position supplied by a fake-GPS app rather than the phone's GPS. |
+| **Push notification** | A message from the server to the rider's phone, through Firebase Cloud Messaging. |
+| **App Check** | A Firebase feature that verifies a request came from the genuine app. **VaxTrack does not enforce it yet.** |
 
 ---
 

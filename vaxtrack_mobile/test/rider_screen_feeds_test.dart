@@ -69,7 +69,8 @@ Future<void> deliver(WidgetTester tester) async {
 }
 
 Widget app(Widget home) => MaterialApp(theme: AppTheme.theme, home: home);
-Finder get spinner => find.byType(CircularProgressIndicator);
+// Loading is the skeleton delivery list (widgets/skeleton.dart).
+Finder get spinner => find.byKey(const Key('skeleton-delivery-list'));
 
 void main() {
   group('Dashboard', () {

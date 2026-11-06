@@ -1,0 +1,24 @@
+/*
+ * Every floating window fits the screen, at any size or browser zoom.
+ *
+ * A dialog's backdrop is fixed and centres it, so a dialog taller than the
+ * screen was cut off at the top AND bottom with nothing to scroll: its buttons
+ * could only be reached by zooming the browser out. This is the one rule that
+ * rules that out, for every dialog now and later.
+ *
+ * Side drawers are full height by design and are left alone.
+ *
+ * `:where()` has no specificity, so a dialog that sets its own overflow (one
+ * with a pinned footer and an inner scrolling body) keeps it; any other dialog
+ * scrolls as a whole.
+ */
+[role="dialog"]:not(.mdl-drawer, .geo3-drawer, .rq-cart-drawer),
+[role="alertdialog"] {
+  max-height: calc(100vh - 32px) !important;
+  max-height: calc(100dvh - 32px) !important;
+}
+
+:where([role="dialog"], [role="alertdialog"]) {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}

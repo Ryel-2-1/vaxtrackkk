@@ -852,12 +852,11 @@
 /* ---- Acknowledgment + SC/PWD ids ---- */
 .sit-ack {
   display: grid;
-  grid-template-columns: 1.6fr 1fr;
+  grid-template-columns: 1fr;
   border: 1px solid var(--sit-line);
   border-top: 0;
 }
 .sit-ack-left {
-  border-right: 1px solid var(--sit-line);
   padding: 3px 4px 5px;
   display: flex;
   flex-direction: column;
@@ -894,29 +893,6 @@
   font-size: 7.5px;
   font-weight: 700;
 }
-.sit-ack-right {
-  display: flex;
-  flex-direction: column;
-}
-.sit-id-row {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  padding: 3px 4px;
-  border-bottom: 1px solid var(--sit-line);
-}
-.sit-id-row:last-child {
-  border-bottom: 0;
-}
-.sit-id-row > span {
-  font-size: 7px;
-  font-weight: 700;
-}
-.sit-id-row .inv-input {
-  flex: 1;
-  border-bottom: 1px solid #999;
-}
-
 /* ---- Legal / printer footer (blank until confirmed client data) ---- */
 .sit-footer {
   display: grid;

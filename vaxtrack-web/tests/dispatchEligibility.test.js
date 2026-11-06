@@ -461,7 +461,8 @@ test("rider assignment, cargo loading and recovery disable their controls", () =
   assert.match(shipments, /const reassignable = canReassign\(sKey\) && !legacyReturned;/);
   assert.match(shipments, /isEarlyDispatchAnomaly\(order, sKey, now\)/);
 
-  const schedule = read("src/components/schedule/DeliveryCalendar.jsx");
+  // The calendar's order card carries the schedule note.
+  const schedule = read("src/components/schedule/DeliveryEventCard.jsx");
   assert.match(schedule, /Upcoming — not dispatchable until 00:00 that day/);
   assert.match(schedule, /Early dispatch — dispatched before its scheduled date/);
 });

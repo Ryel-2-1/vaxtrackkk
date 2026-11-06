@@ -226,18 +226,19 @@ test("invalid lines make the totals unavailable, never wrong", () => {
 
 // ---------------------------------------------------------------- the request
 
-test("the request carries unit price, reason and the line's discount — no totals, no VAT", () => {
+test("the request carries unit price and reason — no SC/PWD discount, no totals, no VAT", () => {
   const cart = { inventoryId: "inv1", quantity: 3, expectedUnitPriceCentavos: 12500 };
+  // Even a review that still holds a discount sends none: SC/PWD is not
+  // offered for new orders (2026-11-03) and the server refuses one.
   assert.deepEqual(negotiatedRequestLine(cart, line({ agreedInput: "110", negotiationReason: "deal", discountType: "pwd", discountInput: "30" })), {
-    expectedUnitPriceCentavos: 12500, agreedUnitPriceCentavos: 11000, negotiationReason: "deal",
-    statutoryDiscountType: "pwd", statutoryDiscountCentavos: 3000, eligibilityConfirmed: true,
+    expectedUnitPriceCentavos: 12500, expectedQuotedUnitPriceCentavos: 12500, agreedUnitPriceCentavos: 11000, negotiationReason: "deal",
   });
-  assert.deepEqual(negotiatedRequestLine(cart, line()), { expectedUnitPriceCentavos: 12500, agreedUnitPriceCentavos: 12500 });
+  assert.deepEqual(negotiatedRequestLine(cart, line()), { expectedUnitPriceCentavos: 12500, expectedQuotedUnitPriceCentavos: 12500, agreedUnitPriceCentavos: 12500 });
   const fn = read("src/services/negotiatedPricing.js").slice(read("src/services/negotiatedPricing.js").indexOf("export function negotiatedRequestLine"));
   assert.equal(/vat|finalLine|negotiatedGross|lineTotal/i.test(fn), false);
   const callables = strip(read("src/services/inventoryCallables.js"));
   assert.match(callables, /negotiationReason: item\.negotiationReason/);
-  assert.match(callables, /statutoryDiscountType: item\.statutoryDiscountType,\s*statutoryDiscountCentavos: item\.statutoryDiscountCentavos,\s*eligibilityConfirmed: item\.eligibilityConfirmed === true,/);
+  assert.equal(/statutoryDiscount|eligibilityConfirmed/.test(callables), false, "no discount field is forwarded");
 });
 
 test("a retry under the same request id must carry the same price, reason and discount", () => {
@@ -258,33 +259,38 @@ test("a retry under the same request id must carry the same price, reason and di
 // ---------------------------------------------------------------- the page
 
 const PAGE = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
+const PRICE_REVIEW = read("src/pages/salesRep/OrderPriceReview.jsx");
 const CODE = strip(PAGE);
+// The page's price-review state (agreed price + reason per line) lives here.
+const PRICE_STATE = strip(read("src/pages/salesRep/useCheckoutPriceReview.js"));
 
 test("each line edits its agreed price; checkout offers no SC/PWD discount entry", () => {
-  assert.match(PAGE, /Agreed unit price \(VAT-inclusive\) for \{item\.name\}/);
+  assert.match(PAGE, /<PriceReview/);
+  assert.match(PRICE_REVIEW, /Agreed unit price \(VAT-inclusive\) for \{item\.name\}/);
   for (const label of ["Standard unit price", "Negotiated line total", "Price adjustment", "Final line total"]) {
-    assert.match(PAGE, new RegExp(`<dt>${label}</dt>`), label);
+    assert.match(PRICE_REVIEW, new RegExp(`<dt>${label}</dt>`), label);
   }
   // Removed from the review: the standard line total and the SC/PWD figure,
   // the per-line discount selector, its amount and its attestation.
   for (const gone of ["<dt>Standard line total</dt>", "<dt>SC/PWD discount</dt>", "SC/PWD discount for", "No discount", "Discount amount for this line", "place-v2-price-discount", "place-v2-eligibility"]) {
-    assert.equal(PAGE.includes(gone), false, `${gone} must be gone`);
+    assert.equal((PAGE + PRICE_REVIEW).includes(gone), false, `${gone} must be gone`);
   }
   for (const gone of ["onDiscountTypeChange", "onDiscountChange", "onEligibilityChange", "discountType", "discountInput", "eligibilityConfirmed", "ELIGIBILITY_ATTESTATION_TEXT", "STATUTORY_DISCOUNT_TYPES"]) {
-    assert.equal(CODE.includes(gone), false, `${gone} must be gone`);
+    assert.equal((CODE + PRICE_STATE).includes(gone), false, `${gone} must be gone`);
   }
   // One money input per line: the agreed unit price. No total input.
-  assert.equal((PAGE.match(/inputMode="decimal"/g) || []).length, 1);
+  assert.equal((PRICE_REVIEW.match(/inputMode="decimal"/g) || []).length, 1);
   // Reset clears the price and its reason.
-  assert.match(CODE, /delete rest\.agreedInput;\s*delete rest\.reason;\s*return \{ \.\.\.current, \[inventoryId\]: rest \};/);
-  assert.match(PAGE, /Reset to standard price/);
+  assert.match(CODE, /useCheckoutPriceReview\(\{\s*initialNegotiation: initialReview\.negotiation,/);
+  assert.match(PRICE_STATE, /delete rest\.agreedInput;\s*delete rest\.reason;\s*return \{ \.\.\.current, \[inventoryId\]: rest \};/);
+  assert.match(PRICE_REVIEW, /Reset to standard price/);
 });
 
 test("with no discount entry, a checkout line is reviewed and sent at its agreed price", () => {
   // The page reviews each line with exactly these inputs — no discount fields.
   assert.match(
-    CODE,
-    /price: priceReviewLine\(\{\s*quantity: item\.quantity,\s*expectedUnitPriceCentavos: item\.expectedUnitPriceCentavos,\s*vatClassification,\s*agreedInput: entry\.agreedInput,\s*negotiationReason: entry\.reason \?\? "",\s*\}\)/
+    PRICE_STATE,
+    /price: priceReviewLine\(\{\s*quantity: item\.quantity,\s*expectedUnitPriceCentavos: quotedUnitPriceCentavos,\s*vatClassification: quoted\?\.vatClassification \?\? vatClassification,\s*agreedInput: entry\.agreedInput,\s*negotiationReason: entry\.reason \?\? "",\s*\}\)/
   );
   // Same inputs through the model: no discount, VAT-inclusive totals intact.
   const cart = { inventoryId: "inv1", quantity: 3, expectedUnitPriceCentavos: 12500 };
@@ -294,12 +300,12 @@ test("with no discount entry, a checkout line is reviewed and sent at its agreed
   assert.equal(standard.finalLineTotalCentavos, 37500);
   assert.equal(standard.lineVatCentavos, vatOf(37500));
   assert.equal(line({ vatClassification: "vat_exempt" }).lineVatCentavos, 0);
-  assert.deepEqual(negotiatedRequestLine(cart, standard), { expectedUnitPriceCentavos: 12500, agreedUnitPriceCentavos: 12500 });
+  assert.deepEqual(negotiatedRequestLine(cart, standard), { expectedUnitPriceCentavos: 12500, expectedQuotedUnitPriceCentavos: 12500, agreedUnitPriceCentavos: 12500 });
   const negotiated = line({ agreedInput: "110", negotiationReason: "deal" });
   assert.equal(negotiated.negotiatedAdjustmentCentavos, -4500);
   assert.equal(negotiated.finalLineTotalCentavos, 33000);
   assert.deepEqual(negotiatedRequestLine(cart, negotiated), {
-    expectedUnitPriceCentavos: 12500, agreedUnitPriceCentavos: 11000, negotiationReason: "deal",
+    expectedUnitPriceCentavos: 12500, expectedQuotedUnitPriceCentavos: 12500, agreedUnitPriceCentavos: 11000, negotiationReason: "deal",
   });
   // The request line is still built from the reviewed price.
   assert.match(CODE, /\.\.\.negotiatedRequestLine\(item, reviewByBatch\.get\(item\.inventoryId\)\.price\)/);
@@ -307,13 +313,14 @@ test("with no discount entry, a checkout line is reviewed and sent at its agreed
 
 test("the summary shows negotiated subtotal, VAT and the final total", () => {
   for (const label of ["Negotiated subtotal", "VATable sales (net of VAT)", "VAT-exempt sales", "Zero-rated sales", "VAT (12%)", "Final total (VAT-inclusive)"]) {
-    assert.match(PAGE, new RegExp(`<dt>${label.replace(/[()/]/g, "\\$&")}</dt>`), label);
+    assert.match(PRICE_REVIEW, new RegExp(`<dt>${label.replace(/[()/]/g, "\\$&")}</dt>`), label);
   }
-  assert.equal(PAGE.includes("Less: SC/PWD discounts"), false);
+  assert.equal((PAGE + PRICE_REVIEW).includes("Less: SC/PWD discounts"), false);
 });
 
 test("the reconfirmation dialog lists each line's price, and still sends once", () => {
-  const dialog = PAGE.slice(PAGE.indexOf("function ReconfirmDialog"));
+  assert.match(PAGE, /<ReconfirmDialog/);
+  const dialog = PRICE_REVIEW.slice(PRICE_REVIEW.indexOf("function ReconfirmDialog"));
   assert.match(dialog, /Reason: \{price\.negotiationReason\}/);
   assert.match(dialog, /<strong>\{formatAmount\(price\.finalLineTotalCentavos\)\}<\/strong>/);
   assert.equal(/statutoryDiscount/.test(dialog), false);
@@ -423,8 +430,10 @@ test("the editor template: net labels, a dash for a non-exact unit price, no dis
   assert.match(page, /finalChargedAmounts \? "Amount Charged \(Net\)" : "Amount"/);
   assert.match(page, /isFinalChargedLine\(it\) && it\.unitPriceCentavos == null \? \(/);
   assert.match(editor, /formatCurrency\(invoiceLineAmount\(it\)\)/);
-  // The legacy discount row — labels unchanged — renders only for other invoices.
-  assert.match(page, /\{!finalChargedAmounts && \(\s*<div className="sit-tt-row sit-tt-input">\s*<span>Less: Discount \[SC\/PWD\/NAAC\/MOV\/SP\]<\/span>/);
+  // The legacy discount row renders only for other invoices, and names no SC/PWD category.
+  assert.match(page, /\{!finalChargedAmounts && \(\s*<div className="sit-tt-row sit-tt-input">\s*<span>Less: Discount<\/span>/);
+  // No SC/PWD wording is printed on the invoice (comments aside).
+  assert.equal(/SC\/PWD|NAAC|Solo Parent/.test(editor), false, "no SC/PWD wording on the invoice");
   assert.equal(/orderHasNegotiatedPrice/.test(editor), false, "negotiation alone no longer locks the discount");
 });
 

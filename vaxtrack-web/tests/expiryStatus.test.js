@@ -216,16 +216,17 @@ test("no surface calls stock healthy or safe on expiry alone", () => {
 });
 
 test("the derived levels are what the surfaces label and filter by", () => {
-  assert.match(INV, /label="Expired"/);
-  assert.match(INV, /label="Expiring within 30 days"/);
-  // The bands are exclusive; tests/expiryRanges.test.js pins their edges.
-  assert.match(INV, /label="Expiring in 31–90 days"/);
-  assert.match(INV, /setStatusFilter\("expired"\)/);
-  assert.match(INV, /setStatusFilter\("unknown"\)/);
+  // One summary card over the three exclusive bands; tests/expiryRanges.test.js
+  // pins how each is counted and labelled.
+  assert.match(INV, /label="Expiring & expired stock"/);
+  assert.match(INV, /changeStatusFilter\("watch"\)/);
+  assert.match(INV, /\{ value: "unknown", label: "No valid expiry date" \}/);
   assert.match(DASH, /label: "Expiring or expired stock"/);
-  // Every level a batch can take is reachable from the Admin filter chips.
+  // Every level a batch can take is reachable from the compact Admin filter
+  // (its options render from EXPIRY_OPTIONS).
+  assert.match(INV, /\{EXPIRY_OPTIONS\.map\(\(option\) => \(\s*<option key=\{option\.value\} value=\{option\.value\}>\{option\.label\}<\/option>/);
   for (const level of ["expired", "critical", "warning", "stable", "unknown"]) {
-    assert.match(INV, new RegExp(`setStatusFilter\\("${level}"\\)`), `${level} must be filterable`);
+    assert.match(INV, new RegExp(`\\{ value: "${level}", label: `), `${level} must be filterable`);
   }
 });
 
@@ -279,7 +280,8 @@ test("both new levels have chip styling on every surface that shows them", () =>
   for (const level of ["expired", "unknown"]) {
     assert.ok(adminCss.includes(`.v2-stock-status.${level}`), `table chip: ${level}`);
     assert.ok(adminCss.includes(`.v2-modal-badge.${level}`), `drawer badge: ${level}`);
-    assert.ok(adminCss.includes(`.v2-cold-list small.${level}`), `expiring list: ${level}`);
     assert.ok(srCss.includes(`.status-chip.${level}`), `sales rep chip: ${level}`);
   }
+  // The compact expiry watch only lists expired and near-expiry batches.
+  assert.ok(adminCss.includes(".inventory-watch-row.is-expired small"), "expiry watch: expired");
 });

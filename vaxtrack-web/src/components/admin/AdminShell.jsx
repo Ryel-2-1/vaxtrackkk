@@ -4,6 +4,7 @@ import { signOut } from "firebase/auth";
 import { auth } from "../../firebase";
 import { AdminSidebar } from "./AdminSidebar";
 import OfflineNotice from "../shell/OfflineNotice";
+import AdminAlertsBell from "./AdminAlertsBell";
 import { adminWrapperClassFor } from "./adminShellClasses";
 import "./AdminLayout.css";
 
@@ -38,7 +39,7 @@ const ROUTE_TITLE = {
   "/admin/riders": "Riders",
   "/admin/alerts": "Alerts",
   "/admin/analytics": "Analytics",
-  "/admin/ai-inventory-analytics": "AI Inventory Analytics",
+  "/admin/ai-inventory-analytics": "Inventory Forecast",
   "/admin/settings": "Settings",
   "/admin/clinics": "Clinics",
   "/admin/invoices": "Invoices",
@@ -71,9 +72,12 @@ function AdminShell() {
       {/* The shared top bar (same as Sales Rep and Dispatcher). Fixed beside
           the rail, like the rail itself, so the page's own <main> remains the
           direct flex child the existing admin page CSS expects. Admin has no
-          global search or notification feed, so it carries the title only. */}
+          global search; the bell counts unread system alerts. */}
       <header className="m-topbar admin-shell-topbar">
         <h1 className="m-topbar-title">{adminTitleFor(location.pathname)}</h1>
+        <div className="m-topbar-actions">
+          <AdminAlertsBell />
+        </div>
       </header>
 
       {/* No wrapper div here on purpose: the page's own <main> must stay a

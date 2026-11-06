@@ -182,7 +182,7 @@ function Login() {
           <span className="vlogin-brand-name">VaxTrack</span>
         </div>
         <div className="vlogin-visual-msg">
-          <h2>Secure Cold-Chain Operations</h2>
+          <h2>Vaccine Inventory and Delivery</h2>
           <p>
             Authorized access for pharmaceutical inventory, dispatch, and
             delivery monitoring.
@@ -290,8 +290,8 @@ function Login() {
             <div className="vlogin-security">
               <ShieldCheck size={15} aria-hidden="true" />
               <span>
-                Access is restricted to authorized personnel. Activity is
-                monitored for security and compliance.
+                Access is restricted to authorized personnel. Sign in with
+                your approved VaxTrack account.
               </span>
             </div>
           </form>

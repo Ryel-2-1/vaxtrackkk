@@ -5,6 +5,8 @@ import { runInNewContext } from "node:vm";
 import { orderArrivalNote } from "../src/services/requestedArrival.js";
 import { buildAssignmentQueue } from "../src/services/assignmentQueue.js";
 import { historyRow } from "../src/services/orderHistory.js";
+import { invoicePhotoView, proofPhotoView } from "../src/services/deliveryEvidenceView.js";
+import { offlineCompletionNote, pendingOfflineReview } from "../src/services/offlineCompletionView.js";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const order = {
@@ -58,7 +60,9 @@ test("an Admin's new schedule and route ETA cannot rewrite the original arrival 
 test("Admin Deliveries normalization retains arrival fields for the list and detail drawer", () => {
   const page = read("src/pages/admin/Deliveries.jsx");
   const fn = page.slice(page.indexOf("function normalizeDelivery("), page.indexOf("function formatDateTime("));
-  const normalized = runInNewContext(`${fn}\nnormalizeDelivery(raw)`, { raw: order });
+  const normalized = runInNewContext(`${fn}\nnormalizeDelivery(raw)`, {
+    raw: order, proofPhotoView, invoicePhotoView, offlineCompletionNote, pendingOfflineReview, storageBucket: "vaxtrack-staging.firebasestorage.app",
+  });
   assert.equal(normalized.requestedArrival.start, "10:00");
   assert.equal(normalized.requestedDeliveryDate, "2026-10-28");
   assert.equal((page.match(/<RequestedArrivalNote order=\{delivery\} \/>/g) ?? []).length, 2);

@@ -43,9 +43,9 @@ test("monthLabel is the human heading", () => {
 
 // ------------------------------------------------------------------ month grid
 
-test("buildMonthGrid returns a fixed 6x7 grid, Sunday-first", () => {
+test("buildMonthGrid returns five rows when they fit, Sunday-first", () => {
   const weeks = buildMonthGrid(2026, 8, { today: "2026-09-23" }); // September 2026
-  assert.equal(weeks.length, 6);
+  assert.equal(weeks.length, 5);
   for (const week of weeks) assert.equal(week.length, 7);
   // Every first cell of a row is a Sunday.
   for (const week of weeks) assert.equal(week[0].weekday, 0);
@@ -73,11 +73,12 @@ test("buildMonthGrid marks the first-of-month, in/out days, and today", () => {
 });
 
 test("buildMonthGrid handles a 31-day month spilling into six rows without drift", () => {
-  const weeks = buildMonthGrid(2026, 2, { today: "2026-03-15" }); // March 2026
+  const weeks = buildMonthGrid(2026, 4, { today: "2026-05-15" }); // May 2026
+  assert.equal(weeks.length, 6);
   const inMonth = weeks.flat().filter((c) => c.inMonth);
   assert.equal(inMonth.length, 31);
-  assert.equal(inMonth[0].iso, "2026-03-01");
-  assert.equal(inMonth[inMonth.length - 1].iso, "2026-03-31");
+  assert.equal(inMonth[0].iso, "2026-05-01");
+  assert.equal(inMonth[inMonth.length - 1].iso, "2026-05-31");
 });
 
 // ------------------------------------------------------------------- grouping
@@ -124,12 +125,12 @@ test("grouping tolerates a non-array input", () => {
 // ------------------------------------------- planner month/year navigation
 
 test("an adjacent-month day selects into its own month, across year ends both ways", () => {
-  // October 2026 shows Nov 1 as a dimmed trailing cell; choosing it moves the
-  // view to November 2026 — the planner sets the view to monthOf(selected).
-  const oct = buildMonthGrid(2026, 9, { today: "2026-10-27" }).flat();
-  const nov1 = oct.find((c) => c.iso === "2026-11-01");
-  assert.ok(nov1 && !nov1.inMonth);
-  assert.deepEqual(monthOf(nov1.iso), { year: 2026, month: 10 });
+  // September 2026 shows Oct 1 as a dimmed trailing cell; choosing it moves
+  // the planner view to the selected day's month.
+  const sep = buildMonthGrid(2026, 8, { today: "2026-10-27" }).flat();
+  const oct1 = sep.find((c) => c.iso === "2026-10-01");
+  assert.ok(oct1 && !oct1.inMonth);
+  assert.deepEqual(monthOf(oct1.iso), { year: 2026, month: 9 });
 
   // December 2026 -> a January 2027 trailing day.
   const dec = buildMonthGrid(2026, 11, { today: "2026-10-27" }).flat();
@@ -144,9 +145,9 @@ test("an adjacent-month day selects into its own month, across year ends both wa
   assert.deepEqual(monthOf(decLead.iso), { year: 2026, month: 11 });
 
   // The selected day is an in-month cell of the month it moved to.
-  const view = monthOf(nov1.iso);
-  const novGrid = buildMonthGrid(view.year, view.month, { today: "2026-10-27" }).flat();
-  assert.equal(novGrid.find((c) => c.iso === nov1.iso).inMonth, true);
+  const view = monthOf(oct1.iso);
+  const octGrid = buildMonthGrid(view.year, view.month, { today: "2026-10-27" }).flat();
+  assert.equal(octGrid.find((c) => c.iso === oct1.iso).inMonth, true);
 });
 
 test("the month picker lists every month and a contiguous year range that always holds the view", () => {
@@ -161,10 +162,12 @@ test("the month picker lists every month and a contiguous year range that always
   years.slice(1).forEach((y, i) => assert.equal(y, years[i] + 1));
 });
 
-test("the Med Rep planner moves to a picked day's month and offers the month/year picker", () => {
+test("picking a day never changes the Med Rep planner's month; the arrows and month/year picker do", () => {
   const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/[^\n]*$/gm, "");
   const page = strip(readFileSync(new URL("../src/pages/salesRep/SalesRepDashboard.jsx", import.meta.url), "utf8"));
-  assert.match(page, /const selectPlannerDate = \(iso\) => \{\s*setSelectedDate\(iso\);\s*const m = monthOf\(iso\);\s*if \(m\) setView\(m\);\s*\};/);
+  // A previous/next-month day at the grid's edge is selected in place: the
+  // click only selects, it never moves the view (2026-10-31 decision).
+  assert.match(page, /const selectPlannerDate = \(iso\) => \{\s*setSelectedDate\(iso\);\s*\};/);
   assert.match(page, /onSelectDate=\{selectPlannerDate\}/);
   assert.match(page, /onJumpToMonth=\{jumpToMonth\}/);
   assert.match(page, /onPrevMonth=\{goPrevMonth\}\s*onNextMonth=\{goNextMonth\}/);
@@ -173,9 +176,10 @@ test("the Med Rep planner moves to a picked day's month and offers the month/yea
   assert.match(page, /const goPrevMonth = \(\) => showMonth\(addMonths\(view\.year, view\.month, -1\)\);/);
   assert.match(page, /const goNextMonth = \(\) => showMonth\(addMonths\(view\.year, view\.month, 1\)\);/);
   assert.match(page, /const jumpToMonth = \(year, month\) => showMonth\(\{ year, month \}\);/);
-  // The Dispatcher day-view does not opt in, so its heading is unchanged.
-  const dispatcher = readFileSync(new URL("../src/components/schedule/DeliveryCalendar.jsx", import.meta.url), "utf8");
-  assert.equal(dispatcher.includes("onJumpToMonth"), false);
+  // Admin and Dispatcher share the same calendar controls as the Med Rep planner.
+  const sharedCalendar = readFileSync(new URL("../src/components/schedule/DeliveryCalendar.jsx", import.meta.url), "utf8");
+  assert.match(sharedCalendar, /onCurrentMonth=\{goCurrentMonth\}/);
+  assert.match(sharedCalendar, /onJumpToMonth=\{jumpToMonth\}/);
 });
 
 test("isInMonth decides whether a selection survives a month change", () => {
@@ -184,4 +188,16 @@ test("isInMonth decides whether a selection survives a month change", () => {
   assert.equal(isInMonth("2026-12-31", { year: 2027, month: 11 }), false, "same month, other year");
   assert.equal(isInMonth("", { year: 2026, month: 10 }), false);
   assert.equal(isInMonth("nope", { year: 2026, month: 10 }), false);
+});
+
+test("calendar cards: urgent orders show every field, standard orders stay compact", () => {
+  const card = readFileSync(new URL("../src/components/schedule/DeliveryEventCard.jsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  // Urgent: tinted card, the Urgent chip beside the status, and the full fields.
+  assert.match(card, /className=\{`dcal-event\$\{urgent \? " dcal-event-urgent" : ""\}`\}/);
+  assert.match(card, /\{urgent \? \(\s*<dl className="dcal-fields">[\s\S]*?label="Requested arrival"[\s\S]*?label="Doctor"[\s\S]*?label="Clinic"[\s\S]*?label="Location"[\s\S]*?label="Med Rep"/);
+  // Standard: one line naming doctor and clinic (2026-11-01).
+  assert.match(card, /<p className="dcal-event-summary">\s*\{\[where\.doctor, where\.clinic\]\.filter\(Boolean\)\.join\(" · "\) \|\| "Destination not recorded"\}/);
+  // The day list scrolls inside its fixed-height panel.
+  const css = readFileSync(new URL("../src/components/schedule/DeliveryCalendar.css", import.meta.url), "utf8");
+  assert.match(css, /--dcal-panel-height: clamp\(460px, calc\(100dvh - 238px\), 680px\);/);
 });

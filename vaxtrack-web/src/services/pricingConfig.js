@@ -5,16 +5,13 @@
  * Functions compute every stored financial amount. tests/pricingConfig.test.js
  * pins the two together, so the rate and the convention cannot drift apart.
  *
- * Confirmed client rules:
- *   1. VATable sales carry VAT at exactly 12%.
- *   2. Vaccine prices entered and displayed in VaxTrack are VAT-INCLUSIVE.
+ * VATable sales carry 12% VAT. Admin chooses the basis of each batch's entered
+ * price: Before VAT or VAT included. The order snapshot still records its
+ * charged amount as VAT-inclusive, so existing receipt and invoice readers
+ * can use their established calculations.
  *
- * VAT is extracted from a VATable amount, never added on top. Whether an
- * amount IS VATable is not decided here (classification is unresolved).
- *
- * NEW RECORDS ONLY. PRICES_INCLUDE_VAT is what a new record is stamped with.
- * An existing record is read under its OWN `priceIsVatInclusive`: one stamped
- * `false` keeps its VAT-exclusive meaning and is labelled as legacy pricing.
+ * PRICES_INCLUDE_VAT is the convention for charged order totals, not a default
+ * for the Admin's batch price entry. Each batch records its own basis.
  *
  * Pure module (no Firebase) so node tests import it directly.
  */
@@ -27,7 +24,7 @@ export const PRICES_INCLUDE_VAT = true;
 /** The wording for VAT-inclusive data. Never claims every vaccine is VATable. */
 export const VAT_INCLUSIVE_NOTE = "Prices are VAT-inclusive for VATable products.";
 /** The wording for a record whose prices were recorded VAT-exclusive. */
-export const LEGACY_VAT_EXCLUSIVE_NOTE = "Legacy pricing — VAT recorded as exclusive.";
+export const LEGACY_VAT_EXCLUSIVE_NOTE = "Price entered before VAT.";
 
 /** A record's stored convention: true, false, or null when it carries no boolean. */
 export function readPriceConvention(value) {

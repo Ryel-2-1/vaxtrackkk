@@ -2,15 +2,16 @@ import {
   AlertTriangle,
   Bell,
   CalendarDays,
+  CheckCircle2,
+  ChevronDown,
   FileText,
   Loader2,
   MapPin,
   PackagePlus,
   Search,
-  Trash2,
   Zap,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createOrderWithReservation } from "../../services/inventoryCallables";
 import {
@@ -19,7 +20,6 @@ import {
   discardOrderAttempt,
   initialCheckoutSelection,
   initialCheckoutReview,
-  loadCartDraft,
   loadCheckoutSelection,
   loadCheckoutReview,
   loadPendingAttempt,
@@ -36,23 +36,12 @@ import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../serv
 import { UserMessageError } from "../../services/userMessageError";
 import { subscribeClinics } from "../../services/clinicService";
 import { subscribeDoctors } from "../../services/doctorService";
-import { subscribeDoctorAddresses } from "../../services/doctorAddressService";
-import { subscribeInventoryBatches } from "../../services/inventoryService";
-import { subscribeVaccinesByIds } from "../../services/vaccineCatalogService";
-import {
-  NEGOTIATED_PRICE_LABEL,
-  agreedInputFor,
-  negotiatedRequestLine,
-  priceReviewLine,
-  reviewProblems,
-  summarizeReviewVat,
-} from "../../services/negotiatedPricing";
+import { fetchMedRepDoctorAddresses } from "../../services/medRepDestinations";
+import { negotiatedRequestLine } from "../../services/negotiatedPricing";
 import {
   acceptLiveLine,
-  cartBatchIds,
   cartReview,
   lineReview,
-  liveCartLines,
 } from "../../services/cartLiveStock";
 import useOwnProfile from "../../components/profile/useOwnProfile";
 import {
@@ -61,8 +50,8 @@ import {
   readTerritory,
   territoryDestinationOptions,
 } from "../../services/territory";
-import { manilaToday, validateRequestedDate } from "../../services/requestedDate";
-import { checkoutScheduleErrorMessage, validateCheckoutSchedule } from "../../services/checkoutSchedule";
+import { manilaToday } from "../../services/requestedDate";
+import { validateCheckoutSchedule } from "../../services/checkoutSchedule";
 import {
   arrivalPayloadOf,
   normalizeArrivalForm,
@@ -71,137 +60,24 @@ import {
   requestedScheduleLabel,
 } from "../../services/requestedArrival";
 import RequestedArrivalField from "../../components/schedule/RequestedArrivalField";
-import { formatCentavos, readPriceCentavos } from "../../services/money";
-import { PRODUCT_VAT_LABELS, readVatClassification } from "../../services/vatClassification";
-import { VAT_INCLUSIVE_NOTE } from "../../services/pricingConfig";
+import { requestZeroRateApproval, subscribeOwnZeroRateRequests } from "../../services/zeroRateRequests";
+import { approvedZeroRateForOrder, matchingZeroRateOrderRequests } from "../../services/zeroRateOrderMatch";
 import DialogLayer from "../../components/ui/DialogLayer";
-
-/**
- * A server error code turned into something a rep can act on.
- *
- * The server already writes a user-facing sentence; this only adds the extra
- * step where the right next action is not obvious from the message alone.
- */
-const ORDER_FAILURE_MESSAGE =
-  "We couldn't confirm the order. Your cart and entries are still here. Check Order Tracking before trying again.";
-
-function messageForCallableError(error) {
-  const scheduleMessage = checkoutScheduleErrorMessage(error?.code);
-  if (scheduleMessage) return scheduleMessage;
-  switch (error?.code) {
-    case "insufficient-stock": {
-      const info = error.info;
-      return info
-        ? `Only ${info.available} left in batch ${info.batchId ?? info.inventoryId}. Adjust the quantity and try again.`
-        : friendlyErrorMessage(error, ORDER_FAILURE_MESSAGE);
-    }
-    case "batch-expired":
-      return "One of these batches has expired and can no longer be ordered. Remove it and pick another.";
-    case "price-changed": {
-      // The whole point of the check is that a rep sees the real numbers and
-      // decides, so both figures are named rather than summarised as "changed".
-      const info = error.info;
-      if (!info) return friendlyErrorMessage(error, ORDER_FAILURE_MESSAGE);
-      const batch = info.batchId ?? info.inventoryId;
-      return `The standard price of batch ${batch} changed from ${formatCentavos(
-        info.expectedUnitPriceCentavos
-      )} to ${formatCentavos(
-        info.currentUnitPriceCentavos
-      )} while you were ordering. Nothing was placed. Accept the new standard price on that line, check your agreed price, and confirm again.`;
-    }
-    case "batch-unpriced":
-      return "One of these batches has no selling price yet. An admin needs to price it before it can be ordered.";
-    case "price-not-confirmed":
-      return "This cart was built before batch pricing. Please rebuild it from the catalog so the prices can be confirmed.";
-    case "adjustment-reason-required":
-      return "Give a reason for every negotiated price that differs from the standard price. Nothing was placed.";
-    case "invalid-agreed-price":
-      return "One of the agreed prices is not a valid amount. Correct it and confirm again. Nothing was placed.";
-    case "inventory-migration-required":
-      return "One of these batches still records its stock as text and needs an admin migration before it can be ordered.";
-    case "idempotency-conflict":
-      // The server recognised this draft's request ID but with different
-      // contents: an earlier attempt of this checkout WAS placed. The ID is
-      // deliberately not rotated automatically — that would let the rep place
-      // a second order without knowing the first exists.
-      return "An earlier attempt of this checkout was already placed with different details. Check Order Tracking first. If you still need this order, discard the previous attempt and finalize again.";
-    case "duplicate-inventory-line":
-      return "The same batch appears on two lines. Combine them into one.";
-    case "requested-date-required":
-      return "Choose a delivery date for this order. Nothing was placed.";
-    case "invalid-requested-date":
-      return friendlyErrorMessage(error, "Choose a valid delivery date, today or later. Nothing was placed.");
-    default:
-      // A domain refusal keeps the server's own sentence (a trusted domain
-      // error); anything else gets a safe mapped message — never raw text.
-      return friendlyErrorMessage(error, ORDER_FAILURE_MESSAGE);
-  }
-}
+import { PriceReview, ReconfirmDialog, VatBreakdown } from "./OrderPriceReview";
+import OrderCartRow from "./OrderCartRow";
+import useCheckoutPriceReview from "./useCheckoutPriceReview";
+import useCartLiveStock from "./useCartLiveStock";
+import { messageForCallableError } from "../../services/checkoutErrorMessages";
+import { restoreCartItems, takePlannedRequestedDate } from "../../services/checkoutDraftRestore";
 
 // One shared empty list, so "no addresses yet" keeps a stable identity and the
 // destination options are not rebuilt on every render.
 const EMPTY_ADDRESSES = Object.freeze([]);
+const EMPTY_BY_DOCTOR = Object.freeze({});
 
 // The confirmation is no longer assembled here from checkout state. It is
 // built from the stored order the callable named (services/orderConfirmation.js),
 // so a replayed order can never be shown with values the rep edited afterwards.
-
-/**
- * The signed-in Med Rep's own saved cart. Another account's cart on this
- * browser is never loaded; an old unscoped cart is migrated once, to the first
- * Med Rep who opens checkout without a cart of their own (see loadCartDraft).
- */
-function getInitialItems(uid) {
-  if (!uid) return [];
-  try {
-    const savedDraft = loadCartDraft(localStorage, uid).draft;
-
-    if (savedDraft?.items?.length) {
-      return savedDraft.items.map((item) => ({
-        // The authoritative Firestore inventory DOCUMENT id, carried through
-        // from the catalog. It used to be dropped here and again in the order
-        // service, which is why no order could be traced back to a batch. It is
-        // the only field the server treats as identity.
-        inventoryId: item.inventoryId || null,
-        name: item.name || "Unknown Vaccine",
-        sku: item.sku || "—",
-        chain: item.category || "Cold Chain",
-        quantity: Number(item.quantity) || 1,
-        // The price the catalog showed when this line entered the cart, read
-        // back through the same validator the catalog used — so a hand-edited
-        // localStorage value does not become a price, it becomes null, and the
-        // submit guard below refuses the cart rather than quoting it.
-        expectedUnitPriceCentavos: readPriceCentavos(item.unitPriceCentavos),
-        // Display only: the classification the catalog showed. The server reads
-        // the vaccine's own value and snapshots it; this is never sent.
-        vatClassification: readVatClassification(item.vatClassification),
-        // Available in THIS batch when it entered the cart — display only. The
-        // server reserves across the product's batches and backorders the rest.
-        availableNow: Number.isInteger(Number(item.stock)) && Number(item.stock) >= 0 ? Number(item.stock) : null,
-      }));
-    }
-  } catch (error) {
-    logSafeError("Load Med Rep cart", error);
-  }
-
-  return [];
-}
-
-// One-shot handoff from the dashboard planner: a day chosen there is read here
-// to pre-fill the requested date, then removed so it never re-applies to a later
-// order. Validated against the same rule the field enforces, so a stale or past
-// value is simply ignored rather than pre-filling something the form rejects.
-function getPlannedRequestedDate() {
-  try {
-    const planned = localStorage.getItem("salesRepPlannedDate");
-    if (!planned) return "";
-    localStorage.removeItem("salesRepPlannedDate");
-    const check = validateRequestedDate(planned);
-    return check.ok && check.value ? check.value : "";
-  } catch {
-    return "";
-  }
-}
 
 function SalesRepPlaceOrder() {
   const navigate = useNavigate();
@@ -220,6 +96,8 @@ function SalesRepPlaceOrder() {
     uid ? loadPendingAttempt(localStorage, uid) : null
   );
   const restored = pendingAttempt?.submission ?? null;
+  const [recoveryAllowed, setRecoveryAllowed] = useState(Boolean(restored));
+  const [recoveryApprovalId, setRecoveryApprovalId] = useState(restored?.zeroRateRequestId ?? "");
   const [initialReview] = useState(() => initialCheckoutReview({
     attempt: restored,
     saved: uid ? loadCheckoutReview(localStorage, uid) : null,
@@ -234,7 +112,7 @@ function SalesRepPlaceOrder() {
     initialCheckoutSelection({
       attempt: restored,
       saved: uid ? loadCheckoutSelection(localStorage, uid) : null,
-      plannedDate: restored ? "" : getPlannedRequestedDate(),
+      plannedDate: restored ? "" : takePlannedRequestedDate(localStorage),
     })
   );
   /**
@@ -250,107 +128,62 @@ function SalesRepPlaceOrder() {
   );
 
   const [saving, setSaving] = useState(false);
-  const [items, setItems] = useState(() => getInitialItems(uid));
-  // The cart's OWN batches as they are now — a listener on just those
-  // document ids, replaced when the cart's set of batches changes, never the
-  // whole inventory collection. See cartLiveStock.js: changes are shown and
-  // gate the checkout, but only the rep's explicit acceptance edits the cart.
-  const batchIdsKey = cartBatchIds(items).join("|");
-  const [liveStock, setLiveStock] = useState({ key: null, batches: null, todayIso: null, failed: false });
-  useEffect(() => {
-    if (!batchIdsKey) return undefined;
-    return subscribeInventoryBatches(
-      batchIdsKey.split("|"),
-      // Today (Manila) is read where the snapshot arrives, never in render.
-      (batches) => setLiveStock({ key: batchIdsKey, batches, todayIso: manilaToday(new Date()), failed: false }),
-      () => setLiveStock({ key: batchIdsKey, batches: null, todayIso: null, failed: true })
-    );
-  }, [batchIdsKey]);
-  const liveStatus = !batchIdsKey
-    ? "live"
-    : liveStock.key !== batchIdsKey
-      ? "loading"
-      : liveStock.failed
-        ? "failed"
-        : "live";
-  // The cart's vaccine products, for the full SKU, the CURRENT VAT class the
-  // server will snapshot, and whether the product was archived (only these
-  // products, never the whole catalog).
-  const vaccineIdsKey = [
-    ...new Set((liveStock.batches || []).map((b) => b.vaccineId).filter((id) => typeof id === "string" && id)),
-  ]
-    .sort()
-    .join("|");
-  const [catalog, setCatalog] = useState({ key: null, byId: new Map() });
-  useEffect(() => {
-    if (!vaccineIdsKey) return undefined;
-    return subscribeVaccinesByIds(
-      vaccineIdsKey.split("|"),
-      (docs) => setCatalog({ key: vaccineIdsKey, byId: new Map(docs.map((d) => [d.id, d])) }),
-      () => setCatalog({ key: vaccineIdsKey, byId: new Map() })
-    );
-  }, [vaccineIdsKey]);
-  const displayItems = useMemo(
-    // An archived product blocks its lines here; the server refuses it anyway.
-    () => liveCartLines(items, liveStock.batches, liveStock.todayIso, catalog.byId),
-    [items, liveStock, catalog]
-  );
+  const [items, setItems] = useState(() => restoreCartItems(localStorage, uid));
+  // The cart's OWN batches and products as they are now (useCartLiveStock.js):
+  // changes are shown and gate the checkout, but only the rep's explicit
+  // acceptance edits the cart.
+  const { displayItems, liveStatus, batches: liveBatches, vaccinesById } = useCartLiveStock(items);
   const review = cartReview(displayItems, liveStatus);
   const handleAcceptLine = (line) => setItems((current) => acceptLiveLine(current, line));
+  const [selectedDoctorId, setSelectedDoctorId] = useState(initialCheckout.doctorId);
+  const [selectedDestinationId, setSelectedDestinationId] = useState("");
+  const [requestedDate, setRequestedDate] = useState(initialCheckout.requestedDeliveryDate);
+  const [zeroRateRequests, setZeroRateRequests] = useState([]);
+  const [zeroRateError, setZeroRateError] = useState("");
+  const [zeroRateLoadError, setZeroRateLoadError] = useState(null);
+  const [zeroRateReason, setZeroRateReason] = useState("");
+  const [zeroRateBusy, setZeroRateBusy] = useState(false);
+  const [zeroRateExpanded, setZeroRateExpanded] = useState(false);
+  const [zeroRateSentId, setZeroRateSentId] = useState("");
+  const [submittedZeroRate, setSubmittedZeroRate] = useState(null);
+  useEffect(() => {
+    if (!uid) return undefined;
+    return subscribeOwnZeroRateRequests(uid, (rows) => {
+      setZeroRateRequests(rows);
+      setZeroRateLoadError(null);
+      setSubmittedZeroRate((current) => current && rows.some((row) => row.id === current.id) ? null : current);
+    }, setZeroRateLoadError);
+  }, [uid]);
+  const visibleZeroRateRequests = submittedZeroRate && !zeroRateRequests.some((row) => row.id === submittedZeroRate.id)
+    ? [...zeroRateRequests, submittedZeroRate] : zeroRateRequests;
+  const approvalOrder = {
+    doctorId: selectedDoctorId,
+    doctorAddressId: selectedDestinationId || pendingRestore?.destinationId,
+    requestedDeliveryDate: requestedDate,
+    items,
+  };
+  const approvedRequest = approvedZeroRateForOrder(visibleZeroRateRequests, {
+    ...approvalOrder, recoveryAllowed, recoveryApprovalId, restored,
+  });
 
-  // ---- final price review (negotiated pricing; services/negotiatedPricing.js) ----
-  // The rep's agreed-price TEXT and reason per line, keyed by batch. A line
-  // with no entry is at its standard price. Nothing here is a total: every
-  // figure is derived from quantity × unit price in integer centavos, and the
-  // server recomputes all of it from the batch it re-reads.
-  const [negotiation, setNegotiation] = useState(initialReview.negotiation);
-  const reviewLines = useMemo(() => {
-    const batchById = new Map((liveStock.batches || []).map((b) => [b.id, b]));
-    return displayItems.map((item) => {
-      const vaccine = catalog.byId.get(batchById.get(item.inventoryId)?.vaccineId);
-      const vatClassification = readVatClassification(vaccine?.vatClassification) ?? item.vatClassification ?? null;
-      const entry = negotiation[item.inventoryId] || {};
-      return {
-        item,
-        catalogSku: typeof vaccine?.internalSku === "string" && vaccine.internalSku.trim() ? vaccine.internalSku.trim() : null,
-        vatClassification,
-        agreedText: entry.agreedInput ?? agreedInputFor(item.expectedUnitPriceCentavos),
-        reasonText: entry.reason ?? "",
-        // No SC/PWD discount is entered at checkout, so none is passed: the
-        // line is reviewed — and sent — at its agreed price with no discount.
-        price: priceReviewLine({
-          quantity: item.quantity,
-          expectedUnitPriceCentavos: item.expectedUnitPriceCentavos,
-          vatClassification,
-          agreedInput: entry.agreedInput,
-          negotiationReason: entry.reason ?? "",
-        }),
-      };
-    });
-  }, [displayItems, liveStock, catalog, negotiation]);
-  const priceSummary = summarizeReviewVat(reviewLines.map((l) => l.price));
-  const pricingCheck = reviewProblems(reviewLines.map((l) => l.price));
-  const reviewByBatch = new Map(reviewLines.map((l) => [l.item.inventoryId, l]));
-  const setAgreedInput = (inventoryId, agreedInput) =>
-    setNegotiation((current) => ({ ...current, [inventoryId]: { ...current[inventoryId], agreedInput } }));
-  const setNegotiationReason = (inventoryId, reason) =>
-    setNegotiation((current) => ({ ...current, [inventoryId]: { ...current[inventoryId], reason } }));
-  // Reset to standard price: the PRICE follows the standard again and its
-  // reason is dropped.
-  const resetToStandard = (inventoryId) =>
-    setNegotiation((current) => {
-      const rest = { ...(current[inventoryId] || {}) };
-      delete rest.agreedInput;
-      delete rest.reason;
-      return { ...current, [inventoryId]: rest };
-    });
-  // A removed line takes its price and reason with it.
-  const clearLinePricing = (inventoryId) =>
-    setNegotiation((current) => {
-      const next = { ...current };
-      delete next[inventoryId];
-      return next;
-    });
+  // ---- final price review (negotiated pricing; useCheckoutPriceReview.js) ----
+  const {
+    negotiation,
+    reviewLines,
+    priceSummary,
+    pricingCheck,
+    reviewByBatch,
+    setAgreedInput,
+    setNegotiationReason,
+    resetToStandard,
+    clearLinePricing,
+  } = useCheckoutPriceReview({
+    initialNegotiation: initialReview.negotiation,
+    displayItems,
+    batches: liveBatches,
+    vaccinesById,
+    approvedZeroRate: Boolean(approvedRequest),
+  });
   /** The reconfirmation dialog is open. Nothing is sent until it is confirmed. */
   const [confirmOpen, setConfirmOpen] = useState(false);
   /** Set only by the dialog's Confirm button, immediately before it submits. */
@@ -374,16 +207,12 @@ function SalesRepPlaceOrder() {
 
   const [doctors, setDoctors] = useState([]);
   const [doctorsLoading, setDoctorsLoading] = useState(true);
-  const [selectedDoctorId, setSelectedDoctorId] = useState(initialCheckout.doctorId);
-  // The last address snapshot, tagged with the doctor it belongs to. Written
-  // only by the subscription's callbacks; what the page shows is derived from
-  // it below, so a doctor change never needs a synchronous reset in an effect
-  // and another doctor's addresses can never be shown for this one.
-  const [addressBook, setAddressBook] = useState({ doctorId: null, docs: [] });
-  // Every active doctor's addresses, keyed by doctor id — used only to decide
-  // which doctors this Med Rep's territory reaches.
-  const [addressesByDoctor, setAddressesByDoctor] = useState({});
-  const [selectedDestinationId, setSelectedDestinationId] = useState("");
+  // Every reachable doctor's destinations, keyed by doctor id, tagged with the
+  // active-doctor list they were fetched for. The server returns only links
+  // inside this Med Rep's territory — a Med Rep cannot read doctor addresses
+  // (including private Home addresses) directly. Written only by the fetch's
+  // callbacks; everything shown is derived from it below.
+  const [destinationBook, setDestinationBook] = useState({ key: null, byDoctor: {} });
   const [clinics, setClinics] = useState([]);
   const [clinicsLoading, setClinicsLoading] = useState(true);
   // One entry per source, so a source that recovers clears only its own
@@ -395,7 +224,6 @@ function SalesRepPlaceOrder() {
     setDestinationLoadErrors((prev) => (prev[source] === message ? prev : { ...prev, [source]: message }));
   const [instructions, setInstructions] = useState(initialReview.deliveryInstructions);
   // Exact 'YYYY-MM-DD' text, never parsed into a Date, so it cannot shift.
-  const [requestedDate, setRequestedDate] = useState(initialCheckout.requestedDeliveryDate);
   // Optional requested ARRIVAL at the destination on that date (mode + only
   // the times it needs). Restored like the date: from a pending attempt's
   // snapshot, else the saved draft; any time within the day otherwise.
@@ -459,37 +287,12 @@ function SalesRepPlaceOrder() {
     return unsubscribe;
   }, []);
 
-  // Subscribe to the selected doctor's addresses. The effect only subscribes;
-  // clearing the previous doctor's addresses and destination happens in
-  // handleDoctorChange, the event that changes the doctor.
-  useEffect(() => {
-    if (!selectedDoctorId) return undefined;
-
-    const unsubscribe = subscribeDoctorAddresses(
-      selectedDoctorId,
-      (docs) => {
-        // A restored destination is NOT applied here: it is verified against
-        // this doctor's options once they (and the clinics they reference)
-        // have loaded — see resolveRestoredDestination below.
-        setAddressBook({ doctorId: selectedDoctorId, docs });
-        setSourceError("addresses", "");
-      },
-      (error) => {
-        // Loaded, with nothing usable — ends the loading state.
-        setAddressBook({ doctorId: selectedDoctorId, docs: [] });
-        setSourceError("addresses", liveErrorMessage(error, "that doctor's delivery addresses"));
-      }
-    );
-
-    return unsubscribe;
-  }, [selectedDoctorId]);
-
   // The Med Rep's own territory (Admin-assigned, read-only to them).
   const { profile: ownProfile, loading: profileLoading } = useOwnProfile();
   const territory = useMemo(() => readTerritory(ownProfile), [ownProfile]);
 
-  // Subscribe to every active doctor's addresses. The effect only subscribes;
-  // state changes come from the snapshot callbacks.
+  // Fetch the reachable destinations again whenever the active-doctor list
+  // changes. The effect only fetches; state changes come from its callbacks.
   const activeDoctorKey = doctors
     .filter((doctor) => doctor.active === true)
     .map((doctor) => doctor.id)
@@ -497,18 +300,27 @@ function SalesRepPlaceOrder() {
     .join("|");
   useEffect(() => {
     if (!activeDoctorKey) return undefined;
-    const unsubscribes = activeDoctorKey.split("|").map((doctorId) =>
-      subscribeDoctorAddresses(
-        doctorId,
-        (docs) => setAddressesByDoctor((current) => ({ ...current, [doctorId]: docs })),
-        () => setAddressesByDoctor((current) => ({ ...current, [doctorId]: [] }))
-      )
+    let current = true;
+    fetchMedRepDoctorAddresses().then(
+      (byDoctor) => {
+        if (!current) return;
+        setDestinationBook({ key: activeDoctorKey, byDoctor });
+        setSourceError("addresses", "");
+      },
+      (error) => {
+        if (!current) return;
+        logSafeError("fetchMedRepDoctorAddresses", error);
+        // Loaded, with nothing usable — ends the loading state.
+        setDestinationBook({ key: activeDoctorKey, byDoctor: {} });
+        setSourceError("addresses", liveErrorMessage(error, "doctors' delivery addresses"));
+      }
     );
-    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
+    return () => {
+      current = false;
+    };
   }, [activeDoctorKey]);
-  const territoryAddressesReady = activeDoctorKey
-    .split("|")
-    .every((doctorId) => !doctorId || doctorId in addressesByDoctor);
+  const territoryAddressesReady = !activeDoctorKey || destinationBook.key === activeDoctorKey;
+  const addressesByDoctor = activeDoctorKey ? destinationBook.byDoctor : EMPTY_BY_DOCTOR;
   // Doctors, clinics, the territory and (when one is assigned) every doctor's
   // addresses must all be loaded before the list can be trusted.
   const doctorListLoading =
@@ -517,10 +329,13 @@ function SalesRepPlaceOrder() {
     profileLoading ||
     (territory.assigned && !territoryAddressesReady);
 
-  // Derived, never stored: this doctor's addresses once their snapshot has
-  // arrived, and "loading" until it has.
-  const addressesReady = !!selectedDoctorId && addressBook.doctorId === selectedDoctorId;
-  const doctorAddresses = addressesReady ? addressBook.docs : EMPTY_ADDRESSES;
+  // Derived, never stored: this doctor's reachable destinations once the
+  // fetch has arrived, and "loading" until it has. A restored destination is
+  // verified against them — see resolveRestoredDestination below.
+  const addressesReady = !!selectedDoctorId && territoryAddressesReady;
+  const doctorAddresses = addressesReady
+    ? addressesByDoctor[selectedDoctorId] ?? EMPTY_ADDRESSES
+    : EMPTY_ADDRESSES;
   const addressesLoading = !!selectedDoctorId && !addressesReady;
 
   // A USER changing (or clearing) the doctor: the new doctor starts with no
@@ -529,7 +344,6 @@ function SalesRepPlaceOrder() {
   // Initial restoration after a refresh does not pass through here.
   const handleDoctorChange = (doctorId) => {
     setSelectedDoctorId(doctorId);
-    setAddressBook({ doctorId: null, docs: [] });
     setSelectedDestinationId("");
     setPendingRestore(null);
   };
@@ -569,6 +383,36 @@ function SalesRepPlaceOrder() {
   const destinationId = selectedDestinationId !== "" ? selectedDestinationId : restore.destinationId;
   const selectedDestination =
     destinationOptions.find((destination) => destination.id === destinationId) || null;
+  const matchingRequests = matchingZeroRateOrderRequests(visibleZeroRateRequests, {
+    doctorId: selectedDoctor?.id, doctorAddressId: selectedDestination?.id,
+    requestedDeliveryDate: requestedDate, items,
+  });
+  const handleZeroRateRequest = async () => {
+    if (!selectedDoctor || !selectedDestination || !requestedDate) {
+      setZeroRateError("Select a doctor, delivery address and date first."); return;
+    }
+    setZeroRateBusy(true); setZeroRateError("");
+    try {
+      const result = await requestZeroRateApproval({
+        doctorId: selectedDoctor.id, doctorAddressId: selectedDestination.id,
+        requestedDeliveryDate: requestedDate, reason: zeroRateReason.trim(),
+        items: items.map((item) => ({ inventoryId: item.inventoryId, quantity: Number(item.quantity) })),
+      });
+      setSubmittedZeroRate({
+        id: result.requestId, status: "pending", doctorId: selectedDoctor.id,
+        doctorAddressId: selectedDestination.id, requestedDeliveryDate: requestedDate,
+        items: items.map((item) => ({ inventoryId: item.inventoryId, quantity: Number(item.quantity) })),
+        createdAt: { toMillis: () => Number.MAX_SAFE_INTEGER },
+      });
+      setZeroRateSentId(result.requestId);
+      setZeroRateExpanded(false);
+      setZeroRateReason("");
+    } catch (error) {
+      setZeroRateError(error?.code === "functions/not-found"
+        ? "Zero-rating review is not available in this environment yet. Ask an administrator to enable it."
+        : friendlyErrorMessage(error, "The zero-rating review request could not be sent. The review service may not be available here yet; please contact an administrator."));
+    } finally { setZeroRateBusy(false); }
+  };
   // A saved doctor or destination that is no longer permitted was dropped, not
   // silently kept: the rep is told to choose again.
   const savedSelectionDropped =
@@ -677,6 +521,8 @@ function SalesRepPlaceOrder() {
       return;
     }
     discardOrderAttempt(localStorage, uid);
+    setRecoveryAllowed(false);
+    setRecoveryApprovalId("");
     setDiscardConfirmOpen(false);
     setAttemptConflict(false);
     setMessage(
@@ -828,6 +674,7 @@ function SalesRepPlaceOrder() {
       deliveryInstructions: instructions.trim(),
       requestedDeliveryDate: requestedCheck.value,
       requestedArrival: arrivalCheck.value,
+      ...(approvedRequest ? { zeroRateRequestId: approvedRequest.id } : {}),
       // Per line: the reviewed standard, the agreed UNIT price and (only when
       // negotiated) its reason. No total and no VAT figure is ever sent.
       items: items.map((item) => ({
@@ -838,6 +685,7 @@ function SalesRepPlaceOrder() {
     };
 
     setSaving(true);
+    if (approvedRequest) { setRecoveryAllowed(true); setRecoveryApprovalId(approvedRequest.id); }
     setMessage("");
     setAttemptConflict(false);
     setDiscardConfirmOpen(false);
@@ -863,6 +711,7 @@ function SalesRepPlaceOrder() {
             requestId,
             doctorId: submission.doctorId,
             doctorAddressId: submission.doctorAddressId,
+            zeroRateRequestId: submission.zeroRateRequestId,
             priority: submission.priority,
             deliveryInstructions: submission.deliveryInstructions,
             // Required: validateRequestedDate has refused a blank date above,
@@ -1037,7 +886,7 @@ function SalesRepPlaceOrder() {
               <tbody>
                 {filteredItems.length > 0 ? (
                   filteredItems.map((item) => (
-                    <OrderRow
+                    <OrderCartRow
                       key={item.inventoryId}
                       item={item}
                       price={reviewByBatch.get(item.inventoryId)?.price}
@@ -1213,6 +1062,45 @@ function SalesRepPlaceOrder() {
             </label>
           </div>
 
+          <div className="destination-card zero-rate-checkout-card">
+            <div className="zero-rate-checkout-heading">
+              <h2>Zero-rating request</h2>
+              <span>Optional</span>
+            </div>
+            {approvedRequest ? (
+              <div className="zero-rate-checkout-status is-approved" role="status">
+                <CheckCircle2 size={19} aria-hidden="true" />
+                <div><strong>Approved for this order</strong><p>Zero-rating is applied automatically in the price review.</p></div>
+              </div>
+            ) : matchingRequests.some((row) => row.status === "pending") ? (
+              <div className="zero-rate-checkout-status is-pending" role="status">
+                <CheckCircle2 size={19} aria-hidden="true" />
+                <div><strong>{matchingRequests.some((row) => row.id === zeroRateSentId) ? "Request sent for Admin review" : "Waiting for Admin review"}</strong>
+                  <p>The request was saved for this doctor, address, date and vial list. Standard VAT applies until Admin accepts it.</p></div>
+              </div>
+            ) : (
+              <>
+                <p className="zero-rate-checkout-intro">Use this only when the customer asks about a potentially eligible zero-rated sale. Orders can be placed with standard VAT without a request.</p>
+                {matchingRequests[0]?.status === "rejected" && <p className="zero-rate-checkout-denied" role="status">The previous request was denied. You may submit a new reason for review.</p>}
+                <button type="button" className="zero-rate-checkout-toggle" aria-expanded={zeroRateExpanded} aria-controls="zero-rate-request-form" onClick={() => setZeroRateExpanded((open) => !open)}>
+                  {zeroRateExpanded ? "Close request" : matchingRequests[0]?.status === "rejected" ? "Request another review" : "Request zero-rating"}
+                  <ChevronDown size={16} aria-hidden="true" />
+                </button>
+                {zeroRateExpanded && <div id="zero-rate-request-form" className="zero-rate-checkout-form">
+                  <p>Admin reviews the reason and order details before the order is placed.</p>
+                  <label htmlFor="zero-rate-reason">Reason for requesting zero-rating</label>
+                  <textarea id="zero-rate-reason" value={zeroRateReason} onChange={(event) => setZeroRateReason(event.target.value)} maxLength={500} placeholder="Explain why this customer’s order may qualify" />
+                  <button type="button" className="zero-rate-checkout-submit" onClick={handleZeroRateRequest} disabled={zeroRateBusy || saving || !selectedDoctor || !selectedDestination || !requestedDate || !reviewLines.some((line) => line.vatClassification === "vatable") || !zeroRateReason.trim()}>
+                    {zeroRateBusy ? "Sending request…" : "Send to Admin for review"}
+                  </button>
+                  {!reviewLines.some((line) => line.vatClassification === "vatable") && <p role="status">This order has no VATable items that need zero-rating.</p>}
+                  {zeroRateError && <p role="alert" className="zero-rate-checkout-error">{zeroRateError}</p>}
+                </div>}
+              </>
+            )}
+            {zeroRateLoadError && <p role="alert" className="zero-rate-checkout-error">{liveErrorMessage(zeroRateLoadError, "zero-rating requests")} Approval status will appear when access is restored.</p>}
+          </div>
+
           <div className="pricing-card place-v2-pricing-card">
             <h2>Order Summary</h2>
 
@@ -1241,8 +1129,7 @@ function SalesRepPlaceOrder() {
                 the server records the binding figures. */}
             <VatBreakdown summary={priceSummary} />
             <p className="place-v2-price-note">
-              {VAT_INCLUSIVE_NOTE} Prices are confirmed against the batch when
-              the order is placed.
+              Batch prices use the basis set by Admin. {approvedRequest ? "Approved zero-rating is included in this review." : "VATable items include 12% VAT."} Prices are confirmed when the order is placed.
             </p>
 
             {mayBackorder && (
@@ -1311,343 +1198,6 @@ function SalesRepPlaceOrder() {
         </DialogLayer>
       )}
     </>
-  );
-}
-
-/** Available now vs. what this line would backorder, in words. */
-function stockText(item) {
-  const vials = (n) => `${n.toLocaleString()} ${n === 1 ? "vial" : "vials"}`;
-  if (item.availableNow === 0) return "Out of stock — future order";
-  if (item.quantity > item.availableNow) {
-    return `Available now: ${vials(item.availableNow)} · about ${vials(item.quantity - item.availableNow)} backordered`;
-  }
-  return `Available: ${vials(item.availableNow)}`;
-}
-
-function OrderRow({ item, price, review, onAccept, onDecrease, onIncrease, onRemove }) {
-  return (
-    <tr className={review ? "place-v2-row-review" : undefined}>
-      <td>
-        <strong>{item.name}</strong>
-        {item.batchGone ? (
-          <small className="place-v2-line-alert">This batch is no longer available. Remove it to continue.</small>
-        ) : item.liveBlockedReason ? (
-          <small className="place-v2-line-alert">{item.liveBlockedReason} Remove it to continue.</small>
-        ) : (
-          item.availableNow !== null && <small>{stockText(item)}</small>
-        )}
-        {item.live && item.priceChanged && (
-          <small className="place-v2-line-alert">
-            {item.livePriceCentavos === null
-              ? "This batch no longer has a price. Remove it to continue."
-              : `Price changed: ${formatCentavos(item.expectedUnitPriceCentavos)} in your cart, ${formatCentavos(item.livePriceCentavos)} now.`}
-          </small>
-        )}
-        {review === "accept-stock" && (
-          <small className="place-v2-line-alert">
-            Stock changed: you saw {Number(item.cartAvailable).toLocaleString()} available; part of this line would now be backordered.
-          </small>
-        )}
-        {(review === "accept-price" || review === "accept-stock") && (
-          <button type="button" className="place-v2-accept-btn" onClick={onAccept}>
-            {review === "accept-price" ? `Accept ${formatCentavos(item.livePriceCentavos)}` : "Accept current stock"}
-          </button>
-        )}
-        <small className="place-v2-vat">
-          {item.vatClassification ? PRODUCT_VAT_LABELS[item.vatClassification] : "VAT status confirmed when placed"}
-        </small>
-      </td>
-
-      <td>
-        {item.sku}
-      </td>
-
-      <td>
-        <div className="qty-mini place-v2-qty-mini">
-          <button type="button" onClick={onDecrease}>−</button>
-          <span>{item.quantity}</span>
-          <button type="button" onClick={onIncrease}>+</button>
-        </div>
-      </td>
-
-      {/* The AGREED price (the standard unless negotiated below), and the
-          line's FINAL total. A figure that could not be read shows a dash
-          rather than a zero. */}
-      <td className="tnum">
-        {price?.agreedUnitPriceCentavos != null ? formatCentavos(price.agreedUnitPriceCentavos) : "—"}
-        {price?.priceNegotiated && <small className="place-v2-negotiated-tag">{NEGOTIATED_PRICE_LABEL}</small>}
-      </td>
-
-      <td className="tnum">
-        {price?.finalLineTotalCentavos != null ? formatAmount(price.finalLineTotalCentavos) : "—"}
-      </td>
-
-      <td>
-        <button type="button" className="place-v2-remove-btn" onClick={onRemove}>
-          <Trash2 size={15} />
-        </button>
-      </td>
-    </tr>
-  );
-}
-
-/** Signed peso amount for an adjustment ("−₱450.00" / "+₱50.00" / "₱0.00"). */
-function formatAdjustment(centavos) {
-  if (centavos === null || centavos === undefined) return "—";
-  if (centavos === 0) return "₱0.00";
-  const sign = centavos < 0 ? "−" : "+";
-  return `${sign}${formatCentavos(Math.abs(centavos))}`;
-}
-
-/** formatCentavos shows "—" for zero (not a price); a line or breakdown amount of ₱0.00 is real. */
-function formatAmount(centavos) {
-  return centavos === 0 ? "₱0.00" : formatCentavos(centavos);
-}
-
-function vatLabelFor(cls) {
-  return cls ? PRODUCT_VAT_LABELS[cls] : "VAT status confirmed when placed";
-}
-
-/**
- * The final price review, per line: the standard unit price, an editable AGREED
- * unit price (VAT-inclusive) with its reason, and the negotiated and final line
- * totals. Totals are derived in integers; there is no total input. Checkout
- * offers no SC/PWD discount entry, so every line is placed without one.
- */
-function PriceReview({
-  lines,
-  disabled,
-  onAgreedChange,
-  onReasonChange,
-  onReset,
-}) {
-  if (lines.length === 0) return null;
-  return (
-    <section className="place-v2-price-review" aria-labelledby="price-review-title">
-      <div className="place-v2-price-review-head">
-        <h2 id="price-review-title">Final price review</h2>
-        <p>
-          Confirm each line&apos;s agreed unit price. Prices are VAT-inclusive for VATable products; change
-          a price only when it has been agreed with the client, and give the reason.
-        </p>
-      </div>
-      <ul className="place-v2-price-lines">
-        {lines.map(({ item, catalogSku, vatClassification, agreedText, reasonText, price }) => {
-          const inputId = `agreed-${item.inventoryId}`;
-          const reasonId = `reason-${item.inventoryId}`;
-          const errorId = `agreed-error-${item.inventoryId}`;
-          const flagged = price.priceNegotiated;
-          return (
-            <li key={item.inventoryId} className={`place-v2-price-line${flagged ? " negotiated" : ""}`}>
-              <div className="place-v2-price-product">
-                <strong>{item.name}</strong>
-                <span className="place-v2-price-meta">
-                  {catalogSku ? <>SKU {catalogSku} · </> : null}Batch {item.sku} · Qty {item.quantity.toLocaleString()}
-                </span>
-                <span className="place-v2-price-meta">
-                  {vatLabelFor(vatClassification)}
-                  {vatClassification === "vatable" && " · VAT included"}
-                </span>
-                {price.priceNegotiated && <span className="place-v2-negotiated-tag">{NEGOTIATED_PRICE_LABEL}</span>}
-              </div>
-
-              <dl className="place-v2-price-figures">
-                <div>
-                  <dt>Standard unit price</dt>
-                  <dd className="tnum">{formatCentavos(price.standardUnitPriceCentavos)}</dd>
-                </div>
-                <div>
-                  <dt>Negotiated line total</dt>
-                  <dd className="tnum">{price.negotiatedGrossCentavos != null ? formatCentavos(price.negotiatedGrossCentavos) : "—"}</dd>
-                </div>
-                <div>
-                  <dt>Price adjustment</dt>
-                  <dd className="tnum">{formatAdjustment(price.negotiatedAdjustmentCentavos)}</dd>
-                </div>
-                <div>
-                  <dt>Final line total</dt>
-                  <dd className="tnum">{price.finalLineTotalCentavos != null ? formatAmount(price.finalLineTotalCentavos) : "—"}</dd>
-                </div>
-              </dl>
-
-              <div className="place-v2-price-edit">
-                <label htmlFor={inputId}>
-                  Agreed unit price (VAT-inclusive) for {item.name}
-                </label>
-                <div className="place-v2-price-input">
-                  <span aria-hidden="true">₱</span>
-                  <input
-                    id={inputId}
-                    type="text"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={agreedText}
-                    disabled={disabled}
-                    aria-invalid={price.priceError ? "true" : "false"}
-                    aria-describedby={price.priceError ? errorId : undefined}
-                    onChange={(event) => onAgreedChange(item.inventoryId, event.target.value)}
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="place-v2-reset-btn"
-                  onClick={() => onReset(item.inventoryId)}
-                  disabled={disabled || (!price.priceNegotiated && !price.priceError)}
-                  aria-label={`Reset ${item.name} to the standard price`}
-                >
-                  Reset to standard price
-                </button>
-                {price.priceError && (
-                  <p id={errorId} className="place-v2-price-error" role="alert">
-                    {price.priceError}
-                  </p>
-                )}
-              </div>
-
-              {price.priceNegotiated && (
-                <div className="place-v2-price-reason">
-                  <label htmlFor={reasonId}>Reason for the negotiated price (required)</label>
-                  <textarea
-                    id={reasonId}
-                    rows={2}
-                    maxLength={500}
-                    value={reasonText}
-                    disabled={disabled}
-                    aria-invalid={price.reasonError ? "true" : "false"}
-                    onChange={(event) => onReasonChange(item.inventoryId, event.target.value)}
-                    placeholder="e.g. Volume agreement with the clinic"
-                  />
-                  {price.reasonError && (
-                    <p className="place-v2-price-error" role="alert">
-                      {price.reasonError}
-                    </p>
-                  )}
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </section>
-  );
-}
-
-/**
- * The order's figures: negotiated subtotal, the VAT breakdown and the final
- * total. They reconcile: negotiated subtotal = final total = the VAT parts.
- */
-function VatBreakdown({ summary }) {
-  if (!summary) {
-    return (
-      <p className="place-v2-price-note" role="status">
-        The totals appear once every line has a valid agreed price and VAT classification.
-      </p>
-    );
-  }
-  return (
-    <dl className="place-v2-vat-breakdown">
-      {summary.negotiatedAdjustmentCentavos !== 0 && (
-        <div>
-          <dt>Standard total</dt>
-          <dd className="tnum">{formatAmount(summary.standardTotalCentavos)}</dd>
-        </div>
-      )}
-      <div>
-        <dt>Negotiated subtotal</dt>
-        <dd className="tnum">{formatAmount(summary.negotiatedSubtotalCentavos)}</dd>
-      </div>
-      <div>
-        <dt>VATable sales (net of VAT)</dt>
-        <dd className="tnum">{formatAmount(summary.vatableSalesCentavos)}</dd>
-      </div>
-      <div>
-        <dt>VAT-exempt sales</dt>
-        <dd className="tnum">{formatAmount(summary.vatExemptSalesCentavos)}</dd>
-      </div>
-      <div>
-        <dt>Zero-rated sales</dt>
-        <dd className="tnum">{formatAmount(summary.zeroRatedSalesCentavos)}</dd>
-      </div>
-      <div>
-        <dt>VAT (12%)</dt>
-        <dd className="tnum">{formatAmount(summary.vatAmountCentavos)}</dd>
-      </div>
-      <div className="place-v2-final-total">
-        <dt>Final total (VAT-inclusive)</dt>
-        <dd className="tnum">{formatAmount(summary.totalCentavos)}</dd>
-      </div>
-    </dl>
-  );
-}
-
-/**
- * Explicit reconfirmation before the order is created: who and where, every
- * line with its classification, standard vs agreed price and reason where
- * negotiated, the totals and the final total.
- */
-function ReconfirmDialog({ doctorName, destination, lines, summary, schedule, saving, onCancel, onConfirm }) {
-  const focusFirst = useCallback((node) => node?.focus(), []);
-  return (
-    <div className="place-v2-confirm-backdrop">
-      <div
-        className="place-v2-confirm"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="reconfirm-title"
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && !saving) onCancel();
-        }}
-      >
-        <h2 id="reconfirm-title" tabIndex={-1} ref={focusFirst}>
-          Confirm order and prices
-        </h2>
-        <p className="place-v2-confirm-dest">
-          <strong>{doctorName}</strong>
-          <span>{destination}</span>
-        </p>
-        {schedule && (
-          <p className="place-v2-confirm-schedule">
-            <span>Requested delivery (arrival at the destination)</span>
-            <strong>{schedule}</strong>
-          </p>
-        )}
-        <ul className="place-v2-confirm-lines">
-          {lines.map(({ item, vatClassification, price }) => (
-            <li key={item.inventoryId}>
-              <div>
-                <strong>{item.name}</strong>
-                <span>
-                  Qty {item.quantity.toLocaleString()} · {vatLabelFor(vatClassification)}
-                </span>
-              </div>
-              <div className="tnum">
-                {price.priceNegotiated ? (
-                  <>
-                    <span>
-                      {NEGOTIATED_PRICE_LABEL}: {formatCentavos(price.agreedUnitPriceCentavos)}
-                      <small> (standard {formatCentavos(price.standardUnitPriceCentavos)})</small>
-                    </span>
-                    <span className="place-v2-confirm-reason">Reason: {price.negotiationReason}</span>
-                  </>
-                ) : (
-                  <span>{formatCentavos(price.agreedUnitPriceCentavos)} each</span>
-                )}
-                <strong>{formatAmount(price.finalLineTotalCentavos)}</strong>
-              </div>
-            </li>
-          ))}
-        </ul>
-        <VatBreakdown summary={summary} />
-        <div className="place-v2-confirm-actions">
-          <button type="button" className="place-v2-add-more" onClick={onCancel} disabled={saving}>
-            Back to review
-          </button>
-          <button type="button" className="place-v2-confirm-btn" onClick={onConfirm} disabled={saving} aria-busy={saving}>
-            {saving ? "Placing order…" : "Confirm and place order"}
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 

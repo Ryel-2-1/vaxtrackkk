@@ -661,6 +661,9 @@ function deviationDisplayState(stateDoc) {
   if (stateDoc.routeStatus !== "available") return "route_unavailable";
   if (stateDoc.phase === "deviating") return "deviating";
   if (stateDoc.pendingOffSinceMs != null) return "pending_deviation";
+  // No usable fix of this session measured yet: "on route" would be a claim
+  // the server has not made (a new session starts in phase on_route).
+  if (stateDoc.lastQualifyingFixAtMs == null) return "checking";
   return "on_route";
 }
 

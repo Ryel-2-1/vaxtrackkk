@@ -7,8 +7,8 @@
 //      field-validation helpers, dialog keyboard logic and toast tones.
 //   2. Source contracts for page wiring that cannot run without a DOM: no
 //      native dialogs, no raw `.message` rendering, confirmations that name a
-//      target and a consequence, dialogs that stay open on failure, disabled
-//      placeholder controls, accessible field errors.
+//      target and a consequence, dialogs that stay open on failure, no
+//      unavailable action controls, accessible field errors.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -59,8 +59,8 @@ function walk(dir) {
 const SRC = walk(join(root, "src")).filter((p) => /\.(jsx?|mjs)$/.test(p));
 const UI = SRC.filter((p) => /[\\/](pages|components)[\\/]/.test(p));
 const rel = (p) => relative(root, p).replace(/\\/g, "/");
-// A developer-only diagnostic, mounted only behind VITE_GOOGLE_MAPS_FEASIBILITY.
-const DEV_ONLY = new Set(["src/pages/dev/GoogleMapsFeasibility.jsx"]);
+// Developer-only diagnostics exempt from the user-message checks (none today).
+const DEV_ONLY = new Set();
 
 const fbError = (code, message = `raw firebase text for ${code}`) => {
   const e = new Error(message);
@@ -386,7 +386,7 @@ test("success appears only after the authoritative write", () => {
   const order = [
     ["src/pages/admin/Riders.jsx", "await updateRiderStatus(", 'showToast(meta.done(rider.name), "success")'],
     ["src/pages/admin/Alerts.jsx", "await resolveAlert(alertId);", 'showToast("Alert marked as resolved.", "success")'],
-    ["src/pages/admin/Settings.jsx", "await updateUserStatus(uid, firestoreStatus);", "showToast(`User status updated to"],
+    ["src/pages/admin/Settings.jsx", "await setStaffStatus(uid, firestoreStatus);", "showToast(`User status updated to"],
     ["src/pages/dispatcher/DispatcherCargoLoading.jsx", "await finalizeRiderDispatch(", "showToast(`Dispatch finalized for"],
     ["src/pages/salesRep/SalesRepOrderTracking.jsx", "await reviewOrderDestinationChange(", '"Destination approved. The order now uses the new address."'],
     ["src/pages/admin/AddStock.jsx", "const report = await addStockBatch(", 'showMessage("Stock added successfully.", "success")'],
@@ -507,7 +507,7 @@ test("field validation is associated accessibly, and focus goes to the first inv
   assert.equal(validateStockCorrection({ newQuantity: -1, reason: "x" }).field, "quantity");
   assert.equal(validateStockCorrection({ newQuantity: 5, reservedQuantity: 0, reason: "" }).field, "reason");
   assert.equal(validateApplication({ name: "", email: "a@b.co" }).field, "name");
-  assert.equal(validateApplication({ name: "A", email: "a@b.co", role: "salesrep", password: "12345678", confirmPassword: "x" }).field, "confirmPassword");
+  assert.equal(validateApplication({ name: "A", email: "a@b.co", role: "salesrep", password: "StrongPass12!", confirmPassword: "x" }).field, "confirmPassword");
   assert.equal(registrationErrorField("auth/email-already-in-use"), "email");
   assert.equal(analyticsConfigPayload("v1", { leadTimeDays: "0", safetyMode: "quantity", safetyValue: "1" }).field, "leadTimeDays");
   assert.equal(analyticsConfigPayload("v1", { leadTimeDays: "5", safetyMode: "quantity", safetyValue: "-1" }).field, "safetyValue");
@@ -541,7 +541,8 @@ test("values survive a failed submission — failure paths never reset the form"
   const regCatch = /\} catch \(err\) \{([\s\S]*?)\} finally/.exec(register)[1];
   assert.equal(/set(FullName|Email|Password|ConfirmPassword)\(/.test(regCatch), false);
   // Place Order keeps the cart on failure.
-  assert.match(read("src/pages/salesRep/SalesRepPlaceOrder.jsx"), /Your cart and entries are still here/);
+  assert.match(read("src/pages/salesRep/SalesRepPlaceOrder.jsx"), /messageForCallableError\(error\)/);
+  assert.match(read("src/services/checkoutErrorMessages.js"), /Your cart and entries are still here/);
 });
 
 // ======================================================================
@@ -586,25 +587,14 @@ test("no raw provider HTTP status or provider text reaches the routing UI", () =
   assert.equal(/MISSING_KEY|API key not configured/.test(geo), false);
 });
 
-test("placeholder controls are disabled with an explanation — they cannot trigger false progress", () => {
+test("unavailable admin dialog actions do not imply progress", () => {
   const pages = {
-    // Alerts' "View Route" placeholder became a real "Open delivery" link
-    // (tests/alertPresentation.test.js); only "Contact Rider" is still unbuilt.
-    "src/pages/admin/Alerts.jsx": ["alert-unavailable-actions", ["Contact Rider"]],
-    "src/pages/admin/Riders.jsx": ["rider-unavailable-actions", ["Contact Rider", "View Route"]],
-    "src/pages/admin/Clinics.jsx": ["clinic-edit-unavailable", ["Edit Clinic"]],
+    "src/pages/admin/Riders.jsx": /View Route|rider-unavailable-actions/,
+    "src/pages/admin/Clinics.jsx": /Edit Clinic|clinic-edit-unavailable/,
   };
-  for (const [p, [noteId, labels]] of Object.entries(pages)) {
+  for (const [p, unavailableAction] of Object.entries(pages)) {
     const src = read(p);
-    assert.match(src, new RegExp(`id="${noteId}"`), `${p}: the explanation exists`);
-    for (const label of labels) {
-      const at = src.indexOf(label);
-      const tag = src.lastIndexOf("<button", at);
-      const button = src.slice(tag, src.indexOf(">", src.indexOf(`aria-describedby="${noteId}"`, tag)) + 1);
-      assert.match(button, /\bdisabled\b/, `${p}: ${label} is disabled`);
-      assert.match(button, new RegExp(`aria-describedby="${noteId}"`), `${p}: ${label} is described`);
-      assert.equal(/onClick/.test(button), false, `${p}: ${label} has no click handler`);
-    }
+    assert.doesNotMatch(src, unavailableAction, `${p}: unavailable action is absent`);
     // No toast pretends the action happened.
     assert.equal(/Contacting |Opening route|Editing \$\{|Grid view can be added|No new (clinic|rider) notifications/.test(src), false, p);
   }
@@ -613,6 +603,17 @@ test("placeholder controls are disabled with an explanation — they cannot trig
   // the fake one must not come back.
   assert.equal(/clinics-view-btn|Grid3X3|Grid view can be added/.test(read("src/pages/admin/Clinics.jsx")), false);
   assert.equal(/<Bell\b/.test(read("src/pages/admin/Riders.jsx")) || /<Bell\b/.test(read("src/pages/admin/Clinics.jsx")), false);
+});
+
+test("admin dialogs do not offer an unavailable rider contact action", () => {
+  for (const page of ["src/pages/admin/Alerts.jsx", "src/pages/admin/Riders.jsx"]) {
+    const src = read(page);
+    assert.doesNotMatch(src, /Contact Rider|PhoneCall|calling (?:a |the )?rider/i, page);
+  }
+  assert.match(read("src/pages/admin/Alerts.jsx"), /Open delivery/);
+  const tracking = read("src/components/tracking/LiveTrackingPanel.jsx");
+  assert.match(tracking, /<strong>\{rider\.phone\}<\/strong>/);
+  assert.doesNotMatch(tracking, /href=\{`tel:/);
 });
 
 test("the false-success Register Clinic page is gone; its paths go to the real registration", () => {
@@ -625,13 +626,15 @@ test("the false-success Register Clinic page is gone; its paths go to the real r
 
 test("existing business-domain messages remain intact", () => {
   const placeOrder = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
+  const checkoutErrors = read("src/services/checkoutErrorMessages.js");
+  assert.match(placeOrder, /messageForCallableError\(error\)/);
   for (const text of [
     "while you were ordering. Nothing was placed. Accept the new standard price on that line, check your agreed price, and confirm again.",
     "Give a reason for every negotiated price that differs from the standard price. Nothing was placed.",
     "An earlier attempt of this checkout was already placed with different details.",
     "One of these batches has expired and can no longer be ordered.",
   ]) {
-    assert.ok(placeOrder.includes(text), text);
+    assert.ok(checkoutErrors.includes(text), text);
   }
   // SC/PWD attestation, negotiated pricing and geofence sentences survive the mapper.
   const pricing = read("src/services/negotiatedPricing.js");
@@ -644,4 +647,13 @@ test("existing business-domain messages remain intact", () => {
   assert.match(read("src/services/assignmentQueue.js"), /This order no longer exists\. The list has been updated\./);
   // Invoice domain messages keep theirs.
   assert.match(read("src/services/invoiceCallables.js"), /This invoice has already been issued and can no longer be edited\./);
+});
+
+test("the Functions SDK's trailing HTTP status never reaches the screen", async () => {
+  const { friendlyErrorMessage: friendly, withoutTransportStatus } = await import("../src/services/liveDataErrors.js");
+  const { UserMessageError: Trusted } = await import("../src/services/userMessageError.js");
+  assert.equal(withoutTransportStatus("Enter a valid work email address. [400]"), "Enter a valid work email address.");
+  assert.equal(withoutTransportStatus("Only 4 left in batch HEP-001. [412]"), "Only 4 left in batch HEP-001.");
+  assert.equal(withoutTransportStatus("Keep [brackets] in the middle."), "Keep [brackets] in the middle.");
+  assert.equal(friendly(new Trusted("This email already has a VaxTrack account. [409]"), "fallback"), "This email already has a VaxTrack account.");
 });

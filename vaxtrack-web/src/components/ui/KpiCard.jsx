@@ -18,15 +18,18 @@ const DOT_COLOR = {
  * @param {string}  [tone]     neutral | success | info | warning | danger (context dot)
  * @param {boolean} [attention] red top rule + red value, for delayed/critical
  * @param {func}    [onClick]  renders the card as a button
+ * @param {boolean} [active]   the card is the selected filter tab (a clickable
+ *                             card only): green tint + border, aria-pressed
  */
-function KpiCard({ label, value, context, tone = "neutral", attention = false, onClick }) {
+function KpiCard({ label, value, context, tone = "neutral", attention = false, onClick, active }) {
   const Tag = onClick ? "button" : "div";
 
   return (
     <Tag
       type={onClick ? "button" : undefined}
       onClick={onClick}
-      className={`m-kpi${attention ? " m-kpi-attention" : ""}`}
+      aria-pressed={onClick && active !== undefined ? Boolean(active) : undefined}
+      className={`m-kpi${attention ? " m-kpi-attention" : ""}${active ? " m-kpi-active" : ""}`}
     >
       <span className="m-kpi-label">{label}</span>
       <span className={`m-kpi-value${attention ? " m-kpi-value-danger" : ""}`}>

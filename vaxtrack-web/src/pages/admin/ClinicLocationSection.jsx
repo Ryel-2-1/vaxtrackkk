@@ -111,7 +111,9 @@ function ClinicLocationSection({
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    const map = L.map(containerRef.current, { zoomControl: true }).setView(
+    // This map sits inside a scrolling dialog: the wheel must scroll the form,
+    // not zoom the map and trap the mouse. Zoom with + and - or a double-click.
+    const map = L.map(containerRef.current, { zoomControl: true, scrollWheelZoom: false }).setView(
       FALLBACK_CENTER,
       FALLBACK_ZOOM
     );

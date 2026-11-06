@@ -22,6 +22,11 @@ const CALLABLE_NAMES = [
   "createOrderWithReservation",
   "cancelOrderWithInventoryRelease",
   "markOrderDeliveredWithInventoryConsumption",
+  // Offline delivery records (functions/src/offlineCompletion.js): the Rider's
+  // record completes through the same transaction as a live completion, or
+  // waits for a Dispatcher/Admin to approve (same transaction) or reject it.
+  "submitOfflineDeliveryCompletion",
+  "resolveOfflineCompletionReview",
   // A dispatcher-only destination correction changes an order's address and audit, not stock.
   "correctOrderDestination",
   "requestOrderDestinationChange",
@@ -31,6 +36,9 @@ const CALLABLE_NAMES = [
   "issueInvoiceForPricedOrder",
   // Admin-only delivery reschedule: date/time + history, never stock or price.
   "rescheduleOrderDelivery",
+  "getOrderMedRepNames", // Admin/Dispatcher: read-only names for the owners of specified orders
+  "getCancelledShipmentAudit", // Dispatcher: read-only cancellation actor and reservation audit
+  "listMedRepDoctorAddresses", // Med Rep: read-only, territory-filtered doctor destinations
   // Future-order allocation and failed-delivery returns. Each is one named
   // business action, role-checked on the server (functions/src/inventoryWorkflow.js).
   "addStockBatchWithAllocation", // Admin: add a batch + reserve it for waiting orders
@@ -58,6 +66,7 @@ const CALLABLE_NAMES = [
   "voidInventoryBatch", // a provably unused, mistaken batch → voided record
   "removeUnusableStock", // free → quarantined, or quarantined → written off
   "correctStockQuantity", // a RECORD fix: category, reason, floor, expired rule, audit
+  "updateBatchMetadata", // Admin: audited descriptive fields; no stock counters
 ];
 
 test("the callables are the only inventory-affecting entry points", () => {
@@ -119,10 +128,34 @@ test("the callables are the only inventory-affecting entry points", () => {
     // never inventory (checked below).
     "reconcileRiderDispatchOnOrderWrite",
   ];
+  // Staff accounts (functions/src/staffAccounts.js): users and Auth only, never inventory.
+  const STAFF_CALLABLES = ["createStaffAccount", "createStaffSetupLink", "setStaffStatus", "setStaffRole"];
+  assert.equal(
+    /inventory|reservedQuantity|Centavos/i.test(read("functions/src/staffAccounts.js").replace(/^\s*(\*|\/\/).*$/gm, "")),
+    false,
+    "staffAccounts.js never names inventory"
+  );
+  // Stock and expiry alerts (functions/src/stockAlertsOps.js): two triggers and
+  // the Admin's "Check stock now". They READ stock and write only alerts.
+  const STOCK_ALERT_EXPORTS = ["reviewStockAlertsOnInventoryWrite", "reviewStockAlertsOnConfigWrite", "recheckStockAlerts"];
+  // Rider push (functions/src/riderPushOps.js): reads an order change and the
+  // Rider's own tokens; its only write removes dead tokens. Never stock or orders.
+  const PUSH_EXPORTS = ["notifyRiderOnOrderWrite"];
+  {
+    const ops = read("functions/src/riderPushOps.js").replace(/^\s*(\*|\/\/).*$/gm, "");
+    assert.equal(/inventory|reservedQuantity|collection\("orders"\)/i.test(ops), false, "riderPushOps never names stock or writes an order");
+    assert.equal((ops.match(/\.(update|set|add|delete|create)\(/g) || []).length, 1, "the only write is the dead-token removal");
+  }
+  {
+    const ops = read("functions/src/stockAlertsOps.js").replace(/^\s*(\*|\/\/).*$/gm, "");
+    assert.match(ops, /tx\.set\(db\.collection\(ALERTS\)\.doc\(w\.id\), w\.data, \{ merge: w\.merge \}\)/);
+    assert.equal((ops.match(/tx\.(set|update|create|delete)\(/g) || []).length, 1, "the only write is the alert");
+    assert.equal(/\.(update|set|add|delete)\(/.test(ops.replace("tx.set(db.collection(ALERTS)", "")), false, "no other write");
+  }
   const exported = [...index.matchAll(/^exports\.(\w+)\s*=/gm)].map((m) => m[1]);
   assert.deepEqual(
     exported.sort(),
-    [...CALLABLE_NAMES, ...NON_CALLABLE_EXPORTS].sort(),
+    [...CALLABLE_NAMES, "requestZeroRateApproval", "reviewZeroRateApproval", ...STAFF_CALLABLES, ...STOCK_ALERT_EXPORTS, ...PUSH_EXPORTS, ...NON_CALLABLE_EXPORTS].sort(),
     "exactly these callables, plus the triggers / scheduled jobs listed above"
   );
   for (const p of ["functions/src/riderDispatch.js", "functions/src/riderDispatchOps.js"]) {
@@ -379,7 +412,7 @@ test("the order's stored price comes from the batch, not the payload", () => {
   // The STANDARD price is the evaluated batch's; the payload contributes only
   // the validated agreed unit price and reason (negotiatedPricing.js), and
   // every total is computed server-side from integers.
-  assert.match(ops, /standardUnitPriceCentavos:\s*e\.unitPriceCentavos/, "standard taken from the evaluated batch");
+  assert.match(ops, /standardUnitPriceCentavos:\s*quotedLines\[index\]\.unitPriceCentavos/, "standard comes from the server's batch price and VAT basis");
   assert.match(ops, /agreedUnitPriceCentavos:\s*items\[index\]\.agreedUnitPriceCentavos/, "agreed price from the validated payload");
   assert.match(ops, /\.\.\.pricedLines\[index\]/, "line totals are server-computed");
   assert.match(ops, /subtotalCentavos\s*=\s*sumLineTotalsCentavos\(pricedLines\)/);

@@ -1,7 +1,11 @@
 import 'dart:math' as math;
 import 'package:latlong2/latlong.dart';
 
-/// Pure-Dart geometry for route-deviation detection (Phase 1).
+/// Pure-Dart geometry: how far the rider is from the saved route.
+///
+/// Display only — the route screen shows "N m from plan". Whether the rider is
+/// off route is decided on the server (functions/src/riderTracking.js); the app
+/// keeps no detector of its own.
 ///
 /// Depends ONLY on `dart:math` and the `LatLng` value type (already a project
 /// dependency, and the type produced by `decodePolyline` in `route_utils.dart`).

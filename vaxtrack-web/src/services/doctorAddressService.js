@@ -31,6 +31,49 @@ function stableDocumentId(value, errorMessage) {
   return id;
 }
 
+/**
+ * One doctor's address documents as destination rows. `home` is the one
+ * private doorstep destination; every other current document id is a linked
+ * clinic id. Path identity is assigned last so stored fields can never
+ * redirect a later order.
+ */
+export function toDoctorAddressRows(doctorId, docs) {
+  return docs
+    .map(({ id, data }) => {
+      const homeAddress = id === HOME_ADDRESS_ID && data.kind === HOME_ADDRESS_ID;
+      const legacyIndependentAddress =
+        !homeAddress &&
+        typeof data.label === "string" &&
+        typeof data.addressLine === "string";
+      return {
+        ...data,
+        destinationType: homeAddress
+          ? "home"
+          : legacyIndependentAddress
+            ? "legacy"
+            : "clinic",
+        homeAddress,
+        legacyIndependentAddress,
+        doctorId,
+        clinicDocId: homeAddress || legacyIndependentAddress ? null : id,
+        id,
+      };
+    })
+    .sort((a, b) => {
+      if (a.homeAddress !== b.homeAddress) return a.homeAddress ? -1 : 1;
+      if (a.legacyIndependentAddress !== b.legacyIndependentAddress) {
+        return a.legacyIndependentAddress ? 1 : -1;
+      }
+      if (Boolean(a.active) !== Boolean(b.active)) {
+        return a.active ? -1 : 1;
+      }
+      return String(a.clinicDocId || a.id).localeCompare(
+        String(b.clinicDocId || b.id)
+      );
+    });
+}
+
+/** Admin and Dispatcher only — Firestore rules deny every other role. */
 export function subscribeDoctorAddresses(doctorId, callback, onError) {
   const stableDoctorId = stableDocumentId(
     doctorId,
@@ -40,46 +83,12 @@ export function subscribeDoctorAddresses(doctorId, callback, onError) {
   return listenLive(
     collection(db, DOCTORS, stableDoctorId, ADDRESSES),
     (snapshot) => {
-      const addresses = snapshot.docs
-        // `home` is the one private doorstep destination. Every other current
-        // document id is a linked clinic id. Path identity is assigned last so
-        // stored fields can never redirect a later order.
-        .map((address) => {
-          const data = address.data();
-          const homeAddress =
-            address.id === HOME_ADDRESS_ID && data.kind === HOME_ADDRESS_ID;
-          const legacyIndependentAddress =
-            !homeAddress &&
-            typeof data.label === "string" &&
-            typeof data.addressLine === "string";
-          return {
-            ...data,
-            destinationType: homeAddress
-              ? "home"
-              : legacyIndependentAddress
-                ? "legacy"
-                : "clinic",
-            homeAddress,
-            legacyIndependentAddress,
-            doctorId: stableDoctorId,
-            clinicDocId:
-              homeAddress || legacyIndependentAddress ? null : address.id,
-            id: address.id,
-          };
-        })
-        .sort((a, b) => {
-          if (a.homeAddress !== b.homeAddress) return a.homeAddress ? -1 : 1;
-          if (a.legacyIndependentAddress !== b.legacyIndependentAddress) {
-            return a.legacyIndependentAddress ? 1 : -1;
-          }
-          if (Boolean(a.active) !== Boolean(b.active)) {
-            return a.active ? -1 : 1;
-          }
-          return String(a.clinicDocId || a.id).localeCompare(
-            String(b.clinicDocId || b.id)
-          );
-        });
-      callback(addresses);
+      callback(
+        toDoctorAddressRows(
+          stableDoctorId,
+          snapshot.docs.map((address) => ({ id: address.id, data: address.data() }))
+        )
+      );
     },
     (error) => {
       logSafeError("subscribeDoctorAddresses", error);

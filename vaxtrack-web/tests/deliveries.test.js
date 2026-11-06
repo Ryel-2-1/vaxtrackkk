@@ -19,9 +19,8 @@ import { ORDER_STATUSES, STATUS_LABELS } from "../src/services/orderWorkflow.js"
  * nothing, one of them announcing a state change ("marked as reviewed") that
  * was never written; and a document with no status field became "Pending".
  *
- * Nothing was invented to replace any of it. Admin stays read-only: the page
- * performs no write, and the only action added is a tel: link built from the
- * rider phone number the order already carries.
+ * Admin stays read-only: the page performs no write, and the list only opens
+ * delivery details. Rider contact information remains visible as text.
  */
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
@@ -63,8 +62,10 @@ test("delivery_failed is visible, labelled, filterable and counted", () => {
   assert.match(PAGE, /value=\{kpiValue\(failedCount, kpiState\)\}/);
   assert.match(PAGE, /const failedCount = countOf\("delivery_failed"\);/);
   assert.match(PAGE, /setStatusFilter\("delivery_failed"\)/);
-  // And it is one of the two statuses the review banner covers.
-  assert.match(PAGE, /d\.statusType === "delayed" \|\| d\.statusType === "delivery_failed"/);
+  // And it is one of the two statuses listed as a delivery exception on the
+  // Alerts page (the Deliveries banner moved there 2026-10-31).
+  assert.match(read("src/services/deliveryService.js"), /export const DELIVERY_EXCEPTION_STATUSES = \["delayed", "delivery_failed"\];/);
+  assert.doesNotMatch(PAGE, /mdl-banner-danger|needsReview/);
   // The filter options come from the canonical list, so it cannot be dropped.
   assert.match(PAGE, /\{ORDER_STATUSES\.map\(\(key\) => \(/);
   assert.match(PAGE, /<option key=\{key\} value=\{key\}>\s*\n?\s*\{STATUS_LABELS\[key\]\}/);
@@ -250,11 +251,10 @@ test("every retained action is real, and the page writes nothing", () => {
   }
   assert.equal(/onResolve|onRoute|onContact/.test(CODE), false);
 
-  // What remains: filters and selection (local view state) and a real tel: link
-  // built from the order's own field. Logout now lives in the persistent
-  // AdminShell (the sidebar it renders), not on the page.
-  assert.match(PAGE, /href=\{`tel:\$\{delivery\.riderPhone\}`\}/);
-  assert.match(PAGE, /\{delivery\.riderPhone \?/, "the link only appears with a number");
+  // Filters, selection, and View remain. The page does not offer a call action.
+  assert.match(PAGE, />\s*View\s*</);
+  assert.doesNotMatch(PAGE, /href=\{`tel:/);
+  assert.doesNotMatch(PAGE, />\s*Call\s*</);
 
   // Admin remains read-only: no write of any kind, and no local mutation of a
   // status after an action — the subscription stays authoritative.
@@ -291,12 +291,16 @@ test("Activity 'Updated by' shows the attribution every status writer keeps curr
   // The completion callable now writes the email together with the time and
   // uid, from the caller's verified token — so the row names the rider.
   const ops = read("functions/src/operations.js").replace(/\r\n/g, "\n");
-  const deliver = ops.slice(ops.indexOf("async function markOrderDeliveredWithInventoryConsumption("));
+  // The completion transaction is shared (live + offline paths); it writes the
+  // closing actor's attribution, which the live callable passes as its token email.
+  const deliver = ops.slice(ops.indexOf("async function completeDelivery("));
   const update = /const orderUpdate = \{[\s\S]*?\n {4}\};/.exec(deliver)[0];
   for (const field of ["statusUpdatedAt", "statusUpdatedByUid", "statusUpdatedByEmail"]) {
     assert.match(update, new RegExp(`\\b${field}:`), `completion writes ${field}`);
   }
-  assert.match(update, /statusUpdatedByEmail: statusUpdatedByEmailValue\(email, FieldValue\),/);
+  assert.match(update, /statusUpdatedByEmail: statusUpdatedByEmailValue\(actorEmail, FieldValue\),/);
+  const live = ops.slice(ops.indexOf("async function markOrderDeliveredWithInventoryConsumption("), ops.indexOf("async function completeDelivery("));
+  assert.match(live, /actorUid: uid,\s+actorEmail: email,/);
   // Cancellation writes it the same way (it used to leave the previous email).
   const cancel = ops.slice(ops.indexOf("async function cancelOrderWithInventoryRelease("));
   const cancelUpdate = /const orderUpdate = \{[\s\S]*?\n {4}\};/.exec(cancel)[0];

@@ -57,12 +57,17 @@ const admin = require("firebase-admin");
 
 const { PolicyError } = require("./src/policy");
 const operations = require("./src/operations");
+const zeroRateRequests = require("./src/zeroRateRequests");
 const destinationOperations = require("./src/destinationOperations");
 const scheduleOperations = require("./src/scheduleOperations");
+const orderMedRepNames = require("./src/orderMedRepNames");
+const medRepDestinations = require("./src/medRepDestinations");
+const cancelledShipmentAudit = require("./src/cancelledShipmentAudit");
 const invoiceOperations = require("./src/invoiceOperations");
 const statusEvents = require("./src/statusEvents");
 const inventoryWorkflow = require("./src/inventoryWorkflow");
 const inventoryRemoval = require("./src/inventoryRemoval");
+const batchMetadata = require("./src/batchMetadata");
 const inventoryVisibilityOps = require("./src/inventoryVisibilityOps");
 const allocation = require("./src/allocation");
 const failureReturn = require("./src/failureReturn");
@@ -71,6 +76,12 @@ const riderTrackingOps = require("./src/riderTrackingOps");
 const deliveryTimingOps = require("./src/deliveryTimingOps");
 const riderDispatchOps = require("./src/riderDispatchOps");
 const riderLocationStaleOps = require("./src/riderLocationStaleOps");
+const arrivalProximityOps = require("./src/arrivalProximityOps");
+const offlineCompletionOps = require("./src/offlineCompletionOps");
+const staffAccounts = require("./src/staffAccounts");
+const stockAlertsOps = require("./src/stockAlertsOps");
+const riderPushOps = require("./src/riderPushOps");
+const requestedArrivalOps = require("./src/requestedArrivalOps");
 const riderRecoveryOps = require("./src/riderRecoveryOps");
 const { qaResetConfig } = require("./src/riderRecovery");
 
@@ -132,7 +143,12 @@ function toHttpsError(error, context) {
       "rider-location-stale": "failed-precondition",
       "rider-location-inaccurate": "failed-precondition",
       "rider-location-unavailable": "failed-precondition",
+      "rider-location-mocked": "failed-precondition",
       "delivery-destination-invalid": "failed-precondition",
+      // Offline delivery completion (offlineCompletion.js).
+      "no-pending-review": "failed-precondition",
+      "review-changed": "aborted",
+      "note-required": "invalid-argument",
       "insufficient-stock": "failed-precondition",
       "batch-expired": "failed-precondition",
       "batch-unavailable": "failed-precondition",
@@ -236,6 +252,23 @@ function toHttpsError(error, context) {
       "recovery-blocked": "failed-precondition",
       "recovery-too-large": "failed-precondition",
       "qa-reset-disabled": "permission-denied",
+      // SC/PWD discounts are no longer offered for new orders (policy.js).
+      "statutory-discount-unavailable": "failed-precondition",
+      // A batch above 5,000 vials needs the Admin's confirmation (policy.js).
+      "large-quantity-unconfirmed": "failed-precondition",
+      // Stock alerts (stockAlertsOps.js).
+      "too-many-products": "failed-precondition",
+      // Staff accounts (staffAccounts.js).
+      "invalid-staff": "invalid-argument",
+      "email-in-use": "already-exists",
+      "staff-not-found": "not-found",
+      "staff-not-active": "failed-precondition",
+      "already-signed-in": "failed-precondition",
+      "self-change": "failed-precondition",
+      "last-admin": "failed-precondition",
+      "account-rejected": "failed-precondition",
+      "status-change-not-allowed": "failed-precondition",
+      "role-unchanged": "failed-precondition",
     };
     const httpsCode = map[error.code] ?? "invalid-argument";
     return new HttpsError(httpsCode, error.message, {
@@ -279,6 +312,31 @@ exports.createOrderWithReservation = callable(
   // confirmation receipt; it never decides anything.
   ({ db, FieldValue, uid, email, data, now }) =>
     operations.createOrderWithReservation({ db, FieldValue, uid, email, payload: data, now })
+);
+
+exports.requestZeroRateApproval = callable(
+  "requestZeroRateApproval",
+  ({ db, FieldValue, uid, data, now }) => zeroRateRequests.requestZeroRateApproval({ db, FieldValue, uid, payload: data, now })
+);
+
+exports.reviewZeroRateApproval = callable(
+  "reviewZeroRateApproval",
+  ({ db, FieldValue, uid, data }) => zeroRateRequests.reviewZeroRateApproval({ db, FieldValue, uid, payload: data })
+);
+
+exports.getOrderMedRepNames = callable(
+  "getOrderMedRepNames",
+  ({ db, uid, data }) => orderMedRepNames.getOrderMedRepNames({ db, uid, payload: data })
+);
+
+exports.listMedRepDoctorAddresses = callable(
+  "listMedRepDoctorAddresses",
+  ({ db, uid, data }) => medRepDestinations.listMedRepDoctorAddresses({ db, uid, payload: data })
+);
+
+exports.getCancelledShipmentAudit = callable(
+  "getCancelledShipmentAudit",
+  ({ db, uid, data }) => cancelledShipmentAudit.getCancelledShipmentAudit({ db, uid, payload: data })
 );
 
 exports.correctOrderDestination = callable(
@@ -337,6 +395,46 @@ exports.validateDeliveryCompletionGeofence = callable(
     operations.validateDeliveryCompletionGeofence({ db, uid, orderId: data.orderId, payload: data, now })
 );
 
+// Offline completion (src/offlineCompletion.js): the Rider recorded the handoff
+// on the phone with GPS but no signal; sent once back online. Verified records
+// complete through the same transaction as a live completion; the rest wait for
+// a Dispatcher/Admin decision (resolveOfflineCompletionReview).
+exports.submitOfflineDeliveryCompletion = callable(
+  "submitOfflineDeliveryCompletion",
+  ({ db, FieldValue, uid, email, data, now }) =>
+    offlineCompletionOps.submitOfflineDeliveryCompletion({ db, FieldValue, uid, email, payload: data, now })
+);
+
+exports.resolveOfflineCompletionReview = callable(
+  "resolveOfflineCompletionReview",
+  ({ db, FieldValue, uid, email, data, now }) =>
+    offlineCompletionOps.resolveOfflineCompletionReview({ db, FieldValue, uid, email, payload: data, now })
+);
+
+// Staff accounts (src/staffAccounts.js): only an approved Admin; the rules
+// stop browsers creating profiles or changing staff role/status directly.
+exports.createStaffAccount = callable(
+  "createStaffAccount",
+  ({ db, FieldValue, uid, email, data, now }) =>
+    staffAccounts.createStaffAccount({ db, authAdmin: admin.auth(), FieldValue, uid, email, payload: data, now })
+);
+
+exports.createStaffSetupLink = callable(
+  "createStaffSetupLink",
+  ({ db, FieldValue, uid, email, data, now }) =>
+    staffAccounts.createStaffSetupLink({ db, authAdmin: admin.auth(), FieldValue, uid, email, payload: data, now })
+);
+
+exports.setStaffStatus = callable(
+  "setStaffStatus",
+  ({ db, FieldValue, uid, email, data, now }) => staffAccounts.setStaffStatus({ db, FieldValue, uid, email, payload: data, now })
+);
+
+exports.setStaffRole = callable(
+  "setStaffRole",
+  ({ db, FieldValue, uid, email, data, now }) => staffAccounts.setStaffRole({ db, FieldValue, uid, email, payload: data, now })
+);
+
 exports.markOrderDeliveredWithInventoryConsumption = callable(
   "markOrderDeliveredWithInventoryConsumption",
   ({ db, FieldValue, uid, email, data, now }) =>
@@ -390,6 +488,12 @@ exports.addStockBatchWithAllocation = callable(
   "addStockBatchWithAllocation",
   ({ db, FieldValue, uid, data, now }) =>
     inventoryWorkflow.addStockBatchWithAllocation({ db, FieldValue, uid, payload: data, now })
+);
+
+exports.updateBatchMetadata = callable(
+  "updateBatchMetadata",
+  ({ db, FieldValue, uid, email, data, now }) =>
+    batchMetadata.updateBatchMetadata({ db, FieldValue, uid, email, payload: data, now })
 );
 
 exports.reportDeliveryFailure = callable(
@@ -524,10 +628,55 @@ exports.reviewInventoryVisibility = onSchedule(
   async () => {
     const result = await inventoryVisibilityOps.reviewInventoryVisibilityRun({
       db, FieldPath: admin.firestore.FieldPath, now: new Date(),
+      // The same daily pass re-checks stock and expiry alerts, so a batch that
+      // crosses an expiry boundary with no stock change still alerts.
+      observe: async (args) => {
+        const visibility = await inventoryVisibilityOps.observeProductInventory(args);
+        await stockAlertsOps.reviewProductStockAlerts({ db, FieldValue, vaccineId: args.vaccineId, now: args.now });
+        return visibility;
+      },
       logFailure: (detail) => logger.error("inventory visibility review deferred", detail),
     });
     logger.info("inventory visibility review", result);
   }
+);
+
+// Stock and expiry alerts (src/stockAlerts.js): low / out of stock per vaccine,
+// expiring / expired per batch. Admin-only alerts; opened, updated and cleared
+// by the server. A separate trigger so a failure here never blocks allocation.
+exports.reviewStockAlertsOnInventoryWrite = onDocumentWritten(
+  { document: "inventory/{inventoryId}", retry: true },
+  async (event) => stockAlertsOps.reviewStockAlertsForInventoryWrite({
+    db, FieldValue, before: event.data?.before, after: event.data?.after, now: new Date(),
+  })
+);
+
+// A changed safety stock takes effect at once, not at the next stock change.
+exports.reviewStockAlertsOnConfigWrite = onDocumentWritten(
+  { document: "inventoryAnalyticsConfig/{vaccineId}", retry: true },
+  async (event) => stockAlertsOps.reviewProductStockAlerts({ db, FieldValue, vaccineId: event.params.vaccineId, now: new Date() })
+);
+
+// Admin "Check stock now" (Alerts page): runs the review across the catalog.
+exports.recheckStockAlerts = callable(
+  "recheckStockAlerts",
+  ({ db, FieldValue, uid, now }) => stockAlertsOps.recheckStockAlerts({ db, FieldValue, uid, now })
+);
+
+// Rider push notifications (src/riderPush.js): new assignment, reassignment,
+// cancellation and offline-review decisions, sent through FCM to the Rider's
+// own devices. Best effort and NOT retried, so nobody is notified twice.
+exports.notifyRiderOnOrderWrite = onDocumentWritten(
+  { document: "orders/{orderId}", retry: false },
+  async (event) => riderPushOps.notifyRiderOnOrderWrite({
+    db,
+    messaging: admin.messaging(),
+    FieldValue,
+    orderId: event.params.orderId,
+    before: event.data?.before?.exists ? event.data.before.data() : null,
+    after: event.data?.after?.exists ? event.data.after.data() : null,
+    log: (detail) => logger.warn("rider push not delivered", detail),
+  })
 );
 
 exports.allocateOnInventoryWrite = onDocumentWritten(
@@ -706,6 +855,23 @@ exports.trackRiderLocation = onDocumentWritten(
     } catch (error) {
       logger.warn("stale-location resolve deferred", { errorType: error?.constructor?.name ?? typeof error });
     }
+    // The Rider's trusted trail (src/offlineCompletion.js), against which an
+    // offline delivery record is checked. Never fails the work above.
+    try {
+      await offlineCompletionOps.recordTrailPoint({ db, riderUid: event.params.riderUid, location: after, nowMs: Date.now() });
+    } catch (error) {
+      logger.warn("location-trail deferred", { errorType: error?.constructor?.name ?? typeof error });
+    }
+    // Arrival proximity (src/arrivalProximity.js): near the destination, and
+    // still not completed after 15 minutes. Advisory; never changes an order.
+    // Never fails the work above — the next fix re-evaluates from the store.
+    try {
+      await arrivalProximityOps.processLocationProximity({
+        db, FieldValue, riderUid: event.params.riderUid, location: after, nowMs: Date.now(),
+      });
+    } catch (error) {
+      logger.warn("arrival-proximity deferred", { errorType: error?.constructor?.name ?? typeof error });
+    }
   }
 );
 
@@ -752,6 +918,9 @@ exports.syncRiderTrackingOnOrderWrite = onDocumentWritten(
     const before = event.data?.before?.exists ? event.data.before.data() : null;
     const after = event.data?.after?.exists ? event.data.after.data() : null;
     await riderTrackingOps.handleOrderWrite({ db, FieldValue, orderId: event.params.orderId, before, after });
+    // An order that left transit clears its arrival proximity and resolves its
+    // awaiting-completion alert (idempotent; retried with the trigger).
+    await arrivalProximityOps.settleProximityOnOrderWrite({ db, FieldValue, orderId: event.params.orderId, before, after });
   }
 );
 
@@ -780,6 +949,14 @@ exports.evaluateDeliveryTiming = onSchedule(
     } catch (error) {
       failed = error;
       logger.error("delivery-timing pass failed", { errorType: error?.constructor?.name ?? typeof error });
+    }
+    // Late against what was REQUESTED, a separate fact from late against the route.
+    try {
+      const counts = await requestedArrivalOps.evaluateRequestedArrivalRun({ db, FieldValue, Timestamp, now });
+      if (counts.marked + counts.cleared + counts.failed > 0) logger.info("requested-arrival", counts);
+    } catch (error) {
+      failed = failed ?? error;
+      logger.error("requested-arrival pass failed", { errorType: error?.constructor?.name ?? typeof error });
     }
     try {
       const counts = await riderLocationStaleOps.evaluateStaleLocationsRun({ db, FieldValue, Timestamp, now });

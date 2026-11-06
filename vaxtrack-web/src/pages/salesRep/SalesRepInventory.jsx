@@ -1,15 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  CalendarDays,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   Filter,
   Hourglass,
   Loader2,
   PackageCheck,
-  RotateCcw,
   Search,
   X,
 } from "lucide-react";
@@ -20,12 +16,14 @@ import InventoryVisibilityToggle from "../../components/inventory/InventoryVisib
 import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
 import { liveErrorMessage } from "../../services/liveDataErrors";
 import { abbreviateBatchId } from "../../services/batchIdDisplay";
+import CatalogFilterDialog from "../../components/inventory/CatalogFilterDialog";
+import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import "../../components/ui/feedback.css";
 
 // The derived expiry levels, in the order a rep cares about them. These are
 // labels from the shared helper, not values of the stored `status` field.
 const statusTypes = ["All", "Expired", "Expiring soon", "Expiring later", "In date", "No expiry date"];
-const rowsPerPage = 5;
+const rowsPerPage = PAGE_SIZE;
 
 /* `getDaysUntilExpiry` was deleted: it measured from local midnight, while the
    server and every other surface use a date-only Manila cutoff. The days now
@@ -70,15 +68,19 @@ function SalesRepInventory() {
   const [rawInventory, setRawInventory] = useState([]);
   const [vaccines, setVaccines] = useState([]);
   const [showInactive, setShowInactive] = useState(false);
+  // The overview shows the top types; the rest open on request, so the card
+  // keeps one height and never squeezes its rows into a tiny scrollbox.
+  const [showAllTypes, setShowAllTypes] = useState(false);
   // Archived vaccine products: their batches are not offered to Med Reps.
   const [archivedIds, setArchivedIds] = useState(() => new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedType, setSelectedType] = useState("All");
+  const [selectedTypes, setSelectedTypes] = useState([]);
   const [selectedStatus, setSelectedStatus] = useState("All");
   const [expiryWindow, setExpiryWindow] = useState("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -121,7 +123,7 @@ function SalesRepInventory() {
 
   const vaccineTypes = useMemo(() => {
     const types = new Set(inventory.map((s) => s.type));
-    return ["All", ...Array.from(types).sort()];
+    return Array.from(types).sort();
   }, [inventory]);
 
   const filteredStocks = useMemo(() => {
@@ -134,7 +136,7 @@ function SalesRepInventory() {
         stock.batchId.toLowerCase().includes(query) ||
         stock.type.toLowerCase().includes(query);
 
-      const matchesType = selectedType === "All" || stock.type === selectedType;
+      const matchesType = selectedTypes.length === 0 || selectedTypes.includes(stock.type);
       const matchesStatus = selectedStatus === "All" || stock.status === selectedStatus;
       const days = stock.daysRemaining ?? Infinity;
       const matchesExpiry =
@@ -142,7 +144,7 @@ function SalesRepInventory() {
 
       return matchesSearch && matchesType && matchesStatus && matchesExpiry;
     });
-  }, [inventory, searchTerm, selectedType, selectedStatus, expiryWindow]);
+  }, [inventory, searchTerm, selectedTypes, selectedStatus, expiryWindow]);
 
   const totalPages = Math.max(1, Math.ceil(filteredStocks.length / rowsPerPage));
   const currentPage = Math.min(page, totalPages);
@@ -185,27 +187,12 @@ function SalesRepInventory() {
     }));
   }, [inventory]);
 
-  const resetFilters = () => {
-    setSearchTerm("");
-    setSelectedType("All");
-    setSelectedStatus("All");
-    setExpiryWindow("all");
+  const applyFilters = ({ types, status, expiry }) => {
+    setSelectedTypes(types);
+    setSelectedStatus(status);
+    setExpiryWindow(expiry);
     setPage(1);
-  };
-
-  const handleTypeFilter = (type) => {
-    setSelectedType(type);
-    setPage(1);
-  };
-
-  const handleStatusFilter = (event) => {
-    setSelectedStatus(event.target.value);
-    setPage(1);
-  };
-
-  const handleExpiryFilter = (event) => {
-    setExpiryWindow(event.target.value);
-    setPage(1);
+    setFiltersOpen(false);
   };
 
   const handleSearch = (event) => {
@@ -265,22 +252,32 @@ function SalesRepInventory() {
             </div>
           </div>
 
-          <div className="stock-hbar-list">
+          <div className={`stock-hbar-list${showAllTypes ? " is-expanded" : ""}`}>
             {stockByType.length > 0 ? (
-              stockByType.map((bar) => (
+              (showAllTypes ? stockByType : stockByType.slice(0, TOP_TYPES)).map((bar) => (
                 <HBar key={bar.label} label={bar.label} qty={bar.qty} barWidth={bar.barHeight} tone={bar.tone} />
               ))
             ) : (
               <p className="chart-empty">No stock data available</p>
             )}
           </div>
+          {stockByType.length > TOP_TYPES && (
+            <button
+              type="button"
+              className="stock-hbar-toggle"
+              aria-expanded={showAllTypes}
+              onClick={() => setShowAllTypes((v) => !v)}
+            >
+              {showAllTypes ? `Show top ${TOP_TYPES}` : `Show all ${stockByType.length} types`}
+            </button>
+          )}
         </div>
 
         <div className="inventory-side-metrics">
           <SmallMetric
             icon={<Hourglass size={24} />}
             label="Expiring ≤ 30 Days"
-            value={formatNumber(metrics.expiringSoon)}
+            value={formatMetric(metrics.expiringSoon)}
             sub="vials need priority"
             tone="gold"
           />
@@ -288,7 +285,7 @@ function SalesRepInventory() {
           <SmallMetric
             icon={<CheckCircle2 size={24} />}
             label="In Date > 90 Days"
-            value={formatCompact(metrics.inDateStock)}
+            value={formatMetric(metrics.inDateStock)}
             sub="vials, by expiry date only"
             tone="green"
           />
@@ -308,46 +305,10 @@ function SalesRepInventory() {
             />
           </div>
 
-          <div className="inventory-v2-selects">
-            <label>
-              <Filter size={14} />
-              <select value={selectedStatus} onChange={handleStatusFilter}>
-                {statusTypes.map((status) => (
-                  <option key={status} value={status}>
-                    {status === "All" ? "All Status" : status}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              <CalendarDays size={14} />
-              <select value={expiryWindow} onChange={handleExpiryFilter}>
-                <option value="30">Expiry: Next 30 Days</option>
-                <option value="90">Expiry: Next 90 Days</option>
-                <option value="180">Expiry: Next 180 Days</option>
-                <option value="all">All Expiry Dates</option>
-              </select>
-            </label>
-
-            <button type="button" className="inventory-reset-btn" onClick={resetFilters}>
-              <RotateCcw size={14} />
-              Reset
-            </button>
-          </div>
-        </div>
-
-        <div className="inventory-type-tabs">
-          {vaccineTypes.map((type) => (
-            <button
-              key={type}
-              type="button"
-              className={selectedType === type ? "active" : ""}
-              onClick={() => handleTypeFilter(type)}
-            >
-              {type === "All" ? "All Vaccine Types" : type}
-            </button>
-          ))}
+          <button type="button" className="catalog-filter-trigger" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog">
+            <Filter size={16} /> Advanced filters
+            {(selectedTypes.length > 0 || selectedStatus !== "All" || expiryWindow !== "all") && <span aria-label="Filters active">{selectedTypes.length + Number(selectedStatus !== "All") + Number(expiryWindow !== "all")}</span>}
+          </button>
         </div>
 
         <div className="inventory-selected-bar">
@@ -366,14 +327,10 @@ function SalesRepInventory() {
           )}
         </div>
 
-        {/* Only the current page is rendered. Rows have one fixed height (each
-            cell's content is bounded to fit it, see salesrep-polish.css), and a
-            paged result reserves a full page, so a short last page leaves the
-            pager where it was. One page or none keeps its natural height. */}
-        <div
-          className={`inventory-v2-table-region${totalPages > 1 ? " is-paged" : ""}`}
-          style={{ "--inv-page-rows": rowsPerPage }}
-        >
+        {/* Only the current page is rendered. On desktop, rows scroll in the
+            remaining viewport space under a sticky header, with the pager
+            outside the scroll area (salesrep-polish.css). */}
+        <div className="inventory-v2-table-region">
           <table className="salesrep-inventory-table inventory-v2-table">
             <thead>
               <tr>
@@ -403,45 +360,21 @@ function SalesRepInventory() {
           </table>
         </div>
 
-        <div className="salesrep-pagination-row right inventory-v2-pagination">
-          <p>
-            Displaying {filteredStocks.length === 0 ? 0 : startIndex + 1}-
-            {Math.min(startIndex + rowsPerPage, filteredStocks.length)} of {filteredStocks.length} batches
-          </p>
-
-          <div>
-            <button
-              type="button"
-              aria-label="Previous page"
-              disabled={currentPage === 1}
-              onClick={() => setPage((value) => Math.max(value - 1, 1))}
-            >
-              <ChevronLeft size={15} aria-hidden="true" />
-            </button>
-
-            {Array.from({ length: totalPages }, (_, index) => (
-              <button
-                key={index + 1}
-                type="button"
-                className={currentPage === index + 1 ? "active" : ""}
-                aria-current={currentPage === index + 1 ? "page" : undefined}
-                onClick={() => setPage(index + 1)}
-              >
-                {index + 1}
-              </button>
-            ))}
-
-            <button
-              type="button"
-              aria-label="Next page"
-              disabled={currentPage === totalPages}
-              onClick={() => setPage((value) => Math.min(value + 1, totalPages))}
-            >
-              <ChevronRight size={15} aria-hidden="true" />
-            </button>
-          </div>
+        <div className="inventory-v2-page-nav">
+          <PageNav page={currentPage} total={filteredStocks.length} onPageChange={setPage} label="Inventory pages" />
         </div>
       </section>
+      {filtersOpen && <CatalogFilterDialog
+        title="Inventory filters"
+        types={vaccineTypes}
+        selectedTypes={selectedTypes}
+        status={selectedStatus}
+        statusOptions={statusTypes.map((value) => ({ value, label: value === "All" ? "All statuses" : value }))}
+        expiry={expiryWindow}
+        expiryOptions={[{ value: "all", label: "All expiry dates" }, { value: "30", label: "Next 30 days" }, { value: "90", label: "Next 90 days" }, { value: "180", label: "Next 180 days" }]}
+        onApply={applyFilters}
+        onClose={() => setFiltersOpen(false)}
+      />}
     </>
   );
 }
@@ -549,10 +482,22 @@ function SmallMetric({ icon, label, value, sub, tone }) {
   );
 }
 
+/** Vaccine types shown before "Show all". */
+const TOP_TYPES = 5;
+
+/** 1.2K / 3.4M / 5.6B / 7.8T — a figure that always fits its card. */
 function formatCompact(value) {
-  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
-  if (value >= 1000) return `${Math.round(value / 1000)}K`;
-  return value.toLocaleString();
+  const v = Number(value) || 0;
+  for (const [unit, size] of [["T", 1e12], ["B", 1e9], ["M", 1e6]]) {
+    if (v >= size) return `${(v / size).toFixed(1).replace(/\.0$/, "")}${unit}`;
+  }
+  if (v >= 1000) return `${Math.round(v / 1000)}K`;
+  return v.toLocaleString();
+}
+
+/** A KPI figure: exact up to 99,999 (each vial matters), compact above. */
+function formatMetric(value) {
+  return Number(value) < 100000 ? formatNumber(value) : formatCompact(value);
 }
 
 export default SalesRepInventory;

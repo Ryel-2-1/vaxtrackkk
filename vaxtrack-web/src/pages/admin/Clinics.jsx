@@ -4,7 +4,6 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleHelp,
-  Edit,
   LayoutGrid,
   List,
   MapPin,
@@ -687,23 +686,20 @@ function Clinics() {
         <ToastRegion toast={toast} onDismiss={dismissToast} />
 
         <header className="clinics-v2-topbar">
-          <div>
-            <p>Manage and monitor affiliated healthcare facilities.</p>
+          <div className="clinics-v2-search">
+            <Search size={15} />
+            <input
+              aria-label="Search clinics"
+              placeholder="Search clinics..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+            />
           </div>
 
           <div className="clinics-v2-top-actions">
-            <div className="clinics-v2-search">
-              <Search size={15} />
-              <input
-                placeholder="Search clinics..."
-                value={searchTerm}
-                onChange={(e) => {
-                  setSearchTerm(e.target.value);
-                  setCurrentPage(1);
-                }}
-              />
-            </div>
-
             <button
               type="button"
               className="clinics-icon-btn"
@@ -837,6 +833,7 @@ function Clinics() {
 
         <section className={`clinics-v2-table-card${view === "grid" ? " is-grid" : ""}`}>
           {view === "list" ? (
+          <div className="clinics-list-table-wrap">
           <table className="clinics-v2-table">
             <thead>
               <tr>
@@ -952,6 +949,7 @@ function Clinics() {
               ))}
             </tbody>
           </table>
+          </div>
           ) : (
             <ul className="clinics-grid" aria-label="Clinics">
               {paginatedClinics.map((clinic) => (
@@ -1599,17 +1597,6 @@ function ClinicDetailsModal({ clinic, onClose }) {
             Rider delivery. The former delivery-draft action here only showed a
             toast and drafted nothing, so it was removed rather than replaced. */}
         <div className="clinics-modal-actions">
-          {/* Not built yet. Shown disabled, with the reason, rather than
-              clickable with a toast that implies something happened. */}
-          <button
-            type="button"
-            className="clinics-light-action"
-            disabled
-            aria-describedby="clinic-edit-unavailable"
-          >
-            <Edit size={15} aria-hidden="true" />
-            Edit Clinic
-          </button>
           <button
             type="button"
             className="clinics-light-action"
@@ -1618,9 +1605,6 @@ function ClinicDetailsModal({ clinic, onClose }) {
             Close
           </button>
         </div>
-        <p id="clinic-edit-unavailable" className="clinics-unavailable-note">
-          Editing clinic details isn't available yet. Use Manage location to change where deliveries go.
-        </p>
       </div>
     </div>
   );

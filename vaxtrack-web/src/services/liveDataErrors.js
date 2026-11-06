@@ -177,6 +177,10 @@ const DOMAIN_KINDS = Object.freeze({
   "invalid-statutory-discount": "pricing",
   "statutory-discount-type-required": "pricing",
   "statutory-discount-exceeds-line": "pricing",
+  // A batch above the usual size, sent without the Admin's confirmation.
+  "large-quantity-unconfirmed": "pricing",
+  // SC/PWD discounts are no longer offered for new orders.
+  "statutory-discount-unavailable": "pricing",
   "discount-exceeds-subtotal": "pricing",
   "discount-recorded-per-line": "pricing",
   "order-snapshot-invalid": "pricing",
@@ -189,6 +193,7 @@ const DOMAIN_KINDS = Object.freeze({
   "rider-location-stale": "geofence-stale",
   "rider-location-inaccurate": "geofence-inaccurate",
   "rider-location-unavailable": "geofence-unavailable",
+  "rider-location-mocked": "geofence-unavailable",
   "delivery-destination-invalid": "geofence-unavailable",
   // proof
   "proof-missing": "proof",
@@ -299,6 +304,15 @@ export function isSafeUserMessage(text) {
 }
 
 /**
+ * The Firebase Functions SDK (v12) appends the HTTP status to a callable
+ * error's message ("Enter a valid work email address. [400]"). The sentence is
+ * the server's; the suffix is transport detail, so it is removed before display.
+ */
+export function withoutTransportStatus(text) {
+  return typeof text === "string" ? text.replace(/\s*\[[1-5]\d\d\]\s*$/, "").trim() : text;
+}
+
+/**
  * Only an explicit UserMessageError carries a sentence written for the user.
  * Decided by type — never by inspecting the text.
  */
@@ -320,7 +334,10 @@ export function isTrustedAppError(error) {
  */
 export function friendlyErrorMessage(error, fallback = GENERIC_FAILURE_MESSAGE) {
   if (!error) return fallback;
-  if (isTrustedAppError(error) && isSafeUserMessage(error.message)) return error.message.trim();
+  if (isTrustedAppError(error)) {
+    const text = withoutTransportStatus(error.message);
+    if (isSafeUserMessage(text)) return text;
+  }
   const kind = errorKind(error);
   return KIND_MESSAGES[kind] ?? fallback;
 }

@@ -92,6 +92,7 @@ export async function createOrderWithReservation({
   requestId,
   doctorId,
   doctorAddressId,
+  zeroRateRequestId,
   items,
   priority,
   deliveryInstructions,
@@ -110,6 +111,7 @@ export async function createOrderWithReservation({
       requestId,
       doctorId,
       doctorAddressId,
+      ...(zeroRateRequestId ? { zeroRateRequestId } : {}),
       priority,
       deliveryInstructions,
       requestedDeliveryDate,
@@ -121,21 +123,14 @@ export async function createOrderWithReservation({
         // it has not moved — NOT so the server can use it. `unitPrice` is
         // deliberately no longer sent at all; the callable now rejects it.
         expectedUnitPriceCentavos: item.expectedUnitPriceCentavos,
-        // The Med Rep's negotiated VAT-inclusive UNIT price, the reason when it
-        // differs from the standard, and this line's statutory (SC/PWD)
-        // discount — category, amount and the Med Rep's eligibility
-        // attestation (which the server requires to be exactly `true`). Never
-        // a total or a VAT figure: the server computes those and refuses any
-        // it is sent.
+        ...(Number.isSafeInteger(item.expectedQuotedUnitPriceCentavos)
+          ? { expectedQuotedUnitPriceCentavos: item.expectedQuotedUnitPriceCentavos } : {}),
+        // The Med Rep's negotiated VAT-inclusive UNIT price and the reason when
+        // it differs from the standard. Never a total or a VAT figure: the
+        // server computes those and refuses any it is sent. No SC/PWD discount
+        // is sent: it is not offered for new orders (the server refuses one).
         ...(Number.isInteger(item.agreedUnitPriceCentavos) ? { agreedUnitPriceCentavos: item.agreedUnitPriceCentavos } : {}),
         ...(typeof item.negotiationReason === "string" && item.negotiationReason ? { negotiationReason: item.negotiationReason } : {}),
-        ...(Number.isInteger(item.statutoryDiscountCentavos) && item.statutoryDiscountCentavos > 0
-          ? {
-              statutoryDiscountType: item.statutoryDiscountType,
-              statutoryDiscountCentavos: item.statutoryDiscountCentavos,
-              eligibilityConfirmed: item.eligibilityConfirmed === true,
-            }
-          : {}),
       })),
     });
     return result.data;
@@ -179,7 +174,9 @@ export async function addStockBatchWithAllocation({
   expiryDate,
   quantity,
   sellingPriceCentavos,
+  priceIsVatInclusive,
   manufacturer,
+  largeQuantityConfirmed,
 }) {
   try {
     const result = await callables().addStock({
@@ -190,7 +187,9 @@ export async function addStockBatchWithAllocation({
       expiryDate,
       quantity,
       sellingPriceCentavos,
+      priceIsVatInclusive,
       ...(manufacturer ? { manufacturer } : {}),
+      ...(largeQuantityConfirmed === true ? { largeQuantityConfirmed: true } : {}),
     });
     return result.data;
   } catch (error) {

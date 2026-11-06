@@ -110,7 +110,7 @@ test("no static array, sample row or fixed percentage supplies a metric", () => 
 
 test("all four Firestore subscriptions remain connected", () => {
   for (const sub of [
-    "subscribeDeliveries", "subscribeAllAlerts", "subscribeRiders", "subscribeInventory",
+    "subscribeDeliveries", "subscribeActiveAlerts", "subscribeRiders", "subscribeInventory",
   ]) {
     assert.match(CODE, new RegExp(`${sub}\\(`), `${sub} must still feed the page`);
   }
@@ -119,9 +119,10 @@ test("all four Firestore subscriptions remain connected", () => {
   assert.equal(/collection\(db,/.test(CODE), false);
   // Every KPI is a state value, never a literal.
   const values = [...CODE.matchAll(/value: (\w+)/g)].map((m) => m[1]);
-  assert.deepEqual(values, ["deliveryCount", "delayedCount", "criticalCount", "riderCount"]);
-  // Alerts are the unresolved ones, counted from the collection.
-  assert.match(SRC, /\.filter\(\(a\) => a\.status !== "resolved"\)/);
+  assert.deepEqual(values, ["deliveryCount", "exceptionCount", "criticalCount", "riderCount"]);
+  // The active-alert subscription uses the same query as the Admin bell.
+  assert.match(read("src/services/alertService.js"), /where\("status", "==", "active"\)/);
+  assert.match(read("src/components/admin/AdminAlertsBell.jsx"), /subscribeActiveAlerts\(/);
 });
 
 test("the breakdown covers every canonical status", () => {
@@ -159,9 +160,11 @@ test("no KPI states a verdict its field cannot support", () => {
   // its expiry date (and leaves voided batches out — adminDashboardExpiringStock).
   assert.match(SRC, /countExpiringOrExpiredBatches\(batches, manilaToday\(Date\.now\(\)\)\)/);
   assert.match(read("src/services/inventoryRemovalModel.js"), /deriveExpiryCondition\(b, todayIso\)/);
-  // And nothing is called missing: the figure is delayed plus cancelled.
+  // Closed cancellations must not be presented as delivery exceptions.
   assert.equal(/missing/i.test(CODE), false, "no order is described as missing");
-  assert.match(SRC, /label: "Delayed \/ cancelled"/);
+  assert.match(SRC, /label: "Delivery exceptions"/);
+  assert.match(SRC, /DELIVERY_EXCEPTION_STATUSES\.includes\(o\.statusKey\)/);
+  assert.match(read("src/services/deliveryService.js"), /DELIVERY_EXCEPTION_STATUSES = \["delayed", "delivery_failed"\]/);
 });
 
 // ------------------------------------------------------- neutral fallbacks
@@ -177,7 +180,8 @@ test("absent data renders a neutral state, never a filled-in one", () => {
   // Each section has its own empty state, and the page keeps loading and error
   // handling rather than rendering zeros over missing data.
   assert.match(SRC, /No orders yet/);
-  assert.match(SRC, /No active alerts right now/);
+  assert.match(SRC, /No active alerts or operational checks right now/);
+  assert.match(SRC, /!hasAttention && !failed\.alerts && !failed\.deliveries && !failed\.inventory/);
   // The banner shows while any source is still failing; a source that
   // recovers (automatic reconnect or "Try again") clears its own failure.
   assert.match(SRC, /\{anyFailed && loadError && \(/);
@@ -215,12 +219,20 @@ test("every action leads somewhere real", () => {
   }
 });
 
+test("the dashboard uses the shell bell and its attention panel without a second hero alert button", () => {
+  assert.doesNotMatch(SRC, /adx-hero-action|BellRing/);
+  assert.doesNotMatch(CSS, /adx-hero-action/);
+  assert.match(SRC, /<h2>Needs attention<\/h2>/);
+  assert.match(SRC, /Alert center\s*<ArrowRight/);
+  assert.match(read("src/components/admin/AdminShell.jsx"), /<AdminAlertsBell\s*\/>/);
+});
+
 test("the dashboard stylesheet no longer carries anything it cannot render", () => {
   // Every class the stylesheet defines must be one the component can produce.
   const defined = new Set(
     [...CSS.matchAll(/^\s*\.([a-zA-Z][\w-]*)/gm)].map((m) => m[1])
   );
-  const layoutOwned = new Set(["adx-main", "adx-header", "adx-kpis"]);
+  const layoutOwned = new Set(["adx-main", "adx-header", "adx-kpis", "inventory-page", "is-critical", "is-attention", "is-exception"]);
   const statuses = [...read("src/services/orderWorkflow.js")
     .match(/export const ORDER_STATUSES = Object\.freeze\(\[([\s\S]*?)\]\)/)[1]
     .matchAll(/"([^"]+)"/g)].map((m) => `tone-${m[1]}`);

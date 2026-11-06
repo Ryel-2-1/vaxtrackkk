@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
+import { ArrowRight } from "lucide-react";
 import { friendlyErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { getReservationProvenance } from "../../services/inventoryCallables";
 import { returnReason, returnSourceLabel } from "../../services/returnSplit";
@@ -14,6 +16,17 @@ import "./ReservationProvenance.css";
  * — and a mismatch is reported, never hidden. Loaded on demand (one callable),
  * and the parent remounts this per batch via `key`.
  */
+/**
+ * Stock Allocation, opened at one pending return (`?return=<id>`: its page
+ * opens, scrolled to and highlighted) — or at the returns list when no single
+ * return is meant.
+ */
+function allocationHref(ret) {
+  return ret?.returnId
+    ? `/admin/allocation?return=${encodeURIComponent(ret.returnId)}`
+    : "/admin/allocation";
+}
+
 function ReservationProvenance({ inventoryId }) {
   const [state, setState] = useState({ status: "idle", data: null, error: "" });
 
@@ -114,6 +127,7 @@ function ReservationProvenance({ inventoryId }) {
                 <th scope="col">Order</th>
                 <th scope="col">Reason</th>
                 <th scope="col">Units</th>
+                <th scope="col" aria-label="Action"></th>
               </tr>
             </thead>
             <tbody>
@@ -126,11 +140,26 @@ function ReservationProvenance({ inventoryId }) {
                     {returnReason(r) || "no reason given"}
                   </td>
                   <td className="tnum">{r.quantity}</td>
+                  <td>
+                    {/* Leaving the page closes this drawer with it. */}
+                    <Link
+                      className="inv-prov-link"
+                      to={allocationHref(r)}
+                      aria-label={`Review the return for ${r.orderNumber || r.orderId} in Stock Allocation`}
+                    >
+                      Review <ArrowRight size={13} aria-hidden="true" />
+                    </Link>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <p className="inv-prov-muted">Confirm their condition under Stock Allocation.</p>
+          <p className="inv-prov-muted inv-prov-next">
+            Confirm their condition under Stock Allocation.{" "}
+            <Link className="inv-prov-link" to={allocationHref(returns.length === 1 ? returns[0] : null)}>
+              Review in Stock Allocation <ArrowRight size={13} aria-hidden="true" />
+            </Link>
+          </p>
         </>
       )}
     </section>

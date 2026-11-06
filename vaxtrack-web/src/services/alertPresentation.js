@@ -14,6 +14,15 @@
 
 export const ALERT_ACTION_LABEL = "View details";
 
+/**
+ * Stock and expiry alerts (functions/src/stockAlerts.js) are written for the
+ * Admin, who manages inventory; the Dispatcher's bell and dashboard skip them.
+ */
+export const ADMIN_ONLY_ALERT_TYPES = Object.freeze(["stock_low", "batch_expiry"]);
+export function isAdminOnlyAlert(raw) {
+  return raw?.audience === "admin" || ADMIN_ONLY_ALERT_TYPES.includes(raw?.type);
+}
+
 const DEVIATION_THRESHOLD_METERS = 500;
 const DEVIATION_MINUTES = 3;
 
@@ -100,6 +109,8 @@ const TITLES = Object.freeze({
   route_deviation: { active: "Route deviation", resolved: "Route deviation resolved" },
   delivery_delay: { active: "Delivery running late", resolved: "Late delivery resolved" },
   rider_location_stale: { active: "Rider location not updating", resolved: "Rider location updating again" },
+  delivery_awaiting_completion: { active: "Delivery still awaiting completion", resolved: "Delivery completion resolved" },
+  offline_completion_review: { active: "Offline delivery needs review", resolved: "Offline delivery reviewed" },
 });
 
 const STALE_MINUTES = 10;
@@ -148,8 +159,10 @@ function pathFor(raw, role) {
 export function presentAlert(raw, { role = "admin", nowMs = Date.now(), fallbackTitle = "Alert" } = {}) {
   const resolved = raw?.status === "resolved";
   const type = raw?.type;
-  const orderLinked = type === "route_deviation" || type === "delivery_delay";
+  const orderLinked = type === "route_deviation" || type === "delivery_delay" || type === "delivery_awaiting_completion" ||
+    type === "offline_completion_review";
   const riderLinked = type === "rider_location_stale";
+  const inventoryLinked = ADMIN_ONLY_ALERT_TYPES.includes(type);
   const rider = nameOr(raw?.riderName, null);
   const code = orderCodeOf(raw?.orderNumber);
   const createdMs = millisOf(raw?.createdAt) ?? millisOf(raw?.lastDetectedAt);
@@ -171,6 +184,22 @@ export function presentAlert(raw, { role = "admin", nowMs = Date.now(), fallback
     message = resolved
       ? lateResolvedText(raw.resolutionReason, code)
       : withoutIds(nameOr(raw.message, "A delivery passed its expected arrival and grace period."), raw);
+  } else if (type === "delivery_awaiting_completion") {
+    // Server-raised (functions/src/arrivalProximityOps.js): the Rider stayed
+    // near the destination 15 minutes with no completion recorded.
+    title = TITLES.delivery_awaiting_completion[resolved ? "resolved" : "active"];
+    message = resolved
+      ? (["delivered", "delivery_failed", "cancelled"].includes(raw.resolutionReason)
+        ? lateResolvedText(raw.resolutionReason, code)
+        : `${code ? `Order ${code}` : "This order"} is no longer waiting at the destination.`)
+      : withoutIds(nameOr(raw.message, "The rider has been near the destination for 15 minutes without completing the delivery."), raw);
+  } else if (type === "offline_completion_review") {
+    // Server-raised (functions/src/offlineCompletionOps.js): a delivery the
+    // rider recorded without signal could not be verified automatically.
+    title = TITLES.offline_completion_review[resolved ? "resolved" : "active"];
+    message = resolved
+      ? `The offline delivery for ${code ? `Order ${code}` : "this order"} was ${raw.resolutionReason === "rejected" ? "rejected" : "approved"}.`
+      : withoutIds(nameOr(raw.message, "A delivery recorded without signal needs review."), raw);
   } else if (type === "rider_location_stale") {
     // Rebuilt from the stored fields, never shown from `message`.
     title = TITLES.rider_location_stale[resolved ? "resolved" : "active"];
@@ -211,6 +240,18 @@ export function presentAlert(raw, { role = "admin", nowMs = Date.now(), fallback
     const distance = formatDistanceMeters(raw.distanceMeters);
     if (distance) details.push({ label: "Distance from route", value: `${distance} (limit ${raw.thresholdMeters ?? DEVIATION_THRESHOLD_METERS} m)` });
   }
+  if (inventoryLinked) {
+    // Server-written figures only (functions/src/stockAlerts.js); never an id.
+    details.push({ label: "Vaccine", value: nameOr(raw?.vaccineName, "Not recorded") });
+    if (type === "batch_expiry") {
+      details.push({ label: "Batch", value: nameOr(raw?.batchId, "Not recorded") });
+      details.push({ label: "Expiry date", value: nameOr(raw?.expiryDate, "Not recorded") });
+      if (Number.isInteger(raw?.holdingQuantity)) details.push({ label: "Vials in stock", value: raw.holdingQuantity.toLocaleString("en-PH") });
+    } else {
+      if (Number.isInteger(raw?.availableQuantity)) details.push({ label: "Available to order", value: `${raw.availableQuantity.toLocaleString("en-PH")} vials` });
+      if (Number.isInteger(raw?.safetyStockQuantity)) details.push({ label: "Safety stock", value: `${raw.safetyStockQuantity.toLocaleString("en-PH")} vials` });
+    }
+  }
   if (createdMs !== null) details.push({ label: "Detected", value: friendlyTime(createdMs, nowMs) });
   if (resolved && resolvedMs !== null) details.push({ label: "Resolved", value: friendlyTime(resolvedMs, nowMs) });
 
@@ -225,7 +266,7 @@ export function presentAlert(raw, { role = "admin", nowMs = Date.now(), fallback
     metaText: meta.join(" · "),
     details,
     actionLabel: ALERT_ACTION_LABEL,
-    path: orderLinked ? pathFor(raw, role) : riderLinked ? riderPathFor(raw, role) : null,
-    searchText: [title, message, rider, raw?.orderNumber].filter(Boolean).join(" ").toLowerCase(),
+    path: orderLinked ? pathFor(raw, role) : riderLinked ? riderPathFor(raw, role) : inventoryLinked && role === "admin" ? "/admin/inventory" : null,
+    searchText: [title, message, rider, raw?.orderNumber, inventoryLinked ? raw?.batchId : null].filter(Boolean).join(" ").toLowerCase(),
   };
 }

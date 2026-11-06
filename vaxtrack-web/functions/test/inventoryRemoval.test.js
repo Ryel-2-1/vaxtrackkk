@@ -152,9 +152,17 @@ test("the removal audit id is per Admin and per request", () => {
 
 // ---------------------------------------------------------------- correct stock
 
+test("a correction above 5,000 vials needs the Admin's confirmation; 5,000 itself does not", () => {
+  const ok = { requestId: REQ, inventoryId: "b1", expectedQuantity: 100, reasonCode: "entry_error", reason: "Recount confirms the figure" };
+  assert.equal(R.validateCorrectionPayload({ ...ok, newQuantity: 5000 }).largeQuantityConfirmed, false);
+  assert.equal(code(() => R.validateCorrectionPayload({ ...ok, newQuantity: 5001 })), "large-quantity-unconfirmed");
+  assert.equal(code(() => R.validateCorrectionPayload({ ...ok, newQuantity: 5001, largeQuantityConfirmed: "yes" })), "large-quantity-unconfirmed", "exactly true");
+  assert.equal(R.validateCorrectionPayload({ ...ok, newQuantity: 5001, largeQuantityConfirmed: true }).largeQuantityConfirmed, true);
+});
+
 test("correction payload: category, meaningful reason, whole quantity, the figure the Admin saw", () => {
   const ok = { requestId: REQ, inventoryId: "b1", expectedQuantity: 100, newQuantity: 120, reasonCode: "count_discrepancy", reason: "Recount confirms 120" };
-  assert.deepEqual(R.validateCorrectionPayload(ok), ok);
+  assert.deepEqual(R.validateCorrectionPayload(ok), { ...ok, largeQuantityConfirmed: false });
   assert.equal(code(() => R.validateCorrectionPayload({ ...ok, reasonCode: "damaged" })), "invalid-correction-reason", "unusable stock is not a correction");
   assert.equal(code(() => R.validateCorrectionPayload({ ...ok, reasonCode: undefined })), "invalid-correction-reason");
   assert.equal(code(() => R.validateCorrectionPayload({ ...ok, reason: "x" })), "reason-required");

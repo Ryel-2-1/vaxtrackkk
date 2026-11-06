@@ -77,6 +77,15 @@ class Delivery {
   final String? routeProvider;
   final String? routeProfile;
 
+  // Destination revisions, compared exactly as the server does
+  // (functions/src/riderTracking.js routeForOrder): a single-order route saved
+  // for an older destination revision no longer leads to this destination.
+  // Kept raw — never coerced — so a malformed value disagrees the same way on
+  // both sides.
+  final Object? destinationRevision;
+  final Object? routeDestinationRevision;
+  final DateTime? destinationCorrectedAt;
+
   // Multi-stop trip fields, written by the web Dispatcher's "Optimize route"
   // (Valhalla matrix with VaxTrack stop ordering). All optional — an order
   // outside an optimized trip omits them. The Rider app only READS these.
@@ -84,15 +93,29 @@ class Delivery {
   final int? stopSequence; // this order's place in the visiting order (1-based)
   final int? tripStopCount; // total stops in the trip
   final String? stopEtaText; // arrival-clock snapshot for this stop
+
+  /// The arrival (geofence) radius saved on the order, in metres: the area the
+  /// server checks completion against. Null when the order has none.
+  final int? arrivalRadiusM;
   final String? tripPolyline; // whole-trip encoded polyline
   final int? tripDistanceMeters;
   final int? tripDurationSeconds;
   final String? tripRouteProvider;
   final String? tripRouteProfile;
+  final DateTime? tripGeneratedAt;
 
   /// How to reach the confirmed clinic entrance ("Side gate on Rizal St."),
   /// copied onto the order with its pin. Optional; read-only for the rider.
   final String? destinationAccessNotes;
+
+  /// How the delivery was completed: null (live), 'offline' (an offline record
+  /// the server verified) or 'offline_approved' (approved by a dispatcher).
+  final String? completionMode;
+
+  /// An offline record the server could not verify: 'pending' (a dispatcher is
+  /// reviewing it), 'approved' or 'rejected' (with the dispatcher's note).
+  final String? offlineReviewStatus;
+  final String? offlineReviewNote;
 
   /// Server-evaluated delivery timing (functions/src/deliveryTiming.js):
   /// on_time / at_risk / delayed / unknown, with the baseline frozen at
@@ -146,16 +169,24 @@ class Delivery {
     this.routeGeneratedAt,
     this.routeProvider,
     this.routeProfile,
+    this.destinationRevision,
+    this.routeDestinationRevision,
+    this.destinationCorrectedAt,
     this.tripId,
     this.stopSequence,
     this.tripStopCount,
     this.stopEtaText,
+    this.arrivalRadiusM,
     this.tripPolyline,
     this.tripDistanceMeters,
     this.tripDurationSeconds,
     this.tripRouteProvider,
     this.tripRouteProfile,
+    this.tripGeneratedAt,
     this.destinationAccessNotes,
+    this.completionMode,
+    this.offlineReviewStatus,
+    this.offlineReviewNote,
     this.timingStatus,
     this.expectedArrivalAt,
     this.automaticDelayedAt,
@@ -216,12 +247,16 @@ class Delivery {
       routeGeneratedAt: _toDateTime(data['routeGeneratedAt']),
       routeProvider: _nonBlank(data['routeProvider']),
       routeProfile: _nonBlank(data['routeProfile']),
+      destinationRevision: data['destinationRevision'],
+      routeDestinationRevision: data['routeDestinationRevision'],
+      destinationCorrectedAt: _toDateTime(data['destinationCorrectedAt']),
       tripId: (data['tripId'] as String?)?.isEmpty ?? true
           ? null
           : data['tripId'] as String?,
       stopSequence: _toInt(data['stopSequence']),
       tripStopCount: _toInt(data['tripStopCount']),
       stopEtaText: data['stopEtaText'] as String?,
+      arrivalRadiusM: _toInt(data['destinationGeofenceRadiusM']) ?? _toInt(data['clinicGeofenceRadiusM']),
       tripPolyline: (data['tripPolyline'] as String?)?.isEmpty ?? true
           ? null
           : data['tripPolyline'] as String?,
@@ -229,7 +264,15 @@ class Delivery {
       tripDurationSeconds: _toInt(data['tripDurationSeconds']),
       tripRouteProvider: _nonBlank(data['tripRouteProvider']),
       tripRouteProfile: _nonBlank(data['tripRouteProfile']),
+      tripGeneratedAt: _toDateTime(data['tripGeneratedAt']),
       destinationAccessNotes: _nonBlank(data['destinationAccessNotes']),
+      completionMode: _nonBlank(data['completionMode']),
+      offlineReviewStatus: data['offlineCompletionReview'] is Map
+          ? _nonBlank((data['offlineCompletionReview'] as Map)['status'])
+          : null,
+      offlineReviewNote: data['offlineCompletionReview'] is Map
+          ? _nonBlank((data['offlineCompletionReview'] as Map)['decisionNote'])
+          : null,
       timingStatus: _nonBlank(data['timingStatus']),
       expectedArrivalAt: _toDateTime(data['expectedArrivalAt']),
       automaticDelayedAt: _toDateTime(data['automaticDelayedAt']),

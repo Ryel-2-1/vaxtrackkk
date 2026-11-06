@@ -44,6 +44,8 @@ const {
 } = require("./policy");
 const { RIDER_LOCATIONS, evaluateDeliveryGeofence } = require("./deliveryGeofence");
 const { readPriceConvention } = require("./pricingConfig");
+const { quoteUnitPrice } = require("./vatQuote");
+const { approvedCartMatches } = require("./zeroRateApproval");
 const { deliveryEvidenceProblem } = require("./deliveryEvidence");
 const { statusUpdatedByEmailValue } = require("./attribution");
 const { potentiallyCancellable } = require("./preDepartureCancellation");
@@ -79,6 +81,7 @@ const {
   statutoryDiscountAuditRecord,
   statutoryDiscountAuditId,
 } = require("./negotiatedPricing");
+const { usableThrough, assertBatchesCover } = require("./expiryGuard");
 
 const ORDERS = "orders";
 const INVENTORY = "inventory";
@@ -124,8 +127,10 @@ async function loadUser(db, uid) {
  * `reservedQuantity` increment commit together or not at all — there is no
  * window in which an order exists without its reservation.
  */
-async function createOrderWithReservation({ db, FieldValue, uid, email = null, payload, now }) {
-  const result = await createOrderTransaction({ db, FieldValue, uid, email, payload, now });
+// statutoryDiscountsOffered: tests only (an order placed before SC/PWD was
+// withdrawn). index.js never passes it.
+async function createOrderWithReservation({ db, FieldValue, uid, email = null, payload, now, statutoryDiscountsOffered = false }) {
+  const result = await createOrderTransaction({ db, FieldValue, uid, email, payload, now, statutoryDiscountsOffered });
   const { productKeys, ...response } = result;
   // Allocation runs AFTER the order commits, per product, in its own bounded
   // transactions — so a new order competes for stock in priority order instead
@@ -191,12 +196,14 @@ function allocationFromOrder(order) {
   };
 }
 
-async function createOrderTransaction({ db, FieldValue, uid, email = null, payload, now }) {
+async function createOrderTransaction({ db, FieldValue, uid, email = null, payload, now, statutoryDiscountsOffered = false }) {
   const userData = await loadUser(db, uid);
   requireRole(userData, "salesrep");
 
   const requestId = validateRequestId(payload?.requestId);
-  const { doctorId, doctorAddressId, items } = validateCreatePayload(payload);
+  const { doctorId, doctorAddressId, items } = validateCreatePayload(payload, { statutoryDiscountsOffered });
+  const zeroRateRequestId = payload?.zeroRateRequestId == null
+    ? null : validateDocumentId(payload.zeroRateRequestId, "Select an approved zero-rating request.");
   // Parse the immutable request before looking up its key. A committed order
   // must remain recoverable after its requested time/day passes. Clock checks
   // apply only to NEW keys, inside the transaction, before any write.
@@ -219,6 +226,7 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
     doctorAddressId,
     items,
     schedule: { requestedDeliveryDate, requestedArrival },
+    zeroRateRequestId,
   });
   const arrivalFingerprint = canonicalRequestFingerprint({
     uid, doctorId, doctorAddressId, items, schedule: { requestedArrival },
@@ -240,6 +248,7 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
   const doctorAddressRef = doctorRef
     .collection(DOCTOR_ADDRESSES)
     .doc(doctorAddressId);
+  const zeroRateRef = zeroRateRequestId ? db.collection("zeroRateRequests").doc(zeroRateRequestId) : null;
 
   return db.runTransaction(async (tx) => {
     // ---- reads ----
@@ -362,6 +371,23 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
       },
     });
 
+    const zeroRateSnap = zeroRateRef ? await tx.get(zeroRateRef) : null;
+    const zeroRateRequest = zeroRateSnap?.exists ? zeroRateSnap.data() : null;
+    if (zeroRateRef && (
+      !zeroRateRequest || zeroRateRequest.status !== "approved" ||
+      zeroRateRequest.requesterUid !== uid || zeroRateRequest.doctorId !== doctorId ||
+      zeroRateRequest.doctorAddressId !== doctorAddressId ||
+      zeroRateRequest.requestedDeliveryDate !== requestedDeliveryDate ||
+      zeroRateRequest.consumedByOrderId
+    )) {
+      throw new PolicyError("zero-rate-approval-invalid", "The zero-rating approval is unavailable or does not match this order. Request a new review before placing it.");
+    }
+    if (zeroRateRequest) {
+      if (!approvedCartMatches(zeroRateRequest.items, items)) {
+        throw new PolicyError("zero-rate-approval-invalid", "The approved vaccine list or vial counts differ from this order. Request a new review.");
+      }
+    }
+
     const invRefs = items.map((i) => db.collection(INVENTORY).doc(i.inventoryId));
     const invSnaps = [];
     for (const ref of invRefs) {
@@ -423,6 +449,9 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
         vaccine: vSnap && vSnap.exists ? vSnap.data() : null,
       });
     });
+    if (zeroRateRequest && !lineVat.includes("vatable")) {
+      throw new PolicyError("zero-rate-no-vatable-lines", "This order has no VATable items to zero-rate. Place it under its ordinary tax classification.");
+    }
     // The canonical SKU is the catalog vaccine's internalSku, snapshotted per
     // line so the receipt and the history keep the identifier the order used.
     const lineSku = invSnaps.map((snap) => {
@@ -437,16 +466,28 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
     // otherwise). The AGREED price is the Med Rep's, shape-checked with its
     // reason by validateCreatePayload. Every total and the VAT breakdown are
     // computed HERE, in integers; the caller sends none of them.
+    const quotedLines = evaluated.map((e, index) => {
+      const quote = quoteUnitPrice({
+        enteredCentavos: e.unitPriceCentavos,
+        priceIsVatInclusive: invSnaps[index].data().priceIsVatInclusive,
+        productVatClassification: lineVat[index],
+        approvedZeroRate: Boolean(zeroRateRequest),
+      });
+      if (quote.unitPriceCentavos !== (items[index].expectedQuotedUnitPriceCentavos ?? items[index].expectedUnitPriceCentavos)) {
+        throw new PolicyError("price-changed", "The batch price or its VAT basis changed. Review the order price again before placing it.");
+      }
+      return quote;
+    });
     const pricedLines = evaluated.map((e, index) =>
       priceOrderLine({
         quantity: e.quantity,
-        standardUnitPriceCentavos: e.unitPriceCentavos,
+        standardUnitPriceCentavos: quotedLines[index].unitPriceCentavos,
         agreedUnitPriceCentavos: items[index].agreedUnitPriceCentavos,
         negotiationReason: items[index].negotiationReason,
         statutoryDiscountType: items[index].statutoryDiscountType,
         statutoryDiscountCentavos: items[index].statutoryDiscountCentavos,
         eligibilityConfirmed: items[index].eligibilityConfirmed,
-        vatClassification: lineVat[index],
+        vatClassification: quotedLines[index].vatClassification,
       })
     );
     const agreement = summarizeAgreement(pricedLines);
@@ -537,6 +578,12 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
       statutoryDiscountApplied: agreement.statutoryDiscountApplied,
       finalTotalCentavos: agreement.finalTotalCentavos,
       vatSummary: agreement.vatSummary,
+      ...(zeroRateRequest ? { zeroRateApproval: {
+        requestId: zeroRateRequestId,
+        approvedByUid: zeroRateRequest.reviewedByUid,
+        approvedAt: zeroRateRequest.reviewedAt,
+        reason: zeroRateRequest.reason,
+      } } : {}),
       // ---- allocation (backorder-aware; see allocation.js) ----
       allocationVersion: ALLOCATION_VERSION_BACKORDER,
       // The reservation document is active (possibly still empty).
@@ -593,6 +640,10 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
 
     // ---- writes (continued) ----
     tx.set(orderRef, orderData);
+    if (zeroRateRef) tx.update(zeroRateRef, {
+      status: "used", consumedByOrderId: orderRef.id,
+      consumedAt: FieldValue.serverTimestamp(),
+    });
     // Each quoted batch is now referenced by an order line, so it can never be
     // voided (allocation.usageMark). Once per batch; later quotes write nothing.
     const marked = new Set();
@@ -999,6 +1050,11 @@ async function cancelOrderTransaction({ db, FieldValue, uid, email, orderId, rea
       cancelledAt: FieldValue.serverTimestamp(),
       cancelledByUid: uid,
       cancelledByRole: actorRole,
+      cancelledByName: typeof userData.name === "string" && userData.name.trim()
+        ? userData.name.trim()
+        : (typeof userData.fullName === "string" && userData.fullName.trim()
+          ? userData.fullName.trim()
+          : (typeof userData.displayName === "string" && userData.displayName.trim() ? userData.displayName.trim() : null)),
       cancelledFromStatus: order.status,
       cancellationScope: actorRole === "dispatcher" ? "dispatcher" : "pre_departure",
       statusUpdatedAt: FieldValue.serverTimestamp(),
@@ -1124,6 +1180,49 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
     throw new PolicyError("invalid-payload", "That delivery could not be identified.");
   }
 
+  return completeDelivery({
+    db,
+    FieldValue,
+    orderId,
+    riderUid: uid,
+    actorUid: uid,
+    actorEmail: email,
+    now,
+    // Clinic delivery geofence — the authoritative check (the app's preflight
+    // is only early feedback). The Rider's location is read IN this
+    // transaction: moving out, going stale, stopping tracking or being
+    // reassigned after the preflight still refuses here, before any write.
+    // An already-delivered replay returned before this, so retries stay idempotent.
+    verifyLocation: async (tx, order) => {
+      const locationSnap = await tx.get(db.collection(RIDER_LOCATIONS).doc(uid));
+      evaluateDeliveryGeofence({
+        order,
+        location: locationSnap.exists ? locationSnap.data() : null,
+        uid,
+        nowMs: now.getTime(),
+      });
+      return { orderFields: {} };
+    },
+  });
+}
+
+/**
+ * The completion transaction shared by every path that may close a delivery:
+ * the live one above, and the offline record (offlineCompletionOps.js — the
+ * Rider's own record, or a Dispatcher's approval of one).
+ *
+ * [riderUid] is the Rider who carried it: the order must be assigned to them
+ * and both photos recorded by them. [actorUid]/[actorEmail] is who closes it
+ * (the Rider, or the approving Dispatcher) — the status attribution.
+ *
+ * [verifyLocation](tx, order) runs after the status and evidence checks and
+ * before any other read. It either throws (nothing is written), returns
+ * { orderFields } to complete (extra fields stamped on the order — it must not
+ * write), or returns { stop: result } after writing its own outcome instead
+ * (an offline record sent for review) — then nothing else is read or written.
+ */
+async function completeDelivery({ db, FieldValue, orderId, riderUid, actorUid, actorEmail = null, now, verifyLocation }) {
+  const uid = riderUid;
   const orderRef = db.collection(ORDERS).doc(orderId);
   const reservationRef = db.collection(RESERVATIONS).doc(orderId);
 
@@ -1168,18 +1267,8 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
     const evidence = deliveryEvidenceProblem(order, orderId, uid);
     if (evidence) throw new PolicyError(evidence.code, evidence.message);
 
-    // Clinic delivery geofence — the authoritative check (the app's preflight
-    // is only early feedback). The Rider's location is read IN this
-    // transaction: moving out, going stale, stopping tracking or being
-    // reassigned after the preflight still refuses here, before any write.
-    // An already-delivered replay returned above, so retries stay idempotent.
-    const locationSnap = await tx.get(db.collection(RIDER_LOCATIONS).doc(uid));
-    evaluateDeliveryGeofence({
-      order,
-      location: locationSnap.exists ? locationSnap.data() : null,
-      uid,
-      nowMs: now.getTime(),
-    });
+    const verified = await verifyLocation(tx, order);
+    if (verified?.stop) return verified.stop;
 
     const legacy = isLegacyOrder(order);
     const settlements = [];
@@ -1216,6 +1305,14 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
       const refs = perBatch.map(([inventoryId]) => db.collection(INVENTORY).doc(inventoryId));
       const snaps = [];
       for (const ref of refs) snaps.push(await tx.get(ref));
+      // A batch can expire while the order is out (a delivery that ran past
+      // midnight, a corrected expiry): an expired dose is never recorded as
+      // delivered.
+      assertBatchesCover(
+        perBatch.map(([inventoryId], index) => ({ id: inventoryId, data: snaps[index].exists ? snaps[index].data() : null })),
+        usableThrough(null, now),
+        { action: "Do not hand it over — report a delivery failure so the stock comes back for checking." }
+      );
       perBatch.forEach(([inventoryId, quantity], index) => {
         settlements.push({
           ref: refs[index],
@@ -1231,7 +1328,7 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
     // History, READ phase: the consumption, create-only. A retried completion
     // replays above and never reaches this.
     const preparedHistory = !legacy
-      ? await prepareEvents(tx, { db, events: [consumptionEvent({ orderId, order, reservationItems: reservation.items, uid })] })
+      ? await prepareEvents(tx, { db, events: [consumptionEvent({ orderId, order, reservationItems: reservation.items, uid: actorUid })] })
       : [];
 
     // ---- writes ----
@@ -1241,21 +1338,22 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
       status: "delivered",
       deliveredAt: FieldValue.serverTimestamp(),
       statusUpdatedAt: FieldValue.serverTimestamp(),
-      statusUpdatedByUid: uid,
+      statusUpdatedByUid: actorUid,
       // The status-attribution trio is written TOGETHER. Writing only the uid
       // left the previous writer's email (the dispatcher who dispatched it) on
       // the order, so Admin's Activity panel showed "Updated by <dispatcher>"
       // for a delivery the rider completed. With no email on the rider's
       // token, the stale one is removed rather than left to mislead.
-      statusUpdatedByEmail: statusUpdatedByEmailValue(email, FieldValue),
+      statusUpdatedByEmail: statusUpdatedByEmailValue(actorEmail, FieldValue),
       updatedAt: FieldValue.serverTimestamp(),
+      ...(verified?.orderFields ?? {}),
     };
     if (legacy) {
       orderUpdate.inventoryReconciliation = "legacy-unallocated";
     } else {
       orderUpdate.allocationStatus = "consumed";
       orderUpdate.consumedAt = FieldValue.serverTimestamp();
-      orderUpdate.consumedByUid = uid;
+      orderUpdate.consumedByUid = actorUid;
       if (order.allocationVersion === ALLOCATION_VERSION_BACKORDER) {
         // Delivered: out of the allocation queue for good.
         orderUpdate.allocationOpen = false;
@@ -1264,7 +1362,7 @@ async function markOrderDeliveredWithInventoryConsumption({ db, FieldValue, uid,
       tx.update(reservationRef, {
         status: "consumed",
         settledAt: FieldValue.serverTimestamp(),
-        settledByUid: uid,
+        settledByUid: actorUid,
         settlementType: "delivered",
       });
       // Consumption recorded once: a retried completion replays above.
@@ -1280,6 +1378,7 @@ module.exports = {
   createOrderWithReservation,
   cancelOrderWithInventoryRelease,
   markOrderDeliveredWithInventoryConsumption,
+  completeDelivery,
   validateDeliveryCompletionGeofence,
   requireRole,
   loadUser,

@@ -367,17 +367,15 @@ test("a non-object clinic record degrades safely", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Order creation wiring — source-shape guards
+// Live order creation wiring — source-shape guards
 //
-// createSalesRepOrder writes through Firestore, and this repo has no Firestore
-// mock (adding one would be a dependency change). What can be pinned cheaply is
-// that the creation path keeps its existing fields, uses the builder, and no
-// longer trusts caller-supplied coordinates.
+// The callable builds the order and location snapshot inside its transaction.
+// These checks guard that path rather than the removed client-side writer.
 // ---------------------------------------------------------------------------
 
 const here = dirname(fileURLToPath(import.meta.url));
-const orderService = readFileSync(
-  join(here, "..", "src", "services", "orderService.js"),
+const orderOperations = readFileSync(
+  join(here, "..", "functions", "src", "operations.js"),
   "utf8"
 );
 const placeOrder = readFileSync(
@@ -385,65 +383,11 @@ const placeOrder = readFileSync(
   "utf8"
 );
 
-/** Slice createSalesRepOrder out of the service source. */
-function createOrderSource() {
-  const start = orderService.indexOf("export async function createSalesRepOrder");
-  assert.notEqual(start, -1);
-  const rest = orderService.slice(start + 1);
-  const next = rest.search(/\nexport (async )?function /);
-  return next === -1 ? rest : rest.slice(0, next);
-}
-
-test("order creation still writes every pre-existing field", () => {
-  const src = createOrderSource();
-  for (const field of [
-    "orderNumber",
-    "clinicName",
-    "clinicAddress",
-    "vaccineName",
-    "vaccineType",
-    "quantity",
-    "unit",
-    "priority",
-    "status",
-    "assignedRiderId",
-    "assignedRiderName",
-    "createdByRole",
-    "createdByUid",
-    "createdByEmail",
-    "createdAt",
-    "updatedAt",
-    "region",
-    "deliveryInstructions",
-    "items",
-  ]) {
-    assert.match(
-      src,
-      new RegExp("\\b" + field + "\\b"),
-      `createSalesRepOrder no longer references ${field}`
-    );
-  }
-  assert.match(src, /status: "pending_dispatch"/, "initial status unchanged");
-  // Temperature was removed: the order payload must not add a storage temperature.
-  assert.equal(
-    /storageTemp/.test(src),
-    false,
-    "createSalesRepOrder must not write storageTemp"
-  );
-});
-
-test("the legacy helper still preserves verified clinic snapshots", () => {
-  const src = createOrderSource();
-  assert.match(
-    src,
-    /buildClinicLocationSnapshot\(\s*orderData\.clinicDocId,\s*orderData\.clinic\s*\)/,
-    "creation must derive the snapshot from the clinic reference"
-  );
-  assert.match(
-    src,
-    /doc\.clinicLocationSnapshotAt = serverTimestamp\(\)/,
-    "the snapshot must be server-stamped"
-  );
+test("the live callable builds the destination from stored relationships", () => {
+  assert.match(orderOperations, /buildOrderDestinationSnapshot\(\{[\s\S]*?doctor,[\s\S]*?relationship,[\s\S]*?clinic,[\s\S]*?area:/);
+  assert.match(orderOperations, /\.\.\.destination\.orderFields,/);
+  assert.match(orderOperations, /clinicLocationSnapshotAt: FieldValue\.serverTimestamp\(\)/);
+  assert.match(orderOperations, /tx\.set\(orderRef, orderData\)/);
   assert.match(placeOrder, /doctorId: selectedDoctor\.id/);
   assert.match(placeOrder, /doctorAddressId: selectedDestination\.id/);
   assert.doesNotMatch(
@@ -453,23 +397,10 @@ test("the legacy helper still preserves verified clinic snapshots", () => {
   );
 });
 
-test("order creation no longer trusts caller-supplied coordinates", () => {
-  const src = createOrderSource();
-  assert.doesNotMatch(
-    src,
-    /orderData\.clinicLat|orderData\.clinicLng/,
-    "coordinates must come from the clinic record, not the caller"
-  );
+test("checkout does not provide destination coordinates", () => {
   assert.doesNotMatch(
     placeOrder,
     /orderPayload\.clinicLat|orderPayload\.clinicLng/,
     "the page must not assemble coordinates itself any more"
   );
-});
-
-test("order creation does not touch status, arrival or route state", () => {
-  const src = createOrderSource();
-  for (const forbidden of ["arrivedAt", "routePolyline", "deliveredAt"]) {
-    assert.ok(!src.includes(forbidden), `${forbidden} must not appear`);
-  }
 });

@@ -66,6 +66,22 @@ test("an advance order sits on its own scheduled day, never on the day it was pl
   assert.deepEqual(calendarCounts(orders).counts, { "2026-11-20": 1, "2026-10-05": 1 });
 });
 
+test("cancelled orders stay browsable without inflating scheduled or urgent counts", () => {
+  const active = order({ id: "active", priority: "Urgent" });
+  const cancelled = order({ id: "cancelled", statusType: "cancelled", statusKey: "cancelled", priority: "Urgent" });
+  const orders = [active, cancelled];
+  assert.deepEqual(calendarCounts(orders), {
+    counts: { "2026-10-08": 1 },
+    urgent: { "2026-10-08": 1 },
+  });
+  assert.deepEqual(calendarDay(orders, "2026-10-08").map((o) => o.id), ["active", "cancelled"]);
+  assert.deepEqual(calendarCounts([cancelled]), { counts: {}, urgent: {} });
+  assert.deepEqual(calendarCounts([cancelled], { includeCancelled: true }), {
+    counts: { "2026-10-08": 1 },
+    urgent: {},
+  });
+});
+
 test("a rescheduled order moves day; its original request is shown, not used", () => {
   const moved = order({ requestedDeliveryDate: "2026-10-12", originalRequestedDeliveryDate: "2026-10-08", scheduledDeliveryTime: "09:30" });
   assert.equal(scheduledDateOf(moved), "2026-10-12");
@@ -157,10 +173,19 @@ test("each entry shows doctor, clinic, location and Med Rep from real data only"
 
   const users = new Map([["rep1", { fullName: "Maria Santos" }]]);
   assert.equal(medRepNameFor(doctorFirst, users), "Maria Santos");
-  // Dispatcher (no directory): only a snapshot on the order can answer.
+  // Dispatcher has no directory access; the server resolves only visible order owners.
   assert.equal(medRepNameFor(doctorFirst, null), null);
+  assert.equal(medRepNameFor(doctorFirst, null, "Current Med Rep"), "Current Med Rep");
   assert.equal(medRepNameFor(order({ createdByEmail: "rep@x.com" }), null), "rep@x.com");
   assert.equal(medRepNameFor(order({ createdByUid: "ghost" }), users), null);
+});
+
+test("Dispatcher calendar looks up visible order owners without reading the staff directory", () => {
+  const page = code("src/components/schedule/DeliveryCalendar.jsx");
+  const lookup = code("src/services/orderMedRepNames.js");
+  assert.match(page, /if \(!isAdmin\) return undefined;\s*return subscribeUsers\(/);
+  assert.match(page, /fetchOrderMedRepNames\(visibleLookupIds\)/);
+  assert.match(lookup, /httpsCallable\(getFunctions\(app, "asia-southeast1"\), "getOrderMedRepNames"\)/);
 });
 
 test("time display is Manila wall-clock as stored", () => {
@@ -241,7 +266,12 @@ test("only the Admin view can reschedule, and only through the callable", () => 
   assert.match(code("src/pages/dispatcher/DispatcherSchedule.jsx"), /<DeliveryCalendar role="dispatcher" \/>/);
   const page = code("src/components/schedule/DeliveryCalendar.jsx");
   assert.match(page, /const isAdmin = role === "admin";/);
-  assert.match(page, /\{isAdmin \? \(\s*canReschedule\(order\)/);
+  // The order card (DeliveryEventCard) shows the control only for Admin; the
+  // calendar passes the role through to every card it renders.
+  assert.match(code("src/components/schedule/DeliveryEventCard.jsx"), /\{isAdmin \? \(\s*canReschedule\(order\)/);
+  assert.equal((page.match(/<DeliveryEventCard[\s\S]*?isAdmin=\{isAdmin\}[\s\S]*?onReschedule=\{openReschedule\}/g) || []).length, 2);
+  // The Med Rep planner's cards never get it.
+  assert.doesNotMatch(code("src/pages/salesRep/SalesRepDashboard.jsx"), /<DeliveryEventCard[^>]*isAdmin/);
   assert.match(page, /\{isAdmin && editing \? \(/);
   // The user directory (Med Rep names) is only subscribed for Admin.
   assert.match(page, /if \(!isAdmin\) return undefined;\s*return subscribeUsers\(/);
@@ -266,7 +296,7 @@ test("the calendar has loading, error and empty states, and keyboard-operable co
   assert.match(page, /<strong>No orders yet<\/strong>/);
   assert.match(page, /<strong>Nothing scheduled<\/strong>/);
   assert.match(page, /No order on this day matches the current filters\./);
-  assert.match(page, /<strong>All active orders are dated<\/strong>/);
+  assert.match(page, /filtersActive \? "No unscheduled orders match these filters" : "All active orders are dated"/);
   // Dialog: modal semantics, Escape, focus trap, focus return.
   assert.match(page, /role="dialog"\s*aria-modal="true"/);
   // Escape (never mid-save) and the focus trap come from the shared dialog hook

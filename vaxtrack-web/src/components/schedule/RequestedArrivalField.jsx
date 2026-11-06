@@ -73,14 +73,16 @@ function RequestedArrivalField({ value, onChange, problem = null, disabled = fal
         </select>
       </label>
 
-      {mode === "window" && (
-        <div className="arrival-times">
-          {timeInput("start", "From")}
-          {timeInput("end", "Until")}
-        </div>
-      )}
-      {mode === "before" && <div className="arrival-times">{timeInput("time", "Arrive before")}</div>}
-      {mode === "exact" && <div className="arrival-times">{timeInput("time", "Arrive at")}</div>}
+      <div className={`arrival-time-slot${mode === "any_time" ? " is-empty" : ""}`}>
+        {mode === "window" && (
+          <div className="arrival-times">
+            {timeInput("start", "From")}
+            {timeInput("end", "Until")}
+          </div>
+        )}
+        {mode === "before" && <div className="arrival-times">{timeInput("time", "Arrive before")}</div>}
+        {mode === "exact" && <div className="arrival-times">{timeInput("time", "Arrive at")}</div>}
+      </div>
 
       {problem ? (
         <p id={errorId} className="arrival-error" role="alert">

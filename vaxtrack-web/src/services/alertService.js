@@ -10,11 +10,11 @@ import { db } from "../firebase";
 import { logSafeError } from "./liveDataErrors.js";
 import { listenLive } from "./liveSnapshot.js";
 
-// Route-deviation incidents are created by the RIDER app, not here. The Flutter
-// `route_deviation_alert_service.dart` owns that write: it uses a deterministic
-// document id per (order, rider) and a Firestore transaction so retries and app
-// restarts cannot produce duplicate incidents, and `firestore.rules` constrains
-// exactly which fields a rider may set on one.
+// Route-deviation incidents are created by the SERVER, never here and never by
+// the Rider app: `trackRiderLocation` (functions/src/riderTrackingOps.js)
+// measures each shared location against the saved route and raises or resolves
+// the alert. `firestore.rules` refuses client creation of every server alert
+// type (serverAlertTypes()).
 //
 // A `createRouteDeviationAlert()` helper used to live here with hardcoded
 // fallback identities ("TRK-9824", "rider_001", "Juan Dela Cruz", "Quezon

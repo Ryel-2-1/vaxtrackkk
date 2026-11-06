@@ -248,7 +248,6 @@
 
 .deliveries-summary-card:hover,
 .deliveries-v4-fleet-card:hover {
-  transform: translateY(-2px);
   box-shadow: 0 18px 38px rgba(15, 23, 42, 0.1);
   border-color: #bfdbfe;
 }
@@ -1056,31 +1055,6 @@
    rules would otherwise override typography/colors.
    ============================================================ */
 
-/* ---------- header ---------- */
-
-.mdl-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
-.mdl-header h1 {
-  font-family: var(--font-ui);
-  font-size: 22px !important;
-  font-weight: 600 !important;
-  color: var(--gray-900) !important;
-  letter-spacing: -0.01em;
-  margin: 0;
-}
-
-.mdl-header p {
-  font-size: 13px !important;
-  color: var(--gray-600) !important;
-  margin: 2px 0 0;
-}
-
 /* ---------- buttons ---------- */
 
 .mdl-btn {
@@ -1189,9 +1163,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
+  flex: 1 1 320px;
   min-width: 240px;
-  max-width: 380px;
   height: 36px;
   padding: 0 12px;
   background: #fff;
@@ -1223,6 +1196,9 @@
 }
 
 .mdl-select {
+  flex: 0 1 260px;
+  width: 260px;
+  min-width: 190px;
   height: 36px !important;
   padding: 0 12px !important;
   background: #fff !important;
@@ -1684,18 +1660,6 @@
    Added with the Admin Deliveries honesty pass.
    ------------------------------------------------------------------ */
 
-/* Replaces the "New delivery" button, which raised a toast explaining that
-   deliveries are created elsewhere. The same fact, stated rather than dressed
-   as a control. */
-.mdl-header-note {
-  margin: 0;
-  max-width: 34ch;
-  text-align: right;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--gray-500, #6b7280);
-}
-
 /* `.mdl-banner` declares `border: 1px solid` and leaves the colour to a
    modifier, so the unmodified banner used for the unrecognised-status notice
    had no colour of its own. Neutral by default; `-danger` still overrides. */
@@ -1703,21 +1667,6 @@
   background: var(--gray-50, #f9fafb);
   border-color: var(--gray-200, #e5e7eb);
   color: var(--gray-700, #374151);
-}
-
-/* The rider Call control is a real `tel:` link now rather than a button that
-   reported a call it never placed, so the button styling has to cover anchors. */
-a.mdl-btn,
-a.mdl-btn:hover,
-a.mdl-btn:focus-visible {
-  text-decoration: none !important;
-}
-
-@media (max-width: 760px) {
-  .mdl-header-note {
-    max-width: none;
-    text-align: left;
-  }
 }
 
 /* ---------- status history (server-recorded, oldest first) ---------- */
@@ -1735,4 +1684,40 @@ a.mdl-btn:focus-visible {
   font-size: 13px !important;
   color: var(--gray-600) !important;
   line-height: 1.5;
+}
+
+/* Let the card show the full page of up to ten deliveries. */
+.deliveries-v4-page .mdl-filterbar {
+  margin: 12px 0;
+}
+.deliveries-v4-page .mdl-card {
+  display: flex;
+  flex-direction: column;
+}
+.deliveries-v4-page .mdl-card > .mdl-card-head,
+.deliveries-v4-page .mdl-card > .page-nav {
+  flex: none;
+}
+.deliveries-v4-page .mdl-table-wrap {
+  max-height: none;
+  overflow-x: auto;
+  scrollbar-gutter: auto;
+}
+/* One low toolbar row: the select and Reset match the 36px search box.
+   !important only to out-specify the global 46px control reset. */
+.deliveries-v4-page .mdl-filterbar .mdl-select,
+.deliveries-v4-page .mdl-filterbar .mdl-btn {
+  height: 36px !important;
+  min-height: 36px !important;
+}
+
+@media (max-width: 760px) {
+  .deliveries-v4-page .mdl-filterbar .mdl-search {
+    flex-basis: 100%;
+  }
+
+  .deliveries-v4-page .mdl-filterbar .mdl-select {
+    flex: 1 1 190px;
+    width: auto;
+  }
 }

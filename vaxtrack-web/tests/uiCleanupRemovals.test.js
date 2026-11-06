@@ -110,8 +110,8 @@ test("Order Tracking has no New Order or Share button; order creation stays on R
   // The tabs, status filter, search and panel close still work as before.
   assert.match(tracking, /onClick=\{\(\) => handleTabChange\("active"\)\}/);
   assert.match(tracking, /onClick=\{\(\) => handleTabChange\("history"\)\}/);
-  assert.match(tracking, /onChange=\{\(event\) => setStatusFilter\(event\.target\.value\)\}/);
-  assert.match(tracking, /onChange=\{\(event\) => setSearchTerm\(event\.target\.value\)\}/);
+  assert.match(tracking, /onChange=\{\(event\) => \{ setStatusFilter\(event\.target\.value\); setPage\(1\); \}\}/);
+  assert.match(tracking, /onChange=\{\(event\) => \{ setSearchTerm\(event\.target\.value\); setPage\(1\); \}\}/);
   assert.match(tracking, /onClick=\{\(\) => selectOrder\(""\)\}/);
   // The Med Rep still creates orders from Request Order, reachable from the sidebar.
   assert.match(read("src/pages/salesRep/SalesRepShell.jsx"), /to="\/sales-rep\/request-order"/);
@@ -122,7 +122,7 @@ test("Order Tracking keeps destination approval, rider info and delivery status"
   assert.match(tracking, /Approve new destination/, "the approval action remains");
   assert.match(tracking, /aria-label="Destination change request"/, "the request section remains");
   assert.match(tracking, /Destination change history/, "the destination history remains");
-  assert.match(tracking, /Delivery Status/, "delivery status remains");
+  assert.match(tracking, /Delivery status/, "delivery status remains");
   assert.match(tracking, /selectedOrder\.driverName/, "rider assignment info remains");
 });
 
@@ -207,7 +207,7 @@ test("Order Confirmation has no Return to Catalog; tracking stays one click away
 
 /** The JSX between an opening `<div className="NAME">` and its matching close. */
 const block = (src, className) => {
-  const start = src.indexOf(`<div className="${className}">`);
+  const start = src.indexOf(`<div className="${className}"`);
   assert.notEqual(start, -1, `${className} must exist`);
   let depth = 0;
   const tag = /<div\b|<\/div>/g;
@@ -226,23 +226,24 @@ test("Order Tracking: the one search sits in the filter toolbar with the tabs an
   for (const part of ['className="tracking-v2-tabs"', 'className="tracking-v2-search"', 'className="tracking-v2-status-filter"']) {
     assert.ok(toolbar.includes(part), `${part} is in the toolbar`);
   }
-  assert.match(toolbar, /onChange=\{\(event\) => setSearchTerm\(event\.target\.value\)\}/);
+  assert.match(toolbar, /onChange=\{\(event\) => \{ setSearchTerm\(event\.target\.value\); setPage\(1\); \}\}/);
   assert.match(toolbar, /placeholder="Search order ID, clinic, vaccine, or status\.\.\."/);
-  assert.equal(block(page, "tracking-v2-header").includes("tracking-v2-search"), false, "no search left in the header");
+  assert.doesNotMatch(page, /Deliveries overview|Monitor active deliveries, shipment progress, and completed orders\.|Filter by Status/);
+  assert.match(page, /className="m-visually-hidden">Filter by status<\/span>/);
 });
 
-test("Alerts: lifecycle tabs, category chips and the one search share a single toolbar", () => {
+test("Alerts: order tabs, status select and the one search share a single toolbar", () => {
   const page = stripComments(read("src/pages/salesRep/SalesRepAlerts.jsx"));
   assert.equal((page.match(/className="alerts-v2-search"/g) || []).length, 1, "exactly one search");
   const toolbar = block(page, "alerts-v2-toolbar");
-  for (const part of ['className="sales-alert-tabs alerts-v2-tabs"', 'className="sales-alert-filters alerts-v2-filters"', 'className="alerts-v2-search"']) {
+  for (const part of ['className="sales-alert-tabs alerts-v2-tabs"', 'className="alerts-v2-status-select"', 'className="alerts-v2-search"']) {
     assert.ok(toolbar.includes(part), `${part} is in the toolbar`);
   }
-  // The categories and counts are unchanged.
-  for (const label of ["All (${filterCounts.all})", "Critical (${filterCounts.critical})", "Updates (${filterCounts.info})", "Delivered (${filterCounts.success})"]) {
-    assert.ok(toolbar.includes(label), label);
+  for (const value of ["attention", "awaiting", "assigned", "loading", "transit", "delivered", "cancelled"]) {
+    assert.ok(toolbar.includes(`value="${value}"`), value);
   }
-  assert.match(toolbar, /placeholder="Search order ID, title, or clinic\.\.\."/);
+  assert.match(toolbar, /placeholder="Search order ID or clinic\.\.\."/);
+  assert.doesNotMatch(toolbar, /sales-alert-filters|Critical \(/);
 });
 
 test("Order History: Print receipt is offered to Admin only; the Med Rep view has none", () => {
@@ -253,7 +254,7 @@ test("Order History: Print receipt is offered to Admin only; the Med Rep view ha
   assert.match(read("src/pages/admin/AdminOrderHistory.jsx"), /<OrderHistoryView mode="admin" \/>/);
 });
 
-test("Inventory and Alerts are not capped at 1280px; the Tracking toolbar pins only above 768px", () => {
+test("Inventory and Alerts are not capped at 1280px; the Tracking toolbar pins below the header above 768px", () => {
   const legacy = read("src/pages/salesRep/SalesRep.css");
   const cap = legacy.slice(0, legacy.indexOf("max-width: 1280px !important;"));
   const selectors = cap.slice(cap.lastIndexOf("}") + 1);
@@ -261,5 +262,5 @@ test("Inventory and Alerts are not capped at 1280px; the Tracking toolbar pins o
     assert.equal(selectors.includes(gone), false, `${gone} must not be capped`);
   }
   const polish = read("src/pages/salesRep/salesrep-polish.css");
-  assert.match(polish, /@media \(min-width: 769px\) \{\s*\.salesrep-main \.tracking-v2-toolbar \{\s*position: sticky;\s*top: 0;/);
+  assert.match(polish, /@media \(min-width: 769px\) \{\s*\.salesrep-main \.tracking-v2-toolbar \{\s*position: sticky;\s*top: var\(--shell-topbar-height\);/);
 });

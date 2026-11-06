@@ -36,6 +36,11 @@ test("the status names match the server's", () => {
   assert.deepEqual(Object.keys(TIMING_LABELS).sort(), [...server.TIMING_STATUSES].sort());
 });
 
+test("a delay of an hour or more reads in hours", () => {
+  const late = deliveryTiming(order({ timingStatus: "delayed" }), T0 + 1458 * MIN);
+  assert.ok(late.detail.startsWith("Delayed by 23 hr 48 min "), late.detail);
+});
+
 test("in transit: expected by / grace ends at / automatically delayed by N minutes, in Manila time", () => {
   assert.equal(manilaTime(T0 + 30 * MIN), "6:30 PM");
   const onTime = deliveryTiming(order(), T0);
@@ -161,12 +166,12 @@ test("the order history labels every timing event the server writes", () => {
 });
 
 test("wiring the browser cannot run here (no DOM in this suite): the bell and the deep link", () => {
-  // The notification bell navigates to the alert's path as presented
-  // (src/services/alertPresentation.js: the server-provided Dispatcher path,
-  // else the Shipments deep link); the late alert's path is that deep link.
+  // The feed uses the presented alert path; the bell follows that path.
   const layout = read("src/pages/dispatcher/DispatcherLayout.jsx");
-  assert.match(layout, /const \{ path \} = presentAlert\(notification, \{ role: "dispatcher" \}\);\s*if \(path\) \{\s*navigate\(path\);/);
-  assert.match(layout, /lateAlertLiveText\(notification, minuteNow\)/);
+  const feed = read("src/services/dispatcherNotificationFeed.js");
+  assert.match(feed, /const view = presentAlert\(alert, \{ role: "dispatcher", nowMs \}\);/);
+  assert.match(layout, /if \(notification\.path\) \{\s*navigate\(notification\.path\);/);
+  assert.match(layout, /lateAlertLiveText\(notification\.rawAlert, minuteNow\)/);
   const ops = read("functions/src/deliveryTimingOps.js");
   assert.match(ops, /const SHIPMENT_PATH = \(orderId\) => `\/dispatcher\/shipments\?order=\$\{encodeURIComponent\(orderId\)\}`;/);
   const shipments = read("src/pages/dispatcher/DispatcherShipments.jsx");

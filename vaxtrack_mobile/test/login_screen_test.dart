@@ -81,10 +81,10 @@ void main() {
     await pump(tester, (_, _) async {});
     TextField password() => tester.widget<TextField>(find.byKey(passwordKey));
     expect(password().obscureText, isTrue);
-    await tester.tap(find.byIcon(Icons.visibility_off));
+    await tester.tap(find.byIcon(Icons.visibility_off_outlined));
     await tester.pump();
     expect(password().obscureText, isFalse);
-    await tester.tap(find.byIcon(Icons.visibility));
+    await tester.tap(find.byIcon(Icons.visibility_outlined));
     await tester.pump();
     expect(password().obscureText, isTrue);
   });

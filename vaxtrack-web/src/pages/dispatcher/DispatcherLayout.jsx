@@ -11,7 +11,6 @@ import {
   MapPinned,
   Menu,
   Navigation,
-  Search,
   Settings,
   Truck,
   UserPlus,
@@ -19,11 +18,15 @@ import {
 } from "lucide-react";
 import { auth } from "../../firebase";
 import { subscribeActiveAlerts } from "../../services/alertService";
+import { isAdminOnlyAlert } from "../../services/alertPresentation";
 import { lateAlertLiveText } from "../../services/deliveryTiming";
-import { presentAlert } from "../../services/alertPresentation";
+import { subscribeNotificationOrders } from "../../services/deliveryService";
+import { subscribeArrivalProximity } from "../../services/riderTrackingService";
+import { buildDispatcherNotificationFeed } from "../../services/dispatcherNotificationFeed";
 import useMinuteClock from "../../components/useMinuteClock";
 import SidebarProfile from "../../components/shell/SidebarProfile";
 import OfflineNotice from "../../components/shell/OfflineNotice";
+import useNotificationReadState from "../../components/useNotificationReadState";
 import {
   DRAWER_MEDIA_QUERY,
   nextNavState,
@@ -31,15 +34,6 @@ import {
   toggleLabel,
 } from "./navDrawer";
 import "./Dispatcher.css";
-
-// Relative time from a Firestore Timestamp (or "" when unavailable) — an honest
-// fallback, never a fabricated time.
-// Map an alert's severity to the dropdown's existing tone classes.
-function alertToneClass(severity) {
-  if (severity === "critical") return "danger";
-  if (severity === "warning") return "info";
-  return "normal";
-}
 
 // Per-route chrome for the persistent Dispatcher shell. Keys drive the sidebar
 // highlight; titles drive the topbar. Pages render only their content into the
@@ -66,7 +60,6 @@ function DispatcherLayout() {
   const active = meta.key;
   const title = meta.title;
 
-  const [searchText, setSearchText] = useState("");
   const [showNotifications, setShowNotifications] = useState(false);
 
   // Mobile navigation drawer. Below `DRAWER_MEDIA_QUERY` the 260px rail cannot
@@ -91,36 +84,52 @@ function DispatcherLayout() {
     () => applyNav({ type: "navigate" }),
     [applyNav]
   );
-  // No demo/sample data is seeded here — notifications start empty until wired
-  // to real Firestore alerts.
-  const [notifications, setNotifications] = useState([]);
+  const [operationalAlerts, setOperationalAlerts] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [nearDestinations, setNearDestinations] = useState({});
+  // Read marks: this browser's cache + the user's shared copy in Firestore.
+  const [readNotifications, markNotificationsRead] = useNotificationReadState("dispatcher");
   // Live "now N minutes past expected arrival" on late-delivery alerts.
   const minuteNow = useMinuteClock();
-  // A failed feed is said as such — "No notifications." would be a false all-clear.
-  const [notificationsError, setNotificationsError] = useState(false);
+  const [feedErrors, setFeedErrors] = useState({ alerts: false, orders: false, near: false });
+  const [feedLoading, setFeedLoading] = useState({ alerts: true, orders: true, near: true });
+  const notificationsError = Object.values(feedErrors).some(Boolean);
+  const notificationsLoading = Object.values(feedLoading).some(Boolean);
+  const feed = useMemo(() => buildDispatcherNotificationFeed({
+    alerts: operationalAlerts, orders, near: nearDestinations, nowMs: minuteNow,
+  }), [operationalAlerts, orders, nearDestinations, minuteNow]);
+  const notifications = useMemo(() => [...feed.actions, ...feed.updates], [feed]);
+  const unreadActionCount = feed.actions.filter((entry) => !readNotifications.includes(entry.id)).length;
+  const unreadUpdateCount = feed.updates.filter((entry) => !readNotifications.includes(entry.id)).length;
 
-  const unreadCount = useMemo(
-    () => notifications.filter((notification) => !notification.read).length,
-    [notifications]
-  );
-
-  // Live dispatcher notifications = the active Firestore alerts. No fake or
-  // fallback entries are ever inserted; a failure just leaves the empty state.
+  // Three narrow live reads (2026-11-01): active alerts; only the orders the
+  // bell speaks about (on the road, delayed, failed, delivered this week); and
+  // the server's arrival-proximity documents. Never every order or every
+  // Rider's location. A failed source is named in the panel, not an all-clear.
   useEffect(() => {
-    let unsubscribe = () => {};
-    try {
-      unsubscribe = subscribeActiveAlerts(
-        (alerts) => {
-          setNotifications(Array.isArray(alerts) ? alerts : []);
-          setNotificationsError(false);
-        },
-        () => setNotificationsError(true)
-      );
-    } catch {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setNotifications([]);
-    }
-    return () => unsubscribe();
+    const ready = (source) => setFeedLoading((current) => ({ ...current, [source]: false }));
+    const failed = (source) => {
+      setFeedErrors((current) => ({ ...current, [source]: true }));
+      ready(source);
+    };
+    const clearError = (source) => setFeedErrors((current) => ({ ...current, [source]: false }));
+    const stopAlerts = subscribeActiveAlerts((alerts) => {
+      // Stock and expiry alerts are the Admin's (functions/src/stockAlerts.js).
+      setOperationalAlerts(Array.isArray(alerts) ? alerts.filter((a) => !isAdminOnlyAlert(a)) : []);
+      clearError("alerts");
+      ready("alerts");
+    }, () => { setOperationalAlerts([]); failed("alerts"); });
+    const stopOrders = subscribeNotificationOrders((nextOrders) => {
+      setOrders(nextOrders);
+      clearError("orders");
+      ready("orders");
+    }, () => { setOrders([]); failed("orders"); });
+    const stopNear = subscribeArrivalProximity((near) => {
+      setNearDestinations(near);
+      clearError("near");
+      ready("near");
+    }, () => { setNearDestinations({}); failed("near"); });
+    return () => { stopAlerts(); stopOrders(); stopNear(); };
   }, []);
 
   // Growing back past the breakpoint must not leave an overlay stranded on top
@@ -231,74 +240,18 @@ function DispatcherLayout() {
   };
 
   const handleNotificationClick = (notification) => {
-    setNotifications((prev) =>
-      prev.map((item) =>
-        item.id === notification.id ? { ...item, read: true } : item
-      )
-    );
+    markNotificationsRead([notification.id]);
 
     setShowNotifications(false);
-    // Order-linked alerts open their shipment; others have nowhere to go.
-    const { path } = presentAlert(notification, { role: "dispatcher" });
-    if (path) {
-      navigate(path);
+    if (notification.path) {
+      navigate(notification.path);
     }
   };
 
   const handleClearNotifications = () => {
-    setNotifications((prev) =>
-      prev.map((notification) => ({
-        ...notification,
-        read: true,
-      }))
-    );
+    markNotificationsRead(notifications.map((notification) => notification.id));
   };
 
-  const handleSearchSubmit = (e) => {
-    e.preventDefault();
-
-    const keyword = searchText.trim().toLowerCase();
-
-    if (!keyword) return;
-
-    if (
-      keyword.includes("assign") ||
-      keyword.includes("rider") ||
-      keyword.includes("delivery assignment")
-    ) {
-      navigate("/dispatcher/assign-rider");
-      return;
-    }
-
-    if (
-      keyword.includes("shipment") ||
-      keyword.includes("cargo") ||
-      keyword.includes("loading")
-    ) {
-      navigate("/dispatcher/shipments");
-      return;
-    }
-
-    if (
-      keyword.includes("geofence") ||
-      keyword.includes("route") ||
-      keyword.includes("deviation")
-    ) {
-      navigate("/dispatcher/geofence");
-      return;
-    }
-
-    if (
-      keyword.includes("setting") ||
-      keyword.includes("profile") ||
-      keyword.includes("preference")
-    ) {
-      navigate("/dispatcher/settings");
-      return;
-    }
-
-    navigate("/dispatcher");
-  };
 
   return (
     <div className="dispatcher-page">
@@ -432,21 +385,13 @@ function DispatcherLayout() {
           drawer is open. `undefined` (not `false`) so the attribute is absent
           — and therefore inert is never in play at desktop widths. */}
       <main className="dispatcher-main" inert={navOpen || undefined}>
-        <header className="dispatcher-topbar m-topbar">
+        <header className="dispatcher-topbar m-topbar" data-shipments-topbar={active === "shipments" || undefined}>
           <h1 className="m-topbar-title">{title}</h1>
 
-          {/* Search + bell grouped on the right, as in every role's top bar.
-              Below 1025px the group is `display: contents`, so the existing
-              tablet/phone grid still places each control individually. */}
+          {/* The bell on the right, as in the Med Rep top bar. The keyword
+              "search" that only navigated between pages was removed
+              (2026-10-31); each page keeps its own real search. */}
           <div className="m-topbar-actions">
-          <form className="dispatcher-search m-topbar-search" onSubmit={handleSearchSubmit}>
-            <Search size={15} />
-            <input
-              placeholder="Search orders, clinics, or vaccine types..."
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-            />
-          </form>
 
           <div className="dispatcher-notification-wrap">
             <button
@@ -456,7 +401,9 @@ function DispatcherLayout() {
               onClick={() => setShowNotifications((prev) => !prev)}
             >
               <Bell size={16} />
-              {unreadCount > 0 && <span></span>}
+              {(unreadActionCount > 0 || unreadUpdateCount > 0) && (
+                <span className={unreadActionCount > 0 ? "dispatcher-bell-action" : "dispatcher-bell-update"} />
+              )}
             </button>
 
             {showNotifications && (
@@ -464,7 +411,7 @@ function DispatcherLayout() {
                 <div className="dispatcher-notification-head">
                   <div>
                     <strong>Notifications</strong>
-                    <p>{unreadCount} unread alert(s)</p>
+                    <p>{unreadActionCount} need action · {unreadUpdateCount} new updates</p>
                   </div>
 
                   <button type="button" onClick={handleClearNotifications}>
@@ -484,10 +431,13 @@ function DispatcherLayout() {
                         textAlign: "center",
                       }}
                     >
-                      Notifications could not be loaded.
+                      Some notifications could not be loaded.
                     </p>
                   )}
-                  {!notificationsError && notifications.length === 0 && (
+                  {notificationsLoading && !notificationsError && (
+                    <p className="dispatcher-notification-empty" role="status">Loading notifications…</p>
+                  )}
+                  {!notificationsLoading && !notificationsError && notifications.length === 0 && (
                     <p
                       style={{
                         padding: "18px 16px",
@@ -500,20 +450,20 @@ function DispatcherLayout() {
                       No notifications.
                     </p>
                   )}
-                  {notifications.map((notification) => {
-                    // Shared wording: names + the human order code, never ids.
-                    const view = presentAlert(notification, { role: "dispatcher", nowMs: minuteNow });
+                  {feed.actions.length > 0 && <div className="dispatcher-notification-group">Needs action</div>}
+                  {feed.actions.map((notification) => {
+                    const isRead = readNotifications.includes(notification.id);
                     return (
                     <button
                       type="button"
                       key={notification.id}
                       className={`dispatcher-notification-item ${
-                        notification.read ? "read" : ""
-                      } ${alertToneClass(notification.severity)}`}
+                        isRead ? "read" : ""
+                      } danger`}
                       onClick={() => handleNotificationClick(notification)}
                     >
                       <div className="notification-icon">
-                        {notification.read ? (
+                        {isRead ? (
                           <CheckCircle2 size={15} />
                         ) : (
                           <Bell size={15} />
@@ -521,14 +471,30 @@ function DispatcherLayout() {
                       </div>
 
                       <div>
-                        <strong>{view.title}</strong>
-                        <p>{view.message || "No additional details."}</p>
-                        {lateAlertLiveText(notification, minuteNow) && (
-                          <small className="tnum">{lateAlertLiveText(notification, minuteNow)}</small>
+                        <strong>{notification.title}</strong>
+                        <p>{notification.message || "No additional details."}</p>
+                        {notification.rawAlert && lateAlertLiveText(notification.rawAlert, minuteNow) && (
+                          <small className="tnum">{lateAlertLiveText(notification.rawAlert, minuteNow)}</small>
                         )}
-                        {view.metaText && <small>{view.metaText}</small>}
+                        {notification.atMs > 0 && <small>{new Date(notification.atMs).toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" })} PHT</small>}
                       </div>
                     </button>
+                    );
+                  })}
+                  {feed.updates.length > 0 && <div className="dispatcher-notification-group">Shipment updates</div>}
+                  {feed.updates.map((notification) => {
+                    const isRead = readNotifications.includes(notification.id);
+                    return (
+                      <button type="button" key={notification.id}
+                        className={`dispatcher-notification-item ${isRead ? "read" : ""}`}
+                        onClick={() => handleNotificationClick(notification)}>
+                        <div className="notification-icon">{isRead ? <CheckCircle2 size={15} /> : <Bell size={15} />}</div>
+                        <div>
+                          <strong>{notification.title}</strong>
+                          <p>{notification.message}</p>
+                          {notification.atMs > 0 && <small>{new Date(notification.atMs).toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" })} PHT</small>}
+                        </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -549,7 +515,10 @@ function DispatcherLayout() {
             </div>
           }
         >
-          <div className="dispatcher-content route-view" key={location.pathname}>
+          <div
+            className={`dispatcher-content route-view${location.pathname === "/dispatcher/settings" ? " dispatcher-settings-content" : ""}`}
+            key={location.pathname}
+          >
             <Outlet />
           </div>
         </Suspense>

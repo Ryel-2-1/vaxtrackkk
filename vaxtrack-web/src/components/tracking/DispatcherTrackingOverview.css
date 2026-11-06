@@ -2,11 +2,16 @@
    DispatcherTrackingOverview). Content-driven height: no fixed or minimum
    height anywhere. Tokens only (tokens.css). */
 
-/* The main grid stretches its cards to the tallest one, which left this card
-   with a large blank area under short content. This card sizes to its
-   content instead. */
+/* Keep both dashboard cards on the same row and place the metrics at the
+   bottom when the summary column is taller. */
 .dispatcher-dash-main-grid > .dispatcher-dash-monitor-card.dto {
-  align-self: start;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+}
+
+.dispatcher-dash-main-grid > .dispatcher-dash-monitor-card.dto .dto-body {
+  flex: 1 1 auto;
 }
 
 .dto-body {

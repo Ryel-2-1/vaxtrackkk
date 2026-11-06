@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  Filter,
   Loader2,
   Minus,
   PackageCheck,
@@ -16,9 +17,11 @@ import {
 import { subscribeInventory } from "../../services/inventoryService";
 import { useInventoryVisibility } from "../../components/useInventoryVisibility";
 import InventoryVisibilityToggle from "../../components/inventory/InventoryVisibilityToggle";
+import CatalogFilterDialog from "../../components/inventory/CatalogFilterDialog";
 import { subscribeVaccines } from "../../services/vaccineCatalogService";
 import { applyVatToCatalogProduct } from "../../services/vatClassification";
 import { formatCentavos, readPriceCentavos } from "../../services/money";
+import { quoteUnitPrice } from "../../services/vatQuote";
 import { deriveExpiryCondition, manilaToday } from "../../services/expiry";
 import {
   STORAGE_UNAVAILABLE_MESSAGE,
@@ -41,12 +44,13 @@ import {
 import { liveErrorMessage } from "../../services/liveDataErrors";
 import DialogLayer from "../../components/ui/DialogLayer";
 import { useDialogFocus } from "../../components/ui/useDialogFocus";
+import { assessRequestQuantity } from "../../services/requestQuantity";
 
 
 
 
 /**
- * One catalog card per inventory DOCUMENT — one line is one exact batch.
+ * One catalog row per inventory DOCUMENT — one line is one exact batch.
  *
  * `inventoryId` is the Firestore document id and is the only identity carried
  * onward. `sku` stays as a display label; it used to double as the identifier
@@ -68,7 +72,7 @@ function normalizeProduct(raw, todayIso) {
   const eligibility = evaluateBatchEligibility(raw, todayIso);
   const available = eligibility.availableQuantity;
   const onHand = typeof raw.quantity === "number" ? raw.quantity : null;
-  // Kept for display only: the card shows the live expiry condition and price.
+  // Kept for display only: the catalog shows the live expiry condition and price.
   const expiryCondition = deriveExpiryCondition(raw, todayIso);
   const expiryIso = expiryCondition.expiryDate ?? "";
   const expired = expiryCondition.level === "expired";
@@ -80,10 +84,11 @@ function normalizeProduct(raw, todayIso) {
     // classification. Absent on batches created before the link existed.
     vaccineId: typeof raw.vaccineId === "string" && raw.vaccineId ? raw.vaccineId : null,
     voided: raw.voided === true,
-    // The price shown on this card, and the exact figure the checkout will ask
+    // The price shown in this row, and the exact figure the checkout will ask
     // the server to confirm. Carried into the cart so a price that moves while
     // the rep is deciding is caught rather than silently applied.
     unitPriceCentavos,
+    priceIsVatInclusive: typeof raw.priceIsVatInclusive === "boolean" ? raw.priceIsVatInclusive : null,
     priceLabel: formatCentavos(unitPriceCentavos),
     name: raw.vaccineName || "Unknown Vaccine",
     sku: raw.batchId || "—",
@@ -131,7 +136,10 @@ function RequestOrderCart({ uid }) {
   const [error, setError] = useState("");
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [stockFilter, setStockFilter] = useState("all");
+  const [selectedTypes, setSelectedTypes] = useState([]);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const catalogTableRef = useRef(null);
   const [quantities, setQuantities] = useState({});
   const [cart, setCart] = useState(() => restoreCatalogCart(localStorage, uid));
   const cartRef = useRef(cart);
@@ -190,7 +198,7 @@ function RequestOrderCart({ uid }) {
         setQuantities((prev) => {
           const next = { ...prev };
           for (const p of products) {
-            if (!(p.inventoryId in next)) next[p.inventoryId] = 1;
+            if (!(p.inventoryId in next)) next[p.inventoryId] = "1";
           }
           return next;
         });
@@ -229,9 +237,20 @@ function RequestOrderCart({ uid }) {
         // all — hidden, not shown disabled. They stay in Admin Inventory.
         .filter((product) => !product.voided && !vaccinesById.get(product.vaccineId)?.archived)
         .filter((product) => showInactive || !inactiveIds.has(product.vaccineId))
-        .map((product) => applyVatToCatalogProduct(product, vaccinesById)),
+        .map((product) => {
+          const classified = applyVatToCatalogProduct(product, vaccinesById);
+          if (!classified.vatClassification || classified.unitPriceCentavos === null || typeof classified.priceIsVatInclusive !== "boolean") return classified;
+          const quote = quoteUnitPrice({
+            enteredCentavos: classified.unitPriceCentavos,
+            priceIsVatInclusive: classified.priceIsVatInclusive,
+            productVatClassification: classified.vatClassification,
+          });
+          return { ...classified, priceLabel: formatCentavos(quote.unitPriceCentavos) };
+        }),
     [catalog, vaccinesById, inactiveIds, showInactive]
   );
+
+  const vaccineTypes = useMemo(() => [...new Set(products.map((product) => product.category))].sort(), [products]);
 
   const filteredProducts = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -241,12 +260,23 @@ function RequestOrderCart({ uid }) {
         product.sku.toLowerCase().includes(query) ||
         product.category.toLowerCase().includes(query) ||
         product.status.toLowerCase().includes(query);
-      // "In stock only" now means orderable — an expired or unmigrated batch
-      // has stock on paper but cannot be ordered.
-      const matchesStock = stockFilter === "all" || product.orderable;
-      return matchesSearch && matchesStock;
+      const matchesType = selectedTypes.length === 0 || selectedTypes.includes(product.category);
+      return matchesSearch && matchesType;
     });
-  }, [products, searchTerm, stockFilter]);
+  }, [products, searchTerm, selectedTypes]);
+  const rowsPerPage = 10;
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / rowsPerPage));
+  const currentPage = Math.min(page, totalPages);
+  const visibleProducts = filteredProducts.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
+
+  const goToPage = (nextPage) => {
+    if (nextPage < 1 || nextPage > totalPages || nextPage === currentPage) return;
+    setPage(nextPage);
+    catalogTableRef.current?.scrollTo({ top: 0, behavior: "instant" });
+    if (window.matchMedia("(max-width: 1100px)").matches) {
+      catalogTableRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }
+  };
 
   const cartTotal = cart.reduce((total, item) => total + item.quantity, 0);
   const storageSlots = cart.length;
@@ -289,20 +319,17 @@ function RequestOrderCart({ uid }) {
 
   // Keyed by the inventory DOCUMENT id, not the batch label: two batches could
   // share a batchId (nothing enforces uniqueness), and keying by it would let
-  // one card's quantity control another's.
+  // one row's quantity control another's.
   const changeQuantity = (key, direction) => {
-    // Not capped by available stock any more: whatever cannot be reserved now
-    // is backordered. The only ceiling is the server's per-line maximum.
-    const maxQty = MAX_LINE_QUANTITY;
-
     setQuantities((current) => {
-      const currentQty = current[key] || 1;
+      const parsed = Number(current[key]);
+      const currentQty = Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 1;
       const nextQty = direction === "minus" ? currentQty - 1 : currentQty + 1;
-      return { ...current, [key]: Math.min(Math.max(nextQty, 1), maxQty) };
+      return { ...current, [key]: String(Math.min(Math.max(nextQty, 1), MAX_LINE_QUANTITY)) };
     });
   };
 
-  const addToCart = (product) => {
+  const addToCart = (product, mode) => {
     if (!product.orderable) {
       // The real reason, not a blanket "out of stock" — an unpriced or
       // unmigrated batch is an admin task, not an empty shelf, and telling a
@@ -311,14 +338,20 @@ function RequestOrderCart({ uid }) {
       return;
     }
 
-    const quantity = quantities[product.inventoryId] || 1;
+    const alreadyInCart = cartRef.current.find((item) => item.inventoryId === product.inventoryId)?.quantity ?? 0;
+    const review = assessRequestQuantity(quantities[product.inventoryId] ?? "1", product.available, alreadyInCart);
+    if (review.kind !== mode) {
+      setNotice(review.message || "Check the quantity and try again.");
+      return;
+    }
+    const quantity = review.quantity;
 
     const next = mergeCartBatch(cartRef.current, product, quantity, MAX_LINE_QUANTITY);
     if (!commitCart(next)) return;
 
     setNotice(
-      product.backorderOnly
-        ? `${product.name} added as a future order — it is out of stock, so dispatch waits until stock arrives and is reserved.`
+      mode === "future"
+        ? `${product.name} added as a future order — dispatch waits until the full order is reserved.`
         : `${product.name} added to quick cart.`,
       { transient: true }
     );
@@ -415,29 +448,18 @@ function RequestOrderCart({ uid }) {
               <Search size={16} />
               <input
                 value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
+                onChange={(event) => { setSearchTerm(event.target.value); setPage(1); }}
                 placeholder="Search by name, batch ID, or vaccine type..."
               />
             </div>
           </div>
 
-          <InventoryVisibilityToggle checked={showInactive} onChange={setShowInactive}
+          <InventoryVisibilityToggle checked={showInactive} onChange={(value) => { setShowInactive(value); setPage(1); }}
             count={[...inactiveIds].filter((id) => !vaccinesById.get(id)?.archived).length} />
           <div className="request-v2-tabs">
-            <button
-              type="button"
-              className={stockFilter === "all" ? "active" : ""}
-              onClick={() => setStockFilter("all")}
-            >
-              All Products
-            </button>
-
-            <button
-              type="button"
-              className={stockFilter === "stock" ? "active" : ""}
-              onClick={() => setStockFilter("stock")}
-            >
-              In Stock Only
+            <button type="button" className="catalog-filter-trigger" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog">
+              <Filter size={16} /> Filter by type
+              {selectedTypes.length > 0 && <span aria-label="Filters active">{selectedTypes.length}</span>}
             </button>
 
             {/* Said once for the whole list rather than under every price:
@@ -461,122 +483,122 @@ function RequestOrderCart({ uid }) {
             </button>
           </div>
 
-          <div className="product-grid request-v2-product-grid">
+          <div className="rq-table-card">
+          <div ref={catalogTableRef} className="rq-table-wrap">
             {filteredProducts.length > 0 ? (
-              filteredProducts.map((product) => (
-                <div className="product-card request-v2-product-card rq-item" key={product.inventoryId}>
-                  {/* A compact row: who/what on the left, the two figures in
-                      the middle, quantity and the action on the right — so a
-                      laptop screen shows several vaccines, not two. */}
-                  <div className="rq-item-main">
-                    <h2>{product.name}</h2>
-                    <p className="rq-item-batch">Batch: {product.sku}</p>
-                    <div className="product-card-top rq-item-chips">
-                      <span className="product-type">{product.category}</span>
-                      {/* A blocked batch says so briefly here; the specific
-                          reason is on its disabled action button. */}
-                      <span className={getStockClass(product.status, product.orderable)}>
-                        {!product.orderable ? "Can't order yet" : product.backorderOnly ? "Out of stock" : product.status}
-                      </span>
-                      <span
-                        className={`product-vat ${product.vatClassification ? "" : "unclassified"}`}
-                        aria-label={`VAT classification: ${product.vatLabel}`}
-                      >
-                        {product.vatLabel}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="product-meta">
-                    <div>
-                      {/* Available is derived: on hand minus everything held
-                          (reserved for orders, returned from a failed delivery
-                          and awaiting a decision, quarantined). Both are shown
-                          so a rep can tell "someone else has claimed it" from
-                          "there is none", and the two figures add up. */}
-                      <span>Available Stock</span>
-                      <strong>
-                        {product.available === null ? "--" : product.available.toLocaleString()}
-                      </strong>
-                      <small>
-                        {product.available === null
-                          ? "needs migration"
-                          : `${product.onHand ?? 0} on hand · ${Math.max((product.onHand ?? 0) - product.available, 0)} reserved or held`}
-                      </small>
-                    </div>
-
-                    <div>
-                      {/* Labelled with its convention: prices are VAT-inclusive
-                          for VATable products (pricingConfig.js), so the invoice
-                          never adds VAT on top of this figure. */}
-                      <span>Unit Price</span>
-                      <strong>{product.priceLabel}</strong>
-                      {product.unitPriceCentavos === null && <small>not priced yet</small>}
-                    </div>
-
-                  </div>
-
-                  <div className="product-actions request-v2-actions">
-                    <div className="qty-control">
-                      <button
-                        type="button"
-                        onClick={() => changeQuantity(product.inventoryId, "minus")}
-                        disabled={!product.orderable}
-                      >
-                        <Minus size={14} />
-                      </button>
-
-                      <span>{quantities[product.inventoryId] || 1}</span>
-
-                      <button
-                        type="button"
-                        onClick={() => changeQuantity(product.inventoryId, "plus")}
-                        disabled={!product.orderable}
-                      >
-                        <Plus size={14} />
-                      </button>
-                    </div>
-
-                    <button
-                      type="button"
-                      className={!product.orderable ? "disabled" : ""}
-                      onClick={() => addToCart(product)}
-                      disabled={!product.orderable}
-                      aria-describedby={!product.orderable ? `rq-reason-${product.inventoryId}` : undefined}
-                    >
-                      {/* Short labels, no icon: the out-of-stock chip already
-                          says why, and the action must stay readable. */}
-                      {!product.orderable ? "Unavailable" : product.backorderOnly ? "Add future order" : "Add to Order"}
-                    </button>
-                  </div>
-                  {/* The real reason, not a blanket "out of stock": expired,
-                      unmigrated and unpriced batches are different problems
-                      with different owners. A full-width line in the row (and
-                      the disabled button's description), rather than a
-                      sentence squeezed into the button. */}
-                  {!product.orderable && (
-                    <p className="rq-item-reason" id={`rq-reason-${product.inventoryId}`}>
-                      {product.blockedReason}
-                    </p>
-                  )}
-                </div>
-              ))
+              <table className="rq-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Vaccine / batch</th>
+                    <th scope="col">Type / VAT</th>
+                    <th scope="col">Availability</th>
+                    <th scope="col">Unit price</th>
+                    <th scope="col">Quantity</th>
+                    <th scope="col">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleProducts.map((product) => {
+                    const alreadyInCart = cart.find((item) => item.inventoryId === product.inventoryId)?.quantity ?? 0;
+                    const quantityDraft = quantities[product.inventoryId] ?? "1";
+                    const review = assessRequestQuantity(quantityDraft, product.available, alreadyInCart);
+                    const quantityNoteId = `rq-quantity-note-${product.inventoryId}`;
+                    const remaining = Math.max(0, (product.available ?? 0) - alreadyInCart);
+                    return <tr key={product.inventoryId}>
+                      <td>
+                        <strong>{product.name}</strong>
+                        <small>Batch: {product.sku}</small>
+                        {!product.orderable && <small className="rq-table-reason" id={`rq-table-reason-${product.inventoryId}`}>{product.blockedReason}</small>}
+                      </td>
+                      <td>
+                        <span>{product.category}</span>
+                        <small>{product.vatLabel}</small>
+                      </td>
+                      <td>
+                        <strong>{product.available === null ? "—" : product.available.toLocaleString()}</strong>
+                        <small>{!product.orderable ? "Can't order yet" : product.backorderOnly ? "Future order" : "In stock"}</small>
+                        <small>{product.available === null ? "Needs migration" : `${product.onHand ?? 0} on hand · ${Math.max((product.onHand ?? 0) - product.available, 0)} reserved or held`}</small>
+                      </td>
+                      <td className="rq-table-price">
+                        <strong>{product.priceLabel}</strong>
+                        {product.vatClassification === "vatable" && <small>{product.priceIsVatInclusive ? "VAT included" : "12% VAT added"}</small>}
+                        {product.unitPriceCentavos === null && <small>Not priced yet</small>}
+                      </td>
+                      <td>
+                        <div className="rq-table-qty" role="group" aria-label={`Quantity for ${product.name}, batch ${product.sku}`}>
+                          <button type="button" className="rq-table-qty-btn" aria-label={`Decrease ${product.name} quantity`} onClick={() => changeQuantity(product.inventoryId, "minus")} disabled={!product.orderable}><Minus size={14} /></button>
+                          <input
+                            type="number"
+                            min="1"
+                            max={remaining > 0 ? remaining : MAX_LINE_QUANTITY - alreadyInCart}
+                            step="1"
+                            inputMode="numeric"
+                            aria-label={`Vial quantity for ${product.name}, batch ${product.sku}`}
+                            aria-invalid={product.orderable && review.kind !== "immediate" ? "true" : undefined}
+                            aria-describedby={product.orderable && review.kind !== "immediate" ? quantityNoteId : undefined}
+                            value={quantityDraft}
+                            onChange={(event) => setQuantities((current) => ({ ...current, [product.inventoryId]: event.target.value }))}
+                            disabled={!product.orderable}
+                          />
+                          <button type="button" className="rq-table-qty-btn" aria-label={`Increase ${product.name} quantity`} onClick={() => changeQuantity(product.inventoryId, "plus")} disabled={!product.orderable}><Plus size={14} /></button>
+                        </div>
+                        {product.orderable && review.kind !== "immediate" && (
+                          <small id={quantityNoteId} className="rq-quantity-feedback">{review.message}</small>
+                        )}
+                      </td>
+                      <td>
+                        <div className={`rq-table-actions${product.orderable && review.kind === "future" ? " has-future" : ""}`}>
+                          <button type="button" className="rq-table-add" onClick={() => addToCart(product, "immediate")} disabled={!product.orderable || review.kind !== "immediate"}
+                            aria-describedby={!product.orderable ? `rq-table-reason-${product.inventoryId}` : review.kind !== "immediate" ? quantityNoteId : undefined}>
+                            {!product.orderable ? "Unavailable" : review.kind === "future" ? "Add now" : "Add to Order"}
+                          </button>
+                          {product.orderable && review.kind === "future" && (
+                            <button type="button" className="rq-table-add-future" onClick={() => addToCart(product, "future")} aria-label="Add future order" aria-describedby={quantityNoteId}>
+                              Add future
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
             ) : (
               <div className="request-v2-empty">
                 <PackageCheck size={34} />
                 <strong>No products found</strong>
-                <p>Try changing your search or stock filter.</p>
+                <p>Try changing your search or filters.</p>
               </div>
             )}
           </div>
+          {filteredProducts.length > 0 && (
+            <nav className="rq-pagination" aria-label="Vaccine catalog pages">
+              <span>Showing {(currentPage - 1) * rowsPerPage + 1}–{Math.min(currentPage * rowsPerPage, filteredProducts.length)} of {filteredProducts.length} batches</span>
+              <div>
+                <button type="button" disabled={currentPage === 1} onClick={() => goToPage(currentPage - 1)}>Previous</button>
+                <span>Page {currentPage} of {totalPages}</span>
+                <button type="button" disabled={currentPage === totalPages} onClick={() => goToPage(currentPage + 1)}>Next</button>
+              </div>
+            </nav>
+          )}
+          </div>
         </div>
 
-        {/* Wide screens: the cart sits beside the catalog (sticky). It is
+        {/* Wide screens: the cart sits beside the catalog at matching height. It is
             hidden below CART_SIDE_MIN_WIDTH, where the drawer below takes over. */}
         <aside className="quick-cart request-v2-cart rq-cart-side" aria-labelledby="rq-cart-title">
           <QuickCartPanel headingId="rq-cart-title" {...cartPanel} />
         </aside>
       </section>
+
+      {filtersOpen && <CatalogFilterDialog
+        title="Vaccine type filter"
+        description="Choose vaccine types, then apply them to the list."
+        types={vaccineTypes}
+        selectedTypes={selectedTypes}
+        onApply={({ types }) => { setSelectedTypes(types); setPage(1); setFiltersOpen(false); }}
+        onClose={() => setFiltersOpen(false)}
+      />}
 
       {/* Phones (≤768px): a floating control opens the same cart in a
           portaled drawer, so it is never pushed below every vaccine. The
@@ -764,14 +786,6 @@ function CartDrawer({ onClose, children }) {
       </div>
     </div>
   );
-}
-
-function getStockClass(status, orderable = true) {
-  if (!orderable) return "stock blocked";
-  if (status === FUTURE_ORDER_LABEL) return "stock future";
-  if (status === "Out of Stock") return "stock out";
-  if (status === "Low Stock") return "stock low";
-  return "stock";
 }
 
 export default SalesRepRequestOrder;

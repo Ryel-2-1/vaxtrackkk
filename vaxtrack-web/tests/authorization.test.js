@@ -435,8 +435,10 @@ test("role changes go through an explicit allowlist on both sides", () => {
   // (BG-001; behaviour in the rules suite, ACC1–ACC6).
   assert.match(
     rules,
-    /allow update: if \(isAdmin\(\) && isKnownRole\(\) && isKnownStatus\(\) && adminStatusChangeAllowed\(\)\s*&& \(!changedKeys\(\)\.hasAny\(territoryUserFields\(\)\) \|\| territoryWriteValid\(\)\)\)/
+    /allow update: if \(isAdmin\(\) && isKnownRole\(\) && isKnownStatus\(\) && adminStatusChangeAllowed\(\)\s*&& !changedKeys\(\)\.hasAny\(\['role'\]\)\s*&& \(!changedKeys\(\)\.hasAny\(\['status'\]\) \|\| resource\.data\.get\('role', null\) == 'rider'\)\s*&& \(!changedKeys\(\)\.hasAny\(territoryUserFields\(\)\) \|\| territoryWriteValid\(\)\)\)/
   );
+  // A browser never changes a role, and a status only on a rider: staff role and
+  // status go through setStaffRole / setStaffStatus (functions/src/staffAccounts.js).
   // The Med Rep territory gate rides on the same admin path and adds nothing
   // to role/status: a territory write must leave both unchanged.
   assert.match(rules, /function territoryWriteValid\(\)/);

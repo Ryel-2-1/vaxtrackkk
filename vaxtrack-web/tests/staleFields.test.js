@@ -69,7 +69,7 @@ test("an order is named by its number, else its destination — never its docume
 test("notification surfaces use the shared reference, not `orderNumber || id`", () => {
   for (const f of [
     "src/pages/dispatcher/DispatcherShipments.jsx",
-    "src/pages/salesRep/SalesRepAlerts.jsx",
+    "src/services/salesRepOrderAlert.js",
     "src/components/schedule/DeliveryCalendar.jsx",
     "src/pages/admin/MedRepTerritoryDialog.jsx",
     "src/pages/dispatcher/DestinationCorrectionDialog.jsx",
@@ -219,7 +219,9 @@ test("a Med Rep is named from a snapshot or the directory — never by uid", () 
 test("Alerts category counts are of active alerts and say so when a category is not monitored", () => {
   const page = read("src/pages/admin/Alerts.jsx");
   assert.equal(page.includes('alert.type.includes("Delivery")'), false, "the delivery count no longer includes resolved alerts");
-  assert.match(page, /delivery: kpi\(activeOfType\("Delayed Delivery"\)\)/);
-  assert.match(page, /No automatic stock alerts yet/);
+  assert.match(page, /delivery: kpi\(activeAlertCountOfType\(alerts, "delivery_delay"\)\)/);
+  assert.match(read("src/services/adminAlertCategories.js"), /alert.status !== "resolved" && alert.typeKey === typeKey/);
+  assert.match(page, /Review stock in Inventory<small>Check stock levels and expiry dates<\/small>/);
+  assert.match(page, /onClick=\{\(\) => navigate\("\/admin\/inventory"\)\}/);
   assert.equal(page.includes("System areas being monitored"), false);
 });

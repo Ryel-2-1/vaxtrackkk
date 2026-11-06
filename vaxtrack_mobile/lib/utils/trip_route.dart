@@ -39,3 +39,43 @@ Uri? googleMapsMultiStopUrl(List<Delivery> stops) {
     waypoints: stops.sublist(0, stops.length - 1).map(coord).toList(),
   );
 }
+
+/// Google Maps' Android app takes the destination plus at most 9 waypoints.
+const int kGoogleMapsMaxStops = 10;
+
+/// The stops to hand to Google Maps when the rider taps Start navigation on
+/// [current]: THIS stop first, then the trip's other unfinished stops in the
+/// planned visiting order (`stopSequence`). Stops planned before [current]
+/// that are still unfinished come last — they still have to be delivered.
+///
+/// Only stops of the SAME trip (`tripId`) with a pin count; delivered,
+/// cancelled and failed stops are left out. An order that is not on a trip,
+/// or has no pin, is navigated alone — exactly as before.
+///
+/// [truncated] is true when the trip has more stops than Google Maps accepts;
+/// [stops] then holds the first [kGoogleMapsMaxStops] of them.
+({List<Delivery> stops, bool truncated}) remainingTripFrom(
+  Delivery current,
+  List<Delivery> deliveries,
+) {
+  if (!current.isOnTrip || !current.hasClinicCoords) {
+    return (stops: [current], truncated: false);
+  }
+  bool unfinished(Delivery d) =>
+      !d.isDelivered && !d.isCancelled && !d.isDeliveryFailed;
+  // The freshest copy of each order; [current] stands in if the list lacks it.
+  final byId = {for (final d in deliveries) d.id: d};
+  byId.putIfAbsent(current.id, () => current);
+  final trip = orderedTripStops(
+    byId.values
+        .where((d) => d.tripId == current.tripId && (d.id == current.id || unfinished(d)))
+        .toList(),
+  );
+  final at = trip.indexWhere((d) => d.id == current.id);
+  final rotated = at < 0 ? [current] : [...trip.sublist(at), ...trip.sublist(0, at)];
+  final truncated = rotated.length > kGoogleMapsMaxStops;
+  return (
+    stops: truncated ? rotated.sublist(0, kGoogleMapsMaxStops) : rotated,
+    truncated: truncated,
+  );
+}

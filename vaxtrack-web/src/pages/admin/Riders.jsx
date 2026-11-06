@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CircleHelp,
-  PhoneCall,
   Search,
   Users,
   X,
@@ -242,7 +241,7 @@ function Riders() {
 
         <header className="riders-v2-header">
           <div>
-            <p>Monitor field personnel and cold-chain assignments.</p>
+            <p>Monitor rider assignments and delivery progress.</p>
             {/* Admin does not create rider accounts — riders self-register in
                 the Flutter app and arrive here as pending for approval. Saying
                 so avoids the page implying a capability it does not have. */}
@@ -342,7 +341,7 @@ function Riders() {
         <section className="riders-personnel-card">
           <div className="riders-personnel-head">
             <div>
-              <h2>Active Personnel</h2>
+              <h2>Rider accounts</h2>
               <p>
                 Showing {filteredRiders.length} of {riders.length} riders.
               </p>
@@ -589,27 +588,6 @@ function RiderDetailsModal({
         </div>
 
         <div className="riders-modal-actions">
-          {/* Not built yet. Shown disabled, with the reason, rather than
-              clickable with a toast that implies something happened. */}
-          <button
-            type="button"
-            className="riders-light-action"
-            disabled
-            aria-describedby="rider-unavailable-actions"
-          >
-            View Route
-          </button>
-
-          <button
-            type="button"
-            className="riders-light-action"
-            disabled
-            aria-describedby="rider-unavailable-actions"
-          >
-            <PhoneCall size={15} aria-hidden="true" />
-            Contact Rider
-          </button>
-
           {isApproved && (
             <button
               type="button"
@@ -650,11 +628,6 @@ function RiderDetailsModal({
             </button>
           )}
         </div>
-        <p id="rider-unavailable-actions" className="riders-unavailable-note">
-          Viewing a rider's route and calling them from VaxTrack aren't available yet. Use Live Tracking
-          for positions and the rider's registered phone number to call.
-        </p>
-
         {rider.uid && <RiderRecoveryPanel riderUid={rider.uid} riderName={rider.name} />}
       </div>
     </div>

@@ -5,6 +5,7 @@ import {
   MoreVertical,
   Search,
   Settings as SettingsIcon,
+  UserPlus,
   UserRound,
   Users,
   X,
@@ -12,7 +13,11 @@ import {
 import { auth } from "../../firebase";
 import KpiCard from "../../components/ui/KpiCard";
 import "./Settings.css";
-import { subscribeUsers, updateUserStatus, updateUserRole } from "../../services/userService";
+import { subscribeUsers } from "../../services/userService";
+// Staff status, role and new accounts change only on the server (staffAccounts.js);
+// the rules refuse those writes from a browser.
+import { createStaffSetupLink, setStaffRole, setStaffStatus } from "../../services/staffAccountCallables";
+import AddStaffDialog, { SetupLinkBox } from "./AddStaffDialog";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import AdminDialogLayer from "../../components/admin/AdminDialogLayer";
@@ -35,6 +40,7 @@ const ROLE_DISPLAY = {
 };
 
 const ASSIGNABLE_ROLES = [
+  { value: "admin", label: "Admin" },
   { value: "salesrep", label: "Med Rep" },
   { value: "dispatcher", label: "Dispatcher" },
   { value: "rider", label: "Rider" },
@@ -55,6 +61,8 @@ function normalizeUser(raw) {
     status: uiStatus.key,
     statusLabel: uiStatus.label,
     lastLogin: "—",
+    // Made by an Admin or the setup script: may still need its password set.
+    canSetUp: raw.createdVia === "admin" || raw.createdVia === "setup-script",
     // The stored assignment, passed to Manage territory unchanged.
     territorySource: {
       assignedAreaIds: raw.assignedAreaIds,
@@ -64,7 +72,7 @@ function normalizeUser(raw) {
   };
 }
 
-const pageSize = 4;
+const pageSize = 10;
 
 /** Account status changes, each confirmed with its consequence first. */
 const ACCOUNT_ACTIONS = {
@@ -228,8 +236,8 @@ function GeneralSettings() {
 
         <KpiCard
           label="Alert delivery"
-          value="In-app"
-          context="Push and email not configured"
+          value="In-app + push"
+          context="Rider push for deliveries; SMS and email not used"
           tone="info"
         />
 
@@ -349,27 +357,43 @@ function GeneralSettings() {
               disabling it "may prevent admins from receiving rider route
               warnings", which it could not do. */}
           <p className="settings-readonly-lede">
-            Alerts cannot be switched off. Every alert written to Firestore is
-            shown to admins and dispatchers.
+            Alerts cannot be switched off. The channels below are the ones the
+            system actually uses.
           </p>
 
+          {/* Channel list (MOD-10). Each entry names its real source; nothing
+              here is a setting. Rider push: functions/src/riderPush.js. */}
           <dl className="settings-fact-list">
             <div>
               <dt>In-app alerts</dt>
               <dd>
                 <strong>Always on</strong>
                 <span>
-                  Read live on the Alerts page and the dashboard.
+                  Admins and dispatchers read alerts live on the Alerts page,
+                  the dashboard and the bell. Stock and expiry alerts are for
+                  admins only.
                 </span>
               </dd>
             </div>
             <div>
-              <dt>Push and email</dt>
+              <dt>Rider push (rider app)</dt>
               <dd>
-                <strong>Not configured</strong>
+                <strong>On</strong>
                 <span>
-                  No messaging or email channel exists, so alerts do not leave
-                  the dashboard.
+                  Riders get a phone notification when a delivery is assigned to
+                  them, moved to another rider or cancelled, and when an offline
+                  delivery is approved or rejected. Sent through Firebase Cloud
+                  Messaging to the phones they are signed in on.
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt>SMS and email</dt>
+              <dd>
+                <strong>Not used</strong>
+                <span>
+                  Out of scope by decision: staff alerts stay in the portal and
+                  riders are notified in the rider app.
                 </span>
               </dd>
             </div>
@@ -409,6 +433,7 @@ function UserManagement({ searchTerm, showToast }) {
   const [roleError, setRoleError] = useState("");
   const roleSavingRef = useRef(false);
   const [territoryTarget, setTerritoryTarget] = useState(null);
+  const [addStaffOpen, setAddStaffOpen] = useState(false);
 
   useEffect(() => {
     const unsubscribe = subscribeUsers(
@@ -466,7 +491,7 @@ function UserManagement({ searchTerm, showToast }) {
   const updateStatus = async (uid, firestoreStatus) => {
     setStatusBusy(uid);
     try {
-      await updateUserStatus(uid, firestoreStatus);
+      await setStaffStatus(uid, firestoreStatus);
       showToast(`User status updated to ${staffStatusOf(firestoreStatus).label}.`, "success");
     } catch (error) {
       logSafeError("Update user status", error);
@@ -513,7 +538,7 @@ function UserManagement({ searchTerm, showToast }) {
     setRoleSaving(true);
     setRoleError("");
     try {
-      await updateUserRole(uid, newRole);
+      await setStaffRole(uid, newRole);
       showToast(`User role updated to ${ROLE_DISPLAY[newRole] || newRole}.`, "success");
       // Closed only on success; a failure leaves the choice open to retry.
       setRoleChangeTarget(null);
@@ -573,6 +598,10 @@ function UserManagement({ searchTerm, showToast }) {
           </div>
 
           <div className="staff-actions">
+            <button type="button" className="settings-primary-action staff-add-btn" onClick={() => setAddStaffOpen(true)}>
+              <UserPlus size={15} aria-hidden="true" />
+              Add staff
+            </button>
             <select
               value={departmentFilter}
               onChange={(e) => {
@@ -895,6 +924,15 @@ function UserManagement({ searchTerm, showToast }) {
         </AdminDialogLayer>
       )}
 
+      {addStaffOpen && (
+        <AdminDialogLayer pageClass="settings-v3-main">
+          <AddStaffDialog
+            onClose={() => setAddStaffOpen(false)}
+            onCreated={(result) => showToast(`${result.email} was added.`, "success")}
+          />
+        </AdminDialogLayer>
+      )}
+
       {roleChangeTarget && (
         <AdminDialogLayer pageClass="settings-v3-main">
         <RoleChangeModal
@@ -929,6 +967,19 @@ function StaffDetailsModal({
   const actions = staffActionsFor(person.status, { isSelf });
   const dialogRef = useRef(null);
   useDialogFocus({ dialogRef, onDismiss: onClose, busy });
+  // A one-time password-setup link, for an account that has never signed in
+  // (the server refuses otherwise and says why).
+  const [setup, setSetup] = useState({ busy: false, link: "", error: "" });
+  const makeSetupLink = async () => {
+    setSetup({ busy: true, link: "", error: "" });
+    try {
+      const result = await createStaffSetupLink(person.uid);
+      setSetup({ busy: false, link: result.setupLink, error: "" });
+    } catch (error) {
+      logSafeError("Create setup link", error);
+      setSetup({ busy: false, link: "", error: friendlyErrorMessage(error, "A setup link could not be made. Please try again.") });
+    }
+  };
   return (
     <div className="settings-modal-backdrop">
       <div
@@ -994,7 +1045,20 @@ function StaffDetailsModal({
           )}
         </div>
 
+        {setup.link && <SetupLinkBox link={setup.link} name={person.name} />}
+        {setup.error && (
+          <p className="settings-modal-error" role="alert">
+            {setup.error}
+          </p>
+        )}
+
         <div className="settings-modal-actions">
+          {person.canSetUp && person.status === "active" && !isSelf && !setup.link && (
+            <button type="button" className="settings-light-action" onClick={makeSetupLink} disabled={setup.busy}>
+              {setup.busy ? "Making link…" : "Copy setup link"}
+            </button>
+          )}
+
           {actions.includes("approve") && (
             <button type="button" className="settings-primary-action" onClick={onApprove} disabled={busy}>
               Approve User

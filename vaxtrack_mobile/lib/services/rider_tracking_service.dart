@@ -87,6 +87,7 @@ class GeolocatorLocationSource implements TrackingLocationSource {
         headingDegrees: p.heading,
         speedMps: p.speed,
         capturedAt: p.timestamp,
+        isMocked: p.isMocked,
       ),
     );
   }
@@ -194,6 +195,8 @@ class FirestoreTrackingStore implements TrackingStore {
       'accuracyMeters': fix.accuracyMeters,
       'headingDegrees': fix.sanitizedHeading,
       'speedMps': fix.sanitizedSpeed,
+      // Only when true: older server rules and readers never see the field.
+      if (fix.isMocked) 'mockedLocation': true,
       // When the fix was taken (an old fix arriving late is shown as old)...
       'capturedAt': Timestamp.fromDate(fix.capturedAt),
       // ...and when the server accepted it.
@@ -332,7 +335,13 @@ class FirestoreTrackingStore implements TrackingStore {
 Stream<List<TrackedOrder>> trackedOrdersFor(String riderUid, {DeliveryService? service}) {
   return (service ?? DeliveryService()).riderDeliveries(riderUid).map(
         (list) => list
-            .map((Delivery d) => TrackedOrder(id: d.id, status: d.status, assignedRiderId: d.assignedRiderId))
+            .map((Delivery d) => TrackedOrder(
+                  id: d.id,
+                  status: d.status,
+                  assignedRiderId: d.assignedRiderId,
+                  tripId: d.tripId,
+                  stopSequence: d.stopSequence,
+                ))
             .toList(),
       );
 }

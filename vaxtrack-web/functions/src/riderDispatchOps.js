@@ -38,6 +38,7 @@
  */
 
 const { PolicyError, hasLoadingAudit } = require("./policy");
+const { usableThrough, assertBatchesCover, readReservedBatches } = require("./expiryGuard");
 const { routeFieldDeletes } = require("./orderRouteFields");
 const { statusUpdatedByEmailValue } = require("./attribution");
 const D = require("./riderDispatch");
@@ -362,6 +363,9 @@ async function finalizeRiderDispatch({ db, FieldValue, uid, email = null, payloa
   await reconcileRider({ db, FieldValue, riderUid });
 
   return runTripTransaction(db, async (tx) => {
+    // Reserved batches, read FIRST: settle() below may write a corrected trip
+    // state, and every read must come before a transaction's first write.
+    const reservedBatches = await readReservedBatches(tx, db, requested);
     // The orders the caller named are read too (a replay after the trip moved on).
     const { view, cur } = await settle(tx, db, FieldValue, riderUid, requested);
 
@@ -409,6 +413,11 @@ async function finalizeRiderDispatch({ db, FieldValue, uid, email = null, payloa
       }
       const block = D.dispatchBlock(o, now);
       if (block) throw new PolicyError(block.code, block.message);
+      // A batch can expire between reservation and departure (a later
+      // delivery, a reschedule, a corrected expiry): nothing leaves with it.
+      assertBatchesCover(reservedBatches.get(id) ?? [], usableThrough(o, now), {
+        action: `${firstText(o.orderNumber) ?? "An order"} cannot be dispatched with it. Cancel the order and place it again, or ask an Admin to review the stock.`,
+      });
     }
 
     // ---- writes

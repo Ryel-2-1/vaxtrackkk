@@ -21,7 +21,6 @@
  */
 import { deriveExpiryCondition } from "./expiry.js";
 import { readPriceCentavos } from "./money.js";
-import { PRICES_INCLUDE_VAT } from "./pricingConfig.js";
 
 /**
  * The batch statuses the server treats as orderable — the exact set in
@@ -75,7 +74,7 @@ const REASON_MESSAGES = Object.freeze({
   expired: "Expired batch",
   "missing-expiry": "Expiry date missing",
   "missing-price": "Price not available",
-  "legacy-price-convention": "Legacy pricing — VAT recorded as exclusive; awaiting Admin price confirmation",
+  "legacy-price-convention": "Price basis not recorded; awaiting Admin confirmation",
   "no-available-stock": "No available stock",
   "batch-voided": "Batch was voided by an Admin",
   "vaccine-archived": "Vaccine is archived and no longer offered",
@@ -210,9 +209,8 @@ export function evaluateBatchEligibility(batch, todayIso, context = {}) {
     return ineligible(ELIGIBILITY_REASONS.MISSING_PRICE, availableQuantity, normalizedStatus);
   }
 
-  // 5b. The price must be RECORDED under the convention new orders carry. A
-  //     legacy VAT-exclusive price is never quoted as if it included VAT.
-  if (batch?.priceIsVatInclusive !== PRICES_INCLUDE_VAT) {
+  // 5b. A missing price basis must be confirmed before checkout.
+  if (typeof batch?.priceIsVatInclusive !== "boolean") {
     return ineligible(ELIGIBILITY_REASONS.LEGACY_PRICE_CONVENTION, availableQuantity, normalizedStatus);
   }
 

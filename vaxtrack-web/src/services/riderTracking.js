@@ -75,6 +75,7 @@ export function tripStateOf(tripStates, uid) {
 export const DEVIATION_LABELS = Object.freeze({
   not_navigating: "Not navigating",
   route_unavailable: "Route not available",
+  checking: "Checking position…",
   on_route: "On route",
   pending_deviation: "Off route — confirming",
   deviating: "Route deviating",
@@ -157,6 +158,9 @@ export function deviationDisplayState(stateDoc) {
   if (stateDoc.routeStatus !== "available") return "route_unavailable";
   if (stateDoc.phase === "deviating") return "deviating";
   if (stateDoc.pendingOffSinceMs != null) return "pending_deviation";
+  // No usable fix of this session measured yet (a new session starts in
+  // phase on_route): never shown as "On route".
+  if (stateDoc.lastQualifyingFixAtMs == null) return "checking";
   return "on_route";
 }
 
@@ -165,6 +169,20 @@ export function deviationText(stateDoc) {
   const display = deviationDisplayState(stateDoc);
   const reason = display === "route_unavailable" ? ROUTE_UNAVAILABLE_LABELS[stateDoc?.routeUnavailableReason] : null;
   return reason ? `${DEVIATION_LABELS[display]} (${reason})` : DEVIATION_LABELS[display];
+}
+
+/**
+ * The route-monitoring line for a rider whose position may be out of date.
+ * The server's verdict only changes when a fix arrives, so with a stale or
+ * offline position it is the verdict AT the last fix: shown as such, never as
+ * a current "On route". An open deviation stays visible (its alert is real).
+ */
+export function deviationTextForFreshness(stateDoc, freshness) {
+  const text = deviationText(stateDoc);
+  if (freshness !== "stale" && freshness !== "offline") return text;
+  const display = deviationDisplayState(stateDoc);
+  if (display === "not_navigating" || display === "route_unavailable") return text;
+  return `No recent position — last: ${text}`;
 }
 
 /**
@@ -237,11 +255,16 @@ export function buildFleet({ orders, locations, deviations, riders, tripStates =
       locationAtMs: locationTimeMs(location),
       accuracyMeters: Number.isFinite(location?.accuracyMeters) ? location.accuracyMeters : null,
       deviation: deviationDisplayState(deviation),
-      deviationText: returningToHub ? RETURNING_MONITORING_TEXT : deviationText(deviation),
+      deviationText: returningToHub
+        ? RETURNING_MONITORING_TEXT
+        : deviationTextForFreshness(deviation, locationFreshness(location, nowMs)),
       returningToHub,
       // Distance at the last deviation transition (the server stores anchors,
       // not a per-fix distance), so it is labelled as such — never as live.
       deviationDistanceMeters: Number.isFinite(deviation?.distanceAtTransitionMeters) ? deviation.distanceAtTransitionMeters : null,
+      // When that distance was measured: it is the distance at the last
+      // change (off route, confirmed, back within range), not when it began.
+      deviationDistanceAtMs: Number.isFinite(deviation?.lastTransitionAtMs) ? deviation.lastTransitionAtMs : null,
       navigatingOrderId,
       state: riderMarkerState({ location, deviation, nowMs }),
     });

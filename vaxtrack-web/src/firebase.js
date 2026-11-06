@@ -71,6 +71,9 @@ if (appCheckSiteKey && !localQa) {
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+// The bucket the app's own evidence photos live in; proof links that point
+// anywhere else are not shown (services/deliveryEvidenceView.js).
+export const storageBucket = firebaseConfig.storageBucket;
 
 if (localQa) {
   connectAuthEmulator(auth, "http://127.0.0.1:9097");

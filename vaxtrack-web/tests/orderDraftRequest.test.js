@@ -590,9 +590,11 @@ test("both pages wire restoration, durable navigation, and batch-id pricing with
   for (const helper of ["updateCartDraftLines", "saveCheckoutSelection", "saveCheckoutReview"]) assert.match(addMore, new RegExp(helper));
   assert.match(addMore, /if \(!saved\) \{[\s\S]*?return;[\s\S]*?navigate\("\/sales-rep\/request-order"\)/);
   assert.doesNotMatch(addMore, /discardOrderAttempt|submitOrderDraft|createOrderWithReservation/);
-  assert.match(PLACE, /negotiation\[item.inventoryId\]/);
+  // Negotiated prices are keyed by batch id in the page's price-review state.
+  const priceState = read("src/pages/salesRep/useCheckoutPriceReview.js");
+  assert.match(priceState, /negotiation\[item.inventoryId\]/);
   assert.match(PLACE, /reviewByBatch.get\(item.inventoryId\)/);
-  assert.doesNotMatch(PLACE, /reviewBySku|negotiation\[item.sku\]/);
+  assert.doesNotMatch(PLACE + priceState, /reviewBySku|negotiation\[item.sku\]/);
 });
 
 test("Request Order saves the cart only under the signed-in user", () => {
@@ -602,7 +604,9 @@ test("Request Order saves the cart only under the signed-in user", () => {
 
 test("Place Order submits the full snapshot through the durable draft", () => {
   assert.match(PLACE, /await submitOrderDraft\(\{\s*storage: localStorage,\s*uid,\s*submission,\s*submit:/);
-  assert.match(PLACE, /loadCartDraft\(localStorage, uid\)/);
+  assert.match(PLACE, /restoreCartItems\(localStorage, uid\)/);
+  const restore = readFileSync(new URL("../src/services/checkoutDraftRestore.js", import.meta.url), "utf8");
+  assert.match(restore, /loadCartDraft\(storage, uid\)/);
   for (const field of ["priority", "deliveryInstructions", "requestedDeliveryDate", "doctorId", "doctorAddressId", "items"]) {
     assert.match(PLACE, new RegExp(`const submission = \\{[\\s\\S]*?${field}:`), field);
   }

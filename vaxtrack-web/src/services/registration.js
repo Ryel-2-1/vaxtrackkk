@@ -40,6 +40,31 @@ export const RIDER_VEHICLE_TYPE = "Motorcycle";
 
 export const MIN_PASSWORD_LENGTH = 8;
 
+export function passwordRequirements(password) {
+  const value = typeof password === "string" ? password : "";
+  return [
+    { key: "length", label: `${MIN_PASSWORD_LENGTH}+ characters`, message: `at least ${MIN_PASSWORD_LENGTH} characters`, met: value.length >= MIN_PASSWORD_LENGTH },
+    { key: "upper", label: "Uppercase letter", message: "an uppercase letter", met: /[A-Z]/.test(value) },
+    { key: "lower", label: "Lowercase letter", message: "a lowercase letter", met: /[a-z]/.test(value) },
+    { key: "number", label: "Number", message: "a number", met: /[0-9]/.test(value) },
+    { key: "symbol", label: "Symbol, such as ! or #", message: "a symbol (for example, ! or #)", met: /[^A-Za-z0-9\s]/u.test(value) },
+  ];
+}
+
+export function passwordStrength(password) {
+  const value = typeof password === "string" ? password : "";
+  const requirements = passwordRequirements(value);
+  const characterScore = Math.min(value.length, MIN_PASSWORD_LENGTH) / MIN_PASSWORD_LENGTH * 40;
+  const varietyScore = requirements.slice(1).filter((rule) => rule.met).length * 15;
+  const percent = Math.round(characterScore + varietyScore);
+  const strong = requirements.every((rule) => rule.met);
+  return {
+    percent,
+    label: strong ? "Strong password" : !value ? "Password strength" : percent >= 60 ? "Moderate password" : "Weak password",
+    tone: strong ? "strong" : percent >= 60 ? "progressing" : "starting",
+  };
+}
+
 // Loose "is this even an address" gate; Firebase is the real authority.
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -69,11 +94,12 @@ export function validateApplication({ name, email, password, confirmPassword, ro
   if (!isApplicableRole(role)) {
     return { ok: false, field: "role", message: "Please choose the position you are applying for." };
   }
-  if (!password || password.length < MIN_PASSWORD_LENGTH) {
+  const unmetPasswordRule = passwordRequirements(password).find((rule) => !rule.met);
+  if (unmetPasswordRule) {
     return {
       ok: false,
       field: "password",
-      message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
+      message: `Password needs ${unmetPasswordRule.message}.`,
     };
   }
   if (password !== confirmPassword) {
@@ -124,7 +150,7 @@ export function mapRegistrationError(code) {
     return "Please enter a valid email address.";
   }
   if (code === "auth/weak-password") {
-    return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
+    return "This password was rejected. Use 8 or more characters with uppercase and lowercase letters, a number, and a symbol.";
   }
   if (code === "auth/too-many-requests") {
     return "Too many attempts. Please wait a moment and then try again.";

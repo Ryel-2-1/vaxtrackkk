@@ -4,6 +4,7 @@ import '../models/app_user.dart';
 import '../services/auth_service.dart';
 import '../services/delivery_service.dart';
 import '../models/delivery.dart';
+import '../offline/offline_delivery_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/route_monitoring_card.dart';
 import '../widgets/rider_feed_builder.dart';
@@ -231,11 +232,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _logout() async {
+    // Deliveries saved offline and not sent yet stay on the phone but are only
+    // sent while this rider is signed in, so say so before signing out.
+    final waiting = offlineDeliveries.waitingCountFor(FirebaseAuth.instance.currentUser?.uid);
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Sign Out'),
-        content: const Text('Are you sure you want to sign out?'),
+        content: Text(waiting == 0
+            ? 'Are you sure you want to sign out?'
+            : '${waiting == 1 ? 'One delivery' : '$waiting deliveries'} saved offline '
+                '${waiting == 1 ? 'has' : 'have'} not been sent yet. They stay on this phone and are '
+                'sent the next time you sign in with a connection. Sign out anyway?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           ElevatedButton(

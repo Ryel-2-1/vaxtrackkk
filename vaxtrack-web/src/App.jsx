@@ -19,7 +19,6 @@ const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
 const Register = lazy(() => import("./pages/Register"));
 const PendingApproval = lazy(() => import("./pages/PendingApproval"));
 const StyleGuide = lazy(() => import("./pages/StyleGuide"));
-const GoogleMapsFeasibility = lazy(() => import("./pages/dev/GoogleMapsFeasibility"));
 
 const AdminShell = lazy(() => import("./components/admin/AdminShell"));
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
@@ -47,6 +46,7 @@ const SalesRepRequestOrder = lazy(() => import("./pages/salesRep/SalesRepRequest
 const SalesRepPlaceOrder = lazy(() => import("./pages/salesRep/SalesRepPlaceOrder"));
 const SalesRepOrderConfirmation = lazy(() => import("./pages/salesRep/SalesRepOrderConfirmation"));
 const SalesRepOrderTracking = lazy(() => import("./pages/salesRep/SalesRepOrderTracking"));
+const SalesRepLiveMonitoring = lazy(() => import("./pages/salesRep/SalesRepLiveMonitoring"));
 const SalesRepOrderHistory = lazy(() => import("./pages/salesRep/SalesRepOrderHistory"));
 const SalesRepAlerts = lazy(() => import("./pages/salesRep/SalesRepAlerts"));
 const SalesRepSettings = lazy(() => import("./pages/salesRep/SalesRepSettings"));
@@ -129,6 +129,7 @@ function App() {
               <Route path="/sales-rep/place-order" element={<SalesRepPlaceOrder />} />
               <Route path="/sales-rep/order-confirmation" element={<SalesRepOrderConfirmation />} />
               <Route path="/sales-rep/order-tracking" element={<SalesRepOrderTracking />} />
+              <Route path="/sales-rep/live-monitoring" element={<SalesRepLiveMonitoring />} />
               <Route path="/sales-rep/order-history" element={<SalesRepOrderHistory />} />
               <Route path="/sales-rep/alerts" element={<SalesRepAlerts />} />
               <Route path="/sales-rep/settings" element={<SalesRepSettings />} />
@@ -152,12 +153,6 @@ function App() {
 
           {/* Meridian design-system preview — isolated, no Firestore. */}
           <Route path="/style-guide" element={<StyleGuide />} />
-
-          {/* TEMPORARY Google Maps feasibility spike — only mounted behind an
-              explicit env flag. Absent/false => normal app is unchanged. */}
-          {import.meta.env.VITE_GOOGLE_MAPS_FEASIBILITY === "true" && (
-            <Route path="/gmaps-feasibility" element={<GoogleMapsFeasibility />} />
-          )}
 
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>

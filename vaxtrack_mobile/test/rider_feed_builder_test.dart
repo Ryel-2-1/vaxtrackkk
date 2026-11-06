@@ -63,7 +63,8 @@ class _HostState extends State<_Host> {
   }
 }
 
-Finder get spinner => find.byType(CircularProgressIndicator);
+// Loading is the skeleton delivery list (widgets/skeleton.dart).
+Finder get spinner => find.byKey(const Key('skeleton-delivery-list'));
 
 /// Stream events reach the StreamBuilder through microtasks; depending on what
 /// else happened in the frame the rebuild lands one frame later, so two frames

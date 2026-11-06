@@ -2,7 +2,6 @@ import "./Analytics.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
-  Building2,
   Lightbulb,
   MoreVertical,
   X,
@@ -595,22 +594,6 @@ function Analytics() {
               >
                 View details
               </button>
-            </div>
-          </section>
-
-          <section className="analytics-card analytics-hub-card">
-            <div className="analytics-card-title-row">
-              <h2>Hub performance ranking</h2>
-            </div>
-
-            <div className="analytics-empty-state">
-              <Building2 size={26} />
-              <strong>Hub ranking not available yet</strong>
-              <p>
-                Per-hub on-time and incident metrics will appear here once a hubs
-                data source and per-order hub assignment are recorded. No hub data
-                is fabricated in the meantime.
-              </p>
             </div>
           </section>
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/delivery.dart';
 import '../theme/app_theme.dart';
+import 'evidence_photo_viewer.dart';
 
 /// A delivered order's recorded evidence, READ-ONLY.
 ///
@@ -23,11 +24,15 @@ class DeliveredEvidenceCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Proof of delivery',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+            const Text(
+              'Proof of delivery',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+            ),
             const SizedBox(height: 4),
-            const Text('Recorded. Contact your dispatcher if this needs to be changed.',
-                style: TextStyle(fontSize: 12, color: AppColors.textLight)),
+            const Text(
+              'Recorded. Contact your dispatcher if this needs to be changed.',
+              style: TextStyle(fontSize: 12, color: AppColors.textLight),
+            ),
             const SizedBox(height: 12),
             if (!d.hasProof)
               const Text(
@@ -36,19 +41,40 @@ class DeliveredEvidenceCard extends StatelessWidget {
                 style: TextStyle(fontSize: 12, color: AppColors.textMedium),
               )
             else ...[
-              _photo(d.proofOfDeliveryUrl!, 'The proof image could not be loaded.'),
+              _photo(
+                context,
+                d.proofOfDeliveryUrl!,
+                'Proof photo',
+                'The proof image could not be loaded.',
+              ),
               if ((d.proofRecipientName ?? '').isNotEmpty) ...[
                 const SizedBox(height: 8),
-                Text('Received by ${d.proofRecipientName}',
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                Text(
+                  'Received by ${d.proofRecipientName}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ],
             ],
             if (d.hasInvoice) ...[
               const SizedBox(height: 12),
-              const Text('Invoice photo',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textMedium)),
+              const Text(
+                'Invoice photo',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textMedium,
+                ),
+              ),
               const SizedBox(height: 6),
-              _photo(d.invoiceUrl!, 'The invoice image could not be loaded.'),
+              _photo(
+                context,
+                d.invoiceUrl!,
+                'Invoice photo',
+                'The invoice image could not be loaded.',
+              ),
             ],
           ],
         ),
@@ -56,20 +82,39 @@ class DeliveredEvidenceCard extends StatelessWidget {
     );
   }
 
-  Widget _photo(String url, String errorText) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
-      child: Image.network(
-        url,
-        height: 160,
-        width: double.infinity,
-        fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => Container(
-          height: 60,
-          alignment: Alignment.centerLeft,
-          padding: const EdgeInsets.all(12),
-          color: AppColors.background,
-          child: Text(errorText, style: const TextStyle(fontSize: 12, color: AppColors.textLight)),
+  Widget _photo(
+    BuildContext context,
+    String url,
+    String title,
+    String errorText,
+  ) {
+    return Semantics(
+      button: true,
+      label: 'View full $title',
+      child: InkWell(
+        onTap: () =>
+            showEvidencePhoto(context, title: title, image: NetworkImage(url)),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.network(
+            url,
+            height: 160,
+            width: double.infinity,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => Container(
+              height: 60,
+              alignment: Alignment.centerLeft,
+              padding: const EdgeInsets.all(12),
+              color: AppColors.background,
+              child: Text(
+                errorText,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textLight,
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );

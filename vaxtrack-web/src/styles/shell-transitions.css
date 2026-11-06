@@ -3,7 +3,8 @@
  *
  * The sidebar now lives in a persistent parent layout route and never unmounts
  * on navigation, so only the content region (`.route-view`, keyed by pathname)
- * replays a gentle fade/rise each time a page loads. The in-content Suspense
+ * replays a gentle fade each time a page loads. Fade only: a page that also
+ * moved read as the content shaking whenever something was opened. The in-content Suspense
  * fallback (`.route-view-fallback`) keeps the sidebar visible while a lazy chunk
  * downloads, instead of blanking the whole viewport. Reduced-motion is honored.
  */
@@ -22,11 +23,9 @@
 @keyframes routeViewIn {
   from {
     opacity: 0;
-    transform: translateY(6px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 

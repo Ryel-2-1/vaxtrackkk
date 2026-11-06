@@ -1024,10 +1024,12 @@ function InvoiceEditor() {
               </div>
               {/* Agreement-model invoices: no separate discount line — the
                   lines are already the final charged amounts. Every other
-                  invoice keeps its discount row, labels unchanged. */}
+                  invoice keeps its discount row. SC/PWD and the other statutory
+                  categories are no longer offered (2026-11-03), so the row no
+                  longer names them. */}
               {!finalChargedAmounts && (
                 <div className="sit-tt-row sit-tt-input">
-                  <span>Less: Discount [SC/PWD/NAAC/MOV/SP]</span>
+                  <span>Less: Discount</span>
                   <NumberInput
                     value={form.discount}
                     onChange={(v) => setField("discount", v)}
@@ -1065,7 +1067,10 @@ function InvoiceEditor() {
             </div>
           </div>
 
-          {/* ===== Acknowledgment + SC/PWD ids ===== */}
+          {/* ===== Acknowledgment =====
+              The SC/PWD/NAAC/MOV/Solo Parent ID and signature rows were removed
+              with the SC/PWD discount (2026-11-03). Values stored on older
+              invoices (soloParentId, receivedBy) are kept, just not shown. */}
           <div className="sit-ack">
             <div className="sit-ack-left">
               <div className="sit-recv">
@@ -1089,26 +1094,6 @@ function InvoiceEditor() {
                 <span className="sit-sign-lbl">
                   Cashier / Authorized Representative
                 </span>
-              </div>
-            </div>
-            <div className="sit-ack-right">
-              <div className="sit-id-row">
-                <span>SC/PWD/NAAC/MOV/ Solo Parent ID No.:</span>
-                <TextInput
-                  value={form.soloParentId}
-                  onChange={(v) => setField("soloParentId", v)}
-                  readOnly={readOnly}
-                  aria-label="Solo Parent ID No."
-                />
-              </div>
-              <div className="sit-id-row">
-                <span>SC/PWD/NAAC/MOV/ Signature:</span>
-                <TextInput
-                  value={form.receivedBy}
-                  onChange={(v) => setField("receivedBy", v)}
-                  readOnly={readOnly}
-                  aria-label="SC/PWD signature"
-                />
               </div>
             </div>
           </div>

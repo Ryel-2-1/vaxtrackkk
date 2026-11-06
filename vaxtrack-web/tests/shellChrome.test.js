@@ -43,7 +43,7 @@ const chrome = read("src", "styles", "shell-chrome.css");
 test("every role renders the same top bar, and it owns the page's one <h1>", () => {
   for (const role of Object.keys(SHELLS)) {
     const src = shellCode(role);
-    assert.match(src, /<header className="[^"]*\bm-topbar\b[^"]*">/, `${role}: shared top bar`);
+    assert.match(src, /<header className="[^"]*\bm-topbar\b[^"]*"[^>]*>/, `${role}: shared top bar`);
     const h1s = src.match(/<h1\b[^>]*>/g) || [];
     assert.deepEqual(h1s, ['<h1 className="m-topbar-title">'], `${role}: exactly one <h1>, in the top bar`);
   }
@@ -56,13 +56,18 @@ test("only working controls sit in the top bar", () => {
     assert.match(src, /className="[^"]*\bm-topbar-actions\b/, role);
     assert.match(src, /className=\{?[`"][^`"]*\bm-topbar-icon-btn\b/, `${role}: bell`);
   }
-  // Dispatcher keeps its global search. The Med Rep bar has none — it showed
-  // only on the Dashboard; every Med Rep page keeps its own search.
-  assert.match(shellCode("dispatcher"), /<form\s+className="[^"]*\bm-topbar-search\b[^"]*"\s+onSubmit=/, "dispatcher: search submits");
+  // Neither Dispatcher nor Med Rep has a top-bar search (Dispatcher's only
+  // navigated by keyword; removed 2026-10-31). Every page keeps its own search.
+  assert.doesNotMatch(shellCode("dispatcher"), /m-topbar-search|handleSearchSubmit/);
   assert.doesNotMatch(shellCode("salesrep"), /m-topbar-search|handleTopSearch|showSearch/);
-  // Admin has neither, so it gets the title alone — no decorative search/bell.
+  // Admin has no search; its bell counts unread active system alerts.
   const admin = shellCode("admin");
-  assert.doesNotMatch(admin, /m-topbar-search|m-topbar-icon-btn|m-topbar-actions/);
+  assert.doesNotMatch(admin, /m-topbar-search/);
+  assert.match(admin, /<div className="m-topbar-actions">\s*<AdminAlertsBell \/>\s*<\/div>/);
+  const bell = code("src/components/admin/AdminAlertsBell.jsx");
+  assert.match(bell, /<Link to="\/admin\/alerts" className="m-topbar-icon-btn admin-alerts-bell" aria-label=\{label\}/);
+  assert.match(bell, /rows\.filter\(\(alert\) => alert\.read !== true\)\.length/);
+  assert.doesNotMatch(bell, /subscribeDeliveryExceptions/);
   // The decorative chip on the Dispatcher bar is gone, and an unknown route
   // falls back to a real page title like Sales Rep does, not the old slogan.
   const dispatcher = code("src/pages/dispatcher/DispatcherLayout.jsx");
@@ -181,9 +186,6 @@ test("the shell work added no lint suppressions", () => {
   ]) {
     assert.doesNotMatch(read(f), /eslint-disable/, f);
   }
-  // These two each carry one pre-existing, documented suppression (closing a
-  // dropdown / drawer on route change); the shell work must not add another.
-  for (const f of ["src/pages/salesRep/SalesRepShell.jsx", "src/pages/dispatcher/DispatcherLayout.jsx"]) {
-    assert.equal(read(f).match(/eslint-disable/g).length, 1, f);
-  }
+  assert.equal((read("src/pages/salesRep/SalesRepShell.jsx").match(/eslint-disable/g) || []).length, 1);
+  assert.equal((read("src/pages/dispatcher/DispatcherLayout.jsx").match(/eslint-disable/g) || []).length, 0);
 });

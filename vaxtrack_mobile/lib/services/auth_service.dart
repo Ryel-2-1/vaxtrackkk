@@ -3,10 +3,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/app_user.dart';
+import '../utils/password_policy.dart';
 import '../utils/password_reset.dart';
 import '../utils/rider_registration.dart';
 import '../tracking/tracking_contract.dart';
 import 'rider_tracking_service.dart';
+import '../offline/offline_delivery_service.dart';
+import 'push_service.dart';
 
 class RegistrationError implements Exception {
   final String code;
@@ -133,6 +136,21 @@ class AuthService {
     } catch (_) {
       // Never let tracking cleanup stop the rider from signing out.
     }
+    // This rider's sent/refused offline records and their photos leave the
+    // phone; unsent ones wait for this rider to sign in again.
+    final uid = _auth.currentUser?.uid;
+    if (uid != null) {
+      try {
+        await offlineDeliveries.onSignedOut(uid).timeout(const Duration(seconds: 5));
+      } catch (_) {
+        // Never let this stop the rider from signing out.
+      }
+      // This phone stops receiving this rider's pushes (a shared phone must
+      // never show the previous rider's deliveries).
+      try {
+        await riderPush.stop(uid).timeout(const Duration(seconds: 5));
+      } catch (_) {}
+    }
     await _auth.signOut();
   }
 
@@ -143,6 +161,12 @@ class AuthService {
     required String phone,
     required String vehiclePlate,
   }) async {
+    // The rider password rules (password_policy.dart), checked here too so no
+    // caller can create an account with a weaker password than the form allows.
+    final passwordCheck = assessPassword(password, email: email, fullName: fullName);
+    if (!passwordCheck.isValid) {
+      throw RegistrationError('weak-password', passwordCheck.firstProblem!);
+    }
     User? createdUser;
     registrationInProgress = true;
     try {
@@ -200,7 +224,7 @@ class AuthService {
           throw RegistrationError(e.code, 'This email is already registered.');
         case 'weak-password':
           throw RegistrationError(
-              e.code, 'Password must be at least 6 characters.');
+              e.code, 'Choose a stronger password: at least $kPasswordMinLength characters with upper- and lowercase letters and a number.');
         case 'invalid-email':
           throw RegistrationError(e.code, 'Please enter a valid email address.');
         case 'network-request-failed':

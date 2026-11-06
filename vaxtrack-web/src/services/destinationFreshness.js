@@ -9,7 +9,13 @@
  * requests a refresh and the order's Med Rep approves it
  * (functions/src/destinationOperations.js, same-address "refresh").
  */
-import { MAX_ACCESS_NOTES_LENGTH, validateClinicLocation } from "./clinicLocation.js";
+import {
+  DEFAULT_GEOFENCE_RADIUS_M,
+  MAX_ACCESS_NOTES_LENGTH,
+  MAX_GEOFENCE_RADIUS_M,
+  MIN_GEOFENCE_RADIUS_M,
+  validateClinicLocation,
+} from "./clinicLocation.js";
 
 /** Statuses whose destination can still be corrected (server CORRECTABLE_STATUSES). */
 export const CORRECTABLE_DESTINATION_STATUSES = Object.freeze(["pending_dispatch", "assigned", "loading", "delivery_failed"]);
@@ -33,6 +39,32 @@ export function orderArrival(order) {
     notes: cleanNotes(order?.destinationAccessNotes),
     entrance: order?.destinationEntranceConfirmed === true,
   };
+}
+
+/**
+ * The circle a staff map draws around the order's destination: the order's
+ * own pin and arrival radius (what the server checks arrival against), or
+ * null without a pin. An order saved without a valid radius shows the clinic
+ * default, labelled as such.
+ */
+export function arrivalGeofence(order) {
+  const { lat, lng, radius } = orderArrival(order);
+  if (typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const ownRadius = Number.isInteger(radius) && radius >= MIN_GEOFENCE_RADIUS_M && radius <= MAX_GEOFENCE_RADIUS_M;
+  return { latLng: [lat, lng], radiusM: ownRadius ? radius : DEFAULT_GEOFENCE_RADIUS_M, defaultRadius: !ownRadius };
+}
+
+/**
+ * Inside / outside the arrival geofence, for staff. A stale position is only
+ * where the rider WAS, so it is never shown as a current "inside" (green) or
+ * "outside" (red) — it is labelled as the last known position, neutrally.
+ */
+export function geofenceStatus({ distanceM, radiusM, stale }) {
+  const inside = distanceM <= radiusM;
+  if (stale) {
+    return { tone: "stale", label: inside ? "Last known position inside geofence" : "Last known position outside geofence" };
+  }
+  return { tone: inside ? "in" : "out", label: inside ? "Inside geofence" : "Outside geofence" };
 }
 
 /**

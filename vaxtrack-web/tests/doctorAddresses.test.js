@@ -244,7 +244,10 @@ test("Sales Rep checkout is Doctor-first and sends only stable destination ids",
   const checkout = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
   const callable = read("src/services/inventoryCallables.js");
   assert.match(checkout, /subscribeDoctors/);
-  assert.match(checkout, /subscribeDoctorAddresses/);
+  // Destinations come from the territory-filtered server lookup, never a
+  // direct read of doctor addresses (audit finding 2).
+  assert.match(checkout, /fetchMedRepDoctorAddresses\(\)/);
+  assert.doesNotMatch(checkout, /subscribeDoctorAddresses/);
   // Options are built by buildDoctorDestinationOptions, then narrowed to the
   // Med Rep's territory (src/services/territory.js).
   assert.match(checkout, /territoryDestinationOptions\(doctorAddresses, clinics, territory\)/);
@@ -254,26 +257,25 @@ test("Sales Rep checkout is Doctor-first and sends only stable destination ids",
   assert.doesNotMatch(callable, /clinicName|clinicAddress|latitude|longitude/);
 });
 
-test("changing the checkout doctor clears its addresses and destination without an effect reset", () => {
-  // The address subscription effect used to clear state synchronously on
-  // every doctor change (react-hooks/set-state-in-effect). The reset now
-  // happens in the change handler and the displayed addresses are DERIVED
-  // from a snapshot tagged with its doctor — the same behaviour, no cascade.
+test("changing the checkout doctor clears its destination without an effect reset", () => {
   const checkout = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
 
-  // 1. The effect only subscribes: no setState runs before the subscription.
-  const effect = /useEffect\(\(\) => \{\s*\n\s*if \(!selectedDoctorId\) return undefined;([\s\S]*?)subscribeDoctorAddresses\(/.exec(checkout);
-  assert.ok(effect, "the address subscription effect must exist");
+  // 1. The effect only fetches: no setState runs before the request.
+  const effect = /useEffect\(\(\) => \{\s*\n\s*if \(!activeDoctorKey\) return undefined;([\s\S]*?)fetchMedRepDoctorAddresses\(\)/.exec(checkout);
+  assert.ok(effect, "the destination fetch effect must exist");
   assert.doesNotMatch(effect[1], /\bset[A-Z]\w*\(/, "no synchronous setState in the effect body");
 
-  // 2. Both callbacks tag the snapshot with the doctor it was requested for.
-  const tagged = checkout.match(/setAddressBook\(\{ doctorId: selectedDoctorId, docs(: \[\])? \}\)/g) ?? [];
-  assert.equal(tagged.length, 2, "success and error callbacks both record their doctor");
+  // 2. Both callbacks tag the result with the doctor list it was fetched for,
+  //    and a superseded request never lands.
+  const tagged = checkout.match(/setDestinationBook\(\{ key: activeDoctorKey, byDoctor(: \{\})? \}\)/g) ?? [];
+  assert.equal(tagged.length, 2, "success and error callbacks both record their key");
+  assert.ok((checkout.match(/if \(!current\) return;/g) ?? []).length >= 2);
 
-  // 3. What the page shows is derived, so another doctor's addresses can
-  //    never appear for this one, and it reads as loading until they arrive.
-  assert.match(checkout, /const addressesReady = !!selectedDoctorId && addressBook\.doctorId === selectedDoctorId;/);
-  assert.match(checkout, /const doctorAddresses = addressesReady \? addressBook\.docs : EMPTY_ADDRESSES;/);
+  // 3. What the page shows is derived: loading until the fetch for THIS
+  //    doctor list has arrived, then only the selected doctor's rows.
+  assert.match(checkout, /const territoryAddressesReady = !activeDoctorKey \|\| destinationBook\.key === activeDoctorKey;/);
+  assert.match(checkout, /const addressesReady = !!selectedDoctorId && territoryAddressesReady;/);
+  assert.match(checkout, /addressesByDoctor\[selectedDoctorId\] \?\? EMPTY_ADDRESSES/);
   assert.match(checkout, /const addressesLoading = !!selectedDoctorId && !addressesReady;/);
 
   // 4. The doctor changes in ONE place, which also clears the old destination
@@ -281,7 +283,6 @@ test("changing the checkout doctor clears its addresses and destination without 
   const handler = /const handleDoctorChange = \(doctorId\) => \{([\s\S]*?)\n {2}\};/.exec(checkout);
   assert.ok(handler, "the doctor change handler must exist");
   assert.match(handler[1], /setSelectedDoctorId\(doctorId\);/);
-  assert.match(handler[1], /setAddressBook\(\{ doctorId: null, docs: \[\] \}\);/);
   assert.match(handler[1], /setSelectedDestinationId\(""\);/);
   assert.match(handler[1], /setPendingRestore\(null\);/);
   assert.match(checkout, /onChange=\{\(event\) => handleDoctorChange\(event\.target\.value\)\}/);
@@ -291,13 +292,9 @@ test("changing the checkout doctor clears its addresses and destination without 
     "no other code path changes the doctor without clearing the destination"
   );
 
-  // 5. The subscription callback no longer applies a restored destination.
-  //    Restoration is verified against the loaded options instead — its
-  //    behaviour is proven in tests/checkoutDraftRestore.test.js, not here.
-  // (It also clears its own load error, so a listener that recovers after a
-  // failure stops showing "could not be loaded".)
-  const callback = /setAddressBook\(\{ doctorId: selectedDoctorId, docs \}\);\s*\n\s*setSourceError\("addresses", ""\);\s*\n\s*\},/.exec(checkout);
-  assert.ok(callback, "the success callback only records the snapshot and clears its own error");
+  // 5. The success callback records the result and clears its own error; it
+  //    never applies a restored destination (tests/checkoutDraftRestore.test.js).
+  assert.match(checkout, /setDestinationBook\(\{ key: activeDoctorKey, byDoctor \}\);\s*\n\s*setSourceError\("addresses", ""\);/);
   assert.doesNotMatch(checkout, /pendingDestinationRef/);
 
   // 6. Fixed, not silenced.

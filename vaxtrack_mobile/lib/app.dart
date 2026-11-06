@@ -5,7 +5,9 @@ import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/register_screen.dart';
 import 'services/auth_service.dart';
+import 'services/push_service.dart';
 import 'models/app_user.dart';
+import 'widgets/skeleton.dart';
 
 /// Root widget for the VaxTrack Rider app. Environment selection + Firebase
 /// initialization happen in `bootstrap.dart` BEFORE this is mounted, so this
@@ -19,6 +21,8 @@ class VaxTrackRiderApp extends StatelessWidget {
       title: 'VaxTrack Rider',
       theme: AppTheme.theme,
       debugShowCheckedModeBanner: false,
+      // Shows a push that arrives while the app is open (push_service.dart).
+      scaffoldMessengerKey: pushMessengerKey,
       home: const AuthGate(),
       routes: {
         '/login': (_) => const LoginScreen(),
@@ -103,9 +107,7 @@ class AuthGate extends StatelessWidget {
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          return const SkeletonHome();
         }
 
         // While registerRider() runs, the freshly created Auth session fires
@@ -113,9 +115,7 @@ class AuthGate extends StatelessWidget {
         // here — that would race the in-flight Firestore profile write.
         // registerRider() signs out itself when done.
         if (AuthService.registrationInProgress) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          return const SkeletonHome();
         }
 
         if (snapshot.data == null) {
@@ -127,9 +127,7 @@ class AuthGate extends StatelessWidget {
           future: _safeGetProfile(uid),
           builder: (context, userSnap) {
             if (userSnap.connectionState == ConnectionState.waiting) {
-              return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
-              );
+              return const SkeletonHome();
             }
 
             final result = userSnap.data;
@@ -138,18 +136,14 @@ class AuthGate extends StatelessWidget {
               AuthService.pendingLoginMessage =
                   'Sign in failed. Please try again.';
               FirebaseAuth.instance.signOut();
-              return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
-              );
+              return const SkeletonHome();
             }
 
             if (result.permissionDenied) {
               AuthService.pendingLoginMessage =
                   'Unable to load rider profile. Please check Firestore rules.';
               FirebaseAuth.instance.signOut();
-              return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
-              );
+              return const SkeletonHome();
             }
 
             final user = result.user;
@@ -157,9 +151,7 @@ class AuthGate extends StatelessWidget {
             if (rejection != null) {
               AuthService.pendingLoginMessage = rejection;
               FirebaseAuth.instance.signOut();
-              return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
-              );
+              return const SkeletonHome();
             }
 
             return const HomeScreen();

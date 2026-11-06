@@ -111,6 +111,13 @@
   border: 1px solid var(--gray-200);
   border-radius: 10px;
   padding: 12px 14px;
+  scroll-margin: 16px;
+}
+
+/* The return opened from a batch's drawer (`?return=<id>`). */
+.inventory-page .alloc-return.is-focused {
+  border-color: var(--green-600);
+  box-shadow: 0 0 0 3px var(--green-100);
 }
 
 .inventory-page .alloc-return-head {

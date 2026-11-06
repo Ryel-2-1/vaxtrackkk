@@ -1,4 +1,4 @@
-import { collection } from "firebase/firestore";
+import { collection, query, Timestamp, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { ORDER_STATUSES, STATUS_LABELS } from "./orderWorkflow";
 import { logSafeError } from "./liveDataErrors.js";
@@ -148,4 +148,75 @@ export function subscribeDeliveries(callback, onError) {
       if (onError) onError(error);
     }
   );
+}
+
+/** The statuses that mean a delivery stopped and needs a person. */
+export const DELIVERY_EXCEPTION_STATUSES = ["delayed", "delivery_failed"];
+
+/**
+ * Only the orders that stopped and need review — delayed or failed — oldest
+ * first. A narrow query (one equality `in`, no composite index) so the Admin
+ * top bar's alert count and the Alerts page can watch exceptions on every
+ * page without reading the whole orders collection.
+ */
+export function subscribeDeliveryExceptions(callback, onError) {
+  return listenLive(
+    query(collection(db, ORDERS), where("status", "in", DELIVERY_EXCEPTION_STATUSES)),
+    (snap) => {
+      const orders = snap.docs
+        .map((d) => {
+          const data = d.data();
+          const statusKey = normalizeStatusKey(getOrderStatusValue(data));
+          return { ...data, id: d.id, statusKey, statusLabel: mapOrderStatusLabel(statusKey) };
+        })
+        .sort((a, b) => (a.statusUpdatedAt?.toMillis?.() ?? a.updatedAt?.toMillis?.() ?? 0)
+          - (b.statusUpdatedAt?.toMillis?.() ?? b.updatedAt?.toMillis?.() ?? 0));
+      callback(orders);
+    },
+    (error) => {
+      logSafeError("subscribeDeliveryExceptions", error);
+      if (onError) onError(error);
+    }
+  );
+}
+
+/** Delivered orders stay in the Dispatcher bell's updates this long. */
+export const NOTIFICATION_DELIVERED_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+const notificationRow = (d) => {
+  const data = d.data();
+  const rawStatus = getOrderStatusValue(data);
+  const statusKey = normalizeStatusKey(rawStatus);
+  return { ...data, id: d.id, rawStatus, statusKey, statusLabel: mapOrderStatusLabel(statusKey), statusType: mapOrderStatusType(statusKey) };
+};
+
+/**
+ * Only the orders the Dispatcher bell speaks about — on the road, delayed or
+ * failed, plus those delivered in the last 7 days — instead of the whole
+ * orders collection. Two single-field queries (no composite index); the
+ * delivered window is fixed when the listener opens, and the feed drops
+ * anything older as time passes.
+ */
+export function subscribeNotificationOrders(callback, onError, { nowMs = Date.now() } = {}) {
+  const parts = { active: null, delivered: null };
+  const emit = () => {
+    if (!parts.active || !parts.delivered) return;
+    const byId = new Map([...parts.delivered, ...parts.active].map((o) => [o.id, o]));
+    callback([...byId.values()]);
+  };
+  const fail = (error) => {
+    logSafeError("subscribeNotificationOrders", error);
+    if (onError) onError(error);
+  };
+  const stopActive = listenLive(
+    query(collection(db, ORDERS), where("status", "in", ["in_transit", "delayed", "delivery_failed"])),
+    (snap) => { parts.active = snap.docs.map(notificationRow); emit(); },
+    fail
+  );
+  const stopDelivered = listenLive(
+    query(collection(db, ORDERS), where("deliveredAt", ">=", Timestamp.fromMillis(nowMs - NOTIFICATION_DELIVERED_WINDOW_MS))),
+    (snap) => { parts.delivered = snap.docs.map(notificationRow); emit(); },
+    fail
+  );
+  return () => { stopActive(); stopDelivered(); };
 }
