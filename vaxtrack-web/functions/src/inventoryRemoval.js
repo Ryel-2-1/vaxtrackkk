@@ -11,7 +11,7 @@
  *   voidInventoryBatch   Admin   mark a mistaken batch voided — only when it
  *                                provably never had downstream use. Kept as an
  *                                audit record; never quoted, allocated or counted.
- *   removeUnusableStock  Admin   damaged / expired / recalled doses:
+ *   removeUnusableStock  Admin   damaged / expired / recalled vials:
  *                                  quarantine  free units → quarantined
  *                                  dispose     quarantined units → written off
  *                                Reserved units and returned units awaiting a
@@ -74,11 +74,11 @@ const AUDIT_ACTIONS = Object.freeze({
 });
 
 /**
- * Correct Stock fixes a RECORD, never a physical loss of usable doses:
+ * Correct Stock fixes a RECORD, never a physical loss of usable vials:
  *   entry_error        the figure was entered wrong (Add Stock typo, double count)
  *   count_discrepancy  a physical recount differs from the record
- * Damaged, expired or recalled doses are not a correction — they leave stock
- * through quarantine → disposal, which keeps the reason and the doses apart.
+ * Damaged, expired or recalled vials are not a correction — they leave stock
+ * through quarantine → disposal, which keeps the reason and the vials apart.
  */
 const CORRECTION_REASON_CODES = Object.freeze(["entry_error", "count_discrepancy"]);
 const MIN_CORRECTION_REASON = 10;
@@ -143,7 +143,7 @@ function validateRemovalPayload(payload) {
   }
   const quantity = payload?.quantity;
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_STOCK_QUANTITY) {
-    throw new PolicyError("invalid-removal-quantity", "Enter a whole number of doses of at least 1.");
+    throw new PolicyError("invalid-removal-quantity", "Enter a whole number of vials of at least 1.");
   }
   if (!REMOVAL_REASONS.includes(payload?.reason)) {
     throw new PolicyError("invalid-removal-reason", "Choose damaged, expired or recalled.");
@@ -179,7 +179,7 @@ function readBatchCounters(data, inventoryId) {
   if (held > out.quantity) {
     throw new PolicyError(
       "inventory-invariant-broken",
-      "This batch holds more reserved, returned and quarantined doses than it has on hand, and needs review.",
+      "This batch holds more reserved, returned and quarantined vials than it has on hand, and needs review.",
       { inventoryId }
     );
   }
@@ -221,8 +221,8 @@ function planStockRemoval({ data, inventoryId, action, quantity, reason, now }) 
       throw new PolicyError(
         "insufficient-free-stock",
         c.free === 0
-          ? "No doses on this batch are free to quarantine. Reserved doses and returned doses awaiting a decision cannot be removed here."
-          : `Only ${c.free} dose${c.free === 1 ? " is" : "s are"} free to quarantine. Reserved doses and returned doses awaiting a decision cannot be removed here.`,
+          ? "No vials on this batch are free to quarantine. Reserved vials and returned vials awaiting a decision cannot be removed here."
+          : `Only ${c.free} vial${c.free === 1 ? " is" : "s are"} free to quarantine. Reserved vials and returned vials awaiting a decision cannot be removed here.`,
         { inventoryId, free: c.free }
       );
     }
@@ -233,8 +233,8 @@ function planStockRemoval({ data, inventoryId, action, quantity, reason, now }) 
       throw new PolicyError(
         "insufficient-quarantined-stock",
         c.quarantined === 0
-          ? "This batch has no quarantined doses. Quarantine doses before disposing of them."
-          : `Only ${c.quarantined} dose${c.quarantined === 1 ? " is" : "s are"} in quarantine. Quarantine doses before disposing of them.`,
+          ? "This batch has no quarantined vials. Quarantine vials before disposing of them."
+          : `Only ${c.quarantined} vial${c.quarantined === 1 ? " is" : "s are"} in quarantine. Quarantine vials before disposing of them.`,
         { inventoryId, quarantined: c.quarantined }
       );
     }
@@ -257,14 +257,14 @@ function voidRefusal(data, inventoryId) {
   if (data?.usageTracked !== true) {
     return new PolicyError(
       "batch-usage-unproven",
-      "This batch was added before VaxTrack recorded batch usage, so it cannot be proven unused and cannot be voided. To take its doses out of stock, use Remove unusable stock instead.",
+      "This batch was added before VaxTrack recorded batch usage, so it cannot be proven unused and cannot be voided. To take its vials out of stock, use Remove unusable stock instead.",
       { inventoryId }
     );
   }
   if (data.firstUsedAt) {
     return new PolicyError(
       "batch-in-use",
-      "This batch has already been used by an order, so it cannot be voided. To take its doses out of stock, use Remove unusable stock instead.",
+      "This batch has already been used by an order, so it cannot be voided. To take its vials out of stock, use Remove unusable stock instead.",
       { inventoryId }
     );
   }
@@ -276,7 +276,7 @@ function voidRefusal(data, inventoryId) {
     if (c.value > 0) {
       return new PolicyError(
         "batch-in-use",
-        "This batch has reserved, returned, quarantined or written-off doses, so it cannot be voided.",
+        "This batch has reserved, returned, quarantined or written-off vials, so it cannot be voided.",
         { inventoryId, field: f }
       );
     }
@@ -365,7 +365,7 @@ async function voidInventoryBatch({ db, FieldValue, uid, email = null, payload }
       if (!hit.empty) {
         throw new PolicyError(
           "batch-in-use",
-          "This batch is referenced by an order's reservation, return or stock history, so it cannot be voided. To take its doses out of stock, use Remove unusable stock instead.",
+          "This batch is referenced by an order's reservation, return or stock history, so it cannot be voided. To take its vials out of stock, use Remove unusable stock instead.",
           { inventoryId: input.inventoryId, collection: col }
         );
       }
@@ -450,7 +450,7 @@ function validateCorrectionPayload(payload) {
   const inventoryId = validateDocumentId(payload?.inventoryId, "That batch could not be identified.");
   const newQuantity = payload?.newQuantity;
   if (!Number.isInteger(newQuantity) || newQuantity < 0 || newQuantity > MAX_STOCK_QUANTITY) {
-    throw new PolicyError("invalid-correction-quantity", "Enter the corrected quantity as a whole number of doses (0 or more).");
+    throw new PolicyError("invalid-correction-quantity", "Enter the corrected quantity as a whole number of vials (0 or more).");
   }
   requireLargeQuantityConfirmed(newQuantity, payload?.largeQuantityConfirmed);
   // The on-hand figure the Admin was looking at, exactly as stored (a legacy
@@ -511,17 +511,17 @@ function planStockCorrection({ data, inventoryId, expectedQuantity, newQuantity,
   if (newQuantity < floor) {
     throw new PolicyError(
       "correction-below-held",
-      `This batch holds ${floor} dose${floor === 1 ? "" : "s"} that are reserved, returned awaiting a decision, or quarantined, so on hand cannot be set below ${floor}.`,
+      `This batch holds ${floor} vial${floor === 1 ? "" : "s"} that are reserved, returned awaiting a decision, or quarantined, so on hand cannot be set below ${floor}.`,
       { inventoryId, floor }
     );
   }
-  // Expired doses are unusable physical stock: they leave through quarantine
+  // Expired vials are unusable physical stock: they leave through quarantine
   // and disposal (with their own audit), never through a quiet correction.
   const expiry = isoDateOnly(data?.expiryDate);
   if (currentValue !== null && newQuantity < currentValue && expiry !== null && isExpired(expiry, now)) {
     throw new PolicyError(
       "correction-expired-decrease",
-      "This batch has expired. Expired doses must leave stock through Remove unusable stock (quarantine, then dispose), not a correction.",
+      "This batch has expired. Expired vials must leave stock through Remove unusable stock (quarantine, then dispose), not a correction.",
       { inventoryId }
     );
   }

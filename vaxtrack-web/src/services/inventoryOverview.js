@@ -6,7 +6,7 @@ function validCounter(value) {
   return Number.isSafeInteger(value) && value >= 0;
 }
 
-/** Count vaccine products by recorded stock state, without summing doses. */
+/** Count vaccine products by recorded stock state, without summing vials. */
 export function buildVaccineAvailabilitySummary(batches) {
   const products = new Map();
 

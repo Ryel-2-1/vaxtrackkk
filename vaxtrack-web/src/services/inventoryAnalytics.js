@@ -131,6 +131,7 @@ export function forecastRow(doc) {
     totalShortage: insufficient ? "—" : formatQuantity(doc.totalProjectedShortageQuantity),
     riskBasis: typeof doc.riskBasis === "string" ? doc.riskBasis : null,
     riskBasisLabel: RISK_BASIS_LABELS[doc.riskBasis] ?? "",
+    reorderQuantity: !needsConfiguration && isQuantity(doc.recommendedReorderQuantity) ? doc.recommendedReorderQuantity : null,
     reorder: needsConfiguration ? REORDER_CONFIGURATION_REQUIRED : formatQuantity(doc.recommendedReorderQuantity),
     needsConfiguration,
     insufficient,
@@ -144,14 +145,82 @@ export function forecastRow(doc) {
   };
 }
 
-/** The four summary cards, from the 30-day rows. */
-export function summarize(rows) {
+/** The views above the forecast list, most useful first. */
+export const FORECAST_VIEWS = Object.freeze([
+  { key: "attention", label: "Needs attention" },
+  { key: "enough", label: "Enough stock" },
+  { key: "setup", label: "Needs setup" },
+  { key: "history", label: "Not enough history" },
+  { key: "all", label: "All vaccines" },
+]);
+
+const vials = (n) => `${formatQuantity(n)} vial${n === 1 ? "" : "s"}`;
+
+/**
+ * A forecast row in plain words: its status, the one thing to do, and why.
+ * It rewords what the server already decided and calculates nothing new.
+ */
+export function forecastAdvice(row) {
+  const toOrder = row.reorderQuantity > 0 ? `Order ${vials(row.reorderQuantity)}` : null;
+  if (row.risk === "high") {
+    return {
+      view: "attention",
+      tone: "high",
+      status: "Order now",
+      action: toOrder ?? (row.needsConfiguration ? "Add reorder details" : "Review this vaccine"),
+      why: row.hasCurrentShortage
+        ? "Orders already placed need more stock than you have."
+        : "Expected orders are more than your stock.",
+      button: row.needsConfiguration ? "Set up" : "See why",
+    };
+  }
+  if (row.risk === "medium") {
+    return {
+      view: "attention",
+      tone: "medium",
+      status: "Running low",
+      action: toOrder ?? "Keep an eye on this",
+      why: "Stock will drop below your safety level.",
+      button: "See why",
+    };
+  }
+  if (row.risk === "low") {
+    return { view: "enough", tone: "low", status: "Enough stock", action: "No order needed", why: "", button: "Details" };
+  }
+  if (row.insufficient) {
+    return {
+      view: "history",
+      tone: "unknown",
+      status: "Not enough history",
+      action: "Nothing to do yet",
+      why: "A forecast needs at least 4 weeks of orders.",
+      button: "Details",
+    };
+  }
   return {
-    vaccinesAnalyzed: rows.length,
-    highRisk: rows.filter((r) => r.risk === "high").length,
-    configurationRequired: rows.filter((r) => r.needsConfiguration).length,
-    lowConfidence: rows.filter((r) => r.lowConfidence).length,
+    view: "setup",
+    tone: "unknown",
+    status: "Needs setup",
+    action: "Add reorder details",
+    why: "Add delivery time and reserve stock to get advice.",
+    button: "Set up",
   };
+}
+
+/** How many vaccines each view holds. */
+export function forecastViewCounts(rows) {
+  const counts = { attention: 0, enough: 0, setup: 0, history: 0, all: rows.length };
+  rows.forEach((r) => {
+    counts[forecastAdvice(r).view] += 1;
+  });
+  return counts;
+}
+
+/** "2026-11-01" as "Nov 1". */
+export function shortDay(iso) {
+  const ms = typeof iso === "string" ? Date.parse(`${iso}T00:00:00+08:00`) : NaN;
+  if (Number.isNaN(ms)) return iso ?? "";
+  return new Date(ms).toLocaleDateString("en-PH", { month: "short", day: "numeric", timeZone: "Asia/Manila" });
 }
 
 /** Sort: High first, then Medium, Unknown, Low; then by name. */

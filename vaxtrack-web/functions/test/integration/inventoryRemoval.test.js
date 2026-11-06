@@ -452,13 +452,13 @@ test("K2. bypass attempts through the callable are refused and change nothing", 
   assert.equal(await codeOf(correct(b, 10, 10)), "correction-unchanged");
   for (const uid of [SR, DISPATCHER, RIDER]) assert.equal(await codeOf(correct(b, 10, 12, {}, uid)), "wrong-role");
   await legacyBatch("lapsed", { quantity: 8, expiryDate: "2026-09-30", status: "Critical" });
-  assert.equal(await codeOf(correct("lapsed", 8, 3)), "correction-expired-decrease", "expired doses go through quarantine → disposal");
+  assert.equal(await codeOf(correct("lapsed", 8, 3)), "correction-expired-decrease", "expired vials go through quarantine → disposal");
   const mistake = await addStock(P, "LOT-K2-X", 5);
   await voidBatch(mistake);
   assert.equal(await codeOf(correct(mistake, 5, 6)), "batch-voided");
   assert.deepEqual(await inv(b), before, "nothing changed");
   assert.equal((await auditFor(b)).filter((a) => a.action === "stock_corrected").length, 0);
-  // The legitimate route for the expired doses still works.
+  // The legitimate route for the expired vials still works.
   await remove("lapsed", "quarantine", 8, "expired");
   await remove("lapsed", "dispose", 8, "expired");
   assert.deepEqual([(await inv("lapsed")).quantity, (await inv("lapsed")).writtenOffQuantity], [0, 8]);

@@ -92,7 +92,10 @@ test("hasProfileChanges ignores whitespace-only differences", () => {
   const raw = { name: "Ana Reyes", phone: "0917" };
   assert.equal(hasProfileChanges(raw, { name: " Ana  Reyes ", phone: "0917 " }), false);
   assert.equal(hasProfileChanges(raw, { name: "Ana R", phone: "0917" }), true);
-  assert.equal(initialsOf("ana reyes cruz"), "AR");
+  assert.equal(initialsOf("Ryel Jan Espinili"), "RJE");
+  assert.equal(initialsOf("ana reyes cruz"), "ARC");
+  assert.equal(initialsOf("Ana Cruz"), "AC");
+  assert.equal(initialsOf("Maria Clara Santos Reyes"), "MCR");
   assert.equal(initialsOf(""), "?");
 });
 

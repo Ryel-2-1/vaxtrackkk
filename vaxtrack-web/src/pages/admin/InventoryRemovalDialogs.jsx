@@ -29,7 +29,7 @@ import {
   voidEligibility,
 } from "../../services/inventoryRemovalModel";
 
-const doses = (n) => `${n.toLocaleString()} dose${n === 1 ? "" : "s"}`;
+const vials = (n) => `${n.toLocaleString()} vial${n === 1 ? "" : "s"}`;
 
 function formatWhen(value) {
   const d = typeof value?.toDate === "function" ? value.toDate() : null;
@@ -55,7 +55,7 @@ function CloseButton({ onClick }) {
 // ---------------------------------------------------------------- remove unusable stock
 
 /**
- * Quarantine free doses, or dispose of quarantined ones. Figures come from the
+ * Quarantine free vials, or dispose of quarantined ones. Figures come from the
  * LIVE batch row; a batch that disappears blocks the action.
  */
 export function RemoveStockDialog({ item, live, gone, onClose, onDone }) {
@@ -92,7 +92,7 @@ export function RemoveStockDialog({ item, live, gone, onClose, onDone }) {
       return;
     }
     if (action === "dispose" && !confirmed) {
-      setProblem({ field: "confirm", text: "Confirm that these doses have been physically disposed of." });
+      setProblem({ field: "confirm", text: "Confirm that these vials have been physically disposed of." });
       return;
     }
     setSaving(true);
@@ -101,8 +101,8 @@ export function RemoveStockDialog({ item, live, gone, onClose, onDone }) {
       const result = await removeUnusableStock({ requestId, inventoryId: item.id, ...check.value });
       onDone(
         action === "quarantine"
-          ? `${doses(check.value.quantity)} of batch ${item.batch} moved to quarantine.${result?.replayed ? " (Already recorded.)" : ""}`
-          : `${doses(check.value.quantity)} of batch ${item.batch} disposed of and written off.${result?.replayed ? " (Already recorded.)" : ""}`
+          ? `${vials(check.value.quantity)} of batch ${item.batch} moved to quarantine.${result?.replayed ? " (Already recorded.)" : ""}`
+          : `${vials(check.value.quantity)} of batch ${item.batch} disposed of and written off.${result?.replayed ? " (Already recorded.)" : ""}`
       );
     } catch (err) {
       logSafeError("Remove unusable stock", err);
@@ -120,8 +120,8 @@ export function RemoveStockDialog({ item, live, gone, onClose, onDone }) {
 
   const consequence =
     action === "quarantine"
-      ? "Quarantined doses stay on hand but are never offered to orders again. Reserved doses and returned doses awaiting a decision are not affected."
-      : "Disposed doses are written off the on-hand count permanently and recorded in the batch history. This cannot be undone.";
+      ? "Quarantined vials stay on hand but are never offered to orders again. Reserved vials and returned vials awaiting a decision are not affected."
+      : "Disposed vials are written off the on-hand count permanently and recorded in the batch history. This cannot be undone.";
 
   return (
     <InventoryDialog labelledBy="inv-remove-title" onClose={onClose} busy={saving} className="inv-price-modal inv-removal-modal">
@@ -161,8 +161,8 @@ export function RemoveStockDialog({ item, live, gone, onClose, onDone }) {
             }}
           />
           <span>
-            <strong>Quarantine free doses</strong>
-            <small>Take damaged, expired or recalled doses out of available stock.</small>
+            <strong>Quarantine free vials</strong>
+            <small>Take damaged, expired or recalled vials out of available stock.</small>
           </span>
         </label>
         <label>
@@ -177,8 +177,8 @@ export function RemoveStockDialog({ item, live, gone, onClose, onDone }) {
             }}
           />
           <span>
-            <strong>Dispose of quarantined doses</strong>
-            <small>Write off doses already in quarantine once they have been destroyed or returned.</small>
+            <strong>Dispose of quarantined vials</strong>
+            <small>Write off vials already in quarantine once they have been destroyed or returned.</small>
           </span>
         </label>
       </fieldset>
@@ -199,7 +199,7 @@ export function RemoveStockDialog({ item, live, gone, onClose, onDone }) {
         ))}
       </select>
 
-      <label htmlFor="inv-remove-qty">Doses to {action === "quarantine" ? "quarantine" : "dispose of"}</label>
+      <label htmlFor="inv-remove-qty">Vials to {action === "quarantine" ? "quarantine" : "dispose of"}</label>
       <input
         id="inv-remove-qty"
         type="number"
@@ -215,8 +215,8 @@ export function RemoveStockDialog({ item, live, gone, onClose, onDone }) {
       />
       <small id="inv-remove-help">
         {action === "quarantine"
-          ? `Up to ${doses(limit)} can be quarantined — only doses no order or return is holding.`
-          : `Up to ${doses(limit)} can be disposed of — only doses already in quarantine.`}
+          ? `Up to ${vials(limit)} can be quarantined — only vials no order or return is holding.`
+          : `Up to ${vials(limit)} can be disposed of — only vials already in quarantine.`}
       </small>
 
       <label htmlFor="inv-remove-notes">Note (optional, recorded for the audit trail)</label>
@@ -240,7 +240,7 @@ export function RemoveStockDialog({ item, live, gone, onClose, onDone }) {
             onChange={(e) => setConfirmed(e.target.checked)}
             disabled={saving}
           />
-          <span>I confirm these doses have been physically disposed of or returned to the supplier.</span>
+          <span>I confirm these vials have been physically disposed of or returned to the supplier.</span>
         </label>
       )}
 
@@ -270,8 +270,8 @@ export function RemoveStockDialog({ item, live, gone, onClose, onDone }) {
           {saving
             ? "Saving…"
             : action === "quarantine"
-              ? Number.isInteger(qty) && qty > 0 ? `Quarantine ${doses(qty)}` : "Quarantine doses"
-              : Number.isInteger(qty) && qty > 0 ? `Dispose of ${doses(qty)}` : "Dispose of doses"}
+              ? Number.isInteger(qty) && qty > 0 ? `Quarantine ${vials(qty)}` : "Quarantine vials"
+              : Number.isInteger(qty) && qty > 0 ? `Dispose of ${vials(qty)}` : "Dispose of vials"}
         </button>
       </div>
     </InventoryDialog>

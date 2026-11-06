@@ -581,7 +581,7 @@ exports.getReservationProvenance = callable(
 );
 
 // Admin inventory removal controls (src/inventoryRemoval.js): archive/restore a
-// vaccine, void a provably unused batch, quarantine/dispose unusable doses.
+// vaccine, void a provably unused batch, quarantine/dispose unusable vials.
 // Each is one transaction with an immutable inventoryAuditEvents entry.
 exports.setVaccineArchived = callable(
   "setVaccineArchived",

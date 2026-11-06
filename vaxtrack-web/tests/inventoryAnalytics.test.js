@@ -20,7 +20,6 @@ import {
   formatQuantity,
   isStale,
   sortRows,
-  summarize,
 } from "../src/services/inventoryAnalytics.js";
 
 // Admin › AI Inventory Analytics (web). The page shows only server-generated
@@ -118,7 +117,7 @@ test("32 · no run, or a run with no forecasts, shows the empty state", () => {
   assert.match(page, /You do not have permission to view inventory analytics/);
   assert.match(page, /Loading inventory analytics/);
   assert.match(page, /Stale forecast/);
-  assert.match(page, /Insufficient history/);
+  assert.match(page, /Insufficient forecast history/);
 });
 
 test("33 · full vaccine names and SKUs stay readable — never truncated", () => {
@@ -133,10 +132,10 @@ test("33 · full vaccine names and SKUs stay readable — never truncated", () =
   assert.match(nameRule, /overflow-wrap: anywhere/);
 });
 
-test("summary cards count the stored 30-day forecasts; rows sort High first", () => {
+test("rows sort High first", () => {
   const { docs, plan } = serverForecasts();
   const rows = [...forecastsByVaccine(docs, plan.runId).values()].map((h) => forecastRow(h[30]));
-  assert.deepEqual(summarize(rows), { vaccinesAnalyzed: 2, highRisk: 0, configurationRequired: 2, lowConfidence: 1 });
+  assert.equal(rows.length, 2);
   const sorted = sortRows([
     { risk: "low", name: "B" },
     { risk: "high", name: "Z" },
