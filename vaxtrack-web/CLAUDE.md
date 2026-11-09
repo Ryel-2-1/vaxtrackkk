@@ -45,7 +45,7 @@ Clients cannot write anything that moves stock, money, status or access; the rul
 
 | Area | Callables / triggers | Notes |
 |---|---|---|
-| Orders and stock | `createOrderWithReservation`, `cancelOrderWithInventoryRelease`, `markOrderDeliveredWithInventoryConsumption`, allocation triggers | Atomic reservation, allocation by priority, stock consumed exactly once |
+| Orders and stock | `createOrderWithReservation`, `cancelOrderWithInventoryRelease`, `markOrderDeliveredWithInventoryConsumption`, allocation triggers | Atomic reservation, allocation by priority, stock consumed exactly once. **A batch must expire after the delivery day** (2026-11-09): one expiring today can't be ordered (`batch-expires-today`), one expiring on or before the delivery date is refused (`batch-expires-before-delivery`) and never allocated, rescheduled onto, or edited onto. Orders already holding such stock still dispatch and deliver through the expiry day (`expiryGuard.js`) |
 | Pricing | inside order creation | VAT-inclusive **integer centavos**. A negotiated (agreed) price needs a reason. **SC/PWD discounts were withdrawn for new orders on 2026-11-03** (`statutory-discount-unavailable`); orders that already carry one keep it |
 | Zero-rating | `requestZeroRateApproval`, `reviewZeroRateApproval` | Destination-based zero-rating policy still awaits business confirmation. There is no free toggle for Med Reps |
 | Destinations | `correctOrderDestination`, `requestOrderDestinationChange`, `reviewOrderDestinationChange` | Doctor-first destinations (home or a linked clinic) |

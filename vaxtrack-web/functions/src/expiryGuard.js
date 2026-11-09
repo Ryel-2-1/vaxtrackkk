@@ -6,9 +6,10 @@
  * expired = expiry strictly before the day, Manila). An order's stock must be
  * usable through its delivery date — `requestedDeliveryDate`, never earlier
  * than today. One rule, applied wherever a batch meets an order:
- *   - allocation      a batch is never reserved for an order delivered after it expires;
- *   - reschedule      a new date the reserved batches cannot reach is refused;
- *   - batch edit      an expiry cannot move before a reserved order's delivery date;
+ *   - allocation      a batch is reserved only for an order delivered BEFORE its expiry
+ *                     date: a vial must not reach the clinic on its last day (2026-11-09);
+ *   - reschedule      a new date on or after a reserved batch's expiry is refused;
+ *   - batch edit      an expiry cannot move onto or before a reserved order's delivery date;
  *   - dispatch        nothing leaves with a batch that has expired;
  *   - delivery        nothing is completed with a batch that has expired.
  * Pure: no Firestore.
@@ -29,19 +30,29 @@ function coversDate(batchData, isoDate) {
 }
 
 /**
+ * Does the batch still have shelf life left after [isoDate]? The rule for NEW
+ * commitments (reserving, rescheduling, editing an expiry): it must expire
+ * after the delivery day, not on it.
+ */
+function outlastsDate(batchData, isoDate) {
+  const expiry = isoDateOnly(batchData?.expiryDate);
+  return expiry !== null && expiry > isoDate;
+}
+
+/**
  * Throw when any of [batches] ({ id, data }) is not usable through [isoDate].
  * The message gives both dates; [action] says what to do next. It does not
  * name the batch: batch IDs such as "AB_2026-001" read as identifiers to the
  * web's user-message filter (liveDataErrors.isSafeUserMessage), which would
  * replace the whole sentence with a generic "please try again".
  */
-function assertBatchesCover(batches, isoDate, { code = "reserved-batch-expired", action }) {
+function assertBatchesCover(batches, isoDate, { code = "reserved-batch-expired", action, outlast = false }) {
   for (const { data } of batches) {
-    if (coversDate(data, isoDate)) continue;
+    if (outlast ? outlastsDate(data, isoDate) : coversDate(data, isoDate)) continue;
     const expiry = isoDateOnly(data?.expiryDate);
     throw new PolicyError(
       code,
-      `A reserved batch ${expiry ? `expires on ${expiry}` : "has no valid expiry date"}, before ${isoDate}. ${action}`
+      `A reserved batch ${expiry ? `expires on ${expiry}` : "has no valid expiry date"}, ${outlast ? "on or before" : "before"} ${isoDate}. ${action}`
     );
   }
 }
@@ -81,4 +92,4 @@ async function readReservedBatches(tx, db, orderIds) {
   return out;
 }
 
-module.exports = { usableThrough, coversDate, assertBatchesCover, reservedInventoryIds, readReservedBatches };
+module.exports = { usableThrough, coversDate, outlastsDate, assertBatchesCover, reservedInventoryIds, readReservedBatches };
