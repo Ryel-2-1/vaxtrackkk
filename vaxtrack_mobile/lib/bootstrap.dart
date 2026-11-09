@@ -69,16 +69,19 @@ Future<void> bootstrapAndRun(EnvConfig config) async {
 /// token itself is never logged by this code.
 Future<void> _activateAppCheck(EnvConfig config) async {
   if (defaultTargetPlatform != TargetPlatform.android) return;
+  final AndroidAppCheckProvider provider;
+  switch (config.appCheckAttestation) {
+    case AppCheckAttestation.none:
+      return;
+    case AppCheckAttestation.playIntegrity:
+      provider = const AndroidPlayIntegrityProvider();
+    case AppCheckAttestation.debug:
+      provider = AndroidDebugProvider(
+        debugToken: _appCheckDebugToken.isEmpty ? null : _appCheckDebugToken,
+      );
+  }
   try {
-    await FirebaseAppCheck.instance.activate(
-      providerAndroid: switch (config.appCheckAttestation) {
-        AppCheckAttestation.playIntegrity =>
-          const AndroidPlayIntegrityProvider(),
-        AppCheckAttestation.debug => AndroidDebugProvider(
-          debugToken: _appCheckDebugToken.isEmpty ? null : _appCheckDebugToken,
-        ),
-      },
-    );
+    await FirebaseAppCheck.instance.activate(providerAndroid: provider);
   } catch (e) {
     debugPrint('[VaxTrack] App Check did not start: ${e.runtimeType}');
   }
