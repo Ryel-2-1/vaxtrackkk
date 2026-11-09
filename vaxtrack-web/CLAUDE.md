@@ -128,6 +128,8 @@ Every callable goes through `callable()` in `functions/index.js`. It requires si
 3. **Field tests on a phone** with the current APK: offline completion, fake GPS, shared phones, the route screen, and a 15–20 minute locked-screen ride.
 4. **Data:** production has users with a missing or invalid status.
 5. **Scope decisions for the adviser:** hub ranking (recommend descoping), cold chain, rider rating, fleet-wide optimization, the zero-rating policy, the price floor.
-6. **Production rollout:**
-   - production is far behind staging;
-   - it needs the data cleanup, App Check, the inventory migration and Storage provisioning first.
+6. **Production rollout** (2026-11-09):
+   - the old prototype database was backed up (`gs://vaxtrack-bef1b-backups-sg/pre-cleanup-20261109T0734Z`, also in `vaxtrack-bef1b-firestore-backups`), deleted, and recreated in `asia-southeast1`;
+   - it is clean: one approved Admin, no other data. Staff are added through Add Staff; the 3MGS catalog and clients are imported later;
+   - deployed: Storage bucket (`asia-southeast1`), Firestore indexes, 54 functions (not `purgeRiderTrackingData`), Firestore and Storage rules;
+   - still to do: production web config and hosting, App Check registration, the production rider build.
