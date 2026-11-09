@@ -95,11 +95,25 @@ test("only a live reservation's batches are checked", () => {
 test("wiring: allocation, dispatch, delivery, reschedule and batch edits all apply the rule", () => {
   const fs = require("node:fs");
   const read = (f) => fs.readFileSync(require.resolve(`../src/${f}`), "utf8");
-  assert.match(read("allocation.js"), /if \(!coversDate\(batch\.data, needUsableThrough\)\) continue;/);
+  assert.match(read("allocation.js"), /if \(!outlastsDate\(batch\.data, needUsableThrough\)\) continue;/);
+  assert.match(read("scheduleOperations.js"), /code: "reserved-batch-expires-first",\s+outlast: true,/);
+  assert.match(read("operations.js"), /"batch-expires-before-delivery"/);
+  assert.match(read("batchMetadata.js"), /if \(input\.values\.expiryDate <= needed\)/);
   const dispatch = read("riderDispatchOps.js");
   assert.match(dispatch, /const reservedBatches = await readReservedBatches\(tx, db, requested\);\s*\/\/[^\n]*\n\s*const \{ view, cur \} = await settle\(/, "batches are read before settle() may write");
   assert.match(dispatch, /assertBatchesCover\(reservedBatches\.get\(id\) \?\? \[\], usableThrough\(o, now\)/);
   assert.match(read("operations.js"), /assertBatchesCover\(\s*perBatch\.map/);
   assert.match(read("scheduleOperations.js"), /assertBatchesCover\(reserved, usableThrough\(\{ requestedDeliveryDate: date \}, now\)/);
   assert.match(read("batchMetadata.js"), /"batch-expiry-before-reservation"/);
+});
+
+test("a batch is never reserved for delivery on its own expiry day (2026-11-09 decision)", () => {
+  const onTheDay = planAllocation({ productKey: P, batches: [batch("last", "2026-11-07", 10)], orders: [order("o", "2026-11-07", 2)], now: NOW });
+  assert.deepEqual(onTheDay.orderUpdates, []);
+  const dayAfter = planAllocation({ productKey: P, batches: [batch("last", "2026-11-08", 10)], orders: [order("o", "2026-11-07", 2)], now: NOW });
+  assert.equal(dayAfter.orderUpdates.length, 1);
+  assert.throws(
+    () => assertBatchesCover([{ id: "i", data: { expiryDate: "2026-10-31" } }], "2026-10-31", { action: "Pick another date.", outlast: true }),
+    (e) => e.message === "A reserved batch expires on 2026-10-31, on or before 2026-10-31. Pick another date."
+  );
 });

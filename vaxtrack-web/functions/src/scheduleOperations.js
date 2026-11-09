@@ -103,6 +103,7 @@ async function rescheduleOrderDelivery({ db, FieldValue, uid, payload, now }) {
     const reserved = (await readReservedBatches(tx, db, [orderId])).get(orderId);
     assertBatchesCover(reserved, usableThrough({ requestedDeliveryDate: date }, now), {
       code: "reserved-batch-expires-first",
+      outlast: true,
       action: "Choose an earlier date, or cancel the order and place it again so fresh stock is reserved.",
     });
 

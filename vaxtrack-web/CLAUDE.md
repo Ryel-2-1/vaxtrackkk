@@ -45,7 +45,7 @@ Clients cannot write anything that moves stock, money, status or access; the rul
 
 | Area | Callables / triggers | Notes |
 |---|---|---|
-| Orders and stock | `createOrderWithReservation`, `cancelOrderWithInventoryRelease`, `markOrderDeliveredWithInventoryConsumption`, allocation triggers | Atomic reservation, allocation by priority, stock consumed exactly once |
+| Orders and stock | `createOrderWithReservation`, `cancelOrderWithInventoryRelease`, `markOrderDeliveredWithInventoryConsumption`, allocation triggers | Atomic reservation, allocation by priority, stock consumed exactly once. **A batch must expire after the delivery day** (2026-11-09): one expiring today can't be ordered (`batch-expires-today`), one expiring on or before the delivery date is refused (`batch-expires-before-delivery`) and never allocated, rescheduled onto, or edited onto. Orders already holding such stock still dispatch and deliver through the expiry day (`expiryGuard.js`) |
 | Pricing | inside order creation | VAT-inclusive **integer centavos**. A negotiated (agreed) price needs a reason. **SC/PWD discounts were withdrawn for new orders on 2026-11-03** (`statutory-discount-unavailable`); orders that already carry one keep it |
 | Zero-rating | `requestZeroRateApproval`, `reviewZeroRateApproval` | Destination-based zero-rating policy still awaits business confirmation. There is no free toggle for Med Reps |
 | Destinations | `correctOrderDestination`, `requestOrderDestinationChange`, `reviewOrderDestinationChange` | Doctor-first destinations (home or a linked clinic) |
@@ -128,6 +128,8 @@ Every callable goes through `callable()` in `functions/index.js`. It requires si
 3. **Field tests on a phone** with the current APK: offline completion, fake GPS, shared phones, the route screen, and a 15–20 minute locked-screen ride.
 4. **Data:** production has users with a missing or invalid status.
 5. **Scope decisions for the adviser:** hub ranking (recommend descoping), cold chain, rider rating, fleet-wide optimization, the zero-rating policy, the price floor.
-6. **Production rollout:**
-   - production is far behind staging;
-   - it needs the data cleanup, App Check, the inventory migration and Storage provisioning first.
+6. **Production rollout** (2026-11-09):
+   - the old prototype database was backed up (`gs://vaxtrack-bef1b-backups-sg/pre-cleanup-20261109T0734Z`, also in `vaxtrack-bef1b-firestore-backups`), deleted, and recreated in `asia-southeast1`;
+   - it is clean: one approved Admin, no other data. Staff are added through Add Staff; the 3MGS catalog and clients are imported later;
+   - deployed: Storage bucket (`asia-southeast1`), Firestore indexes, 54 functions (not `purgeRiderTrackingData`), Firestore and Storage rules;
+   - still to do: production web config and hosting, App Check registration, the production rider build.

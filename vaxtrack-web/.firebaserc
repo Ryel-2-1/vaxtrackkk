@@ -1,6 +1,7 @@
 {
   "projects": {
-    "default": "vaxtrack-bef1b",
-    "staging": "vaxtrack-staging"
+    "default": "vaxtrack-staging",
+    "staging": "vaxtrack-staging",
+    "production": "vaxtrack-bef1b"
   }
 }

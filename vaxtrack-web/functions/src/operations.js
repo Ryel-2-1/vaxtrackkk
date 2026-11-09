@@ -21,6 +21,7 @@ const {
   centavosToPesos,
   sumLineTotalsCentavos,
   PolicyError,
+  isoDateOnly,
   buildOrderDestinationSnapshot,
   canonicalRequestFingerprint,
   evaluateBatch,
@@ -411,6 +412,19 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
         // shelf. A shortfall is backordered; dispatch waits for full stock.
         allowBackorder: true,
       });
+    });
+
+    // A quoted batch must outlast the delivery day: one that expires on or
+    // before it would reach the clinic with no shelf life left.
+    evaluated.forEach((line, index) => {
+      const expiry = isoDateOnly(invSnaps[index].data()?.expiryDate);
+      if (expiry !== null && expiry <= requestedDeliveryDate) {
+        throw new PolicyError(
+          "batch-expires-before-delivery",
+          `One batch expires on ${expiry}, on or before the delivery date ${requestedDeliveryDate}. Remove it or choose an earlier delivery date.`,
+          { inventoryId: line.inventoryId ?? null, expiryDate: expiry }
+        );
+      }
     });
 
     // ---- VAT classification (per item) ----

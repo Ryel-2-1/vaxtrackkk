@@ -27,10 +27,12 @@ test("an earlier expiry is refused while an open order holds the batch for a lat
   try {
     await assert.rejects(edit(lot, "2026-12-01"), (e) => e.code === "batch-expiry-before-reservation" && /VT-HELD/.test(e.message) && /2026-12-15/.test(e.message));
     assert.equal((await db.doc("inventory/three").get()).data().expiryDate, "2027-01-01", "nothing changed");
-    assert.equal((await edit(lot, "2026-12-15")).changed, true, "the delivery day itself is still covered");
+    // Expiring on the delivery day leaves no shelf life: refused (2026-11-09).
+    await assert.rejects(edit(lot, "2026-12-15"), (e) => e.code === "batch-expiry-before-reservation");
+    assert.equal((await edit(lot, "2026-12-16")).changed, true, "the day after delivery is fine");
     // A delivered order no longer holds stock for the future.
     await db.doc("orders/held").update({ status: "delivered" });
-    assert.equal((await edit({ ...lot, expiryDate: "2026-12-15" }, "2026-11-15")).changed, true);
+    assert.equal((await edit({ ...lot, expiryDate: "2026-12-16" }, "2026-11-15")).changed, true);
   } finally {
     const audits = await db.collection("inventoryAuditEvents").where("inventoryId", "==", "three").get();
     await Promise.all(audits.docs.map((doc) => doc.ref.delete()));

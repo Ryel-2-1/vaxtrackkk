@@ -85,11 +85,11 @@ async function updateBatchMetadata({ db, FieldValue, uid, email, payload, now })
         const order = orderSnap.exists ? orderSnap.data() : null;
         if (!order || CLOSED_ORDER_STATUSES.has(String(order.status ?? "").trim().toLowerCase())) continue;
         const needed = usableThrough(order, now);
-        if (input.values.expiryDate < needed) {
+        if (input.values.expiryDate <= needed) {
           const label = typeof order.orderNumber === "string" && order.orderNumber ? order.orderNumber : "An order";
           throw new PolicyError(
             "batch-expiry-before-reservation",
-            `${label} holds this batch for delivery on ${needed}, after the new expiry date. Reschedule or cancel that order first.`
+            `${label} holds this batch for delivery on ${needed}, on or after the new expiry date. Reschedule or cancel that order first.`
           );
         }
       }

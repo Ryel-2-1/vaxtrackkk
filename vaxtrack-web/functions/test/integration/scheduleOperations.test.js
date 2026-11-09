@@ -217,12 +217,17 @@ test("a reschedule past a reserved batch's expiry is refused; a date it still co
       reschedule(ADMIN, { orderId: ids.held, requestedDeliveryDate: "2026-10-20", reason: "Clinic closed that week" }),
       // The message gives both dates but never the batch ID: IDs like
       // "AB_2026-001" would trip the web's user-message filter.
-      (e) => e.code === "reserved-batch-expires-first" && /A reserved batch expires on 2026-10-15, before 2026-10-20/.test(e.message)
+      (e) => e.code === "reserved-batch-expires-first" && /A reserved batch expires on 2026-10-15, on or before 2026-10-20/.test(e.message)
         && !/LOT-EXP/.test(e.message)
     );
     assert.equal((await order(ids.held)).requestedDeliveryDate, "2026-10-08", "nothing changed");
-    const ok = await reschedule(ADMIN, { orderId: ids.held, requestedDeliveryDate: "2026-10-15", reason: "Clinic asked for the 15th" });
-    assert.equal(ok.requestedDeliveryDate, "2026-10-15", "the expiry day itself is still covered");
+    // The expiry day itself leaves no shelf life (2026-11-09): refused too.
+    await assert.rejects(
+      reschedule(ADMIN, { orderId: ids.held, requestedDeliveryDate: "2026-10-15", reason: "Clinic asked for the 15th" }),
+      (e) => e.code === "reserved-batch-expires-first"
+    );
+    const ok = await reschedule(ADMIN, { orderId: ids.held, requestedDeliveryDate: "2026-10-14", reason: "Clinic asked for the 14th" });
+    assert.equal(ok.requestedDeliveryDate, "2026-10-14", "the day before expiry is fine");
   } finally {
     await db.collection("inventoryReservations").doc(ids.held).delete();
     await db.collection("inventory").doc(batchId).delete();

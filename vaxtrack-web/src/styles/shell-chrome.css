@@ -696,6 +696,27 @@
   #root aside.salesrep-sidebar .salesrep-more-logout {
     grid-column: 1 / -1;
   }
+
+  /* A late shipment's red edge belongs to the card, not inside the title. */
+  #root table.m-phone-cards tbody tr.shp-row-delayed {
+    box-shadow: inset 3px 0 0 var(--danger-text) !important;
+  }
+
+  #root table.m-phone-cards tbody tr.shp-row-delayed td:first-child {
+    box-shadow: none !important;
+  }
+
+  /* On phones the Dispatcher top bar scrolls away with the page (an
+     overflow-x: hidden ancestor defeats its sticky), so its menu button goes
+     with it instead of staying fixed over the page text. */
+  #root .dispatcher-nav-toggle {
+    position: absolute !important;
+  }
+
+  /* The floating cart button would sit on top of the open More menu. */
+  #root .salesrep-page:has(.salesrep-nav-more.is-open) .rq-cart-toggle {
+    visibility: hidden !important;
+  }
 }
 
 /* Phone-only controls stay out of the desktop rail. */

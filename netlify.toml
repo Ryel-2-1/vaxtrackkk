@@ -1,6 +1,12 @@
+# Two Netlify sites build from this one file:
+#   staging    — builds `main`; leaves VAXTRACK_BUILD_MODE unset, so staging.
+#   production — builds the `production` branch; sets VAXTRACK_BUILD_MODE to
+#                "production" in its dashboard, plus the production VITE_* vars.
+# Each build first checks its Firebase project matches its mode
+# (scripts/checkBuildTarget.mjs), so neither site can point at the other's data.
 [build]
   base = "vaxtrack-web"
-  command = "npm run build:staging"
+  command = "npm run build:${VAXTRACK_BUILD_MODE:-staging}"
   publish = "dist"
 
 # SPA fallback. status = 200 makes this a rewrite, not a redirect, so deep

@@ -22,6 +22,8 @@ export function messageForCallableError(error) {
     }
     case "batch-expired":
       return "One of these batches has expired and can no longer be ordered. Remove it and pick another.";
+    case "batch-expires-before-delivery":
+      return "One of these batches expires on or before your delivery date. Remove it, or choose an earlier date.";
     case "batch-expires-today":
       return "One of these batches expires today and can no longer be ordered. Remove it and pick another.";
     case "price-changed": {
