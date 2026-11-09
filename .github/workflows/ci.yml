@@ -40,8 +40,12 @@ jobs:
       - name: Unit tests
         run: npm test
       - name: Staging build
-        # No .env files exist in CI. The build does not read them; the Firebase
-        # config is only read at runtime in the browser.
+        # No .env files exist in CI. The Firebase config is only read at runtime
+        # in the browser, but scripts/checkBuildTarget.mjs refuses a staging
+        # build whose project is not vaxtrack-staging, so name it here (a public
+        # identifier, not a secret).
+        env:
+          VITE_FIREBASE_PROJECT_ID: vaxtrack-staging
         run: npm run build:staging
 
   rules:
