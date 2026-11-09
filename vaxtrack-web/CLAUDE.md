@@ -132,4 +132,6 @@ Every callable goes through `callable()` in `functions/index.js`. It requires si
    - the old prototype database was backed up (`gs://vaxtrack-bef1b-backups-sg/pre-cleanup-20261109T0734Z`, also in `vaxtrack-bef1b-firestore-backups`), deleted, and recreated in `asia-southeast1`;
    - it is clean: one approved Admin, no other data. Staff are added through Add Staff; the 3MGS catalog and clients are imported later;
    - deployed: Storage bucket (`asia-southeast1`), Firestore indexes, 54 functions (not `purgeRiderTrackingData`), Firestore and Storage rules;
-   - still to do: production web config and hosting, App Check registration, the production rider build.
+   - web: https://vaxtrack-prod.netlify.app, a separate Netlify account, built from the `production` branch with `VAXTRACK_BUILD_MODE=production` (see `netlify.toml`; `scripts/checkBuildTarget.mjs` refuses a build pointed at the wrong project). Google Analytics is off in every build;
+   - App Check: web registered (reCAPTCHA Enterprise key "VaxTrack production web"), enforcement off;
+   - still to do: the production rider build (Play Integrity) and App Check enforcement after clean metrics.
