@@ -84,13 +84,11 @@ if (localQa) {
   connectStorageEmulator(getStorage(app), "127.0.0.1", 9197);
 }
 
-// Production only. A staging build also counts as PROD, so check the mode.
-if (import.meta.env.MODE === "production") {
-  import("firebase/analytics").then(({ getAnalytics, isSupported }) => {
-    isSupported().then((supported) => {
-      if (supported) getAnalytics(app);
-    });
-  });
-}
+// Google Analytics (website-visit tracking) is deliberately not started, in any
+// build (decision 2026-11-09): no tracking of staff activity, and the strict
+// content security policy stays as it is. VaxTrack's own Analytics page and
+// forecasts read Firestore and do not depend on it. To turn it on again, start
+// firebase/analytics here AND allow its hosts in the CSP (netlify.toml,
+// vite.config.js).
 
 export default app;
