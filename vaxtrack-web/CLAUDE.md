@@ -37,7 +37,7 @@ Roles: **Admin**, **Dispatcher** and **Med Rep** (stored as `salesrep`) use the 
   - `!important` is used only to beat the global `button` / `input` `min-height: 46px !important` resets in `styles.css`.
   - Colours come from `tokens.css`.
 - **Maps:** Leaflet + OpenStreetMap tiles, no key.
-- **Routing:** Valhalla motorcycle profile, called from the browser on a keyless public endpoint (`VITE_MOTORCYCLE_ROUTING_URL`, default `valhalla1.openstreetmap.de`). Road flags are checked before a route is saved, with no car fallback. That endpoint is fair-use, so self-host it before real operations.
+- **Routing:** Valhalla motorcycle profile, called from the browser on a keyless public endpoint (`VITE_MOTORCYCLE_ROUTING_URL`, default `valhalla1.openstreetmap.de`). Road flags are checked before a route is saved, with no car fallback. That endpoint is fair-use (FOSSGIS: at most 1 request/second, no availability guarantee; the app spaces requests 1.1 s apart). Decision 2026-11-09: keep it at current volume (about 8 plans a day, only on a Dispatcher's click); self-host if volume grows or outages disrupt delivery days. An outage only blocks planning new routes; saved routes keep working.
 
 ## Server authority (functions)
 
@@ -122,7 +122,7 @@ Every callable goes through `callable()` in `functions/index.js`. It requires si
    **SMS and email are out of scope** (decision, 2026-11-04). Don't build them.
 2. **App Check:**
    - the web hook is wired (`VITE_APPCHECK_*`);
-   - the rider app activates it in `lib/bootstrap.dart` (production Play Integrity, staging debug token through `--dart-define=APP_CHECK_DEBUG_TOKEN`);
+   - the rider app activates it in `lib/bootstrap.dart` (staging debug token through `--dart-define=APP_CHECK_DEBUG_TOKEN`; production does not start it, see item 6);
    - enforcement is controlled by `functions/.env.<projectId>` `ENFORCE_APP_CHECK` and is off;
    - the console registration hasn't been done.
 3. **Field tests on a phone** with the current APK: offline completion, fake GPS, shared phones, the route screen, and a 15–20 minute locked-screen ride.
@@ -132,4 +132,7 @@ Every callable goes through `callable()` in `functions/index.js`. It requires si
    - the old prototype database was backed up (`gs://vaxtrack-bef1b-backups-sg/pre-cleanup-20261109T0734Z`, also in `vaxtrack-bef1b-firestore-backups`), deleted, and recreated in `asia-southeast1`;
    - it is clean: one approved Admin, no other data. Staff are added through Add Staff; the 3MGS catalog and clients are imported later;
    - deployed: Storage bucket (`asia-southeast1`), Firestore indexes, 54 functions (not `purgeRiderTrackingData`), Firestore and Storage rules;
-   - still to do: production web config and hosting, App Check registration, the production rider build.
+   - web: https://vaxtrack-prod.netlify.app, a separate Netlify account, built from the `production` branch with `VAXTRACK_BUILD_MODE=production` (see `netlify.toml`; `scripts/checkBuildTarget.mjs` refuses a build pointed at the wrong project). Google Analytics is off in every build;
+   - App Check: web registered (reCAPTCHA Enterprise key "VaxTrack production web"), enforcement off;
+   - backups: daily managed Firestore backups kept 14 days, point-in-time recovery (7 days), delete protection on. Auth accounts and Storage photos are not in these backups;
+   - rider app: production riders install a signed APK directly, never from Google Play (decision 2026-11-09). A sideloaded app can't pass Play Integrity, so the production build does not start App Check (`AppCheckAttestation.none`), and **App Check is not enforced in production** for Firestore, Storage or functions (riders would be locked out). Release key: `android/key.properties` + `vaxtrack-upload-keystore.jks`, both gitignored; losing them means updates can't install over the app. The production "Android key (auto created by Firebase)" only accepts the app signed with an allowed SHA-1: the release certificate `DA:12:91:09…` was added on 2026-11-09 (without it, sign-in fails with a generic "Sign in failed"). A new signing key needs its SHA-1 added there too.

@@ -20,10 +20,14 @@ void main() {
   });
 
   group('App Check attestation', () {
-    test('production only ever uses Play Integrity', () {
+    test('production is sideloaded, so it does not start App Check', () {
+      expect(EnvConfig.production.appCheckAttestation, AppCheckAttestation.none);
+    });
+
+    test('production never uses a shared debug token', () {
       expect(
         EnvConfig.production.appCheckAttestation,
-        AppCheckAttestation.playIntegrity,
+        isNot(AppCheckAttestation.debug),
       );
     });
 

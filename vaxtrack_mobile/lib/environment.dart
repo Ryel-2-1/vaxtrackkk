@@ -14,11 +14,17 @@ enum AppEnvironment { production, staging }
 
 /// How a build proves to Firebase that it is the real app (App Check).
 ///
-///  * [playIntegrity]: Google vouches for the install. Needs a Play Store build.
+///  * [playIntegrity]: Google vouches for the install. Needs a Play Store build,
+///    so no build uses it today; kept for a future Play release.
 ///  * [debug]: a token registered by hand in the Firebase console, for the
 ///    staging APK installed directly on a phone. Never used in production: a
 ///    debug token is a shared key, not proof of a genuine install.
-enum AppCheckAttestation { playIntegrity, debug }
+///  * [none]: App Check is not started. Production riders install a signed APK
+///    directly, not from Google Play (decision 2026-11-09), and a sideloaded
+///    app can never pass Play Integrity, so every attempt would only fail.
+///    App Check is therefore not enforced in production; sign-in, the security
+///    rules and the server's checks protect the data.
+enum AppCheckAttestation { playIntegrity, debug, none }
 
 /// Thrown when the Firebase project the app actually connected to does not match
 /// the project the selected [AppEnvironment] REQUIRES, or when the environment
@@ -54,10 +60,11 @@ class EnvConfig {
     expectedProjectId: 'vaxtrack-staging',
   );
 
-  /// Production only ever attests through Play Integrity.
+  /// Production is sideloaded, so it does not start App Check; the staging APK
+  /// uses a registered debug token.
   AppCheckAttestation get appCheckAttestation =>
       environment == AppEnvironment.production
-      ? AppCheckAttestation.playIntegrity
+      ? AppCheckAttestation.none
       : AppCheckAttestation.debug;
 
   /// Human-readable label used in logs / the startup-error screen
