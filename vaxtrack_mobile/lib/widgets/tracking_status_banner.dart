@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import 'motion.dart';
 import '../tracking/rider_tracking_controller.dart';
 import '../tracking/tracking_lifecycle.dart';
 
@@ -8,7 +9,11 @@ import '../tracking/tracking_lifecycle.dart';
 /// for every state that needs one. The explanation is shown BEFORE the system
 /// permission prompt; nothing is requested silently.
 class TrackingStatusBanner extends StatelessWidget {
-  const TrackingStatusBanner({super.key, required this.controller, this.problemsOnly = false});
+  const TrackingStatusBanner({
+    super.key,
+    required this.controller,
+    this.problemsOnly = false,
+  });
 
   final RiderTrackingController controller;
 
@@ -33,7 +38,8 @@ class TrackingStatusBanner extends StatelessWidget {
     TrackingStatus.locationOff:
         'Device location is off, so your position is not shared for your active '
         'delivery. Turn on location, then tap Retry.',
-    TrackingStatus.error: 'Your location could not be read. Check that location is on, then retry.',
+    TrackingStatus.error:
+        'Your location could not be read. Check that location is on, then retry.',
     TrackingStatus.waitingForApp:
         'You have an active delivery. Location sharing starts now that VaxTrack is open.',
   };
@@ -67,108 +73,119 @@ class TrackingStatusBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: controller,
-      builder: (context, _) {
-        final status = controller.status;
-        switch (status) {
-          case TrackingStatus.idle:
-            return const SizedBox.shrink();
-          case TrackingStatus.tracking:
-          case TrackingStatus.navigating:
-          case TrackingStatus.returningToHub:
-            final returning = status == TrackingStatus.returningToHub;
-            if (!controller.sharingConfirmed) {
-              // Asked for, but no position yet: never shown as sharing.
-              return _card(
-                icon: Icons.schedule,
-                color: Colors.orange.shade800,
-                text: [
-                  returning ? returningStartingMessage : startingMessage(controller.activeOrderIds.length),
-                  if (controller.lastError == kNoFixYetMessage) kNoFixYetMessage,
-                  if (!controller.notificationsAllowed) notificationsHiddenMessage,
-                ].join('\n'),
-                actions: [
-                  _button('Retry', controller.retry),
-                  _button('App settings', controller.openAppSettings),
-                ],
-              );
-            }
-            if (problemsOnly && controller.notificationsAllowed) return const SizedBox.shrink();
-            final sharing = returning
-                ? returningMessage
-                : status == TrackingStatus.navigating
-                    ? 'Navigating a delivery — sharing your location (route monitoring on).'
-                    : 'Sharing your location for ${controller.activeOrderIds.length} active '
-                        'deliver${controller.activeOrderIds.length == 1 ? 'y' : 'ies'}.';
-            return _card(
-              icon: Icons.my_location,
-              color: AppColors.primary,
-              text: [
-                sharing,
-                backgroundActivityMessage,
-                if (!controller.notificationsAllowed) notificationsHiddenMessage,
-              ].join('\n'),
-              // The app's system settings page: background activity / battery
-              // and notifications both live there. Nothing is changed or
-              // requested automatically.
-              actions: [_button('App settings', controller.openAppSettings)],
-            );
-          case TrackingStatus.waitingForApp:
-            return _card(
-              icon: Icons.schedule,
-              color: Colors.orange.shade800,
-              text: messages[status]!,
-              actions: [_button('Retry', controller.retry)],
-            );
-          case TrackingStatus.needsPermission:
-            return _card(
-              icon: Icons.privacy_tip_outlined,
-              color: Colors.orange.shade800,
-              text: messages[status]!,
-              actions: [_button('Allow location', controller.allowLocation)],
-            );
-          case TrackingStatus.permissionDenied:
-            return _card(
-              icon: Icons.location_disabled,
-              color: Colors.orange.shade800,
-              text: messages[status]!,
-              actions: [_button('Allow location', controller.allowLocation)],
-            );
-          case TrackingStatus.permissionBlocked:
-            return _card(
-              icon: Icons.location_disabled,
-              color: Colors.red.shade700,
-              text: messages[status]!,
-              actions: [
-                _button('Open app settings', controller.openAppSettings),
-                _button('Retry', controller.retry),
-              ],
-            );
-          case TrackingStatus.locationOff:
-            return _card(
-              icon: Icons.location_off,
-              color: Colors.red.shade700,
-              text: messages[status]!,
-              actions: [
-                _button('Location settings', controller.openLocationSettings),
-                _button('Retry', controller.retry),
-              ],
-            );
-          case TrackingStatus.error:
-            return _card(
-              icon: Icons.error_outline,
-              color: Colors.red.shade700,
-              text: controller.lastError ?? messages[status]!,
-              actions: [_button('Retry', controller.retry)],
-            );
-        }
-      },
+      // A change of sharing state (asking -> sharing, or sharing -> location
+      // off) fades through and the space resizes smoothly, so the rider notices
+      // it even mid-ride; wording within a state just updates.
+      builder: (context, _) => StateSwap(
+        stateKey:
+            '${controller.status.name}/${controller.sharingConfirmed}/${controller.notificationsAllowed}',
+        child: _content(),
+      ),
     );
   }
 
-  Widget _button(String label, Future<void> Function() onTap) => TextButton(
-        onPressed: () => onTap(),
-        child: Text(label),
-      );
+  Widget _content() {
+    final status = controller.status;
+    switch (status) {
+      case TrackingStatus.idle:
+        return const SizedBox.shrink();
+      case TrackingStatus.tracking:
+      case TrackingStatus.navigating:
+      case TrackingStatus.returningToHub:
+        final returning = status == TrackingStatus.returningToHub;
+        if (!controller.sharingConfirmed) {
+          // Asked for, but no position yet: never shown as sharing.
+          return _card(
+            icon: Icons.schedule,
+            color: Colors.orange.shade800,
+            text: [
+              returning
+                  ? returningStartingMessage
+                  : startingMessage(controller.activeOrderIds.length),
+              if (controller.lastError == kNoFixYetMessage) kNoFixYetMessage,
+              if (!controller.notificationsAllowed) notificationsHiddenMessage,
+            ].join('\n'),
+            actions: [
+              _button('Retry', controller.retry),
+              _button('App settings', controller.openAppSettings),
+            ],
+          );
+        }
+        if (problemsOnly && controller.notificationsAllowed) {
+          return const SizedBox.shrink();
+        }
+        final sharing = returning
+            ? returningMessage
+            : status == TrackingStatus.navigating
+            ? 'Navigating a delivery — sharing your location (route monitoring on).'
+            : 'Sharing your location for ${controller.activeOrderIds.length} active '
+                  'deliver${controller.activeOrderIds.length == 1 ? 'y' : 'ies'}.';
+        return _card(
+          icon: Icons.my_location,
+          color: AppColors.primary,
+          text: [
+            sharing,
+            backgroundActivityMessage,
+            if (!controller.notificationsAllowed) notificationsHiddenMessage,
+          ].join('\n'),
+          // The app's system settings page: background activity / battery
+          // and notifications both live there. Nothing is changed or
+          // requested automatically.
+          actions: [_button('App settings', controller.openAppSettings)],
+        );
+      case TrackingStatus.waitingForApp:
+        return _card(
+          icon: Icons.schedule,
+          color: Colors.orange.shade800,
+          text: messages[status]!,
+          actions: [_button('Retry', controller.retry)],
+        );
+      case TrackingStatus.needsPermission:
+        return _card(
+          icon: Icons.privacy_tip_outlined,
+          color: Colors.orange.shade800,
+          text: messages[status]!,
+          actions: [_button('Allow location', controller.allowLocation)],
+        );
+      case TrackingStatus.permissionDenied:
+        return _card(
+          icon: Icons.location_disabled,
+          color: Colors.orange.shade800,
+          text: messages[status]!,
+          actions: [_button('Allow location', controller.allowLocation)],
+        );
+      case TrackingStatus.permissionBlocked:
+        return _card(
+          icon: Icons.location_disabled,
+          color: Colors.red.shade700,
+          text: messages[status]!,
+          actions: [
+            _button('Open app settings', controller.openAppSettings),
+            _button('Retry', controller.retry),
+          ],
+        );
+      case TrackingStatus.locationOff:
+        return _card(
+          icon: Icons.location_off,
+          color: Colors.red.shade700,
+          text: messages[status]!,
+          actions: [
+            _button('Location settings', controller.openLocationSettings),
+            _button('Retry', controller.retry),
+          ],
+        );
+      case TrackingStatus.error:
+        return _card(
+          icon: Icons.error_outline,
+          color: Colors.red.shade700,
+          text: controller.lastError ?? messages[status]!,
+          actions: [_button('Retry', controller.retry)],
+        );
+    }
+  }
+
+  Widget _button(String label, Future<void> Function() onTap) =>
+      TextButton(onPressed: () => onTap(), child: Text(label));
 
   Widget _card({
     required IconData icon,
@@ -192,11 +209,22 @@ class TrackingStatusBanner extends StatelessWidget {
             children: [
               Icon(icon, color: color, size: 20),
               const SizedBox(width: 10),
-              Expanded(child: Text(text, style: const TextStyle(fontSize: 13, color: AppColors.textDark))),
+              Expanded(
+                child: Text(
+                  text,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textDark,
+                  ),
+                ),
+              ),
             ],
           ),
           if (actions.isNotEmpty)
-            Align(alignment: Alignment.centerRight, child: Wrap(spacing: 4, children: actions)),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Wrap(spacing: 4, children: actions),
+            ),
         ],
       ),
     );

@@ -13,10 +13,9 @@
     <!-- Geolocator holds a wake lock while the rider navigates (enableWakeLock).
          Declared here rather than relied on from another library's manifest. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- The Google Navigation SDK (dev harness dependency) merges in
-         ACCESS_BACKGROUND_LOCATION. VaxTrack never needs it: sharing runs as a
-         foreground service started while the app is in use. Removed so no build
-         asks for, or must declare to Play, background location. -->
+    <!-- VaxTrack never needs ACCESS_BACKGROUND_LOCATION: sharing runs as a
+         foreground service started while the app is in use. Removed in case a
+         library ever merges it in, so no build asks for background location. -->
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" tools:node="remove" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -24,12 +23,6 @@
         android:label="@string/app_name"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
-        <!-- Google Navigation/Maps SDK for Android key. Value comes from the
-             ignored local.properties via the MAPS_API_KEY manifest placeholder
-             (build.gradle.kts) — never hardcoded here. Feasibility spike. -->
-        <meta-data
-            android:name="com.google.android.geo.API_KEY"
-            android:value="${MAPS_API_KEY}" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/motion.dart';
+
 /// The minimum height every full-width Rider action button shares.
 const double kRiderActionButtonHeight = 52;
 
@@ -41,6 +43,9 @@ class RiderActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Read once here: the transition builder also runs while the button is
+    // being removed, when the context may no longer be looked up.
+    final reduced = Motion.reduced(context);
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton.icon(
@@ -50,13 +55,30 @@ class RiderActionButton extends StatelessWidget {
           minimumSize: const Size.fromHeight(kRiderActionButtonHeight),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         ),
-        icon: busy
-            ? const SizedBox(
-                height: 18,
-                width: 18,
-                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-              )
-            : Icon(icon),
+        // The tap is acknowledged where the eye already is: the icon turns
+        // into the spinner (and back) instead of blinking.
+        icon: AnimatedSwitcher(
+          duration: Motion.quick,
+          switchInCurve: Motion.enter,
+          switchOutCurve: Motion.exit,
+          transitionBuilder: (child, animation) => reduced
+              ? FadeTransition(opacity: animation, child: child)
+              : ScaleTransition(
+                  scale: animation,
+                  child: FadeTransition(opacity: animation, child: child),
+                ),
+          child: busy
+              ? const SizedBox(
+                  key: ValueKey('rider-action-busy'),
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2,
+                  ),
+                )
+              : Icon(icon, key: ValueKey(icon)),
+        ),
         label: FittedBox(
           fit: BoxFit.scaleDown,
           child: Text(label, maxLines: 1, softWrap: false),

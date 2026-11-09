@@ -289,10 +289,6 @@ class Delivery {
       (trip ? tripRouteProfile : routeProfile) ==
           'motorcycle-no-expressways-v1';
 
-  String routeDescription({bool trip = false}) => isMotorcycleRoute(trip: trip)
-      ? 'Motorcycle route · checked for highway, toll road and ferry flags.'
-      : 'Older or unverified route. Ask dispatch to regenerate it for this motorcycle fleet.';
-
   String get requestedArrivalLabel => requestedArrivalScheduleLabel(
         arrival: requestedArrival,
         requestedDeliveryDate: requestedDeliveryDate,

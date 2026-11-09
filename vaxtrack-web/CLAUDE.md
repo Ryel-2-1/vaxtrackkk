@@ -91,7 +91,9 @@ Every callable goes through `callable()` in `functions/index.js`. It requires si
 - **Build:**
   ```
   flutter build apk --debug --flavor staging -t lib/main_staging.dart
+  flutter build apk --release --flavor production -t lib/main_production.dart --split-per-abi
   ```
+  Production riders get the `app-arm64-v8a-production-release.apk` (nearly all current phones; `armeabi-v7a` only for very old ones). The in-app Google Navigation SDK spike was removed on 2026-11-09; turn-by-turn hands off to the Google Maps app.
 - **Structure:**
   - `lib/tracking/`: the tracking controller, write policy and contract;
   - `lib/offline/`: offline records, tied to the signed-in rider;
