@@ -8,8 +8,8 @@ test("the browser tab names the product", () => {
   assert.match(read("index.html"), /<title>VaxTrack<\/title>/);
 });
 
-test("Analytics starts in production builds only, never on staging", () => {
+test("Google Analytics is never started, in any build (2026-11-09)", () => {
   const src = read("src/firebase.js");
-  assert.match(src, /import\.meta\.env\.MODE === "production"/);
-  assert.doesNotMatch(src, /if \(import\.meta\.env\.PROD\)/);
+  assert.doesNotMatch(src, /import\(["']firebase\/analytics["']\)|from ["']firebase\/analytics["']/);
+  assert.doesNotMatch(src, /getAnalytics\(/);
 });
