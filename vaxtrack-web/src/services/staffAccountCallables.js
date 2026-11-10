@@ -52,6 +52,9 @@ export const createStaffSetupLink = (targetUid) => run("createStaffSetupLink", {
 /** approved | rejected | disabled. */
 export const setStaffStatus = (targetUid, status) => run("setStaffStatus", { targetUid, status });
 
+export const reopenStaffApplication = (targetUid, reason) =>
+  run("setStaffStatus", { targetUid, status: "pending_approval", reason });
+
 export const setStaffRole = (targetUid, role) => run("setStaffRole", { targetUid, role });
 
 /**

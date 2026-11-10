@@ -654,3 +654,27 @@ aside.inventory-sidebar select {
 .inventory-page .adx-breakdown-row {
   display: contents;
 }
+
+/* Keep the dashboard pair balanced on desktop and use the shared card
+   height for even row spacing instead of leaving an empty strip below. */
+@media (min-width: 1001px) {
+  .inventory-page .adx-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .inventory-page .adx-breakdown {
+    align-content: space-evenly;
+  }
+}
+
+.inventory-page .adx-attention-card .adx-alert-row {
+  padding-block: 7px;
+}
+
+.inventory-page .adx-attention-card .adx-attention-label {
+  padding-block: 6px 3px;
+}
+
+.inventory-page .adx-attention-card .adx-alert-more {
+  padding-block: 8px;
+}

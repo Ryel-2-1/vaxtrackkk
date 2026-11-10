@@ -71,6 +71,8 @@ const create = (authAdmin, payload, uid = ADMIN) =>
   S.createStaffAccount({ db, authAdmin, FieldValue, uid, email: "maria@x.ph", payload, now: NOW });
 const setStatus = (targetUid, status, uid = ADMIN) =>
   S.setStaffStatus({ db, FieldValue, uid, email: "maria@x.ph", payload: { targetUid, status }, now: NOW });
+const reopen = (targetUid, reason, uid = ADMIN) =>
+  S.setStaffStatus({ db, FieldValue, uid, payload: { targetUid, status: "pending_approval", reason }, now: NOW });
 const setRole = (targetUid, role, uid = ADMIN) =>
   S.setStaffRole({ db, FieldValue, uid, email: "maria@x.ph", payload: { targetUid, role }, now: NOW });
 const code = async (p) => {
@@ -156,6 +158,55 @@ test("status changes follow the Staff Directory transitions and are recorded", a
   const changes = (await events()).filter((e) => e.action === "status_changed");
   assert.equal(changes.length, 3);
   assert.ok(changes.every((e) => e.actorUid === ADMIN));
+});
+
+test("reopening preserves the account and rejection history and requires a separate approval", async () => {
+  const applicant = { role: "salesrep", status: "pending", email: "rep@example.test", name: "Sample applicant" };
+  await world({ applicant });
+  await setStatus("applicant", "rejected");
+  assert.equal(await code(setStatus("applicant", "approved")), "account-rejected");
+
+  await reopen("applicant", "  Confirmed the applicant’s role  ");
+  const reopened = await user("applicant");
+  assert.equal(reopened.status, "pending_approval");
+  assert.equal(reopened.email, applicant.email);
+  assert.equal(reopened.role, applicant.role);
+  assert.equal(await code(reopen("applicant", "Second review")), "status-change-not-allowed");
+
+  await setStatus("applicant", "approved");
+  assert.equal((await user("applicant")).status, "approved");
+  const history = await events();
+  assert.equal(history.length, 3);
+  const reopening = history.find((event) => event.toStatus === "pending_approval");
+  assert.deepEqual(
+    [reopening.action, reopening.fromStatus, reopening.reason, reopening.actorUid, reopening.targetUid],
+    ["status_changed", "rejected", "Confirmed the applicant’s role", ADMIN, "applicant"],
+  );
+  assert.ok(history.some((event) => event.toStatus === "rejected" && event.fromStatus === "pending"));
+  assert.ok(history.some((event) => event.toStatus === "approved" && event.fromStatus === "pending_approval"));
+});
+
+test("only an approved Admin can reopen a currently rejected application with a reason", async () => {
+  await world({
+    rejected: { role: "salesrep", status: " Rejected " },
+    pending: { role: "salesrep", status: "pending" },
+    disabled: { role: "salesrep", status: "disabled" },
+    dispatcher: { role: "dispatcher", status: "approved" },
+    disabledAdmin: { role: "admin", status: "disabled" },
+  });
+  for (const reason of [null, "  ", "x".repeat(301)]) {
+    assert.equal(await code(reopen("rejected", reason)), "invalid-staff");
+  }
+  assert.equal(await code(reopen("rejected", "Review", "dispatcher")), "wrong-role");
+  assert.equal(await code(reopen("rejected", "Review", "disabledAdmin")), "not-approved");
+  assert.equal(await code(reopen(ADMIN, "Review")), "self-change");
+  for (const target of ["pending", "disabled", "dispatcher"]) {
+    assert.equal(await code(reopen(target, "Review")), "status-change-not-allowed");
+  }
+  assert.equal((await user("rejected")).status, " Rejected ");
+  assert.deepEqual(await events(), []);
+  await reopen("rejected", "Review confirmed");
+  assert.equal((await user("rejected")).status, "pending_approval");
 });
 
 test("there is always an approved Admin: no self-change, and a removed Admin cannot act", async () => {

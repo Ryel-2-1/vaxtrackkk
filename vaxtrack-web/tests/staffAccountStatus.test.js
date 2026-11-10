@@ -121,9 +121,10 @@ test("3 + 13. the directory shows Rejected, distinct from Inactive, for every sp
   assert.equal(staffStatusOf(undefined).key, STAFF_STATUS.PENDING);
 });
 
-test("4. a rejected account offers no Activate, no second Reject and no role change", () => {
+test("4. a rejected account can be reopened for review and has no direct approval action", () => {
   const actions = staffActionsFor(STAFF_STATUS.REJECTED);
-  assert.deepEqual(actions, ["view"]);
+  assert.deepEqual(actions, ["view", "reopen"]);
+  assert.deepEqual(staffActionsFor(STAFF_STATUS.REJECTED, { isSelf: true }), ["view"]);
   for (const forbidden of ["reactivate", "approve", "reject", "deactivate", "changeRole"]) {
     assert.equal(actions.includes(forbidden), false, forbidden);
   }
