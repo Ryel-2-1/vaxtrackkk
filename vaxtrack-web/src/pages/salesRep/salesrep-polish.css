@@ -1769,6 +1769,39 @@ aside.salesrep-sidebar .salesrep-logout {
   padding: 10px 12px;
   border-top: 1px solid var(--gray-300);
 }
+/* Phone cards must scroll INSIDE the bounded list. Letting them overflow a
+   fixed-height wrapper put rows over the pager and intercepted its taps. */
+@media (max-width: 768px) {
+  #root .salesrep-main .tracking-v2-table-wrap {
+    height: clamp(360px, calc(100dvh - var(--shell-topbar-height, 64px) - 252px), 700px);
+  }
+  #root .salesrep-main .tracking-v2-table-scroll {
+    overflow: auto !important; /* beats shell-chrome's phone overflow reset */
+    min-height: 0;
+    flex: 1 1 0;
+  }
+  .salesrep-main .tracking-v2-table-wrap > .page-nav {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    background: var(--surface-card, #fff);
+  }
+  .salesrep-main .tracking-v2-table-wrap .page-nav-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    text-align: center;
+  }
+  .salesrep-main .tracking-v2-table-wrap .page-nav button {
+    min-width: 0;
+    min-height: 44px !important; /* beats the shared button-height resets */
+    padding: 0 8px;
+  }
+}
 .salesrep-main .tracking-v2-side {
   padding: 16px !important;
 }
@@ -3074,6 +3107,40 @@ body:has(> #root > .salesrep-page),
 .salesrep-main .srl-monitor {
   --ltp-offset: 60px;
 }
+/* The shipment selector stays above the selected rider's details. Both panes
+   get half the sidebar, with independent scrolling below their headings. */
+#root .salesrep-main .srl-monitor .ltp-side {
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  min-height: 0;
+}
+#root .salesrep-main .srl-monitor .ltp-side > .ltp-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+}
+.salesrep-main .srl-monitor .ltp-h {
+  flex: 0 0 auto;
+}
+#root .salesrep-main .srl-monitor .ltp-list,
+#root .salesrep-main .srl-monitor .ltp-details {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.salesrep-main .srl-monitor .ltp-orders strong {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1024px) {
+  .salesrep-main .srl-monitor .ltp-side {
+    height: clamp(480px, 80dvh, 680px);
+  }
+}
 
 /* Inventory and tracking use the space below the shell header on desktop.
    Rows scroll inside their cards; the table headings and pager stay visible.
@@ -3544,4 +3611,127 @@ body:has(> #root > .salesrep-page),
   #root .salesrep-main .place-v2-items-card td[data-label="Batch ID"] {
     white-space: nowrap;
   }
+}
+/* Mobile navigation: the backdrop and Escape already dismiss the rail. */
+@media (max-width: 768px) {
+  #root .salesrep-page .salesrep-nav-toggle[aria-expanded="true"] {
+    display: none;
+  }
+  #root .salesrep-page aside.salesrep-sidebar .salesrep-brand {
+    padding-left: 0 !important; /* replaces shell-chrome's space for the X */
+  }
+}
+/* Personal bell controls: swipe left or open the visible options button.
+   These preferences never delete or resolve the underlying alert. */
+.salesrep-page .salesrep-notification-dropdown {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 100px);
+}
+.salesrep-page .salesrep-notification-list {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.salesrep-page .bell-notice-row {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--gray-200);
+  background: var(--gray-50);
+}
+.salesrep-page .bell-notice-content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  min-width: 0;
+  background: #fff;
+  touch-action: pan-y;
+  transition: transform 180ms ease;
+}
+.salesrep-page .bell-notice-row.is-open .bell-notice-content { transform: translateX(-96px); }
+.salesrep-page .bell-notice-content .salesrep-notification-item {
+  min-width: 0;
+  border-bottom: 0 !important; /* existing per-role item rules use !important */
+  padding-right: 6px !important;
+}
+.salesrep-page .bell-notice-more {
+  align-self: start;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  min-height: 36px !important;
+  margin: 10px 4px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--gray-600);
+  border-radius: var(--radius-control, 8px);
+}
+.salesrep-page .bell-notice-actions {
+  position: absolute;
+  inset: 0 0 0 auto;
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  width: 96px;
+  visibility: hidden;
+}
+.salesrep-page .bell-notice-row.is-open .bell-notice-actions { visibility: visible; }
+.salesrep-page .bell-notice-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 36px !important;
+  padding: 6px;
+  border: 0;
+  border-radius: 0;
+  background: var(--green-50);
+  color: var(--green-800);
+  font-size: 11px;
+}
+.salesrep-page .bell-notice-actions .bell-notice-delete {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+.salesrep-page .bell-panel-footer {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border-top: 1px solid var(--gray-200);
+  background: #fff;
+}
+.salesrep-page .bell-panel-footer-actions,
+.salesrep-page .bell-panel-undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+.salesrep-page .bell-panel-footer button {
+  min-height: 34px !important;
+  padding: 4px 10px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-control, 8px);
+  background: #fff;
+  color: var(--gray-700);
+  font-size: 12px;
+}
+.salesrep-page .bell-panel-footer small {
+  display: block;
+  margin-top: 6px;
+  color: var(--gray-500);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.salesrep-page .bell-panel-undo { margin-bottom: 8px; color: var(--green-800); }
+.salesrep-page .bell-notice-row button:disabled,
+.salesrep-page .bell-panel-footer button:disabled { opacity: .5; cursor: default; }
+.salesrep-page .bell-notice-row button:focus-visible,
+.salesrep-page .bell-panel-footer :is(button, a):focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: -3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .salesrep-page .bell-notice-content { transition: none; }
 }

@@ -3,10 +3,32 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { canonicalSubmission, diffSubmission } from "../src/services/orderDraftRequest.js";
 import { quoteUnitPrice as displayQuote } from "../src/services/vatQuote.js";
-import { approvedZeroRateForOrder } from "../src/services/zeroRateOrderMatch.js";
+import { approvedZeroRateForOrder, matchingZeroRateOrderRequests, zeroRateCheckoutBlock } from "../src/services/zeroRateOrderMatch.js";
 
 const require = createRequire(import.meta.url);
 const { quoteUnitPrice: serverQuote } = require("../functions/src/vatQuote.js");
+
+test("a pending review blocks checkout only for its exact order, until Admin decides", () => {
+  const order = { doctorId: "doctor1", doctorAddressId: "clinic1", requestedDeliveryDate: "2026-11-10",
+    items: [{ inventoryId: "batch1", quantity: 2 }] };
+  const pending = { ...order, id: "request1", status: "pending" };
+  const block = (rows, details = order, overrides = {}) => zeroRateCheckoutBlock({
+    requests: matchingZeroRateOrderRequests(rows, details), ready: true, ...overrides,
+  });
+  assert.match(block([pending]), /Wait for Admin/);
+  for (const status of ["approved", "rejected", "used"]) assert.equal(block([{ ...pending, status }]), "");
+  assert.equal(block([]), "", "optional review does not block ordinary orders");
+  for (const change of [{ doctorId: "doctor2" }, { doctorAddressId: "clinic2" },
+    { requestedDeliveryDate: "2026-11-11" }, { items: [{ inventoryId: "batch1", quantity: 3 }] }]) {
+    assert.equal(block([pending], { ...order, ...change }), "");
+  }
+  assert.match(block([], order, { sending: true }), /Sending/);
+  assert.match(block([], order, { ready: false }), /Checking/);
+  assert.match(block([], order, { loadError: new Error("offline") }), /could not be verified/);
+  assert.match(block([pending], order, { recovering: true }), /Wait for Admin/);
+  assert.equal(block([], order, { recovering: true, ready: false, loadError: new Error("offline") }), "", "saved attempts can reach server replay during an outage");
+  assert.match(block([pending], order, { recovering: true, sending: true }), /Sending/);
+});
 
 test("the Med Rep's quote matches the server for both price bases and approved zero-rating", () => {
   for (const enteredCentavos of [10000, 11200, 12345]) {

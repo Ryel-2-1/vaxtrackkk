@@ -632,3 +632,25 @@ aside.inventory-sidebar select {
   .inventory-page .aia-disclosure-toggle,
   .inventory-page .aia-disclosure-toggle > svg { transition: none; }
 }
+/* The mobile menu closes through its backdrop or Escape. Keep the header's
+   menu trigger available again as soon as the navigation is dismissed. */
+@media (max-width: 1000px) {
+  #root .inventory-page .admin-nav-toggle[aria-expanded="true"] {
+    display: none;
+  }
+  #root .inventory-page > aside.inventory-sidebar > h2 {
+    padding-left: 0;
+  }
+}
+/* Share the badge and count columns across all rows so the longest status
+   fits at phone widths and every bar starts at the same position. */
+.inventory-page .adx-breakdown {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  align-content: start;
+  align-items: center;
+}
+
+.inventory-page .adx-breakdown-row {
+  display: contents;
+}

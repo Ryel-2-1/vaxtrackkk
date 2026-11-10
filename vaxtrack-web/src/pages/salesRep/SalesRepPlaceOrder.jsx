@@ -61,7 +61,7 @@ import {
 } from "../../services/requestedArrival";
 import RequestedArrivalField from "../../components/schedule/RequestedArrivalField";
 import { requestZeroRateApproval, subscribeOwnZeroRateRequests } from "../../services/zeroRateRequests";
-import { approvedZeroRateForOrder, matchingZeroRateOrderRequests } from "../../services/zeroRateOrderMatch";
+import { approvedZeroRateForOrder, matchingZeroRateOrderRequests, zeroRateCheckoutBlock } from "../../services/zeroRateOrderMatch";
 import DialogLayer from "../../components/ui/DialogLayer";
 import { PriceReview, ReconfirmDialog, VatBreakdown } from "./OrderPriceReview";
 import OrderCartRow from "./OrderCartRow";
@@ -141,8 +141,10 @@ function SalesRepPlaceOrder() {
   const [zeroRateRequests, setZeroRateRequests] = useState([]);
   const [zeroRateError, setZeroRateError] = useState("");
   const [zeroRateLoadError, setZeroRateLoadError] = useState(null);
+  const [zeroRateReady, setZeroRateReady] = useState(false);
   const [zeroRateReason, setZeroRateReason] = useState("");
   const [zeroRateBusy, setZeroRateBusy] = useState(false);
+  const zeroRateSendingRef = useRef(false);
   const [zeroRateExpanded, setZeroRateExpanded] = useState(false);
   const [zeroRateSentId, setZeroRateSentId] = useState("");
   const [submittedZeroRate, setSubmittedZeroRate] = useState(null);
@@ -150,6 +152,7 @@ function SalesRepPlaceOrder() {
     if (!uid) return undefined;
     return subscribeOwnZeroRateRequests(uid, (rows) => {
       setZeroRateRequests(rows);
+      setZeroRateReady(true);
       setZeroRateLoadError(null);
       setSubmittedZeroRate((current) => current && rows.some((row) => row.id === current.id) ? null : current);
     }, setZeroRateLoadError);
@@ -387,10 +390,16 @@ function SalesRepPlaceOrder() {
     doctorId: selectedDoctor?.id, doctorAddressId: selectedDestination?.id,
     requestedDeliveryDate: requestedDate, items,
   });
+  const zeroRateBlock = zeroRateCheckoutBlock({
+    requests: matchingRequests, ready: zeroRateReady, loadError: zeroRateLoadError,
+    sending: zeroRateBusy, recovering: Boolean(uid && loadPendingAttempt(localStorage, uid)),
+  });
   const handleZeroRateRequest = async () => {
+    if (zeroRateSendingRef.current || submittingRef.current || saving) return;
     if (!selectedDoctor || !selectedDestination || !requestedDate) {
       setZeroRateError("Select a doctor, delivery address and date first."); return;
     }
+    zeroRateSendingRef.current = true;
     setZeroRateBusy(true); setZeroRateError("");
     try {
       const result = await requestZeroRateApproval({
@@ -411,7 +420,7 @@ function SalesRepPlaceOrder() {
       setZeroRateError(error?.code === "functions/not-found"
         ? "Zero-rating review is not available in this environment yet. Ask an administrator to enable it."
         : friendlyErrorMessage(error, "The zero-rating review request could not be sent. The review service may not be available here yet; please contact an administrator."));
-    } finally { setZeroRateBusy(false); }
+    } finally { zeroRateSendingRef.current = false; setZeroRateBusy(false); }
   };
   // A saved doctor or destination that is no longer permitted was dropped, not
   // silently kept: the rep is told to choose again.
@@ -544,6 +553,20 @@ function SalesRepPlaceOrder() {
     // duplicates harmless; this stops them being sent at all.
     if (submittingRef.current) return;
     submittingRef.current = true;
+
+    // Re-check on both Review and Confirm. A request submitted while the
+    // confirmation was open must not silently become a standard-VAT order.
+    const reviewBlock = zeroRateCheckoutBlock({
+      requests: matchingRequests, ready: zeroRateReady, loadError: zeroRateLoadError,
+      sending: zeroRateSendingRef.current,
+      recovering: Boolean(uid && loadPendingAttempt(localStorage, uid)),
+    });
+    if (reviewBlock) {
+      submittingRef.current = false;
+      setConfirmOpen(false);
+      setMessage(reviewBlock);
+      return;
+    }
 
     if (items.length === 0) {
       submittingRef.current = false;
@@ -1069,16 +1092,16 @@ function SalesRepPlaceOrder() {
               <h2>Zero-rating request</h2>
               <span>Optional</span>
             </div>
-            {approvedRequest ? (
-              <div className="zero-rate-checkout-status is-approved" role="status">
-                <CheckCircle2 size={19} aria-hidden="true" />
-                <div><strong>Approved for this order</strong><p>Zero-rating is applied automatically in the price review.</p></div>
-              </div>
-            ) : matchingRequests.some((row) => row.status === "pending") ? (
+            {matchingRequests.some((row) => row.status === "pending") ? (
               <div className="zero-rate-checkout-status is-pending" role="status">
                 <CheckCircle2 size={19} aria-hidden="true" />
                 <div><strong>{matchingRequests.some((row) => row.id === zeroRateSentId) ? "Request sent for Admin review" : "Waiting for Admin review"}</strong>
-                  <p>The request was saved for this doctor, address, date and vial list. Standard VAT applies until Admin accepts it.</p></div>
+                  <p>Admin must approve or deny this request before you can finalize this order. Approval applies zero-rating; denial keeps standard VAT.</p></div>
+              </div>
+            ) : approvedRequest ? (
+              <div className="zero-rate-checkout-status is-approved" role="status">
+                <CheckCircle2 size={19} aria-hidden="true" />
+                <div><strong>Approved for this order</strong><p>Zero-rating is applied automatically in the price review.</p></div>
               </div>
             ) : (
               <>
@@ -1148,7 +1171,7 @@ function SalesRepPlaceOrder() {
               type="button"
               onClick={() => handleFinalizeOrder()}
               disabled={
-                saving ||
+                saving || Boolean(zeroRateBlock) ||
                 items.length === 0 ||
                 doctorListLoading ||
                 !territory.assigned ||
@@ -1159,8 +1182,9 @@ function SalesRepPlaceOrder() {
                 !pricingCheck.ok
               }
             >
-              {saving ? "Saving Order..." : review.checking ? "Checking prices…" : "Review & Finalize →"}
+              {saving ? "Saving Order..." : zeroRateBusy ? "Sending request…" : zeroRateBlock ? (matchingRequests.some((row) => row.status === "pending") ? "Waiting for Admin review" : "Checking review status…") : review.checking ? "Checking prices…" : "Review & Finalize →"}
             </button>
+            {zeroRateBlock && <p className="place-v2-review-hint" role="status">{zeroRateBlock}</p>}
             {!pricingCheck.ok && (
               <p className="place-v2-review-hint" role="status">
                 {pricingCheck.problems[0]}

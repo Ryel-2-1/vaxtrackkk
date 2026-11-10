@@ -101,7 +101,7 @@ test("each mode is stored canonically on the order and its receipt", async () =>
     [{ mode: "window", start: "10:00", end: "12:00" }, { version: 1, mode: "window", start: "10:00", end: "12:00" }],
     [{ mode: "before", time: "10:00" }, { version: 1, mode: "before", time: "10:00" }],
     [{ mode: "exact", time: "12:00" }, { version: 1, mode: "exact", time: "12:00" }],
-    [{ mode: "exact", time: "00:00" }, { version: 1, mode: "exact", time: "00:00" }],
+    [{ mode: "exact", time: "07:00" }, { version: 1, mode: "exact", time: "07:00" }],
   ];
   for (const [sent, stored] of cases) {
     const r = await create(payloadOf(sent === undefined ? {} : { requestedArrival: sent }));
@@ -120,6 +120,9 @@ test("each mode is stored canonically on the order and its receipt", async () =>
 test("refused requests leave nothing written at all", async () => {
   await seed();
   const refusals = [
+    [{ mode: "exact", time: "00:00" }, "invalid-requested-arrival"],
+    [{ mode: "exact", time: "16:01" }, "invalid-requested-arrival"],
+    [{ mode: "window", start: "06:59", end: "09:00" }, "invalid-requested-arrival"],
     [{ mode: "evening" }, "invalid-requested-arrival"],
     [{ mode: "window", start: "10:00" }, "invalid-requested-arrival"],
     [{ mode: "window", start: "12:00", end: "10:00" }, "invalid-requested-arrival"],

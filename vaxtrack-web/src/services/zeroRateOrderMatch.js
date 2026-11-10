@@ -14,6 +14,18 @@ export function matchingZeroRateOrderRequests(rows, { items, ...destination }) {
   return matchingZeroRateRequest(rows, destination).filter((row) => sameItems(row.items, items));
 }
 
+/** Pending reviews always wait; saved attempts can recover during a listener outage. */
+export function zeroRateCheckoutBlock({ requests, ready, loadError, sending, recovering = false }) {
+  if (sending) return "Sending your zero-rating request. Please wait before finalizing.";
+  if (requests.some((row) => row.status === "pending")) {
+    return "Wait for Admin to approve or deny this order’s zero-rating request before finalizing.";
+  }
+  if (recovering) return "";
+  if (loadError) return "Zero-rating review status could not be verified. Please wait for it to reconnect before finalizing.";
+  if (!ready) return "Checking zero-rating review status…";
+  return "";
+}
+
 export function approvedZeroRateForOrder(rows, { recoveryAllowed = false, recoveryApprovalId = "", restored = null, ...order }) {
   const matches = matchingZeroRateOrderRequests(rows, order);
   if (!recoveryAllowed) return matches.find((row) => row.status === "approved") ?? null;

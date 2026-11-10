@@ -21,6 +21,7 @@ import {
   requestedArrivalOf,
 } from "../../services/requestedArrival";
 import "./DeparturePlanner.css";
+import { PHARMACY_HOURS, PHARMACY_OPEN, PHARMACY_CLOSE, hubReturnOf } from "../../services/pharmacyHours";
 
 /**
  * A Dispatcher's departure plan for one Rider's orders (Cargo Loading).
@@ -121,6 +122,9 @@ function TripResult({ result, hubName, ordersById, busy, onSaveAnyway }) {
           Leave {hubName || "the hub"} at <strong>{formatMinute(plan.evaluatedDeparture)}</strong>
         </p>
       )}
+      {Number.isInteger(plan.hubReturn?.minute) && (
+        <p className="dp-result-leave tnum">Estimated return to {hubName || "the hub"}: <strong>{formatMinute(plan.hubReturn.minute) || "after midnight"}</strong>. Target: 4:00 PM (PHT).</p>
+      )}
       <ol className="dp-result-stops">
         {plan.stops.map((row) => {
           const order = ordersById.get(row.id);
@@ -168,7 +172,7 @@ function TripResult({ result, hubName, ordersById, busy, onSaveAnyway }) {
 /** Matrix row/column of each point: the hub, then each order's key. */
 const hubKeyOf = (hub) => (hub ? `hub@${hub.latLng[0]},${hub.latLng[1]}` : null);
 
-function DeparturePlanner({ orders, riderName, routing = null }) {
+function DeparturePlanner({ orders, riderName, routing = null, onReturnPlanChange = null }) {
   const id = useId();
   const [open, setOpen] = useState(false);
   const [savedSequence, setSavedSequence] = useState(null);
@@ -230,6 +234,7 @@ function DeparturePlanner({ orders, riderName, routing = null }) {
 
   const routedNote = `Travel times are Valhalla motorcycle estimates plus a ${bufferPercent}% traffic buffer; live traffic and delays are not modelled.`;
   const plan = planDeparture({
+    operatingHours: PHARMACY_HOURS,
     planDate: clock.date,
     nowMinute: clock.minute,
     allowWaiting,
@@ -246,6 +251,15 @@ function DeparturePlanner({ orders, riderName, routing = null }) {
       serviceMinutes: serviceValue(order) === "" ? null : serviceValue(order),
     })),
   });
+  const returnTravel = minutes?.[matrixIndexOf(sequenced.at(-1))]?.[0];
+  const hubReturn = hubReturnOf(plan, returnTravel);
+  plan.hubReturn = hubReturn;
+  if (hubReturn.warning) plan.warnings.push(hubReturn.warning);
+  const returnDuration = hubReturn.durationMinutes;
+  const plannedDeparture = plan.evaluatedDeparture;
+  useEffect(() => {
+    onReturnPlanChange?.({ durationMinutes: returnDuration, plannedDeparture });
+  }, [onReturnPlanChange, returnDuration, plannedDeparture]);
 
   // ---- what each action needs ----
   const missingLocation = sequenced.filter((o) => !stopLatLng(o));
@@ -293,6 +307,7 @@ function DeparturePlanner({ orders, riderName, routing = null }) {
   function suggestOrder() {
     if (!allMatrixed) return;
     const result = suggestStopOrder({
+      operatingHours: PHARMACY_HOURS,
       stops: sequenced.map((order) => ({
         id: order.id,
         matrixIndex: matrixIndexOf(order),
@@ -390,6 +405,7 @@ function DeparturePlanner({ orders, riderName, routing = null }) {
         setMatrix(current);
       }
       const result = planTrip({
+        operatingHours: PHARMACY_HOURS,
         stops: sequenced.map((order) => ({
           id: order.id,
           label: stopName(order),
@@ -564,6 +580,8 @@ function DeparturePlanner({ orders, riderName, routing = null }) {
               <input
                 id={`${id}-departure`}
                 type="time"
+                min={PHARMACY_OPEN}
+                max={PHARMACY_CLOSE}
                 step="60"
                 value={departure}
                 onChange={(e) => setDeparture(e.target.value)}
@@ -701,6 +719,10 @@ function DeparturePlanner({ orders, riderName, routing = null }) {
               <strong>{statusText}</strong>
             </p>
             <dl className="dp-facts">
+              <div>
+                <dt>Estimated hub return · target 4:00 PM</dt>
+                <dd className="tnum">{Number.isInteger(hubReturn.minute) ? formatMinute(hubReturn.minute) || "After midnight" : "Unknown"}</dd>
+              </div>
               <div>
                 <dt>Suggested departure</dt>
                 <dd className="tnum">{plan.recommended !== null ? formatMinute(plan.recommended) : "—"}</dd>

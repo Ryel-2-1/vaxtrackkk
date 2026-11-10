@@ -24,6 +24,8 @@ import OfflineNotice from "../../components/shell/OfflineNotice";
 import { subscribeSalesRepOrders } from "../../services/orderService";
 import { deriveSalesRepOrderAlert } from "../../services/salesRepOrderAlert";
 import useNotificationReadState from "../../components/useNotificationReadState";
+import useNotificationPanelState from "../../components/useNotificationPanelState";
+import NotificationPanelItem, { NotificationPanelFooter } from "../../components/shell/NotificationPanelItem";
 import "./SalesRep.css";
 
 /**
@@ -75,6 +77,9 @@ function SalesRepShell() {
   const uid = auth.currentUser?.uid ?? null;
   // Read marks: this browser's cache + the user's shared copy in Firestore.
   const [readNotifications, markNotificationsRead] = useNotificationReadState("salesrep");
+  const { dismissedIds, dismiss, undo, canUndo } = useNotificationPanelState({
+    projectId: auth.app.options.projectId, role: "salesrep", uid,
+  });
   const [orders, setOrders] = useState([]);
   const [notificationsLoading, setNotificationsLoading] = useState(true);
   const [notificationsError, setNotificationsError] = useState(false);
@@ -98,7 +103,8 @@ function SalesRepShell() {
     orders.map(deriveSalesRepOrderAlert).sort((a, b) => b.sortTime - a.sortTime),
   [orders]);
 
-  const unreadCount = notifications.filter(
+  const panelNotifications = notifications.filter((notification) => !dismissedIds.includes(notification.readId));
+  const unreadCount = panelNotifications.filter(
     (notification) => !readNotifications.includes(notification.readId)
   ).length;
 
@@ -168,7 +174,7 @@ function SalesRepShell() {
   };
 
   const markAllRead = () => {
-    markNotificationsRead(notifications.map((notification) => notification.readId));
+    markNotificationsRead(panelNotifications.map((notification) => notification.readId));
   };
 
   const openNotification = (notification) => {
@@ -293,7 +299,7 @@ function SalesRepShell() {
                       <h2>Notifications</h2>
                       <p>{unreadCount} unread alerts</p>
                     </div>
-                    <button type="button" onClick={markAllRead}>
+                    <button type="button" onClick={markAllRead} disabled={unreadCount === 0}>
                       Mark all read
                     </button>
                   </div>
@@ -301,15 +307,17 @@ function SalesRepShell() {
                   <div className="salesrep-notification-list">
                     {notificationsError && <p className="salesrep-notification-empty" role="alert">Notifications could not be loaded.</p>}
                     {!notificationsError && notificationsLoading && <p className="salesrep-notification-empty" role="status">Loading notifications…</p>}
-                    {!notificationsError && !notificationsLoading && notifications.length === 0 && (
+                    {!notificationsError && !notificationsLoading && panelNotifications.length === 0 && (
                       <p className="salesrep-notification-empty">No notifications.</p>
                     )}
-                    {!notificationsError && notifications.map((notification) => {
+                    {!notificationsError && panelNotifications.map((notification) => {
                       const isUnread = !readNotifications.includes(notification.readId);
                       return (
+                        <NotificationPanelItem key={notification.readId} title={notification.title} isRead={!isUnread}
+                          onRead={() => markNotificationsRead([notification.readId])}
+                          onDelete={() => dismiss([notification.readId])}>
                         <button
                           type="button"
-                          key={notification.id}
                           className={`salesrep-notification-item ${isUnread ? "unread" : ""}`}
                           onClick={() => openNotification(notification)}
                         >
@@ -324,9 +332,14 @@ function SalesRepShell() {
                             <small>{notification.time}</small>
                           </div>
                         </button>
+                        </NotificationPanelItem>
                       );
                     })}
                   </div>
+                  <NotificationPanelFooter canClear={!notificationsError && panelNotifications.length > 0}
+                    onClear={() => dismiss(panelNotifications.map((notification) => notification.readId))}
+                    canUndo={canUndo} onUndo={undo} historyPath="/sales-rep/alerts"
+                    onHistory={() => setNotificationOpen(false)} />
                 </div>
               )}
             </div>

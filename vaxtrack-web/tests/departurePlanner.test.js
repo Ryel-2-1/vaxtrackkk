@@ -215,8 +215,12 @@ test("the planner UI saves only the trip route on 'Use this plan', and never reu
   assert.deepEqual(imports.sort(), [
     "../../services/departurePlanner", "../../services/liveDataErrors", "../../services/orderService",
     "../../services/requestedArrival", "../../services/routeService", "../../services/timeAwareRouting",
+    "../../services/pharmacyHours",
     "lucide-react", "react",
   ].sort());
+  // The added hours helper is pure; it introduces no Firebase or write path.
+  const hours = readFileSync(new URL("../src/services/pharmacyHours.js", import.meta.url), "utf8");
+  assert.doesNotMatch(hours, /\bimport\b|httpsCallable|setDoc|updateDoc|addDoc|finalizeRiderDispatch|updateOrderStatus|localStorage|sessionStorage/);
   assert.match(ui, /import \{ saveOrderRoute, saveRiderTripRoute \} from "\.\.\/\.\.\/services\/orderService";/);
   assert.match(ui, /import \{ fetchRoute, fetchTravelMatrix, routeThroughStops \} from "\.\.\/\.\.\/services\/routeService";/);
   // One save helper: a trip for several stops, the order's own route for one.
@@ -236,7 +240,7 @@ test("the planner UI saves only the trip route on 'Use this plan', and never reu
   const cargo = readFileSync(new URL("../src/pages/dispatcher/DispatcherCargoLoading.jsx", import.meta.url), "utf8");
   // On per build (VITE_DEPARTURE_PLANNER_ENABLED=true), or in the loopback-only QA mode.
   assert.match(cargo, /const DEPARTURE_PLANNER_ENABLED =\s*import\.meta\.env\?\.VITE_DEPARTURE_PLANNER_ENABLED === "true" \|\| import\.meta\.env\?\.MODE === "motorcycle-qa";/);
-  assert.match(cargo, /\{DEPARTURE_PLANNER_ENABLED && !dispatched && <DeparturePlanner orders=\{group\.orders\} riderName=\{group\.rider\.name\} routing=\{routing\} \/>\}/);
+  assert.match(cargo, /\{DEPARTURE_PLANNER_ENABLED && !dispatched && <DeparturePlanner orders=\{group\.orders\} riderName=\{group\.rider\.name\} routing=\{routing\} onReturnPlanChange=\{setReturnPlan\} \/>\}/);
   // The routing settings are read only when the planner is on.
   assert.match(cargo, /if \(!DEPARTURE_PLANNER_ENABLED\) return undefined;\s*return subscribeRoutingSettings\(/);
 });

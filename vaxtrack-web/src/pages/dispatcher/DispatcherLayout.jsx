@@ -27,6 +27,9 @@ import useMinuteClock from "../../components/useMinuteClock";
 import SidebarProfile from "../../components/shell/SidebarProfile";
 import OfflineNotice from "../../components/shell/OfflineNotice";
 import useNotificationReadState from "../../components/useNotificationReadState";
+import useNotificationPanelState from "../../components/useNotificationPanelState";
+import NotificationPanelItem, { NotificationPanelFooter } from "../../components/shell/NotificationPanelItem";
+import { dispatcherPanelKey } from "../../services/notificationPanelState";
 import {
   DRAWER_MEDIA_QUERY,
   nextNavState,
@@ -89,6 +92,9 @@ function DispatcherLayout() {
   const [nearDestinations, setNearDestinations] = useState({});
   // Read marks: this browser's cache + the user's shared copy in Firestore.
   const [readNotifications, markNotificationsRead] = useNotificationReadState("dispatcher");
+  const { dismissedIds, dismiss, undo, canUndo } = useNotificationPanelState({
+    projectId: auth.app.options.projectId, role: "dispatcher", uid: auth.currentUser?.uid ?? null,
+  });
   // Live "now N minutes past expected arrival" on late-delivery alerts.
   const minuteNow = useMinuteClock();
   const [feedErrors, setFeedErrors] = useState({ alerts: false, orders: false, near: false });
@@ -99,8 +105,11 @@ function DispatcherLayout() {
     alerts: operationalAlerts, orders, near: nearDestinations, nowMs: minuteNow,
   }), [operationalAlerts, orders, nearDestinations, minuteNow]);
   const notifications = useMemo(() => [...feed.actions, ...feed.updates], [feed]);
-  const unreadActionCount = feed.actions.filter((entry) => !readNotifications.includes(entry.id)).length;
-  const unreadUpdateCount = feed.updates.filter((entry) => !readNotifications.includes(entry.id)).length;
+  const panelActions = feed.actions.filter((entry) => !dismissedIds.includes(dispatcherPanelKey(entry)));
+  const panelUpdates = feed.updates.filter((entry) => !dismissedIds.includes(dispatcherPanelKey(entry)));
+  const panelNotifications = notifications.filter((entry) => !dismissedIds.includes(dispatcherPanelKey(entry)));
+  const unreadActionCount = panelActions.filter((entry) => !readNotifications.includes(entry.id)).length;
+  const unreadUpdateCount = panelUpdates.filter((entry) => !readNotifications.includes(entry.id)).length;
 
   // Three narrow live reads (2026-11-01): active alerts; only the orders the
   // bell speaks about (on the road, delayed, failed, delivered this week); and
@@ -249,7 +258,7 @@ function DispatcherLayout() {
   };
 
   const handleClearNotifications = () => {
-    markNotificationsRead(notifications.map((notification) => notification.id));
+    markNotificationsRead(panelNotifications.map((notification) => notification.id));
   };
 
 
@@ -414,7 +423,7 @@ function DispatcherLayout() {
                     <p>{unreadActionCount} need action · {unreadUpdateCount} new updates</p>
                   </div>
 
-                  <button type="button" onClick={handleClearNotifications}>
+                  <button type="button" onClick={handleClearNotifications} disabled={unreadActionCount + unreadUpdateCount === 0}>
                     Mark all read
                   </button>
                 </div>
@@ -437,7 +446,7 @@ function DispatcherLayout() {
                   {notificationsLoading && !notificationsError && (
                     <p className="dispatcher-notification-empty" role="status">Loading notifications…</p>
                   )}
-                  {!notificationsLoading && !notificationsError && notifications.length === 0 && (
+                  {!notificationsLoading && !notificationsError && panelNotifications.length === 0 && (
                     <p
                       style={{
                         padding: "18px 16px",
@@ -450,13 +459,15 @@ function DispatcherLayout() {
                       No notifications.
                     </p>
                   )}
-                  {feed.actions.length > 0 && <div className="dispatcher-notification-group">Needs action</div>}
-                  {feed.actions.map((notification) => {
+                  {panelActions.length > 0 && <div className="dispatcher-notification-group">Needs action</div>}
+                  {panelActions.map((notification) => {
                     const isRead = readNotifications.includes(notification.id);
                     return (
+                    <NotificationPanelItem key={dispatcherPanelKey(notification)} title={notification.title} isRead={isRead}
+                      onRead={() => markNotificationsRead([notification.id])}
+                      onDelete={() => dismiss([dispatcherPanelKey(notification)])}>
                     <button
                       type="button"
-                      key={notification.id}
                       className={`dispatcher-notification-item ${
                         isRead ? "read" : ""
                       } danger`}
@@ -479,13 +490,17 @@ function DispatcherLayout() {
                         {notification.atMs > 0 && <small>{new Date(notification.atMs).toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" })} PHT</small>}
                       </div>
                     </button>
+                    </NotificationPanelItem>
                     );
                   })}
-                  {feed.updates.length > 0 && <div className="dispatcher-notification-group">Shipment updates</div>}
-                  {feed.updates.map((notification) => {
+                  {panelUpdates.length > 0 && <div className="dispatcher-notification-group">Shipment updates</div>}
+                  {panelUpdates.map((notification) => {
                     const isRead = readNotifications.includes(notification.id);
                     return (
-                      <button type="button" key={notification.id}
+                      <NotificationPanelItem key={dispatcherPanelKey(notification)} title={notification.title} isRead={isRead}
+                        onRead={() => markNotificationsRead([notification.id])}
+                        onDelete={() => dismiss([dispatcherPanelKey(notification)])}>
+                      <button type="button"
                         className={`dispatcher-notification-item ${isRead ? "read" : ""}`}
                         onClick={() => handleNotificationClick(notification)}>
                         <div className="notification-icon">{isRead ? <CheckCircle2 size={15} /> : <Bell size={15} />}</div>
@@ -495,9 +510,14 @@ function DispatcherLayout() {
                           {notification.atMs > 0 && <small>{new Date(notification.atMs).toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" })} PHT</small>}
                         </div>
                       </button>
+                      </NotificationPanelItem>
                     );
                   })}
                 </div>
+                <NotificationPanelFooter canClear={!notificationsError && panelNotifications.length > 0}
+                  onClear={() => dismiss(panelNotifications.map(dispatcherPanelKey))}
+                  canUndo={canUndo} onUndo={undo} historyPath="/dispatcher/shipments" historyLabel="View shipments"
+                  onHistory={() => setShowNotifications(false)} />
               </div>
             )}
           </div>

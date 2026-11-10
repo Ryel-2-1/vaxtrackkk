@@ -30,6 +30,7 @@ import { confirmRiderReturnToHub, subscribeRiderDispatchStates } from "../../ser
 import { cargoGroupDispatch, ridersReturningToHub } from "../../services/riderTrip";
 import DispatcherDialogLayer from "./DispatcherDialogLayer";
 import DeparturePlanner from "../../components/dispatch/DeparturePlanner";
+import { dispatchHoursWarning } from "../../services/pharmacyHours";
 import { subscribeRoutingSettings } from "../../services/routingSettingsService";
 import { routingSettingsOf } from "../../services/routingSettings";
 import { subscribeClinics } from "../../services/clinicService";
@@ -353,7 +354,7 @@ function DispatcherCargoLoading() {
                   finalizing={finalizingRider === group.riderId}
                   now={now}
                   onToggleLoaded={handleToggleLoaded}
-                  onFinalize={() => setConfirmGroup(group)}
+                  onFinalize={(returnPlan) => setConfirmGroup({ ...group, returnPlan })}
                   tripHold={cargoGroupDispatch(tripStates.get(group.riderId))}
                   routing={routing}
                   clinicMap={clinicMap}
@@ -384,6 +385,11 @@ function DispatcherCargoLoading() {
           onCancel={() => setConfirmGroup(null)}
           onConfirm={() => handleFinalize(confirmGroup)}
         >
+          <p className="cl-hint">Pharmacy hours: 7:00 AM–4:00 PM every day (PHT). Riders should be back at the hub by 4:00 PM.</p>
+          {(() => {
+            const warning = dispatchHoursWarning(confirmGroup.returnPlan, new Date());
+            return warning ? <p className="m-dialog-warning" role="note">{warning}</p> : null;
+          })()}
           {/* Non-blocking: dispatch stays available without a route ETA. */}
           {(() => {
             const warning = missingEtaWarning(confirmGroup.orders);
@@ -429,6 +435,7 @@ function RiderCard({
   routing = null,
   clinicMap = null,
 }) {
+  const [returnPlan, setReturnPlan] = useState(null);
   const badge = loadingBadge(group, dispatched);
   // Orders assigned before the schedule guard existed may still sit here ahead
   // of their date, or with no usable date at all. They cannot be loaded
@@ -563,7 +570,7 @@ function RiderCard({
         })}
       </div>
 
-      {DEPARTURE_PLANNER_ENABLED && !dispatched && <DeparturePlanner orders={group.orders} riderName={group.rider.name} routing={routing} />}
+      {DEPARTURE_PLANNER_ENABLED && !dispatched && <DeparturePlanner orders={group.orders} riderName={group.rider.name} routing={routing} onReturnPlanChange={setReturnPlan} />}
 
       {!tripHold.canFinalize && !dispatched ? (
         <p className="cl-hint">{tripHold.reason}</p>
@@ -587,7 +594,7 @@ function RiderCard({
           className="cl-btn cl-btn-primary"
           disabled={!canFinalize}
           aria-disabled={!canFinalize}
-          onClick={onFinalize}
+          onClick={() => onFinalize(returnPlan)}
         >
           {finalizing ? <Loader2 size={14} className="cl-spin" /> : <Truck size={14} />}
           {dispatched ? "Dispatched" : "Finalize dispatch"}

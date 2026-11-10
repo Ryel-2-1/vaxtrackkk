@@ -30,6 +30,7 @@ import {
   routeThroughStops,
 } from "../../services/routeService";
 import { DEADLINE_SLACK_MINUTES, arrivalCheck, bufferedMinutes, matrixMinutes, planTrip } from "../../services/timeAwareRouting";
+import { PHARMACY_HOURS } from "../../services/pharmacyHours";
 import { subscribeRoutingSettings } from "../../services/routingSettingsService";
 import { subscribeClinics } from "../../services/clinicService";
 import { arrivalGeofence, clinicsById, geofenceStatus } from "../../services/destinationFreshness";
@@ -552,9 +553,15 @@ function DispatcherGeofence() {
       // position (+ traffic buffer), the order that meets requested arrivals
       // first, departure fixed at the current minute.
       const points = [riderLL, ...riderStops.map((s) => s.latLng)];
+      // Index zero is the live rider position here, so add the actual hub
+      // separately for the advisory return estimate.
+      const hubReturnIndex = routing.hub ? points.length : null;
+      if (routing.hub) points.push(routing.hub.latLng);
       const seconds = await fetchTravelMatrix(points);
       const clock = manilaClock(new Date());
       const result = planTrip({
+        operatingHours: PHARMACY_HOURS,
+        hubReturnIndex,
         stops: riderStops.map((s, i) => ({
           id: s.order.id,
           label: s.order.clinicName || s.order.orderNumber || "Destination",
@@ -584,9 +591,10 @@ function DispatcherGeofence() {
       setTripNotice({
         riderId,
         allMet: result.allMet,
-        text: result.allMet
+        text: (result.allMet
           ? "Re-planned from the rider's position: every requested arrival is met."
-          : `Re-planned from the rider's position: ${missed} requested arrival${missed === 1 ? "" : "s"} cannot be met from here — this is the order that misses by the least. Tell the clinic${missed === 1 ? "" : "s"} concerned.`,
+          : `Re-planned from the rider's position: ${missed} requested arrival${missed === 1 ? "" : "s"} cannot be met from here — this is the order that misses by the least. Tell the clinic${missed === 1 ? "" : "s"} concerned.`)
+          + ` ${result.plan.hubReturn?.warning || "The estimated hub return is within the 4:00 PM target (PHT)."}`,
       });
       // subscribeDeliveries refreshes the group's orders with the trip fields,
       // so the numbered markers + trip line + stop list redraw automatically.
