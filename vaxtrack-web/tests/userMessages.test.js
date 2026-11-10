@@ -511,7 +511,9 @@ test("field validation is associated accessibly, and focus goes to the first inv
   assert.equal(validateApplication({ name: "", email: "a@b.co" }).field, "name");
   assert.equal(validateApplication({ name: "A", email: "a@b.co", role: "salesrep", password: "StrongPass12!", confirmPassword: "x" }).field, "confirmPassword");
   assert.equal(registrationErrorField("auth/email-already-in-use"), "email");
-  assert.equal(analyticsConfigPayload("v1", { busyMonths: "13", busyIncreasePercent: "50" }).field, "busyMonths");
+  assert.equal(analyticsConfigPayload("v1", { busyMonths: "13", busyMonthlyVials: "500" }).field, "busyMonths");
+  assert.equal(analyticsConfigPayload("v1", { busyMonths: "12", busyMonthlyVials: "0" }).field, "busyMonthlyVials");
+  // The older percentage form is still checked during the rollout.
   assert.equal(analyticsConfigPayload("v1", { busyMonths: "12", busyIncreasePercent: "0" }).field, "busyIncreasePercent");
 
   // Each major form wires aria-invalid + aria-describedby and moves focus.
@@ -522,7 +524,7 @@ test("field validation is associated accessibly, and focus goes to the first inv
     "src/pages/admin/AddVaccine.jsx": [/\{\.\.\.a11y\("vaccineName"\)\}/, /return failField\("internalSku"/, /el\?\.focus\(\)/],
     "src/pages/admin/Clinics.jsx": [/\{\.\.\.fieldA11y\("new-clinic", "name", errors\)\}/, /focusFirstInvalid\(CLINIC_FIELD_ORDER/],
     "src/components/profile/MyProfile.jsx": [/aria-describedby=\{errors\.name \? "my-profile-name-error" : undefined\}/, /focusFirstInvalid\(\["name", "phone"\]/],
-    "src/pages/admin/AiInventoryAnalytics.jsx": [/aria-invalid=\{fieldError\?\.field === "busyIncreasePercent" \? "true" : undefined\}/, /aria-describedby=\{fieldError \? errorId : undefined\}/, /getElementById\(percentId\)\?\.focus\(\)/],
+    "src/pages/admin/AiInventoryAnalytics.jsx": [/aria-invalid=\{fieldError\?\.field === "busyMonthlyVials" \? "true" : undefined\}/, /aria-describedby=\{fieldError \? errorId : undefined\}/, /getElementById\(quantityId\)\?\.focus\(\)/],
     "src/pages/admin/Inventory.jsx": [/aria-invalid=\{correctErrorField === "quantity" \? "true" : undefined\}/, /pre\.field === "reason" \? "inv-correct-reason" : pre\.field === "reasonCode" \? "inv-correct-code" : "inv-correct-input"[\s\S]{0,40}\?\.focus\(\)/, /aria-invalid=\{correctErrorField === "reasonCode" \? "true" : undefined\}/],
   };
   for (const [p, patterns] of Object.entries(forms)) {

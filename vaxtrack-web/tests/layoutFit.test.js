@@ -207,3 +207,29 @@ test("role pages fill the window without the 100vw scrollbar overflow", () => {
   assert.match(read("src/pages/salesRep/SalesRep.css"), /\.salesrep-page \{\n {2}width: 100% !important;/);
   assert.doesNotMatch(read("src/pages/salesRep/salesrep-polish.css"), /rq-cart-drawer \{\n {4}width: 100vw/);
 });
+
+test("the Admin alerts link keeps its words apart and shortens only on narrow phones", () => {
+  const jsx = read("src/components/admin/AdminAlertsBell.jsx");
+  // One inline run: as separate flex items the space after "Go to" collapsed ("Go toAlerts").
+  assert.match(jsx, /<span><span className="admin-alerts-bell-prefix">Go to <\/span>Alerts<\/span>/);
+  const css = read("src/components/admin/AdminAlertsBell.css");
+  assert.match(css, /@media \(max-width: 370px\) \{\s*\.inventory-page \.admin-alerts-bell-prefix \{\s*display: none;/);
+});
+
+test("every staff row's actions button has a name", () => {
+  const settings = read("src/pages/admin/Settings.jsx");
+  assert.match(settings, /className="table-action-btn"\s*aria-label=\{`Actions for \$\{person\.name \|\| person\.email \|\| "this account"\}`\}/);
+});
+
+test("the Dispatcher notifications panel closes on Escape or a tap outside, like the Med Rep's", () => {
+  const jsx = read("src/pages/dispatcher/DispatcherLayout.jsx");
+  assert.match(jsx, /className="dispatcher-notification-wrap" ref=\{notificationWrapRef\}/);
+  assert.match(jsx, /if \(!showNotifications\) return undefined;[\s\S]*?document\.addEventListener\("mousedown", onPointer\);[\s\S]*?document\.addEventListener\("keydown", onKey\);/);
+  assert.match(jsx, /event\.key === "Escape"\) \{\s*setShowNotifications\(false\);\s*bellRef\.current\?\.focus\(\);/);
+  assert.match(jsx, /aria-expanded=\{showNotifications\}/);
+});
+
+test("the Med Rep phone header gives the page title the free space, not a 45% cap", () => {
+  const css = read("src/pages/salesRep/salesrep-polish.css");
+  assert.match(css, /@media \(max-width: 768px\) \{\s*#root \.salesrep-page \.salesrep-topbar h1\.m-topbar-title \{\s*flex: 1 1 auto !important;\s*min-width: 0 !important;\s*max-width: none !important;/);
+});

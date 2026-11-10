@@ -68,6 +68,9 @@ test("client and server word the stale incident identically", () => {
   for (const input of [
     { status: "active", riderName: "Ana Cruz", minutes: 14.7 },
     { status: "active", riderName: "", minutes: 3 },
+    { status: "active", riderName: "Ana", minutes: 59.9 },
+    { status: "active", riderName: "Ana", minutes: 60 },
+    { status: "active", riderName: "Ana", minutes: 651 },
     { status: "resolved", riderName: "Ana", resolutionReason: "location_updating" },
     { status: "resolved", riderName: null, resolutionReason: "trip_superseded" },
   ]) {

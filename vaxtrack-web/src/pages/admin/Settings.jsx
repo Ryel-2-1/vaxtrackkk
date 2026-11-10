@@ -719,13 +719,16 @@ function UserManagement({ searchTerm, showToast }) {
                       <button
                         type="button"
                         className="table-action-btn"
+                        aria-label={`Actions for ${person.name || person.email || "this account"}`}
+                        aria-expanded={actionMenuUid === person.uid}
+                        title="Actions"
                         onClick={() =>
                           setActionMenuUid((prev) =>
                             prev === person.uid ? null : person.uid
                           )
                         }
                       >
-                        <MoreVertical size={16} />
+                        <MoreVertical size={16} aria-hidden="true" />
                       </button>
 
                       {actionMenuUid === person.uid && (

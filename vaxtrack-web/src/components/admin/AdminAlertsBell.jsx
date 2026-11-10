@@ -40,7 +40,8 @@ export default function AdminAlertsBell() {
     : "Go to Alerts. No unread alerts or pending reviews.";
   return <>
     <Link to="/admin/alerts" className="m-topbar-icon-btn admin-alerts-bell" aria-label={label} title={label}>
-      Go to Alerts
+      {/* One inline run, so the space after "Go to" survives the flex layout. */}
+      <span><span className="admin-alerts-bell-prefix">Go to </span>Alerts</span>
       {badge !== null && <span className={`admin-alerts-bell-badge tnum${badge === "!" ? " is-unavailable" : ""}`} aria-hidden="true">{badge}</span>}
     </Link>
     {priorityNotice > 0 && !reviewsUnavailable && <div className="admin-zero-rate-notice" role="status" aria-live="polite">

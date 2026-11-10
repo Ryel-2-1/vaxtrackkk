@@ -173,7 +173,10 @@ function staleAlertText({ status, riderName, minutes, resolutionReason }) {
     return `${rider}'s trip has ended, so location monitoring stopped.`;
   }
   const mins = Number.isFinite(minutes) && minutes >= 10 ? Math.floor(minutes) : 10;
-  return `${rider}'s location hasn't updated for ${mins} minutes during a delivery trip. ` +
+  // "651 minutes" is hard to read; an hour or more is said in hours.
+  const hours = Math.round(mins / 60);
+  const span = mins < 60 ? `${mins} minutes` : `about ${hours} ${hours === 1 ? "hour" : "hours"}`;
+  return `${rider}'s location hasn't updated for ${span} during a delivery trip. ` +
     "Check that the rider app is open and has signal.";
 }
 

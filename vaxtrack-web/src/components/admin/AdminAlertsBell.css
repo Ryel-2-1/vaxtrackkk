@@ -84,3 +84,19 @@
   cursor: pointer;
 }
 .admin-zero-rate-notice-close:hover { background: var(--gray-100); }
+
+/* Phones: the text button left "Inventory Forecast" 4px short of room and
+   ellipsized it at 375px. Narrower side padding gives the title that space. */
+@media (max-width: 480px) {
+  .inventory-page .admin-alerts-bell {
+    --topbar-control-padding: 0 8px;
+  }
+}
+/* Narrow phones (360px): "Alerts" alone, so titles such as "Inventory
+   Forecast" and "Delivery Calendar" are not cut. The accessible name still
+   starts "Go to Alerts". */
+@media (max-width: 370px) {
+  .inventory-page .admin-alerts-bell-prefix {
+    display: none;
+  }
+}

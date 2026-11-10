@@ -3735,3 +3735,15 @@ body:has(> #root > .salesrep-page),
 @media (prefers-reduced-motion: reduce) {
   .salesrep-page .bell-notice-content { transition: none; }
 }
+
+/* Phone header: legacy rules in SalesRep.css capped the title at 42–45% of
+   the bar, so "Order Confirmation", "Live Monitoring" and others were cut off
+   with ~130px of empty bar beside them. The title takes the free space up to
+   the bell instead, and still ellipsizes if it truly runs out. */
+@media (max-width: 768px) {
+  #root .salesrep-page .salesrep-topbar h1.m-topbar-title {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+  }
+}

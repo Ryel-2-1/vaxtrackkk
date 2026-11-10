@@ -71,6 +71,32 @@ function DispatcherLayout() {
   const [navOpen, setNavOpen] = useState(false);
   const navToggleRef = useRef(null);
   const sidebarRef = useRef(null);
+  const notificationWrapRef = useRef(null);
+  const bellRef = useRef(null);
+
+  // The notifications panel closes like the Med Rep's: a tap outside it, or
+  // Escape (which returns focus to the bell). An item's own options menu
+  // handles Escape first and stops it, so that closes just the menu.
+  useEffect(() => {
+    if (!showNotifications) return undefined;
+    const onPointer = (event) => {
+      if (notificationWrapRef.current && !notificationWrapRef.current.contains(event.target)) {
+        setShowNotifications(false);
+      }
+    };
+    const onKey = (event) => {
+      if (event.key === "Escape") {
+        setShowNotifications(false);
+        bellRef.current?.focus();
+      }
+    };
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [showNotifications]);
   const applyNav = useCallback(
     (event) => setNavOpen((open) => nextNavState(open, event)),
     []
@@ -402,14 +428,16 @@ function DispatcherLayout() {
               (2026-10-31); each page keeps its own real search. */}
           <div className="m-topbar-actions">
 
-          <div className="dispatcher-notification-wrap">
+          <div className="dispatcher-notification-wrap" ref={notificationWrapRef}>
             <button
               type="button"
+              ref={bellRef}
               className="dispatcher-bell m-topbar-icon-btn"
               aria-label="Open notifications"
+              aria-expanded={showNotifications}
               onClick={() => setShowNotifications((prev) => !prev)}
             >
-              <Bell size={16} />
+              <Bell size={16} aria-hidden="true" />
               {(unreadActionCount > 0 || unreadUpdateCount > 0) && (
                 <span className={unreadActionCount > 0 ? "dispatcher-bell-action" : "dispatcher-bell-update"} />
               )}
