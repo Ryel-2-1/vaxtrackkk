@@ -266,6 +266,9 @@ function validateForecastDocument(doc) {
   if (!season || !["none", "calendar", "last_year"].includes(season.source) || !Number.isSafeInteger(season.percent) || !Array.isArray(season.busyMonths)) {
     problems.push("seasonAdjustment must give its source, percent and busy months");
   }
+  if (season?.monthlyVials !== undefined && (season.source !== "calendar" || !Number.isSafeInteger(season.monthlyVials) || season.monthlyVials < 1 || season.monthlyVials > 100000000)) {
+    problems.push("monthlyVials must be a positive whole monthly total for a calendar adjustment");
+  }
   return problems;
 }
 

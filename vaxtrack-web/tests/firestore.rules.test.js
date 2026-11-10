@@ -5613,6 +5613,20 @@ async function main() {
     await assertSucceeds(setDoc(ref, analyticsConfig({ busyIncreasePercent: 300 })));
   });
 
+  await check("PAN2v monthly vial totals replace a percentage record, with valid bounds", async () => {
+    const ref = doc(admin, "inventoryAnalyticsConfig", "vacAnalytics");
+    const vials = (quantity, months = [5]) => ({ vaccineId: "vacAnalytics", busyMonths: months,
+      busyMonthlyVials: quantity, updatedAt: serverTimestamp(), updatedByUid: adminUid });
+    for (const data of [vials(500), vials(1), vials(100000000), vials(0, [])]) await assertSucceeds(setDoc(ref, data));
+    for (const data of [vials(0), vials(-1), vials(1.5), vials("500"), vials(100000001), vials(500, []),
+      vials(500, [13]), vials(500, [5, 5]), { ...vials(500), busyIncreasePercent: 50 },
+      { ...vials(500), updatedByUid: "someone-else" }, { ...vials(500), vaccineId: "other" }]) {
+      await assertFails(setDoc(ref, data));
+    }
+    for (const ctx of [salesRep, dispatcher, rider, anon]) await assertFails(setDoc(doc(ctx, "inventoryAnalyticsConfig", "vacAnalytics"), vials(500)));
+    await assertSucceeds(setDoc(ref, vials(500)));
+  });
+
   await check("NAN3 configuration validation is enforced", async () => {
     const ref = doc(admin, "inventoryAnalyticsConfig", "vacAnalytics");
     for (const bad of [

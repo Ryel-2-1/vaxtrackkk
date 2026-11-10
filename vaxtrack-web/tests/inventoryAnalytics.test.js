@@ -160,16 +160,16 @@ test("stale and changed-configuration detection", () => {
 
 test("30 · the busy-season form accepts exactly what the server and rules accept", () => {
   const cases = [
-    [{ busyMonths: "", busyIncreasePercent: "" }, true], // no busy season
-    [{ busyMonths: "12", busyIncreasePercent: "50" }, true],
-    [{ busyMonths: "11,12", busyIncreasePercent: "1" }, true],
-    [{ busyMonths: "1,2,3,4,5,6,7,8,9,10,11,12", busyIncreasePercent: "300" }, true],
-    [{ busyMonths: "12", busyIncreasePercent: "" }, false],
-    [{ busyMonths: "12", busyIncreasePercent: "0" }, false],
-    [{ busyMonths: "12", busyIncreasePercent: "301" }, false],
-    [{ busyMonths: "12", busyIncreasePercent: "2.5" }, false],
-    [{ busyMonths: "13", busyIncreasePercent: "50" }, false],
-    [{ busyMonths: "12,12", busyIncreasePercent: "50" }, false],
+    [{ busyMonths: "", busyMonthlyVials: "" }, true], // no busy season
+    [{ busyMonths: "12", busyMonthlyVials: "500" }, true],
+    [{ busyMonths: "11,12", busyMonthlyVials: "1" }, true],
+    [{ busyMonths: "1,2,3,4,5,6,7,8,9,10,11,12", busyMonthlyVials: "100000000" }, true],
+    [{ busyMonths: "12", busyMonthlyVials: "" }, false],
+    [{ busyMonths: "12", busyMonthlyVials: "0" }, false],
+    [{ busyMonths: "12", busyMonthlyVials: "100000001" }, false],
+    [{ busyMonths: "12", busyMonthlyVials: "2.5" }, false],
+    [{ busyMonths: "13", busyMonthlyVials: "500" }, false],
+    [{ busyMonths: "12,12", busyMonthlyVials: "500" }, false],
   ];
   for (const [form, ok] of cases) {
     const web = analyticsConfigPayload("vacA", form);

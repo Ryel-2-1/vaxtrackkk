@@ -29,6 +29,7 @@ const SEASON_SOURCE = Object.freeze({ LAST_YEAR: "last_year", CALENDAR: "calenda
 const MIN_LEARNED_RATIO = 0.5;
 const MAX_LEARNED_RATIO = 3;
 const MAX_BUSY_INCREASE_PERCENT = 300;
+const MAX_BUSY_MONTHLY_VIALS = 100000000;
 const DAYS_PER_YEAR_BACK = 364; // 52 whole weeks, so weekdays line up
 
 function addDays(iso, days) {
@@ -51,6 +52,12 @@ function seasonFromConfig(config) {
   if (!config || !Array.isArray(config.busyMonths) || config.busyMonths.length === 0) return null;
   const months = [...new Set(config.busyMonths)].filter((m) => Number.isInteger(m) && m >= 1 && m <= 12).sort((a, b) => a - b);
   const percent = config.busyIncreasePercent;
+  if (Object.hasOwn(config, "busyMonthlyVials")) {
+    const monthlyVials = config.busyMonthlyVials;
+    return months.length > 0 && Number.isSafeInteger(monthlyVials) && monthlyVials > 0 && monthlyVials <= MAX_BUSY_MONTHLY_VIALS
+      ? { busyMonths: months, monthlyVials }
+      : null;
+  }
   if (months.length === 0 || !Number.isInteger(percent) || percent <= 0 || percent > MAX_BUSY_INCREASE_PERCENT) return null;
   return { busyMonths: months, percent };
 }
@@ -106,6 +113,21 @@ function calendarRatio({ season, history, asOfDate, horizonDays, windowWeeks }) 
   return past ? horizon / past : 1;
 }
 
+/** Total demand per selected calendar month, prorated for partial months.
+ * Other days retain the stored baseline's daily rate. Round only the total.
+ */
+function monthlyVialQuantity({ season, asOfDate, horizonDays, baseQuantity }) {
+  const busy = new Set(season.busyMonths);
+  let total = 0;
+  for (let day = 0; day < horizonDays; day += 1) {
+    const iso = addDays(asOfDate, day);
+    const date = new Date(`${iso}T00:00:00.000Z`);
+    const daysInMonth = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
+    total += busy.has(monthOf(iso)) ? season.monthlyVials / daysInMonth : baseQuantity / horizonDays;
+  }
+  return Math.max(0, Math.round(total));
+}
+
 /**
  * The engine's forecast for [horizonDays], adjusted for the season.
  * Returns { prediction, adjustment } where prediction has the engine's shape
@@ -122,6 +144,26 @@ function seasonalPrediction({ engine, history, horizonDays, asOfDate, config }) 
   let source = SEASON_SOURCE.NONE;
   let ratio = 1;
   const learned = lastYearRatio({ history, asOfDate, horizonDays, windowWeeks });
+  if (learned === null && season?.monthlyVials !== undefined) {
+    const predictedQuantity = monthlyVialQuantity({ season, asOfDate, horizonDays, baseQuantity: base.predictedQuantity });
+    return {
+      prediction: {
+        ...base,
+        predictedQuantity,
+        explanationFactors: [...base.explanationFactors, {
+          key: "season", label: "Season",
+          value: `${season.monthlyVials} total vials per selected calendar month (${season.busyMonths.join(", ")}), prorated to the forecast dates; other days use the baseline.`,
+        }],
+      },
+      adjustment: {
+        source: SEASON_SOURCE.CALENDAR,
+        percent: base.predictedQuantity > 0 ? Math.round((predictedQuantity / base.predictedQuantity - 1) * 100) : 0,
+        busyMonths: season.busyMonths,
+        monthlyVials: season.monthlyVials,
+        baseQuantity: base.predictedQuantity,
+      },
+    };
+  }
   if (learned !== null) {
     source = SEASON_SOURCE.LAST_YEAR;
     ratio = learned;
@@ -154,11 +196,13 @@ function seasonalPrediction({ engine, history, horizonDays, asOfDate, config }) 
 module.exports = {
   SEASON_SOURCE,
   MAX_BUSY_INCREASE_PERCENT,
+  MAX_BUSY_MONTHLY_VIALS,
   MIN_LEARNED_RATIO,
   MAX_LEARNED_RATIO,
   seasonFromConfig,
   lastYearRatio,
   calendarRatio,
+  monthlyVialQuantity,
   seasonalPrediction,
   weekStartOf,
 };

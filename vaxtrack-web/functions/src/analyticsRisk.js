@@ -35,9 +35,9 @@
  *   low      covered
  */
 
-const { SEASON_SOURCE, MAX_BUSY_INCREASE_PERCENT, seasonalPrediction } = require("./seasonality");
+const { SEASON_SOURCE, MAX_BUSY_INCREASE_PERCENT, MAX_BUSY_MONTHLY_VIALS, seasonalPrediction } = require("./seasonality");
 
-const CONFIG_FIELDS = Object.freeze(["vaccineId", "busyMonths", "busyIncreasePercent", "updatedAt", "updatedByUid"]);
+const CONFIG_FIELDS = Object.freeze(["vaccineId", "busyMonths", "busyIncreasePercent", "busyMonthlyVials", "updatedAt", "updatedByUid"]);
 
 const CONFIG_STATUS = Object.freeze({
   COMPLETE: "complete",
@@ -60,7 +60,12 @@ function validateAnalyticsConfig(config, vaccineId) {
   if (!Array.isArray(months) || months.length > 12 || !months.every((m) => intIn(m, 1, 12)) || new Set(months).size !== months.length) {
     errors.push("busyMonths must be distinct whole months 1–12");
   }
-  if (!intIn(config.busyIncreasePercent, 0, MAX_BUSY_INCREASE_PERCENT)) {
+  if (Object.hasOwn(config, "busyMonthlyVials")) {
+    if (Object.hasOwn(config, "busyIncreasePercent") || !intIn(config.busyMonthlyVials, 0, MAX_BUSY_MONTHLY_VIALS)
+      || (Array.isArray(months) && (months.length > 0 ? config.busyMonthlyVials < 1 : config.busyMonthlyVials !== 0))) {
+      errors.push("busyMonthlyVials must be a whole monthly total; use 0 only with no busy months");
+    }
+  } else if (!intIn(config.busyIncreasePercent, 0, MAX_BUSY_INCREASE_PERCENT)) {
     errors.push(`busyIncreasePercent must be a whole number 0–${MAX_BUSY_INCREASE_PERCENT}`);
   }
   if (typeof config.updatedByUid !== "string" || config.updatedByUid === "") errors.push("updatedByUid is required");
@@ -133,7 +138,10 @@ function assessProduct({ engine, history, horizonDays, stock, backorderedQuantit
   const result = (level, basis, reason) => ({
     prediction,
     configStatus,
-    seasonAdjustment: { source: adjustment.source, percent: adjustment.percent, busyMonths: adjustment.busyMonths },
+    seasonAdjustment: {
+      source: adjustment.source, percent: adjustment.percent, busyMonths: adjustment.busyMonths,
+      ...(adjustment.monthlyVials !== undefined ? { monthlyVials: adjustment.monthlyVials } : {}),
+    },
     allocationMayBePending,
     stockoutRiskLevel: level,
     riskBasis: basis,

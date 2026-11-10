@@ -99,6 +99,26 @@ const run = async (opts, logger = quiet()) =>
   (await tool()).runGenerator({ db, FieldValue, options: options(opts), log: logger.log });
 const count = async (c) => (await db.collection(c).get()).size;
 
+test("monthly vial settings persist in generated forecasts and retries keep the same run", async () => {
+  await seed();
+  await db.collection("inventoryAnalyticsConfig").doc("vacA").set({
+    vaccineId: "vacA", busyMonths: [10, 11], busyMonthlyVials: 500,
+    updatedAt: Timestamp.fromDate(new Date("2026-10-01T00:00:00Z")), updatedByUid: "admin1",
+  });
+  const dry = await run({ apply: false });
+  const before = await snapshotOthers();
+  const applied = await run({ apply: true, confirm: dry.forecastCount });
+  const stored = (await db.collection(FORECASTS).doc("vacA__all__30d").get()).data();
+  // Oct 9–31 = 23 days, Nov 1–7 = 7 days; total is not +500 or +500%.
+  assert.equal(stored.predictedDemandQuantity, Math.round(500 * 23 / 31 + 500 * 7 / 30));
+  assert.equal(stored.seasonAdjustment.monthlyVials, 500);
+  assert.deepEqual(validateForecastDocument(stored), []);
+  assert.deepEqual(await snapshotOthers(), before);
+  const retry = await run({ apply: true, confirm: dry.forecastCount });
+  assert.equal(retry.runId, applied.runId);
+  assert.equal(retry.replayed, true);
+});
+
 /** updateTime of every document outside the analytics collections. */
 async function snapshotOthers() {
   const out = {};

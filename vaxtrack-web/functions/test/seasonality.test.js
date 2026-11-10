@@ -79,3 +79,45 @@ test("too little history: no forecast, nothing to adjust", () => {
 test("the history window reaches back far enough to compare with last year", () => {
   assert.ok(A.MAX_TRAINING_WEEKS >= 52 + 8 + 1);
 });
+
+const monthly = (busyMonths, busyMonthlyVials) => ({ busyMonths, busyMonthlyVials });
+const recentHistory = series("2026-03-02", Array(8).fill(70));
+
+test("monthly vials are the total for each selected month, not an increase", () => {
+  const r = predict(recentHistory, "2026-05-01", monthly([5], 500), 31);
+  assert.equal(r.prediction.predictedQuantity, 500);
+  assert.equal(r.adjustment.monthlyVials, 500);
+  assert.equal(r.adjustment.source, "calendar");
+  assert.equal(predict(recentHistory, "2026-05-01", monthly([5, 6], 500), 61).prediction.predictedQuantity, 1000);
+});
+
+test("partial months prorate the total; unselected days keep the baseline", () => {
+  assert.equal(predict(recentHistory, "2026-05-01", monthly([5], 500), 7).prediction.predictedQuantity, Math.round(500 * 7 / 31));
+  assert.equal(predict(recentHistory, "2026-11-30", monthly([12], 620), 2).prediction.predictedQuantity, 30);
+  assert.equal(predict(recentHistory, "2026-11-30", monthly([11, 12], 620), 2).prediction.predictedQuantity, 41);
+});
+
+test("monthly totals respect leap years and can raise a zero-demand baseline", () => {
+  assert.equal(predict(recentHistory, "2028-02-01", monthly([2], 2900), 29).prediction.predictedQuantity, 2900);
+  assert.equal(predict(recentHistory, "2027-02-01", monthly([2], 2900), 28).prediction.predictedQuantity, 2900);
+  assert.equal(predict(series("2026-03-02", Array(8).fill(0)), "2026-05-01", monthly([5], 310), 7).prediction.predictedQuantity, 70);
+});
+
+test("monthly settings preserve the history requirement and last-year priority", () => {
+  assert.equal(predict(series("2026-03-02", [10, 10]), "2026-05-01", monthly([5], 500)).prediction.predictedQuantity, null);
+  const history = series("2026-10-12", Array(60).fill(70));
+  const r = predict(history, "2027-12-06", monthly([12], 500));
+  assert.equal(r.adjustment.source, "last_year");
+  assert.equal(r.prediction.predictedQuantity, 300);
+});
+
+test("monthly settings are validated as whole counts and cannot mix with percentages", () => {
+  const R = require("../src/analyticsRisk");
+  const stamp = { vaccineId: "v", updatedAt: new Date(), updatedByUid: "admin" };
+  for (const [data, valid] of [
+    [monthly([5], 500), true], [monthly([], 0), true], [monthly([5], S.MAX_BUSY_MONTHLY_VIALS), true],
+    [monthly([5], 0), false], [monthly([], 500), false], [monthly([5], -1), false],
+    [monthly([5], 1.5), false], [monthly([5], "500"), false], [monthly([5], S.MAX_BUSY_MONTHLY_VIALS + 1), false],
+    [{ ...monthly([5], 500), busyIncreasePercent: 50 }, false],
+  ]) assert.equal(R.validateAnalyticsConfig({ ...stamp, ...data }, "v").ok, valid, JSON.stringify(data));
+});

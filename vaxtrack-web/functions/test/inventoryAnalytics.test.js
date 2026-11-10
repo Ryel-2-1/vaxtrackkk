@@ -596,12 +596,27 @@ test("configuration audit metadata never changes the run id; calculation values 
   // The audit metadata is still kept on the run record.
   const plan = RUN.buildAnalyticsPlan(otherAdmin);
   assert.deepEqual(plan.run.configurationSnapshot, [{
-    vaccineId: "vacA", busyMonths: [], busyIncreasePercent: 0,
+    vaccineId: "vacA", busyMonths: [], busyIncreasePercent: 0, busyMonthlyVials: null,
     updatedAtMillis: Date.parse("2026-10-01T00:00:00Z"), updatedByUid: "admin2",
   }]);
-  assert.deepEqual(RUN.CONFIG_CALCULATION_FIELDS, ["vaccineId", "busyMonths", "busyIncreasePercent"]);
+  assert.deepEqual(RUN.CONFIG_CALCULATION_FIELDS, ["vaccineId", "busyMonths", "busyIncreasePercent", "busyMonthlyVials"]);
   const inputs = RUN.normalizedInputs(planInput());
   assert.ok(!("updatedAt" in inputs.configs[0]) && !("updatedByUid" in inputs.configs[0]));
+});
+
+test("monthly vial totals are recorded in forecasts and affect the run identity", () => {
+  const input = planInput();
+  input.configs[0].data = { vaccineId: "vacA", busyMonths: [10], busyMonthlyVials: 500,
+    updatedAt: ts("2026-10-01T00:00:00Z"), updatedByUid: "admin" };
+  const first = RUN.buildAnalyticsPlan(input);
+  const forecast = first.forecasts.find((f) => f.data.vaccineId === "vacA" && f.data.horizonDays === 30).data;
+  assert.equal(forecast.seasonAdjustment.monthlyVials, 500);
+  assert.deepEqual(E.validateForecastDocument(forecast), []);
+  assert.equal(first.run.configurationSnapshot[0].busyMonthlyVials, 500);
+  input.configs[0].data.busyMonthlyVials = 600;
+  const second = RUN.buildAnalyticsPlan(input);
+  assert.notEqual(first.runId, second.runId);
+  assert.notEqual(forecast.predictedDemandQuantity, second.forecasts.find((f) => f.id === first.forecasts.find((f) => f.data.vaccineId === "vacA" && f.data.horizonDays === 30).id).data.predictedDemandQuantity);
 });
 
 test("identical normalized inputs at the same as-of boundary stay retry-idempotent", () => {

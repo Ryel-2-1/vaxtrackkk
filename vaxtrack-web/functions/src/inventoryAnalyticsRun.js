@@ -58,6 +58,7 @@ const CONFIG_CALCULATION_FIELDS = Object.freeze([
   "vaccineId",
   "busyMonths",
   "busyIncreasePercent",
+  "busyMonthlyVials",
 ]);
 
 /**
@@ -91,7 +92,7 @@ const FIRESTORE_DOCUMENTED_REQUEST_LIMIT_BYTES = 10 * 1024 * 1024;
 //    deterministic product-identity resolution.
 // 3 (2026-11-10): seasons; the suggested order covers the period (no lead time
 // or safety stock settings).
-const CALCULATION_CONTRACT_VERSION = "inventory-analytics-3";
+const CALCULATION_CONTRACT_VERSION = "inventory-analytics-4"; // Absolute monthly vial totals, with legacy percent support.
 
 /** Shown (and stored on the run) when the data comes from the staging project. */
 const STAGING_DATA_WARNING =

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import AdminLayout from "../../components/admin/AdminLayout";
 import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import StaleEditNotice from "../../components/ui/StaleEditNotice";
@@ -27,7 +28,7 @@ import {
   plainFigures,
   plainForecastStory,
   FORECAST_STATUS_HELP,
-  MAX_BUSY_INCREASE_PERCENT,
+  MAX_BUSY_MONTHLY_VIALS,
   MONTH_NAMES,
   seasonSummary,
   forecastRow,
@@ -56,11 +57,28 @@ import "./AiInventoryAnalytics.css";
 
 const CONFIG_FIELD_LABELS = {
   busyMonths: "Busy months",
-  busyIncreasePercent: "How much more",
+  busyMonthlyVials: "Monthly vial total",
 };
 
 /** How many recent weeks the weekly-orders chart shows. */
 const RECENT_WEEKS_SHOWN = 8;
+
+function ForecastSection({ title, description, summary, children }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return (
+    <section className={`aia-disclosure${open ? " is-open" : ""}`}>
+      <button type="button" className="aia-disclosure-toggle" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
+        <span className="aia-disclosure-label"><strong>{title}</strong><small>{description}</small></span>
+        {summary && <span className="aia-disclosure-summary">{summary}</span>}
+        <ChevronDown size={18} aria-hidden="true" />
+      </button>
+      <div id={id} className="aia-disclosure-content" aria-hidden={!open} inert={!open}>
+        <div className="aia-disclosure-clip"><div className="aia-disclosure-inner">{children}</div></div>
+      </div>
+    </section>
+  );
+}
 
 function SeasonEditor({ vaccineId, config, onSaved }) {
   // Follows the live settings while untouched; once edited, a change saved by
@@ -74,7 +92,7 @@ function SeasonEditor({ vaccineId, config, onSaved }) {
   const [error, setError] = useState("");
   const [fieldError, setFieldError] = useState(null);
   const months = form.busyMonths.split(",").filter(Boolean).map(Number);
-  const percentId = `aia-busy-pct-${vaccineId}`;
+  const quantityId = `aia-busy-vials-${vaccineId}`;
   const errorId = `aia-config-error-${vaccineId}`;
 
   const toggleMonth = (m) => {
@@ -94,7 +112,7 @@ function SeasonEditor({ vaccineId, config, onSaved }) {
     const checked = analyticsConfigPayload(vaccineId, form);
     if (!checked.ok) {
       setFieldError({ field: checked.field ?? null, text: checked.error });
-      if (checked.field === "busyIncreasePercent") document.getElementById(percentId)?.focus();
+      if (checked.field === "busyMonthlyVials") document.getElementById(quantityId)?.focus();
       return;
     }
     setFieldError(null);
@@ -130,21 +148,26 @@ function SeasonEditor({ vaccineId, config, onSaved }) {
         ))}
       </fieldset>
       {months.length > 0 && (
-        <label className="aia-busy-pct" htmlFor={percentId}>
-          About how much more is ordered in those months? (%)
+        <label className="aia-busy-vials" htmlFor={quantityId}>
+          Expected vials per selected month (total)
           <input
-            id={percentId}
+            id={quantityId}
+            type="number"
+            min="1"
+            max={MAX_BUSY_MONTHLY_VIALS}
+            step="1"
             inputMode="numeric"
-            value={form.busyIncreasePercent}
+            value={form.busyMonthlyVials}
             onChange={(e) => {
-              setForm((f) => ({ ...f, busyIncreasePercent: e.target.value }));
+              setForm((f) => ({ ...f, busyMonthlyVials: e.target.value }));
               setFieldError(null);
             }}
-            placeholder="e.g. 50"
-            aria-invalid={fieldError?.field === "busyIncreasePercent" ? "true" : undefined}
+            placeholder="e.g. 500"
+            aria-invalid={fieldError?.field === "busyMonthlyVials" ? "true" : undefined}
             aria-describedby={fieldError ? errorId : undefined}
           />
-          <small className="aia-muted">1 to {MAX_BUSY_INCREASE_PERCENT}. Once there is a full year of orders, VaxTrack also learns this from last year.</small>
+          <small className="aia-muted">For example, 500 means 500 vials total in each selected calendar month. Partial months are prorated. Once enough history is available, the same weeks last year take priority.</small>
+          {config?.busyIncreasePercent !== undefined && config?.busyMonthlyVials === undefined && <small className="aia-muted">An older percentage setting is saved. Enter a vial total to replace it; it has not been converted automatically.</small>}
         </label>
       )}
       {fieldError && <p id={errorId} className="aia-error" role="alert">{fieldError.text}</p>}
@@ -174,6 +197,9 @@ function ForecastDetail({ horizons, config, onClose }) {
   // before a vaccine was first ordered only push them off the screen.
   const history = (Array.isArray(primary.weeklyHistory) ? primary.weeklyHistory : []).slice(-RECENT_WEEKS_SHOWN);
   const peak = history.reduce((m, w) => Math.max(m, Number.isSafeInteger(w.quantity) ? w.quantity : 0), 0);
+  const historyTotal = history.length > 0 && history.every((week) => Number.isSafeInteger(week.quantity) && week.quantity >= 0)
+    ? history.reduce((total, week) => total + week.quantity, 0)
+    : null;
   const advice = forecastAdvice(row);
 
   return (
@@ -196,8 +222,9 @@ function ForecastDetail({ horizons, config, onClose }) {
         {advice.why && <p>{advice.why}</p>}
       </div>
       <dl className="aia-facts">
-        <div><dt>In stock</dt><dd className="tnum">{row.available}</dd></div>
-        <div><dt>Expected need, 30 days</dt><dd className="tnum">{row.insufficient ? "—" : row.predicted}</dd></div>
+        <div><dt>Vials available now</dt><dd className="tnum">{row.available}</dd></div>
+        <div><dt>Expected vials, next {primary.horizonDays} days</dt><dd className="tnum">{row.insufficient ? "—" : row.predicted}</dd></div>
+        <div><dt>Vials to order</dt><dd className="tnum">{row.reorder}</dd></div>
         {row.hasBackorders && (
           <div><dt>Already ordered, waiting for stock</dt><dd className="tnum">{row.backordered}</dd></div>
         )}
@@ -230,7 +257,7 @@ function ForecastDetail({ horizons, config, onClose }) {
           <span className="aia-settings-summary">{seasonSummary(config) ?? "None set"}</span>
         </summary>
         <p className="aia-muted">
-          Mark the months this vaccine is ordered more, and VaxTrack raises its estimate for them.
+          Choose the busy months and enter the total vials expected in each one.
         </p>
         <SeasonEditor
           key={primary.vaccineId}
@@ -240,15 +267,26 @@ function ForecastDetail({ horizons, config, onClose }) {
         />
       </details>
 
-      <details className="aia-workings">
-        <summary>How this was worked out (for checking the numbers)</summary>
+      <p className="aia-muted">All stock and demand quantities below are in vials.</p>
+      <div className="aia-detail-sections">
+        <ForecastSection title="Order recommendation" description={`How stock and expected demand affect the next ${primary.horizonDays} days`} summary={row.reorder === "—" ? "Not available" : `${row.reorder} ${row.reorder === "1" ? "vial" : "vials"} to order`}>
         <div className="aia-story">
           {plainForecastStory(primary).map((line) => (
             <p key={line}>{line}</p>
           ))}
         </div>
 
-        <h3>Vials ordered each week (last {RECENT_WEEKS_SHOWN} weeks)</h3>
+        <dl className="aia-calc">
+          {plainFigures(primary).map((f) => (
+            <div key={f.label}>
+              <dt>{f.label}</dt>
+              <dd className="tnum">{f.value}</dd>
+            </div>
+          ))}
+        </dl>
+        </ForecastSection>
+
+        <ForecastSection title="Vials ordered" description={`Weekly order history · last ${RECENT_WEEKS_SHOWN} weeks`} summary={historyTotal === null ? "History unavailable" : `${formatQuantity(historyTotal)} ${historyTotal === 1 ? "vial" : "vials"} recorded`}>
         {history.length === 0 ? (
           <p className="aia-muted">No orders in the weeks VaxTrack looked at.</p>
         ) : (
@@ -264,26 +302,17 @@ function ForecastDetail({ horizons, config, onClose }) {
             ))}
           </ol>
         )}
+        </ForecastSection>
 
-        <h3>The numbers, next {primary.horizonDays} days</h3>
-        <dl className="aia-calc">
-          {plainFigures(primary).map((f) => (
-            <div key={f.label}>
-              <dt>{f.label}</dt>
-              <dd className="tnum">{f.value}</dd>
-            </div>
-          ))}
-        </dl>
-
-        <h3>Looking further ahead</h3>
+        <ForecastSection title="Compare forecast periods" description="Expected vials, shortages and suggested quantities" summary="7 · 30 · 90 days">
         <div className="aia-table-wrap">
           <table className="aia-table">
             <thead>
               <tr>
                 <th>Period</th>
-                <th className="aia-num">Expected orders</th>
+                <th className="aia-num">Expected vials</th>
                 <th className="aia-num">Short if orders come as expected</th>
-                <th className="aia-num">Suggested order</th>
+                <th className="aia-num">Vials to order</th>
                 <th>Status</th>
                 <th>How sure</th>
               </tr>
@@ -315,17 +344,18 @@ function ForecastDetail({ horizons, config, onClose }) {
             </tbody>
           </table>
         </div>
+        </ForecastSection>
 
         {(primary.dataQualityWarnings ?? []).length > 0 && (
-          <>
-            <h3>Good to know</h3>
+          <ForecastSection title="Data notes" description="What to consider before using this estimate" summary={`${primary.dataQualityWarnings.length} notes`}>
             <ul className="aia-warnings">
               {primary.dataQualityWarnings.map((w) => (
                 <li key={w.code}>{plainDataNote(w)}</li>
               ))}
             </ul>
-          </>
+          </ForecastSection>
         )}
+      </div>
 
         <p
           className="aia-muted aia-basis"
@@ -336,7 +366,6 @@ function ForecastDetail({ horizons, config, onClose }) {
           Updated {formatGeneratedAt(primary.generatedAt)}. This is an average of past orders, not artificial
           intelligence, so treat it as a guide.
         </p>
-      </details>
 
     </section>
   );

@@ -295,17 +295,22 @@ service cloud.firestore {
     // validateAnalyticsConfig mirrors this exactly).
     function validAnalyticsConfig(vaccineId) {
       let d = request.resource.data;
-      // Season settings (2026-11-10): the busy months and how much more is
-      // ordered in them. Distinct whole months 1–12; increase 0–300%.
-      return d.keys().hasOnly(['vaccineId', 'busyMonths', 'busyIncreasePercent', 'updatedAt', 'updatedByUid'])
-        && d.keys().hasAll(['vaccineId', 'busyMonths', 'busyIncreasePercent', 'updatedAt', 'updatedByUid'])
+      // New settings store total vials per selected calendar month. The old
+      // percentage schema remains accepted during rollout; never mix them.
+      return d.keys().hasAll(['vaccineId', 'busyMonths', 'updatedAt', 'updatedByUid'])
         && d.vaccineId == vaccineId
         && exists(/databases/$(database)/documents/vaccines/$(vaccineId))
         && d.busyMonths is list
         && d.busyMonths.size() <= 12
         && d.busyMonths.toSet().size() == d.busyMonths.size()
         && d.busyMonths.toSet().hasOnly([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
-        && d.busyIncreasePercent is int && d.busyIncreasePercent >= 0 && d.busyIncreasePercent <= 300
+        && ((d.keys().hasOnly(['vaccineId', 'busyMonths', 'busyMonthlyVials', 'updatedAt', 'updatedByUid'])
+            && d.keys().hasAll(['busyMonthlyVials'])
+            && d.busyMonthlyVials is int && d.busyMonthlyVials >= 0 && d.busyMonthlyVials <= 100000000
+            && (d.busyMonths.size() > 0 ? d.busyMonthlyVials > 0 : d.busyMonthlyVials == 0))
+          || (d.keys().hasOnly(['vaccineId', 'busyMonths', 'busyIncreasePercent', 'updatedAt', 'updatedByUid'])
+            && d.keys().hasAll(['busyIncreasePercent'])
+            && d.busyIncreasePercent is int && d.busyIncreasePercent >= 0 && d.busyIncreasePercent <= 300))
         && d.updatedAt == request.time
         && d.updatedByUid == request.auth.uid;
     }

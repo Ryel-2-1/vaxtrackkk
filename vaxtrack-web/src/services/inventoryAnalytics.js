@@ -254,6 +254,7 @@ export function configChangedSinceForecast(config, forecast) {
 
 export const MONTH_NAMES = Object.freeze(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]);
 export const MAX_BUSY_INCREASE_PERCENT = 300;
+export const MAX_BUSY_MONTHLY_VIALS = 100000000;
 
 const validMonths = (months) =>
   [...new Set((Array.isArray(months) ? months : []).filter((m) => Number.isInteger(m) && m >= 1 && m <= 12))].sort((a, b) => a - b);
@@ -273,13 +274,17 @@ export function configFormFrom(config) {
   const months = validMonths(config?.busyMonths);
   return {
     busyMonths: months.join(","),
-    busyIncreasePercent: months.length > 0 && Number.isInteger(config?.busyIncreasePercent) ? String(config.busyIncreasePercent) : "",
+    // A percentage is never treated as a vial count when opening an old record.
+    busyMonthlyVials: months.length > 0 && Number.isSafeInteger(config?.busyMonthlyVials) ? String(config.busyMonthlyVials) : "",
   };
 }
 
 /** One line for a vaccine's busy season, or null when none is set. */
 export function seasonSummary(config) {
   const months = validMonths(config?.busyMonths);
+  if (months.length > 0 && Number.isSafeInteger(config?.busyMonthlyVials) && config.busyMonthlyVials > 0) {
+    return `Busy in ${monthList(months)} · ${formatQuantity(config.busyMonthlyVials)} ${config.busyMonthlyVials === 1 ? "vial" : "vials"} per month`;
+  }
   const pct = config?.busyIncreasePercent;
   if (months.length === 0 || !Number.isInteger(pct) || pct <= 0) return null;
   return `Busy in ${monthList(months)} · about ${pct}% more`;
@@ -305,6 +310,15 @@ export function analyticsConfigPayload(vaccineId, form) {
   const months = String(form?.busyMonths ?? "").split(",").filter((t) => t.trim() !== "").map(Number);
   if (months.some((m) => !Number.isInteger(m) || m < 1 || m > 12) || new Set(months).size !== months.length) {
     return { ok: false, field: "busyMonths", error: "Choose the busy months again." };
+  }
+  // Old callers can still submit the old schema during rollout. The current
+  // form always supplies busyMonthlyVials and writes an absolute monthly total.
+  if (!Object.hasOwn(form ?? {}, "busyIncreasePercent") || Object.hasOwn(form ?? {}, "busyMonthlyVials")) {
+    const busyMonthlyVials = months.length === 0 ? 0 : wholeIn(form?.busyMonthlyVials, 1, MAX_BUSY_MONTHLY_VIALS);
+    if (busyMonthlyVials === null) {
+      return { ok: false, field: "busyMonthlyVials", error: `Enter the total expected vials per selected month, from 1 to ${MAX_BUSY_MONTHLY_VIALS.toLocaleString("en-PH")}.` };
+    }
+    return { ok: true, value: { vaccineId, busyMonths: [...months].sort((a, b) => a - b), busyMonthlyVials } };
   }
   let busyIncreasePercent = 0;
   if (months.length > 0) {
@@ -398,6 +412,9 @@ export function plainForecastStory(doc) {
  */
 export function plainSeasonLine(doc) {
   const season = doc?.seasonAdjustment;
+  if (season?.source === "calendar" && isQuantity(season.monthlyVials) && season.monthlyVials > 0) {
+    return `The busy-season setting is ${plainVials(season.monthlyVials)} in total per month in ${monthList(season.busyMonths)}. Partial months use the corresponding share; other days use past orders.`;
+  }
   const pct = season?.percent;
   if (!season || season.source === "none" || !Number.isInteger(pct) || pct === 0) return null;
   const amount = `about ${Math.abs(pct)}% ${pct > 0 ? "more" : "less"}`;
@@ -414,7 +431,7 @@ export function plainSeasonLine(doc) {
 export function plainFigures(doc) {
   const c = doc?.calculation ?? {};
   const days = Number.isInteger(doc?.horizonDays) ? doc.horizonDays : 30;
-  const seasonal = doc?.seasonAdjustment && doc.seasonAdjustment.source !== "none" && doc.seasonAdjustment.percent !== 0;
+  const seasonal = doc?.seasonAdjustment && doc.seasonAdjustment.source !== "none" && (doc.seasonAdjustment.percent !== 0 || doc.seasonAdjustment.monthlyVials > 0);
   return [
     ...(seasonal ? [{ label: `Usual orders, next ${days} days, without the season`, value: formatQuantity(c.baseDemandQuantity) }] : []),
     { label: `Expected orders, next ${days} days`, value: formatQuantity(c.predictedDemandQuantity) },
