@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, Suspense } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import {
@@ -13,11 +13,13 @@ import {
   MapPin,
   MapPinned,
   Menu,
+  X,
   Settings,
   Truck,
 } from "lucide-react";
 import { auth } from "../../firebase";
 import SidebarProfile from "../../components/shell/SidebarProfile";
+import { nextNavState, toggleLabel } from "../dispatcher/navDrawer";
 import OfflineNotice from "../../components/shell/OfflineNotice";
 import { subscribeSalesRepOrders } from "../../services/orderService";
 import { deriveSalesRepOrderAlert } from "../../services/salesRepOrderAlert";
@@ -35,6 +37,9 @@ import "./SalesRep.css";
  * (title, topbar title) comes from the route table below, so pages render just
  * their content. Each page keeps its own search; the top bar has none.
  */
+// Phone widths, where the rail becomes an off-canvas menu (shell-chrome.css).
+const SALESREP_DRAWER_QUERY = "(max-width: 768px)";
+
 const ROUTE_META = {
   "/sales-rep": { key: "dashboard", title: "Dashboard" },
   "/sales-rep/inventory": { key: "inventory", title: "Inventory" },
@@ -59,10 +64,13 @@ function SalesRepShell() {
   const active = meta.key;
 
   const notificationRef = useRef(null);
-  // Phones only: the bar holds four tabs, the rest open from More.
-  const navRef = useRef(null);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const moreActive = ["monitoring", "history", "alerts", "settings"].includes(active);
+  // Phones: the same off-canvas side menu as Admin and Dispatcher, with every
+  // page and Logout in it. Open/close decisions come from the Dispatcher's
+  // tested state machine (navDrawer.js); this binds it to the DOM.
+  const [navOpen, setNavOpen] = useState(false);
+  const navToggleRef = useRef(null);
+  const sidebarRef = useRef(null);
+  const applyNav = useCallback((event) => setNavOpen((open) => nextNavState(open, event)), []);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const uid = auth.currentUser?.uid ?? null;
   // Read marks: this browser's cache + the user's shared copy in Firestore.
@@ -105,9 +113,6 @@ function SalesRepShell() {
       if (notificationRef.current && !notificationRef.current.contains(event.target)) {
         setNotificationOpen(false);
       }
-      if (navRef.current && !navRef.current.contains(event.target)) {
-        setMoreOpen(false);
-      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -118,8 +123,33 @@ function SalesRepShell() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setNotificationOpen(false);
-    setMoreOpen(false);
-  }, [location.pathname]);
+    applyNav({ type: "navigate" });
+  }, [location.pathname, applyNav]);
+
+  // The drawer is a phone affordance: widening past the breakpoint closes it.
+  useEffect(() => {
+    const query = window.matchMedia(SALESREP_DRAWER_QUERY);
+    const onChange = (e) => applyNav({ type: "viewport", matches: e.matches });
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, [applyNav]);
+
+  // While open: Escape closes, the page behind cannot scroll, focus moves into
+  // the menu and returns to the menu button on close.
+  useEffect(() => {
+    if (!navOpen) return undefined;
+    const toggle = navToggleRef.current;
+    const onKey = (e) => applyNav({ type: "key", key: e.key });
+    document.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    sidebarRef.current?.querySelector("a[href], button:not([disabled])")?.focus();
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+      if (toggle && toggle.isConnected && toggle.getClientRects().length > 0) toggle.focus();
+    };
+  }, [navOpen, applyNav]);
 
   const handleLogout = async () => {
     if (logoutRef.current) return;
@@ -150,7 +180,27 @@ function SalesRepShell() {
 
   return (
     <div className="salesrep-page">
-      <aside className="salesrep-sidebar">
+      {/* Phones only; it is also the close control, stacked above the menu. */}
+      <button
+        ref={navToggleRef}
+        type="button"
+        className="salesrep-nav-toggle"
+        aria-label={toggleLabel(navOpen)}
+        aria-expanded={navOpen}
+        aria-controls="salesrep-nav"
+        onClick={() => applyNav({ type: "toggle" })}
+      >
+        {navOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
+      </button>
+
+      {navOpen && <div className="salesrep-nav-backdrop" onClick={() => applyNav({ type: "dismiss" })} aria-hidden="true" />}
+
+      <aside
+        ref={sidebarRef}
+        id="salesrep-nav"
+        className={`salesrep-sidebar${navOpen ? " salesrep-nav-open" : ""}`}
+        aria-label="Med Rep navigation"
+      >
         <div className="salesrep-brand m-brand">VaxTrack</div>
 
         <span className="m-role-chip">
@@ -160,7 +210,7 @@ function SalesRepShell() {
 
         <SidebarProfile fallbackRole="Med Rep" />
 
-        <nav className="salesrep-nav" ref={navRef} onKeyDown={(event) => { if (event.key === "Escape") setMoreOpen(false); }}>
+        <nav className="salesrep-nav">
           <Link className={active === "dashboard" ? "active" : ""} to="/sales-rep">
             <LayoutDashboard size={17} />
             <span>Dashboard</span>
@@ -181,18 +231,6 @@ function SalesRepShell() {
             <span>Order Tracking</span>
           </Link>
 
-          <button
-            type="button"
-            className={`salesrep-more-btn${moreActive || moreOpen ? " active" : ""}`}
-            aria-expanded={moreOpen}
-            aria-controls="salesrep-more"
-            onClick={() => setMoreOpen((open) => !open)}
-          >
-            <Menu size={17} aria-hidden="true" />
-            <span>More</span>
-          </button>
-
-          <div id="salesrep-more" className={`salesrep-nav-more${moreOpen ? " is-open" : ""}`}>
           <Link className={active === "monitoring" ? "active" : ""} to="/sales-rep/live-monitoring">
             <MapPinned size={17} />
             <span>Live Monitoring</span>
@@ -212,12 +250,6 @@ function SalesRepShell() {
             <Settings size={17} />
             <span>Settings</span>
           </Link>
-
-          <button type="button" className="salesrep-more-logout" onClick={handleLogout} disabled={loggingOut} aria-busy={loggingOut}>
-            <LogOut size={17} aria-hidden="true" />
-            <span>{loggingOut ? "Logging out…" : "Logout"}</span>
-          </button>
-          </div>
         </nav>
 
         <button
@@ -238,7 +270,7 @@ function SalesRepShell() {
         )}
       </aside>
 
-      <main className="salesrep-main">
+      <main className="salesrep-main" inert={navOpen || undefined}>
         <header className="salesrep-topbar m-topbar">
           <h1 className="m-topbar-title">{meta.topbarTitle || meta.title}</h1>
 

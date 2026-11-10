@@ -182,8 +182,10 @@ test("Med Rep and Dispatcher hide Employee ID; Admin retains it", () => {
   assert.match(page, /export default function MyProfile\(\{ showEmployeeId = true \}\)/);
   assert.match(page, /\{showEmployeeId && \(\s*<div>\s*<dt>Employee ID<\/dt>/);
   // The Med Rep note names exactly what an administrator manages there.
-  assert.ok(page.includes('"Your email, role, status, and organization are managed by your administrator."'));
-  assert.ok(page.includes('"Your email, role, status, employee ID and organization are managed by your administrator."'));
+  assert.ok(page.includes('"Your email, role and status are managed by your administrator."'));
+  assert.ok(page.includes('"Your email, role, status and employee ID are managed by your administrator."'));
+  // One company uses VaxTrack, so no role's profile lists an Organization (2026-11-10).
+  assert.doesNotMatch(page, /Organization|organization/);
   // Display only: the stored value is still read, and never written here.
   assert.match(page, /stored\.employeeId/);
   assert.equal(SELF_EDITABLE_FIELDS.includes("employeeId"), false);
@@ -196,7 +198,7 @@ test("My profile edits only name and phone, and shows the rest read-only", () =>
   assert.match(page, /id="my-profile-name"/);
   assert.match(page, /id="my-profile-phone"/);
   // Read-only details are text, not inputs.
-  for (const label of ["Email", "Role", "Account status", "Employee ID", "Organization"]) {
+  for (const label of ["Email", "Role", "Account status", "Employee ID"]) {
     assert.match(page, new RegExp(`<dt>[\\s\\S]{0,40}${label}\\s*</dt>`), label);
   }
   // It writes the user's own record, through the allowlisted service only.

@@ -84,7 +84,7 @@ test("the geofence panel never ticks a plan beside a late order, and the stale r
   assert.doesNotMatch(read("src/pages/dispatcher/DispatcherCargoLoading.jsx"), /Live route mapping/);
 });
 
-test("phones: Med Rep tables become labelled cards, and More reaches every page", () => {
+test("phones: Med Rep tables become labelled cards, and the side menu reaches every page", () => {
   for (const f of [
     "src/pages/salesRep/SalesRepDashboard.jsx",
     "src/pages/salesRep/SalesRepInventory.jsx",
@@ -99,8 +99,18 @@ test("phones: Med Rep tables become labelled cards, and More reaches every page"
     assert.match(src, /data-label="/, f);
   }
   const shell = read("src/pages/salesRep/SalesRepShell.jsx");
-  const more = shell.slice(shell.indexOf('id="salesrep-more"'));
-  for (const page of ["live-monitoring", "order-history", "alerts", "settings"]) assert.ok(more.includes(`/sales-rep/${page}`), page);
-  assert.match(more, /salesrep-more-logout/);
-  assert.match(read("src/styles/shell-chrome.css"), /grid-template-columns: repeat\(5, minmax\(0, 1fr\)\) !important;/);
+  // Phones use the same off-canvas side menu as Admin and Dispatcher (2026-11-10):
+  // every page and Logout live in it; the old bottom bar and More menu are gone.
+  const menu = shell.slice(shell.indexOf('<aside'), shell.indexOf("</aside>"));
+  for (const page of ["", "/inventory", "/request-order", "/order-tracking", "/live-monitoring", "/order-history", "/alerts", "/settings"]) {
+    assert.ok(menu.includes(`to="/sales-rep${page}"`), page || "dashboard");
+  }
+  assert.match(menu, /className="salesrep-logout"/);
+  assert.match(shell, /className="salesrep-nav-toggle"/);
+  assert.match(shell, /nextNavState/);
+  assert.doesNotMatch(shell, /salesrep-more|salesrep-nav-more/);
+  const css = read("src/styles/shell-chrome.css");
+  assert.match(css, /aside\.salesrep-sidebar\.salesrep-nav-open \{/);
+  assert.doesNotMatch(css, /salesrep-more|salesrep-nav-more/);
+  assert.match(css, /#root aside \.m-brand,[\s\S]{0,80}color: #ffffff !important;/, "white wordmark at every width");
 });
