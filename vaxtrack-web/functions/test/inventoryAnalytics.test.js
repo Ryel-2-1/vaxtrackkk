@@ -256,12 +256,11 @@ test("an inconsistent batch counts as unavailable and is reported", () => {
 
 // ---------------------------------------------------------------- risk + reorder
 
+// Season settings (2026-11-10). No busy months: the forecast is the baseline.
 const config = (over = {}) => ({
   vaccineId: "vacA",
-  leadTimeDays: 14,
-  safetyStockDays: null,
-  safetyStockQuantity: 20,
-  enabled: true,
+  busyMonths: [],
+  busyIncreasePercent: 0,
   updatedAt: ts("2026-10-01T00:00:00Z"),
   updatedByUid: "admin1",
   ...over,
@@ -290,33 +289,25 @@ test("18 · backorders add to the projected shortage", () => {
   assert.deepEqual([withBackorder.stockoutRiskLevel, withBackorder.riskBasis], ["high", "forecast_shortage"]);
 });
 
-test("19 · missing, disabled or invalid configuration: no reorder figure, and it says why", () => {
-  for (const [cfg, status] of [
-    [null, "missing"],
-    [config({ enabled: false }), "disabled"],
-    [config({ leadTimeDays: 0 }), "invalid"],
-    [config({ safetyStockDays: 7 }), "invalid"], // both safety fields set
-  ]) {
-    const r = assess({ config: cfg });
-    assert.equal(r.recommendedReorderQuantity, null, status);
+test("19 · without season settings the forecast is the baseline, and a shortage is still a shortage", () => {
+  for (const [cfg, status] of [[null, "missing"], [config(), "complete"], [config({ busyMonths: [13] }), "invalid"]]) {
+    const r = assess({ config: cfg, asOfDate: "2026-10-09" });
     assert.equal(r.configStatus, status);
-    assert.equal(r.stockoutRiskLevel, "unknown", "safety stock cannot be judged");
-    assert.match(r.stockoutRiskReason, /Reorder configuration required/);
+    assert.equal(r.calculation.predictedDemandQuantity, 300, status);
+    assert.equal(r.seasonAdjustment.source, "none", status);
   }
-  // A shortage is still a shortage without configuration.
   assert.equal(assess({ config: null, stock: { availableQuantity: 10, reservedQuantity: 0 } }).stockoutRiskLevel, "high");
 });
 
-test("20 · configured reorder = lead-time demand + safety + backordered − available − incoming, ≥ 0", () => {
-  // lead 14 days → 140; safety 20; backordered 15; available 100 → 75.
+test("20 · the suggested order covers the period: forecast + backordered − available − incoming, ≥ 0", () => {
+  // forecast 300; backordered 15; available 100 → 215.
   const r = assess({ stock: { availableQuantity: 100, reservedQuantity: 0 }, backorderedQuantity: 15 });
-  assert.equal(r.calculation.leadTimeDemandQuantity, 140);
-  assert.equal(r.recommendedReorderQuantity, 140 + 20 + 15 - 100 - 0);
-  // Safety stock in days uses the same forecast rate: 7 days → 70.
-  const days = assess({ config: config({ safetyStockQuantity: null, safetyStockDays: 7 }) });
-  assert.equal(days.calculation.safetyStockQuantity, 70);
-  // Plenty of stock: clamped to zero, never negative.
+  assert.equal(r.recommendedReorderQuantity, 300 + 15 - 100 - 0);
+  assert.equal(r.recommendedReorderQuantity, r.totalProjectedShortageQuantity);
+  // Plenty of stock: zero, never negative.
   assert.equal(assess({ stock: { availableQuantity: 5000, reservedQuantity: 0 } }).recommendedReorderQuantity, 0);
+  // No forecast, no suggestion.
+  assert.equal(assess({ history: weeks(5, 5) }).recommendedReorderQuantity, null);
 });
 
 test("21 · each risk level's reason is built from its stored figures", () => {
@@ -330,18 +321,15 @@ test("21 · each risk level's reason is built from its stored figures", () => {
   assert.equal(c.totalProjectedShortageQuantity, c.predictedDemandQuantity + c.backorderedQuantity - c.availableQuantity);
   assert.equal(c.totalProjectedShortageQuantity, c.currentBackorderShortageQuantity + c.forecastShortageQuantity);
 
-  // Lead time longer than the horizon can reveal a shortage the horizon misses.
-  const lead = assess({ horizonDays: 7, stock: { availableQuantity: 100, reservedQuantity: 0 } });
-  assert.equal(lead.stockoutRiskLevel, "high");
-  assert.ok(lead.stockoutRiskReason.includes(`${lead.calculation.leadTimeShortageQuantity} vials within the 14-day lead time`));
+  // Covered, but less than one more week of orders (70) left after the 30 days.
+  const medium = assess({ stock: { availableQuantity: 310, reservedQuantity: 0 } }); // 10 left
+  assert.deepEqual([medium.stockoutRiskLevel, medium.riskBasis], ["medium", "runs_low"]);
+  assert.equal(medium.calculation.oneWeekDemandQuantity, 70);
+  assert.ok(medium.stockoutRiskReason.includes("leaving 10 vials — less than one more week of expected orders (70)"));
 
-  const medium = assess({ stock: { availableQuantity: 310, reservedQuantity: 0 } }); // 10 left < 20 safety
-  assert.equal(medium.stockoutRiskLevel, "medium");
-  assert.ok(medium.stockoutRiskReason.includes(`(${medium.calculation.remainingAfterHorizonQuantity} vials) is below the safety level of ${medium.calculation.safetyStockQuantity}`));
-
-  const low = assess();
-  assert.equal(low.stockoutRiskLevel, "low");
-  assert.ok(low.stockoutRiskReason.includes(`(${low.calculation.remainingAfterHorizonQuantity} vials) stays at or above the safety level of 20`));
+  const low = assess(); // 100 left ≥ 70
+  assert.deepEqual([low.stockoutRiskLevel, low.riskBasis], ["low", "covered"]);
+  assert.ok(low.stockoutRiskReason.includes("leaves 100 vials, at least one more week of expected orders (70)"));
 
   const unknown = assess({ history: weeks(5, 5) });
   assert.equal(unknown.stockoutRiskLevel, "unknown");
@@ -349,16 +337,20 @@ test("21 · each risk level's reason is built from its stored figures", () => {
   assert.equal(unknown.recommendedReorderQuantity, null);
 });
 
-test("30 · configuration validation mirrors the rules: whole numbers, exactly one safety field, Admin stamp", () => {
+test("30 · season settings validation mirrors the rules: distinct months 1–12, increase 0–300, Admin stamp", () => {
   assert.equal(R.validateAnalyticsConfig(config(), "vacA").ok, true);
+  assert.equal(R.validateAnalyticsConfig(config({ busyMonths: [11, 12], busyIncreasePercent: 50 }), "vacA").ok, true);
   for (const bad of [
-    config({ leadTimeDays: 366 }),
-    config({ leadTimeDays: 2.5 }),
-    config({ safetyStockQuantity: -1 }),
-    config({ safetyStockQuantity: null }), // neither
-    config({ safetyStockDays: 3 }), // both
-    config({ enabled: "yes" }),
+    config({ busyMonths: [0] }),
+    config({ busyMonths: [13] }),
+    config({ busyMonths: [12, 12] }),
+    config({ busyMonths: [1.5] }),
+    config({ busyMonths: "12" }),
+    config({ busyIncreasePercent: -1 }),
+    config({ busyIncreasePercent: 301 }),
+    config({ busyIncreasePercent: 2.5 }),
     config({ updatedByUid: "" }),
+    config({ leadTimeDays: 14 }), // the removed reorder settings are not accepted
     config({ extra: 1 }),
   ]) {
     assert.equal(R.validateAnalyticsConfig(bad, "vacA").ok, false, JSON.stringify(bad));
@@ -406,9 +398,10 @@ test("the plan is deterministic, honours the contract, and keys forecasts by vac
   const b30 = a.forecasts.find((f) => f.id === "vacB__all__30d").data;
   assert.deepEqual([b30.predictedDemandQuantity, b30.confidenceLevel, b30.stockoutRiskLevel, b30.skuSnapshot], [null, "insufficient", "unknown", null]);
   assert.ok(b30.dataQualityWarnings.some((w) => w.code === A.WARNING.UNKNOWN_SKU));
-  assert.ok(b30.dataQualityWarnings.some((w) => w.code === A.WARNING.MISSING_REORDER_CONFIG));
+  assert.deepEqual(a30.seasonAdjustment, { source: "none", percent: 0, busyMonths: [] });
+  assert.equal(a30.recommendedReorderQuantity, 0, "500 in stock covers the 300 expected");
   assert.deepEqual(a.run.riskSummary, { high: 0, medium: 0, low: 1, unknown: 1 });
-  assert.equal(a.run.reorderConfigurationRequiredCount, 1);
+  assert.equal(a.run.seasonAdjustedCount, 0);
 });
 
 test("changing any input changes the run id; the same input never does", () => {
@@ -461,19 +454,12 @@ test("22/23/24 · the generator's guards: production refused, staging-only outsi
 
 // ---------------------------------------------------------------- hardening
 
-test("safety stock: a whole number from 0 to 100,000,000 vials — NaN, decimal, negative and oversized refused", () => {
-  assert.equal(R.MAX_SAFETY_STOCK_QUANTITY, 100000000);
-  for (const ok of [0, 1, 20, 100000000]) {
-    assert.equal(R.validateAnalyticsConfig(config({ safetyStockQuantity: ok }), "vacA").ok, true, String(ok));
+test("busy-season increase: a whole number from 0 to 300 — NaN, decimal, negative and oversized refused", () => {
+  for (const ok of [0, 1, 50, 300]) {
+    assert.equal(R.validateAnalyticsConfig(config({ busyIncreasePercent: ok }), "vacA").ok, true, String(ok));
   }
-  for (const bad of [100000001, Number.NaN, 2.5, -1, Infinity, "20", 1e20]) {
-    assert.equal(R.validateAnalyticsConfig(config({ safetyStockQuantity: bad }), "vacA").ok, false, String(bad));
-  }
-  for (const bad of [Number.NaN, 2.5, -1, 366]) {
-    assert.equal(R.validateAnalyticsConfig(config({ safetyStockQuantity: null, safetyStockDays: bad }), "vacA").ok, false, String(bad));
-  }
-  for (const bad of [Number.NaN, 0, 14.5, 366]) {
-    assert.equal(R.validateAnalyticsConfig(config({ leadTimeDays: bad }), "vacA").ok, false, String(bad));
+  for (const bad of [301, Number.NaN, 2.5, -1, Infinity, "20", 1e20]) {
+    assert.equal(R.validateAnalyticsConfig(config({ busyIncreasePercent: bad }), "vacA").ok, false, String(bad));
   }
 });
 
@@ -519,9 +505,8 @@ test("run fingerprint: every input that can change the output changes the run id
     "inventory expiry": (i) => { i.batches[0].data.expiryDate = "2027-01-31"; },
     "vaccine SKU": (i) => { i.vaccines[0].data.internalSku = "MOD-STG-002"; },
     "vaccine name": (i) => { i.vaccines[1].data.vaccineName = "Hepatitis B Vaccine (Adult)"; },
-    "reorder lead time": (i) => { i.configs[0].data.leadTimeDays = 15; },
-    "reorder safety stock": (i) => { i.configs[0].data.safetyStockQuantity = 21; },
-    "reorder enabled": (i) => { i.configs[0].data.enabled = false; },
+    "busy months": (i) => { i.configs[0].data.busyMonths = [12]; },
+    "busy increase": (i) => { i.configs[0].data.busyIncreasePercent = 10; },
     "a new configuration": (i) => { i.configs.push({ id: "vacB", data: { ...config(), vaccineId: "vacB" } }); },
     "the as-of date": (i) => { i.now = new Date("2026-10-10T04:00:00.000Z"); },
     "the engine version": (i) => { i.engine = { ...E.createWeightedMovingAverageEngine(), version: "wma-1.0.1" }; },
@@ -599,10 +584,8 @@ test("configuration audit metadata never changes the run id; calculation values 
   otherAdmin.configs[0].data.updatedByUid = "admin2";
   assert.equal(runIdOf(otherAdmin), base, "same values saved by a different Admin");
   for (const [what, change] of Object.entries({
-    "lead time": (c) => { c.leadTimeDays = 21; },
-    "safety stock quantity": (c) => { c.safetyStockQuantity = 25; },
-    "safety stock as days": (c) => { c.safetyStockQuantity = null; c.safetyStockDays = 7; },
-    "enabled": (c) => { c.enabled = false; },
+    "busy months": (c) => { c.busyMonths = [11, 12]; },
+    "busy increase": (c) => { c.busyIncreasePercent = 40; },
     // A missing stamp makes the config invalid, which changes the result.
     "audit stamp removed": (c) => { delete c.updatedByUid; },
   })) {
@@ -613,10 +596,10 @@ test("configuration audit metadata never changes the run id; calculation values 
   // The audit metadata is still kept on the run record.
   const plan = RUN.buildAnalyticsPlan(otherAdmin);
   assert.deepEqual(plan.run.configurationSnapshot, [{
-    vaccineId: "vacA", enabled: true, leadTimeDays: 14, safetyStockDays: null, safetyStockQuantity: 20,
+    vaccineId: "vacA", busyMonths: [], busyIncreasePercent: 0,
     updatedAtMillis: Date.parse("2026-10-01T00:00:00Z"), updatedByUid: "admin2",
   }]);
-  assert.deepEqual(RUN.CONFIG_CALCULATION_FIELDS, ["vaccineId", "enabled", "leadTimeDays", "safetyStockDays", "safetyStockQuantity"]);
+  assert.deepEqual(RUN.CONFIG_CALCULATION_FIELDS, ["vaccineId", "busyMonths", "busyIncreasePercent"]);
   const inputs = RUN.normalizedInputs(planInput());
   assert.ok(!("updatedAt" in inputs.configs[0]) && !("updatedByUid" in inputs.configs[0]));
 });

@@ -9,7 +9,10 @@
  *     low   a vaccine's AVAILABLE vials are at or below its safety stock —
  *           the Admin's own reorder configuration (inventoryAnalyticsConfig,
  *           enabled, safetyStockQuantity). No threshold is ever invented: a
- *           vaccine without one gets no low-stock alert.
+ *           vaccine without one gets no low-stock alert. Since 2026-11-10 that
+ *           configuration holds season settings instead (no safety stock), so
+ *           "low" only fires for an older configuration still stored; the
+ *           Inventory Forecast's "Running low" status covers it now.
  *     out   no vials available at all, for a vaccine that has stock batches.
  *   batch_expiry  alerts/batch_expiry_<inventoryId>
  *     expiring  a batch still holding vials expires within 30 days — the

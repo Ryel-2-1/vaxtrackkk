@@ -191,8 +191,7 @@ const FORECAST_DOCUMENT_FIELDS = Object.freeze([
   "forecastShortageQuantity",
   "totalProjectedShortageQuantity",
   "recommendedReorderQuantity",
-  "reorderConfigurationComplete",
-  "reorderConfigurationStatus",
+  "seasonAdjustment",
   "stockoutRiskLevel",
   "riskBasis",
   "stockoutRiskReason",
@@ -219,10 +218,8 @@ const RISK_BASES = Object.freeze([
   "current_backorder_shortage",
   "insufficient_history",
   "forecast_shortage",
-  "lead_time_shortage",
-  "configuration_missing",
-  "below_safety_stock",
-  "above_safety_stock",
+  "runs_low",
+  "covered",
 ]);
 
 const isWholeOrNull = (v) => v === null || (Number.isSafeInteger(v) && v >= 0);
@@ -261,8 +258,13 @@ function validateForecastDocument(doc) {
   if (typeof doc.stockoutRiskReason !== "string" || !doc.stockoutRiskReason) problems.push("stockoutRiskReason is required");
   if (!Object.values(CONFIDENCE).includes(doc.confidenceLevel)) problems.push("confidenceLevel is not a known level");
   if (doc.advisoryOnly !== true) problems.push("advisoryOnly must be true");
-  if (doc.recommendedReorderQuantity !== null && doc.reorderConfigurationComplete !== true) {
-    problems.push("a reorder recommendation requires complete reorder configuration");
+  // The suggested order covers the period, so it exists exactly when a forecast does.
+  if ((doc.recommendedReorderQuantity === null) !== (doc.predictedDemandQuantity === null)) {
+    problems.push("a suggested order needs a forecast, and a forecast has one");
+  }
+  const season = doc.seasonAdjustment;
+  if (!season || !["none", "calendar", "last_year"].includes(season.source) || !Number.isSafeInteger(season.percent) || !Array.isArray(season.busyMonths)) {
+    problems.push("seasonAdjustment must give its source, percent and busy months");
   }
   return problems;
 }

@@ -12,20 +12,24 @@ import {
 import {
   ANALYTICS_DISCLAIMER,
   BASELINE_LABEL,
-  CONFIDENCE_LABELS,
   FORECAST_VIEWS,
   HORIZONS,
   NO_FORECAST_MESSAGE,
   PRIMARY_HORIZON,
-  REORDER_CONFIGURATION_REQUIRED,
-  RISK_META,
   STALE_AFTER_DAYS,
   configChangedSinceForecast,
   configFormFrom,
   environmentNotice,
   forecastAdvice,
+  PLAIN_CONFIDENCE,
+  periodLabel,
+  plainDataNote,
+  plainFigures,
+  plainForecastStory,
   FORECAST_STATUS_HELP,
-  reorderSummary,
+  MAX_BUSY_INCREASE_PERCENT,
+  MONTH_NAMES,
+  seasonSummary,
   forecastRow,
   forecastViewCounts,
   forecastsByVaccine,
@@ -46,48 +50,21 @@ import "./AiInventoryAnalytics.css";
  * Read-only view of the forecasts the server generator stored. It never
  * computes or fills in a forecast: with no run there is an empty state, and a
  * missing figure shows as "—" or as the reason it is missing. The only thing an
- * Admin can change here is a vaccine's reorder configuration, which takes
- * effect at the next analytics run. Nothing here changes inventory.
+ * Admin can change here is a vaccine's busy season (which months, and how much
+ * more), used from the next forecast update. Nothing here changes inventory.
  */
 
-const CALCULATION_ROWS = [
-  ["predictedDemandQuantity", "Forecast demand in the horizon"],
-  ["backorderedQuantity", "Active backorders"],
-  ["availableQuantity", "Available stock"],
-  ["confirmedIncomingUsed", "Confirmed incoming (not tracked — 0)"],
-  ["currentBackorderShortageQuantity", "Current backorder shortage (known, from placed orders)"],
-  ["forecastShortageQuantity", "Forecasted shortage (baseline forecast)"],
-  ["totalProjectedShortageQuantity", "Total projected shortage"],
-  ["remainingAfterHorizonQuantity", "Remaining after the horizon"],
-  ["leadTimeDays", "Lead time (days)"],
-  ["leadTimeDemandQuantity", "Forecast demand during lead time"],
-  ["leadTimeShortageQuantity", "Shortage within lead time"],
-  ["safetyStockQuantity", "Safety stock (vials)"],
-  ["recommendedReorderQuantity", "Recommended reorder"],
-];
-
-function signedQuantity(value) {
-  // Remaining stock may legitimately be negative (a shortfall); everything
-  // else is a whole number ≥ 0 or absent.
-  if (Number.isSafeInteger(value) && value < 0) return `−${Math.abs(value).toLocaleString("en-PH")}`;
-  return formatQuantity(value);
-}
-
-function RiskBadge({ level }) {
-  const meta = RISK_META[level] ?? RISK_META.unknown;
-  return <span className={`aia-risk aia-risk--${meta.tone}`}>{meta.label}</span>;
-}
-
 const CONFIG_FIELD_LABELS = {
-  leadTimeDays: "Supplier lead time",
-  safetyMode: "Safety stock unit",
-  safetyValue: "Safety stock",
-  enabled: "Reorder analysis",
+  busyMonths: "Busy months",
+  busyIncreasePercent: "How much more",
 };
 
-function ConfigEditor({ vaccineId, config, onSaved }) {
-  // Follows the live configuration while untouched; once edited, a change
-  // saved by another Admin is flagged and blocks saving until reviewed.
+/** How many recent weeks the weekly-orders chart shows. */
+const RECENT_WEEKS_SHOWN = 8;
+
+function SeasonEditor({ vaccineId, config, onSaved }) {
+  // Follows the live settings while untouched; once edited, a change saved by
+  // another Admin is flagged and blocks saving until reviewed.
   const liveForm = useLiveDraft(configFormFrom(config));
   const form = liveForm.draft;
   const setForm = liveForm.setDraft;
@@ -95,27 +72,29 @@ function ConfigEditor({ vaccineId, config, onSaved }) {
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [error, setError] = useState("");
-  // { field, text } for a validation problem, shown beside its input.
   const [fieldError, setFieldError] = useState(null);
-  const set = (key) => (e) => {
-    setForm((f) => ({ ...f, [key]: key === "enabled" ? e.target.checked : e.target.value }));
-    setFieldError((fe) => (fe?.field === key ? null : fe));
-  };
-  const ids = { leadTimeDays: `aia-lead-${vaccineId}`, safetyValue: `aia-safety-${vaccineId}` };
+  const months = form.busyMonths.split(",").filter(Boolean).map(Number);
+  const percentId = `aia-busy-pct-${vaccineId}`;
   const errorId = `aia-config-error-${vaccineId}`;
-  const a11y = (field) =>
-    fieldError?.field === field ? { "aria-invalid": "true", "aria-describedby": errorId } : {};
+
+  const toggleMonth = (m) => {
+    // From the latest draft, so two quick taps both count.
+    setForm((f) => {
+      const current = f.busyMonths.split(",").filter(Boolean).map(Number);
+      const next = current.includes(m) ? current.filter((x) => x !== m) : [...current, m].sort((a, b) => a - b);
+      return { ...f, busyMonths: next.join(",") };
+    });
+    setFieldError(null);
+  };
 
   const submit = async (e) => {
     e.preventDefault();
     if (savingRef.current || staleLabels.length > 0) return;
     setError("");
-    // Checked before sending, so the problem is shown at its field and nothing
-    // is written. The service and the rules check again.
     const checked = analyticsConfigPayload(vaccineId, form);
     if (!checked.ok) {
       setFieldError({ field: checked.field ?? null, text: checked.error });
-      if (checked.field) document.getElementById(ids[checked.field])?.focus();
+      if (checked.field === "busyIncreasePercent") document.getElementById(percentId)?.focus();
       return;
     }
     setFieldError(null);
@@ -123,14 +102,11 @@ function ConfigEditor({ vaccineId, config, onSaved }) {
     setSaving(true);
     try {
       await saveAnalyticsConfig(vaccineId, form);
-      // Its own save becomes the baseline; the echo is not "changed elsewhere".
       liveForm.markSaved(form);
       onSaved();
     } catch (err) {
-      logSafeError("Save analytics configuration", err);
-      setError(
-        friendlyErrorMessage(err, "The configuration could not be saved. Nothing was changed — please try again.")
-      );
+      logSafeError("Save busy season", err);
+      setError(friendlyErrorMessage(err, "The busy season could not be saved. Nothing was changed — please try again."));
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -139,57 +115,50 @@ function ConfigEditor({ vaccineId, config, onSaved }) {
 
   return (
     <form className="aia-config" onSubmit={submit} noValidate>
-      <div className="aia-config-grid">
-        <label htmlFor={ids.leadTimeDays}>
-          Delivery time from supplier (days)
+      <fieldset className="aia-months">
+        <legend>Busy months</legend>
+        {MONTH_NAMES.map((name, i) => (
+          <button
+            key={name}
+            type="button"
+            className={`aia-month${months.includes(i + 1) ? " is-on" : ""}`}
+            aria-pressed={months.includes(i + 1)}
+            onClick={() => toggleMonth(i + 1)}
+          >
+            {name}
+          </button>
+        ))}
+      </fieldset>
+      {months.length > 0 && (
+        <label className="aia-busy-pct" htmlFor={percentId}>
+          About how much more is ordered in those months? (%)
           <input
-            id={ids.leadTimeDays}
+            id={percentId}
             inputMode="numeric"
-            value={form.leadTimeDays}
-            onChange={set("leadTimeDays")}
-            placeholder="e.g. 14"
-            {...a11y("leadTimeDays")}
+            value={form.busyIncreasePercent}
+            onChange={(e) => {
+              setForm((f) => ({ ...f, busyIncreasePercent: e.target.value }));
+              setFieldError(null);
+            }}
+            placeholder="e.g. 50"
+            aria-invalid={fieldError?.field === "busyIncreasePercent" ? "true" : undefined}
+            aria-describedby={fieldError ? errorId : undefined}
           />
+          <small className="aia-muted">1 to {MAX_BUSY_INCREASE_PERCENT}. Once there is a full year of orders, VaxTrack also learns this from last year.</small>
         </label>
-        <label>
-          Keep in reserve, counted in
-          <select value={form.safetyMode} onChange={set("safetyMode")}>
-            <option value="quantity">Vials</option>
-            <option value="days">Days of orders</option>
-          </select>
-        </label>
-        <label>
-          {form.safetyMode === "days" ? "Reserve (days of orders)" : "Reserve (vials)"}
-          <input
-            id={ids.safetyValue}
-            inputMode="numeric"
-            value={form.safetyValue}
-            onChange={set("safetyValue")}
-            placeholder="e.g. 20"
-            {...a11y("safetyValue")}
-          />
-        </label>
-        <label className="aia-config-check">
-          <input type="checkbox" checked={form.enabled} onChange={set("enabled")} />
-          Give reorder advice for this vaccine
-        </label>
-      </div>
-      {fieldError && (
-        <p id={errorId} className="aia-error" role="alert">
-          {fieldError.text}
-        </p>
       )}
+      {fieldError && <p id={errorId} className="aia-error" role="alert">{fieldError.text}</p>}
       {error && <p className="aia-error" role="alert">{error}</p>}
       <StaleEditNotice
         labels={staleLabels}
-        what="this configuration"
+        what="this busy season"
         disabled={saving}
         onLoadLatest={liveForm.loadLatest}
         onKeepMine={liveForm.keepMine}
       />
       <div className="aia-config-actions">
         <button type="submit" className="aia-btn" disabled={saving || staleLabels.length > 0}>
-          {saving ? "Saving…" : "Save reorder details"}
+          {saving ? "Saving…" : "Save busy season"}
         </button>
         <span className="aia-muted">Used from the next forecast update.</span>
       </div>
@@ -201,9 +170,10 @@ function ForecastDetail({ horizons, config, onClose }) {
   const [savedNote, setSavedNote] = useState("");
   const primary = horizons[PRIMARY_HORIZON] ?? horizons[HORIZONS.find((h) => horizons[h])];
   const row = forecastRow(primary);
-  const history = Array.isArray(primary.weeklyHistory) ? primary.weeklyHistory : [];
+  // The recent weeks are what the estimate leans on; months of empty weeks
+  // before a vaccine was first ordered only push them off the screen.
+  const history = (Array.isArray(primary.weeklyHistory) ? primary.weeklyHistory : []).slice(-RECENT_WEEKS_SHOWN);
   const peak = history.reduce((m, w) => Math.max(m, Number.isSafeInteger(w.quantity) ? w.quantity : 0), 0);
-  const calc = primary.calculation ?? {};
   const advice = forecastAdvice(row);
 
   return (
@@ -234,34 +204,35 @@ function ForecastDetail({ horizons, config, onClose }) {
       </dl>
       {row.hasCurrentShortage && (
         <p className="aia-note aia-note--high">
-          Current shortage: {row.currentShortage} vials are already backordered beyond the stock available to satisfy
-          them. This comes from orders already placed — it is not a forecast.
+          Short now: orders already placed need {row.currentShortage} more vials than you have. This is not an
+          estimate; these orders are waiting.
         </p>
       )}
 
       {row.insufficient && (
         <p className="aia-note aia-note--unknown">
-          Insufficient forecast history: {primary.usableWeekCount ?? 0} usable week(s). At least 4 complete weeks are needed
-          before a baseline forecast is made, so there is no forecasted shortage or reorder figure.
+          Only {primary.usableWeekCount ?? 0} week(s) of orders so far. VaxTrack needs at least 4 full weeks before it
+          can estimate future orders or suggest an amount to order.
         </p>
       )}
       {configChangedSinceForecast(config, primary) && (
         <p className="aia-note aia-note--medium">
-          The reorder configuration changed after this forecast was generated. The figures below still use the earlier
-          configuration until the next analytics run.
+          The busy season was changed after this forecast was made. The numbers below use the old setting until
+          the next update.
         </p>
       )}
 
       {savedNote && <p className="aia-note aia-note--low" role="status">{savedNote}</p>}
-      {/* Closed unless it is the thing to do: the settings are set once per
-          vaccine, not read every visit. */}
-      <details className="aia-workings aia-settings" open={advice.view === "setup"}>
+      {/* Set once per vaccine (e.g. flu vaccine before Christmas), not read every visit. */}
+      <details className="aia-workings aia-settings">
         <summary>
-          Reorder settings
-          <span className="aia-settings-summary">{reorderSummary(config) ?? "Not set yet"}</span>
+          Busy season
+          <span className="aia-settings-summary">{seasonSummary(config) ?? "None set"}</span>
         </summary>
-        <p className="aia-muted">How long a new order takes to arrive, and how much stock to always keep in reserve.</p>
-        <ConfigEditor
+        <p className="aia-muted">
+          Mark the months this vaccine is ordered more, and VaxTrack raises its estimate for them.
+        </p>
+        <SeasonEditor
           key={primary.vaccineId}
           vaccineId={primary.vaccineId}
           config={config}
@@ -271,116 +242,100 @@ function ForecastDetail({ horizons, config, onClose }) {
 
       <details className="aia-workings">
         <summary>How this was worked out (for checking the numbers)</summary>
-        <p className={`aia-reason aia-reason--${row.riskTone}`}>
-          <RiskBadge level={row.risk} />
-          {row.riskBasisLabel && <strong className="aia-basis-inline">{row.riskBasisLabel}:</strong>} {row.riskReason}
-        </p>
+        <div className="aia-story">
+          {plainForecastStory(primary).map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+        </div>
 
-      <h3>Forecasts by horizon</h3>
-      <div className="aia-table-wrap">
-        <table className="aia-table">
-          <thead>
-            <tr>
-              <th>Horizon</th>
-              <th>Predicted demand</th>
-              <th>Current shortage</th>
-              <th>Forecasted shortage</th>
-              <th>Recommended reorder</th>
-              <th>Risk</th>
-              <th>Confidence</th>
-            </tr>
-          </thead>
-          <tbody>
-            {HORIZONS.map((h) => {
-              const doc = horizons[h];
-              if (!doc) {
+        <h3>Vials ordered each week (last {RECENT_WEEKS_SHOWN} weeks)</h3>
+        {history.length === 0 ? (
+          <p className="aia-muted">No orders in the weeks VaxTrack looked at.</p>
+        ) : (
+          <ol className="aia-history">
+            {history.map((w, i) => (
+              <li key={w.weekStart} style={{ "--aia-i": i }}>
+                <span className="aia-history-week">Week of {shortDay(w.weekStart)}</span>
+                <span className="aia-history-bar" aria-hidden="true">
+                  <span style={{ width: peak > 0 ? `${(w.quantity / peak) * 100}%` : "0%" }} />
+                </span>
+                <span className="aia-history-qty tnum">{formatQuantity(w.quantity)}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+
+        <h3>The numbers, next {primary.horizonDays} days</h3>
+        <dl className="aia-calc">
+          {plainFigures(primary).map((f) => (
+            <div key={f.label}>
+              <dt>{f.label}</dt>
+              <dd className="tnum">{f.value}</dd>
+            </div>
+          ))}
+        </dl>
+
+        <h3>Looking further ahead</h3>
+        <div className="aia-table-wrap">
+          <table className="aia-table">
+            <thead>
+              <tr>
+                <th>Period</th>
+                <th className="aia-num">Expected orders</th>
+                <th className="aia-num">Short if orders come as expected</th>
+                <th className="aia-num">Suggested order</th>
+                <th>Status</th>
+                <th>How sure</th>
+              </tr>
+            </thead>
+            <tbody>
+              {HORIZONS.map((h) => {
+                const doc = horizons[h];
+                if (!doc) {
+                  return (
+                    <tr key={h}>
+                      <td>{periodLabel(h)}</td>
+                      <td colSpan={5} className="aia-muted">Not worked out for this period.</td>
+                    </tr>
+                  );
+                }
+                const r = forecastRow(doc);
+                const c = doc.calculation ?? {};
                 return (
                   <tr key={h}>
-                    <td>{h} days</td>
-                    <td colSpan={5} className="aia-muted">No forecast stored for this horizon.</td>
+                    <td>{periodLabel(h)}</td>
+                    <td className="aia-num">{r.predicted}</td>
+                    <td className="aia-num">{r.insufficient ? "—" : formatQuantity(c.forecastShortageQuantity)}</td>
+                    <td className="aia-num">{r.reorder}</td>
+                    <td>{forecastAdvice(r).status}</td>
+                    <td>{PLAIN_CONFIDENCE[doc.confidenceLevel] ?? "—"}</td>
                   </tr>
                 );
-              }
-              const r = forecastRow(doc);
-              return (
-                <tr key={h}>
-                  <td>{h} days</td>
-                  <td className="tnum">{r.predicted}</td>
-                  <td className={`tnum${r.hasCurrentShortage ? " aia-current-shortage" : ""}`}>{r.currentShortage}</td>
-                  <td className={r.insufficient ? "aia-muted-cell" : "tnum"}>{r.forecastShortage}</td>
-                  <td className={r.needsConfiguration ? "aia-config-required" : "tnum"}>{r.reorder}</td>
-                  <td><RiskBadge level={r.risk} /></td>
-                  <td>{r.confidence}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      <h3>Historical weekly demand (requested vials)</h3>
-      {history.length === 0 ? (
-        <p className="aia-muted">No weekly history inside the training window.</p>
-      ) : (
-        <ol className="aia-history">
-          {history.map((w) => (
-            <li key={w.weekStart}>
-              <span className="aia-history-week tnum">{w.weekStart}</span>
-              <span className="aia-history-bar" aria-hidden="true">
-                <span style={{ width: peak > 0 ? `${(w.quantity / peak) * 100}%` : "0%" }} />
-              </span>
-              <span className="aia-history-qty tnum">{formatQuantity(w.quantity)}</span>
-            </li>
-          ))}
-        </ol>
-      )}
-
-      <h3>Calculation breakdown ({primary.horizonDays} days)</h3>
-      <dl className="aia-calc">
-        {CALCULATION_ROWS.map(([key, label]) => (
-          <div key={key}>
-            <dt>{label}</dt>
-            <dd className="tnum">
-              {key === "recommendedReorderQuantity" && primary.reorderConfigurationComplete !== true
-                ? REORDER_CONFIGURATION_REQUIRED
-                : signedQuantity(calc[key])}
-            </dd>
-          </div>
-        ))}
-      </dl>
-
-      <h3>Explanation</h3>
-      <ul className="aia-factors">
-        {(primary.explanationFactors ?? []).map((f) => (
-          <li key={f.key}>
-            <strong>{f.label}:</strong> {f.value}
-          </li>
-        ))}
-      </ul>
-
-      <h3>Data quality</h3>
-      {(primary.dataQualityWarnings ?? []).length === 0 ? (
-        <p className="aia-muted">No data-quality warnings for this vaccine.</p>
-      ) : (
-        <ul className="aia-warnings">
-          {primary.dataQualityWarnings.map((w) => (
-            <li key={w.code}>{w.message}</li>
-          ))}
-        </ul>
-      )}
-
-      <dl className="aia-meta">
-        <div><dt>Engine</dt><dd>{primary.engineLabel ?? primary.engineType}</dd></div>
-        <div><dt>Model version</dt><dd>{primary.modelVersion}</dd></div>
-        <div>
-          <dt>Training period</dt>
-          <dd>{primary.trainingWindowStart ? `${primary.trainingWindowStart} – ${primary.trainingWindowEnd}` : "No usable history"}</dd>
+              })}
+            </tbody>
+          </table>
         </div>
-        <div><dt>Usable weeks</dt><dd className="tnum">{formatQuantity(primary.usableWeekCount)}</dd></div>
-        <div><dt>Orders in sample</dt><dd className="tnum">{formatQuantity(primary.sampleOrderCount)}</dd></div>
-        <div><dt>Confidence</dt><dd>{CONFIDENCE_LABELS[primary.confidenceLevel] ?? "Unknown"} (data coverage, not probability)</dd></div>
-        <div><dt>Generated</dt><dd>{formatGeneratedAt(primary.generatedAt)}</dd></div>
-      </dl>
+
+        {(primary.dataQualityWarnings ?? []).length > 0 && (
+          <>
+            <h3>Good to know</h3>
+            <ul className="aia-warnings">
+              {primary.dataQualityWarnings.map((w) => (
+                <li key={w.code}>{plainDataNote(w)}</li>
+              ))}
+            </ul>
+          </>
+        )}
+
+        <p
+          className="aia-muted aia-basis"
+          title={`${primary.engineLabel ?? primary.engineType} · ${primary.modelVersion}`}
+        >
+          Based on {formatQuantity(primary.sampleOrderCount)} orders
+          {primary.trainingWindowStart ? ` from ${shortDay(primary.trainingWindowStart)} to ${shortDay(primary.trainingWindowEnd)}` : ""}.
+          Updated {formatGeneratedAt(primary.generatedAt)}. This is an average of past orders, not artificial
+          intelligence, so treat it as a guide.
+        </p>
       </details>
 
     </section>
@@ -448,8 +403,8 @@ function AiInventoryAnalytics() {
       <div className="aia-state aia-empty">
         <strong>{NO_FORECAST_MESSAGE}</strong>
         <p className="aia-muted">
-          Forecasts are produced by the server-side analytics generator. Until it has run for this project, there is
-          nothing to show — no sample figures are displayed.
+          VaxTrack works out forecasts on its own every so often. Until the first one is ready there is nothing to
+          show here, and no example numbers are made up.
         </p>
       </div>
     );
@@ -459,8 +414,8 @@ function AiInventoryAnalytics() {
       <>
         {isStale(run.generatedAt, now) && (
           <p className="aia-note aia-note--medium" role="status">
-            Stale forecast: this run was generated {formatGeneratedAt(run.generatedAt)}, more than {STALE_AFTER_DAYS} days
-            ago. Stock and orders have changed since; generate a new run before relying on it.
+            This forecast is out of date: it was made {formatGeneratedAt(run.generatedAt)}, more than {STALE_AFTER_DAYS} days
+            ago. Stock and orders have changed since, so check with the latest numbers before ordering.
           </p>
         )}
 
@@ -487,8 +442,8 @@ function AiInventoryAnalytics() {
               ))}
             </dl>
             <p className="aia-muted">
-              Nothing is ordered automatically. Open a vaccine to see why, and to change how long its supplier takes or
-              how much to keep in reserve.
+              Nothing is ordered automatically. Open a vaccine to see why, and to mark the months it is ordered more
+              (for example, flu vaccine before Christmas).
             </p>
           </details>
 
@@ -544,12 +499,10 @@ function AiInventoryAnalytics() {
 
         {(run.dataQualityWarnings ?? []).length > 0 && (
           <details className="aia-workings aia-card">
-            <summary>Data notes ({run.dataQualityWarnings.length})</summary>
+            <summary>About the data ({run.dataQualityWarnings.length})</summary>
             <ul className="aia-warnings">
               {run.dataQualityWarnings.map((w) => (
-                <li key={w.code}>
-                  <strong className="tnum">{formatQuantity(w.count)}×</strong> {w.message}
-                </li>
+                <li key={w.code}>{plainDataNote(w)}</li>
               ))}
             </ul>
           </details>
@@ -566,8 +519,8 @@ function AiInventoryAnalytics() {
     <AdminLayout description="Which vaccines may run out soon, based on VaxTrack's own orders and stock.">
       {body}
       <p className="aia-disclaimer" role="note">
-        <strong>{ANALYTICS_DISCLAIMER}</strong> Recommendations are informational and need a human decision; nothing is
-        reordered, reserved or allocated from this page.
+        <strong>{ANALYTICS_DISCLAIMER}</strong> They are suggestions for a person to decide on; nothing is ordered or set
+        aside from this page.
       </p>
       {environment && (
         <p className={`aia-environment${environment.warning ? " aia-environment--staging" : ""}`} role="note">

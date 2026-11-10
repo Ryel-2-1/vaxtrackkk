@@ -295,22 +295,19 @@ service cloud.firestore {
     // validateAnalyticsConfig mirrors this exactly).
     function validAnalyticsConfig(vaccineId) {
       let d = request.resource.data;
-      return d.keys().hasOnly(['vaccineId', 'leadTimeDays', 'safetyStockDays',
-          'safetyStockQuantity', 'enabled', 'updatedAt', 'updatedByUid'])
-        && d.keys().hasAll(['vaccineId', 'leadTimeDays', 'safetyStockDays',
-          'safetyStockQuantity', 'enabled', 'updatedAt', 'updatedByUid'])
+      // Season settings (2026-11-10): the busy months and how much more is
+      // ordered in them. Distinct whole months 1–12; increase 0–300%.
+      return d.keys().hasOnly(['vaccineId', 'busyMonths', 'busyIncreasePercent', 'updatedAt', 'updatedByUid'])
+        && d.keys().hasAll(['vaccineId', 'busyMonths', 'busyIncreasePercent', 'updatedAt', 'updatedByUid'])
         && d.vaccineId == vaccineId
         && exists(/databases/$(database)/documents/vaccines/$(vaccineId))
-        && d.leadTimeDays is int && d.leadTimeDays >= 1 && d.leadTimeDays <= 365
-        && d.enabled is bool
+        && d.busyMonths is list
+        && d.busyMonths.size() <= 12
+        && d.busyMonths.toSet().size() == d.busyMonths.size()
+        && d.busyMonths.toSet().hasOnly([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+        && d.busyIncreasePercent is int && d.busyIncreasePercent >= 0 && d.busyIncreasePercent <= 300
         && d.updatedAt == request.time
-        && d.updatedByUid == request.auth.uid
-        && (
-          (d.safetyStockDays is int && d.safetyStockDays >= 0 && d.safetyStockDays <= 365
-            && d.safetyStockQuantity == null)
-          || (d.safetyStockQuantity is int && d.safetyStockQuantity >= 0
-            && d.safetyStockQuantity <= 100000000 && d.safetyStockDays == null)
-        );
+        && d.updatedByUid == request.auth.uid;
     }
 
     // Keys whose value changed in this write.

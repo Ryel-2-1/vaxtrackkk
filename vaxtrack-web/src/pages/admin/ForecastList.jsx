@@ -19,10 +19,14 @@ export default function ForecastList({ rows, selectedId, onSelect, emptyText }) 
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => {
+          {rows.map((r, i) => {
             const advice = forecastAdvice(r);
             return (
-              <tr key={r.vaccineId} className={selectedId === r.vaccineId ? "aia-selected" : ""}>
+              <tr
+                key={r.vaccineId}
+                className={selectedId === r.vaccineId ? "aia-selected" : ""}
+                style={{ "--aia-row": Math.min(i, 8) }}
+              >
                 <td className="aia-name">
                   <span className={r.nameMissing ? "aia-missing" : ""}>{r.name}</span>
                   <small className={`aia-sku${r.skuMissing ? " aia-missing" : ""}`}>{r.sku}</small>
