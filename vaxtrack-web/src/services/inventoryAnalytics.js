@@ -122,6 +122,7 @@ export function forecastRow(doc) {
     available: formatQuantity(doc.availableQuantity),
     reserved: formatQuantity(doc.reservedQuantity),
     backordered: formatQuantity(doc.backorderedQuantity),
+    hasBackorders: isQuantity(doc.backorderedQuantity) && doc.backorderedQuantity > 0,
     predicted: insufficient ? "—" : formatQuantity(doc.predictedDemandQuantity),
     // Known now, from placed orders — never depends on a forecast.
     currentShortage: formatQuantity(doc.currentBackorderShortageQuantity),
@@ -146,6 +147,30 @@ export function forecastRow(doc) {
 }
 
 /** The views above the forecast list, most useful first. */
+/**
+ * What each status means, in the words an Admin would use. Shown on the page
+ * under "What do these mean?" and kept here so the list and the help agree.
+ */
+export const FORECAST_STATUS_HELP = Object.freeze([
+  { status: "Order now", meaning: "Orders expected in the next 30 days, or orders already placed, need more vials than you have. Order the amount shown." },
+  { status: "Running low", meaning: "You have enough for now, but stock will drop below the reserve you set. Plan an order." },
+  { status: "Enough stock", meaning: "Stock covers the next 30 days and your reserve. Nothing to do." },
+  { status: "Needs setup", meaning: "Tell VaxTrack how many days the supplier takes and how much to keep in reserve, and it can advise you." },
+  { status: "Not enough history", meaning: "Fewer than 4 weeks of orders for this vaccine, so there is no forecast yet." },
+]);
+
+/** One line describing a vaccine's saved reorder settings, or null when there are none. */
+export function reorderSummary(config) {
+  if (!config || !Number.isInteger(config.leadTimeDays)) return null;
+  const days = (n) => `${n} day${n === 1 ? "" : "s"}`;
+  const reserve = Number.isInteger(config.safetyStockDays)
+    ? `keep ${days(config.safetyStockDays)} of orders in reserve`
+    : Number.isInteger(config.safetyStockQuantity)
+      ? `keep ${formatQuantity(config.safetyStockQuantity)} vial${config.safetyStockQuantity === 1 ? "" : "s"} in reserve`
+      : "no reserve set";
+  return `Supplier takes ${days(config.leadTimeDays)} · ${reserve}`;
+}
+
 export const FORECAST_VIEWS = Object.freeze([
   { key: "attention", label: "Needs attention" },
   { key: "enough", label: "Enough stock" },

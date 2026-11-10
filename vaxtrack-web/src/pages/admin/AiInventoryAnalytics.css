@@ -575,3 +575,43 @@
     grid-template-columns: 84px 1fr 48px;
   }
 }
+
+/* "What do these mean?" under the list heading, and the reorder settings in
+   the details panel: both closed until asked for. */
+.inventory-page .aia-help {
+  margin: 0 0 12px;
+}
+.inventory-page .aia-help-list {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+.inventory-page .aia-help-list div {
+  display: grid;
+  grid-template-columns: minmax(120px, 160px) minmax(0, 1fr);
+  gap: 12px;
+}
+.inventory-page .aia-help-list dt {
+  color: var(--gray-900);
+  font-weight: 600;
+}
+.inventory-page .aia-help-list dd {
+  margin: 0;
+  color: var(--gray-600);
+}
+.inventory-page .aia-settings summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+.inventory-page .aia-settings-summary {
+  color: var(--gray-600);
+  font-weight: 400;
+}
+@media (max-width: 600px) {
+  .inventory-page .aia-help-list div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}

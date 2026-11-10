@@ -24,6 +24,8 @@ import {
   configFormFrom,
   environmentNotice,
   forecastAdvice,
+  FORECAST_STATUS_HELP,
+  reorderSummary,
   forecastRow,
   forecastViewCounts,
   forecastsByVaccine,
@@ -226,8 +228,9 @@ function ForecastDetail({ horizons, config, onClose }) {
       <dl className="aia-facts">
         <div><dt>In stock</dt><dd className="tnum">{row.available}</dd></div>
         <div><dt>Expected need, 30 days</dt><dd className="tnum">{row.insufficient ? "—" : row.predicted}</dd></div>
-        <div><dt>Reserved</dt><dd className="tnum">{row.reserved}</dd></div>
-        <div><dt>Waiting for stock</dt><dd className="tnum">{row.backordered}</dd></div>
+        {row.hasBackorders && (
+          <div><dt>Already ordered, waiting for stock</dt><dd className="tnum">{row.backordered}</dd></div>
+        )}
       </dl>
       {row.hasCurrentShortage && (
         <p className="aia-note aia-note--high">
@@ -249,18 +252,25 @@ function ForecastDetail({ horizons, config, onClose }) {
         </p>
       )}
 
-      <h3>Reorder details</h3>
       {savedNote && <p className="aia-note aia-note--low" role="status">{savedNote}</p>}
-      <p className="aia-muted">How long a new order takes to arrive, and how much stock to always keep in reserve.</p>
-      <ConfigEditor
-        key={primary.vaccineId}
-        vaccineId={primary.vaccineId}
-        config={config}
-        onSaved={() => setSavedNote("Saved. It will be used at the next forecast update.")}
-      />
+      {/* Closed unless it is the thing to do: the settings are set once per
+          vaccine, not read every visit. */}
+      <details className="aia-workings aia-settings" open={advice.view === "setup"}>
+        <summary>
+          Reorder settings
+          <span className="aia-settings-summary">{reorderSummary(config) ?? "Not set yet"}</span>
+        </summary>
+        <p className="aia-muted">How long a new order takes to arrive, and how much stock to always keep in reserve.</p>
+        <ConfigEditor
+          key={primary.vaccineId}
+          vaccineId={primary.vaccineId}
+          config={config}
+          onSaved={() => setSavedNote("Saved. It will be used at the next forecast update.")}
+        />
+      </details>
 
       <details className="aia-workings">
-        <summary>How this was worked out</summary>
+        <summary>How this was worked out (for checking the numbers)</summary>
         <p className={`aia-reason aia-reason--${row.riskTone}`}>
           <RiskBadge level={row.risk} />
           {row.riskBasisLabel && <strong className="aia-basis-inline">{row.riskBasisLabel}:</strong>} {row.riskReason}
@@ -465,6 +475,22 @@ function AiInventoryAnalytics() {
               Stock compared with expected orders for the next 30 days. Updated {formatGeneratedAt(run.generatedAt)}, using orders up to {shortDay(run.trainingWindowEnd)}.
             </p>
           </header>
+
+          <details className="aia-workings aia-help">
+            <summary>What do these mean?</summary>
+            <dl className="aia-help-list">
+              {FORECAST_STATUS_HELP.map((h) => (
+                <div key={h.status}>
+                  <dt>{h.status}</dt>
+                  <dd>{h.meaning}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="aia-muted">
+              Nothing is ordered automatically. Open a vaccine to see why, and to change how long its supplier takes or
+              how much to keep in reserve.
+            </p>
+          </details>
 
           <div className="aia-toolbar">
             <div className="aia-filters" role="group" aria-label="Show">
