@@ -2437,78 +2437,8 @@ aside.salesrep-sidebar .salesrep-logout-error {
   align-self: stretch;
 }
 
-/* ============================================================
-   Phone / small-tablet navigation (≤768px) — 2026-10-22
-   Below 769px the Med Rep sidebar is meant to be a bottom navigation
-   bar (SalesRep.css), but a later `!important` block kept it a
-   250px × 100vh sticky column, which the block-level page stacked
-   ABOVE the content: every Med Rep page started a full screen down.
-   Restored as one row of icon + label items (seven pages and Logout)
-   that scrolls sideways if it does not fit, with the page padded so
-   nothing sits behind it.
-   ============================================================ */
-@media (max-width: 768px) {
-  /* #root outranks the lazy-loaded `.salesrep-page { padding: 0 !important }`. */
-  #root .salesrep-page {
-    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
-  }
-  .salesrep-page > aside.salesrep-sidebar {
-    position: fixed !important;
-    top: auto !important;
-    left: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    z-index: 1000;
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: none !important;
-    height: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
-    min-height: 0 !important;
-    flex-direction: row !important;
-    align-items: stretch !important;
-    gap: 2px !important;
-    padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px)) !important;
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
-  }
-  .salesrep-page > aside.salesrep-sidebar .salesrep-brand,
-  .salesrep-page > aside.salesrep-sidebar .m-role-chip,
-  .salesrep-page > aside.salesrep-sidebar .m-profile,
-  .salesrep-page > aside.salesrep-sidebar .salesrep-profile {
-    display: none !important;
-  }
-  .salesrep-page > aside.salesrep-sidebar .salesrep-nav {
-    display: flex !important;
-    flex-direction: row !important;
-    flex: 1 0 auto !important;
-    gap: 2px !important;
-    height: auto !important;
-    padding: 0 !important;
-    overflow: visible !important;
-  }
-  .salesrep-page > aside.salesrep-sidebar .salesrep-nav a,
-  .salesrep-page > aside.salesrep-sidebar .salesrep-logout {
-    flex: 1 0 64px !important;
-    flex-direction: column !important;
-    justify-content: center !important;
-    gap: 2px !important;
-    height: auto !important;
-    min-height: 0 !important;
-    margin: 0 !important;
-    padding: 4px 6px !important;
-    font-size: 10.5px !important;
-    line-height: 1.15 !important;
-    white-space: nowrap !important;
-    text-align: center;
-  }
-  .salesrep-page > aside.salesrep-sidebar .salesrep-nav a svg,
-  .salesrep-page > aside.salesrep-sidebar .salesrep-logout svg {
-    width: 18px;
-    height: 18px;
-    flex: none;
-  }
-}
+/* Phone navigation (≤768px) is the off-canvas side menu in shell-chrome.css
+   (2026-11-10); the old bottom bar that lived here was removed. */
 
 /* A blocked batch: why it cannot be ordered, one full-width line. */
 .salesrep-page .rq-item .rq-item-reason {

@@ -147,12 +147,14 @@ test("Request Order: messages never push the vaccine list down", () => {
   assert.match(read("src/pages/salesRep/salesrep-polish.css"), /\.salesrep-page \.rq-notice-region \{\n {2}position: fixed;/);
 });
 
-test("the Med Rep sidebar is a bottom bar on small screens, not a column above the page", () => {
-  const css = read("src/pages/salesRep/salesrep-polish.css");
-  const block = css.slice(css.indexOf("Phone / small-tablet navigation (≤768px)"));
+test("on small screens the Med Rep sidebar is an off-canvas side menu, not a column above the page", () => {
+  // Decision 2026-11-10: the same side menu as Admin and Dispatcher replaced the bottom bar.
+  const polish = read("src/pages/salesRep/salesrep-polish.css");
+  assert.doesNotMatch(polish, /Phone \/ small-tablet navigation/, "the old bottom-bar block is gone");
+  const chrome = read("src/styles/shell-chrome.css");
+  const block = chrome.slice(chrome.indexOf("Med Rep on phones: the same off-canvas side menu"));
   assert.match(block, /@media \(max-width: 768px\)/);
-  assert.match(block, /\.salesrep-page > aside\.salesrep-sidebar \{\n {4}position: fixed !important;/);
-  assert.match(block, /\.salesrep-page > aside\.salesrep-sidebar \.salesrep-nav \{\n {4}display: flex !important;\n {4}flex-direction: row !important;/);
-  // #root outranks the lazy-loaded `.salesrep-page { padding: 0 !important }`.
-  assert.match(block, /#root \.salesrep-page \{\n {4}padding-bottom: calc\(64px \+ env\(safe-area-inset-bottom, 0px\)\) !important;/, "content never sits behind the bar");
+  assert.match(block, /#root \.salesrep-page > aside\.salesrep-sidebar \{\n {4}position: fixed !important;/);
+  assert.match(block, /transform: translateX\(-100%\);/, "closed: off screen to the left");
+  assert.match(block, /#root \.salesrep-page \{\n {4}padding-bottom: 0 !important;/, "no space kept for a bottom bar");
 });

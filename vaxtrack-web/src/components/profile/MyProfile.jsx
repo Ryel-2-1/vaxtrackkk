@@ -142,9 +142,6 @@ export default function MyProfile({ showEmployeeId = true }) {
     }
   };
 
-  // Med Rep and Dispatcher cards always list Organization (a dash until an
-  // administrator records one); other roles only when it is stored.
-  const showOrganization = stored.roleKey === "salesrep" || stored.roleKey === "dispatcher" || stored.organization !== "";
 
   return (
     <div className="my-profile">
@@ -246,17 +243,11 @@ export default function MyProfile({ showEmployeeId = true }) {
                   <dd>{stored.employeeId || "—"}</dd>
                 </div>
               )}
-              {showOrganization && (
-                <div>
-                  <dt>Organization</dt>
-                  <dd>{stored.organization || "—"}</dd>
-                </div>
-              )}
             </dl>
             <p className="my-profile-note">
               {showEmployeeId
-                ? "Your email, role, status, employee ID and organization are managed by your administrator."
-                : "Your email, role, status, and organization are managed by your administrator."}
+                ? "Your email, role, status and employee ID are managed by your administrator."
+                : "Your email, role and status are managed by your administrator."}
             </p>
           </section>
 
