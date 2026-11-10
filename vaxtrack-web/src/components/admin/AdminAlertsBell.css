@@ -1,11 +1,31 @@
-/* Admin top bar — alerts button. The button itself uses the shared
-   `.m-topbar-icon-btn` (shell-chrome.css); this adds only the count badge. */
-.admin-alerts-bell {
-  position: relative;
-  color: var(--gray-700);
-  text-decoration: none;
+/* Admin uses a text link to the Alerts page with a live count badge. */
+.inventory-page .admin-shell-topbar .m-topbar-actions {
+  margin-inline-start: auto;
 }
-.admin-alerts-bell:focus-visible {
+
+.inventory-page .admin-alerts-bell {
+  --topbar-control-width: auto;
+  --topbar-control-padding: 0 12px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: var(--topbar-control-padding);
+  box-sizing: border-box;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-control);
+  background: #fff;
+  color: var(--gray-700);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.inventory-page .admin-alerts-bell:hover {
+  background: var(--gray-50);
+}
+.inventory-page .admin-alerts-bell:focus-visible {
   outline: 2px solid var(--green-600);
   outline-offset: 2px;
 }
