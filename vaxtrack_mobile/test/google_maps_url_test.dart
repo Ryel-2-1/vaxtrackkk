@@ -170,7 +170,6 @@ void main() {
       for (final path in [
         'lib/screens/delivery_detail_screen.dart',
         'lib/screens/dashboard_screen.dart',
-        'lib/screens/google_navigation_screen.dart',
         'lib/screens/route_monitoring_screen.dart',
         'lib/utils/route_screen_state.dart',
         'lib/utils/trip_route.dart',
@@ -191,10 +190,6 @@ void main() {
       ]) {
         expect(File(path).readAsStringSync(), contains('googleHandoffFor(d, '), reason: path);
       }
-      expect(
-        File('lib/screens/google_navigation_screen.dart').readAsStringSync(),
-        contains('googleMapsDestinationUrl(widget.clinicLat, widget.clinicLng)'),
-      );
     });
 
     test('the manual motorcycle hint sits beside both hand-off buttons', () {

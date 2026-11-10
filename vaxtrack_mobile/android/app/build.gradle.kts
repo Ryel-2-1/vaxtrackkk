@@ -7,17 +7,6 @@ plugins {
     id("com.google.gms.google-services")
 }
 
-// Google Navigation SDK feasibility spike: read the Android Maps/Navigation key
-// from the git-ignored local.properties and inject it as a manifest placeholder.
-// The key is NEVER hardcoded in Gradle/XML/Dart — only referenced from the
-// ignored file at build time.
-val localProperties = Properties()
-val localPropertiesFile = rootProject.file("local.properties")
-if (localPropertiesFile.exists()) {
-    localPropertiesFile.inputStream().use { localProperties.load(it) }
-}
-val mapsApiKey: String = localProperties.getProperty("MAPS_API_KEY") ?: ""
-
 // Release signing configuration, loaded from the git-ignored android/key.properties.
 // The alias/passwords/keystore path are NEVER hardcoded or logged here — they are
 // only referenced via getProperty() at build time.
@@ -33,9 +22,6 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        // Officially required by google_navigation_flutter
-        // (com.google.android.libraries.navigation) — see checkDebugAarMetadata.
-        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -49,12 +35,10 @@ android {
         applicationId = "com.example.vaxtrack_mobile"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion // already 24; meets Navigation SDK requirement
+        minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        // Navigation SDK API key injected from local.properties (spike only).
-        manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
     }
 
     signingConfigs {
@@ -95,12 +79,6 @@ android {
             resValue("string", "app_name", "VaxTrack Rider (Staging)")
         }
     }
-}
-
-dependencies {
-    // Required by the Navigation SDK (checkDebugAarMetadata): the NIO desugar
-    // flavor specifically (java.nio support), version >= 2.1.5.
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
 }
 
 flutter {

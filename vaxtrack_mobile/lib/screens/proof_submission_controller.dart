@@ -204,6 +204,32 @@ class ProofSubmissionController extends ChangeNotifier {
     }
   }
 
+  /// How far the current submission has got, 0..1, for the progress bar; null
+  /// when nothing is running. Each value marks the START of a step, so the bar
+  /// never claims a step is done before it is.
+  double? get progressFraction {
+    switch (_phase) {
+      case ProofPhase.preparing:
+        return 0.1;
+      case ProofPhase.uploadingPhoto:
+        return 0.35;
+      case ProofPhase.savingDetails:
+        return 0.8;
+      case ProofPhase.checkingLocation:
+        return 0.1;
+      case ProofPhase.uploadingProof:
+        return 0.3;
+      case ProofPhase.uploadingInvoice:
+        return 0.55;
+      case ProofPhase.completing:
+        return 0.82;
+      case ProofPhase.idle:
+      case ProofPhase.submitted:
+      case ProofPhase.completed:
+        return null;
+    }
+  }
+
   /// Whether [submit] currently has everything it needs. The screen disables the
   /// button on this, so it can never be pressed into a validation failure.
   bool canSubmit({

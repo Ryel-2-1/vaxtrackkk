@@ -6,6 +6,8 @@ import '../theme/app_theme.dart';
 import '../utils/password_reset.dart';
 import '../utils/rider_application_validation.dart';
 import 'forgot_password_screen.dart';
+import '../theme/motion.dart';
+import '../widgets/motion.dart';
 
 /// Signs the rider in with Firebase Authentication. Role and status are
 /// decided afterwards by AuthGate, never here.
@@ -236,35 +238,50 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ],
                     ),
-                    if (_error != null) ...[
-                      const SizedBox(height: 14),
-                      Semantics(
-                        liveRegion: true,
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(color: AppColors.urgentBg, borderRadius: BorderRadius.circular(10)),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Icon(Icons.error_outline, size: 18, color: AppColors.urgent),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(_error!, style: const TextStyle(color: AppColors.urgent, fontSize: 13)),
+                    FeedbackReveal(
+                      identity: _error,
+                      child: _error == null
+                          ? null
+                          : Padding(
+                              padding: const EdgeInsets.only(top: 14),
+                              child: Semantics(
+                                liveRegion: true,
+                                child: Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(color: AppColors.urgentBg, borderRadius: BorderRadius.circular(10)),
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Icon(Icons.error_outline, size: 18, color: AppColors.urgent),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(_error!, style: const TextStyle(color: AppColors.urgent, fontSize: 13)),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
+                            ),
+                    ),
                     const SizedBox(height: 12),
                     SizedBox(
                       height: 52,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(backgroundColor: AppColors.brand),
                         onPressed: _loading ? null : _login,
-                        child: _loading
-                            ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                            : const Text('Sign In'),
+                        child: AnimatedSwitcher(
+                          duration: Motion.quick,
+                          switchInCurve: Motion.enter,
+                          switchOutCurve: Motion.exit,
+                          child: _loading
+                              ? const SizedBox(
+                                  key: ValueKey('signing-in'),
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                )
+                              : const Text('Sign In', key: ValueKey('sign-in')),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 32),

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../theme/motion.dart';
 import '../utils/sync_status.dart';
+import 'motion.dart';
 
 /// A small, non-blocking chip that tells the rider whether they are viewing
 /// server-confirmed data, previously-loaded cached data, or data with a write
@@ -38,26 +40,34 @@ class SyncIndicator extends StatelessWidget {
         break;
     }
 
-    return Container(
+    // The chip's colour eases to the new state and its wording fades
+    // through, so a change (saved data -> synced) is noticed, not missed.
+    return AnimatedContainer(
+      duration: Motion.reduced(context) ? Duration.zero : Motion.state,
+      curve: Motion.standard,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: fg),
-          const SizedBox(width: 5),
-          Text(
-            status.label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: fg,
+      child: StateSwap(
+        stateKey: status,
+        alignment: Alignment.center,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: fg),
+            const SizedBox(width: 5),
+            Text(
+              status.label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: fg,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

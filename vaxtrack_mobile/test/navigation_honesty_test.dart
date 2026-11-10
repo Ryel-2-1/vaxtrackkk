@@ -1,17 +1,15 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:google_navigation_flutter/google_navigation_flutter.dart';
 import 'package:vaxtrack_mobile/utils/google_maps_url.dart';
-import 'package:vaxtrack_mobile/utils/google_navigation_route.dart';
 
 /// Which route each Rider screen shows, and what it claims about it.
 ///
 /// The saved VaxTrack plan (Valhalla motorcycle route, checked by the web for
 /// highway / toll road / ferry flags) is the only route described as checked,
 /// and the only route deviation is measured against. Google's directions —
-/// the Maps hand-off and the dev-only in-app Navigation SDK screen — are
-/// Google's own route and are labelled that way.
+/// the Maps hand-off — are Google's own route and are labelled that way.
+/// The in-app Google Navigation SDK spike was removed on 2026-11-09.
 String read(String path) => File(path).readAsStringSync().replaceAll('\r\n', '\n');
 
 Iterable<File> dartFiles(String dir) =>
@@ -20,29 +18,14 @@ Iterable<File> dartFiles(String dir) =>
 String rel(File f) => f.path.replaceAll('\\', '/');
 
 void main() {
-  test('in-app Google Navigation is reachable only from the dev harnesses', () {
+  test('there is no in-app Google Navigation: no package, no screen, no Maps key', () {
+    expect(read('pubspec.yaml').contains('google_navigation_flutter'), isFalse);
+    expect(File('lib/screens/google_navigation_screen.dart').existsSync(), isFalse);
+    expect(Directory('lib/dev').existsSync(), isFalse);
     for (final file in dartFiles('lib')) {
-      final path = rel(file);
-      if (path.startsWith('lib/dev/') || path == 'lib/screens/google_navigation_screen.dart') continue;
-      final src = read(path);
-      expect(src.contains('google_navigation_screen.dart'), isFalse, reason: path);
-      expect(src.contains('package:google_navigation_flutter'), isFalse, reason: path);
+      expect(read(rel(file)).contains('google_navigation'), isFalse, reason: rel(file));
     }
-  });
-
-  test('the in-app Google screen asks for motorcycle routing, never falls back to a car, and keeps no baseline', () {
-    final screen = read('lib/screens/google_navigation_screen.dart');
-    expect(screen, contains('travelMode: NavigationTravelMode.twoWheeler'));
-    expect(screen, contains('avoidHighways: kGoogleAvoidHighways'));
-    expect(screen, contains('avoidTolls: kGoogleAvoidTolls'));
-    expect(screen, contains('avoidFerries: kGoogleAvoidFerries'));
-    expect(screen.contains('NavigationTravelMode.driving'), isFalse);
-    // Google's route is never measured against or reported from the device.
-    for (final gone in ['getRouteSegments', 'RouteComplianceMonitor', 'RouteDeviationAlertService', 'recordDeviation']) {
-      expect(screen.contains(gone), isFalse, reason: gone);
-    }
-    expect(screen, contains('kGoogleDirectionsLabel'));
-    expect(kAvoidAll, isTrue);
+    expect(read('android/app/src/main/AndroidManifest.xml').contains('geo.API_KEY'), isFalse);
   });
 
   test('deviation is decided only on the server: the Rider app keeps no detector and writes no alerts', () {
@@ -58,22 +41,6 @@ void main() {
     for (final file in dartFiles('lib')) {
       expect(alertsCollection.hasMatch(read(rel(file))), isFalse, reason: rel(file));
     }
-  });
-
-  test('every Google route outcome has a rider message; unsupported motorcycle mode refuses a car route', () {
-    for (final status in NavigationRouteStatus.values) {
-      final message = googleRouteStatusMessage(status.name);
-      if (status == NavigationRouteStatus.statusOk) {
-        expect(message, isNull);
-      } else {
-        expect(message, isNotNull, reason: status.name);
-        expect(message!.contains('VaxTrack route') || message.contains('try again'), isTrue,
-            reason: '${status.name}: offers a recovery');
-      }
-    }
-    final unsupported = googleRouteStatusMessage(NavigationRouteStatus.travelModeUnsupported.name)!;
-    expect(unsupported, contains('does not switch to car directions'));
-    expect(kGoogleDirectionsLabel, contains('not the VaxTrack plan'));
   });
 
   test('Rider route screens describe the saved plan through one selector', () {
@@ -119,5 +86,3 @@ void main() {
   });
 }
 
-/// The in-app Google request avoids everything the VaxTrack plan rejects.
-const bool kAvoidAll = kGoogleAvoidHighways && kGoogleAvoidTolls && kGoogleAvoidFerries;

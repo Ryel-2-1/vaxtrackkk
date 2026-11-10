@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import 'package:flutter/services.dart';
+import '../theme/motion.dart';
+import 'motion.dart';
 
 /// Final confirmation before a Rider completes a delivery.
 ///
@@ -40,6 +43,7 @@ class CompleteDeliveryConfirmSheet extends StatefulWidget {
     this.confirmLabel = 'Confirm Delivery',
     this.progress,
     this.progressText,
+    this.progressFraction,
     this.offlineAvailable,
     this.onSaveOffline,
   }) : assert(proofImageUrl != null || proofImage != null),
@@ -66,6 +70,9 @@ class CompleteDeliveryConfirmSheet extends StatefulWidget {
   final Listenable? progress;
   final String? Function()? progressText;
 
+  /// 0..1 for the progress bar under [progressText]; null shows no bar.
+  final double? Function()? progressFraction;
+
   /// No signal: after a failure that was only a lost connection
   /// ([offlineAvailable] says so), offer [onSaveOffline] right here — keep the
   /// delivery on the phone and send it later. The sheet closes (false) once
@@ -83,10 +90,40 @@ class CompleteDeliveryConfirmSheet extends StatefulWidget {
 }
 
 class _CompleteDeliveryConfirmSheetState
-    extends State<CompleteDeliveryConfirmSheet> {
+    extends State<CompleteDeliveryConfirmSheet>
+    with SingleTickerProviderStateMixin {
   bool _submitting = false;
   bool _savingOffline = false;
   String? _error;
+
+  /// The server confirmed the completion: the sheet shows the delivered mark,
+  /// then closes by itself when [_delivered] finishes.
+  bool _done = false;
+  late final AnimationController _delivered;
+
+  @override
+  void initState() {
+    super.initState();
+    _delivered = AnimationController(vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _delivered.dispose();
+    super.dispose();
+  }
+
+  /// The one moment that earns more than a snackbar: the rider sees (and
+  /// feels) that the delivery is done before the sheet closes. With
+  /// animations off the mark is drawn complete and held briefly.
+  Future<void> _showDelivered() async {
+    _delivered.duration = Motion.reduced(context)
+        ? const Duration(milliseconds: 600)
+        : Motion.focal;
+    setState(() => _done = true);
+    HapticFeedback.mediumImpact();
+    await _delivered.forward();
+  }
 
   Future<void> _saveOffline() async {
     if (_submitting || _savingOffline) return;
@@ -114,6 +151,8 @@ class _CompleteDeliveryConfirmSheetState
     try {
       await widget.onConfirm();
       if (!mounted) return;
+      await _showDelivered();
+      if (!mounted) return;
       Navigator.of(context).pop(true); // success — caller may show completed
     } catch (e) {
       if (!mounted) return;
@@ -124,6 +163,47 @@ class _CompleteDeliveryConfirmSheetState
       });
     }
   }
+
+  Widget _errorBox(String message) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: AppColors.urgentBg,
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.error_outline, size: 18, color: AppColors.urgent),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            message,
+            style: const TextStyle(fontSize: 12, color: AppColors.urgent),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  /// What the sheet shows once the server confirms the completion.
+  Widget _deliveredView() => Padding(
+    key: const ValueKey('confirm-sheet-delivered'),
+    padding: const EdgeInsets.symmetric(vertical: 28),
+    child: Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          DeliveredMark(progress: _delivered),
+          const SizedBox(height: 6),
+          Text(
+            'Order ${widget.orderNumber}',
+            style: const TextStyle(fontSize: 13, color: AppColors.textMedium),
+          ),
+        ],
+      ),
+    ),
+  );
 
   String _messageFor(Object error) {
     // The service already writes a rider-facing sentence for domain failures;
@@ -152,251 +232,236 @@ class _CompleteDeliveryConfirmSheetState
             top: 16,
             bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
           ),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 16),
-                    decoration: BoxDecoration(
-                      color: AppColors.border,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                Text(
-                  widget.title,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textDark,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Order ${widget.orderNumber}',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textMedium,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  widget.destinationTitle,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textLight,
-                  ),
-                ),
-                if ((widget.destinationSubtitle ?? '').isNotEmpty)
-                  Text(
-                    widget.destinationSubtitle!,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textMuted,
-                    ),
-                  ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _EvidenceThumb(
-                        label: 'Proof of delivery',
-                        image:
-                            widget.proofImage ??
-                            NetworkImage(widget.proofImageUrl!),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _EvidenceThumb(
-                        label: 'Invoice',
-                        image:
-                            widget.invoiceImage ??
-                            NetworkImage(widget.invoiceImageUrl!),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.warningBg,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Row(
+          child: _done
+              ? _deliveredView()
+              : SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        Icons.warning_amber_rounded,
-                        size: 18,
-                        color: AppColors.warning,
-                      ),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Completing settles this order\'s stock and cannot be '
-                          'casually reversed. Only confirm once the vaccines have '
-                          'been handed over.',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppColors.warning,
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: AppColors.border,
+                            borderRadius: BorderRadius.circular(2),
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-                if (_submitting && widget.progressText != null)
-                  ListenableBuilder(
-                    listenable: widget.progress ?? const _NoChange(),
-                    builder: (context, _) {
-                      final text = widget.progressText!();
-                      if (text == null) return const SizedBox.shrink();
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Row(
-                          children: [
-                            const SizedBox(
-                              height: 16,
-                              width: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
+                      Text(
+                        widget.title,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.textDark,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Order ${widget.orderNumber}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textMedium,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        widget.destinationTitle,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textLight,
+                        ),
+                      ),
+                      if ((widget.destinationSubtitle ?? '').isNotEmpty)
+                        Text(
+                          widget.destinationSubtitle!,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textMuted,
+                          ),
+                        ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _EvidenceThumb(
+                              label: 'Proof of delivery',
+                              image:
+                                  widget.proofImage ??
+                                  NetworkImage(widget.proofImageUrl!),
                             ),
-                            const SizedBox(width: 10),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _EvidenceThumb(
+                              label: 'Invoice',
+                              image:
+                                  widget.invoiceImage ??
+                                  NetworkImage(widget.invoiceImageUrl!),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.warningBg,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.warning_amber_rounded,
+                              size: 18,
+                              color: AppColors.warning,
+                            ),
+                            SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                text,
-                                key: const ValueKey('confirm-sheet-progress'),
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: AppColors.textMedium,
+                                'Completing settles this order\'s stock and cannot be '
+                                'casually reversed. Only confirm once the vaccines have '
+                                'been handed over.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.warning,
                                 ),
                               ),
                             ),
                           ],
                         ),
-                      );
-                    },
-                  ),
-                if (_error != null) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppColors.urgentBg,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(
-                          Icons.error_outline,
-                          size: 18,
-                          color: AppColors.urgent,
+                      ),
+                      if (_submitting && widget.progressText != null)
+                        ListenableBuilder(
+                          listenable: widget.progress ?? const _NoChange(),
+                          builder: (context, _) {
+                            final text = widget.progressText!();
+                            if (text == null) return const SizedBox.shrink();
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 12),
+                              child: SubmissionProgress(
+                                text: text,
+                                fraction: widget.progressFraction?.call(),
+                                textKey: const ValueKey(
+                                  'confirm-sheet-progress',
+                                ),
+                              ),
+                            );
+                          },
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _error!,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: AppColors.urgent,
+                      FeedbackReveal(
+                        identity: _error,
+                        child: _error == null
+                            ? null
+                            : Padding(
+                                padding: const EdgeInsets.only(top: 12),
+                                child: _errorBox(_error!),
+                              ),
+                      ),
+                      if (_error != null) ...[
+                        if (widget.onSaveOffline != null &&
+                            (widget.offlineAvailable?.call() ?? false)) ...[
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              key: const ValueKey('confirm-sheet-save-offline'),
+                              onPressed: _savingOffline ? null : _saveOffline,
+                              icon: _savingOffline
+                                  ? const SizedBox(
+                                      height: 16,
+                                      width: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.save_alt),
+                              label: Text(
+                                _savingOffline
+                                    ? 'Getting your GPS position…'
+                                    : 'No signal? Save on phone and send later',
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(46),
+                              ),
                             ),
                           ),
-                        ),
+                          const Padding(
+                            padding: EdgeInsets.only(top: 6),
+                            child: Text(
+                              'VaxTrack records where you are now and sends everything when you are back online. '
+                              'The server checks your position against the clinic area before completing it.',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: AppColors.textLight,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
-                    ),
-                  ),
-                  if (widget.onSaveOffline != null && (widget.offlineAvailable?.call() ?? false)) ...[
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        key: const ValueKey('confirm-sheet-save-offline'),
-                        onPressed: _savingOffline ? null : _saveOffline,
-                        icon: _savingOffline
-                            ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                            : const Icon(Icons.save_alt),
-                        label: Text(_savingOffline ? 'Getting your GPS position…' : 'No signal? Save on phone and send later'),
-                        style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46)),
-                      ),
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.only(top: 6),
-                      child: Text(
-                        'VaxTrack records where you are now and sends everything when you are back online. '
-                        'The server checks your position against the clinic area before completing it.',
-                        style: TextStyle(fontSize: 11, color: AppColors.textLight),
-                      ),
-                    ),
-                  ],
-                ],
-                const SizedBox(height: 20),
-                // A matched pair: equal widths (Expanded), equal heights
-                // (IntrinsicHeight + stretch, so if a large text size wraps
-                // one label both buttons grow together and their edges stay
-                // aligned), and one shared size/padding/type so the labels
-                // sit centred the same way in each.
-                IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _submitting
-                              ? null
-                              : () => Navigator.of(context).pop(false),
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: _actionMinSize,
-                            padding: _actionPadding,
-                            textStyle: _actionTextStyle,
-                          ),
-                          child: const Text(
-                            'Go Back',
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: _submitting ? null : _confirm,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.white,
-                            minimumSize: _actionMinSize,
-                            padding: _actionPadding,
-                            textStyle: _actionTextStyle,
-                          ),
-                          child: _submitting
-                              ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                    color: Colors.white,
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : Text(
-                                  widget.confirmLabel,
+                      const SizedBox(height: 20),
+                      // A matched pair: equal widths (Expanded), equal heights
+                      // (IntrinsicHeight + stretch, so if a large text size wraps
+                      // one label both buttons grow together and their edges stay
+                      // aligned), and one shared size/padding/type so the labels
+                      // sit centred the same way in each.
+                      IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: _submitting
+                                    ? null
+                                    : () => Navigator.of(context).pop(false),
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: _actionMinSize,
+                                  padding: _actionPadding,
+                                  textStyle: _actionTextStyle,
+                                ),
+                                child: const Text(
+                                  'Go Back',
                                   textAlign: TextAlign.center,
                                 ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: _submitting ? null : _confirm,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                  foregroundColor: Colors.white,
+                                  minimumSize: _actionMinSize,
+                                  padding: _actionPadding,
+                                  textStyle: _actionTextStyle,
+                                ),
+                                child: _submitting
+                                    ? const SizedBox(
+                                        height: 20,
+                                        width: 20,
+                                        child: CircularProgressIndicator(
+                                          color: Colors.white,
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : Text(
+                                        widget.confirmLabel,
+                                        textAlign: TextAlign.center,
+                                      ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
                 ),
-              ],
-            ),
-          ),
         ),
       ),
     );

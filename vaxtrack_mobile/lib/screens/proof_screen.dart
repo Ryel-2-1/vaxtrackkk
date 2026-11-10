@@ -21,6 +21,7 @@ import 'proof_submission_controller.dart';
 import '../widgets/rider_action_button.dart';
 import '../widgets/rider_feed_builder.dart';
 import '../widgets/evidence_photo_viewer.dart';
+import '../widgets/motion.dart';
 
 /// Proof of Delivery — and, in the same action, completing the delivery.
 ///
@@ -224,6 +225,7 @@ class _ProofScreenState extends State<ProofScreen> {
         confirmLabel: 'Submit & Complete',
         progress: _submission,
         progressText: () => _submission.progressText,
+        progressFraction: () => _submission.progressFraction,
         onConfirm: () => _runSubmitAndComplete(order),
         offlineAvailable: () => _submission.failedForConnection,
         onSaveOffline: () => _saveOffline(order, fromSheet: true),
@@ -916,48 +918,46 @@ class _ProofScreenState extends State<ProofScreen> {
     final detail = _submission.completionFailureDetail;
     final notice = _submission.isCompleted ? null : _submission.noticeMessage;
 
+    final errorText = error == null ? null : (detail == null ? error : '$error\n$detail');
     return Column(
       children: [
-        if (progress != null) ...[
-          Row(
-            children: [
-              const SizedBox(
-                height: 16,
-                width: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  progress,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textMedium,
+        FeedbackReveal(
+          identity: 'progress',
+          child: progress == null
+              ? null
+              : Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: SubmissionProgress(text: progress, fraction: _submission.progressFraction),
+                ),
+        ),
+        FeedbackReveal(
+          identity: errorText,
+          child: errorText == null
+              ? null
+              : Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _Notice(
+                    icon: Icons.error_outline,
+                    text: errorText,
+                    tone: AppColors.urgent,
+                    background: AppColors.urgentBg,
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-        ],
-        if (error != null) ...[
-          _Notice(
-            icon: Icons.error_outline,
-            text: detail == null ? error : '$error\n$detail',
-            tone: AppColors.urgent,
-            background: AppColors.urgentBg,
-          ),
-          const SizedBox(height: 12),
-        ],
-        if (notice != null) ...[
-          _Notice(
-            icon: Icons.info_outline,
-            text: notice,
-            tone: AppColors.warning,
-            background: AppColors.warningBg,
-          ),
-          const SizedBox(height: 12),
-        ],
+        ),
+        FeedbackReveal(
+          identity: notice,
+          child: notice == null
+              ? null
+              : Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _Notice(
+                    icon: Icons.info_outline,
+                    text: notice,
+                    tone: AppColors.warning,
+                    background: AppColors.warningBg,
+                  ),
+                ),
+        ),
       ],
     );
   }

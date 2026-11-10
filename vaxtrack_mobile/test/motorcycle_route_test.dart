@@ -13,7 +13,6 @@ void main() {
     });
     expect(single.isMotorcycleRoute(), isTrue);
     expect(single.isMotorcycleRoute(trip: true), isFalse);
-    expect(single.routeDescription(trip: true), contains('unverified'));
     final trip = Delivery.fromFirestore('qa', {
       'routeProvider': 'valhalla',
       'tripRouteProvider': 'valhalla',
@@ -21,7 +20,6 @@ void main() {
     });
     expect(trip.isMotorcycleRoute(), isFalse);
     expect(trip.isMotorcycleRoute(trip: true), isTrue);
-    expect(trip.routeDescription(trip: true), startsWith('Motorcycle route'));
     expect(Delivery.fromFirestore('qa', {
       'routeProvider': 'openrouteservice',
       'routeProfile': 123,
