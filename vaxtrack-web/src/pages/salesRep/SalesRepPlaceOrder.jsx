@@ -871,7 +871,9 @@ function SalesRepPlaceOrder() {
               </p>
             )}
 
-            <table>
+            {/* On a phone each line becomes a card (m-phone-cards), so the
+                quantity buttons and totals never sit off-screen. */}
+            <table className="m-phone-cards">
               <thead>
                 <tr>
                   <th>Product</th>
@@ -879,7 +881,7 @@ function SalesRepPlaceOrder() {
                   <th>Quantity</th>
                   <th>Unit price</th>
                   <th>Line total</th>
-                  <th></th>
+                  <th aria-label="Remove"></th>
                 </tr>
               </thead>
 

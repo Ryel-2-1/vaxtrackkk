@@ -213,7 +213,7 @@ aside.inventory-sidebar .admin-nav-group:first-of-type {
 }
 @media (max-width: 560px) {
   .inventory-page .adx-ledger {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .inventory-page .adx-ledger-cell {
     border-left: none;

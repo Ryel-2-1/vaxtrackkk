@@ -5,7 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
@@ -157,4 +157,53 @@ test("on small screens the Med Rep sidebar is an off-canvas side menu, not a col
   assert.match(block, /#root \.salesrep-page > aside\.salesrep-sidebar \{\n {4}position: fixed !important;/);
   assert.match(block, /transform: translateX\(-100%\);/, "closed: off screen to the left");
   assert.match(block, /#root \.salesrep-page \{\n {4}padding-bottom: 0 !important;/, "no space kept for a bottom bar");
+});
+
+// 2026-11-10: the Med Rep checkout was cut off at 375px. A lone `1fr` track
+// can't shrink below its widest content, so the 850px items table stretched
+// the whole column (and the price review under it) past the screen instead of
+// scrolling inside its card. `minmax(0, 1fr)` lets the track shrink.
+const cssFiles = (dir) =>
+  readdirSync(new URL(`../${dir}`, import.meta.url), { recursive: true })
+    .filter((f) => f.endsWith(".css"))
+    .map((f) => `${dir}/${f.split("\\").join("/")}`);
+
+test("no grid column is a bare 1fr that content can stretch past the screen", () => {
+  for (const f of cssFiles("src")) {
+    const css = read(f);
+    for (const [, tracks] of css.matchAll(/grid-template-columns:([^;{}]*);/g)) {
+      const list = tracks.replace("!important", "").trim().split(/\s+/);
+      const bare = list.filter((t) => t === "1fr").length;
+      const fixedOnly = list.every((t) => t === "1fr" || /^\d+px$|^auto$/.test(t));
+      // One flexible track (alone, or beside fixed tracks) must be minmax(0, 1fr).
+      assert.ok(!(bare === 1 && fixedOnly), `${f}: "grid-template-columns:${tracks}" — use minmax(0, 1fr)`);
+    }
+  }
+  assert.match(read("src/pages/salesRep/SalesRep.css"), /\.place-order-layout \{ display: grid; grid-template-columns: minmax\(0, 1fr\) 320px;/);
+});
+
+test("the paper invoice scrolls sideways on a phone instead of being cut off", () => {
+  const css = read("src/pages/admin/Invoices.css");
+  assert.match(css, /@media \(max-width: 520px\) \{[\s\S]*?\.inv-doc \{\s*padding: 10px;\s*overflow-x: auto;/);
+});
+
+test("the checkout cart is a stack of cards on a phone, with every button named", () => {
+  const page = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
+  const row = read("src/pages/salesRep/OrderCartRow.jsx");
+  assert.match(page, /<table className="m-phone-cards">/);
+  for (const label of ["Batch ID", "Quantity", "Unit price", "Line total"]) {
+    assert.match(row, new RegExp(`data-label="${label}"`), label);
+  }
+  assert.match(row, /aria-label=\{`Remove \$\{item\.name\}`\}/);
+  assert.match(row, /aria-label=\{`Decrease \$\{item\.name\} quantity`\}/);
+  const polish = read("src/pages/salesRep/salesrep-polish.css");
+  // The −/+ buttons fit their 38px box instead of the global 46px button height.
+  assert.match(polish, /\.salesrep-main \.place-v2-qty-mini button \{[^}]*min-height: 0 !important;/);
+  // Wider screens: the table takes its card's width instead of a fixed 850px.
+  assert.match(polish, /@media \(min-width: 769px\) \{\s*#root \.salesrep-main \.place-v2-items-card table \{\s*min-width: 0 !important;/);
+});
+
+test("role pages fill the window without the 100vw scrollbar overflow", () => {
+  assert.match(read("src/pages/salesRep/SalesRep.css"), /\.salesrep-page \{\n {2}width: 100% !important;/);
+  assert.doesNotMatch(read("src/pages/salesRep/salesrep-polish.css"), /rq-cart-drawer \{\n {4}width: 100vw/);
 });

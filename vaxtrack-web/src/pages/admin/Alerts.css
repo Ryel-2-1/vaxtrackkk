@@ -819,7 +819,7 @@
   }
 
   .alerts-layout-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -838,7 +838,7 @@
 
   .alert-kpi-grid,
   .alerts-modal-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .alerts-search {
@@ -846,7 +846,7 @@
   }
 
   .alert-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .alert-view-btn,

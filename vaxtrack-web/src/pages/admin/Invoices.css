@@ -852,7 +852,7 @@
 /* ---- Acknowledgment + SC/PWD ids ---- */
 .sit-ack {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   border: 1px solid var(--sit-line);
   border-top: 0;
 }
@@ -1124,7 +1124,7 @@
 
 .inv-bottom-grid {
   display: grid;
-  grid-template-columns: 1fr 300px;
+  grid-template-columns: minmax(0, 1fr) 300px;
   gap: 24px;
   padding: 16px 0;
   border-top: 1px solid #e2e8f0;
@@ -1248,10 +1248,10 @@
     min-width: 0;
   }
   .inv-soldto-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .inv-bottom-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .inv-signatures {
     grid-template-columns: 1fr 1fr;
@@ -1262,10 +1262,18 @@
 }
 @media (max-width: 520px) {
   .inv-summary-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .inv-signatures {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* The invoice copies the paper form, whose items grid can't fold up any
+     further on a phone: let it scroll sideways inside the document instead
+     of being cut off at the screen edge. */
+  .inv-doc {
+    padding: 10px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 }
 

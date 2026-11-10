@@ -323,6 +323,9 @@
 .cl-check input[type="checkbox"] {
   width: 20px;
   height: 20px;
+  /* Beats the global input min-height (46px), which made the box taller than
+     its 34px chip. */
+  min-height: 0 !important;
   accent-color: var(--green-700);
   cursor: pointer;
   margin: 0;

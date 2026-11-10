@@ -410,7 +410,7 @@
 }
 .inventory-page .aia-history li {
   display: grid;
-  grid-template-columns: 96px 1fr 64px;
+  grid-template-columns: 96px minmax(0, 1fr) 64px;
   align-items: center;
   gap: 10px;
   font-size: 12px;
@@ -577,7 +577,7 @@
     flex-direction: column;
   }
   .inventory-page .aia-history li {
-    grid-template-columns: 84px 1fr 48px;
+    grid-template-columns: 84px minmax(0, 1fr) 48px;
   }
 }
 
@@ -616,7 +616,7 @@
 }
 @media (max-width: 600px) {
   .inventory-page .aia-help-list div {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 2px;
   }
 }

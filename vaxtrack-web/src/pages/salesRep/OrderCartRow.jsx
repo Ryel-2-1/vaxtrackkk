@@ -47,33 +47,33 @@ export default function OrderCartRow({ item, price, review, onAccept, onDecrease
         </small>
       </td>
 
-      <td>
+      <td data-label="Batch ID">
         {item.sku}
       </td>
 
-      <td>
+      <td data-label="Quantity">
         <div className="qty-mini place-v2-qty-mini">
-          <button type="button" onClick={onDecrease}>−</button>
+          <button type="button" onClick={onDecrease} aria-label={`Decrease ${item.name} quantity`}>−</button>
           <span>{item.quantity}</span>
-          <button type="button" onClick={onIncrease}>+</button>
+          <button type="button" onClick={onIncrease} aria-label={`Increase ${item.name} quantity`}>+</button>
         </div>
       </td>
 
       {/* The AGREED price (the standard unless negotiated below), and the
           line's FINAL total. A figure that could not be read shows a dash
           rather than a zero. */}
-      <td className="tnum">
+      <td className="tnum" data-label="Unit price">
         {price?.agreedUnitPriceCentavos != null ? formatCentavos(price.agreedUnitPriceCentavos) : "—"}
         {price?.priceNegotiated && <small className="place-v2-negotiated-tag">{NEGOTIATED_PRICE_LABEL}</small>}
       </td>
 
-      <td className="tnum">
+      <td className="tnum" data-label="Line total">
         {price?.finalLineTotalCentavos != null ? formatAmount(price.finalLineTotalCentavos) : "—"}
       </td>
 
-      <td>
-        <button type="button" className="place-v2-remove-btn" onClick={onRemove}>
-          <Trash2 size={15} />
+      <td className="place-v2-remove-cell">
+        <button type="button" className="place-v2-remove-btn" onClick={onRemove} aria-label={`Remove ${item.name}`} title="Remove">
+          <Trash2 size={15} aria-hidden="true" />
         </button>
       </td>
     </tr>

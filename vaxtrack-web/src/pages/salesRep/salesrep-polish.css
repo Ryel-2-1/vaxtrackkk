@@ -2766,7 +2766,7 @@ body:has(> #root > .salesrep-page),
     align-items: flex-end;
   }
   .salesrep-page .rq-cart-backdrop .rq-cart-drawer {
-    width: 100vw !important;
+    width: 100% !important;
     height: auto !important;
     max-height: 85vh !important;
     max-height: 85dvh !important;
@@ -3026,7 +3026,7 @@ body:has(> #root > .salesrep-page),
   }
 }
 @media (max-width: 640px) {
-  .salesrep-page .inventory-v2-toolbar { grid-template-columns: 1fr !important; }
+  .salesrep-page .inventory-v2-toolbar { grid-template-columns: minmax(0, 1fr) !important; }
   .salesrep-page .catalog-filter-trigger { justify-self: start; }
 }
 
@@ -3471,4 +3471,77 @@ body:has(> #root > .salesrep-page),
 }
 .salesrep-page .inventory-v2-summary .small-metric-card h2 {
   overflow-wrap: anywhere;
+}
+
+/* Checkout cart on a phone (2026-11-10): the 850px table was cut off at the
+   screen edge, hiding the quantity buttons, prices and Remove. Each line is a
+   card instead (shared m-phone-cards rules in shell-chrome.css); these fit it
+   into the items card, with Remove in the card's top-right corner. */
+@media (max-width: 768px) {
+  #root .salesrep-main .place-v2-items-card {
+    overflow: visible !important;
+  }
+  #root .salesrep-main .place-v2-items-card table.m-phone-cards tbody {
+    padding: 0 14px 4px !important;
+  }
+  #root .salesrep-main .place-v2-items-card table.m-phone-cards tbody tr {
+    position: relative;
+    padding-right: 52px !important;
+  }
+  #root .salesrep-main .place-v2-items-card table.m-phone-cards td.place-v2-remove-cell {
+    position: absolute !important;
+    top: 8px;
+    right: 8px;
+    width: auto !important;
+    padding: 0 !important;
+  }
+  #root .salesrep-main .place-v2-items-card table.m-phone-cards td[data-label] {
+    display: flex !important;
+    align-items: center;
+    min-height: 32px;
+  }
+  #root .salesrep-main .place-v2-items-card table.m-phone-cards td[data-label]::before {
+    top: 50%;
+    transform: translateY(-50%);
+  }
+  #root .salesrep-main .place-v2-items-card .order-items-footer {
+    padding: 12px 14px 16px !important;
+  }
+}
+
+/* Checkout quantity stepper: the global 46px button min-height pushed the −/+
+   buttons past their 38px box, so the symbols sat off-centre (the − looked
+   low). Fit them to the box, centred, with a wider thumb target. */
+.salesrep-main .place-v2-qty-mini {
+  grid-template-columns: 34px minmax(0, 1fr) 34px !important;
+  gap: 2px !important;
+  overflow: hidden;
+}
+.salesrep-main .place-v2-qty-mini button {
+  width: 34px !important;
+  height: 36px !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  display: grid !important;
+  place-items: center !important;
+  line-height: 1 !important;
+}
+
+/* Wider screens: the cart table was forced to 850px, wider than its card on a
+   1280px laptop (612px), so the totals scrolled out of view. Its columns need
+   about 540px, so let it take the card's width. */
+@media (min-width: 769px) {
+  #root .salesrep-main .place-v2-items-card table {
+    min-width: 0 !important;
+  }
+  #root .salesrep-main .place-v2-items-card th,
+  #root .salesrep-main .place-v2-items-card td {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+}
+@media (min-width: 769px) {
+  #root .salesrep-main .place-v2-items-card td[data-label="Batch ID"] {
+    white-space: nowrap;
+  }
 }

@@ -717,11 +717,11 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
 .dispatcher-page .shp-audit-id { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; overflow-wrap: anywhere; font-weight: 700; font-size: 13px; }
 .dispatcher-page .shp-audit-id .shp-act-btn { flex: 0 0 auto; }
 .dispatcher-page .shp-audit-items { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.dispatcher-page .shp-audit-items li { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; padding: 9px 11px; border: 1px solid var(--gray-200); border-radius: 8px; font-size: 13px; }
+.dispatcher-page .shp-audit-items li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 9px 11px; border: 1px solid var(--gray-200); border-radius: 8px; font-size: 13px; }
 .dispatcher-page .shp-audit-items small { grid-column: 1 / -1; color: var(--gray-600); }
 .dispatcher-page .shp-audit-error { margin: 10px 0 0; color: var(--danger-text); font-size: 12px; }
 @media (max-width: 640px) {
-  .dispatcher-page .shp-audit-grid { grid-template-columns: 1fr; }
+  .dispatcher-page .shp-audit-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 1024px) {
   .dispatcher-main .dispatcher-topbar[data-shipments-topbar] { grid-template-rows: auto !important; }

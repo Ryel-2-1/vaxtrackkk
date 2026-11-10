@@ -259,7 +259,7 @@
   }
 
   .register-two-col {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -1246,7 +1246,7 @@ input[type="checkbox"]:focus {
   }
 
   .register-card .form-row {
-    grid-template-columns: 1fr !important;
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 
   .register-card h1,
@@ -1466,7 +1466,7 @@ input[type="checkbox"]:focus {
   }
 
   .register-two-col {
-    grid-template-columns: 1fr !important;
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 
   .register-brand h1 {
@@ -1976,7 +1976,7 @@ input[type="checkbox"]:focus {
 .register-card-v2 .register-terms-clean {
   width: 100% !important;
   display: grid !important;
-  grid-template-columns: 20px 1fr !important;
+  grid-template-columns: 20px minmax(0, 1fr) !important;
   column-gap: 12px !important;
   align-items: start !important;
   margin: 6px 0 12px !important;

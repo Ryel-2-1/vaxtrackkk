@@ -200,7 +200,7 @@
 }
 .adx-breakdown-row {
   display: grid;
-  grid-template-columns: 132px 1fr 40px;
+  grid-template-columns: 132px minmax(0, 1fr) 40px;
   align-items: center;
   gap: 12px;
 }
@@ -467,7 +467,7 @@
 @media (max-width: 560px) {
   .inventory-page .adx-hero { padding: 16px; }
   .adx-breakdown-row {
-    grid-template-columns: 110px 1fr 34px;
+    grid-template-columns: 110px minmax(0, 1fr) 34px;
   }
 }
 
