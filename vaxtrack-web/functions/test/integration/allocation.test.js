@@ -56,7 +56,7 @@ const order = (id) => get("orders", id);
 const reservation = (id) => get("inventoryReservations", id);
 
 async function wipe() {
-  for (const c of ["users", "doctors", "clinics", "areas", "vaccines", "inventory", "orders", "inventoryReservations", "inventoryReturns", "orderRequestKeys"]) {
+  for (const c of ["users", "doctors", "clinics", "areas", "vaccines", "inventory", "inventoryBatchCosts", "orders", "inventoryReservations", "inventoryReturns", "orderRequestKeys"]) {
     const snap = await db.collection(c).get();
     await Promise.all(snap.docs.map(async (d) => {
       const subs = await d.ref.listCollections();
@@ -141,6 +141,23 @@ async function recordEvidence(orderId) {
 }
 
 // ---------------------------------------------------------------- 1–4
+
+test("Add Stock records purchase cost privately and quotes only the selling price", async () => {
+  await seed();
+  const batch = await addStock({ purchaseCostCentavos: 95025 });
+  assert.equal((await get("inventoryBatchCosts", batch.inventoryId)).purchaseCostCentavos, 95025);
+  const shared = await inv(batch.inventoryId);
+  assert.equal(shared.sellingPriceCentavos, PRICE);
+  assert.equal(Object.hasOwn(shared, "purchaseCostCentavos"), false);
+  const placed = await create([[batch.inventoryId, 1]]);
+  const item = (await order(placed.orderId)).items[0];
+  assert.equal(item.unitPriceCentavos, PRICE);
+  assert.equal(Object.hasOwn(item, "purchaseCostCentavos"), false);
+
+  const noCost = await addStock();
+  assert.equal(await get("inventoryBatchCosts", noCost.inventoryId), undefined);
+  assert.equal(await codeOf(addStock({ purchaseCostCentavos: "95025" })), "invalid-stock-batch");
+});
 
 test("1. zero available stock: a future order is accepted, priced, and waits", async () => {
   await seed({ quoteOnly: { quantity: 0 } });

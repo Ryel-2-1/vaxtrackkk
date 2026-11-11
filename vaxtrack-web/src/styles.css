@@ -3931,44 +3931,6 @@ select:focus {
   font-size: 12px;
 }
 
-.priority-alert-card {
-  border-radius: 16px;
-  padding: 18px;
-  background: #fff7ed;
-  border: 1px solid #fed7aa;
-}
-
-/* (2026-11-11) A `.priority-alert-card > div` rule here drew the card's first
-   child as a 48px orange icon tile. Since the card's first child became the
-   icon + title row (.priority-alert-heading, Alerts.css), it squeezed the
-   title into that tile, over the message. Removed; Alerts.css owns the card. */
-
-.priority-alert-card h3 {
-  margin: 0;
-  color: #0f172a;
-  font-size: 17px;
-}
-
-.priority-alert-card p {
-  margin: 8px 0 16px;
-  color: #475569;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.priority-alert-card button {
-  height: 38px;
-  border: none;
-  border-radius: 999px;
-  background: #f97316;
-  color: #ffffff;
-  padding: 0 14px;
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  cursor: pointer;
-}
 
 @media (max-width: 1200px) {
   .alert-kpi-grid {
@@ -4602,27 +4564,6 @@ select:focus {
     width: auto;
   }
 }
-/* Fix Priority Action text alignment in Alerts UI */
-.priority-alert-card {
-  text-align: left;
-}
-
-.priority-alert-card h3,
-.priority-alert-card p {
-  text-align: left;
-}
-
-.priority-alert-card button {
-  width: auto;
-  min-width: 150px;
-  white-space: nowrap;
-  justify-content: center;
-  align-self: flex-start;
-}
-
-.priority-alert-card button svg {
-  flex: 0 0 15px;
-}
 .add-type-btn {
   height: 38px;
   border: 1px solid #0057d8;
@@ -4682,8 +4623,7 @@ select:focus {
 .recent-alert-card,
 .alert-category-card,
 .alert-item,
-.alert-list-card,
-.priority-alert-card {
+.alert-list-card {
   text-align: left;
 }
 
@@ -4702,11 +4642,7 @@ select:focus {
 .alert-list-card h1,
 .alert-list-card h2,
 .alert-list-card h3,
-.alert-list-card p,
-.priority-alert-card h1,
-.priority-alert-card h2,
-.priority-alert-card h3,
-.priority-alert-card p {
+.alert-list-card p {
   text-align: left;
 }
 /* =========================================
@@ -4762,8 +4698,7 @@ select:focus {
 .recent-alert-card,
 .alert-category-card,
 .alert-item,
-.alert-list-card,
-.priority-alert-card {
+.alert-list-card {
   text-align: left;
 }
 
@@ -4782,16 +4717,11 @@ select:focus {
 .alert-list-card h1,
 .alert-list-card h2,
 .alert-list-card h3,
-.alert-list-card p,
-.priority-alert-card h1,
-.priority-alert-card h2,
-.priority-alert-card h3,
-.priority-alert-card p {
+.alert-list-card p {
   text-align: left;
 }
 
 /* 4. Make alert/location/action buttons cleaner */
-.priority-alert-card button,
 .recent-alert-card button {
   white-space: nowrap;
   display: inline-flex;

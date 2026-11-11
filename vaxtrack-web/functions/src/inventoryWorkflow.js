@@ -52,6 +52,7 @@ const { dispositionEvents, epochOf, requeueEvent, prepareEvents, createPreparedE
 
 const ORDERS = "orders";
 const INVENTORY = "inventory";
+const INVENTORY_BATCH_COSTS = "inventoryBatchCosts";
 const VACCINES = "vaccines";
 const RESERVATIONS = "inventoryReservations";
 const RETURNS = "inventoryReturns";
@@ -91,7 +92,7 @@ function statusFromExpiry(expiryIso, todayIso) {
 
 /** Server-side Add Stock validation; mirrors src/services/stockBatchDates.js. */
 function validateStockBatchPayload(payload, now) {
-  const allowed = ["vaccineId", "batchId", "manufacturingDate", "arrivalDate", "expiryDate", "quantity", "sellingPriceCentavos", "priceIsVatInclusive", "manufacturer", "largeQuantityConfirmed"];
+  const allowed = ["vaccineId", "batchId", "manufacturingDate", "arrivalDate", "expiryDate", "quantity", "purchaseCostCentavos", "sellingPriceCentavos", "priceIsVatInclusive", "manufacturer", "largeQuantityConfirmed"];
   for (const key of Object.keys(payload ?? {})) {
     if (!allowed.includes(key)) throw new PolicyError("unknown-field", `Unexpected field: ${key}.`);
   }
@@ -121,6 +122,10 @@ function validateStockBatchPayload(payload, now) {
   requireLargeQuantityConfirmed(quantity, payload?.largeQuantityConfirmed);
   const price = readSellingPriceCentavos(payload?.sellingPriceCentavos);
   if (!price.ok) fail("invalid-stock-batch", "A stock batch needs a selling price in whole centavos.");
+  const purchaseCostCentavos = payload?.purchaseCostCentavos;
+  if (purchaseCostCentavos !== undefined && (!Number.isSafeInteger(purchaseCostCentavos) || purchaseCostCentavos < 0)) {
+    fail("invalid-stock-batch", "Purchase cost must be a non-negative amount in whole centavos.");
+  }
   // Every batch price is entered with VAT included (2026-11-11). Omitted means
   // that; a "before VAT" price is no longer accepted for a new batch. Older
   // batches stored before VAT keep their meaning wherever they are read.
@@ -136,6 +141,7 @@ function validateStockBatchPayload(payload, now) {
     arrivalDate: arrival,
     expiryDate: expiry,
     quantity,
+    ...(purchaseCostCentavos !== undefined ? { purchaseCostCentavos } : {}),
     sellingPriceCentavos: price.value,
     priceIsVatInclusive: payload.priceIsVatInclusive ?? true,
     manufacturer,
@@ -210,6 +216,15 @@ async function addStockBatchWithAllocation({ db, FieldValue, uid, payload, now }
       createdByUid: uid,
       updatedAt: FieldValue.serverTimestamp(),
     });
+    // All approved roles can read inventory. Keep acquisition cost in its
+    // own Admin-only document and commit it atomically with the batch.
+    if (input.purchaseCostCentavos !== undefined) {
+      tx.set(db.collection(INVENTORY_BATCH_COSTS).doc(batchRef.id), {
+        purchaseCostCentavos: input.purchaseCostCentavos,
+        createdAt: FieldValue.serverTimestamp(),
+        createdByUid: uid,
+      });
+    }
     return { r, reservedFromNew };
   });
 

@@ -143,6 +143,19 @@ test("refused requests leave nothing written at all", async () => {
   assert.equal((await order(ok.orderId)).requestedArrival.time, "10:00");
 });
 
+test("staging demo accepts an after-hours request but still rejects an elapsed time", async () => {
+  await seed();
+  const createDemo = (payload) => ops.createOrderWithReservation({
+    db, FieldValue, uid: SR, now: NOW, payload, enforceOperatingHours: false,
+  });
+  const requestedArrival = { mode: "exact", time: "18:30" };
+  const result = await createDemo(payloadOf({ requestedDeliveryDate: TODAY, requestedArrival }));
+  assert.deepEqual((await order(result.orderId)).requestedArrival, { version: 1, ...requestedArrival });
+  assert.equal(await codeOf(createDemo(payloadOf({ requestedDeliveryDate: TODAY, requestedArrival: { mode: "exact", time: "06:30" } }))), "requested-arrival-passed");
+  assert.equal(await codeOf(createDemo(payloadOf({ requestedArrival: { mode: "window", start: "19:00", end: "18:00" } }))), "invalid-requested-arrival");
+  assert.equal(await size("orders"), 1);
+});
+
 test("a retry with the same preference replays; a changed preference under the same id is refused", async () => {
   await seed();
   const payload = payloadOf({ requestedArrival: { mode: "before", time: "11:00" } });

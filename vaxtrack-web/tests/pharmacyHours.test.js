@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { normalizeRequestedArrival, arrivalKey, orderArrivalNote } from "../src/services/requestedArrival.js";
-import { PHARMACY_HOURS, hubReturnOf, dispatchHoursWarning } from "../src/services/pharmacyHours.js";
+import { PHARMACY_HOURS, pharmacyHoursFor, hubReturnOf, dispatchHoursWarning } from "../src/services/pharmacyHours.js";
 import { planTrip } from "../src/services/timeAwareRouting.js";
 import { validateCheckoutSchedule } from "../src/services/checkoutSchedule.js";
 const require = createRequire(import.meta.url);
@@ -76,4 +76,25 @@ test("unknown return travel or final service stays unknown; live replanning uses
   assert.equal(result.plan.hubReturn.durationMinutes, 85);
   assert.match(dispatchHoursWarning(null, now), /unknown/);
   assert.match(dispatchHoursWarning({ durationMinutes: 0 }, new Date("2026-10-28T08:01:00Z")), /outside pharmacy/);
+});
+
+test("the staging demo lifts the hours cutoff while retaining time and date checks and return estimates", () => {
+  const { pharmacyHoursEnforced } = require("../functions/src/pharmacyHours.js");
+  const { relaxedProjectIds } = require("../functions/src/pharmacyHoursDemo.json");
+  for (const projectId of ["vaxtrack-staging", "vaxtrack-bef1b", "unknown", undefined]) {
+    const expected = projectId === "vaxtrack-bef1b" || !relaxedProjectIds.includes(projectId);
+    assert.equal(Boolean(pharmacyHoursFor(projectId)), expected);
+    assert.equal(pharmacyHoursEnforced(projectId), expected);
+  }
+  const operatingHours = null;
+  const options = { requestedDeliveryDate: "2026-10-28", now, enforceOperatingHours: Boolean(operatingHours) };
+  for (const arrival of [{ mode: "exact", time: "06:45" }, { mode: "window", start: "16:30", end: "18:00" }]) {
+    const web = normalizeRequestedArrival(arrival, options);
+    assert.equal(web.ok, true);
+    assert.deepEqual(server.normalizeRequestedArrival(arrival, options), web.value);
+  }
+  const result = trip({ operatingHours, hubReturnIndex: 0, fixedDeparture: 1020 });
+  assert.equal(result.allMet, true);
+  assert.deepEqual(result.plan.hubReturn, { minute: 1080, durationMinutes: 60, status: "estimated", warning: null });
+  assert.equal(dispatchHoursWarning(result.plan.hubReturn, new Date("2026-10-28T09:00:00Z"), operatingHours), null);
 });

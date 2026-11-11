@@ -434,8 +434,9 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     // Surface the outcome honestly instead of failing silently: canLaunchUrl
     // false (no maps app) or a launch that throws both tell the rider.
     try {
-      if (await canLaunchUrl(uri) &&
-          await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      // Try the hand-off itself: canLaunchUrl can answer false on some phones
+      // even with Google Maps installed (package visibility).
+      if (await launchUrl(uri, mode: LaunchMode.externalApplication)) {
         return;
       }
       _showNavSnack('Could not open Google Maps — no maps app is available. '

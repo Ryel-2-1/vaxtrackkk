@@ -31,7 +31,7 @@ import {
   routeThroughStops,
 } from "../../services/routeService";
 import { DEADLINE_SLACK_MINUTES, arrivalCheck, bufferedMinutes, matrixMinutes, planTrip } from "../../services/timeAwareRouting";
-import { PHARMACY_HOURS } from "../../services/pharmacyHours";
+import { ACTIVE_PHARMACY_HOURS } from "../../services/pharmacyHours";
 import { subscribeRoutingSettings } from "../../services/routingSettingsService";
 import { subscribeClinics } from "../../services/clinicService";
 import { arrivalGeofence, clinicsById, geofenceStatus } from "../../services/destinationFreshness";
@@ -565,7 +565,7 @@ function DispatcherGeofence() {
       const seconds = await fetchTravelMatrix(points);
       const clock = manilaClock(new Date());
       const result = planTrip({
-        operatingHours: PHARMACY_HOURS,
+        operatingHours: ACTIVE_PHARMACY_HOURS,
         hubReturnIndex,
         stops: riderStops.map((s, i) => ({
           id: s.order.id,
@@ -599,7 +599,8 @@ function DispatcherGeofence() {
         text: (result.allMet
           ? "Re-planned from the rider's position: every requested arrival is met."
           : `Re-planned from the rider's position: ${missed} requested arrival${missed === 1 ? "" : "s"} cannot be met from here — this is the order that misses by the least. Tell the clinic${missed === 1 ? "" : "s"} concerned.`)
-          + ` ${result.plan.hubReturn?.warning || "The estimated hub return is within the 4:00 PM target (PHT)."}`,
+          + (result.plan.hubReturn?.warning ? ` ${result.plan.hubReturn.warning}`
+            : ACTIVE_PHARMACY_HOURS ? " The estimated hub return is within the 4:00 PM target (PHT)." : ""),
       });
       // subscribeDeliveries refreshes the group's orders with the trip fields,
       // so the numbered markers + trip line + stop list redraw automatically.

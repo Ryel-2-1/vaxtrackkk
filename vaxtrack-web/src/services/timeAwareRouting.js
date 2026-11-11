@@ -252,7 +252,7 @@ export function plannedStopEtas(plan) {
 export function planTrip({
   stops, minutes, planDate, nowMinute = null, allowWaiting = true,
   slackMinutes = DEADLINE_SLACK_MINUTES, fixedDeparture = null, longWaitMinutes = null, travelNote = null,
-  operatingHours = null, hubReturnIndex = 0,
+  operatingHours, hubReturnIndex,
 }) {
   const suggestion = suggestStopOrder({ stops, minutes, planDate, nowMinute, allowWaiting, slackMinutes, fixedDeparture, operatingHours });
   if (!suggestion) return null;
@@ -270,8 +270,10 @@ export function planTrip({
     departureMinute: Number.isInteger(fixedDeparture) ? fixedDeparture : null,
     stops: ordered.map((s, k) => ({ ...s, travelMinutes: legs[k] })),
   });
-  if (operatingHours) {
-    plan.hubReturn = hubReturnOf(plan, minutes?.[ordered.at(-1)?.matrixIndex]?.[hubReturnIndex], operatingHours);
+  if (operatingHours || hubReturnIndex !== undefined) {
+    const returnIndex = hubReturnIndex === undefined ? 0 : hubReturnIndex;
+    const returnTravel = returnIndex === null ? null : minutes?.[ordered.at(-1)?.matrixIndex]?.[returnIndex];
+    plan.hubReturn = hubReturnOf(plan, returnTravel, operatingHours ?? null);
     if (plan.hubReturn.warning) plan.warnings.push(plan.hubReturn.warning);
   }
   return {

@@ -309,12 +309,17 @@ function callable(name, run) {
   });
 }
 
+const { pharmacyHoursEnforced } = require("./src/pharmacyHours");
+
 exports.createOrderWithReservation = callable(
   "createOrderWithReservation",
   // `email` (from the verified token) is snapshotted onto the order's
   // confirmation receipt; it never decides anything.
   ({ db, FieldValue, uid, email, data, now }) =>
-    operations.createOrderWithReservation({ db, FieldValue, uid, email, payload: data, now })
+    operations.createOrderWithReservation({
+      db, FieldValue, uid, email, payload: data, now,
+      enforceOperatingHours: pharmacyHoursEnforced(admin.app().options.projectId || process.env.GCLOUD_PROJECT),
+    })
 );
 
 exports.requestZeroRateApproval = callable(

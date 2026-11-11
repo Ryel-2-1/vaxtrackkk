@@ -210,7 +210,9 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
     if (handoff.message != null) _snack(handoff.message!);
     if (uri == null) return;
     try {
-      if (await canLaunchUrl(uri) && await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
+      // Try the hand-off itself: canLaunchUrl can answer false on some phones
+      // even with Google Maps installed (package visibility).
+      if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
       _snack('Could not open Google Maps — no maps app is available. Keep following the plan on this map.');
     } catch (_) {
       _snack('Could not open Google Maps on this device. Keep following the plan on this map.');

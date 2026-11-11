@@ -19,7 +19,7 @@
  * timezone, so a device set to another zone cannot move them.
  */
 
-import { PHARMACY_HOURS, HOURS_MESSAGE } from "./pharmacyHours.js";
+import { ACTIVE_PHARMACY_HOURS, PHARMACY_HOURS, HOURS_MESSAGE } from "./pharmacyHours.js";
 
 export const REQUESTED_ARRIVAL_VERSION = 1;
 export const ARRIVAL_MODES = Object.freeze(["any_time", "window", "before", "exact"]);
@@ -121,7 +121,7 @@ function readTime(value) {
  * @returns {{ok: true, value: object} | {ok: false, code: string, field: string, message: string}}
  *   `field` names the input to point at: "mode", "start", "end" or "time".
  */
-export function normalizeRequestedArrival(value, { requestedDeliveryDate = null, now = new Date(), validateFuture = true, enforceOperatingHours = true } = {}) {
+export function normalizeRequestedArrival(value, { requestedDeliveryDate = null, now = new Date(), validateFuture = true, enforceOperatingHours = Boolean(ACTIVE_PHARMACY_HOURS) } = {}) {
   if (value === undefined || value === null) value = ANY_TIME;
   if (typeof value !== "object" || Array.isArray(value)) return fail("The requested delivery time was malformed.");
   const mode = value.mode;

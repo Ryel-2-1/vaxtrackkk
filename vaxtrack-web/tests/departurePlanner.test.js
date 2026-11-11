@@ -218,9 +218,10 @@ test("the planner UI saves only the trip route on 'Use this plan', and never reu
     "../../services/pharmacyHours",
     "lucide-react", "react",
   ].sort());
-  // The added hours helper is pure; it introduces no Firebase or write path.
+  // The hours helper reads only the shared demo configuration and a build-time setting.
   const hours = readFileSync(new URL("../src/services/pharmacyHours.js", import.meta.url), "utf8");
-  assert.doesNotMatch(hours, /\bimport\b|httpsCallable|setDoc|updateDoc|addDoc|finalizeRiderDispatch|updateOrderStatus|localStorage|sessionStorage/);
+  assert.deepEqual([...hours.matchAll(/from "([^"]+)"/g)].map((match) => match[1]), ["../../functions/src/pharmacyHoursDemo.json"]);
+  assert.doesNotMatch(hours, /httpsCallable|setDoc|updateDoc|addDoc|finalizeRiderDispatch|updateOrderStatus|localStorage|sessionStorage/);
   assert.match(ui, /import \{ saveOrderRoute, saveRiderTripRoute \} from "\.\.\/\.\.\/services\/orderService";/);
   assert.match(ui, /import \{ fetchRoute, fetchTravelMatrix, routeThroughStops \} from "\.\.\/\.\.\/services\/routeService";/);
   // One save helper: a trip for several stops, the order's own route for one.

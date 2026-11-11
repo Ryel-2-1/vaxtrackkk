@@ -145,6 +145,7 @@ export async function addStockBatch({
   arrivalDate,
   expiryDate,
   quantity,
+  purchaseCostCentavos,
   sellingPriceCentavos,
   priceIsVatInclusive,
   largeQuantityConfirmed,
@@ -170,6 +171,9 @@ export async function addStockBatch({
   ) {
     throw new UserMessageError("A stock batch needs a selling price in whole centavos.");
   }
+  if (purchaseCostCentavos !== undefined && (!Number.isSafeInteger(purchaseCostCentavos) || purchaseCostCentavos < 0)) {
+    throw new UserMessageError("Purchase cost must be a non-negative amount in whole centavos.");
+  }
   if (typeof priceIsVatInclusive !== "boolean") {
     throw new UserMessageError("Choose whether the batch price includes VAT.");
   }
@@ -181,6 +185,7 @@ export async function addStockBatch({
     arrivalDate: dates.value.arrivalDate,
     expiryDate: dates.value.expiryDate,
     quantity,
+    ...(purchaseCostCentavos !== undefined ? { purchaseCostCentavos } : {}),
     // The amount entered by Admin and its explicit VAT basis.
     sellingPriceCentavos,
     priceIsVatInclusive,

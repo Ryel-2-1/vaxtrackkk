@@ -205,7 +205,7 @@ function runsOf(minutes) {
  *   requestedArrival?: object, travelMinutes: number|string|null,
  *   serviceMinutes: number|string|null}>} input.stops  in visiting order
  */
-export function planDeparture({ planDate, nowMinute = null, allowWaiting = false, departureMinute = null, longWaitMinutes = null, travelNote = null, slackMinutes = 0, stops = [], operatingHours = null }) {
+export function planDeparture({ planDate, nowMinute = null, allowWaiting = false, departureMinute = null, longWaitMinutes = null, travelNote = null, slackMinutes = 0, stops = [], operatingHours }) {
   const constraints = stops.map((s) => constraintOf(s, planDate, operatingHours));
   const missing = [];
   stops.forEach((s, i) => {
@@ -293,7 +293,8 @@ export function planDeparture({ planDate, nowMinute = null, allowWaiting = false
   const conflicts = rows.filter((r) => r.outcome === "early" || r.outcome === "late" || r.outcome === "date");
   // A planned departure already behind the clock cannot be followed as entered.
   const departureInPast = planned !== null && Number.isInteger(nowMinute) && planned < nowMinute;
-  const warnings = [PLAN_WARNINGS.destinationHours, ...(operatingHours ? [] : [PLAN_WARNINGS.hubHours]), travelNote || PLAN_WARNINGS.traffic];
+  // An explicit null means the demo deliberately has no hub hours policy.
+  const warnings = [PLAN_WARNINGS.destinationHours, ...(operatingHours === undefined ? [PLAN_WARNINGS.hubHours] : []), travelNote || PLAN_WARNINGS.traffic];
   const departureOutsideHours = operatingHours && evaluated !== null && (evaluated < operatingHours.open || evaluated >= operatingHours.close);
   if (departureOutsideHours) warnings.unshift("The departure is outside pharmacy operating hours, 7:00 AM–4:00 PM (PHT).");
   // A long wait keeps vaccines in the cooler box: shown, never hidden in a total.

@@ -6,6 +6,7 @@ import PageNav from "../../components/ui/PageNav";
 import { adminWrapperClassFor } from "../../components/admin/adminShellClasses";
 import AdminLayout from "../../components/admin/AdminLayout";
 import { subscribeInventory } from "../../services/inventoryService";
+import { getBatchPurchaseCost } from "../../services/batchPurchaseCostService";
 import { useInventoryVisibility } from "../../components/useInventoryVisibility";
 import InventoryVisibilityToggle from "../../components/inventory/InventoryVisibilityToggle";
 import {
@@ -1202,6 +1203,8 @@ function Inventory() {
                 <input id="inv-batch-manufacturer" value={batchDraft?.manufacturer ?? ""} maxLength={120} disabled={savingBatch || drawerItem.voided} onChange={(e) => setBatchDraft((old) => ({ ...old, manufacturer: e.target.value }))} />
               </div>
 
+              <BatchPurchaseCost key={drawerItem.id} inventoryId={drawerItem.id} />
+
               <div className="inv-vat-field">
                 <span>VAT Classification</span>
                 <strong>{drawerItem.vatLabel}</strong>
@@ -1641,6 +1644,30 @@ function StockOverviewCard({ summary, loading, unavailable }) {
           <p className="vaccine-overview-note">A flagged batch places its vaccine in Review even when another batch has valid available vials. Pricing and product visibility are checked separately before ordering.</p>
         </>
       )}
+    </div>
+  );
+}
+
+function BatchPurchaseCost({ inventoryId }) {
+  const [label, setLabel] = useState("Loading…");
+
+  useEffect(() => {
+    let active = true;
+    getBatchPurchaseCost(inventoryId).then((cost) => {
+      if (!active) return;
+      setLabel(cost === null ? "Not recorded" : cost === 0 ? "₱0.00" : formatCentavos(cost));
+    }).catch((error) => {
+      if (!active) return;
+      logSafeError("Batch purchase cost", error);
+      setLabel("Could not load purchase cost");
+    });
+    return () => { active = false; };
+  }, [inventoryId]);
+
+  return (
+    <div>
+      <span>Unit Purchase Cost</span>
+      <strong aria-live="polite">{label}</strong>
     </div>
   );
 }

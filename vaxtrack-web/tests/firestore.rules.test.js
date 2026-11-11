@@ -680,6 +680,20 @@ async function main() {
     await assertSucceeds(setDoc(doc(admin, "alerts", "alAdmin"), { status: "active" }));
   });
 
+  await check("P3a only approved Admins can get an inventory batch's purchase cost", async () => {
+    const cost = (db) => doc(db, "inventoryBatchCosts", "invAdmin");
+    await testEnv.withSecurityRulesDisabled((ctx) => setDoc(cost(ctx.firestore()), { purchaseCostCentavos: 95025 }));
+    const result = await assertSucceeds(getDoc(cost(admin)));
+    if (result.data()?.purchaseCostCentavos !== 95025) throw new Error("Admin should get the recorded purchase cost");
+    for (const client of [salesRep, dispatcher, rider, freshAdminApplicant, disabled, anon]) {
+      await assertFails(getDoc(cost(client)));
+    }
+    await assertFails(getDocs(collection(admin, "inventoryBatchCosts")));
+    await assertFails(updateDoc(cost(admin), { purchaseCostCentavos: 100 }));
+    await assertFails(setDoc(doc(admin, "inventoryBatchCosts", "other"), { purchaseCostCentavos: 100 }));
+    await assertFails(deleteDoc(cost(admin)));
+  });
+
   await check("P4 dispatcher queries users where role == 'rider'", async () => {
     await assertSucceeds(getDocs(query(collection(dispatcher, "users"), where("role", "==", "rider"))));
   });

@@ -21,7 +21,7 @@ import {
   requestedArrivalOf,
 } from "../../services/requestedArrival";
 import "./DeparturePlanner.css";
-import { PHARMACY_HOURS, PHARMACY_OPEN, PHARMACY_CLOSE, hubReturnOf } from "../../services/pharmacyHours";
+import { ACTIVE_PHARMACY_HOURS, PHARMACY_OPEN, PHARMACY_CLOSE, hubReturnOf } from "../../services/pharmacyHours";
 
 /**
  * A Dispatcher's departure plan for one Rider's orders (Cargo Loading).
@@ -123,7 +123,7 @@ function TripResult({ result, hubName, ordersById, busy, onSaveAnyway }) {
         </p>
       )}
       {Number.isInteger(plan.hubReturn?.minute) && (
-        <p className="dp-result-leave tnum">Estimated return to {hubName || "the hub"}: <strong>{formatMinute(plan.hubReturn.minute) || "after midnight"}</strong>. Target: 4:00 PM (PHT).</p>
+        <p className="dp-result-leave tnum">Estimated return to {hubName || "the hub"}: <strong>{formatMinute(plan.hubReturn.minute) || "after midnight"}</strong>.{ACTIVE_PHARMACY_HOURS && " Target: 4:00 PM (PHT)."}</p>
       )}
       <ol className="dp-result-stops">
         {plan.stops.map((row) => {
@@ -234,7 +234,7 @@ function DeparturePlanner({ orders, riderName, routing = null, onReturnPlanChang
 
   const routedNote = `Travel times are Valhalla motorcycle estimates plus a ${bufferPercent}% traffic buffer; live traffic and delays are not modelled.`;
   const plan = planDeparture({
-    operatingHours: PHARMACY_HOURS,
+    operatingHours: ACTIVE_PHARMACY_HOURS,
     planDate: clock.date,
     nowMinute: clock.minute,
     allowWaiting,
@@ -252,7 +252,7 @@ function DeparturePlanner({ orders, riderName, routing = null, onReturnPlanChang
     })),
   });
   const returnTravel = minutes?.[matrixIndexOf(sequenced.at(-1))]?.[0];
-  const hubReturn = hubReturnOf(plan, returnTravel);
+  const hubReturn = hubReturnOf(plan, returnTravel, ACTIVE_PHARMACY_HOURS);
   plan.hubReturn = hubReturn;
   if (hubReturn.warning) plan.warnings.push(hubReturn.warning);
   const returnDuration = hubReturn.durationMinutes;
@@ -307,7 +307,7 @@ function DeparturePlanner({ orders, riderName, routing = null, onReturnPlanChang
   function suggestOrder() {
     if (!allMatrixed) return;
     const result = suggestStopOrder({
-      operatingHours: PHARMACY_HOURS,
+      operatingHours: ACTIVE_PHARMACY_HOURS,
       stops: sequenced.map((order) => ({
         id: order.id,
         matrixIndex: matrixIndexOf(order),
@@ -405,7 +405,8 @@ function DeparturePlanner({ orders, riderName, routing = null, onReturnPlanChang
         setMatrix(current);
       }
       const result = planTrip({
-        operatingHours: PHARMACY_HOURS,
+        operatingHours: ACTIVE_PHARMACY_HOURS,
+        hubReturnIndex: 0,
         stops: sequenced.map((order) => ({
           id: order.id,
           label: stopName(order),
@@ -580,8 +581,8 @@ function DeparturePlanner({ orders, riderName, routing = null, onReturnPlanChang
               <input
                 id={`${id}-departure`}
                 type="time"
-                min={PHARMACY_OPEN}
-                max={PHARMACY_CLOSE}
+                min={ACTIVE_PHARMACY_HOURS ? PHARMACY_OPEN : undefined}
+                max={ACTIVE_PHARMACY_HOURS ? PHARMACY_CLOSE : undefined}
                 step="60"
                 value={departure}
                 onChange={(e) => setDeparture(e.target.value)}
@@ -720,7 +721,7 @@ function DeparturePlanner({ orders, riderName, routing = null, onReturnPlanChang
             </p>
             <dl className="dp-facts">
               <div>
-                <dt>Estimated hub return · target 4:00 PM</dt>
+                <dt>Estimated hub return{ACTIVE_PHARMACY_HOURS && " · target 4:00 PM"}</dt>
                 <dd className="tnum">{Number.isInteger(hubReturn.minute) ? formatMinute(hubReturn.minute) || "After midnight" : "Unknown"}</dd>
               </div>
               <div>

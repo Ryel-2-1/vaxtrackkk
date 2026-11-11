@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ClipboardList, Truck } from "lucide-react";
+import { ClipboardList, Tag, Truck } from "lucide-react";
 import {
   batchIdExists,
   addStockBatch,
@@ -11,7 +11,7 @@ import { subscribeInventory } from "../../services/inventoryService";
 import { manilaToday } from "../../services/requestedDate";
 import { addShelfLife, shelfLifeLabel, stockSuggestions } from "../../services/stockSuggestions";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
-import { parsePesosToCentavos } from "../../services/money";
+import { parseAdjustmentPesosToCentavos, parsePesosToCentavos } from "../../services/money";
 import { validateStockBatchDates } from "../../services/stockBatchDates";
 import { isLargeStockQuantity, largeQuantityMessage } from "../../services/stockQuantityLimit";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
@@ -28,6 +28,7 @@ const STOCK_FIELD_IDS = {
   arrivalDate: "stock-arrival-date",
   expiryDate: "stock-expiry-date",
   quantity: "stock-quantity",
+  purchaseCost: "stock-purchase-cost",
   unitPrice: "stock-unit-price",
 };
 const STOCK_FIELD_ERROR_ID = "stock-field-error";
@@ -46,6 +47,7 @@ function AddStock() {
   // Starts empty rather than a pre-filled figure: a default quantity is a
   // number nobody entered, and it could be submitted unchanged.
   const [quantity, setQuantity] = useState("");
+  const [purchaseCost, setPurchaseCost] = useState("");
   // Also starts empty. A default price would be worse than a default quantity:
   // a plausible-looking figure nobody chose is exactly what gets invoiced.
   const [unitPrice, setUnitPrice] = useState("");
@@ -227,6 +229,10 @@ function AddStock() {
       return failField("quantity", "Vial quantity is too large. Please check the encoded amount.");
     }
 
+    if (!parseAdjustmentPesosToCentavos(purchaseCost).ok) {
+      return failField("purchaseCost", "Enter the purchase cost in pesos with up to two decimal places.");
+    }
+
     // A batch cannot enter inventory unpriced. Sales Rep ordering reads this
     // figure and the invoice bills from it, so "price it later" means shipping
     // a vaccine at ₱0.00 the moment someone forgets.
@@ -294,6 +300,7 @@ function AddStock() {
         arrivalDate,
         expiryDate,
         quantity: Number(String(quantity).trim()),
+        purchaseCostCentavos: purchaseCost.trim() ? parseAdjustmentPesosToCentavos(purchaseCost).value : undefined,
         // Re-parsed rather than carried from validateForm: parsing the typed
         // text in one place means the value written is the value validated,
         // even if the two ever drift apart.
@@ -550,6 +557,32 @@ function AddStock() {
                 </div>
                 {fieldMessage("quantity")}
               </div>
+            </div>
+          </section>
+
+          <section className="form-section-card">
+            <h2>
+              <Tag size={18} aria-hidden="true" />
+              Batch Pricing
+            </h2>
+
+            <div className="two-col-form">
+              <div>
+                <label htmlFor="stock-purchase-cost">Unit Purchase Cost (₱)</label>
+                <input
+                  id="stock-purchase-cost"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="e.g. 950.00"
+                  value={purchaseCost}
+                  onChange={(e) => setPurchaseCost(e.target.value)}
+                  {...a11y("purchaseCost", "stock-purchase-cost-help")}
+                />
+                {fieldMessage("purchaseCost")}
+                <small id="stock-purchase-cost-help">
+                  Optional. What you paid per vial. Visible only to Admins.
+                </small>
+              </div>
 
               <div>
                 <label htmlFor="stock-unit-price">Unit Selling Price (₱)</label>
@@ -564,7 +597,7 @@ function AddStock() {
                 />
                 {fieldMessage("unitPrice")}
                 <small id="stock-unit-price-help">
-                  The amount per vial, with VAT included. This applies to this batch only.
+                  Set the selling price per vial for this batch, with VAT included.
                 </small>
                 {priceStillPrefilled && (
                   <small className="stock-suggest-filled" role="status">
@@ -572,8 +605,6 @@ function AddStock() {
                   </small>
                 )}
               </div>
-
-
             </div>
           </section>
 

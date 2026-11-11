@@ -239,6 +239,17 @@ test("only the fields the server accepts are sent — catalog metadata is the se
   }
 });
 
+test("Add Stock forwards a recorded purchase cost separately from the selling price", opts, async () => {
+  const { mod, calls } = await loadService();
+  const batch = payloadFor(SELECTED_VACCINE);
+  await mod.addStockBatch({ ...batch, purchaseCostCentavos: 95025 });
+  await mod.addStockBatch({ ...batch, purchaseCostCentavos: 0 });
+  await assert.rejects(() => mod.addStockBatch({ ...batch, purchaseCostCentavos: -1 }), /Purchase cost/);
+  assert.deepEqual(calls.sent.map((sent) => [sent.purchaseCostCentavos, sent.sellingPriceCentavos]), [
+    [95025, batch.sellingPriceCentavos], [0, batch.sellingPriceCentavos],
+  ]);
+});
+
 test("stock cannot be added without the server callable", opts, async () => {
   await assert.rejects(
     () => service.addStockBatch(payloadFor(SELECTED_VACCINE)),
