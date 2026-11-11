@@ -260,25 +260,6 @@ function AddVaccine() {
               system.
             </small>
           </div>
-
-          <div className="form-header-actions">
-            <button
-              type="button"
-              className="outline-btn"
-              onClick={() => navigate("/admin/inventory")}
-            >
-              Cancel
-            </button>
-
-            <button
-              type="button"
-              className="blue-btn"
-              onClick={handleSubmit}
-              disabled={saving}
-            >
-              {saving ? "Saving..." : "Register Vaccine"}
-            </button>
-          </div>
         </header>
 
         <form className="vaccine-form-card" onSubmit={handleSubmit} onInput={clearFieldErrorFor} onChange={clearFieldErrorFor} noValidate>
@@ -451,8 +432,8 @@ function AddVaccine() {
             )}
           </div>
 
-          {/* The same actions at the end of the form, where the Admin finishes
-              (the header ones scroll out of view on a long form). */}
+          {/* The form's only actions, at its end where the Admin finishes
+              (moved from the page header, 2026-11-11). */}
           <div className="form-footer-actions">
             <button type="button" className="outline-btn" onClick={() => navigate("/admin/inventory")}>
               Cancel

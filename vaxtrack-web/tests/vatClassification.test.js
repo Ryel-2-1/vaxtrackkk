@@ -226,8 +226,10 @@ test("1 · Register New Vaccine requires an explicit classification with no defa
   // Zero-rating is requested per order, never offered on the product.
   assert.match(page, /\{SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS\.map\(\(value\) => \(/);
   assert.doesNotMatch(page, /\{PRODUCT_VAT_CLASSIFICATIONS\.map/);
-  // The form can be finished at its end as well as from the header.
+  // Cancel / Register Vaccine sit only at the end of the form, not in the header.
   assert.match(page, /<div className="form-footer-actions">[\s\S]*?<button type="submit" className="blue-btn" disabled=\{saving\}>/);
+  assert.doesNotMatch(page, /form-header-actions/);
+  assert.equal(page.match(/Register Vaccine"\}/g)?.length, 1, "one Register Vaccine button");
   assert.match(page, /<legend>VAT Classification<\/legend>/);
   assert.match(page, /Becomes the VAT status of every future order item/);
 });
