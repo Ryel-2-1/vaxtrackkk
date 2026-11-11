@@ -15,7 +15,7 @@ import {
   skuExists,
   addVaccine,
 } from "../../services/vaccineService";
-import { PRODUCT_VAT_CLASSIFICATIONS, PRODUCT_VAT_LABELS } from "../../services/vatClassification";
+import { PRODUCT_VAT_LABELS, SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS } from "../../services/vatClassification";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import "./AdminForms.css";
 
@@ -27,7 +27,7 @@ const VACCINE_FIELD_IDS = {
   vaccineType: "vaccine-type",
   newType: "new-vaccine-type",
   internalSku: "vaccine-sku",
-  vatClassification: `vaccine-vat-${PRODUCT_VAT_CLASSIFICATIONS[0]}`,
+  vatClassification: `vaccine-vat-${SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS[0]}`,
 };
 const VACCINE_FIELD_ERROR_ID = "vaccine-field-error";
 
@@ -145,8 +145,8 @@ function AddVaccine() {
       return failField("internalSku", INTERNAL_SKU_FORMAT_MESSAGE);
     }
 
-    if (!PRODUCT_VAT_CLASSIFICATIONS.includes(vatClassification)) {
-      return failField("vatClassification", "Select VAT, VAT Exempt or Zero-Rated for this vaccine.");
+    if (!SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS.includes(vatClassification)) {
+      return failField("vatClassification", "Select VAT or VAT Exempt for this vaccine.");
     }
 
     if (await skuExists(internalSku.trim().toUpperCase())) {
@@ -419,7 +419,7 @@ function AddVaccine() {
           <fieldset className="vat-choice" {...a11y("vatClassification")}>
             <legend>VAT Classification</legend>
             <div className="vat-choice-options">
-              {PRODUCT_VAT_CLASSIFICATIONS.map((value) => (
+              {SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS.map((value) => (
                 <label key={value} className={vatClassification === value ? "selected" : ""}>
                   <input
                     id={`vaccine-vat-${value}`}
@@ -437,6 +437,8 @@ function AddVaccine() {
             <small className="input-helper">
               Becomes the VAT status of every future order item for this
               vaccine. Existing orders and issued invoices are not changed.
+              Zero-rating is not set here: the Med Rep requests it on an order
+              and Admin approves it.
             </small>
             {fieldMessage("vatClassification")}
           </fieldset>
@@ -447,6 +449,17 @@ function AddVaccine() {
                 {message}
               </p>
             )}
+          </div>
+
+          {/* The same actions at the end of the form, where the Admin finishes
+              (the header ones scroll out of view on a long form). */}
+          <div className="form-footer-actions">
+            <button type="button" className="outline-btn" onClick={() => navigate("/admin/inventory")}>
+              Cancel
+            </button>
+            <button type="submit" className="blue-btn" disabled={saving}>
+              {saving ? "Saving..." : "Register Vaccine"}
+            </button>
           </div>
         </form>
       </main>

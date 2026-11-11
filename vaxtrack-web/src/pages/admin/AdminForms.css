@@ -768,3 +768,22 @@
 .inventory-main .input-helper {
   display: block;
 }
+
+/* Register New Vaccine: the header's Cancel / Register Vaccine repeated at the
+   end of the form (2026-11-11), right-aligned under the last field. */
+.inventory-main .form-footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--gray-200);
+}
+@media (max-width: 900px) {
+  .inventory-main .form-footer-actions .blue-btn,
+  .inventory-main .form-footer-actions .outline-btn {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+  }
+}

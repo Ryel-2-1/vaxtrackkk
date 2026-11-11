@@ -11,7 +11,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { validateStockBatchDates } from "./stockBatchDates";
-import { readVatClassification } from "./vatClassification";
+import { SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS, readVatClassification } from "./vatClassification";
 import { UserMessageError } from "./userMessageError.js";
 import { logSafeError } from "./liveDataErrors.js";
 import { listenLive } from "./liveSnapshot.js";
@@ -64,8 +64,8 @@ export async function skuExists(sku) {
  */
 export async function addVaccine({ vaccineName, manufacturer, vaccineType, internalSku, vatClassification }) {
   const cls = readVatClassification(vatClassification);
-  if (!cls) {
-    throw new UserMessageError("Select VAT, VAT Exempt or Zero-Rated for this vaccine.");
+  if (!cls || !SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS.includes(cls)) {
+    throw new UserMessageError("Select VAT or VAT Exempt for this vaccine. Zero-rating is requested on each order.");
   }
   return addDoc(collection(db, VACCINES), {
     vaccineName,
@@ -87,8 +87,8 @@ export async function addVaccine({ vaccineName, manufacturer, vaccineType, inter
  */
 export async function setVaccineVatClassification(vaccineId, vatClassification) {
   const cls = readVatClassification(vatClassification);
-  if (!cls) {
-    throw new UserMessageError("Select VAT, VAT Exempt or Zero-Rated for this vaccine.");
+  if (!cls || !SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS.includes(cls)) {
+    throw new UserMessageError("Select VAT or VAT Exempt for this vaccine. Zero-rating is requested on each order.");
   }
   const uid = auth.currentUser?.uid;
   if (!uid) {

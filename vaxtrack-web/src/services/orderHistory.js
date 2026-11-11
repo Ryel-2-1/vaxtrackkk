@@ -268,9 +268,43 @@ export function sourceLabel(sourceOperation) {
 }
 
 /** Chronological: commit time, then the order written within one commit. */
+// A late delivery is recorded when the scheduled timing check NOTICES it, which
+// can be hours after it actually became late (on staging the check started on
+// Nov 5 and stamped 4:10 AM on a delivery late since 5:34 PM the day before).
+// The timeline dates it from when it became late, and says when it was noticed.
+const NOTICED_LATE_AFTER_MS = 15 * 60 * 1000;
+const lateTimes = (e) => (e?.eventType === "delivery_running_late"
+  && Number.isFinite(e.expectedArrivalMs) && Number.isFinite(e.automaticDelayedMs)
+  ? { expectedMs: e.expectedArrivalMs, lateMs: e.automaticDelayedMs } : null);
+
+/** When an event happened, for display and ordering. */
+export function eventAtMs(e) {
+  return lateTimes(e)?.lateMs ?? toMillis(e?.createdAt);
+}
+
+/** "Noticed Nov 5, 2026, 4:10 AM" when the record came well after the moment it describes. */
+export function eventNoticedNote(e) {
+  const late = lateTimes(e);
+  const recorded = toMillis(e?.createdAt);
+  if (!late || recorded == null || recorded - late.lateMs < NOTICED_LATE_AFTER_MS) return null;
+  return `Noticed by the scheduled check ${formatDateTime(recorded)}`;
+}
+
+const manilaDay = (ms) => new Date(ms).toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+const manilaTime = (ms) => new Date(ms).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" });
+
+/** The event's sentence; a late delivery is retold with its date, from its stored times. */
+export function eventSummary(e) {
+  const late = lateTimes(e);
+  if (!late) return e?.summary ?? "";
+  const lateWhen = manilaDay(late.lateMs) === manilaDay(late.expectedMs) ? manilaTime(late.lateMs) : formatDateTime(late.lateMs);
+  const state = /on hold/i.test(e.summary ?? "") ? "The rider had the delivery on hold." : "It was still in transit.";
+  return `Expected by ${formatDateTime(late.expectedMs)}; late from ${lateWhen}, when the grace period ended. ${state}`;
+}
+
 export function sortEvents(events) {
   return [...(Array.isArray(events) ? events : [])].sort((a, b) => {
-    const d = (toMillis(a.createdAt) ?? 0) - (toMillis(b.createdAt) ?? 0);
+    const d = (eventAtMs(a) ?? 0) - (eventAtMs(b) ?? 0);
     if (d !== 0) return d;
     return (a.ordinal ?? 0) - (b.ordinal ?? 0);
   });

@@ -5337,7 +5337,8 @@ async function main() {
   await check("VAT1 a new vaccine needs a valid classification", async () => {
     await assertSucceeds(setDoc(doc(admin, "vaccines", "vatV1"), vaccine()));
     await assertSucceeds(setDoc(doc(admin, "vaccines", "vatV2"), vaccine({ vatClassification: "vat_exempt" })));
-    await assertSucceeds(setDoc(doc(admin, "vaccines", "vatV3"), vaccine({ vatClassification: "zero_rated" })));
+    // Zero-rating is per order (approved request), never set on a new product.
+    await assertFails(setDoc(doc(admin, "vaccines", "vatV3"), vaccine({ vatClassification: "zero_rated" })));
     const missing = vaccine();
     delete missing.vatClassification;
     await assertFails(setDoc(doc(admin, "vaccines", "vatBad"), missing));
@@ -5362,8 +5363,15 @@ async function main() {
     await assertSucceeds(updateDoc(ref, { vatClassification: "vatable", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
     // Re-classifying is allowed on the same terms; removing it is not.
     await assertSucceeds(updateDoc(ref, { vatClassification: "vat_exempt", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
-    await assertSucceeds(updateDoc(ref, { vatClassification: "zero_rated", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
+    await assertFails(updateDoc(ref, { vatClassification: "zero_rated", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }), "nothing becomes zero-rated on the product");
     await assertFails(updateDoc(ref, { vatClassification: deleteField(), vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
+    // A product already zero-rated (from before) stays editable and can be reclassified.
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "vaccines", "vatOldZero"), { vaccineName: "Old zero", internalSku: "OLDZERO01", vatClassification: "zero_rated" })
+    );
+    const oldZero = doc(admin, "vaccines", "vatOldZero");
+    await assertSucceeds(updateDoc(oldZero, { manufacturer: "Corrected" }));
+    await assertSucceeds(updateDoc(oldZero, { vatClassification: "vatable", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
   });
 
   await check("VAT3 no non-admin can create or change a vaccine classification", async () => {

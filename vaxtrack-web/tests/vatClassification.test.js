@@ -222,7 +222,12 @@ test("1 · Register New Vaccine requires an explicit classification with no defa
   const page = code("src/pages/admin/AddVaccine.jsx");
   assert.match(page, /const \[vatClassification, setVatClassification\] = useState\(""\);/);
   // Refused at its own field (aria-invalid + message), nothing saved.
-  assert.match(page, /if \(!PRODUCT_VAT_CLASSIFICATIONS\.includes\(vatClassification\)\) \{\s*return failField\("vatClassification", "Select VAT, VAT Exempt or Zero-Rated for this vaccine\."\);/);
+  assert.match(page, /if \(!SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS\.includes\(vatClassification\)\) \{\s*return failField\("vatClassification", "Select VAT or VAT Exempt for this vaccine\."\);/);
+  // Zero-rating is requested per order, never offered on the product.
+  assert.match(page, /\{SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS\.map\(\(value\) => \(/);
+  assert.doesNotMatch(page, /\{PRODUCT_VAT_CLASSIFICATIONS\.map/);
+  // The form can be finished at its end as well as from the header.
+  assert.match(page, /<div className="form-footer-actions">[\s\S]*?<button type="submit" className="blue-btn" disabled=\{saving\}>/);
   assert.match(page, /<legend>VAT Classification<\/legend>/);
   assert.match(page, /Becomes the VAT status of every future order item/);
 });
@@ -232,4 +237,14 @@ test("6 · Admin Inventory shows and edits the product classification; export ca
   assert.match(inventory, /<span>VAT Classification<\/span>\s*<strong>\{drawerItem\.vatLabel\}<\/strong>/);
   assert.match(inventory, /await setVaccineVatClassification\(drawerItem\.vaccineId, vatChoice\);/);
   assert.match(read("src/services/inventoryExport.js"), /header: "VAT Classification"/);
+});
+
+test("an Admin can set VAT or VAT Exempt on a vaccine, never Zero-Rated", async () => {
+  const { SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS } = await import("../src/services/vatClassification.js");
+  assert.deepEqual([...SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS], ["vatable", "vat_exempt"]);
+  assert.match(code("src/pages/admin/Inventory.jsx"), /SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS\.filter\(\(v\) => v !== drawerItem\.vatClassification\)/);
+  assert.match(code("src/services/vaccineService.js"), /!SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS\.includes\(cls\)/);
+  const rules = code("firestore.rules");
+  assert.match(rules, /function isSelectableProductVatClassification\(value\) \{\s*return value in \['vatable', 'vat_exempt'\];/);
+  assert.match(rules, /allow create: if isAdmin\(\)\s*&& isSelectableProductVatClassification\(/);
 });

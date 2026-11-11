@@ -13,7 +13,10 @@ import {
   confirmationSnapshot,
   currentLineFulfilment,
   eventBatches,
+  eventAtMs,
   eventLabel,
+  eventNoticedNote,
+  eventSummary,
   eventTone,
   formatDateTime,
   fulfilmentStage,
@@ -257,9 +260,10 @@ function Timeline({ events, loading, error }) {
             <li key={e.id} className={`ohx-event ohx-tone-${eventTone(e.eventType)}`}>
               <div className="ohx-event-head">
                 <strong>{eventLabel(e.eventType)}</strong>
-                <time className="tnum">{formatDateTime(e.createdAt)}</time>
+                <time className="tnum">{formatDateTime(eventAtMs(e))}</time>
               </div>
-              <p>{e.summary}</p>
+              <p>{eventSummary(e)}</p>
+              {eventNoticedNote(e) && <p className="ohx-event-noticed">{eventNoticedNote(e)}</p>}
               {eventBatches(e).length > 0 && (
                 <p className="ohx-event-batches">
                   {eventBatches(e).map((b) => (

@@ -944,11 +944,18 @@ service cloud.firestore {
       return value in ['vatable', 'vat_exempt', 'zero_rated'];
     }
 
+    // What an Admin may SET on a vaccine (2026-11-11): zero-rating is requested
+    // per order and approved by Admin (zeroRateRequests), never put on the
+    // product. Products already zero-rated stay valid and can be reclassified.
+    function isSelectableProductVatClassification(value) {
+      return value in ['vatable', 'vat_exempt'];
+    }
+
     function vaccineVatChangeValid() {
       let d = request.resource.data;
       return !changedKeys().hasAny(['vatClassification', 'vatClassificationSetAt', 'vatClassificationSetByUid'])
         || (
-          isProductVatClassification(d.get('vatClassification', null))
+          isSelectableProductVatClassification(d.get('vatClassification', null))
           && d.get('vatClassificationSetAt', null) == request.time
           && d.get('vatClassificationSetByUid', null) == request.auth.uid
         );
@@ -1976,7 +1983,7 @@ service cloud.firestore {
     match /vaccines/{id} {
       allow read: if isApprovedUser();
       allow create: if isAdmin()
-        && isProductVatClassification(request.resource.data.get('vatClassification', null))
+        && isSelectableProductVatClassification(request.resource.data.get('vatClassification', null))
         && !request.resource.data.keys().hasAny(vaccineArchiveFields())
         && !request.resource.data.keys().hasAny(vaccineVisibilityFields());
       allow update: if isAdmin() && vaccineVatChangeValid()
