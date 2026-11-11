@@ -5,7 +5,9 @@ const HOURS_MESSAGE = "Requested delivery times must be within pharmacy operatin
 const { relaxedProjectIds } = require("./pharmacyHoursDemo.json");
 
 function pharmacyHoursEnforced(projectId) {
-  return projectId === "vaxtrack-bef1b" || !relaxedProjectIds.includes(projectId);
+  // The 7 AM-4 PM rule applies unless the project is listed in
+  // pharmacyHoursDemo.json. Production was taken off it on 2026-11-11.
+  return !relaxedProjectIds.includes(projectId);
 }
 
 module.exports = { PHARMACY_HOURS, HOURS_MESSAGE, pharmacyHoursEnforced };

@@ -81,8 +81,11 @@ test("unknown return travel or final service stays unknown; live replanning uses
 test("the staging demo lifts the hours cutoff while retaining time and date checks and return estimates", () => {
   const { pharmacyHoursEnforced } = require("../functions/src/pharmacyHours.js");
   const { relaxedProjectIds } = require("../functions/src/pharmacyHoursDemo.json");
+  // Production was taken off the 7 AM-4 PM rule on 2026-11-11.
+  assert.ok(relaxedProjectIds.includes("vaxtrack-bef1b"));
+  assert.ok(relaxedProjectIds.includes("vaxtrack-staging"));
   for (const projectId of ["vaxtrack-staging", "vaxtrack-bef1b", "unknown", undefined]) {
-    const expected = projectId === "vaxtrack-bef1b" || !relaxedProjectIds.includes(projectId);
+    const expected = !relaxedProjectIds.includes(projectId);
     assert.equal(Boolean(pharmacyHoursFor(projectId)), expected);
     assert.equal(pharmacyHoursEnforced(projectId), expected);
   }

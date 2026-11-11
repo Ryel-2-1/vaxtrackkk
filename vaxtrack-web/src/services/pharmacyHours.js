@@ -7,7 +7,7 @@ export const PHARMACY_CLOSE = "16:00";
 export const HOURS_MESSAGE = "Requested delivery times must be within pharmacy operating hours, 7:00 AM to 4:00 PM (PHT).";
 
 export function pharmacyHoursFor(projectId) {
-  return projectId !== "vaxtrack-bef1b" && demo.relaxedProjectIds.includes(projectId) ? null : PHARMACY_HOURS;
+  return demo.relaxedProjectIds.includes(projectId) ? null : PHARMACY_HOURS;
 }
 
 export const ACTIVE_PHARMACY_HOURS = pharmacyHoursFor(import.meta.env?.VITE_FIREBASE_PROJECT_ID);
