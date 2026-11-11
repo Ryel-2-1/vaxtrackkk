@@ -5337,7 +5337,8 @@ async function main() {
   await check("VAT1 a new vaccine needs a valid classification", async () => {
     await assertSucceeds(setDoc(doc(admin, "vaccines", "vatV1"), vaccine()));
     await assertSucceeds(setDoc(doc(admin, "vaccines", "vatV2"), vaccine({ vatClassification: "vat_exempt" })));
-    await assertSucceeds(setDoc(doc(admin, "vaccines", "vatV3"), vaccine({ vatClassification: "zero_rated" })));
+    // Zero-rating is per order (approved request), never set on a new product.
+    await assertFails(setDoc(doc(admin, "vaccines", "vatV3"), vaccine({ vatClassification: "zero_rated" })));
     const missing = vaccine();
     delete missing.vatClassification;
     await assertFails(setDoc(doc(admin, "vaccines", "vatBad"), missing));
@@ -5362,8 +5363,15 @@ async function main() {
     await assertSucceeds(updateDoc(ref, { vatClassification: "vatable", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
     // Re-classifying is allowed on the same terms; removing it is not.
     await assertSucceeds(updateDoc(ref, { vatClassification: "vat_exempt", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
-    await assertSucceeds(updateDoc(ref, { vatClassification: "zero_rated", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
+    await assertFails(updateDoc(ref, { vatClassification: "zero_rated", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }), "nothing becomes zero-rated on the product");
     await assertFails(updateDoc(ref, { vatClassification: deleteField(), vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
+    // A product already zero-rated (from before) stays editable and can be reclassified.
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), "vaccines", "vatOldZero"), { vaccineName: "Old zero", internalSku: "OLDZERO01", vatClassification: "zero_rated" })
+    );
+    const oldZero = doc(admin, "vaccines", "vatOldZero");
+    await assertSucceeds(updateDoc(oldZero, { manufacturer: "Corrected" }));
+    await assertSucceeds(updateDoc(oldZero, { vatClassification: "vatable", vatClassificationSetAt: serverTimestamp(), vatClassificationSetByUid: adminUid }));
   });
 
   await check("VAT3 no non-admin can create or change a vaccine classification", async () => {
@@ -5563,13 +5571,14 @@ async function main() {
     });
     await setDoc(doc(f, "inventoryAnalyticsRuns", "run1"), { runId: "run1", forecastCount: 3, advisoryOnly: true });
     await setDoc(doc(f, "inventoryAnalyticsConfig", "vacAnalytics"), {
-      vaccineId: "vacAnalytics", leadTimeDays: 14, safetyStockDays: null, safetyStockQuantity: 20,
-      enabled: true, updatedAt: Timestamp.fromDate(new Date("2026-10-01T00:00:00Z")), updatedByUid: adminUid,
+      vaccineId: "vacAnalytics", busyMonths: [12], busyIncreasePercent: 30,
+      updatedAt: Timestamp.fromDate(new Date("2026-10-01T00:00:00Z")), updatedByUid: adminUid,
     });
   });
+  // Season settings (2026-11-10): busy months and how much more is ordered then.
   const analyticsConfig = (over = {}) => ({
-    vaccineId: "vacAnalytics", leadTimeDays: 21, safetyStockDays: null, safetyStockQuantity: 50,
-    enabled: true, updatedAt: serverTimestamp(), updatedByUid: adminUid, ...over,
+    vaccineId: "vacAnalytics", busyMonths: [11, 12], busyIncreasePercent: 50,
+    updatedAt: serverTimestamp(), updatedByUid: adminUid, ...over,
   });
 
   await check("PAN1 an Admin reads forecasts, analytics runs and configuration", async () => {
@@ -5603,37 +5612,46 @@ async function main() {
     }
   });
 
-  await check("PAN2 an Admin saves a valid configuration, stamped with server time and their own uid", async () => {
-    await assertSucceeds(setDoc(doc(admin, "inventoryAnalyticsConfig", "vacAnalytics"), analyticsConfig()));
-    await assertSucceeds(setDoc(doc(admin, "inventoryAnalyticsConfig", "vacAnalytics"),
-      analyticsConfig({ safetyStockQuantity: null, safetyStockDays: 7, enabled: false })));
-    // The boundaries themselves are allowed: 0 and exactly 100,000,000 vials.
-    await assertSucceeds(setDoc(doc(admin, "inventoryAnalyticsConfig", "vacAnalytics"),
-      analyticsConfig({ safetyStockQuantity: 0 })));
-    await assertSucceeds(setDoc(doc(admin, "inventoryAnalyticsConfig", "vacAnalytics"),
-      analyticsConfig({ safetyStockQuantity: 100000000 })));
+  await check("PAN2 an Admin saves valid season settings, stamped with server time and their own uid", async () => {
+    const ref = doc(admin, "inventoryAnalyticsConfig", "vacAnalytics");
+    await assertSucceeds(setDoc(ref, analyticsConfig()));
+    // No busy season at all, and the boundaries: every month, 0% and 300%.
+    await assertSucceeds(setDoc(ref, analyticsConfig({ busyMonths: [], busyIncreasePercent: 0 })));
+    await assertSucceeds(setDoc(ref, analyticsConfig({ busyMonths: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] })));
+    await assertSucceeds(setDoc(ref, analyticsConfig({ busyIncreasePercent: 300 })));
+  });
+
+  await check("PAN2v monthly vial totals replace a percentage record, with valid bounds", async () => {
+    const ref = doc(admin, "inventoryAnalyticsConfig", "vacAnalytics");
+    const vials = (quantity, months = [5]) => ({ vaccineId: "vacAnalytics", busyMonths: months,
+      busyMonthlyVials: quantity, updatedAt: serverTimestamp(), updatedByUid: adminUid });
+    for (const data of [vials(500), vials(1), vials(100000000), vials(0, [])]) await assertSucceeds(setDoc(ref, data));
+    for (const data of [vials(0), vials(-1), vials(1.5), vials("500"), vials(100000001), vials(500, []),
+      vials(500, [13]), vials(500, [5, 5]), { ...vials(500), busyIncreasePercent: 50 },
+      { ...vials(500), updatedByUid: "someone-else" }, { ...vials(500), vaccineId: "other" }]) {
+      await assertFails(setDoc(ref, data));
+    }
+    for (const ctx of [salesRep, dispatcher, rider, anon]) await assertFails(setDoc(doc(ctx, "inventoryAnalyticsConfig", "vacAnalytics"), vials(500)));
+    await assertSucceeds(setDoc(ref, vials(500)));
   });
 
   await check("NAN3 configuration validation is enforced", async () => {
     const ref = doc(admin, "inventoryAnalyticsConfig", "vacAnalytics");
     for (const bad of [
-      analyticsConfig({ leadTimeDays: 0 }),
-      analyticsConfig({ leadTimeDays: 366 }),
-      analyticsConfig({ leadTimeDays: 2.5 }),
-      analyticsConfig({ leadTimeDays: "14" }),
-      analyticsConfig({ safetyStockQuantity: null }), // neither safety field
-      analyticsConfig({ safetyStockDays: 3 }), // both safety fields
-      analyticsConfig({ safetyStockQuantity: -1 }),
-      analyticsConfig({ safetyStockQuantity: 100000001 }), // above the ceiling
-      analyticsConfig({ safetyStockQuantity: 2.5 }), // decimal
-      analyticsConfig({ safetyStockQuantity: NaN }),
-      analyticsConfig({ safetyStockQuantity: Infinity }),
-      analyticsConfig({ safetyStockQuantity: "20" }),
-      analyticsConfig({ safetyStockQuantity: null, safetyStockDays: 2.5 }),
-      analyticsConfig({ safetyStockQuantity: null, safetyStockDays: NaN }),
-      analyticsConfig({ leadTimeDays: NaN }),
-      analyticsConfig({ safetyStockQuantity: null, safetyStockDays: 400 }),
-      analyticsConfig({ enabled: "yes" }),
+      analyticsConfig({ busyMonths: [0] }),
+      analyticsConfig({ busyMonths: [13] }),
+      analyticsConfig({ busyMonths: [12, 12] }), // repeated month
+      analyticsConfig({ busyMonths: [1.5] }),
+      analyticsConfig({ busyMonths: ["12"] }),
+      analyticsConfig({ busyMonths: "12" }),
+      analyticsConfig({ busyMonths: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 1] }),
+      analyticsConfig({ busyIncreasePercent: -1 }),
+      analyticsConfig({ busyIncreasePercent: 301 }),
+      analyticsConfig({ busyIncreasePercent: 2.5 }),
+      analyticsConfig({ busyIncreasePercent: NaN }),
+      analyticsConfig({ busyIncreasePercent: "50" }),
+      analyticsConfig({ leadTimeDays: 14 }), // the removed reorder settings
+      analyticsConfig({ safetyStockQuantity: 20 }),
       analyticsConfig({ updatedByUid: "someone-else" }), // not the caller
       analyticsConfig({ updatedAt: Timestamp.fromDate(new Date("2020-01-01T00:00:00Z")) }), // not server time
       analyticsConfig({ vaccineId: "other" }), // id mismatch
@@ -5643,7 +5661,7 @@ async function main() {
     }
     // Missing a required key.
     const missing = analyticsConfig();
-    delete missing.enabled;
+    delete missing.busyIncreasePercent;
     await assertFails(setDoc(ref, missing));
     // Only for a real catalog vaccine.
     await assertFails(setDoc(doc(admin, "inventoryAnalyticsConfig", "noSuchVaccine"), analyticsConfig({ vaccineId: "noSuchVaccine" })));

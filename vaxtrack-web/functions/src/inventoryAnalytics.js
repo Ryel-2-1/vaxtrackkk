@@ -63,7 +63,9 @@ const HORIZONS = Object.freeze([7, 30, 90]);
 const PRIMARY_HORIZON = 30;
 const AREA_ALL = "all";
 /** Weekly buckets older than this many complete weeks are not used. */
-const MAX_TRAINING_WEEKS = 52;
+// 64 weeks: a year back plus the 8 weeks before it, so the same weeks last
+// year can be compared (seasonality.js).
+const MAX_TRAINING_WEEKS = 64;
 
 const ANALYTICS_COLLECTIONS = Object.freeze({
   FORECASTS: "inventoryForecasts",
@@ -102,7 +104,6 @@ const WARNING = Object.freeze({
   ORDER_WITHOUT_LINES: "order_without_lines",
   INVENTORY_INCONSISTENCY: "inventory_quantity_inconsistency",
   BATCH_WITHOUT_PRODUCT: "batch_without_product",
-  MISSING_REORDER_CONFIG: "missing_lead_time_configuration",
   INSUFFICIENT_HISTORY: "insufficient_weekly_history",
 });
 
@@ -118,7 +119,6 @@ const WARNING_TEXT = Object.freeze({
   [WARNING.ORDER_WITHOUT_LINES]: "Orders with no order lines — nothing to count.",
   [WARNING.INVENTORY_INCONSISTENCY]: "Batches whose stock counters are invalid, unconfirmed or exceed on-hand — counted as unavailable.",
   [WARNING.BATCH_WITHOUT_PRODUCT]: "Batches not linked to a catalog vaccine — not attributable to a product.",
-  [WARNING.MISSING_REORDER_CONFIG]: "Vaccines with no enabled lead-time / safety-stock configuration — reorder configuration required.",
   [WARNING.INSUFFICIENT_HISTORY]: "Vaccines with fewer than 4 usable weeks of history — no forecast is made.",
 });
 

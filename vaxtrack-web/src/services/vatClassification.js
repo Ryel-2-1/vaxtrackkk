@@ -19,6 +19,14 @@
 
 export const PRODUCT_VAT_CLASSIFICATIONS = Object.freeze(["vatable", "vat_exempt", "zero_rated"]);
 
+/**
+ * What an Admin may set on a vaccine (2026-11-11): VAT or VAT Exempt. Zero
+ * rating is requested per order by the Med Rep and approved by Admin
+ * (zeroRateStep.js), never set on the product. Products already zero-rated
+ * still read and price as before, and can be moved to VAT or VAT Exempt.
+ */
+export const SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS = Object.freeze(["vatable", "vat_exempt"]);
+
 export const PRODUCT_VAT_LABELS = Object.freeze({
   vatable: "VAT",
   vat_exempt: "VAT Exempt",

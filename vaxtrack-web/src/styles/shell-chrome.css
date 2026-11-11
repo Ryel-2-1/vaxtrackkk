@@ -448,12 +448,12 @@
     position: relative !important;
     display: grid !important;
     place-items: center !important;
-    width: 40px !important;
+    width: var(--topbar-control-width, 40px) !important;
     min-width: 40px !important;
     height: 40px !important;
     min-height: 40px !important;
     margin: 0 !important;
-    padding: 0 !important;
+    padding: var(--topbar-control-padding, 0) !important;
     border: 1px solid var(--gray-200) !important;
     border-radius: var(--radius-control) !important;
     background: #ffffff !important;

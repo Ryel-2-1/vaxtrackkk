@@ -217,6 +217,7 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
     requestedDeliveryDate,
     now,
     validateFuture: false,
+    enforceOperatingHours: false, // Parse old retries unchanged; new keys are checked below.
   });
 
   // v3 binds both date and arrival. Older keys retain their original hash;
@@ -278,7 +279,7 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
       }
       const original = priorSnap.data();
       const originalArrival = normalizeRequestedArrival(original.requestedArrival, {
-        requestedDeliveryDate: original.requestedDeliveryDate, now, validateFuture: false,
+        requestedDeliveryDate: original.requestedDeliveryDate, now, validateFuture: false, enforceOperatingHours: false,
       });
       if (original.requestedDeliveryDate !== requestedDeliveryDate ||
           JSON.stringify(originalArrival) !== JSON.stringify(requestedArrival)) {
@@ -371,6 +372,21 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
         clinicDocId: destination.orderFields.clinicDocId,
       },
     });
+
+    // A pending review belongs to the order, even if the client omits its ID.
+    // Use the existing owner index; filter the exact reviewed destination/cart
+    // here so an unrelated request never holds up this checkout. Read inside
+    // the transaction so an Admin decision is current when the order commits.
+    const ownReviews = await tx.get(db.collection("zeroRateRequests").where("requesterUid", "==", uid));
+    if (ownReviews.docs.some((snap) => {
+      const request = snap.data();
+      return request.status === "pending" && request.doctorId === doctorId &&
+        request.doctorAddressId === doctorAddressId &&
+        request.requestedDeliveryDate === requestedDeliveryDate &&
+        approvedCartMatches(request.items, items);
+    })) {
+      throw new PolicyError("zero-rate-review-pending", "Wait for Admin to approve or deny this order’s zero-rating request before finalizing. Nothing was placed.");
+    }
 
     const zeroRateSnap = zeroRateRef ? await tx.get(zeroRateRef) : null;
     const zeroRateRequest = zeroRateSnap?.exists ? zeroRateSnap.data() : null;

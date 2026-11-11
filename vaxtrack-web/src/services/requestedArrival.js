@@ -19,6 +19,8 @@
  * timezone, so a device set to another zone cannot move them.
  */
 
+import { PHARMACY_HOURS, HOURS_MESSAGE } from "./pharmacyHours.js";
+
 export const REQUESTED_ARRIVAL_VERSION = 1;
 export const ARRIVAL_MODES = Object.freeze(["any_time", "window", "before", "exact"]);
 
@@ -119,8 +121,8 @@ function readTime(value) {
  * @returns {{ok: true, value: object} | {ok: false, code: string, field: string, message: string}}
  *   `field` names the input to point at: "mode", "start", "end" or "time".
  */
-export function normalizeRequestedArrival(value, { requestedDeliveryDate = null, now = new Date(), validateFuture = true } = {}) {
-  if (value === undefined || value === null) return { ok: true, value: { ...ANY_TIME } };
+export function normalizeRequestedArrival(value, { requestedDeliveryDate = null, now = new Date(), validateFuture = true, enforceOperatingHours = true } = {}) {
+  if (value === undefined || value === null) value = ANY_TIME;
   if (typeof value !== "object" || Array.isArray(value)) return fail("The requested delivery time was malformed.");
   const mode = value.mode;
   if (typeof mode !== "string" || !ARRIVAL_MODES.includes(mode)) {
@@ -163,9 +165,19 @@ export function normalizeRequestedArrival(value, { requestedDeliveryDate = null,
     spec = { version: REQUESTED_ARRIVAL_VERSION, mode, time: time.value };
   }
 
+  if (enforceOperatingHours) {
+    const field = spec.mode === "window"
+      ? (minutesOf(spec.start) < PHARMACY_HOURS.open || minutesOf(spec.start) > PHARMACY_HOURS.close ? "start" : "end")
+      : "time";
+    const times = spec.mode === "window" ? [minutesOf(spec.start), minutesOf(spec.end)] : spec.mode === "any_time" ? [] : [minutesOf(spec.time)];
+    if (times.some((t) => t < PHARMACY_HOURS.open || t > PHARMACY_HOURS.close) || (spec.mode === "before" && minutesOf(spec.time) <= PHARMACY_HOURS.open)) {
+      return fail(spec.mode === "before" && minutesOf(spec.time) === PHARMACY_HOURS.open ? "Choose a cutoff after 7:00 AM so delivery can occur during pharmacy operating hours." : HOURS_MESSAGE, field);
+    }
+  }
   const clock = manilaClock(now);
-  if (validateFuture && spec.mode !== "any_time" && requestedDeliveryDate === clock.date) {
+  if (validateFuture && (spec.mode !== "any_time" || enforceOperatingHours) && requestedDeliveryDate === clock.date) {
     const bounds = arrivalBounds(spec);
+    if (enforceOperatingHours && bounds) bounds[1] = Math.min(bounds[1], PHARMACY_HOURS.close);
     if (!bounds || bounds[1] < clock.minute) {
       return fail(
         "That requested time has already passed today. Choose a later time or another day.",
@@ -269,7 +281,7 @@ function normalizeArrivalFormLoose(value) {
 
 /** A stable comparison key for a submitted arrival (absent = any_time). */
 export function arrivalKey(value) {
-  const r = normalizeRequestedArrival(value, { requestedDeliveryDate: null });
+  const r = normalizeRequestedArrival(value, { requestedDeliveryDate: null, enforceOperatingHours: false });
   if (!r.ok) {
     const f = normalizeArrivalFormLoose(value);
     return `invalid:${f.mode}:${f.start}:${f.end}:${f.time}`;
@@ -301,7 +313,7 @@ export function orderArrivalNote(order) {
   // the Med Rep originally requested. Existing schedule controls show it apart.
   const date = formatRequestedDate(order?.originalRequestedDeliveryDate)
     || formatRequestedDate(order?.requestedDeliveryDate);
-  const check = normalizeRequestedArrival(order?.requestedArrival, { validateFuture: false });
+  const check = normalizeRequestedArrival(order?.requestedArrival, { validateFuture: false, enforceOperatingHours: false });
   if (!check.ok) return "Requested arrival: unavailable — check order";
   if (!date && check.value.mode === "any_time") return "Requested arrival: not specified";
   const label = requestedArrivalLabel(check.value);

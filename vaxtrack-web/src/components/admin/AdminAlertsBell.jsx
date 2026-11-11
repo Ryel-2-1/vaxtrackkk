@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Bell, X } from "lucide-react";
+import { X } from "lucide-react";
 import { subscribeActiveAlerts } from "../../services/alertService";
 import { logSafeError } from "../../services/liveDataErrors";
 import { subscribePendingZeroRateRequests } from "../../services/zeroRateRequests";
@@ -35,12 +35,13 @@ export default function AdminAlertsBell() {
 
   const count = unreadAlerts + pendingReviews;
   const badge = alertsUnavailable || reviewsUnavailable ? "!" : count > 99 ? "99+" : count > 0 ? count : null;
-  const label = alertsUnavailable || reviewsUnavailable ? "Some alerts are unavailable" : count > 0
-    ? `Alerts — ${unreadAlerts} unread system alerts, ${pendingReviews} zero-rating reviews pending`
-    : "Alerts — no unread alerts or pending reviews";
+  const label = alertsUnavailable || reviewsUnavailable ? "Go to Alerts. Some alerts are unavailable." : count > 0
+    ? `Go to Alerts. ${unreadAlerts} unread system alerts, ${pendingReviews} zero-rating reviews pending.`
+    : "Go to Alerts. No unread alerts or pending reviews.";
   return <>
     <Link to="/admin/alerts" className="m-topbar-icon-btn admin-alerts-bell" aria-label={label} title={label}>
-      <Bell size={16} aria-hidden="true" />
+      {/* One inline run, so the space after "Go to" survives the flex layout. */}
+      <span><span className="admin-alerts-bell-prefix">Go to </span>Alerts</span>
       {badge !== null && <span className={`admin-alerts-bell-badge tnum${badge === "!" ? " is-unavailable" : ""}`} aria-hidden="true">{badge}</span>}
     </Link>
     {priorityNotice > 0 && !reviewsUnavailable && <div className="admin-zero-rate-notice" role="status" aria-live="polite">

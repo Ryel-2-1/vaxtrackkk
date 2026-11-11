@@ -10,7 +10,6 @@ import {
   HORIZONS,
   NO_FORECAST_MESSAGE,
   PRIMARY_HORIZON,
-  REORDER_CONFIGURATION_REQUIRED,
   STALE_AFTER_DAYS,
   analyticsConfigPayload,
   configChangedSinceForecast,
@@ -60,9 +59,8 @@ function serverForecasts() {
 test("the web's shared constants equal the server's", () => {
   assert.deepEqual(HORIZONS, serverAnalytics.HORIZONS);
   assert.equal(PRIMARY_HORIZON, serverAnalytics.PRIMARY_HORIZON);
-  assert.equal(REORDER_CONFIGURATION_REQUIRED, serverRisk.REORDER_CONFIGURATION_REQUIRED);
   assert.equal(BASELINE_LABEL, serverEngine.BASELINE_LABEL);
-  assert.equal(ANALYTICS_DISCLAIMER, "Forecasts are advisory and do not change inventory automatically.");
+  assert.equal(ANALYTICS_DISCLAIMER, "Forecasts are only a guide and never change stock by themselves.");
 });
 
 test("31 · rows show only stored figures: a missing value is '—' or its reason, never a number", () => {
@@ -70,7 +68,7 @@ test("31 · rows show only stored figures: a missing value is '—' or its reaso
   const b = forecastRow(docs.find((d) => d.id === "vacB__all__30d"));
   assert.equal(b.predicted, "—", "insufficient history: no forecast");
   assert.equal(b.insufficient, true);
-  assert.equal(b.reorder, REORDER_CONFIGURATION_REQUIRED);
+  assert.equal(b.reorder, "—", "no forecast → no suggested order");
   assert.equal(b.sku, "No SKU");
   assert.equal(b.confidence, "Insufficient data");
   assert.equal(b.riskLabel, "Unknown");
@@ -78,13 +76,13 @@ test("31 · rows show only stored figures: a missing value is '—' or its reaso
   const a = forecastRow(docs.find((d) => d.id === "vacA__all__30d"));
   assert.equal(a.predicted, "300");
   assert.equal(a.available, "500");
-  assert.equal(a.reorder, REORDER_CONFIGURATION_REQUIRED, "no configuration → no reorder figure");
+  assert.equal(a.reorder, "0", "500 in stock covers the 300 expected");
 
   // A document with nothing in it renders nothing invented.
   const empty = forecastRow({ vaccineId: "x", stockoutRiskLevel: "bogus" });
   for (const key of ["available", "reserved", "backordered", "predicted", "currentShortage", "totalShortage"]) assert.equal(empty[key], "—", key);
   assert.equal(empty.forecastShortage, "Insufficient history", "no forecast → no forecasted-shortage number");
-  assert.equal(empty.reorder, REORDER_CONFIGURATION_REQUIRED);
+  assert.equal(empty.reorder, "—");
   assert.equal(empty.risk, "unknown");
   assert.equal(empty.name, "Name not recorded");
   for (const bad of [null, undefined, -1, 1.5, "300", Number.NaN]) assert.equal(formatQuantity(bad), "—", String(bad));
@@ -108,7 +106,7 @@ test("32 · no run, or a run with no forecasts, shows the empty state", () => {
   assert.equal(forecastsByVaccine(docs, "some-other-run").size, 0, "forecasts of another run are not shown");
   assert.equal(forecastsByVaccine(docs, plan.runId).size, 2);
   const page = read("src/pages/admin/AiInventoryAnalytics.jsx");
-  assert.equal(NO_FORECAST_MESSAGE, "No inventory forecast has been generated yet.");
+  assert.equal(NO_FORECAST_MESSAGE, "No forecast yet.");
   assert.match(page, /run === null \|\| rows\.length === 0/);
   assert.match(page, /\{NO_FORECAST_MESSAGE\}/);
   // A refused read is its own state (never the empty state), decided by the
@@ -116,8 +114,8 @@ test("32 · no run, or a run with no forecasts, shows the empty state", () => {
   assert.match(page, /liveErrorKind\(err\) === "permission" \? "permission" : liveErrorMessage\(err, "inventory analytics"\)/);
   assert.match(page, /You do not have permission to view inventory analytics/);
   assert.match(page, /Loading inventory analytics/);
-  assert.match(page, /Stale forecast/);
-  assert.match(page, /Insufficient forecast history/);
+  assert.match(page, /This forecast is out of date/);
+  assert.match(page, /VaxTrack needs at least 4 full weeks/);
 });
 
 test("33 · full vaccine names and SKUs stay readable — never truncated", () => {
@@ -150,22 +148,28 @@ test("stale and changed-configuration detection", () => {
   assert.equal(isStale(generated, Date.parse("2026-10-07T00:00:00Z")), false);
   assert.equal(isStale(generated, Date.parse(`2026-10-0${1 + STALE_AFTER_DAYS}T00:00:01Z`)), true);
   assert.equal(isStale(null), true, "no time at all is never treated as fresh");
-  assert.equal(configChangedSinceForecast({ updatedAt: ts("2026-10-02T00:00:00Z") }, { generatedAt: generated }), true);
-  assert.equal(configChangedSinceForecast({ updatedAt: ts("2026-09-30T00:00:00Z") }, { generatedAt: generated }), false);
+  const season = { busyMonths: [12], busyIncreasePercent: 50 };
+  assert.equal(configChangedSinceForecast({ ...season, updatedAt: ts("2026-10-02T00:00:00Z") }, { generatedAt: generated }), true);
+  assert.equal(configChangedSinceForecast({ ...season, updatedAt: ts("2026-09-30T00:00:00Z") }, { generatedAt: generated }), false);
+  assert.equal(
+    configChangedSinceForecast({ leadTimeDays: 14, safetyStockQuantity: 20, updatedAt: ts("2026-10-02T00:00:00Z") }, { generatedAt: generated }),
+    false,
+    "an old reorder setting is not a season change"
+  );
 });
 
-test("30 · the configuration form accepts exactly what the server and rules accept", () => {
+test("30 · the busy-season form accepts exactly what the server and rules accept", () => {
   const cases = [
-    [{ leadTimeDays: "14", safetyMode: "quantity", safetyValue: "20", enabled: true }, true],
-    [{ leadTimeDays: "1", safetyMode: "days", safetyValue: "0", enabled: false }, true],
-    [{ leadTimeDays: "365", safetyMode: "days", safetyValue: "365", enabled: true }, true],
-    [{ leadTimeDays: "0", safetyMode: "quantity", safetyValue: "20" }, false],
-    [{ leadTimeDays: "366", safetyMode: "quantity", safetyValue: "20" }, false],
-    [{ leadTimeDays: "2.5", safetyMode: "quantity", safetyValue: "20" }, false],
-    [{ leadTimeDays: "14", safetyMode: "days", safetyValue: "400" }, false],
-    [{ leadTimeDays: "14", safetyMode: "quantity", safetyValue: "-1" }, false],
-    [{ leadTimeDays: "14", safetyMode: "quantity", safetyValue: "" }, false],
-    [{ leadTimeDays: "", safetyMode: "quantity", safetyValue: "20" }, false],
+    [{ busyMonths: "", busyMonthlyVials: "" }, true], // no busy season
+    [{ busyMonths: "12", busyMonthlyVials: "500" }, true],
+    [{ busyMonths: "11,12", busyMonthlyVials: "1" }, true],
+    [{ busyMonths: "1,2,3,4,5,6,7,8,9,10,11,12", busyMonthlyVials: "100000000" }, true],
+    [{ busyMonths: "12", busyMonthlyVials: "" }, false],
+    [{ busyMonths: "12", busyMonthlyVials: "0" }, false],
+    [{ busyMonths: "12", busyMonthlyVials: "100000001" }, false],
+    [{ busyMonths: "12", busyMonthlyVials: "2.5" }, false],
+    [{ busyMonths: "13", busyMonthlyVials: "500" }, false],
+    [{ busyMonths: "12,12", busyMonthlyVials: "500" }, false],
   ];
   for (const [form, ok] of cases) {
     const web = analyticsConfigPayload("vacA", form);
@@ -173,10 +177,11 @@ test("30 · the configuration form accepts exactly what the server and rules acc
     if (ok) {
       const stored = { ...web.value, updatedAt: ts("2026-10-09T00:00:00Z"), updatedByUid: "admin1" };
       assert.equal(serverRisk.validateAnalyticsConfig(stored, "vacA").ok, true, JSON.stringify(form));
-      assert.deepEqual(configFormFrom(stored), { ...form, enabled: form.enabled !== false }, "round-trips");
+      assert.deepEqual(configFormFrom(stored), form, "round-trips");
     }
   }
   assert.equal(analyticsConfigPayload("a/b", cases[0][0]).ok, false);
+  assert.match(read("firestore.rules"), /d\.busyIncreasePercent >= 0 && d\.busyIncreasePercent <= 300/);
 });
 
 test("the page is an Admin route in the persistent shell, linked from the sidebar", () => {
@@ -195,24 +200,6 @@ test("the page is an Admin route in the persistent shell, linked from the sideba
   assert.match(page, /\{ANALYTICS_DISCLAIMER\}/);
 });
 
-test("safety stock in the Admin form: whole vials 0–100,000,000; NaN, decimal, negative and oversized refused", () => {
-  const form = (safetyValue, safetyMode = "quantity") => ({ leadTimeDays: "14", safetyMode, safetyValue, enabled: true });
-  for (const ok of ["0", "20", "100000000"]) {
-    const r = analyticsConfigPayload("vacA", form(ok));
-    assert.equal(r.ok, true, ok);
-    const stored = { ...r.value, updatedAt: ts("2026-10-09T00:00:00Z"), updatedByUid: "admin1" };
-    assert.equal(serverRisk.validateAnalyticsConfig(stored, "vacA").ok, true, ok);
-  }
-  for (const bad of ["100000001", "NaN", "2.5", "-1", "1e8", "Infinity", " ", "20 vials", "0x10"]) {
-    const r = analyticsConfigPayload("vacA", form(bad));
-    assert.equal(r.ok, false, bad);
-    assert.match(r.error, /whole number of vials from 0 to 100,000,000/);
-  }
-  for (const bad of ["366", "2.5", "NaN"]) assert.equal(analyticsConfigPayload("vacA", form(bad, "days")).ok, false, bad);
-  // The web ceiling is the server's and the rules' ceiling.
-  assert.equal(serverRisk.MAX_SAFETY_STOCK_QUANTITY, 100000000);
-  assert.match(read("firestore.rules"), /d\.safetyStockQuantity <= 100000000/);
-});
 
 test("the page names its environment; staging carries the seed/test-data warning", async () => {
   const { environmentNotice, STAGING_DATA_WARNING } = await import("../src/services/inventoryAnalytics.js");
@@ -245,12 +232,17 @@ test("the page separates a current shortage, a forecasted shortage and insuffici
   const row = forecastRow({ ...plan.forecasts.find((f) => f.id === "vacA__all__30d").data, generatedAt: ts("2026-10-09T05:00:00Z") });
   assert.deepEqual(
     [row.risk, row.riskBasisLabel, row.currentShortage, row.hasCurrentShortage, row.forecastShortage, row.predicted, row.confidence, row.reorder],
-    ["high", "Current shortage", "2", true, "Insufficient history", "—", "Insufficient data", REORDER_CONFIGURATION_REQUIRED]
+    ["high", "Current shortage", "2", true, "Insufficient history", "—", "Insufficient data", "—"]
   );
   const page = read("src/pages/admin/AiInventoryAnalytics.jsx");
-  assert.match(page, /<th>Current shortage<\/th>/);
-  assert.match(page, /<th>Forecasted shortage<\/th>/);
-  assert.match(page, /Insufficient forecast history/);
-  assert.match(page, /it is not a forecast/);
-  assert.doesNotMatch(page, /Projected shortage<\/th>/, "no single blended column");
+  // Plain words (2026-11-10), same separation: a shortage from orders already
+  // placed is never blended with an estimated one.
+  const service = read("src/services/inventoryAnalytics.js");
+  assert.match(service, /label: "Short now, for orders already placed"/);
+  assert.match(service, /label: `Short in the next \$\{days\} days, if orders come as expected`/);
+  assert.match(page, /<th className="aia-num">Short if orders come as expected<\/th>/);
+  assert.match(page, /formatQuantity\(c\.forecastShortageQuantity\)/);
+  assert.doesNotMatch(page, /totalProjectedShortageQuantity/, "the table never blends the two");
+  assert.match(page, /VaxTrack needs at least 4 full weeks/);
+  assert.match(page, /This is not an\s+estimate; these orders are waiting\./);
 });

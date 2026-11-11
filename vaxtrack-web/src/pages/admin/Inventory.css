@@ -347,7 +347,7 @@
 .inventory-watch-row.is-critical small { color: var(--warning-text); }
 .inventory-watch-row strong { color: var(--gray-600); font-size: 11px; font-variant-numeric: tabular-nums; }
 .inventory-page .inventory-watch-row:hover { border-color: var(--green-700); background: var(--green-50); }
-@media (max-width: 700px) { .inventory-watch-records { grid-template-columns: 1fr; } .inventory-page .inventory-watch-row { min-height: 70px; } }
+@media (max-width: 700px) { .inventory-watch-records { grid-template-columns: minmax(0, 1fr); } .inventory-page .inventory-watch-row { min-height: 70px; } }
 
 /* Table card */
 
@@ -872,7 +872,7 @@
   }
 
   .v2-hub-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -898,7 +898,7 @@
   }
 
   .v2-inventory-summary-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .v2-bulk-bar {
@@ -911,7 +911,7 @@
   }
 
   .v2-modal-detail-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .v2-inventory-modal-backdrop {
@@ -1068,7 +1068,7 @@
 /* Responsive: stack them on smaller screens */
 @media (max-width: 1100px) {
   .v2-hub-grid {
-    grid-template-columns: 1fr !important;
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 
   .v2-hub-grid > .v2-hub-card:first-child {

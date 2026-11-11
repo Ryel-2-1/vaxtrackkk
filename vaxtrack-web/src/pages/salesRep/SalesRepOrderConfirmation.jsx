@@ -275,7 +275,7 @@ function SalesRepOrderConfirmation() {
           {order.vatSummary && (
             <>
               <div>
-                <span>Negotiated subtotal</span>
+                <span>Subtotal (agreed prices)</span>
                 <strong>{formatAmount(order.subtotalCentavos)}</strong>
               </div>
               {order.statutoryDiscountTotalCentavos > 0 && (

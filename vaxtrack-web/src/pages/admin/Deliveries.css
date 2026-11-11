@@ -100,7 +100,7 @@
   padding: 14px;
   margin-bottom: 16px;
   display: grid;
-  grid-template-columns: 40px 1fr auto;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   color: #92400e;
@@ -950,7 +950,7 @@
 
   .deliveries-v4-filters,
   .deliveries-summary-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .deliveries-v4-table {
@@ -959,7 +959,7 @@
 
   .deliveries-modal-grid,
   .deliveries-form-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .deliveries-modal-actions {

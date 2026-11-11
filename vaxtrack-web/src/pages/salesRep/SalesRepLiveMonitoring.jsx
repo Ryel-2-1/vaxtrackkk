@@ -108,6 +108,29 @@ function SalesRepLiveMonitoring() {
               road — the same set the server grants this rep location access for. */}
           <aside className="ltp-side">
             <section className="ltp-card">
+              <h2 className="ltp-h">
+                Your shipments with a rider <span className="ltp-muted tnum">({fleet.length})</span>
+              </h2>
+              <ul className="ltp-list">
+                {fleet.map((r) => (
+                  <li key={r.uid}>
+                    <button
+                      type="button"
+                      className={`ltp-list-item${r.uid === selected?.uid ? " active" : ""}`}
+                      onClick={() => setSelectedUid(r.uid)}
+                      aria-pressed={r.uid === selected?.uid}
+                    >
+                      <span className={`ltp-dot ltp-dot-${r.state}`} aria-hidden="true" />
+                      <span className="ltp-list-name">
+                        {r.name} · {r.orders.map((o) => o.orderNumber).join(", ")}
+                      </span>
+                      <span className="ltp-muted tnum">{formatAge(r.locationAtMs, nowMs) || MARKER_LABELS[r.state]}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+            <section className="ltp-card">
               <h2 className="ltp-h">Shipment</h2>
               {selected ? (
                 <div className="ltp-details">
@@ -140,29 +163,6 @@ function SalesRepLiveMonitoring() {
               ) : (
                 <p className="ltp-muted">Select a shipment on the map or in the list.</p>
               )}
-            </section>
-            <section className="ltp-card">
-              <h2 className="ltp-h">
-                Your shipments with a rider <span className="ltp-muted tnum">({fleet.length})</span>
-              </h2>
-              <ul className="ltp-list">
-                {fleet.map((r) => (
-                  <li key={r.uid}>
-                    <button
-                      type="button"
-                      className={`ltp-list-item${r.uid === selected?.uid ? " active" : ""}`}
-                      onClick={() => setSelectedUid(r.uid)}
-                      aria-pressed={r.uid === selected?.uid}
-                    >
-                      <span className={`ltp-dot ltp-dot-${r.state}`} aria-hidden="true" />
-                      <span className="ltp-list-name">
-                        {r.name} · {r.orders.map((o) => o.orderNumber).join(", ")}
-                      </span>
-                      <span className="ltp-muted tnum">{formatAge(r.locationAtMs, nowMs) || MARKER_LABELS[r.state]}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
             </section>
           </aside>
         </div>

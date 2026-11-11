@@ -498,3 +498,11 @@
     min-width: 0;
   }
 }
+
+/* When the scheduled check noticed a late delivery, if well after it began. */
+.ohx-event .ohx-event-noticed {
+  margin: 2px 0 0;
+  color: var(--gray-500, #6b7280);
+  font-size: 12px;
+  font-style: italic;
+}

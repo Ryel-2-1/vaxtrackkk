@@ -1769,6 +1769,39 @@ aside.salesrep-sidebar .salesrep-logout {
   padding: 10px 12px;
   border-top: 1px solid var(--gray-300);
 }
+/* Phone cards must scroll INSIDE the bounded list. Letting them overflow a
+   fixed-height wrapper put rows over the pager and intercepted its taps. */
+@media (max-width: 768px) {
+  #root .salesrep-main .tracking-v2-table-wrap {
+    height: clamp(360px, calc(100dvh - var(--shell-topbar-height, 64px) - 252px), 700px);
+  }
+  #root .salesrep-main .tracking-v2-table-scroll {
+    overflow: auto !important; /* beats shell-chrome's phone overflow reset */
+    min-height: 0;
+    flex: 1 1 0;
+  }
+  .salesrep-main .tracking-v2-table-wrap > .page-nav {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    background: var(--surface-card, #fff);
+  }
+  .salesrep-main .tracking-v2-table-wrap .page-nav-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    text-align: center;
+  }
+  .salesrep-main .tracking-v2-table-wrap .page-nav button {
+    min-width: 0;
+    min-height: 44px !important; /* beats the shared button-height resets */
+    padding: 0 8px;
+  }
+}
 .salesrep-main .tracking-v2-side {
   padding: 16px !important;
 }
@@ -2766,7 +2799,7 @@ body:has(> #root > .salesrep-page),
     align-items: flex-end;
   }
   .salesrep-page .rq-cart-backdrop .rq-cart-drawer {
-    width: 100vw !important;
+    width: 100% !important;
     height: auto !important;
     max-height: 85vh !important;
     max-height: 85dvh !important;
@@ -3026,7 +3059,7 @@ body:has(> #root > .salesrep-page),
   }
 }
 @media (max-width: 640px) {
-  .salesrep-page .inventory-v2-toolbar { grid-template-columns: 1fr !important; }
+  .salesrep-page .inventory-v2-toolbar { grid-template-columns: minmax(0, 1fr) !important; }
   .salesrep-page .catalog-filter-trigger { justify-self: start; }
 }
 
@@ -3073,6 +3106,40 @@ body:has(> #root > .salesrep-page),
    lets the map and sidebar fill the viewport below the top bar. */
 .salesrep-main .srl-monitor {
   --ltp-offset: 60px;
+}
+/* The shipment selector stays above the selected rider's details. Both panes
+   get half the sidebar, with independent scrolling below their headings. */
+#root .salesrep-main .srl-monitor .ltp-side {
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  min-height: 0;
+}
+#root .salesrep-main .srl-monitor .ltp-side > .ltp-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+}
+.salesrep-main .srl-monitor .ltp-h {
+  flex: 0 0 auto;
+}
+#root .salesrep-main .srl-monitor .ltp-list,
+#root .salesrep-main .srl-monitor .ltp-details {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.salesrep-main .srl-monitor .ltp-orders strong {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1024px) {
+  .salesrep-main .srl-monitor .ltp-side {
+    height: clamp(480px, 80dvh, 680px);
+  }
 }
 
 /* Inventory and tracking use the space below the shell header on desktop.
@@ -3471,4 +3538,402 @@ body:has(> #root > .salesrep-page),
 }
 .salesrep-page .inventory-v2-summary .small-metric-card h2 {
   overflow-wrap: anywhere;
+}
+
+/* Checkout cart on a phone (2026-11-10): the 850px table was cut off at the
+   screen edge, hiding the quantity buttons, prices and Remove. Each line is a
+   card instead (shared m-phone-cards rules in shell-chrome.css); these fit it
+   into the items card, with Remove in the card's top-right corner. */
+@media (max-width: 768px) {
+  #root .salesrep-main .place-v2-items-card {
+    overflow: visible !important;
+  }
+  #root .salesrep-main .place-v2-items-card table.m-phone-cards tbody {
+    padding: 0 14px 4px !important;
+  }
+  #root .salesrep-main .place-v2-items-card table.m-phone-cards tbody tr {
+    position: relative;
+    padding-right: 52px !important;
+  }
+  #root .salesrep-main .place-v2-items-card table.m-phone-cards td.place-v2-remove-cell {
+    position: absolute !important;
+    top: 8px;
+    right: 8px;
+    width: auto !important;
+    padding: 0 !important;
+  }
+  #root .salesrep-main .place-v2-items-card table.m-phone-cards td[data-label] {
+    display: flex !important;
+    align-items: center;
+    min-height: 32px;
+  }
+  #root .salesrep-main .place-v2-items-card table.m-phone-cards td[data-label]::before {
+    top: 50%;
+    transform: translateY(-50%);
+  }
+  #root .salesrep-main .place-v2-items-card .order-items-footer {
+    padding: 12px 14px 16px !important;
+  }
+}
+
+/* Checkout quantity stepper: the global 46px button min-height pushed the −/+
+   buttons past their 38px box, so the symbols sat off-centre (the − looked
+   low). Fit them to the box, centred, with a wider thumb target. */
+.salesrep-main .place-v2-qty-mini {
+  grid-template-columns: 34px minmax(0, 1fr) 34px !important;
+  gap: 2px !important;
+  overflow: hidden;
+}
+.salesrep-main .place-v2-qty-mini button {
+  width: 34px !important;
+  height: 36px !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  display: grid !important;
+  place-items: center !important;
+  line-height: 1 !important;
+}
+
+/* Wider screens: the cart table was forced to 850px, wider than its card on a
+   1280px laptop (612px), so the totals scrolled out of view. Its columns need
+   about 540px, so let it take the card's width. */
+@media (min-width: 769px) {
+  #root .salesrep-main .place-v2-items-card table {
+    min-width: 0 !important;
+  }
+  #root .salesrep-main .place-v2-items-card th,
+  #root .salesrep-main .place-v2-items-card td {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+}
+@media (min-width: 769px) {
+  #root .salesrep-main .place-v2-items-card td[data-label="Batch ID"] {
+    white-space: nowrap;
+  }
+}
+/* Mobile navigation: the backdrop and Escape already dismiss the rail. */
+@media (max-width: 768px) {
+  #root .salesrep-page .salesrep-nav-toggle[aria-expanded="true"] {
+    display: none;
+  }
+  #root .salesrep-page aside.salesrep-sidebar .salesrep-brand {
+    padding-left: 0 !important; /* replaces shell-chrome's space for the X */
+  }
+}
+/* Personal bell controls: swipe left or open the visible options button.
+   These preferences never delete or resolve the underlying alert. */
+.salesrep-page .salesrep-notification-dropdown {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 100px);
+}
+.salesrep-page .salesrep-notification-list {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.salesrep-page .bell-notice-row {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--gray-200);
+  background: var(--gray-50);
+}
+.salesrep-page .bell-notice-content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  min-width: 0;
+  background: #fff;
+  touch-action: pan-y;
+  transition: transform 180ms ease;
+}
+.salesrep-page .bell-notice-row.is-open .bell-notice-content { transform: translateX(-96px); }
+.salesrep-page .bell-notice-content .salesrep-notification-item {
+  min-width: 0;
+  border-bottom: 0 !important; /* existing per-role item rules use !important */
+  padding-right: 6px !important;
+}
+.salesrep-page .bell-notice-more {
+  align-self: start;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  min-height: 36px !important;
+  margin: 10px 4px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--gray-600);
+  border-radius: var(--radius-control, 8px);
+}
+.salesrep-page .bell-notice-actions {
+  position: absolute;
+  inset: 0 0 0 auto;
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  width: 96px;
+  visibility: hidden;
+}
+.salesrep-page .bell-notice-row.is-open .bell-notice-actions { visibility: visible; }
+.salesrep-page .bell-notice-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 36px !important;
+  padding: 6px;
+  border: 0;
+  border-radius: 0;
+  background: var(--green-50);
+  color: var(--green-800);
+  font-size: 11px;
+}
+.salesrep-page .bell-notice-actions .bell-notice-delete {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+.salesrep-page .bell-panel-footer {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border-top: 1px solid var(--gray-200);
+  background: #fff;
+}
+.salesrep-page .bell-panel-footer-actions,
+.salesrep-page .bell-panel-undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+.salesrep-page .bell-panel-footer button {
+  min-height: 34px !important;
+  padding: 4px 10px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-control, 8px);
+  background: #fff;
+  color: var(--gray-700);
+  font-size: 12px;
+}
+.salesrep-page .bell-panel-footer small {
+  display: block;
+  margin-top: 6px;
+  color: var(--gray-500);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.salesrep-page .bell-panel-undo { margin-bottom: 8px; color: var(--green-800); }
+.salesrep-page .bell-notice-row button:disabled,
+.salesrep-page .bell-panel-footer button:disabled { opacity: .5; cursor: default; }
+.salesrep-page .bell-notice-row button:focus-visible,
+.salesrep-page .bell-panel-footer :is(button, a):focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: -3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .salesrep-page .bell-notice-content { transition: none; }
+}
+
+/* Phone header: legacy rules in SalesRep.css capped the title at 42–45% of
+   the bar, so "Order Confirmation", "Live Monitoring" and others were cut off
+   with ~130px of empty bar beside them. The title takes the free space up to
+   the bell instead, and still ellipsizes if it truly runs out. */
+@media (max-width: 768px) {
+  #root .salesrep-page .salesrep-topbar h1.m-topbar-title {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+  }
+}
+
+/* Checkout tally (2026-11-11), summary card and confirm dialog alike.
+   Labels were 12px beside 16px figures, nothing kept a figure on its line,
+   and "Standard total" sat in the same weight as the final total, so it read
+   as the order's total and, in a narrow sidebar, ran into the next row. Every
+   row is now one label and one figure on a line; the negotiation shows as its
+   own row; only the final total is large. */
+.salesrep-main .place-v2-pricing-card > p {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: baseline !important;
+  gap: 12px !important;
+  font-size: 14px !important;
+}
+.salesrep-main .place-v2-pricing-card > p strong {
+  min-width: 0;
+  max-width: 62%;
+  text-align: right;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  overflow-wrap: anywhere;
+}
+.salesrep-main .place-v2-vat-breakdown {
+  gap: 4px;
+  margin: 12px 0 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--gray-200);
+}
+.salesrep-main .place-v2-vat-breakdown > div {
+  align-items: baseline;
+  flex-wrap: nowrap;
+  font-size: 13px;
+}
+.salesrep-main .place-v2-vat-breakdown dt {
+  min-width: 0;
+  color: var(--gray-600);
+  font-size: 13px;
+  font-weight: 400;
+}
+.salesrep-main .place-v2-vat-breakdown dd {
+  flex: none;
+  color: var(--gray-900);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.salesrep-main .place-v2-vat-breakdown .place-v2-tally-muted dd {
+  color: var(--gray-600);
+  font-weight: 500;
+}
+.salesrep-main .place-v2-vat-breakdown .place-v2-tally-adjust dt,
+.salesrep-main .place-v2-vat-breakdown .place-v2-tally-adjust dd {
+  color: var(--warning-text, #b45309);
+  font-weight: 600;
+}
+.salesrep-main .place-v2-vat-breakdown .place-v2-tally-subtotal {
+  margin-bottom: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--gray-200);
+}
+.salesrep-main .place-v2-vat-breakdown .place-v2-tally-subtotal dt,
+.salesrep-main .place-v2-vat-breakdown .place-v2-tally-subtotal dd {
+  color: var(--gray-900);
+  font-weight: 600;
+}
+.salesrep-main .place-v2-vat-breakdown .place-v2-final-total {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--gray-300);
+}
+.salesrep-main .place-v2-vat-breakdown .place-v2-final-total dt,
+.salesrep-main .place-v2-vat-breakdown .place-v2-final-total dd {
+  color: var(--gray-900);
+  font-size: 15px;
+  font-weight: 700;
+}
+/* The dialog title had no colour of its own and took the global heading
+   colour. Pin it, like the rest of the dialog's text. */
+.salesrep-main .place-v2-confirm h2 {
+  color: var(--gray-900);
+}
+
+/* Zero-rating asked first (2026-11-11): the question card now sits between
+   Order Items and the price review, in the main column. */
+.salesrep-main .zero-rate-step {
+  margin: 16px 0;
+  padding: 18px 20px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  background: #ffffff;
+}
+.salesrep-main .zero-rate-step .zero-rate-checkout-heading h2 {
+  color: var(--gray-900);
+  font-size: 16px;
+}
+.salesrep-main .zero-rate-answer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 4px 0 10px;
+}
+.salesrep-main .zero-rate-answer label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin: 0 !important;
+  padding: 8px 14px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control);
+  background: #ffffff;
+  color: var(--gray-700);
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.salesrep-main .zero-rate-answer label.is-on {
+  border-color: var(--green-700);
+  background: var(--green-50);
+  color: var(--gray-900);
+}
+.salesrep-main .zero-rate-answer input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  min-height: 0 !important;
+  margin: 0;
+  accent-color: var(--green-700);
+}
+.salesrep-main .zero-rate-answer label:has(input:focus-visible) {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+}
+.salesrep-main .zero-rate-standard-note {
+  margin: 0 !important;
+  color: var(--gray-600) !important;
+  font-size: 13px !important;
+}
+.salesrep-main .zero-rate-step .zero-rate-checkout-status.is-approved {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+/* Price review waits for the VAT basis. */
+.salesrep-main .place-v2-price-review.is-locked .place-v2-price-lines {
+  opacity: 0.55;
+}
+.salesrep-main .place-v2-price-locked,
+.salesrep-main .place-v2-price-cleared {
+  margin: 10px 0 0 !important;
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  font-size: 13px !important;
+}
+.salesrep-main .place-v2-price-locked {
+  border: 1px solid var(--gray-200);
+  background: var(--gray-50);
+  color: var(--gray-700) !important;
+}
+.salesrep-main .place-v2-price-cleared {
+  border: 1px solid var(--warning-border, #fde68a);
+  background: var(--warning-bg, #fffbeb);
+  color: var(--warning-text, #b45309) !important;
+}
+
+/* What approved zero-rating took off. */
+.salesrep-main .place-v2-vat-removed {
+  display: block;
+  margin-top: 4px;
+  color: var(--success-text) !important;
+  font-size: 12px !important;
+  font-weight: 600;
+}
+.salesrep-main .place-v2-vat-removed s {
+  color: var(--gray-500);
+  font-weight: 500;
+}
+.salesrep-main .place-v2-vat-breakdown .place-v2-tally-vat-removed dt,
+.salesrep-main .place-v2-vat-breakdown .place-v2-tally-vat-removed dd {
+  color: var(--success-text);
+  font-weight: 600;
+}
+
+/* 769px–1100px: the cart table is a real table again but its card can be
+   narrower than its columns (a ~800px window: 515px card, ~540px table); it
+   scrolls inside the card instead of being clipped at "Line total". */
+@media (min-width: 769px) {
+  #root .salesrep-main .place-v2-items-card {
+    overflow-x: auto !important;
+  }
 }

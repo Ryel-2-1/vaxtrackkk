@@ -11,11 +11,11 @@
  *   approved          → Active
  *   pending / pending_approval → Pending
  *   disabled          → Inactive   (deactivated; may be reactivated)
- *   rejected          → Rejected   (a refused application; final here)
+ *   rejected          → Rejected   (an Admin can reopen it for review)
  *
  * `rejected` used to be displayed as Inactive, which put the Reactivate action
  * on a refused application and let it become an approved account. A rejected
- * account is not an inactive one: there is no ordinary way back from it.
+ * application returns to Pending only through the separate server action.
  *
  * firestore.rules enforces the same transition matrix on the stored document
  * (see `adminStatusChangeAllowed`), so a modified client cannot bypass it.
@@ -60,8 +60,7 @@ export function staffStatusOf(rawStatus) {
  *   Pending  → Active (approve) | Rejected (reject)
  *   Active   → Inactive (deactivate)
  *   Inactive → Active (reactivate)
- *   Rejected → nothing. Not Active, not Inactive, not back to Pending —
- *              there is no reconsideration workflow.
+ *   Rejected → no ordinary status change. Reopening goes through the server.
  *
  * A missing or unrecognised stored status reads as Pending, so it may be
  * approved (the existing repair path) or rejected, and nothing else.
@@ -100,8 +99,8 @@ export function statusChangeRefusal(fromRaw) {
 
 /**
  * The actions offered for one staff row (menu and profile dialog alike).
- * A rejected account offers View Profile only: no Activate, no second Reject,
- * and no Change Role, since a refused application has no access to adjust.
+ * A rejected account offers View Profile and Reopen Application. Access
+ * and role changes go through the normal review after reopening.
  * An Admin's OWN row offers neither a status nor a role change: the server
  * (setStaffStatus / setStaffRole) refuses both, so another Admin must do it —
  * which also means the system always keeps an approved Admin.
@@ -112,6 +111,7 @@ export function staffActionsFor(statusKey, { isSelf = false } = {}) {
   if (statusKey === STAFF_STATUS.PENDING) actions.push("approve", "reject");
   if (statusKey === STAFF_STATUS.ACTIVE) actions.push("deactivate");
   if (statusKey === STAFF_STATUS.INACTIVE) actions.push("reactivate");
+  if (statusKey === STAFF_STATUS.REJECTED) actions.push("reopen");
   if (statusKey !== STAFF_STATUS.REJECTED && !isSelf) actions.push("changeRole");
   return actions;
 }

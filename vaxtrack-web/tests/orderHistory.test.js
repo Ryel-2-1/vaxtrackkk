@@ -364,3 +364,27 @@ test("an original receipt whose initial record is still being written shows it a
   assert.doesNotMatch(detail, /Not recorded/);
   assert.match(INITIAL_ALLOCATION_PENDING, /^Recording the reservation at confirmation/);
 });
+
+test("a late delivery is dated from when it became late, not when the check noticed it", async () => {
+  const { eventAtMs, eventNoticedNote, eventSummary } = await import("../src/services/orderHistory.js");
+  const expected = Date.parse("2026-11-04T17:24:00+08:00");
+  const late = Date.parse("2026-11-04T17:34:00+08:00");
+  const noticed = Date.parse("2026-11-05T04:10:00+08:00");
+  const e = {
+    eventType: "delivery_running_late", createdAt: { toMillis: () => noticed },
+    expectedArrivalMs: expected, automaticDelayedMs: late,
+    summary: "Running late: expected by 5:24 PM; the grace period ended at 5:34 PM. Still in transit.",
+  };
+  assert.equal(eventAtMs(e), late);
+  assert.match(eventNoticedNote(e), /^Noticed by the scheduled check Nov 5, 2026/);
+  assert.match(eventSummary(e), /^Expected by Nov 4, 2026, 5:24\s?PM; late from 5:34\s?PM, when the grace period ended\. It was still in transit\.$/);
+  // Noticed promptly: no note. Other events: unchanged.
+  assert.equal(eventNoticedNote({ ...e, createdAt: { toMillis: () => late + 5 * 60000 } }), null);
+  const placed = { eventType: "order_placed", createdAt: { toMillis: () => expected }, summary: "Order placed." };
+  assert.equal(eventAtMs(placed), expected);
+  assert.equal(eventSummary(placed), "Order placed.");
+  assert.equal(eventNoticedNote(placed), null);
+  // Ordered by when things happened.
+  const dispatchedLater = { eventType: "order_requeued", createdAt: { toMillis: () => late + 60000 } };
+  assert.deepEqual(sortEvents([dispatchedLater, e]).map((x) => x.eventType), ["delivery_running_late", "order_requeued"]);
+});

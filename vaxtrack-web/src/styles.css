@@ -484,7 +484,7 @@ th {
 
   .stats-grid,
   .dashboard-content {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
 }
@@ -641,7 +641,7 @@ th {
   }
 
   .form-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -731,7 +731,7 @@ th {
 
 .sales-topbar {
   display: grid;
-  grid-template-columns: 1fr 260px auto;
+  grid-template-columns: minmax(0, 1fr) 260px auto;
   align-items: center;
   gap: 18px;
   margin-bottom: 22px;
@@ -1191,11 +1191,11 @@ th {
 @media (max-width: 1100px) {
   .sales-stats,
   .sales-content-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .sales-topbar {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -1803,7 +1803,7 @@ th {
   .inventory-summary-grid,
   .two-col-form,
   .three-col-form {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .inventory-topbar,
@@ -1870,7 +1870,7 @@ th {
 
 .add-type-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
 }
 
@@ -2249,7 +2249,7 @@ select:focus {
 
   .two-col-form,
   .three-col-form {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .stock-form-footer {
@@ -2458,7 +2458,7 @@ select:focus {
   border-radius: 14px;
   padding: 16px;
   display: grid;
-  grid-template-columns: 44px 1fr auto;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
 }
@@ -2547,7 +2547,7 @@ select:focus {
   border-radius: 14px;
   padding: 14px;
   display: grid;
-  grid-template-columns: 34px 1fr auto;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
 }
@@ -2636,7 +2636,7 @@ select:focus {
 
   .admin-content-grid,
   .admin-content-grid.bottom {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -2650,11 +2650,11 @@ select:focus {
   }
 
   .admin-kpi-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .delivery-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .delivery-meta {
@@ -2666,7 +2666,7 @@ select:focus {
   }
 
   .quick-action-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 /* ===============================
@@ -3067,7 +3067,7 @@ select:focus {
   }
 
   .delivery-layout-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .delivery-table-card {
@@ -3100,7 +3100,7 @@ select:focus {
   }
 
   .delivery-kpi-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 /* ===============================
@@ -3403,7 +3403,7 @@ select:focus {
   border-radius: 14px;
   padding: 14px;
   display: grid;
-  grid-template-columns: 38px 1fr auto;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
 }
@@ -3478,7 +3478,7 @@ select:focus {
   }
 
   .riders-layout-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .rider-table-card {
@@ -3511,7 +3511,7 @@ select:focus {
   }
 
   .rider-kpi-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 /* ===============================
@@ -3778,7 +3778,7 @@ select:focus {
   border-radius: 16px;
   padding: 16px;
   display: grid;
-  grid-template-columns: 44px 1fr auto;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
 }
@@ -3938,16 +3938,10 @@ select:focus {
   border: 1px solid #fed7aa;
 }
 
-.priority-alert-card > div {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
-  background: #f97316;
-  color: #ffffff;
-  display: grid;
-  place-items: center;
-  margin-bottom: 14px;
-}
+/* (2026-11-11) A `.priority-alert-card > div` rule here drew the card's first
+   child as a 48px orange icon tile. Since the card's first child became the
+   icon + title row (.priority-alert-heading, Alerts.css), it squeezed the
+   title into that tile, over the message. Removed; Alerts.css owns the card. */
 
 .priority-alert-card h3 {
   margin: 0;
@@ -3982,7 +3976,7 @@ select:focus {
   }
 
   .alerts-layout-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -4007,11 +4001,11 @@ select:focus {
   }
 
   .alert-kpi-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .alert-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 .alerts-actions .blue-btn,
@@ -4240,7 +4234,7 @@ select:focus {
 
 .inventory-analytics-item {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
 }
@@ -4297,7 +4291,7 @@ select:focus {
   border-radius: 14px;
   padding: 14px;
   display: grid;
-  grid-template-columns: 42px 1fr auto;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
 }
@@ -4400,7 +4394,7 @@ select:focus {
   border-radius: 14px;
   padding: 14px;
   display: grid;
-  grid-template-columns: 38px 1fr;
+  grid-template-columns: 38px minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -4434,7 +4428,7 @@ select:focus {
 
   .analytics-layout-grid,
   .analytics-layout-grid.bottom {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -4454,11 +4448,11 @@ select:focus {
   }
 
   .analytics-kpi-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .system-summary-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 .compact-riders,
@@ -5958,7 +5952,7 @@ table:not([class]) td {
   width: 100% !important;
   height: 54px !important;
   display: grid !important;
-  grid-template-columns: 24px 1fr 32px !important;
+  grid-template-columns: 24px minmax(0, 1fr) 32px !important;
   align-items: center !important;
   gap: 10px !important;
   background: #f8fbff !important;

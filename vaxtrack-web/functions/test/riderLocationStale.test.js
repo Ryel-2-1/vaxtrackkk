@@ -99,6 +99,10 @@ test("the alert id is per Rider and server trip; its text carries no place, coor
   const text = S.staleAlertText({ status: "active", riderName: "Ana Cruz", minutes: 14.7 });
   assert.equal(text, "Ana Cruz's location hasn't updated for 14 minutes during a delivery trip. Check that the rider app is open and has signal.");
   assert.doesNotMatch(text, /\d+\.\d+|trip1|r1/);
+  // An hour or more reads in hours, not "651 minutes".
+  assert.match(S.staleAlertText({ status: "active", riderName: "Ana", minutes: 59 }), /for 59 minutes during/);
+  assert.match(S.staleAlertText({ status: "active", riderName: "Ana", minutes: 60 }), /for about 1 hour during/);
+  assert.match(S.staleAlertText({ status: "active", riderName: "Ana", minutes: 651 }), /for about 11 hours during/);
   assert.equal(S.staleAlertText({ status: "resolved", riderName: "Ana", resolutionReason: "location_updating" }), "Ana's location is updating again.");
   assert.equal(S.staleAlertText({ status: "resolved", resolutionReason: "trip_ended" }), "The rider's trip has ended, so location monitoring stopped.");
 });

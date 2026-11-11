@@ -9,7 +9,7 @@
  *                         or a one-time setup link. Nobody else ever knows it.
  *   createStaffSetupLink  a new one-time "set your password" link, only for an
  *                         account that has never signed in.
- *   setStaffStatus        approve / reject / deactivate / reactivate, along the
+ *   setStaffStatus        approve / reject / reopen / deactivate / reactivate, along the
  *   setStaffRole          same transitions as the Staff Directory; neither may
  *                         leave the system without an approved Admin, and an
  *                         Admin never changes their own account here.
@@ -31,6 +31,7 @@ const { loadUser, requireRole } = require("./operations");
 
 const USERS = "users";
 const EVENTS = "staffAccountEvents";
+const MAX_REOPEN_REASON_LENGTH = 300;
 
 /** Roles an Admin may create. Riders apply in the rider app instead. */
 const STAFF_ROLES = Object.freeze(["admin", "dispatcher", "salesrep"]);
@@ -206,13 +207,18 @@ async function createStaffSetupLink({ db, authAdmin, FieldValue, uid, email: act
   return { uid: targetUid, email: record.email, setupLink: link };
 }
 
-/** Approve / reject / deactivate / reactivate. { targetUid, status }. */
+/** Change status. Reopening a rejected application also requires a reason. */
 async function setStaffStatus({ db, FieldValue, uid, email: actorEmail = null, payload, now = new Date() }) {
   await requireAdmin(db, uid);
-  const targetUid = targetUidOf(payload, ["status"]);
+  const reopening = payload?.status === "pending_approval";
+  const targetUid = targetUidOf(payload, reopening ? ["status", "reason"] : ["status"]);
   const { status } = payload;
-  if (!["approved", "rejected", "disabled"].includes(status)) {
-    throw new PolicyError("invalid-payload", "Choose approve, reject, deactivate or reactivate.");
+  if (!reopening && !["approved", "rejected", "disabled"].includes(status)) {
+    throw new PolicyError("invalid-payload", "Choose approve, reject, reopen, deactivate or reactivate.");
+  }
+  const reason = reopening && typeof payload.reason === "string" ? payload.reason.trim() : "";
+  if (reopening && (!reason || reason.length > MAX_REOPEN_REASON_LENGTH)) {
+    throw invalid(`Enter a reason for reopening the application (1 to ${MAX_REOPEN_REASON_LENGTH} characters).`);
   }
   if (targetUid === uid) {
     throw new PolicyError("self-change", "You cannot change your own account status. Ask another Admin.");
@@ -224,7 +230,10 @@ async function setStaffStatus({ db, FieldValue, uid, email: actorEmail = null, p
     const snap = await tx.get(ref);
     if (!snap.exists) throw new PolicyError("staff-not-found", "That account no longer exists.");
     const target = snap.data();
-    if (!canChangeStatus(target.status, status)) {
+    if (reopening && normalizeStatus(target.status) !== "rejected") {
+      throw new PolicyError("status-change-not-allowed", "Only a rejected application can be reopened. Check the account’s current status.");
+    }
+    if (!reopening && !canChangeStatus(target.status, status)) {
       throw normalizeStatus(target.status) === "rejected"
         ? new PolicyError("account-rejected", "This application was rejected. A rejected account cannot be activated.")
         : new PolicyError("status-change-not-allowed", "That status change is not allowed for this account's current status. The list shows its current status.");
@@ -236,7 +245,10 @@ async function setStaffStatus({ db, FieldValue, uid, email: actorEmail = null, p
     tx.update(ref, { status, updatedAt: FieldValue.serverTimestamp(), statusUpdatedByUid: uid });
     tx.create(db.collection(EVENTS).doc(), eventRecord({
       FieldValue, now, action: "status_changed", actorUid: uid, actorEmail, targetUid, target,
-      extra: { fromStatus: target.status ?? null, toStatus: status, role: target.role ?? null },
+      extra: {
+        fromStatus: target.status ?? null, toStatus: status, role: target.role ?? null,
+        ...(reopening ? { reason } : {}),
+      },
     }));
     return { uid: targetUid, status };
   });

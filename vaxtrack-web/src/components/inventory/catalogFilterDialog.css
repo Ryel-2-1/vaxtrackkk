@@ -172,7 +172,7 @@
 .vt-dialog-layer:is(.salesrep-page, .inventory-page) .catalog-filter-dialog :focus-visible { outline: 2px solid var(--green-700); outline-offset: 2px; }
 @media (max-width: 440px) {
   .vt-dialog-layer:is(.salesrep-page, .inventory-page) .catalog-filter-dialog { padding: 16px; }
-  .vt-dialog-layer:is(.salesrep-page, .inventory-page) .catalog-filter-type-list { grid-template-columns: 1fr; max-height: 150px; }
+  .vt-dialog-layer:is(.salesrep-page, .inventory-page) .catalog-filter-type-list { grid-template-columns: minmax(0, 1fr); max-height: 150px; }
 }
 
 /* Vaccine-type search above the checkbox grid. The grid below keeps its fixed,

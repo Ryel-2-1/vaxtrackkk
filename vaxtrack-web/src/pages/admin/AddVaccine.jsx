@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { INTERNAL_SKU_EXAMPLE, INTERNAL_SKU_FORMAT_MESSAGE, isValidInternalSku } from "../../services/internalSku";
 import {
   Building2,
   FlaskConical,
@@ -14,7 +15,7 @@ import {
   skuExists,
   addVaccine,
 } from "../../services/vaccineService";
-import { PRODUCT_VAT_CLASSIFICATIONS, PRODUCT_VAT_LABELS } from "../../services/vatClassification";
+import { PRODUCT_VAT_LABELS, SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS } from "../../services/vatClassification";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import "./AdminForms.css";
 
@@ -26,7 +27,7 @@ const VACCINE_FIELD_IDS = {
   vaccineType: "vaccine-type",
   newType: "new-vaccine-type",
   internalSku: "vaccine-sku",
-  vatClassification: `vaccine-vat-${PRODUCT_VAT_CLASSIFICATIONS[0]}`,
+  vatClassification: `vaccine-vat-${SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS[0]}`,
 };
 const VACCINE_FIELD_ERROR_ID = "vaccine-field-error";
 
@@ -115,8 +116,6 @@ function AddVaccine() {
   );
 
   const validateForm = async () => {
-    const skuRegex = /^VXT-\d{3}-[A-Z0-9]{5}$/;
-
     if (!vaccineName.trim()) {
       return failField("vaccineName", "Vaccine name is required.");
     }
@@ -141,12 +140,13 @@ function AddVaccine() {
       return failField("internalSku", "Internal inventory SKU is required.");
     }
 
-    if (!skuRegex.test(internalSku.trim().toUpperCase())) {
-      return failField("internalSku", "SKU format must be like VXT-992-ABCDE.");
+    // 3MGS's own codes (RAB0000IP01, HEP0P00SA01…): services/internalSku.js.
+    if (!isValidInternalSku(internalSku)) {
+      return failField("internalSku", INTERNAL_SKU_FORMAT_MESSAGE);
     }
 
-    if (!PRODUCT_VAT_CLASSIFICATIONS.includes(vatClassification)) {
-      return failField("vatClassification", "Select VAT, VAT Exempt or Zero-Rated for this vaccine.");
+    if (!SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS.includes(vatClassification)) {
+      return failField("vatClassification", "Select VAT or VAT Exempt for this vaccine.");
     }
 
     if (await skuExists(internalSku.trim().toUpperCase())) {
@@ -402,7 +402,9 @@ function AddVaccine() {
             <Package size={16} />
             <input
               id="vaccine-sku"
-              placeholder="VXT-992-XXXXX"
+              placeholder={`e.g. ${INTERNAL_SKU_EXAMPLE}`}
+              autoCapitalize="characters"
+              spellCheck={false}
               value={internalSku}
               onChange={(e) => setInternalSku(e.target.value.toUpperCase())}
               {...a11y("internalSku", "vaccine-sku-help")}
@@ -410,15 +412,14 @@ function AddVaccine() {
           </div>
           {fieldMessage("internalSku")}
 
-          <small id="vaccine-sku-help" className="input-helper">
-            Format: VXT-123-ABCDE. This is used as the internal inventory
-            identifier.
+          <small id="vaccine-sku-help" className="input-helper vaccine-sku-help">
+            Your internal inventory code, e.g. {INTERNAL_SKU_EXAMPLE}: 4 to 20 capital letters and numbers.
           </small>
 
           <fieldset className="vat-choice" {...a11y("vatClassification")}>
             <legend>VAT Classification</legend>
             <div className="vat-choice-options">
-              {PRODUCT_VAT_CLASSIFICATIONS.map((value) => (
+              {SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS.map((value) => (
                 <label key={value} className={vatClassification === value ? "selected" : ""}>
                   <input
                     id={`vaccine-vat-${value}`}
@@ -436,6 +437,8 @@ function AddVaccine() {
             <small className="input-helper">
               Becomes the VAT status of every future order item for this
               vaccine. Existing orders and issued invoices are not changed.
+              Zero-rating is not set here: the Med Rep requests it on an order
+              and Admin approves it.
             </small>
             {fieldMessage("vatClassification")}
           </fieldset>
@@ -446,6 +449,17 @@ function AddVaccine() {
                 {message}
               </p>
             )}
+          </div>
+
+          {/* The same actions at the end of the form, where the Admin finishes
+              (the header ones scroll out of view on a long form). */}
+          <div className="form-footer-actions">
+            <button type="button" className="outline-btn" onClick={() => navigate("/admin/inventory")}>
+              Cancel
+            </button>
+            <button type="submit" className="blue-btn" disabled={saving}>
+              {saving ? "Saving..." : "Register Vaccine"}
+            </button>
           </div>
         </form>
       </main>

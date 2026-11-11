@@ -479,13 +479,19 @@ test("a manufacturing date on or after the expiry date is refused", opts, async 
 
 const VACCINE = { vaccineName: "Sample Vaccine", manufacturer: "Maker", vaccineType: "Influenza", internalSku: "VXT-123-ABCDE" };
 
-test("registering a vaccine requires vatable, vat_exempt or zero_rated, and writes nothing otherwise", opts, async () => {
-  for (const vatClassification of [undefined, "", "VAT", "per_item", "exempt", null]) {
+test("registering a vaccine requires vatable or vat_exempt, and writes nothing otherwise", opts, async () => {
+  // zero_rated is refused too: zero-rating is requested per order (2026-11-11).
+  for (const vatClassification of [undefined, "", "VAT", "per_item", "exempt", null, "zero_rated"]) {
     const { mod, calls } = await loadService();
-    await assert.rejects(() => mod.addVaccine({ ...VACCINE, vatClassification }), { message: "Select VAT, VAT Exempt or Zero-Rated for this vaccine." });
+    await assert.rejects(() => mod.addVaccine({ ...VACCINE, vatClassification }), { message: "Select VAT or VAT Exempt for this vaccine. Zero-rating is requested on each order." });
     assert.equal(calls.addDoc.length, 0, String(vatClassification));
   }
-  for (const vatClassification of ["vatable", "vat_exempt", "zero_rated"]) {
+  {
+    const { mod, calls } = await loadService();
+    await assert.rejects(() => mod.setVaccineVatClassification("legacyVaccineId", "zero_rated"), /Zero-rating is requested on each order/);
+    assert.equal(calls.updateDoc.length, 0);
+  }
+  for (const vatClassification of ["vatable", "vat_exempt"]) {
     const { mod, calls } = await loadService();
     await mod.addVaccine({ ...VACCINE, vatClassification });
     assert.equal(calls.addDoc.length, 1);

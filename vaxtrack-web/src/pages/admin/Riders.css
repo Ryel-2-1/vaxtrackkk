@@ -860,7 +860,7 @@
   }
 
   .rider-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     align-items: stretch;
   }
 
@@ -887,7 +887,7 @@
 
   .riders-summary-grid,
   .riders-modal-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .riders-modal-actions {
@@ -959,7 +959,7 @@
 /* Responsive */
 @media (max-width: 760px) {
   .riders-modal:not(.small):not(.riders-form-modal) .riders-modal-grid {
-    grid-template-columns: 1fr !important;
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 
   .riders-modal:not(.small):not(.riders-form-modal) .riders-modal-grid > div:last-child {
@@ -967,7 +967,7 @@
   }
 
   .riders-modal:not(.small):not(.riders-form-modal) .riders-modal-actions {
-    grid-template-columns: 1fr !important;
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 
   .riders-modal:not(.small):not(.riders-form-modal) .riders-modal-actions > button:last-child {

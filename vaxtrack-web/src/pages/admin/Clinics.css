@@ -598,7 +598,7 @@
 
 @media (max-width: 1100px) {
   .clinics-topbar {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     height: auto;
     padding: 16px 0;
   }
@@ -628,7 +628,7 @@
 
   .clinic-form-grid,
   .success-info-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .clinic-field.full {
@@ -2323,7 +2323,7 @@
   .clinics-summary-grid,
   .clinics-modal-grid,
   .clinics-form-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .clinics-modal-grid div.wide,
@@ -2348,7 +2348,7 @@
   }
 
   .clinics-doctor-create {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .clinics-doctor-row,
@@ -2377,7 +2377,7 @@
   }
 
   .clinics-address-fields {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .clinics-address-fields label.wide {

@@ -139,7 +139,7 @@ test("initial state is unchanged — nothing is pre-filled", () => {
 });
 
 test("every validation rule and message is intact", () => {
-  assert.match(addVaccine, /const skuRegex = \/\^VXT-\\d\{3\}-\[A-Z0-9\]\{5\}\$\//);
+  assert.match(addVaccine, /if \(!isValidInternalSku\(internalSku\)\) \{\s*return failField\("internalSku", INTERNAL_SKU_FORMAT_MESSAGE\);/);
   for (const msg of [
     "Vaccine name is required.",
     "Vaccine name must be at least 3 characters.",
@@ -147,7 +147,6 @@ test("every validation rule and message is intact", () => {
     "Manufacturer name is too short.",
     "Please select a vaccine type.",
     "Internal inventory SKU is required.",
-    "SKU format must be like VXT-992-ABCDE.",
     "This internal inventory SKU already exists.",
   ]) {
     assert.ok(addVaccine.includes(msg), `missing validation message: ${msg}`);
@@ -205,4 +204,20 @@ test("Add Stock's own guarantees are still in place", () => {
   assert.match(addStock, /vaccineId: selectedVaccine\.id/);
   assert.match(addStock, /No vaccines are registered yet/);
   assert.match(addStock, /navigate\("\/admin\/inventory"\)/);
+});
+
+// 2026-11-11: 3MGS's own catalog codes (from their product sheet) are accepted.
+import { INTERNAL_SKU_PATTERN, isValidInternalSku, normalizeInternalSku } from "../src/services/internalSku.js";
+
+test("internal SKUs follow 3MGS's own codes, not an invented VXT pattern", () => {
+  for (const sku of ["RAB0000IP01", "HEP0P00SA01", "SHING00001", "ATS00000JI01", "TT000000001", "MMRV000MS01", "CHOL000EUB"]) {
+    assert.equal(isValidInternalSku(sku), true, sku);
+  }
+  assert.equal(isValidInternalSku("VXT-992-ABCDE"), true, "SKUs saved in the older style stay valid");
+  assert.equal(isValidInternalSku(" rab0000ip01 "), true, "typed lowercase or with spaces around is normalized");
+  assert.equal(normalizeInternalSku(" rab0000ip01 "), "RAB0000IP01");
+  for (const bad of ["", "AB", "RAB 0000", "RAB_0000", "-RAB0000", "RAB0000-", "RAB--0000", "A".repeat(21), "RAB/0000"]) {
+    assert.equal(isValidInternalSku(bad), false, JSON.stringify(bad));
+  }
+  assert.equal(INTERNAL_SKU_PATTERN.test("A".repeat(20)), true, "20 characters is the limit");
 });

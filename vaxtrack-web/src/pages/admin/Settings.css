@@ -958,7 +958,7 @@
   }
 
   .settings-v3-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .staff-table {
@@ -993,7 +993,7 @@
   .settings-form-grid,
   .settings-form-grid.three,
   .settings-modal-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .settings-modal-actions button {
@@ -1277,7 +1277,7 @@
 @media (max-width: 760px) {
   .routing-settings .settings-form-grid,
   .routing-settings .settings-form-grid.three {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

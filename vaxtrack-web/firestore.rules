@@ -295,22 +295,24 @@ service cloud.firestore {
     // validateAnalyticsConfig mirrors this exactly).
     function validAnalyticsConfig(vaccineId) {
       let d = request.resource.data;
-      return d.keys().hasOnly(['vaccineId', 'leadTimeDays', 'safetyStockDays',
-          'safetyStockQuantity', 'enabled', 'updatedAt', 'updatedByUid'])
-        && d.keys().hasAll(['vaccineId', 'leadTimeDays', 'safetyStockDays',
-          'safetyStockQuantity', 'enabled', 'updatedAt', 'updatedByUid'])
+      // New settings store total vials per selected calendar month. The old
+      // percentage schema remains accepted during rollout; never mix them.
+      return d.keys().hasAll(['vaccineId', 'busyMonths', 'updatedAt', 'updatedByUid'])
         && d.vaccineId == vaccineId
         && exists(/databases/$(database)/documents/vaccines/$(vaccineId))
-        && d.leadTimeDays is int && d.leadTimeDays >= 1 && d.leadTimeDays <= 365
-        && d.enabled is bool
+        && d.busyMonths is list
+        && d.busyMonths.size() <= 12
+        && d.busyMonths.toSet().size() == d.busyMonths.size()
+        && d.busyMonths.toSet().hasOnly([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+        && ((d.keys().hasOnly(['vaccineId', 'busyMonths', 'busyMonthlyVials', 'updatedAt', 'updatedByUid'])
+            && d.keys().hasAll(['busyMonthlyVials'])
+            && d.busyMonthlyVials is int && d.busyMonthlyVials >= 0 && d.busyMonthlyVials <= 100000000
+            && (d.busyMonths.size() > 0 ? d.busyMonthlyVials > 0 : d.busyMonthlyVials == 0))
+          || (d.keys().hasOnly(['vaccineId', 'busyMonths', 'busyIncreasePercent', 'updatedAt', 'updatedByUid'])
+            && d.keys().hasAll(['busyIncreasePercent'])
+            && d.busyIncreasePercent is int && d.busyIncreasePercent >= 0 && d.busyIncreasePercent <= 300))
         && d.updatedAt == request.time
-        && d.updatedByUid == request.auth.uid
-        && (
-          (d.safetyStockDays is int && d.safetyStockDays >= 0 && d.safetyStockDays <= 365
-            && d.safetyStockQuantity == null)
-          || (d.safetyStockQuantity is int && d.safetyStockQuantity >= 0
-            && d.safetyStockQuantity <= 100000000 && d.safetyStockDays == null)
-        );
+        && d.updatedByUid == request.auth.uid;
     }
 
     // Keys whose value changed in this write.
@@ -942,11 +944,18 @@ service cloud.firestore {
       return value in ['vatable', 'vat_exempt', 'zero_rated'];
     }
 
+    // What an Admin may SET on a vaccine (2026-11-11): zero-rating is requested
+    // per order and approved by Admin (zeroRateRequests), never put on the
+    // product. Products already zero-rated stay valid and can be reclassified.
+    function isSelectableProductVatClassification(value) {
+      return value in ['vatable', 'vat_exempt'];
+    }
+
     function vaccineVatChangeValid() {
       let d = request.resource.data;
       return !changedKeys().hasAny(['vatClassification', 'vatClassificationSetAt', 'vatClassificationSetByUid'])
         || (
-          isProductVatClassification(d.get('vatClassification', null))
+          isSelectableProductVatClassification(d.get('vatClassification', null))
           && d.get('vatClassificationSetAt', null) == request.time
           && d.get('vatClassificationSetByUid', null) == request.auth.uid
         );
@@ -1974,7 +1983,7 @@ service cloud.firestore {
     match /vaccines/{id} {
       allow read: if isApprovedUser();
       allow create: if isAdmin()
-        && isProductVatClassification(request.resource.data.get('vatClassification', null))
+        && isSelectableProductVatClassification(request.resource.data.get('vatClassification', null))
         && !request.resource.data.keys().hasAny(vaccineArchiveFields())
         && !request.resource.data.keys().hasAny(vaccineVisibilityFields());
       allow update: if isAdmin() && vaccineVatChangeValid()

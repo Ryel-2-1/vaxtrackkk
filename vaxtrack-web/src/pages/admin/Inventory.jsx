@@ -23,7 +23,7 @@ import { correctStockQuantity, newRequestId } from "../../services/inventoryRemo
 import { subscribeVaccines } from "../../services/vaccineCatalogService";
 import {
   NOT_CLASSIFIED,
-  PRODUCT_VAT_CLASSIFICATIONS,
+  SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS,
   PRODUCT_VAT_LABELS,
   batchVatClassification,
 } from "../../services/vatClassification";
@@ -1203,7 +1203,7 @@ function Inventory() {
                       disabled={savingVat}
                     >
                       <option value="">{drawerItem.vatClassification ? "Change…" : "Classify…"}</option>
-                      {PRODUCT_VAT_CLASSIFICATIONS.filter((v) => v !== drawerItem.vatClassification).map((v) => (
+                      {SELECTABLE_PRODUCT_VAT_CLASSIFICATIONS.filter((v) => v !== drawerItem.vatClassification).map((v) => (
                         <option key={v} value={v}>
                           {PRODUCT_VAT_LABELS[v]}
                         </option>

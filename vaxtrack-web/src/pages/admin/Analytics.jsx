@@ -14,6 +14,7 @@ import { subscribeAllAlerts } from "../../services/alertService";
 import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import KpiCard from "../../components/ui/KpiCard";
 import MedRepPerformance from "./MedRepPerformance";
+import RiderPerformance from "./RiderPerformance";
 import {
   averageDeliveryTime,
   formatDuration,
@@ -670,6 +671,14 @@ function Analytics() {
         {/* Read-only ranking of Med Reps by delivered orders. Reuses this page's
             orders subscription; adds one users and one areas listener. */}
         <MedRepPerformance
+          orders={allOrders}
+          ordersLoading={loading}
+          ordersError={loadError}
+          nowMs={nowMs}
+        />
+        {/* The same ranking for riders: delivered orders credited to the
+            rider on the order (services/riderPerformance.js). */}
+        <RiderPerformance
           orders={allOrders}
           ordersLoading={loading}
           ordersError={loadError}

@@ -51,15 +51,14 @@ const {
   assertForecastEngine,
   validateForecastDocument,
 } = require("./forecastEngine");
-const { CONFIG_FIELDS, CONFIG_STATUS, CONFIG_STATUS_TEXT, assessProduct } = require("./analyticsRisk");
+const { CONFIG_FIELDS, CONFIG_STATUS, assessProduct } = require("./analyticsRisk");
 
 /** Configuration values the calculation reads. Audit metadata is not among them. */
 const CONFIG_CALCULATION_FIELDS = Object.freeze([
   "vaccineId",
-  "enabled",
-  "leadTimeDays",
-  "safetyStockDays",
-  "safetyStockQuantity",
+  "busyMonths",
+  "busyIncreasePercent",
+  "busyMonthlyVials",
 ]);
 
 /**
@@ -91,7 +90,9 @@ const FIRESTORE_DOCUMENTED_REQUEST_LIMIT_BYTES = 10 * 1024 * 1024;
  */
 // 2: current backorder shortage separated from forecast shortage (riskBasis);
 //    deterministic product-identity resolution.
-const CALCULATION_CONTRACT_VERSION = "inventory-analytics-2";
+// 3 (2026-11-10): seasons; the suggested order covers the period (no lead time
+// or safety stock settings).
+const CALCULATION_CONTRACT_VERSION = "inventory-analytics-4"; // Absolute monthly vial totals, with legacy percent support.
 
 /** Shown (and stored on the run) when the data comes from the staging project. */
 const STAGING_DATA_WARNING =
@@ -118,6 +119,8 @@ function canonicalJson(value) {
 function plain(value) {
   if (value === undefined || value === null) return null;
   if (["string", "number", "boolean"].includes(typeof value)) return value;
+  // Lists (busy months) keep their items, so changing them changes the run.
+  if (Array.isArray(value)) return value.map(plain);
   const d = toDate(value);
   return d ? { millis: d.getTime() } : null;
 }
@@ -247,7 +250,7 @@ function buildAnalyticsPlan({
     .sort();
   const forecasts = [];
   const riskSummary = { high: 0, medium: 0, low: 0, unknown: 0 };
-  let reorderConfigurationRequiredCount = 0;
+  let seasonAdjustedCount = 0;
   let lowConfidenceCount = 0;
   let currentShortageCount = 0;
 
@@ -284,7 +287,6 @@ function buildAnalyticsPlan({
       );
     }
 
-    let productHasMissingConfig = false;
     let productInsufficient = false;
     let productAllocationPending = false;
 
@@ -297,19 +299,16 @@ function buildAnalyticsPlan({
         backorderedQuantity,
         config,
         vaccineId,
+        asOfDate: window.asOfDate,
       });
       const p = assessed.prediction;
       const confidenceLevel = confidenceDowngraded ? downgradeConfidence(p.confidenceLevel) : p.confidenceLevel;
       if (p.predictedQuantity === null) productInsufficient = true;
-      if (!assessed.configComplete) productHasMissingConfig = true;
       if (assessed.allocationMayBePending) productAllocationPending = true;
 
       const docWarnings = [...productWarnings];
       if (p.predictedQuantity === null) {
         docWarnings.push({ code: WARNING.INSUFFICIENT_HISTORY, message: `${p.usableWeekCount} usable week(s) of history; at least 4 are needed.` });
-      }
-      if (!assessed.configComplete) {
-        docWarnings.push({ code: WARNING.MISSING_REORDER_CONFIG, message: CONFIG_STATUS_TEXT[assessed.configStatus] });
       }
       if (assessed.allocationMayBePending) {
         docWarnings.push({
@@ -350,8 +349,7 @@ function buildAnalyticsPlan({
         forecastShortageQuantity: assessed.forecastShortageQuantity,
         totalProjectedShortageQuantity: assessed.totalProjectedShortageQuantity,
         recommendedReorderQuantity: assessed.recommendedReorderQuantity,
-        reorderConfigurationComplete: assessed.configComplete,
-        reorderConfigurationStatus: assessed.configStatus,
+        seasonAdjustment: assessed.seasonAdjustment,
         stockoutRiskLevel: assessed.stockoutRiskLevel,
         riskBasis: assessed.riskBasis,
         stockoutRiskReason: assessed.stockoutRiskReason,
@@ -378,11 +376,10 @@ function buildAnalyticsPlan({
       if (horizonDays === PRIMARY_HORIZON) {
         riskSummary[assessed.stockoutRiskLevel] += 1;
         if ([CONFIDENCE.INSUFFICIENT, CONFIDENCE.LOW].includes(confidenceLevel)) lowConfidenceCount += 1;
-        if (!assessed.configComplete) reorderConfigurationRequiredCount += 1;
+        if (assessed.seasonAdjustment.source !== "none") seasonAdjustedCount += 1;
         if (assessed.riskBasis === "current_backorder_shortage") currentShortageCount += 1;
       }
     }
-    if (productHasMissingConfig) warnings.add(WARNING.MISSING_REORDER_CONFIG, vaccineId);
     if (productInsufficient) warnings.add(WARNING.INSUFFICIENT_HISTORY, vaccineId);
     if (productAllocationPending) warnings.add(WARNING.ALLOCATION_MAY_BE_PENDING, vaccineId);
   }
@@ -440,7 +437,7 @@ function buildAnalyticsPlan({
     // Which deterministic source resolved each demand line, and the lines that
     // could not be resolved (structural fields only — no names or people).
     identityDiagnostics: demand.identity,
-    reorderConfigurationRequiredCount,
+    seasonAdjustedCount,
     lowConfidenceCount,
     excludedLineRatio: Math.round(excludedLineRatio * 10000) / 10000,
     confidenceDowngraded,

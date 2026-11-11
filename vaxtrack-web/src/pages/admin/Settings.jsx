@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Building2,
   Globe,
@@ -16,7 +16,7 @@ import "./Settings.css";
 import { subscribeUsers } from "../../services/userService";
 // Staff status, role and new accounts change only on the server (staffAccounts.js);
 // the rules refuse those writes from a browser.
-import { createStaffSetupLink, setStaffRole, setStaffStatus } from "../../services/staffAccountCallables";
+import { createStaffSetupLink, reopenStaffApplication, setStaffRole, setStaffStatus } from "../../services/staffAccountCallables";
 import AddStaffDialog, { SetupLinkBox } from "./AddStaffDialog";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
@@ -97,6 +97,12 @@ const ACCOUNT_ACTIONS = {
     confirmLabel: "Reactivate account",
     tone: "primary",
     status: "approved",
+  },
+  reopen: {
+    title: "Reopen this application?",
+    consequence: "The application returns to Pending Approval. Access stays blocked until an Admin approves it.",
+    confirmLabel: "Reopen application",
+    tone: "primary",
   },
 };
 
@@ -502,22 +508,38 @@ function UserManagement({ searchTerm, showToast }) {
     }
   };
 
-  // Approve, deactivate and reactivate each ask first, naming the account and
-  // what changes for it. { person, action } | null.
+  // Confirm status changes with the account and consequence in view.
   const [statusChange, setStatusChange] = useState(null);
+  const [reopenReason, setReopenReason] = useState("");
+  const [reopenError, setReopenError] = useState("");
+  const reopenReasonId = useId();
+  const reopenReasonRef = useRef(null);
   const requestStatusChange = (person, action) => {
     setActionMenuUid(null);
     setSelectedStaff(null);
+    setReopenReason("");
+    setReopenError("");
     setStatusChange({ person, action });
+  };
+  const validateReopen = () => {
+    if (reopenReason.trim()) return true;
+    setReopenError("Enter a reason for reopening this application.");
+    reopenReasonRef.current?.focus();
+    return false;
   };
   const confirmStatusChange = async () => {
     const { person, action } = statusChange;
+    if (action === "reopen") {
+      await reopenStaffApplication(person.uid, reopenReason.trim());
+      showToast("Application reopened and awaiting approval.", "success");
+      setStatusChange(null);
+      return;
+    }
     await updateStatus(person.uid, ACCOUNT_ACTIONS[action].status);
     setStatusChange(null);
   };
 
-  // Reject asks first: it is final in the normal workflow. The dialog closes
-  // only once the write landed.
+  // Reject asks first. The dialog closes only once the write landed.
   const [rejectTarget, setRejectTarget] = useState(null);
   const confirmReject = async () => {
     const target = rejectTarget;
@@ -697,13 +719,16 @@ function UserManagement({ searchTerm, showToast }) {
                       <button
                         type="button"
                         className="table-action-btn"
+                        aria-label={`Actions for ${person.name || person.email || "this account"}`}
+                        aria-expanded={actionMenuUid === person.uid}
+                        title="Actions"
                         onClick={() =>
                           setActionMenuUid((prev) =>
                             prev === person.uid ? null : person.uid
                           )
                         }
                       >
-                        <MoreVertical size={16} />
+                        <MoreVertical size={16} aria-hidden="true" />
                       </button>
 
                       {actionMenuUid === person.uid && (
@@ -762,6 +787,12 @@ function UserManagement({ searchTerm, showToast }) {
                               onClick={() => requestStatusChange(person, "reactivate")}
                             >
                               Reactivate
+                            </button>
+                          )}
+
+                          {actions.includes("reopen") && (
+                            <button type="button" onClick={() => requestStatusChange(person, "reopen")}>
+                              Reopen application
                             </button>
                           )}
 
@@ -858,7 +889,7 @@ function UserManagement({ searchTerm, showToast }) {
         <ConfirmDialog
           title="Reject this application?"
           target={`${rejectTarget.name} (${rejectTarget.email})`}
-          consequence="They will not be able to sign in. Normal activation will no longer be available for this account."
+          consequence="They will not be able to sign in. Normal activation will no longer be available for this account. An Admin can reopen the application for review."
           confirmLabel="Reject application"
           busyLabel="Rejecting…"
           failureMessage="The application could not be rejected. Nothing was changed — please try again."
@@ -878,9 +909,31 @@ function UserManagement({ searchTerm, showToast }) {
           busyLabel="Saving…"
           tone={ACCOUNT_ACTIONS[statusChange.action].tone}
           failureMessage="The account status could not be changed. Nothing was saved — please try again."
+          validate={statusChange.action === "reopen" ? validateReopen : undefined}
           onCancel={() => setStatusChange(null)}
           onConfirm={confirmStatusChange}
-        />
+        >
+          {statusChange.action === "reopen" && (
+            <>
+              <label htmlFor={reopenReasonId}>Reason for reopening</label>
+              <textarea
+                id={reopenReasonId}
+                ref={reopenReasonRef}
+                value={reopenReason}
+                rows={3}
+                maxLength={300}
+                required
+                aria-invalid={reopenError ? true : undefined}
+                aria-describedby={reopenError ? `${reopenReasonId}-error` : undefined}
+                onChange={(event) => {
+                  setReopenReason(event.target.value);
+                  setReopenError("");
+                }}
+              />
+              {reopenError && <p id={`${reopenReasonId}-error`} className="m-field-error" role="alert">{reopenError}</p>}
+            </>
+          )}
+        </ConfirmDialog>
         </AdminDialogLayer>
       )}
 
@@ -898,6 +951,7 @@ function UserManagement({ searchTerm, showToast }) {
           }}
           onDeactivate={() => requestStatusChange(selectedStaff, "deactivate")}
           onReactivate={() => requestStatusChange(selectedStaff, "reactivate")}
+          onReopen={() => requestStatusChange(selectedStaff, "reopen")}
           onChangeRole={() => {
             setSelectedStaff(null);
             setRoleChangeTarget(selectedStaff);
@@ -961,6 +1015,7 @@ function StaffDetailsModal({
   onReject,
   onDeactivate,
   onReactivate,
+  onReopen,
   onChangeRole,
   onManageTerritory,
 }) {
@@ -1099,6 +1154,12 @@ function StaffDetailsModal({
             </button>
           )}
 
+          {actions.includes("reopen") && (
+            <button type="button" className="settings-primary-action" onClick={onReopen} disabled={busy}>
+              Reopen application
+            </button>
+          )}
+
           {canManageTerritory(person) && (
             <button type="button" className="settings-primary-action" onClick={onManageTerritory}>
               Manage Territory
@@ -1114,8 +1175,6 @@ function StaffDetailsModal({
   );
 }
 
-// Reject is final in the normal workflow, so it is confirmed first. Cancel
-// closes the dialog and writes nothing.
 function RoleChangeModal({ person, saving = false, error = "", onClose, onConfirm }) {
   const [newRole, setNewRole] = useState(person.rawRole || "salesrep");
   const dialogRef = useRef(null);

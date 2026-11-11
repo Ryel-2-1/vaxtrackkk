@@ -85,7 +85,7 @@ async function seed() {
     items: [{ productKey: "vacA", quantity: 500 }],
   });
   await db.collection("inventoryAnalyticsConfig").doc("vacA").set({
-    vaccineId: "vacA", leadTimeDays: 14, safetyStockDays: null, safetyStockQuantity: 20, enabled: true,
+    vaccineId: "vacA", busyMonths: [], busyIncreasePercent: 0,
     updatedAt: Timestamp.fromDate(new Date("2026-10-01T00:00:00Z")), updatedByUid: "admin1",
   });
 }
@@ -98,6 +98,26 @@ const quiet = () => {
 const run = async (opts, logger = quiet()) =>
   (await tool()).runGenerator({ db, FieldValue, options: options(opts), log: logger.log });
 const count = async (c) => (await db.collection(c).get()).size;
+
+test("monthly vial settings persist in generated forecasts and retries keep the same run", async () => {
+  await seed();
+  await db.collection("inventoryAnalyticsConfig").doc("vacA").set({
+    vaccineId: "vacA", busyMonths: [10, 11], busyMonthlyVials: 500,
+    updatedAt: Timestamp.fromDate(new Date("2026-10-01T00:00:00Z")), updatedByUid: "admin1",
+  });
+  const dry = await run({ apply: false });
+  const before = await snapshotOthers();
+  const applied = await run({ apply: true, confirm: dry.forecastCount });
+  const stored = (await db.collection(FORECASTS).doc("vacA__all__30d").get()).data();
+  // Oct 9–31 = 23 days, Nov 1–7 = 7 days; total is not +500 or +500%.
+  assert.equal(stored.predictedDemandQuantity, Math.round(500 * 23 / 31 + 500 * 7 / 30));
+  assert.equal(stored.seasonAdjustment.monthlyVials, 500);
+  assert.deepEqual(validateForecastDocument(stored), []);
+  assert.deepEqual(await snapshotOthers(), before);
+  const retry = await run({ apply: true, confirm: dry.forecastCount });
+  assert.equal(retry.runId, applied.runId);
+  assert.equal(retry.replayed, true);
+});
 
 /** updateTime of every document outside the analytics collections. */
 async function snapshotOthers() {
@@ -119,7 +139,7 @@ test("22 · a dry run is the default and writes nothing — but prints counts an
   assert.match(text, /PROPOSED: 6 forecast document\(s\) in inventoryForecasts and 1 run document/);
   assert.match(text, /WARNING cancelled_excluded ×1/);
   assert.match(text, /WARNING insufficient_weekly_history ×1/);
-  assert.match(text, /WARNING missing_lead_time_configuration ×1/);
+  assert.doesNotMatch(text, /missing_lead_time_configuration|reorder setting/i, "no reorder settings exist any more");
   assert.match(text, /Dry run only — nothing was written\./);
 });
 
@@ -152,7 +172,9 @@ test("25 · apply writes ONLY the analytics collections", async () => {
   assert.equal(a30.availableQuantity, 390, "400 − 4 reserved − 6 return pending");
   assert.equal(a30.reservedQuantity, 4);
   assert.equal(a30.backorderedQuantity, 6);
-  assert.equal(a30.recommendedReorderQuantity, Math.max(0, 140 + 20 + 6 - 390));
+  // The suggestion covers the 30 days: 300 expected + 6 waiting − 390 in stock → 0.
+  assert.equal(a30.recommendedReorderQuantity, Math.max(0, 300 + 6 - 390));
+  assert.deepEqual(a30.seasonAdjustment, { source: "none", percent: 0, busyMonths: [] });
   const b30 = (await db.collection(FORECASTS).doc("vacB__all__30d").get()).data();
   assert.equal(b30.availableQuantity, 0, "an expired batch is not available");
   assert.equal(b30.recommendedReorderQuantity, null);

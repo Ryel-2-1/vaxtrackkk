@@ -68,6 +68,9 @@ test("client and server word the stale incident identically", () => {
   for (const input of [
     { status: "active", riderName: "Ana Cruz", minutes: 14.7 },
     { status: "active", riderName: "", minutes: 3 },
+    { status: "active", riderName: "Ana", minutes: 59.9 },
+    { status: "active", riderName: "Ana", minutes: 60 },
+    { status: "active", riderName: "Ana", minutes: 651 },
     { status: "resolved", riderName: "Ana", resolutionReason: "location_updating" },
     { status: "resolved", riderName: null, resolutionReason: "trip_superseded" },
   ]) {
@@ -116,4 +119,14 @@ test("the alert writes a client may make stay read/resolve only", () => {
   // (functions/src/arrivalProximityOps.js), is closed to client creation.
   assert.match(rules, /return \['route_deviation', 'delivery_delay', 'rider_location_stale', 'delivery_awaiting_completion'\];/);
   assert.match(rules, /match \/riderLocationWatches\/\{riderUid\} \{\s*allow read, write: if false;/);
+});
+
+test("the Priority Action card's icon + title row is not drawn as a 48px icon tile", () => {
+  // A legacy `.priority-alert-card > div` rule in styles.css squeezed the
+  // heading row (its first child) into an orange 48px square, so the title ran
+  // over the message (2026-11-11).
+  const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.doesNotMatch(styles, /\.priority-alert-card > div \{/);
+  const alerts = readFileSync(new URL("../src/pages/admin/Alerts.css", import.meta.url), "utf8");
+  assert.match(alerts, /\.priority-alert-heading \{\s*display: flex;/);
 });

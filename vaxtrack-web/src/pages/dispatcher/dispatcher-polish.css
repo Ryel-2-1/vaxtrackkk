@@ -717,11 +717,11 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
 .dispatcher-page .shp-audit-id { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; overflow-wrap: anywhere; font-weight: 700; font-size: 13px; }
 .dispatcher-page .shp-audit-id .shp-act-btn { flex: 0 0 auto; }
 .dispatcher-page .shp-audit-items { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.dispatcher-page .shp-audit-items li { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; padding: 9px 11px; border: 1px solid var(--gray-200); border-radius: 8px; font-size: 13px; }
+.dispatcher-page .shp-audit-items li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 9px 11px; border: 1px solid var(--gray-200); border-radius: 8px; font-size: 13px; }
 .dispatcher-page .shp-audit-items small { grid-column: 1 / -1; color: var(--gray-600); }
 .dispatcher-page .shp-audit-error { margin: 10px 0 0; color: var(--danger-text); font-size: 12px; }
 @media (max-width: 640px) {
-  .dispatcher-page .shp-audit-grid { grid-template-columns: 1fr; }
+  .dispatcher-page .shp-audit-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 1024px) {
   .dispatcher-main .dispatcher-topbar[data-shipments-topbar] { grid-template-rows: auto !important; }
@@ -1315,4 +1315,127 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
 .dispatcher-page .cl-return-row .cl-btn {
   flex: none;
   margin-left: auto;
+}
+/* The open mobile rail uses backdrop / Escape dismissal; no floating X. */
+@media (max-width: 1024px) {
+  #root .dispatcher-page .dispatcher-nav-toggle[aria-expanded="true"] {
+    display: none;
+  }
+  #root .dispatcher-page > aside.dispatcher-sidebar > .dispatcher-brand {
+    padding-left: 0 !important; /* replaces the old gutter for the X */
+  }
+}
+/* Personal bell controls: swipe left or open the visible options button.
+   These preferences never delete or resolve the underlying alert. */
+.dispatcher-page .dispatcher-notification-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 100px);
+}
+.dispatcher-page .dispatcher-notification-list {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.dispatcher-page .bell-notice-row {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--gray-200);
+  background: var(--gray-50);
+}
+.dispatcher-page .bell-notice-content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  min-width: 0;
+  background: #fff;
+  touch-action: pan-y;
+  transition: transform 180ms ease;
+}
+.dispatcher-page .bell-notice-row.is-open .bell-notice-content { transform: translateX(-96px); }
+.dispatcher-page .bell-notice-content .dispatcher-notification-item {
+  min-width: 0;
+  border-bottom: 0 !important; /* existing per-role item rules use !important */
+  padding-right: 6px !important;
+}
+.dispatcher-page .bell-notice-more {
+  align-self: start;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  min-height: 36px !important;
+  margin: 10px 4px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--gray-600);
+  border-radius: var(--radius-control, 8px);
+}
+.dispatcher-page .bell-notice-actions {
+  position: absolute;
+  inset: 0 0 0 auto;
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  width: 96px;
+  visibility: hidden;
+}
+.dispatcher-page .bell-notice-row.is-open .bell-notice-actions { visibility: visible; }
+.dispatcher-page .bell-notice-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 36px !important;
+  padding: 6px;
+  border: 0;
+  border-radius: 0;
+  background: var(--green-50);
+  color: var(--green-800);
+  font-size: 11px;
+}
+.dispatcher-page .bell-notice-actions .bell-notice-delete {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+.dispatcher-page .bell-panel-footer {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border-top: 1px solid var(--gray-200);
+  background: #fff;
+}
+.dispatcher-page .bell-panel-footer-actions,
+.dispatcher-page .bell-panel-undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+.dispatcher-page .bell-panel-footer button {
+  min-height: 34px !important;
+  padding: 4px 10px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-control, 8px);
+  background: #fff;
+  color: var(--gray-700);
+  font-size: 12px;
+}
+.dispatcher-page .bell-panel-footer small {
+  display: block;
+  margin-top: 6px;
+  color: var(--gray-500);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.dispatcher-page .bell-panel-undo { margin-bottom: 8px; color: var(--green-800); }
+.dispatcher-page .bell-notice-row button:disabled,
+.dispatcher-page .bell-panel-footer button:disabled { opacity: .5; cursor: default; }
+.dispatcher-page .bell-notice-row button:focus-visible,
+.dispatcher-page .bell-panel-footer :is(button, a):focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: -3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dispatcher-page .bell-notice-content { transition: none; }
 }

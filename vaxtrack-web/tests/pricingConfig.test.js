@@ -144,7 +144,7 @@ test("price wording says VAT-inclusive for VATable products, never that every va
   }
   assert.match(read("src/pages/admin/AddStock.jsx"), /priceBasis/);
   assert.match(read("src/pages/admin/Inventory.jsx"), /priceBasis/);
-  assert.match(read("src/pages/salesRep/SalesRepPlaceOrder.jsx"), /Approved zero-rating/);
+  assert.match(read("src/pages/salesRep/SalesRepPlaceOrder.jsx"), /Zero-rating is approved: VAT is removed from the VATable items/);
   // A page showing an EXISTING record labels it by that record's own flag.
   for (const page of [
     "src/pages/salesRep/SalesRepOrderConfirmation.jsx",

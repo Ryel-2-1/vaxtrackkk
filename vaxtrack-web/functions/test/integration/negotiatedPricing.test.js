@@ -48,7 +48,7 @@ const rid = () => `neg${String(++seq).padStart(4, "0")}${"y".repeat(20)}`;
 const COLLECTIONS = [
   "users", "doctors", "clinics", "areas", "vaccines", "inventory", "orders", "inventoryReservations",
   "orderRequestKeys", "orderReceipts", "orderHistoryOutbox", "inventoryAllocationEvents",
-  "orderPriceAdjustments", "orderStatutoryDiscounts", "invoices", "counters",
+  "orderPriceAdjustments", "orderStatutoryDiscounts", "invoices", "counters", "zeroRateRequests",
 ];
 const WRITTEN_BY_ORDER = [
   "orders", "inventoryReservations", "orderRequestKeys", "orderReceipts", "orderHistoryOutbox",
@@ -127,6 +127,73 @@ async function assertNothingWritten(label) {
 // (2026-11-03), so placed orders that carry a discount stay covered: allocation,
 // receipts and invoices. A NEW order with a discount is refused (test below).
 const EARLIER = { statutoryDiscountsOffered: true };
+
+async function pendingZeroRate(overrides = {}) {
+  const { requestZeroRateApproval } = require("../../src/zeroRateRequests");
+  return requestZeroRateApproval({ db, FieldValue, uid: SR, now: NOW, payload: {
+    doctorId: DOCTOR, doctorAddressId: CLINIC, requestedDeliveryDate: DELIVERY_DATE,
+    items: [{ inventoryId: "vat", quantity: 2 }], reason: "Customer requests Admin eligibility review", ...overrides,
+  } });
+}
+
+test("pending zero-rating cannot be bypassed by omitting or supplying its ID; refusal writes nothing", async () => {
+  await seed();
+  const { requestId } = await pendingZeroRate();
+  for (const extra of [{}, { zeroRateRequestId: requestId }]) {
+    assert.equal(await codeOf(create(SR, [line("vat", 2)], extra)), "zero-rate-review-pending");
+    await assertNothingWritten("pending review");
+  }
+  assert.equal((await db.collection("zeroRateRequests").doc(requestId).get()).data().status, "pending");
+});
+
+test("Admin approval unlocks the exact checkout with zero VAT and consumes approval once", async () => {
+  await seed();
+  const { requestId } = await pendingZeroRate();
+  const { reviewZeroRateApproval } = require("../../src/zeroRateRequests");
+  await reviewZeroRateApproval({ db, FieldValue, uid: ADMIN, payload: { requestId, decision: "approved" } });
+  const reviewedLine = line("vat", 2, { expectedQuotedUnitPriceCentavos: STD.vat - vatOf(STD.vat) });
+  const result = await create(SR, [reviewedLine], { zeroRateRequestId: requestId });
+  const placed = await order(result.orderId);
+  assert.equal(placed.vatSummary.vatAmountCentavos, 0);
+  assert.equal(placed.finalTotalCentavos, 2 * (STD.vat - vatOf(STD.vat)));
+  assert.equal((await db.collection("zeroRateRequests").doc(requestId).get()).data().consumedByOrderId, result.orderId);
+  assert.equal(await codeOf(create(SR, [reviewedLine], { zeroRateRequestId: requestId })), "zero-rate-approval-invalid");
+  assert.equal(await size("orders"), 1);
+});
+
+test("Admin denial allows standard VAT checkout without an approval", async () => {
+  await seed();
+  const { requestId } = await pendingZeroRate();
+  const { reviewZeroRateApproval } = require("../../src/zeroRateRequests");
+  await reviewZeroRateApproval({ db, FieldValue, uid: ADMIN, payload: { requestId, decision: "rejected" } });
+  const placed = await order((await create(SR, [line("vat", 2)])).orderId);
+  assert.equal(placed.finalTotalCentavos, 2 * STD.vat);
+  assert.equal(placed.vatSummary.vatAmountCentavos, 2 * vatOf(STD.vat));
+});
+
+test("pending requests do not block a different cart, destination, date, doctor or owner", async () => {
+  for (const changes of [{ requesterUid: SR2 }, { doctorId: "another-doctor" },
+    { doctorAddressId: "another-clinic" }, { requestedDeliveryDate: "2026-10-16" },
+    { items: [{ inventoryId: "vat", quantity: 3 }] }, { items: [{ inventoryId: "exempt", quantity: 2 }] }]) {
+    await seed();
+    const { requestId } = await pendingZeroRate();
+    await db.collection("zeroRateRequests").doc(requestId).update(changes);
+    const placed = await order((await create(SR, [line("vat", 2)])).orderId);
+    assert.equal(placed.finalTotalCentavos, 2 * STD.vat);
+  }
+});
+
+test("an already committed checkout can replay even if a matching review is subsequently pending", async () => {
+  await seed();
+  const payload = payloadOf([line("vat", 2)]);
+  const first = await ops.createOrderWithReservation({ db, FieldValue, uid: SR, now: NOW, payload });
+  await pendingZeroRate();
+  const replay = await ops.createOrderWithReservation({ db, FieldValue, uid: SR, now: NOW, payload });
+  assert.equal(replay.replayed, true);
+  assert.equal(replay.orderId, first.orderId);
+  assert.equal(await size("orders"), 1);
+  assert.equal((await db.collection("inventory").doc("vat").get()).data().reservedQuantity, 2);
+});
 
 function assertReconciles(o) {
   const sum = (k) => o.items.reduce((s, i) => s + i[k], 0);

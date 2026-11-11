@@ -310,7 +310,7 @@
 
 @media (max-width: 1200px) {
   .compact-analytics .analytics-main-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -799,7 +799,7 @@
 
 .analytics-modal-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   margin-bottom: 20px;
 }
@@ -878,7 +878,7 @@
   }
 
   .analytics-v2-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -900,7 +900,7 @@
 
   .analytics-kpi-grid,
   .analytics-modal-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .analytics-modal-actions {
@@ -926,7 +926,7 @@
    the same column positions at every width. */
 .analytics-heatmap-row {
   display: grid;
-  grid-template-columns: 74px 1fr;
+  grid-template-columns: 74px minmax(0, 1fr);
   align-items: center;
   gap: 7px;
   margin-bottom: 7px;
@@ -966,7 +966,7 @@
      which collapsed the cells to 12px and left the day names pointing at
      nothing. The two grids are shaped differently and must be set separately. */
   .analytics-heatmap-row {
-    grid-template-columns: 56px 1fr;
+    grid-template-columns: 56px minmax(0, 1fr);
   }
   .analytics-heatmap-labels {
     grid-template-columns: 56px repeat(6, 1fr);

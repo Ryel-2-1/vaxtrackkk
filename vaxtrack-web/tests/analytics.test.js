@@ -451,7 +451,7 @@ test("the period row stays two columns at every breakpoint", () => {
       false,
       `${where}: the row must not take the label row's track list`
     );
-    assert.equal(cols.split(/\s+/).length, 2, `${where}: two tracks, got "${cols}"`);
+    assert.equal(cols.match(/\w+\([^)]*\)|\S+/g).length, 2, `${where}: two tracks, got "${cols}"`);
 
     // The label row, in contrast, is the leading spacer plus the six days.
     const labels = effective(".analytics-heatmap-labels", "grid-template-columns", media);

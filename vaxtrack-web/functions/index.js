@@ -256,6 +256,7 @@ function toHttpsError(error, context) {
       "qa-reset-disabled": "permission-denied",
       // SC/PWD discounts are no longer offered for new orders (policy.js).
       "statutory-discount-unavailable": "failed-precondition",
+      "zero-rate-review-pending": "failed-precondition",
       // A batch above 5,000 vials needs the Admin's confirmation (policy.js).
       "large-quantity-unconfirmed": "failed-precondition",
       // Stock alerts (stockAlertsOps.js).
