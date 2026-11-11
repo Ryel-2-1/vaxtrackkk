@@ -986,15 +986,16 @@ service cloud.firestore {
     // null. Pinned to request.auth.uid and request.time, so the audit trail on
     // a price change is evidence rather than a claim.
     //
-    // The Admin's chosen price basis travels with the price. Both "Before VAT"
-    // and "VAT included" are valid; the audited write must record one of them.
+    // Every price is entered with VAT included (2026-11-11): a re-price
+    // records priceIsVatInclusive == true. A batch stored "before VAT" keeps
+    // that meaning until it is re-priced; it cannot be re-priced back to it.
     function stockPriceAuditValid() {
       let d = request.resource.data;
       return !changedKeys().hasAny(['sellingPriceCentavos', 'priceIsVatInclusive'])
         || (
           d.priceSetAt == request.time
           && d.priceSetByUid == request.auth.uid
-          && d.get('priceIsVatInclusive', null) is bool
+          && d.get('priceIsVatInclusive', null) == true
         );
     }
 

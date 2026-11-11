@@ -60,7 +60,7 @@ test("Admin Inventory's expiry card labels each band with what it actually count
   // One card, three exclusive bands, each counted on its own derived level.
   assert.match(INV, /label="Expired or within 90 days"/);
   for (const [name, level] of [["expiredCount", "expired"], ["criticalCount", "critical"], ["warningCount", "warning"]]) {
-    assert.match(INV, new RegExp(`const ${name} = useMemo\\(\\s*\\(\\) => stockBatches\\.filter\\(\\(i\\) => i\\.level === "${level}"\\)\\.length,`), name);
+    assert.match(INV, new RegExp(`const ${name} = useMemo\\(\\s*\\(\\) => watchedBatches\\.filter\\(\\(i\\) => i\\.level === "${level}"\\)\\.length,`), name);
   }
   assert.match(INV, /value=\{loading \|\| loadError \? "—" : expiredCount \+ criticalCount \+ warningCount\}/);
   // The breakdown names each band for exactly its range: "within 30d" is
@@ -73,6 +73,9 @@ test("Admin Inventory's expiry card labels each band with what it actually count
   assert.match(INV, /onClick=\{\(\) => \{ changeStatusFilter\("watch"\); scrollToTable\(\); \}\}/);
   assert.match(INV, /const WATCH_LEVELS = new Set\(\["expired", "critical", "warning"\]\);/);
   assert.match(INV, /\(statusFilter === "watch" && WATCH_LEVELS\.has\(item\.level\)\)/);
+  assert.match(INV, /watchedBatches = useMemo\(\(\) => stockBatches\.filter\(needsExpiryWatch\)/);
+  assert.match(INV, /return watchedBatches\s*\.filter\(\(i\) => i\.level === "expired" \|\| i\.level === "critical"\)/);
+  assert.match(INV, /if \(isExpiryWatchFilter && !needsExpiryWatch\(item\)\) return false;/);
   // Each band is still reachable on its own from the expiry filter.
   for (const level of ["expired", "critical", "warning"]) {
     assert.match(INV, new RegExp(`\\{ value: "${level}", label: `), level);

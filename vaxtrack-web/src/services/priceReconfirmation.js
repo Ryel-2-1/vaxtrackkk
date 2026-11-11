@@ -35,7 +35,7 @@ export function describePriceReconfirmation({ priceCentavos, priceIsVatInclusive
     recordedCentavos,
     recordedNote: CONVENTION_NOT_RECORDED_NOTE,
     recordedLine: `Recorded price: ${formatCentavos(recordedCentavos)} per vial.`,
-    explanation: `The original price basis is unknown${vatClassification === "vatable" ? " for this VATable product" : ""}. Confirm the intended amount and choose its basis before new orders use this batch.`,
+    explanation: `The original price basis is unknown${vatClassification === "vatable" ? " for this VATable product" : ""}. Enter the intended amount, with VAT included, before new orders use this batch.`,
     options: [],
   };
 }

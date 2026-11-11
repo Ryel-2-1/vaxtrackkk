@@ -244,6 +244,8 @@ export function missingEtaWarning(orders) {
   const n = missing.length;
   return {
     count: n,
+    /** For the dialog's "Generate route first" link to Delivery Monitoring. */
+    orderIds: missing.map((o) => o.id).filter((id) => typeof id === "string" && id !== ""),
     // What the Dispatcher reads: the order number, else where it goes.
     orderLabels: missing.map((o) => orderReference(o, orderDestination(o) || "an order without a number")),
     text: `${n} order${n === 1 ? " has" : "s have"} no valid route ETA. Automatic arrival timing will be unavailable for ${

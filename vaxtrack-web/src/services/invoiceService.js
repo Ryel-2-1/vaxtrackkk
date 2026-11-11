@@ -82,7 +82,7 @@ function queueInvoiceStatus(invoice) {
     case "draft": {
       const hasItems = Array.isArray(invoice.items) && invoice.items.length > 0;
       const validTotal = Number(invoice.grandTotal) > 0;
-      return hasItems && validTotal ? "Ready to Print" : "In Progress";
+      return hasItems && validTotal ? "Ready to Issue" : "In Progress";
     }
     default:
       return "Pending";

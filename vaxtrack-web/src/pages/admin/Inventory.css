@@ -1809,3 +1809,15 @@
 }
 .inv-large-quantity p { margin: 0; }
 .inv-large-quantity-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+/* Re-pricing an older batch that was entered before VAT (2026-11-11). */
+.inv-price-converted {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius-control);
+  background: var(--info-bg);
+  color: var(--info-text);
+  font-size: 12.5px;
+  line-height: 1.45;
+}

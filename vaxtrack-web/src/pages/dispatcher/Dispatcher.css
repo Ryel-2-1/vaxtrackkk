@@ -8691,3 +8691,12 @@
   .geo3-drawer,
   .geo3-drawer-backdrop { animation: none; }
 }
+
+/* Delivery Monitoring: no rider location yet — say what to do instead of
+   hiding the route panel (2026-11-11). */
+.geo3-no-location {
+  margin: 4px 0 0;
+  color: var(--gray-700);
+  font-size: 13px;
+  line-height: 1.5;
+}

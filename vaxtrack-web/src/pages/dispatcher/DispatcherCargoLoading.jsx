@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -71,6 +72,7 @@ function initialsOf(name) {
 }
 
 function DispatcherCargoLoading() {
+  const navigate = useNavigate();
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -390,13 +392,33 @@ function DispatcherCargoLoading() {
             const warning = dispatchHoursWarning(confirmGroup.returnPlan, new Date());
             return warning ? <p className="m-dialog-warning" role="note">{warning}</p> : null;
           })()}
-          {/* Non-blocking: dispatch stays available without a route ETA. */}
+          {/* Non-blocking: dispatch stays available without a route ETA.
+              "Generate route first" leaves the dialog for Delivery Monitoring,
+              on the first order without a route (2026-11-11). */}
           {(() => {
             const warning = missingEtaWarning(confirmGroup.orders);
             return warning ? (
-              <p className="m-dialog-warning" role="note">
-                {warning.text} <span className="tnum">({warning.orderLabels.join(", ")})</span>
-              </p>
+              <div className="m-dialog-warning cl-route-first" role="note">
+                <p>
+                  {warning.text} <span className="tnum">({warning.orderLabels.join(", ")})</span>
+                </p>
+                <p className="cl-route-first-tip">
+                  The route is planned from the rider&apos;s current location, so make sure {confirmGroup.rider.name || "the rider"}&apos;s
+                  VaxTrack Rider app is open with location turned on.
+                </p>
+                {warning.orderIds.length > 0 && (
+                  <button
+                    type="button"
+                    className="cl-route-first-btn"
+                    onClick={() => {
+                      setConfirmGroup(null);
+                      navigate(`/dispatcher/geofence?order=${encodeURIComponent(warning.orderIds[0])}`);
+                    }}
+                  >
+                    Generate route first
+                  </button>
+                )}
+              </div>
             ) : null;
           })()}
         </ConfirmDialog>

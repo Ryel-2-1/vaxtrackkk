@@ -121,8 +121,11 @@ function validateStockBatchPayload(payload, now) {
   requireLargeQuantityConfirmed(quantity, payload?.largeQuantityConfirmed);
   const price = readSellingPriceCentavos(payload?.sellingPriceCentavos);
   if (!price.ok) fail("invalid-stock-batch", "A stock batch needs a selling price in whole centavos.");
-  if (payload?.priceIsVatInclusive !== undefined && typeof payload.priceIsVatInclusive !== "boolean") {
-    fail("invalid-stock-batch", "Choose whether the entered batch price includes VAT.");
+  // Every batch price is entered with VAT included (2026-11-11). Omitted means
+  // that; a "before VAT" price is no longer accepted for a new batch. Older
+  // batches stored before VAT keep their meaning wherever they are read.
+  if (payload?.priceIsVatInclusive !== undefined && payload.priceIsVatInclusive !== true) {
+    fail("invalid-stock-batch", "Enter the batch price with VAT included.");
   }
   const manufacturer =
     typeof payload?.manufacturer === "string" ? payload.manufacturer.trim().slice(0, 120) : "";

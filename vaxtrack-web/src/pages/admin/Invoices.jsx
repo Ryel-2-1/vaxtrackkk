@@ -5,7 +5,6 @@ import {
   Download,
   FileText,
   Loader2,
-  Printer,
   RotateCcw,
   Search,
 } from "lucide-react";
@@ -132,7 +131,7 @@ function Invoices() {
 
   const summary = useMemo(() => {
     const pending = rows.filter((r) =>
-      ["Pending", "In Progress", "Ready to Print"].includes(r.invoiceStatus)
+      ["Pending", "In Progress", "Ready to Issue"].includes(r.invoiceStatus)
     );
     return {
       pending: pending.length,
@@ -293,7 +292,7 @@ function Invoices() {
                 <option value="all">All</option>
                 <option value="Pending">Pending</option>
                 <option value="In Progress">In Progress</option>
-                <option value="Ready to Print">Ready to Print</option>
+                <option value="Ready to Issue">Ready to Issue</option>
                 <option value="Issued">Issued</option>
                 <option value="Cancelled">Cancelled</option>
               </select>
@@ -458,7 +457,7 @@ function StatusBadge({ status }) {
   const tone =
     status === "Issued"
       ? "issued"
-      : status === "Ready to Print"
+      : status === "Ready to Issue"
       ? "ready"
       : status === "In Progress"
       ? "progress"
@@ -476,13 +475,6 @@ function RowActions({ row, navigate }) {
       <div className="inv-row-actions">
         <button type="button" className="inv-btn inv-btn-outline" onClick={() => navigate(to)}>
           <FileText size={13} /> View
-        </button>
-        <button
-          type="button"
-          className="inv-btn inv-btn-primary"
-          onClick={() => navigate(to, { state: { autoPrint: true } })}
-        >
-          <Printer size={13} /> Print
         </button>
       </div>
     );

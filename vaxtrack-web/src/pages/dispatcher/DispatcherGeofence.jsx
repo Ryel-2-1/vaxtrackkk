@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useRiderLiveLocation } from "../../components/useRiderLiveLocation";
 import { FRESHNESS, deviationDisplayState, deviationTextForFreshness, locationLatLng, locationTimeMs } from "../../services/riderTracking";
 import L from "leaflet";
@@ -346,11 +347,15 @@ function RiderLocationMap({ lat, lng, clinicLat, clinicLng, geofenceRadiusM, rou
 
 
 function DispatcherGeofence() {
+  // ?order=<id> (from Cargo Loading's "Generate route first") opens on that
+  // order with its panel showing.
+  const [searchParams] = useSearchParams();
+  const requestedOrderId = searchParams.get("order") || "";
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [chosenId, setSelectedId] = useState("");
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [chosenId, setSelectedId] = useState(requestedOrderId);
+  const [drawerOpen, setDrawerOpen] = useState(Boolean(requestedOrderId));
   const drawerRef = useRef(null);
   const drawerCloseRef = useRef(null);
   const drawerTriggerRef = useRef(null);
@@ -743,6 +748,18 @@ function DispatcherGeofence() {
                   </div>
             <TripProgress progress={progress} riderName={selected?.assignedRiderName} selectedId={selectedId} />
 
+            {/* No location from the rider yet: the route can't be planned,
+                so say why and what to do instead of hiding the panel. */}
+            {selected && !getLatLng(selected.lastLocation) && (
+              <div className="geo3-card geo3-live-map-card">
+                <h3>Route &amp; ETA</h3>
+                <p className="geo3-no-location" role="status">
+                  No location from {selected.assignedRiderName || "the rider"} yet. Ask them to open the VaxTrack Rider app
+                  with location turned on. Once their location appears here, you can generate the route and ETA.
+                </p>
+              </div>
+            )}
+
             {selected && getLatLng(selected.lastLocation) && (() => {
               const riderLL = getLatLng(selected.lastLocation);
               // The order's own arrival pin + radius — what the server checks.
@@ -879,6 +896,9 @@ function DispatcherGeofence() {
                                 ? "Refresh route"
                                 : "Generate route & ETA"}
                             </button>
+                            <p className="geo3-live-route-sub">
+                              Plans from the rider&apos;s current location. Make sure their app is open with location on.
+                            </p>
                             {!clinicLL ? (
                               <p className="geo3-live-route-sub">
                                 Add clinic coordinates (Admin → Clinics) to

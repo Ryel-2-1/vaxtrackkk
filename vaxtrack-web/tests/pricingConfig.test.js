@@ -142,8 +142,12 @@ test("price wording says VAT-inclusive for VATable products, never that every va
     assert.doesNotMatch(text, /all (vaccines|products) are VATable/i, f);
     assert.doesNotMatch(text, /all (vaccines|products) are VATable/i, f);
   }
-  assert.match(read("src/pages/admin/AddStock.jsx"), /priceBasis/);
-  assert.match(read("src/pages/admin/Inventory.jsx"), /priceBasis/);
+  // Every batch price is entered with VAT included (2026-11-11): no basis choice.
+  for (const page of ["src/pages/admin/AddStock.jsx", "src/pages/admin/Inventory.jsx"]) {
+    const text = read(page);
+    assert.doesNotMatch(text, /priceBasis|Entered price basis|Before VAT —/, page);
+    assert.match(text, /priceIsVatInclusive: true,/, page);
+  }
   assert.match(read("src/pages/salesRep/SalesRepPlaceOrder.jsx"), /Zero-rating is approved: VAT is removed from the VATable items/);
   // A page showing an EXISTING record labels it by that record's own flag.
   for (const page of [

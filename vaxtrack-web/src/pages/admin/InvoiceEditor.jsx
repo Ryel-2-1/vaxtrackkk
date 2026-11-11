@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle2,
+  Download,
   Eye,
   Loader2,
   Plus,
-  Printer,
   RotateCcw,
   Save,
   Trash2,
@@ -45,6 +45,7 @@ import {
   serializeInvoiceDoc,
   vatClassificationLabel,
 } from "../../services/invoiceModel";
+import { downloadInvoiceWorkbook } from "../../services/invoiceExport";
 import { priceConventionNote } from "../../services/pricingConfig";
 import {
   issueInvoiceForPricedOrder,
@@ -66,7 +67,7 @@ function formatCurrency(value) {
 // Totals from the live form, under the invoice's OWN recorded convention
 // (invoicePriceConvention): VAT extracted for VAT-inclusive prices, added on
 // top for a legacy VAT-exclusive record (single source of truth in the service
-// so the editor and CSV export agree). Display only for a priced order: the
+// so the editor and Excel export agree). Display only for a priced order: the
 // server computes and stores the authoritative figures.
 function computeTotals(form, priceIsVatInclusive, lineLevel = false) {
   return computeInvoiceTotals({
@@ -84,7 +85,6 @@ function computeTotals(form, priceIsVatInclusive, lineLevel = false) {
 function InvoiceEditor() {
   const { orderId } = useParams();
   const navigate = useNavigate();
-  const location = useLocation();
 
   const [order, setOrder] = useState(null);
   const [invoice, setInvoice] = useState(null);
@@ -95,6 +95,7 @@ function InvoiceEditor() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [issuing, setIssuing] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [preview, setPreview] = useState(false);
   const [confirmIssue, setConfirmIssue] = useState(false);
   // "Leave without saving?" — an application dialog, never window.confirm.
@@ -117,8 +118,6 @@ function InvoiceEditor() {
     dirtyRef.current = true;
     setDirty(true);
   };
-
-  const autoPrintRef = useRef(location.state?.autoPrint === true);
 
   const issued = invoice?.invoiceStatus === "issued";
   const readOnly = issued;
@@ -454,7 +453,20 @@ function InvoiceEditor() {
     }
   };
 
-  const handlePrint = () => window.print();
+  const handleExport = async () => {
+    if (exporting || saving || issuing || !totals) return;
+    setExporting(true);
+    setMessage(null);
+    try {
+      const fileName = await downloadInvoiceWorkbook({ form, totals, invoiceNumber: invoice?.invoiceNumber, issued });
+      setMessage({ type: "success", text: `Downloaded ${fileName}.` });
+    } catch (err) {
+      logSafeError("Invoice export", err);
+      setMessage({ type: "error", text: "The invoice could not be exported. Please try again." });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const handleBack = () => {
     if (dirty) {
@@ -463,17 +475,6 @@ function InvoiceEditor() {
     }
     navigate("/admin/invoices");
   };
-
-
-  // Auto-open the print dialog when navigated here via the queue "Print" action
-  // (only for already-issued invoices).
-  useEffect(() => {
-    if (!loading && issued && autoPrintRef.current) {
-      autoPrintRef.current = false;
-      const timer = window.setTimeout(() => window.print(), 200);
-      return () => window.clearTimeout(timer);
-    }
-  }, [loading, issued]);
 
   if (loading) {
     return (
@@ -551,8 +552,9 @@ function InvoiceEditor() {
               <Eye size={14} /> {preview ? "Edit" : "Preview"}
             </button>
 
-            <button type="button" className="inv-btn inv-btn-outline" onClick={handlePrint}>
-              <Printer size={14} /> Print
+            <button type="button" className="inv-btn inv-btn-outline" onClick={handleExport} disabled={exporting || saving || issuing}>
+              {exporting ? <Loader2 size={14} className="inv-spin" /> : <Download size={14} />}{" "}
+              {exporting ? "Exporting…" : "Export to Excel"}
             </button>
 
             {!readOnly && (

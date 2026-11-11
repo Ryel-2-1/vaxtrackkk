@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildVaccineAvailabilitySummary } from "../src/services/inventoryOverview.js";
+import { buildVaccineAvailabilitySummary, needsExpiryWatch } from "../src/services/inventoryOverview.js";
+
+test("expiry watch drops handled batches and retains stock still affected by the expiry date", () => {
+  const batch = { onHandValue: 12, quarantinedValue: 0, availableValue: 12 };
+  assert.equal(needsExpiryWatch(batch), true);
+  assert.equal(needsExpiryWatch({ ...batch, voided: true }), false);
+  assert.equal(needsExpiryWatch({ ...batch, onHandValue: 0, availableValue: 0 }), false);
+  assert.equal(needsExpiryWatch({ ...batch, quarantinedValue: 12, availableValue: 0 }), false);
+  assert.equal(needsExpiryWatch({ ...batch, quarantinedValue: 11, availableValue: 1 }), true);
+  assert.equal(needsExpiryWatch({ ...batch, availableValue: 0 }), true, "held stock still needs review");
+  assert.equal(needsExpiryWatch({ ...batch, onHandValue: null, availableValue: null }), true);
+  assert.equal(needsExpiryWatch({ ...batch, quarantinedValue: 12, availableValue: -1 }), true);
+});
 
 test("stock chart sends products with flagged batches to review and keeps each category drilldown accurate", () => {
   const summary = buildVaccineAvailabilitySummary([

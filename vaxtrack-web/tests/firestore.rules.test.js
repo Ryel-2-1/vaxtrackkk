@@ -4098,9 +4098,10 @@ async function main() {
       })
     );
     const audit = { priceSetAt: serverTimestamp(), priceSetByUid: adminUid };
-    // The existing Before VAT basis can be retained by an audited re-price.
-    await assertSucceeds(updateDoc(doc(admin, "inventory", "invConvLegacy"), { sellingPriceCentavos: 110000, ...audit }));
-    await assertSucceeds(updateDoc(doc(admin, "inventory", "invConvLegacy"), { sellingPriceCentavos: 110000, priceIsVatInclusive: false, ...audit }));
+    // Every price is entered with VAT included (2026-11-11): a re-price can no
+    // longer keep, or set, the old Before VAT basis.
+    await assertFails(updateDoc(doc(admin, "inventory", "invConvLegacy"), { sellingPriceCentavos: 110000, ...audit }));
+    await assertFails(updateDoc(doc(admin, "inventory", "invConvLegacy"), { sellingPriceCentavos: 110000, priceIsVatInclusive: false, ...audit }));
     // Flipping the flag alone is a re-confirmation — it needs the audit.
     await assertFails(updateDoc(doc(admin, "inventory", "invConvLegacy"), { priceIsVatInclusive: true }));
     // ...and nobody but an Admin may do it.
@@ -4109,12 +4110,12 @@ async function main() {
     }
   });
 
-  await check("Pprice-conv an Admin can choose either basis with an audit", async () => {
+  await check("Pprice-conv an Admin re-prices a Before VAT batch as VAT included, and never back", async () => {
     await assertSucceeds(updateDoc(doc(admin, "inventory", "invConvLegacy"), {
-      sellingPriceCentavos: 100000, priceIsVatInclusive: true,
+      sellingPriceCentavos: 112000, priceIsVatInclusive: true,
       priceSetAt: serverTimestamp(), priceSetByUid: adminUid,
     }));
-    await assertSucceeds(updateDoc(doc(admin, "inventory", "invConvLegacy"), {
+    await assertFails(updateDoc(doc(admin, "inventory", "invConvLegacy"), {
       priceIsVatInclusive: false, priceSetAt: serverTimestamp(), priceSetByUid: adminUid,
     }));
   });

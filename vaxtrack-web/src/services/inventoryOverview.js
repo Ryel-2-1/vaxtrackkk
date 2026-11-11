@@ -6,6 +6,17 @@ function validCounter(value) {
   return Number.isSafeInteger(value) && value >= 0;
 }
 
+/** Check whether a batch still has stock that needs expiry monitoring. */
+export function needsExpiryWatch(batch) {
+  if (batch.voided) return false;
+
+  const { onHandValue, quarantinedValue, availableValue } = batch;
+  // Keep questionable counts visible. Only confirmed empty or fully
+  // quarantined batches can leave expiry watch.
+  if (![onHandValue, quarantinedValue, availableValue].every(validCounter)) return true;
+  return onHandValue > quarantinedValue;
+}
+
 /** Count vaccine products by recorded stock state, without summing vials. */
 export function buildVaccineAvailabilitySummary(batches) {
   const products = new Map();

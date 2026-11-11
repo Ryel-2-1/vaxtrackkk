@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ClipboardList, Truck } from "lucide-react";
 import {
@@ -7,6 +7,9 @@ import {
 } from "../../services/vaccineService";
 import { addStockBatchWithAllocation } from "../../services/inventoryCallables";
 import { subscribeVaccines } from "../../services/vaccineCatalogService";
+import { subscribeInventory } from "../../services/inventoryService";
+import { manilaToday } from "../../services/requestedDate";
+import { addShelfLife, shelfLifeLabel, stockSuggestions } from "../../services/stockSuggestions";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { parsePesosToCentavos } from "../../services/money";
 import { validateStockBatchDates } from "../../services/stockBatchDates";
@@ -26,7 +29,6 @@ const STOCK_FIELD_IDS = {
   expiryDate: "stock-expiry-date",
   quantity: "stock-quantity",
   unitPrice: "stock-unit-price",
-  priceBasis: "stock-price-basis",
 };
 const STOCK_FIELD_ERROR_ID = "stock-field-error";
 
@@ -47,9 +49,12 @@ function AddStock() {
   // Also starts empty. A default price would be worse than a default quantity:
   // a plausible-looking figure nobody chose is exactly what gets invoiced.
   const [unitPrice, setUnitPrice] = useState("");
-  const [priceBasis, setPriceBasis] = useState("");
 
   const [loadingVaccines, setLoadingVaccines] = useState(true);
+  /** Earlier batches, only to suggest values (stockSuggestions.js). */
+  const [pastBatches, setPastBatches] = useState([]);
+  /** The batch whose price was filled in, while that price is kept. */
+  const [prefilledFrom, setPrefilledFrom] = useState(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("error");
@@ -128,9 +133,20 @@ function AddStock() {
     []
   );
 
+  // Earlier batches for suggestions. A failure only means no suggestions;
+  // the form works the same without them.
+  useEffect(() => subscribeInventory(setPastBatches, () => setPastBatches([])), []);
+
   const selectedVaccine = vaccines.find(
     (item) => item.id === selectedVaccineId
   );
+  const suggestion = useMemo(
+    () => stockSuggestions({ batches: pastBatches, vaccine: selectedVaccine, manufacturer }),
+    [pastBatches, selectedVaccine, manufacturer]
+  );
+  const today = manilaToday();
+  const suggestedExpiry = suggestion?.shelfLife && manufacturingDate ? addShelfLife(manufacturingDate, suggestion.shelfLife) : null;
+  const shortDate = (iso) => new Date(`${iso}T12:00:00+08:00`).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila" });
 
   const handleVaccineChange = (value) => {
     setSelectedVaccineId(value);
@@ -143,7 +159,22 @@ function AddStock() {
     } else {
       setManufacturer("");
     }
+
+    // Fill the price (VAT included) from the matching earlier batch, but only
+    // into an empty field: anything already typed is left alone.
+    const offer = vaccine ? stockSuggestions({ batches: pastBatches, vaccine, manufacturer: vaccine.manufacturer || "" }) : null;
+    const pricePristine = unitPrice.trim() === "" || prefilledFrom !== null;
+    if (offer?.price && pricePristine) {
+      setUnitPrice(offer.price);
+      setPrefilledFrom({ batchId: offer.sourceBatchId, price: offer.price, converted: offer.priceConverted });
+    } else if (prefilledFrom !== null) {
+      // The vaccine changed and nothing matches: don't leave another
+      // vaccine's price behind as if it were this one's.
+      setUnitPrice("");
+      setPrefilledFrom(null);
+    }
   };
+  const priceStillPrefilled = prefilledFrom !== null && unitPrice === prefilledFrom.price;
 
   const validateForm = async () => {
     const cleanedBatchId = batchId.trim().toUpperCase();
@@ -212,7 +243,6 @@ function AddStock() {
           "Enter the selling price in pesos, e.g. 1250 or 1250.50."
       );
     }
-    if (!priceBasis) return failField("priceBasis", "Choose whether the entered price includes VAT.");
 
     if (await batchIdExists(cleanedBatchId)) {
       return failField("batchId", "This Batch ID already exists in inventory.");
@@ -268,7 +298,8 @@ function AddStock() {
         // text in one place means the value written is the value validated,
         // even if the two ever drift apart.
         sellingPriceCentavos: parsePesosToCentavos(unitPrice).value,
-        priceIsVatInclusive: priceBasis === "included",
+        // Every batch price is entered with VAT included (2026-11-11).
+        priceIsVatInclusive: true,
         largeQuantityConfirmed,
       }, { submit: addStockBatchWithAllocation });
 
@@ -388,6 +419,13 @@ function AddStock() {
                 {selectedVaccine.internalSku || "N/A"}
               </small>
             )}
+            {selectedVaccine && suggestion && (
+              <p className="stock-suggest-source" role="status">
+                Suggestions below are from batch <strong>{suggestion.sourceBatchId || "—"}</strong>
+                {suggestion.sourceAddedMs ? `, added ${new Date(suggestion.sourceAddedMs).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila" })}` : ""}
+                {suggestion.match === "same_vaccine" ? " (this vaccine)." : " (same vaccine type and manufacturer)."}
+              </p>
+            )}
           </section>
 
           <section className="form-section-card">
@@ -408,6 +446,11 @@ function AddStock() {
                   {...a11y("batchId")}
                 />
                 {fieldMessage("batchId")}
+                {!batchId && suggestion?.nextBatchId && (
+                  <button type="button" className="stock-suggest-chip" onClick={() => setBatchId(suggestion.nextBatchId)}>
+                    Use {suggestion.nextBatchId} <span>next after {suggestion.sourceBatchId}</span>
+                  </button>
+                )}
               </div>
 
               <div>
@@ -433,6 +476,11 @@ function AddStock() {
                   {...a11y("arrivalDate")}
                 />
                 {fieldMessage("arrivalDate")}
+                {!arrivalDate && selectedVaccine && (
+                  <button type="button" className="stock-suggest-chip" onClick={() => setArrivalDate(today)}>
+                    Use today <span>{shortDate(today)}</span>
+                  </button>
+                )}
               </div>
 
               <div>
@@ -445,6 +493,16 @@ function AddStock() {
                   {...a11y("expiryDate")}
                 />
                 {fieldMessage("expiryDate")}
+                {!expiryDate && suggestedExpiry && (
+                  <button type="button" className="stock-suggest-chip" onClick={() => setExpiryDate(suggestedExpiry)}>
+                    Use {shortDate(suggestedExpiry)} <span>{shelfLifeLabel(suggestion.shelfLife)} shelf life, like {suggestion.sourceBatchId}</span>
+                  </button>
+                )}
+                {!expiryDate && !manufacturingDate && suggestion?.shelfLife && (
+                  <small className="input-helper">
+                    Enter the manufacturing date to get an expiry suggestion ({shelfLifeLabel(suggestion.shelfLife)} shelf life, like {suggestion.sourceBatchId}). Always check it against the label.
+                  </small>
+                )}
 
                 {arrivalDate &&
                   expiryDate &&
@@ -506,19 +564,15 @@ function AddStock() {
                 />
                 {fieldMessage("unitPrice")}
                 <small id="stock-unit-price-help">
-                  Enter the amount per vial; choose its VAT basis below. This applies to this batch only.
+                  The amount per vial, with VAT included. This applies to this batch only.
                 </small>
+                {priceStillPrefilled && (
+                  <small className="stock-suggest-filled" role="status">
+                    Filled in from batch {prefilledFrom.batchId || "—"}{prefilledFrom.converted ? ", with 12% VAT added (it was entered before VAT)" : ""}. Change it if this delivery&apos;s price differs.
+                  </small>
+                )}
               </div>
 
-              <div>
-                <label htmlFor="stock-price-basis">Entered price basis</label>
-                <select id="stock-price-basis" value={priceBasis} onChange={(e) => setPriceBasis(e.target.value)} {...a11y("priceBasis")}>
-                  <option value="">Choose price basis</option>
-                  <option value="before">Before VAT — 12% is added for a standard VATable sale</option>
-                  <option value="included">VAT included — 12% is already in the entered amount</option>
-                </select>
-                {fieldMessage("priceBasis")}
-              </div>
 
             </div>
           </section>

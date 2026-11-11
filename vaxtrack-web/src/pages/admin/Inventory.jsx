@@ -55,13 +55,32 @@ import {
 import { OUT_OF_STOCK_LABEL, removalSource } from "../../services/inventoryRemovalModel";
 import { MAX_STOCK_QUANTITY } from "../../services/orderEligibility";
 import { isLargeStockQuantity, largeQuantityMessage } from "../../services/stockQuantityLimit";
-import { buildVaccineAvailabilitySummary } from "../../services/inventoryOverview";
+import { buildVaccineAvailabilitySummary, needsExpiryWatch } from "../../services/inventoryOverview";
 import {
   describePriceReconfirmation,
   priceNeedsReconfirmation,
   priceReconfirmationFlag,
 } from "../../services/priceReconfirmation";
+import { vatInclusivePriceCentavos } from "../../services/stockSuggestions";
 import "./Inventory.css";
+
+/**
+ * The re-price field's starting value, VAT included (every price is entered
+ * that way since 2026-11-11). An older batch saved before VAT starts at the
+ * amount it was actually sold for, so saving it unchanged keeps its price;
+ * a batch with no recorded basis starts empty and must be entered.
+ */
+function priceInputFor(item) {
+  if (item.priceNeedsReconfirm) return "";
+  // Before VAT but the product's VAT class is unknown here: whether 12% was
+  // being added can't be told, so the Admin enters the amount.
+  if (item.priceIsVatInclusive === false && !item.vatClassification) return "";
+  const inclusive = vatInclusivePriceCentavos(
+    { sellingPriceCentavos: item.priceCentavos, priceIsVatInclusive: item.priceIsVatInclusive },
+    item.vatClassification
+  );
+  return inclusive == null ? "" : centavosToInputValue(inclusive);
+}
 
 // What each dialog depends on, compared between the batch as opened and live.
 const PRICE_KEYS = ["priceCentavos", "priceIsVatInclusive"];
@@ -290,7 +309,6 @@ function Inventory() {
    */
   const [pricing, setPricing] = useState(null);
   const [priceInput, setPriceInput] = useState("");
-  const [priceBasis, setPriceBasis] = useState("");
   const [priceError, setPriceError] = useState("");
   const [savingPrice, setSavingPrice] = useState(false);
 
@@ -380,18 +398,13 @@ function Inventory() {
 
   const openPriceDialog = (item) => {
     setPricing(item);
-    // A legacy (VAT-exclusive) price is NOT pre-filled: saving it unchanged
-    // would silently re-read it as VAT-inclusive. The Admin enters or picks
-    // the figure deliberately.
-    setPriceInput(item.priceNeedsReconfirm ? "" : centavosToInputValue(item.priceCentavos));
-    setPriceBasis(item.priceIsVatInclusive === true ? "included" : item.priceIsVatInclusive === false ? "before" : "");
+    setPriceInput(priceInputFor(item));
     setPriceError("");
   };
 
   const closePriceDialog = () => {
     setPricing(null);
     setPriceInput("");
-    setPriceBasis("");
     setPriceError("");
   };
 
@@ -418,11 +431,6 @@ function Inventory() {
       document.getElementById("inv-price-input")?.focus();
       return;
     }
-    if (!priceBasis) {
-      setPriceError("Choose whether the entered price includes VAT.");
-      document.getElementById("inv-price-basis")?.focus();
-      return;
-    }
 
     setSavingPrice(true);
     setPriceError("");
@@ -432,14 +440,15 @@ function Inventory() {
       await updateStockPrice({
         inventoryId: pricing.id,
         sellingPriceCentavos: parsed.value,
-        priceIsVatInclusive: priceBasis === "included",
+        // Every batch price is entered with VAT included (2026-11-11).
+        priceIsVatInclusive: true,
       });
       // The live subscription re-renders the row; nothing is patched locally,
       // so what is on screen is what Firestore actually holds.
       closePriceDialog();
       showToast(
         pricing.priceNeedsReconfirm
-          ? `Price basis confirmed for batch ${pricing.batch}. It can be ordered again.`
+          ? `Price confirmed for batch ${pricing.batch}. It can be ordered again.`
           : `Price updated for batch ${pricing.batch}.`,
         "success"
       );
@@ -662,8 +671,10 @@ function Inventory() {
   };
 
   const filteredVaccines = useMemo(() => {
+    const isExpiryWatchFilter = statusFilter === "watch" || WATCH_LEVELS.has(statusFilter);
     return inventoryWithVat.filter((item) => {
       if (!showInactive && inactiveIds.has(item.vaccineId)) return false;
+      if (isExpiryWatchFilter && !needsExpiryWatch(item)) return false;
       const searchValue =
         `${item.name} ${item.type} ${item.batch} ${item.status}`.toLowerCase();
 
@@ -731,26 +742,27 @@ function Inventory() {
   }, [inventory]);
 
   const availabilitySummary = useMemo(() => buildVaccineAvailabilitySummary(stockBatches), [stockBatches]);
+  const watchedBatches = useMemo(() => stockBatches.filter(needsExpiryWatch), [stockBatches]);
 
   const criticalAndExpiring = useMemo(() => {
     const days = (i) => i.daysRemaining ?? Infinity;
-    return stockBatches
+    return watchedBatches
       .filter((i) => i.level === "expired" || i.level === "critical")
       .sort((a, b) => days(a) - days(b))
       .slice(0, 3);
-  }, [stockBatches]);
+  }, [watchedBatches]);
 
   const expiredCount = useMemo(
-    () => stockBatches.filter((i) => i.level === "expired").length,
-    [stockBatches]
+    () => watchedBatches.filter((i) => i.level === "expired").length,
+    [watchedBatches]
   );
   const criticalCount = useMemo(
-    () => stockBatches.filter((i) => i.level === "critical").length,
-    [stockBatches]
+    () => watchedBatches.filter((i) => i.level === "critical").length,
+    [watchedBatches]
   );
   const warningCount = useMemo(
-    () => stockBatches.filter((i) => i.level === "warning").length,
-    [stockBatches]
+    () => watchedBatches.filter((i) => i.level === "warning").length,
+    [watchedBatches]
   );
 
   const totalPages = Math.max(1, Math.ceil(filteredVaccines.length / pageSize));
@@ -1306,7 +1318,10 @@ function Inventory() {
                 <p className="inv-price-legacy-note">{reconfirm.recordedNote}</p>
                 <p>{reconfirm.recordedLine}</p>
                 <p>{reconfirm.explanation}</p>
-                <p>Enter the price and choose its VAT basis below, or use one of these amounts:</p>
+                <p>
+                  Enter the price per vial with VAT included
+                  {reconfirm.options.length > 0 ? ", or use one of these amounts:" : "."}
+                </p>
                 <div className="inv-price-legacy-options">
                   {reconfirm.options.map((option) => (
                     <button
@@ -1339,16 +1354,18 @@ function Inventory() {
               aria-describedby={priceError ? "inv-price-error inv-price-help" : "inv-price-help"}
             />
             <small id="inv-price-help">
-              Entered amount per vial. Its VAT basis is chosen below. Applies
-              to this batch only, and only to orders placed from now on — orders
-              already placed keep the price they were quoted.
+              The amount per vial, with VAT included. Applies to this batch
+              only, and only to orders placed from now on — orders already
+              placed keep the price they were quoted.
             </small>
-            <label htmlFor="inv-price-basis">Entered price basis</label>
-            <select id="inv-price-basis" value={priceBasis} onChange={(e) => setPriceBasis(e.target.value)} disabled={savingPrice}>
-              <option value="">Choose price basis</option>
-              <option value="before">Before VAT — add 12% on a standard VATable sale</option>
-              <option value="included">VAT included — the entered amount already contains VAT</option>
-            </select>
+            {pricing.priceIsVatInclusive === false && Number.isSafeInteger(pricing.priceCentavos) && (
+              <p className="inv-price-converted" role="status">
+                This batch was entered before VAT ({formatCentavos(pricing.priceCentavos)}).
+                {pricing.vatClassification === "vatable"
+                  ? " The amount above adds the 12% VAT it was being sold with, so saving it keeps the same price."
+                  : " Its product has no VAT, so the amount is the same."}
+              </p>
+            )}
 
             <StaleEditNotice
               labels={priceStale.length > 0 ? ["The selling price"] : []}
@@ -1357,8 +1374,7 @@ function Inventory() {
               disabled={savingPrice}
               onLoadLatest={() => {
                 setPricing(pricingLive);
-                setPriceInput(pricingLive.priceNeedsReconfirm ? "" : centavosToInputValue(pricingLive.priceCentavos));
-                setPriceBasis(pricingLive.priceIsVatInclusive === true ? "included" : pricingLive.priceIsVatInclusive === false ? "before" : "");
+                setPriceInput(priceInputFor(pricingLive));
                 setPriceError("");
               }}
               onKeepMine={() => setPricing(pricingLive)}
@@ -1388,7 +1404,7 @@ function Inventory() {
                 onClick={handleSavePrice}
                 disabled={savingPrice || priceBlocked}
               >
-                {savingPrice ? "Saving…" : reconfirm ? "Confirm price basis" : "Save price"}
+                {savingPrice ? "Saving…" : reconfirm ? "Confirm price" : "Save price"}
               </button>
             </div>
         </InventoryDialog>
@@ -1639,7 +1655,7 @@ function ExpiryWatchCard({ batches, expired, critical, warning, loading, unavail
     <div className="v2-hub-card inventory-watch-card">
       <div className="v2-card-head">
         <h2>Expiry watch</h2>
-        <p>Batch dates and the next records to review</p>
+        <p>Batches with stock that still needs an expiry review</p>
       </div>
       <div className="inventory-watch-body">
         <div className="inventory-watch-summary" aria-label="Expiry status filters">
@@ -1655,7 +1671,7 @@ function ExpiryWatchCard({ batches, expired, critical, warning, loading, unavail
           <strong className="inventory-watch-list-title">Priority batches</strong>
           <div className="inventory-watch-records">
             {loading ? <p>Loading…</p> : unavailable ? <p>Inventory could not be loaded.</p> : batches.length === 0 ? (
-              <p>No expired or near-expiry batches.</p>
+              <p>No batches need priority expiry review.</p>
             ) : batches.map((item) => (
               <button key={item.id} type="button" className={`inventory-watch-row is-${item.level}`} onClick={() => onOpenBatch(item)}>
                 <span><b>{item.name}</b><small>Batch {item.batch} · {item.level === "expired" ? "Expired" : `${item.daysRemaining} days left`}</small></span>

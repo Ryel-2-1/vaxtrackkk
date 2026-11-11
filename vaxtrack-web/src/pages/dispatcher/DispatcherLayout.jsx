@@ -373,21 +373,21 @@ function DispatcherLayout() {
           </NavLink>
 
           <NavLink
-            to="/dispatcher/cargo-loading"
-            className={active === "cargo-loading" ? "active" : ""}
-            onClick={selectDestination}
-          >
-            <ClipboardCheck size={16} />
-            <span>Cargo Loading</span>
-          </NavLink>
-
-          <NavLink
             to="/dispatcher/geofence"
             className={active === "geofence" ? "active" : ""}
             onClick={selectDestination}
           >
             <MapPinned size={16} />
             <span>Delivery Monitoring</span>
+          </NavLink>
+
+          <NavLink
+            to="/dispatcher/cargo-loading"
+            className={active === "cargo-loading" ? "active" : ""}
+            onClick={selectDestination}
+          >
+            <ClipboardCheck size={16} />
+            <span>Cargo Loading</span>
           </NavLink>
 
           <NavLink

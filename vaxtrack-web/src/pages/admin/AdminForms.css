@@ -787,3 +787,49 @@
     min-width: 0;
   }
 }
+
+/* Add Stock suggestions from an earlier batch (2026-11-11). A suggestion is a
+   one-click chip under its field; a filled-in price says where it came from. */
+.inventory-main .stock-suggest-source {
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-control);
+  background: var(--green-50);
+  color: var(--gray-700);
+  font-size: 13px;
+}
+.inventory-main .stock-suggest-chip {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 1px dashed var(--green-700);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--green-700);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.inventory-main .stock-suggest-chip:hover {
+  background: var(--green-50);
+}
+.inventory-main .stock-suggest-chip:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+}
+.inventory-main .stock-suggest-chip span {
+  color: var(--gray-600);
+  font-weight: 400;
+}
+.inventory-main .stock-suggest-filled {
+  display: block;
+  margin-top: 6px;
+  color: var(--green-700);
+  font-size: 12.5px;
+}

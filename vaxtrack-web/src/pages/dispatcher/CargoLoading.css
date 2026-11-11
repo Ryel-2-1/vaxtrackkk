@@ -550,3 +550,34 @@
     justify-content: center;
   }
 }
+
+/* Finalize dispatch: an order without a route ETA can be routed first, in
+   Delivery Monitoring, from the rider's live location (2026-11-11). */
+.cl-route-first p {
+  margin: 0;
+}
+.cl-route-first .cl-route-first-tip {
+  margin-top: 6px;
+  font-weight: 400;
+}
+.cl-route-first .cl-route-first-btn {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 10px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--green-700);
+  border-radius: var(--radius-control);
+  background: #ffffff;
+  color: var(--green-700);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cl-route-first .cl-route-first-btn:hover {
+  background: var(--green-50);
+}
+.cl-route-first .cl-route-first-btn:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+}
