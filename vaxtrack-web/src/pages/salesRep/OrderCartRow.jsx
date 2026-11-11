@@ -13,7 +13,7 @@ function stockText(item) {
   return `Available: ${vials(item.availableNow)}`;
 }
 
-export default function OrderCartRow({ item, price, review, onAccept, onDecrease, onIncrease, onRemove }) {
+export default function OrderCartRow({ item, price, vatRemoved = null, review, onAccept, onDecrease, onIncrease, onRemove }) {
   return (
     <tr className={review ? "place-v2-row-review" : undefined}>
       <td>
@@ -64,6 +64,7 @@ export default function OrderCartRow({ item, price, review, onAccept, onDecrease
           rather than a zero. */}
       <td className="tnum" data-label="Unit price">
         {price?.agreedUnitPriceCentavos != null ? formatCentavos(price.agreedUnitPriceCentavos) : "—"}
+        {vatRemoved && <small className="place-v2-vat-removed">VAT removed</small>}
         {price?.priceNegotiated && <small className="place-v2-negotiated-tag">{NEGOTIATED_PRICE_LABEL}</small>}
       </td>
 

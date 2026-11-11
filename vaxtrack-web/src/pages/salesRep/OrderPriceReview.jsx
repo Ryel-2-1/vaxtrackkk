@@ -24,22 +24,28 @@ function vatLabelFor(cls) {
 export function PriceReview({
   lines,
   disabled,
+  lockedReason = "",
+  clearedNote = "",
   onAgreedChange,
   onReasonChange,
   onReset,
 }) {
   if (lines.length === 0) return null;
+  // Locked until the zero-rating step settles the VAT basis (zeroRateStep.js).
+  const locked = Boolean(lockedReason);
   return (
-    <section className="place-v2-price-review" aria-labelledby="price-review-title">
+    <section className={`place-v2-price-review${locked ? " is-locked" : ""}`} aria-labelledby="price-review-title">
       <div className="place-v2-price-review-head">
         <h2 id="price-review-title">Final price review</h2>
         <p>
           Confirm each line&apos;s agreed unit price. Prices are VAT-inclusive for VATable products; change
           a price only when it has been agreed with the client, and give the reason.
         </p>
+        {locked && <p className="place-v2-price-locked" role="status">{lockedReason}</p>}
+        {clearedNote && <p className="place-v2-price-cleared" role="status">{clearedNote}</p>}
       </div>
       <ul className="place-v2-price-lines">
-        {lines.map(({ item, catalogSku, vatClassification, agreedText, reasonText, price }) => {
+        {lines.map(({ item, catalogSku, vatClassification, vatRemoved, agreedText, reasonText, price }) => {
           const inputId = `agreed-${item.inventoryId}`;
           const reasonId = `reason-${item.inventoryId}`;
           const errorId = `agreed-error-${item.inventoryId}`;
@@ -55,6 +61,11 @@ export function PriceReview({
                   {vatLabelFor(vatClassification)}
                   {vatClassification === "vatable" && " · VAT included"}
                 </span>
+                {vatRemoved && (
+                  <span className="place-v2-vat-removed">
+                    VAT removed: <s>{formatCentavos(vatRemoved.fromUnitCentavos)}</s> → {formatCentavos(vatRemoved.toUnitCentavos)} each
+                  </span>
+                )}
                 {price.priceNegotiated && <span className="place-v2-negotiated-tag">{NEGOTIATED_PRICE_LABEL}</span>}
               </div>
 
@@ -79,7 +90,7 @@ export function PriceReview({
 
               <div className="place-v2-price-edit">
                 <label htmlFor={inputId}>
-                  Agreed unit price (VAT-inclusive) for {item.name}
+                  Agreed unit price {vatClassification === "vatable" ? "(VAT-inclusive)" : "(no VAT)"} for {item.name}
                 </label>
                 <div className="place-v2-price-input">
                   <span aria-hidden="true">₱</span>
@@ -89,7 +100,7 @@ export function PriceReview({
                     inputMode="decimal"
                     autoComplete="off"
                     value={agreedText}
-                    disabled={disabled}
+                    disabled={disabled || locked}
                     aria-invalid={price.priceError ? "true" : "false"}
                     aria-describedby={price.priceError ? errorId : undefined}
                     onChange={(event) => onAgreedChange(item.inventoryId, event.target.value)}
@@ -99,7 +110,7 @@ export function PriceReview({
                   type="button"
                   className="place-v2-reset-btn"
                   onClick={() => onReset(item.inventoryId)}
-                  disabled={disabled || (!price.priceNegotiated && !price.priceError)}
+                  disabled={disabled || locked || (!price.priceNegotiated && !price.priceError)}
                   aria-label={`Reset ${item.name} to the standard price`}
                 >
                   Reset to standard price
@@ -119,7 +130,7 @@ export function PriceReview({
                     rows={2}
                     maxLength={500}
                     value={reasonText}
-                    disabled={disabled}
+                    disabled={disabled || locked}
                     aria-invalid={price.reasonError ? "true" : "false"}
                     onChange={(event) => onReasonChange(item.inventoryId, event.target.value)}
                     placeholder="e.g. Volume agreement with the clinic"
@@ -151,18 +162,45 @@ export function VatBreakdown({ summary }) {
       </p>
     );
   }
+  // The tally reads top to bottom: standard prices, what the negotiation
+  // changed, and the subtotal at the agreed prices (always standard + change,
+  // see negotiatedPricing.js). Only the final total is set large.
+  const adjustment = summary.negotiatedAdjustmentCentavos;
+  const vatRemoved = summary.vatRemovedCentavos ?? 0;
   return (
     <dl className="place-v2-vat-breakdown">
-      {summary.negotiatedAdjustmentCentavos !== 0 && (
-        <div>
-          <dt>Standard total</dt>
+      {vatRemoved > 0 && (
+        <>
+          <div className="place-v2-tally-muted">
+            <dt>Standard prices with VAT</dt>
+            <dd className="tnum">{formatAmount(summary.standardTotalCentavos + vatRemoved)}</dd>
+          </div>
+          <div className="place-v2-tally-vat-removed">
+            <dt>VAT removed (zero-rating approved)</dt>
+            <dd className="tnum">−{formatAmount(vatRemoved)}</dd>
+          </div>
+        </>
+      )}
+      {(adjustment !== 0 || vatRemoved > 0) && (
+        <div className={adjustment !== 0 ? "place-v2-tally-muted" : "place-v2-tally-subtotal"}>
+          <dt>Standard total{vatRemoved > 0 ? " (no VAT)" : ""}</dt>
           <dd className="tnum">{formatAmount(summary.standardTotalCentavos)}</dd>
         </div>
       )}
-      <div>
-        <dt>Negotiated subtotal</dt>
-        <dd className="tnum">{formatAmount(summary.negotiatedSubtotalCentavos)}</dd>
-      </div>
+      {adjustment !== 0 && (
+        <>
+          <div className="place-v2-tally-adjust">
+            <dt>Negotiated price changes</dt>
+            <dd className="tnum">{adjustment > 0 ? "+" : "−"}{formatAmount(Math.abs(adjustment))}</dd>
+          </div>
+        </>
+      )}
+      {(adjustment !== 0 || vatRemoved === 0) && (
+        <div className="place-v2-tally-subtotal">
+          <dt>Subtotal (agreed prices)</dt>
+          <dd className="tnum">{formatAmount(summary.negotiatedSubtotalCentavos)}</dd>
+        </div>
+      )}
       <div>
         <dt>VATable sales (net of VAT)</dt>
         <dd className="tnum">{formatAmount(summary.vatableSalesCentavos)}</dd>
@@ -219,13 +257,18 @@ export function ReconfirmDialog({ doctorName, destination, lines, summary, sched
           </p>
         )}
         <ul className="place-v2-confirm-lines">
-          {lines.map(({ item, vatClassification, price }) => (
+          {lines.map(({ item, vatClassification, vatRemoved, price }) => (
             <li key={item.inventoryId}>
               <div>
                 <strong>{item.name}</strong>
                 <span>
                   Qty {item.quantity.toLocaleString()} · {vatLabelFor(vatClassification)}
                 </span>
+                {vatRemoved && (
+                  <span className="place-v2-vat-removed">
+                    VAT removed (was {formatCentavos(vatRemoved.fromUnitCentavos)} each)
+                  </span>
+                )}
               </div>
               <div className="tnum">
                 {price.priceNegotiated ? (

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { INTERNAL_SKU_EXAMPLE, INTERNAL_SKU_FORMAT_MESSAGE, isValidInternalSku } from "../../services/internalSku";
 import {
   Building2,
   FlaskConical,
@@ -115,8 +116,6 @@ function AddVaccine() {
   );
 
   const validateForm = async () => {
-    const skuRegex = /^VXT-\d{3}-[A-Z0-9]{5}$/;
-
     if (!vaccineName.trim()) {
       return failField("vaccineName", "Vaccine name is required.");
     }
@@ -141,8 +140,9 @@ function AddVaccine() {
       return failField("internalSku", "Internal inventory SKU is required.");
     }
 
-    if (!skuRegex.test(internalSku.trim().toUpperCase())) {
-      return failField("internalSku", "SKU format must be like VXT-992-ABCDE.");
+    // 3MGS's own codes (RAB0000IP01, HEP0P00SA01…): services/internalSku.js.
+    if (!isValidInternalSku(internalSku)) {
+      return failField("internalSku", INTERNAL_SKU_FORMAT_MESSAGE);
     }
 
     if (!PRODUCT_VAT_CLASSIFICATIONS.includes(vatClassification)) {
@@ -402,7 +402,9 @@ function AddVaccine() {
             <Package size={16} />
             <input
               id="vaccine-sku"
-              placeholder="VXT-992-XXXXX"
+              placeholder={`e.g. ${INTERNAL_SKU_EXAMPLE}`}
+              autoCapitalize="characters"
+              spellCheck={false}
               value={internalSku}
               onChange={(e) => setInternalSku(e.target.value.toUpperCase())}
               {...a11y("internalSku", "vaccine-sku-help")}
@@ -410,9 +412,8 @@ function AddVaccine() {
           </div>
           {fieldMessage("internalSku")}
 
-          <small id="vaccine-sku-help" className="input-helper">
-            Format: VXT-123-ABCDE. This is used as the internal inventory
-            identifier.
+          <small id="vaccine-sku-help" className="input-helper vaccine-sku-help">
+            Your internal inventory code, e.g. {INTERNAL_SKU_EXAMPLE}: 4 to 20 capital letters and numbers.
           </small>
 
           <fieldset className="vat-choice" {...a11y("vatClassification")}>

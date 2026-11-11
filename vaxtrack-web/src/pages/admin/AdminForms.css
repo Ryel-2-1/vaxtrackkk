@@ -761,3 +761,10 @@
 .inventory-main .stock-allocation-report p {
   margin: 0 0 8px;
 }
+
+/* A field's error and its help text are separate lines: both are <small>
+   (inline), so "…ABCDE." ran straight into "Format: …" (2026-11-11). */
+.inventory-main .form-field-error,
+.inventory-main .input-helper {
+  display: block;
+}

@@ -76,3 +76,66 @@ test("only an exact approved request applies automatically, and a saved retry ke
   assert.equal(approvedZeroRateForOrder(requests, { ...order, recoveryAllowed: true,
     recoveryApprovalId: "", restored: { ...order } }), null);
 });
+
+// ---- 2026-11-11: zero-rating is asked first, and approval shows VAT removed ----
+import { ZERO_RATE_STEP as Z, answerChangeClearsPrices, pricingLockedReason, zeroRateStep, zeroRateStepBlock } from "../src/services/zeroRateStep.js";
+import { readFileSync } from "node:fs";
+const readSrc = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+
+test("a Med Rep answers the zero-rating question before pricing or finalizing", () => {
+  const base = { hasVatable: true, approved: false, pending: false, denied: false, answer: "" };
+  assert.equal(zeroRateStep(base), Z.UNANSWERED);
+  assert.equal(zeroRateStep({ ...base, answer: "no" }), Z.STANDARD);
+  assert.equal(zeroRateStep({ ...base, answer: "yes" }), Z.REQUESTING);
+  assert.equal(zeroRateStep({ ...base, answer: "yes", denied: true }), Z.DENIED);
+  assert.equal(zeroRateStep({ ...base, pending: true }), Z.PENDING, "a sent request holds whatever the answer");
+  assert.equal(zeroRateStep({ ...base, approved: true, answer: "no" }), Z.APPROVED, "an exact approval always applies");
+  assert.equal(zeroRateStep({ ...base, hasVatable: false }), Z.NOT_NEEDED, "nothing to zero-rate, nothing to ask");
+  assert.equal(zeroRateStep({ ...base, recovering: true }), Z.STANDARD, "a saved attempt resumes as sent");
+  // Finalize waits until the answer settles the VAT; pending is held by zeroRateCheckoutBlock.
+  for (const step of [Z.UNANSWERED, Z.REQUESTING, Z.DENIED]) assert.notEqual(zeroRateStepBlock(step), "", step);
+  for (const step of [Z.STANDARD, Z.APPROVED, Z.NOT_NEEDED, Z.PENDING]) assert.equal(zeroRateStepBlock(step), "", step);
+  // Prices wait too, including while Admin decides.
+  for (const step of [Z.UNANSWERED, Z.REQUESTING, Z.DENIED, Z.PENDING]) assert.notEqual(pricingLockedReason(step), "", step);
+  for (const step of [Z.STANDARD, Z.APPROVED, Z.NOT_NEEDED]) assert.equal(pricingLockedReason(step), "", step);
+});
+
+test("switching to or from Yes clears agreed prices typed on the other VAT basis", () => {
+  assert.equal(answerChangeClearsPrices("", "no"), false);
+  assert.equal(answerChangeClearsPrices("", "yes"), true);
+  assert.equal(answerChangeClearsPrices("no", "yes"), true);
+  assert.equal(answerChangeClearsPrices("yes", "no"), true);
+  assert.equal(answerChangeClearsPrices("no", "no"), false);
+});
+
+test("the checkout asks first, locks pricing and Finalize, and shows the VAT removed on approval", () => {
+  const page = readSrc("src/pages/salesRep/SalesRepPlaceOrder.jsx");
+  const review = readSrc("src/pages/salesRep/OrderPriceReview.jsx");
+  const hook = readSrc("src/pages/salesRep/useCheckoutPriceReview.js");
+  // The question sits before the price review, not in the sidebar as an option.
+  assert.ok(page.indexOf("Is this a zero-rated sale?") < page.indexOf("<PriceReview"), "asked before pricing");
+  assert.doesNotMatch(page, /<span>Optional<\/span>/);
+  assert.match(page, /lockedReason=\{pricingLockedReason\(zeroStep\)\}/);
+  assert.match(page, /saving \|\| Boolean\(zeroRateBlock\) \|\| Boolean\(zeroStepBlock\) \|\|/);
+  assert.match(page, /if \(reviewBlock \|\| zeroStepBlock\) \{/, "re-checked on Review and Confirm");
+  assert.match(page, /Zero-rating approved — VAT removed/);
+  // Each approved line keeps its with-VAT price for display; the tally says how much came off.
+  assert.match(hook, /vatRemoved: withVat !== null && withVat > quotedUnitPriceCentavos/);
+  assert.match(review, /VAT removed: <s>\{formatCentavos\(vatRemoved\.fromUnitCentavos\)\}<\/s> → \{formatCentavos\(vatRemoved\.toUnitCentavos\)\} each/);
+  assert.match(review, /<dt>VAT removed \(zero-rating approved\)<\/dt>/);
+  assert.match(review, /disabled=\{disabled \|\| locked\}/);
+});
+
+test("the with-VAT price shown on an approved line is exactly what the server would have charged", () => {
+  for (const enteredCentavos of [100000, 115000, 12345]) {
+    for (const priceIsVatInclusive of [true, false]) {
+      const withVat = displayQuote({ enteredCentavos, priceIsVatInclusive, productVatClassification: "vatable" });
+      const approved = displayQuote({ enteredCentavos, priceIsVatInclusive, productVatClassification: "vatable", approvedZeroRate: true });
+      assert.equal(approved.vatClassification, "zero_rated");
+      assert.ok(withVat.unitPriceCentavos > approved.unitPriceCentavos, "approval always lowers a VATable price");
+      assert.deepEqual(withVat, serverQuote({ enteredCentavos, priceIsVatInclusive, productVatClassification: "vatable" }));
+    }
+  }
+  // ₱1,000.00 VAT-inclusive → ₱892.86 with the VAT removed.
+  assert.equal(displayQuote({ enteredCentavos: 100000, priceIsVatInclusive: true, productVatClassification: "vatable", approvedZeroRate: true }).unitPriceCentavos, 89286);
+});

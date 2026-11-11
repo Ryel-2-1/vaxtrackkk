@@ -34,9 +34,19 @@ export default function useCheckoutPriceReview({ initialNegotiation, displayItem
         ? quoteUnitPrice({ enteredCentavos: item.expectedUnitPriceCentavos, priceIsVatInclusive: batch.priceIsVatInclusive, productVatClassification: vatClassification, approvedZeroRate })
         : null;
       const quotedUnitPriceCentavos = quoted?.unitPriceCentavos ?? item.expectedUnitPriceCentavos;
+      // Approved zero-rating took the VAT off a VATable line: keep the price it
+      // had with VAT, so the rep sees what changed ("₱1,000.00 → ₱892.86").
+      const withVat = approvedZeroRate && quoted && vatClassification === "vatable"
+        ? quoteUnitPrice({ enteredCentavos: item.expectedUnitPriceCentavos, priceIsVatInclusive: batch.priceIsVatInclusive, productVatClassification: vatClassification }).unitPriceCentavos
+        : null;
       const entry = negotiation[item.inventoryId] || {};
       return {
         item,
+        /** The product's own class, before any approved zero-rating. */
+        productVatClassification: vatClassification,
+        vatRemoved: withVat !== null && withVat > quotedUnitPriceCentavos
+          ? { fromUnitCentavos: withVat, toUnitCentavos: quotedUnitPriceCentavos, lineCentavos: (withVat - quotedUnitPriceCentavos) * Number(item.quantity) }
+          : null,
         catalogSku: typeof vaccine?.internalSku === "string" && vaccine.internalSku.trim() ? vaccine.internalSku.trim() : null,
         vatClassification: quoted?.vatClassification ?? vatClassification,
         agreedText: entry.agreedInput ?? agreedInputFor(quotedUnitPriceCentavos),
@@ -53,7 +63,11 @@ export default function useCheckoutPriceReview({ initialNegotiation, displayItem
       };
     });
   }, [displayItems, batches, vaccinesById, negotiation, approvedZeroRate]);
-  const priceSummary = summarizeReviewVat(reviewLines.map((l) => l.price));
+  const baseSummary = summarizeReviewVat(reviewLines.map((l) => l.price));
+  // How much VAT approved zero-rating took off the standard prices (shown as
+  // its own row in the tally; the totals above it already exclude it).
+  const vatRemovedCentavos = reviewLines.reduce((sum, l) => sum + (l.vatRemoved?.lineCentavos ?? 0), 0);
+  const priceSummary = baseSummary ? { ...baseSummary, vatRemovedCentavos } : baseSummary;
   const pricingCheck = reviewProblems(reviewLines.map((l) => l.price));
   const reviewByBatch = new Map(reviewLines.map((l) => [l.item.inventoryId, l]));
   const setAgreedInput = (inventoryId, agreedInput) =>

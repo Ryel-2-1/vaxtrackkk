@@ -3,7 +3,6 @@ import {
   Bell,
   CalendarDays,
   CheckCircle2,
-  ChevronDown,
   FileText,
   Loader2,
   MapPin,
@@ -62,6 +61,14 @@ import {
 import RequestedArrivalField from "../../components/schedule/RequestedArrivalField";
 import { requestZeroRateApproval, subscribeOwnZeroRateRequests } from "../../services/zeroRateRequests";
 import { approvedZeroRateForOrder, matchingZeroRateOrderRequests, zeroRateCheckoutBlock } from "../../services/zeroRateOrderMatch";
+import {
+  ZERO_RATE_STEP,
+  answerChangeClearsPrices,
+  pricingLockedReason,
+  zeroRateStep,
+  zeroRateStepBlock,
+} from "../../services/zeroRateStep";
+import { formatAmount } from "./priceReviewFormat";
 import DialogLayer from "../../components/ui/DialogLayer";
 import { PriceReview, ReconfirmDialog, VatBreakdown } from "./OrderPriceReview";
 import OrderCartRow from "./OrderCartRow";
@@ -145,7 +152,9 @@ function SalesRepPlaceOrder() {
   const [zeroRateReason, setZeroRateReason] = useState("");
   const [zeroRateBusy, setZeroRateBusy] = useState(false);
   const zeroRateSendingRef = useRef(false);
-  const [zeroRateExpanded, setZeroRateExpanded] = useState(false);
+  /** The rep's answer to "Is this a zero-rated sale?" ("" until answered). */
+  const [zeroRateAnswer, setZeroRateAnswer] = useState("");
+  const [pricesClearedNote, setPricesClearedNote] = useState("");
   const [zeroRateSentId, setZeroRateSentId] = useState("");
   const [submittedZeroRate, setSubmittedZeroRate] = useState(null);
   useEffect(() => {
@@ -394,6 +403,33 @@ function SalesRepPlaceOrder() {
     requests: matchingRequests, ready: zeroRateReady, loadError: zeroRateLoadError,
     sending: zeroRateBusy, recovering: Boolean(uid && loadPendingAttempt(localStorage, uid)),
   });
+  // Zero-rating is asked BEFORE pricing (zeroRateStep.js): the answer decides
+  // whether VAT applies, so the price review and Finalize wait for it.
+  const zeroStep = zeroRateStep({
+    hasVatable: reviewLines.some((line) => line.productVatClassification === "vatable"),
+    approved: Boolean(approvedRequest),
+    pending: matchingRequests.some((row) => row.status === "pending"),
+    denied: matchingRequests[0]?.status === "rejected",
+    answer: zeroRateAnswer,
+    recovering: Boolean(uid && loadPendingAttempt(localStorage, uid)),
+  });
+  const zeroStepBlock = zeroRateStepBlock(zeroStep);
+  const vatRemovedLines = reviewLines.filter((line) => line.vatRemoved);
+  const vatRemovedTotal = vatRemovedLines.reduce((sum, line) => sum + line.vatRemoved.lineCentavos, 0);
+  const chooseZeroRateAnswer = (next) => {
+    if (answerChangeClearsPrices(zeroRateAnswer, next)) {
+      // The VAT basis changes, so prices agreed on the old basis no longer
+      // mean the same amount.
+      const typed = reviewLines.filter((line) => line.productVatClassification === "vatable"
+        && negotiation[line.item.inventoryId]?.agreedInput !== undefined);
+      typed.forEach((line) => resetToStandard(line.item.inventoryId));
+      setPricesClearedNote(typed.length > 0
+        ? "Negotiated prices on VATable items were cleared because the VAT changed. Re-enter them if they still apply."
+        : "");
+    }
+    setZeroRateError("");
+    setZeroRateAnswer(next);
+  };
   const handleZeroRateRequest = async () => {
     if (zeroRateSendingRef.current || submittingRef.current || saving) return;
     if (!selectedDoctor || !selectedDestination || !requestedDate) {
@@ -414,7 +450,6 @@ function SalesRepPlaceOrder() {
         createdAt: { toMillis: () => Number.MAX_SAFE_INTEGER },
       });
       setZeroRateSentId(result.requestId);
-      setZeroRateExpanded(false);
       setZeroRateReason("");
     } catch (error) {
       setZeroRateError(error?.code === "functions/not-found"
@@ -561,10 +596,10 @@ function SalesRepPlaceOrder() {
       sending: zeroRateSendingRef.current,
       recovering: Boolean(uid && loadPendingAttempt(localStorage, uid)),
     });
-    if (reviewBlock) {
+    if (reviewBlock || zeroStepBlock) {
       submittingRef.current = false;
       setConfirmOpen(false);
-      setMessage(reviewBlock);
+      setMessage(reviewBlock || zeroStepBlock);
       return;
     }
 
@@ -915,6 +950,7 @@ function SalesRepPlaceOrder() {
                       key={item.inventoryId}
                       item={item}
                       price={reviewByBatch.get(item.inventoryId)?.price}
+                      vatRemoved={reviewByBatch.get(item.inventoryId)?.vatRemoved}
                       review={lineReview(item)}
                       onAccept={() => handleAcceptLine(item)}
                       onDecrease={() => handleQuantityChange(item.inventoryId, "decrease")}
@@ -942,8 +978,84 @@ function SalesRepPlaceOrder() {
             </div>
           </div>
 
+          {zeroStep !== ZERO_RATE_STEP.NOT_NEEDED && items.length > 0 && (
+            <section className="destination-card zero-rate-checkout-card zero-rate-step" aria-labelledby="zero-rate-step-title">
+              <div className="zero-rate-checkout-heading">
+                <h2 id="zero-rate-step-title">Is this a zero-rated sale?</h2>
+                <span>
+                  {zeroStep === ZERO_RATE_STEP.APPROVED ? "Approved" : zeroStep === ZERO_RATE_STEP.PENDING ? "Waiting for Admin" : "Required"}
+                </span>
+              </div>
+              {zeroStep === ZERO_RATE_STEP.PENDING ? (
+                <div className="zero-rate-checkout-status is-pending" role="status">
+                  <CheckCircle2 size={19} aria-hidden="true" />
+                  <div>
+                    <strong>{matchingRequests.some((row) => row.id === zeroRateSentId) ? "Request sent for Admin review" : "Waiting for Admin review"}</strong>
+                    <p>Prices and Finalize open when Admin decides. Approval removes the VAT from the VATable items; denial keeps standard VAT.</p>
+                  </div>
+                </div>
+              ) : zeroStep === ZERO_RATE_STEP.APPROVED ? (
+                <div className="zero-rate-checkout-status is-approved" role="status">
+                  <CheckCircle2 size={19} aria-hidden="true" />
+                  <div>
+                    <strong>Zero-rating approved — VAT removed</strong>
+                    <p>
+                      {vatRemovedLines.length > 0
+                        ? "VAT was taken off " + vatRemovedLines.length + (vatRemovedLines.length === 1 ? " item" : " items") + " (−" + formatAmount(vatRemovedTotal) + "). The prices below have no VAT."
+                        : "Admin approved zero-rating for this order. The prices below have no VAT."}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="zero-rate-checkout-intro">
+                    Answer before pricing. Choose Yes only when the customer&apos;s sale may qualify for zero-rating;
+                    Admin reviews it before the order can be placed.
+                  </p>
+                  <div className="zero-rate-answer" role="radiogroup" aria-labelledby="zero-rate-step-title">
+                    <label className={zeroStep === ZERO_RATE_STEP.STANDARD ? "is-on" : ""}>
+                      <input type="radio" name="zero-rate-answer" value="no" checked={zeroStep === ZERO_RATE_STEP.STANDARD}
+                        disabled={saving || zeroRateBusy} onChange={() => chooseZeroRateAnswer("no")} />
+                      <span><strong>No</strong> — standard VAT</span>
+                    </label>
+                    <label className={zeroRateAnswer === "yes" ? "is-on" : ""}>
+                      <input type="radio" name="zero-rate-answer" value="yes" checked={zeroRateAnswer === "yes"}
+                        disabled={saving || zeroRateBusy} onChange={() => chooseZeroRateAnswer("yes")} />
+                      <span><strong>Yes</strong> — request zero-rating</span>
+                    </label>
+                  </div>
+                  {zeroStep === ZERO_RATE_STEP.STANDARD && (
+                    <p className="zero-rate-standard-note">Standard VAT applies: VATable items include 12% VAT.</p>
+                  )}
+                  {zeroStep === ZERO_RATE_STEP.DENIED && (
+                    <p className="zero-rate-checkout-denied" role="status">
+                      Admin denied the last request for this order. Send a new reason, or choose No for standard VAT.
+                    </p>
+                  )}
+                  {(zeroStep === ZERO_RATE_STEP.REQUESTING || zeroStep === ZERO_RATE_STEP.DENIED) && (
+                    <div id="zero-rate-request-form" className="zero-rate-checkout-form">
+                      {(!selectedDoctor || !selectedDestination || !requestedDate) && (
+                        <p role="status">Choose the doctor, delivery address and requested date in Destination Details first.</p>
+                      )}
+                      <label htmlFor="zero-rate-reason">Reason for requesting zero-rating</label>
+                      <textarea id="zero-rate-reason" value={zeroRateReason} onChange={(event) => setZeroRateReason(event.target.value)} maxLength={500} placeholder="Explain why this customer’s order may qualify" />
+                      <button type="button" className="zero-rate-checkout-submit" onClick={handleZeroRateRequest}
+                        disabled={zeroRateBusy || saving || !selectedDoctor || !selectedDestination || !requestedDate || !zeroRateReason.trim()}>
+                        {zeroRateBusy ? "Sending request…" : "Send to Admin for review"}
+                      </button>
+                      {zeroRateError && <p role="alert" className="zero-rate-checkout-error">{zeroRateError}</p>}
+                    </div>
+                  )}
+                </>
+              )}
+              {zeroRateLoadError && <p role="alert" className="zero-rate-checkout-error">{liveErrorMessage(zeroRateLoadError, "zero-rating requests")} Approval status will appear when access is restored.</p>}
+            </section>
+          )}
+
           <PriceReview
             lines={reviewLines}
+            lockedReason={pricingLockedReason(zeroStep)}
+            clearedNote={pricesClearedNote}
             disabled={saving}
             onAgreedChange={setAgreedInput}
             onReasonChange={setNegotiationReason}
@@ -1087,45 +1199,6 @@ function SalesRepPlaceOrder() {
             </label>
           </div>
 
-          <div className="destination-card zero-rate-checkout-card">
-            <div className="zero-rate-checkout-heading">
-              <h2>Zero-rating request</h2>
-              <span>Optional</span>
-            </div>
-            {matchingRequests.some((row) => row.status === "pending") ? (
-              <div className="zero-rate-checkout-status is-pending" role="status">
-                <CheckCircle2 size={19} aria-hidden="true" />
-                <div><strong>{matchingRequests.some((row) => row.id === zeroRateSentId) ? "Request sent for Admin review" : "Waiting for Admin review"}</strong>
-                  <p>Admin must approve or deny this request before you can finalize this order. Approval applies zero-rating; denial keeps standard VAT.</p></div>
-              </div>
-            ) : approvedRequest ? (
-              <div className="zero-rate-checkout-status is-approved" role="status">
-                <CheckCircle2 size={19} aria-hidden="true" />
-                <div><strong>Approved for this order</strong><p>Zero-rating is applied automatically in the price review.</p></div>
-              </div>
-            ) : (
-              <>
-                <p className="zero-rate-checkout-intro">Use this only when the customer asks about a potentially eligible zero-rated sale. Orders can be placed with standard VAT without a request.</p>
-                {matchingRequests[0]?.status === "rejected" && <p className="zero-rate-checkout-denied" role="status">The previous request was denied. You may submit a new reason for review.</p>}
-                <button type="button" className="zero-rate-checkout-toggle" aria-expanded={zeroRateExpanded} aria-controls="zero-rate-request-form" onClick={() => setZeroRateExpanded((open) => !open)}>
-                  {zeroRateExpanded ? "Close request" : matchingRequests[0]?.status === "rejected" ? "Request another review" : "Request zero-rating"}
-                  <ChevronDown size={16} aria-hidden="true" />
-                </button>
-                {zeroRateExpanded && <div id="zero-rate-request-form" className="zero-rate-checkout-form">
-                  <p>Admin reviews the reason and order details before the order is placed.</p>
-                  <label htmlFor="zero-rate-reason">Reason for requesting zero-rating</label>
-                  <textarea id="zero-rate-reason" value={zeroRateReason} onChange={(event) => setZeroRateReason(event.target.value)} maxLength={500} placeholder="Explain why this customer’s order may qualify" />
-                  <button type="button" className="zero-rate-checkout-submit" onClick={handleZeroRateRequest} disabled={zeroRateBusy || saving || !selectedDoctor || !selectedDestination || !requestedDate || !reviewLines.some((line) => line.vatClassification === "vatable") || !zeroRateReason.trim()}>
-                    {zeroRateBusy ? "Sending request…" : "Send to Admin for review"}
-                  </button>
-                  {!reviewLines.some((line) => line.vatClassification === "vatable") && <p role="status">This order has no VATable items that need zero-rating.</p>}
-                  {zeroRateError && <p role="alert" className="zero-rate-checkout-error">{zeroRateError}</p>}
-                </div>}
-              </>
-            )}
-            {zeroRateLoadError && <p role="alert" className="zero-rate-checkout-error">{liveErrorMessage(zeroRateLoadError, "zero-rating requests")} Approval status will appear when access is restored.</p>}
-          </div>
-
           <div className="pricing-card place-v2-pricing-card">
             <h2>Order Summary</h2>
 
@@ -1154,7 +1227,7 @@ function SalesRepPlaceOrder() {
                 the server records the binding figures. */}
             <VatBreakdown summary={priceSummary} />
             <p className="place-v2-price-note">
-              Batch prices use the basis set by Admin. {approvedRequest ? "Approved zero-rating is included in this review." : "VATable items include 12% VAT."} Prices are confirmed when the order is placed.
+              Batch prices use the basis set by Admin. {approvedRequest ? "Zero-rating is approved: VAT is removed from the VATable items." : "VATable items include 12% VAT."} Prices are confirmed when the order is placed.
             </p>
 
             {mayBackorder && (
@@ -1171,7 +1244,7 @@ function SalesRepPlaceOrder() {
               type="button"
               onClick={() => handleFinalizeOrder()}
               disabled={
-                saving || Boolean(zeroRateBlock) ||
+                saving || Boolean(zeroRateBlock) || Boolean(zeroStepBlock) ||
                 items.length === 0 ||
                 doctorListLoading ||
                 !territory.assigned ||
@@ -1185,6 +1258,7 @@ function SalesRepPlaceOrder() {
               {saving ? "Saving Order..." : zeroRateBusy ? "Sending request…" : zeroRateBlock ? (matchingRequests.some((row) => row.status === "pending") ? "Waiting for Admin review" : "Checking review status…") : review.checking ? "Checking prices…" : "Review & Finalize →"}
             </button>
             {zeroRateBlock && <p className="place-v2-review-hint" role="status">{zeroRateBlock}</p>}
+            {!zeroRateBlock && zeroStepBlock && <p className="place-v2-review-hint" role="status">{zeroStepBlock}</p>}
             {!pricingCheck.ok && (
               <p className="place-v2-review-hint" role="status">
                 {pricingCheck.problems[0]}

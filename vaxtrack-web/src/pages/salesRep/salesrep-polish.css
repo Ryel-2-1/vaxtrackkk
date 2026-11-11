@@ -3747,3 +3747,193 @@ body:has(> #root > .salesrep-page),
     max-width: none !important;
   }
 }
+
+/* Checkout tally (2026-11-11), summary card and confirm dialog alike.
+   Labels were 12px beside 16px figures, nothing kept a figure on its line,
+   and "Standard total" sat in the same weight as the final total, so it read
+   as the order's total and, in a narrow sidebar, ran into the next row. Every
+   row is now one label and one figure on a line; the negotiation shows as its
+   own row; only the final total is large. */
+.salesrep-main .place-v2-pricing-card > p {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: baseline !important;
+  gap: 12px !important;
+  font-size: 14px !important;
+}
+.salesrep-main .place-v2-pricing-card > p strong {
+  min-width: 0;
+  max-width: 62%;
+  text-align: right;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  overflow-wrap: anywhere;
+}
+.salesrep-main .place-v2-vat-breakdown {
+  gap: 4px;
+  margin: 12px 0 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--gray-200);
+}
+.salesrep-main .place-v2-vat-breakdown > div {
+  align-items: baseline;
+  flex-wrap: nowrap;
+  font-size: 13px;
+}
+.salesrep-main .place-v2-vat-breakdown dt {
+  min-width: 0;
+  color: var(--gray-600);
+  font-size: 13px;
+  font-weight: 400;
+}
+.salesrep-main .place-v2-vat-breakdown dd {
+  flex: none;
+  color: var(--gray-900);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.salesrep-main .place-v2-vat-breakdown .place-v2-tally-muted dd {
+  color: var(--gray-600);
+  font-weight: 500;
+}
+.salesrep-main .place-v2-vat-breakdown .place-v2-tally-adjust dt,
+.salesrep-main .place-v2-vat-breakdown .place-v2-tally-adjust dd {
+  color: var(--warning-text, #b45309);
+  font-weight: 600;
+}
+.salesrep-main .place-v2-vat-breakdown .place-v2-tally-subtotal {
+  margin-bottom: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--gray-200);
+}
+.salesrep-main .place-v2-vat-breakdown .place-v2-tally-subtotal dt,
+.salesrep-main .place-v2-vat-breakdown .place-v2-tally-subtotal dd {
+  color: var(--gray-900);
+  font-weight: 600;
+}
+.salesrep-main .place-v2-vat-breakdown .place-v2-final-total {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--gray-300);
+}
+.salesrep-main .place-v2-vat-breakdown .place-v2-final-total dt,
+.salesrep-main .place-v2-vat-breakdown .place-v2-final-total dd {
+  color: var(--gray-900);
+  font-size: 15px;
+  font-weight: 700;
+}
+/* The dialog title had no colour of its own and took the global heading
+   colour. Pin it, like the rest of the dialog's text. */
+.salesrep-main .place-v2-confirm h2 {
+  color: var(--gray-900);
+}
+
+/* Zero-rating asked first (2026-11-11): the question card now sits between
+   Order Items and the price review, in the main column. */
+.salesrep-main .zero-rate-step {
+  margin: 16px 0;
+  padding: 18px 20px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-card);
+  background: #ffffff;
+}
+.salesrep-main .zero-rate-step .zero-rate-checkout-heading h2 {
+  color: var(--gray-900);
+  font-size: 16px;
+}
+.salesrep-main .zero-rate-answer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 4px 0 10px;
+}
+.salesrep-main .zero-rate-answer label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin: 0 !important;
+  padding: 8px 14px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control);
+  background: #ffffff;
+  color: var(--gray-700);
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.salesrep-main .zero-rate-answer label.is-on {
+  border-color: var(--green-700);
+  background: var(--green-50);
+  color: var(--gray-900);
+}
+.salesrep-main .zero-rate-answer input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  min-height: 0 !important;
+  margin: 0;
+  accent-color: var(--green-700);
+}
+.salesrep-main .zero-rate-answer label:has(input:focus-visible) {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+}
+.salesrep-main .zero-rate-standard-note {
+  margin: 0 !important;
+  color: var(--gray-600) !important;
+  font-size: 13px !important;
+}
+.salesrep-main .zero-rate-step .zero-rate-checkout-status.is-approved {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+/* Price review waits for the VAT basis. */
+.salesrep-main .place-v2-price-review.is-locked .place-v2-price-lines {
+  opacity: 0.55;
+}
+.salesrep-main .place-v2-price-locked,
+.salesrep-main .place-v2-price-cleared {
+  margin: 10px 0 0 !important;
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  font-size: 13px !important;
+}
+.salesrep-main .place-v2-price-locked {
+  border: 1px solid var(--gray-200);
+  background: var(--gray-50);
+  color: var(--gray-700) !important;
+}
+.salesrep-main .place-v2-price-cleared {
+  border: 1px solid var(--warning-border, #fde68a);
+  background: var(--warning-bg, #fffbeb);
+  color: var(--warning-text, #b45309) !important;
+}
+
+/* What approved zero-rating took off. */
+.salesrep-main .place-v2-vat-removed {
+  display: block;
+  margin-top: 4px;
+  color: var(--success-text) !important;
+  font-size: 12px !important;
+  font-weight: 600;
+}
+.salesrep-main .place-v2-vat-removed s {
+  color: var(--gray-500);
+  font-weight: 500;
+}
+.salesrep-main .place-v2-vat-breakdown .place-v2-tally-vat-removed dt,
+.salesrep-main .place-v2-vat-breakdown .place-v2-tally-vat-removed dd {
+  color: var(--success-text);
+  font-weight: 600;
+}
+
+/* 769px–1100px: the cart table is a real table again but its card can be
+   narrower than its columns (a ~800px window: 515px card, ~540px table); it
+   scrolls inside the card instead of being clipped at "Line total". */
+@media (min-width: 769px) {
+  #root .salesrep-main .place-v2-items-card {
+    overflow-x: auto !important;
+  }
+}

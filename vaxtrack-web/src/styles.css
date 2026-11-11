@@ -3938,16 +3938,10 @@ select:focus {
   border: 1px solid #fed7aa;
 }
 
-.priority-alert-card > div {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
-  background: #f97316;
-  color: #ffffff;
-  display: grid;
-  place-items: center;
-  margin-bottom: 14px;
-}
+/* (2026-11-11) A `.priority-alert-card > div` rule here drew the card's first
+   child as a 48px orange icon tile. Since the card's first child became the
+   icon + title row (.priority-alert-heading, Alerts.css), it squeezed the
+   title into that tile, over the message. Removed; Alerts.css owns the card. */
 
 .priority-alert-card h3 {
   margin: 0;

@@ -266,7 +266,8 @@ const PRICE_STATE = strip(read("src/pages/salesRep/useCheckoutPriceReview.js"));
 
 test("each line edits its agreed price; checkout offers no SC/PWD discount entry", () => {
   assert.match(PAGE, /<PriceReview/);
-  assert.match(PRICE_REVIEW, /Agreed unit price \(VAT-inclusive\) for \{item\.name\}/);
+  // VAT-inclusive for a VATable line; "(no VAT)" once zero-rating removed it.
+  assert.match(PRICE_REVIEW, /Agreed unit price \{vatClassification === "vatable" \? "\(VAT-inclusive\)" : "\(no VAT\)"\} for \{item\.name\}/);
   for (const label of ["Standard unit price", "Negotiated line total", "Price adjustment", "Final line total"]) {
     assert.match(PRICE_REVIEW, new RegExp(`<dt>${label}</dt>`), label);
   }
@@ -311,8 +312,8 @@ test("with no discount entry, a checkout line is reviewed and sent at its agreed
   assert.match(CODE, /\.\.\.negotiatedRequestLine\(item, reviewByBatch\.get\(item\.inventoryId\)\.price\)/);
 });
 
-test("the summary shows negotiated subtotal, VAT and the final total", () => {
-  for (const label of ["Negotiated subtotal", "VATable sales (net of VAT)", "VAT-exempt sales", "Zero-rated sales", "VAT (12%)", "Final total (VAT-inclusive)"]) {
+test("the summary shows the agreed-price subtotal, VAT and the final total", () => {
+  for (const label of ["Subtotal (agreed prices)", "VATable sales (net of VAT)", "VAT-exempt sales", "Zero-rated sales", "VAT (12%)", "Final total (VAT-inclusive)"]) {
     assert.match(PRICE_REVIEW, new RegExp(`<dt>${label.replace(/[()/]/g, "\\$&")}</dt>`), label);
   }
   assert.equal((PAGE + PRICE_REVIEW).includes("Less: SC/PWD discounts"), false);
@@ -448,4 +449,24 @@ test("legacy invoices are unchanged: quantity × unit price lines and the Admin'
   assert.equal(Math.round(t.grandTotal * 100), 32500);
   // A stored legacy invoice keeps its discount on reopening.
   assert.equal(buildInitialForm(legacyOrder, { items: [], discount: 5 }, "Rep").discount, 5);
+});
+
+test("a negotiated price shows in the tally as its own signed row (2026-11-11)", () => {
+  // Standard total, then what the negotiation changed, then the agreed subtotal
+  // (= standard + change, by definition in negotiatedPricing.js).
+  const breakdown = PRICE_REVIEW.slice(PRICE_REVIEW.indexOf("export function VatBreakdown"), PRICE_REVIEW.indexOf("export function ReconfirmDialog"));
+  const order = ["<dt>Standard prices with VAT</dt>", "<dt>VAT removed (zero-rating approved)</dt>", "<dt>Standard total", "<dt>Negotiated price changes</dt>", "<dt>Subtotal (agreed prices)</dt>", "<dt>Final total (VAT-inclusive)</dt>"].map((t) => breakdown.indexOf(t));
+  assert.ok(order.every((i, k) => i > 0 && (k === 0 || i > order[k - 1])), "rows in tally order");
+  assert.ok(breakdown.includes('{adjustment > 0 ? "+" : "−"}{formatAmount(Math.abs(adjustment))}'), "signed change");
+  assert.ok(breakdown.includes("{adjustment !== 0 && ("), "shown only when a price was negotiated");
+  assert.ok(read("src/services/negotiatedPricing.js").includes(
+    "out.negotiatedAdjustmentCentavos = out.negotiatedSubtotalCentavos - out.standardTotalCentavos;"
+  ), "standard + change = agreed subtotal");
+});
+
+test("the app has one light theme: no template dark palette to wash out headings", () => {
+  const css = read("src/index.css");
+  assert.doesNotMatch(css, /prefers-color-scheme: dark/);
+  assert.match(css, /color-scheme: light;/);
+  assert.match(read("src/pages/salesRep/salesrep-polish.css"), /\.salesrep-main \.place-v2-confirm h2 \{\s*color: var\(--gray-900\);/);
 });
