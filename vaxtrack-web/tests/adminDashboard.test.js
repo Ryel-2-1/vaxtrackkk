@@ -119,7 +119,8 @@ test("all four Firestore subscriptions remain connected", () => {
   assert.equal(/collection\(db,/.test(CODE), false);
   // Every KPI is a state value, never a literal.
   const values = [...CODE.matchAll(/value: (\w+)/g)].map((m) => m[1]);
-  assert.deepEqual(values, ["deliveryCount", "exceptionCount", "criticalCount", "riderCount"]);
+  // Cells that can need action first, routine totals after (2026-11-14).
+  assert.deepEqual(values, ["exceptionCount", "criticalCount", "deliveryCount", "riderCount"]);
   // The active-alert subscription uses the same query as the Admin bell.
   assert.match(read("src/services/alertService.js"), /where\("status", "==", "active"\)/);
   assert.match(read("src/components/admin/AdminAlertsBell.jsx"), /subscribeActiveAlerts\(/);

@@ -28,6 +28,7 @@ import {
 } from "../../services/deliveryCalendar";
 import { auth } from "../../firebase";
 import KpiCard from "../../components/ui/KpiCard";
+import { medRepFollowUps } from "../../services/dashboardAttention";
 import MonthCalendar from "../../components/ui/MonthCalendar";
 import StatusBadge from "../../components/ui/StatusBadge";
 import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
@@ -181,6 +182,9 @@ function SalesRepDashboard() {
             requestedDeliveryDate: o.requestedDeliveryDate || null,
             originalRequestedDeliveryDate: o.originalRequestedDeliveryDate ?? null,
             requestedArrival: o.requestedArrival ?? null,
+            // For "Needs follow-up" (dashboardAttention.js).
+            timingStatus: o.timingStatus ?? null,
+            requestedArrivalMissedAt: o.requestedArrivalMissedAt ?? null,
           };
         });
         setOrders(normalized);
@@ -213,6 +217,9 @@ function SalesRepDashboard() {
 
     return unsubscribe;
   }, []);
+
+  // Orders that need the Med Rep to act or follow up (dashboardAttention.js).
+  const followUps = useMemo(() => medRepFollowUps(orders, today), [orders, today]);
 
   const metrics = useMemo(() => {
     const total = orders.length;
@@ -344,6 +351,40 @@ function SalesRepDashboard() {
             tone="info"
           />
         </section>
+
+        {followUps.length > 0 && (
+          <section className="srd-card srd-followup" aria-labelledby="srd-followup-title">
+            <div className="srd-card-head">
+              <div>
+                <h2 id="srd-followup-title">
+                  <AlertTriangle size={16} aria-hidden="true" /> Needs follow-up
+                  <span className="srd-followup-count tnum">{followUps.length}</span>
+                </h2>
+                <p>Orders that failed, are running late, or are past the requested date.</p>
+              </div>
+              <button type="button" className="srd-link" onClick={() => navigate("/sales-rep/order-tracking")}>
+                Order tracking
+                <ArrowRight size={14} />
+              </button>
+            </div>
+            <ul className="srd-followup-list">
+              {followUps.slice(0, 5).map(({ order, reason }) => (
+                <li key={order.id}>
+                  <button type="button" className="srd-followup-row" onClick={() => navigate("/sales-rep/order-tracking")}>
+                    <span className="srd-followup-main">
+                      <strong>{order.orderNumber}</strong>
+                      <span>{order.clinicName}</span>
+                    </span>
+                    <span className="srd-followup-reason">{reason}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {followUps.length > 5 && (
+              <p className="srd-followup-more">{followUps.length - 5} more in Order tracking.</p>
+            )}
+          </section>
+        )}
 
         <section className="srd-planner-section">
           <div className="srd-card srd-planner">

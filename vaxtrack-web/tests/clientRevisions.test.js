@@ -109,3 +109,51 @@ test("Cargo Loading asks the server only for assigned and loading orders", async
   const values = src.match(/ACTIVE_LOADING_STATUSES = \["assigned", "loading"\]/);
   assert.ok(values, "the screen's own statuses drive the query");
 });
+
+test("dashboards raise orders past their requested date that have not left yet", async () => {
+  const { countOverdueBeforeDispatch, isOverdueBeforeDispatch } = await import("../src/services/dashboardAttention.js");
+  const today = "2026-11-14";
+  const orders = [
+    { statusKey: "pending_dispatch", requestedDeliveryDate: "2026-11-13" },
+    { statusKey: "assigned", requestedDeliveryDate: "2026-11-10" },
+    { statusKey: "loading", requestedDeliveryDate: "2026-11-14" },
+    { statusKey: "in_transit", requestedDeliveryDate: "2026-11-01" },
+    { statusKey: "pending_dispatch", requestedDeliveryDate: null },
+  ];
+  assert.equal(countOverdueBeforeDispatch(orders, today), 2, "today is not overdue; left or undated orders are not counted");
+  assert.equal(isOverdueBeforeDispatch(orders[0], today), true);
+  const admin = read("src/pages/admin/AdminDashboard.jsx");
+  assert.match(admin, /id: "overdue-dispatch"/);
+  const css = read("src/pages/admin/AdminDashboard.css");
+  assert.match(css, /\.adx-grid > \.adx-attention-card \{ order: -1; \}/, "Needs attention first in one column");
+  const disp = read("src/pages/dispatcher/DispatcherDashboard.jsx");
+  assert.ok(disp.indexOf('id="pending-dispatch-queue"') < disp.indexOf("<DispatcherTrackingOverview"), "queue before the live overview");
+  assert.match(disp, /label="Cargo loading"/);
+});
+
+test("the Med Rep sees what needs follow-up, and the bell counts only that", async () => {
+  const { medRepFollowUps } = await import("../src/services/dashboardAttention.js");
+  const today = "2026-11-14";
+  const rows = medRepFollowUps([
+    { id: "a", statusKey: "delivered", requestedDeliveryDate: "2026-11-01" },
+    { id: "b", statusKey: "pending_dispatch", requestedDeliveryDate: "2026-11-12" },
+    { id: "c", statusKey: "delivery_failed", requestedDeliveryDate: "2026-11-13" },
+    { id: "d", statusKey: "in_transit", timingStatus: "delayed", requestedDeliveryDate: "2026-11-14" },
+    { id: "e", statusKey: "assigned", requestedArrivalMissedAt: { seconds: 1 }, requestedDeliveryDate: "2026-11-14" },
+    { id: "f", statusKey: "cancelled", requestedDeliveryDate: "2026-11-10" },
+  ], today);
+  assert.deepEqual(rows.map((r) => [r.order.id, r.reason]), [
+    ["c", "Delivery failed"], ["d", "Running late"], ["e", "Past the requested time"],
+    ["b", "Past the requested date, not dispatched yet"],
+  ]);
+  const shell = read("src/pages/salesRep/SalesRepShell.jsx");
+  assert.match(shell, /notification\.tone === "critical" && !readNotifications\.includes\(notification\.readId\)/);
+  assert.match(shell, /\{followUpUnread > 0 && <span className="salesrep-bell-badge">/);
+  assert.match(read("src/pages/salesRep/SalesRepDashboard.jsx"), /\{followUps\.length > 0 && \(/);
+});
+
+test("Batch details saves without a Location", () => {
+  const inv = read("src/pages/admin/Inventory.jsx");
+  assert.doesNotMatch(inv, /!batchDraft\.location\.trim\(\)/);
+  assert.match(inv, /id="inv-batch-location" value=\{batchDraft\?\.location \?\? ""\} placeholder="Not recorded"/);
+});

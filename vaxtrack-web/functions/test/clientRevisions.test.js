@@ -149,3 +149,16 @@ test("batch edits may set Lot Number and Supplier; an older client that omits th
   assert.equal(now.values.lotNumber, "");
   assert.throws(() => validateBatchMetadata({ ...base, supplier: "Angela", expected }, NOW), /Reload the batch/);
 });
+
+test("a batch edit may leave Location blank (Add Stock never collects one)", () => {
+  const base = {
+    inventoryId: "inv1", batchId: "BT-1", manufacturingDate: "2026-10-01", expiryDate: "2027-10-01",
+    location: "", manufacturer: "Johnson", lotNumber: "LOT-1", supplier: "Angela",
+  };
+  const expected = { batchId: "BT-1", manufacturingDate: "2026-10-01", expiryDate: "2027-10-01", location: "", manufacturer: "Johnson", lotNumber: "", supplier: "" };
+  const ok = validateBatchMetadata({ ...base, expected }, NOW);
+  assert.equal(ok.values.location, "");
+  assert.equal(ok.values.lotNumber, "LOT-1");
+  assert.throws(() => validateBatchMetadata({ ...base, manufacturer: " ", expected }, NOW), /Enter a manufacturer/);
+  assert.throws(() => validateBatchMetadata({ ...base, location: "x".repeat(121), expected }, NOW), /120 characters/);
+});

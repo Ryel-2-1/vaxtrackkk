@@ -61,7 +61,6 @@
   box-shadow: 0 5px 16px rgba(16, 77, 56, 0.06);
 }
 .inventory-page .adx-ledger-cell { background: #fff; }
-.inventory-page .adx-ledger-cell:nth-child(1) { background: #f2faf5; }
 .inventory-page .adx-ledger-cell.is-attention { background: #fffbf1; }
 .inventory-page .adx-ledger-cell.is-exception { background: #fff6f4; }
 .inventory-page .adx-ledger-cell:hover { filter: brightness(0.98); }
@@ -463,9 +462,17 @@
   .adx-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+  /* One column: what needs action comes before the status breakdown (2026-11-14). */
+  .adx-grid > .adx-attention-card { order: -1; }
 }
 @media (max-width: 560px) {
-  .inventory-page .adx-hero { padding: 16px; }
+  /* Phones: the decorative banner gives way so "Needs attention" is on the
+     first screen, and the four counters stay 2 × 2 instead of 4 rows. */
+  .inventory-page .adx-hero { display: none; }
+  .inventory-page .adx-ledger { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inventory-page .adx-ledger-cell { padding: 12px 14px; border-left: 1px solid var(--admin-divider); border-top: 1px solid var(--admin-divider); }
+  .inventory-page .adx-ledger-cell:nth-child(odd) { border-left: none; }
+  .inventory-page .adx-ledger-cell:nth-child(-n + 2) { border-top: none; }
   .adx-breakdown-row {
     grid-template-columns: 110px minmax(0, 1fr) 34px;
   }

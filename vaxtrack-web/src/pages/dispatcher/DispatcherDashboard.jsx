@@ -181,6 +181,9 @@ function DispatcherDashboard() {
   const activeDeliveries = allOrders.filter(
     (o) => o.statusKey === "in_transit" || o.statusKey === "assigned" || o.statusKey === "loading"
   ).length;
+  // The three dispatch flows, counted apart (2026-11-14).
+  const cargoLoadingCount = allOrders.filter((o) => o.statusKey === "assigned" || o.statusKey === "loading").length;
+  const outForDeliveryCount = allOrders.filter((o) => o.statusKey === "in_transit" || o.statusKey === "delayed").length;
   // A Rider's hold or the server's automatic delay: either means the route is behind.
   const delayedDeliveries = allOrders.filter(isRunningLate).length;
   const pastRequested = allOrders.filter((o) => requestedArrivalMiss(o) !== null).length;
@@ -204,6 +207,8 @@ function DispatcherDashboard() {
   const urgentShown = shown(["pending"], urgentOrders);
   const availableShown = shown(["riders", "all"], availableRiders);
   const activeShown = shown(["all"], activeDeliveries);
+  const cargoShown = shown(["all"], cargoLoadingCount);
+  const outShown = shown(["all"], outForDeliveryCount);
   const delayedShown = shown(["all"], delayedDeliveries);
   const pastRequestedShown = shown(["all"], pastRequested);
   const liveMonitor = failed.all
@@ -293,113 +298,51 @@ function DispatcherDashboard() {
           </section>
         )}
 
-        <section className="dispatcher-dash-kpi-grid">
-          <KpiCard
-            label="Pending orders"
-            value={pendingShown}
-            context={
-              [
-                "Ready for dispatch",
-                upcoming.length > 0 ? `${upcoming.length} upcoming` : null,
-                needsScheduling.length > 0 ? `${needsScheduling.length} need scheduling` : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")
-            }
-            tone="neutral"
-          />
-
-          <KpiCard
-            label="Available riders"
-            value={availableShown}
-            context={failed.riders ? "Riders unavailable" : `${riders.length} total registered`}
-            tone="success"
-          />
-
-          <KpiCard
-            label="Active deliveries"
-            value={activeShown}
-            context="Loading or in transit"
-            tone="info"
-          />
-
+        <section className="dispatcher-dash-kpi-grid" aria-label="Dispatch flows">
           <KpiCard
             label="Urgent orders"
             value={urgentShown}
             context={urgentOrders > 0 ? "Assign these first" : "None waiting"}
             tone="danger"
             attention={urgentOrders > 0}
+            onClick={scrollToPendingQueue}
+          />
+
+          <KpiCard
+            label="Awaiting assignment"
+            value={pendingShown}
+            context={
+              [
+                overdueCount > 0 ? `${overdueCount} past requested date` : "Ready for dispatch",
+                upcoming.length > 0 ? `${upcoming.length} upcoming` : null,
+                needsScheduling.length > 0 ? `${needsScheduling.length} need scheduling` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            }
+            tone={overdueCount > 0 ? "warning" : "neutral"}
+            onClick={scrollToPendingQueue}
+          />
+
+          <KpiCard
+            label="Cargo loading"
+            value={cargoShown}
+            context="Assigned or being loaded"
+            tone="info"
+            onClick={() => navigate("/dispatcher/cargo-loading")}
+          />
+
+          <KpiCard
+            label="Out for delivery"
+            value={outShown}
+            context={delayedDeliveries > 0 ? `${delayedShown} behind schedule` : "In transit"}
+            tone={delayedDeliveries > 0 ? "warning" : "success"}
+            onClick={() => navigate("/dispatcher/shipments")}
           />
         </section>
 
-        <section className="dispatcher-dash-main-grid">
-          <DispatcherTrackingOverview
-            orders={allOrders}
-            riders={riders}
-            activeCount={activeShown}
-            delayedCount={delayedShown}
-            pendingCount={pendingShown}
-            availableCount={availableShown}
-            onMonitoringStatus={setMonitoringStatus}
-          />
-
-          <aside className="dispatcher-dash-side-card">
-            <div className="dispatcher-dash-card-head small">
-              <div>
-                <span className="card-kicker">Today&apos;s Operations</span>
-                <h2>Dispatch Summary</h2>
-              </div>
-            </div>
-
-            <div className="dispatcher-dash-op-list">
-              <OperationItem
-                title="Priority Dispatch"
-                value={`${urgentShown} urgent orders`}
-                text={failed.pending ? "The dispatch queue could not be loaded." : urgentOrders > 0 ? "Assign riders as soon as possible." : "No urgent orders right now."}
-                danger={urgentOrders > 0}
-              />
-
-              <OperationItem
-                title="Rider Availability"
-                value={`${availableShown} available`}
-                text={availableShown === "—" || pendingShown === "—" ? "Rider availability could not be worked out." : availableRiders >= actionable.length ? "Enough riders for current queue." : "More riders needed for pending orders."}
-              />
-
-              <OperationItem
-                title="Route Condition"
-                value={`${delayedShown} delayed`}
-                text={failed.all ? "Deliveries could not be loaded." : delayedDeliveries > 0 ? "Monitor geofence and traffic alerts." : "All routes running smoothly."}
-                warning={delayedDeliveries > 0}
-              />
-
-              <OperationItem
-                title="Requested Arrival"
-                value={`${pastRequestedShown} past requested time`}
-                text={failed.all ? "Deliveries could not be loaded." : pastRequested > 0 ? "Update the Med Rep or reschedule. Open Shipments for details." : "Every open delivery is within its requested time."}
-                warning={pastRequested > 0}
-              />
-            </div>
-
-            <button
-              type="button"
-              className="dispatcher-dash-primary-btn"
-              onClick={scrollToPendingQueue}
-            >
-              <UserPlus size={16} />
-              Assign From Queue
-            </button>
-
-            <button
-              type="button"
-              className="dispatcher-dash-secondary-btn"
-              onClick={() => navigate("/dispatcher/shipments")}
-            >
-              <Truck size={16} />
-              View Shipments
-            </button>
-          </aside>
-        </section>
-
+        {/* The work queue comes before the live overview (2026-11-14): the
+            Dispatcher's first job on this page is assigning riders. */}
         <section
           id="pending-dispatch-queue"
           className="dispatcher-dash-table-card"
@@ -552,6 +495,75 @@ function DispatcherDashboard() {
           </div>
           {sortedPending.length > PAGE_SIZE && <PageNav page={currentQueuePage} total={sortedPending.length} onPageChange={setQueuePage} label="Dispatch queue pages" />}
         </section>
+
+        <section className="dispatcher-dash-main-grid">
+          <DispatcherTrackingOverview
+            orders={allOrders}
+            riders={riders}
+            activeCount={activeShown}
+            delayedCount={delayedShown}
+            pendingCount={pendingShown}
+            availableCount={availableShown}
+            onMonitoringStatus={setMonitoringStatus}
+          />
+
+          <aside className="dispatcher-dash-side-card">
+            <div className="dispatcher-dash-card-head small">
+              <div>
+                <span className="card-kicker">Today&apos;s Operations</span>
+                <h2>Dispatch Summary</h2>
+              </div>
+            </div>
+
+            <div className="dispatcher-dash-op-list">
+              <OperationItem
+                title="Priority Dispatch"
+                value={`${urgentShown} urgent orders`}
+                text={failed.pending ? "The dispatch queue could not be loaded." : urgentOrders > 0 ? "Assign riders as soon as possible." : "No urgent orders right now."}
+                danger={urgentOrders > 0}
+              />
+
+              <OperationItem
+                title="Rider Availability"
+                value={`${availableShown} available`}
+                text={availableShown === "—" || pendingShown === "—" ? "Rider availability could not be worked out." : availableRiders >= actionable.length ? "Enough riders for current queue." : "More riders needed for pending orders."}
+              />
+
+              <OperationItem
+                title="Route Condition"
+                value={`${delayedShown} delayed`}
+                text={failed.all ? "Deliveries could not be loaded." : delayedDeliveries > 0 ? "Monitor geofence and traffic alerts." : "All routes running smoothly."}
+                warning={delayedDeliveries > 0}
+              />
+
+              <OperationItem
+                title="Requested Arrival"
+                value={`${pastRequestedShown} past requested time`}
+                text={failed.all ? "Deliveries could not be loaded." : pastRequested > 0 ? "Update the Med Rep or reschedule. Open Shipments for details." : "Every open delivery is within its requested time."}
+                warning={pastRequested > 0}
+              />
+            </div>
+
+            <button
+              type="button"
+              className="dispatcher-dash-primary-btn"
+              onClick={scrollToPendingQueue}
+            >
+              <UserPlus size={16} />
+              Assign From Queue
+            </button>
+
+            <button
+              type="button"
+              className="dispatcher-dash-secondary-btn"
+              onClick={() => navigate("/dispatcher/shipments")}
+            >
+              <Truck size={16} />
+              View Shipments
+            </button>
+          </aside>
+        </section>
+
 
         <ReadOnlyQueue
           id="upcoming-dispatch-title"

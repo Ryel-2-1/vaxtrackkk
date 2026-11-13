@@ -4772,8 +4772,15 @@
     padding: 22px 18px 32px !important;
   }
 
+  /* 2 × 2 on phones (2026-11-14): one card per row pushed the assignment
+     queue below the first screen. */
   .dispatcher-dash-kpi-grid {
-    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+  .dispatcher-dash-kpi-grid .m-kpi {
+    padding: 12px !important;
+    min-width: 0;
   }
 }
 .dispatcher-page,

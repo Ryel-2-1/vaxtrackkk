@@ -1,7 +1,7 @@
 import "./AdminDashboard.css";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, ArrowRight, CheckCircle2, Package, Truck } from "lucide-react";
+import { AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, Package, Truck } from "lucide-react";
 import AdminLayout from "../../components/admin/AdminLayout";
 import { DELIVERY_EXCEPTION_STATUSES, subscribeDeliveries } from "../../services/deliveryService";
 import { subscribeActiveAlerts } from "../../services/alertService";
@@ -15,6 +15,7 @@ import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote
 import { liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { presentAlert } from "../../services/alertPresentation";
 import { isRunningLate } from "../../services/deliveryTiming";
+import { countOverdueBeforeDispatch } from "../../services/dashboardAttention";
 
 // Small shimmer placeholder used while the first snapshots load, so sections
 // don't flash their empty state before real data arrives.
@@ -92,6 +93,8 @@ function AdminDashboard() {
 
   const [deliveryCount, setDeliveryCount] = useState(0);
   const [exceptionCount, setExceptionCount] = useState(0);
+  // Not yet dispatched and already past the requested day (dashboardAttention.js).
+  const [overdueCount, setOverdueCount] = useState(0);
   const [criticalCount, setCriticalCount] = useState(0);
   const [riderCount, setRiderCount] = useState(0);
   const [statusBreakdown, setStatusBreakdown] = useState({});
@@ -131,6 +134,7 @@ function AdminDashboard() {
       (orders) => {
         setDeliveryCount(orders.length);
         setExceptionCount(orders.filter((o) => DELIVERY_EXCEPTION_STATUSES.includes(o.statusKey) || isRunningLate(o)).length);
+        setOverdueCount(countOverdueBeforeDispatch(orders, manilaToday(Date.now())));
         // Derived from the same orders array — no extra Firestore read.
         const breakdown = {};
         orders.forEach((o) => {
@@ -210,8 +214,8 @@ function AdminDashboard() {
   const breakdownRows = BREAKDOWN_ORDER.filter((k) => statusBreakdown[k] > 0);
   const activeCount = deliveryCount;
 
+  // Cells that can need action come first; routine totals follow (2026-11-14).
   const ledgerCells = [
-    { label: "Total orders", source: "deliveries", value: deliveryCount, note: "All deliveries", to: "/admin/deliveries", tone: "" },
     { label: "Delivery exceptions", source: "deliveries", value: exceptionCount, note: exceptionCount > 0 ? "Delayed or failed" : "No delayed or failed orders", to: "/admin/deliveries", tone: exceptionCount > 0 ? " is-exception" : "" },
     // Counts batches that are expired or within 30 days of expiring, worked out
     // from each batch's expiry date. It used to count the stored `status`,
@@ -220,6 +224,7 @@ function AdminDashboard() {
     // says what is measured; quantity and reserved figures are separate
     // concerns and are not folded into it.
     { label: "Expired or within 30 days", source: "inventory", value: criticalCount, note: criticalCount > 0 ? "Within 30 days or past expiry" : "None within 30 days", to: "/admin/inventory", tone: criticalCount > 0 ? " is-attention" : "" },
+    { label: "Total orders", source: "deliveries", value: deliveryCount, note: "All deliveries", to: "/admin/deliveries", tone: "" },
     { label: "Registered riders", source: "riders", value: riderCount, note: "On the platform", to: "/admin/riders", tone: "" },
   ].map((c) => (failed[c.source] ? { ...c, value: "—", note: "Unavailable", tone: "" } : c));
 
@@ -230,6 +235,14 @@ function AdminDashboard() {
       desc: "Review orders that need a delivery follow-up.",
       to: "/admin/deliveries",
       icon: Truck,
+      tone: "critical",
+    },
+    !failed.deliveries && overdueCount > 0 && {
+      id: "overdue-dispatch",
+      title: `${overdueCount} ${overdueCount === 1 ? "order is" : "orders are"} past the requested date`,
+      desc: "Not dispatched yet. Dispatch, or agree a new date with the Med Rep.",
+      to: "/admin/delivery-calendar",
+      icon: CalendarClock,
       tone: "critical",
     },
     !failed.inventory && criticalCount > 0 && {

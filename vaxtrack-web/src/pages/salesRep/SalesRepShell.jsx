@@ -107,6 +107,12 @@ function SalesRepShell() {
   const unreadCount = panelNotifications.filter(
     (notification) => !readNotifications.includes(notification.readId)
   ).length;
+  // The badge counts only unread updates that need follow-up (delayed, failed,
+  // cancelled, running late). Every order makes one update, so a badge of all
+  // unread said "200" and meant nothing (2026-11-14). The panel still lists all.
+  const followUpUnread = panelNotifications.filter(
+    (notification) => notification.tone === "critical" && !readNotifications.includes(notification.readId)
+  ).length;
 
   // Logging out is one request at a time; a failure is shown beside the
   // button (never a browser alert) and the Med Rep stays signed in.
@@ -286,10 +292,12 @@ function SalesRepShell() {
                 type="button"
                 className={`salesrep-icon-btn salesrep-bell-btn m-topbar-icon-btn ${notificationOpen ? "active" : ""}`}
                 onClick={() => setNotificationOpen((open) => !open)}
-                aria-label="Open notifications"
+                aria-label={followUpUnread > 0
+                  ? `Open notifications, ${followUpUnread} need${followUpUnread === 1 ? "s" : ""} follow-up`
+                  : "Open notifications"}
               >
                 <Bell size={16} />
-                {unreadCount > 0 && <span className="salesrep-bell-badge">{unreadCount}</span>}
+                {followUpUnread > 0 && <span className="salesrep-bell-badge">{followUpUnread > 99 ? "99+" : followUpUnread}</span>}
               </button>
 
               {notificationOpen && (

@@ -632,9 +632,10 @@ function Inventory() {
       closeBatchDetails();
       return;
     }
+    // Location, Supplier and Lot Number are optional (Add Stock collects no location).
     if (!batchDraft.batchId.trim() || !batchDraft.manufacturingDate || !batchDraft.expiryDate ||
-        !batchDraft.location.trim() || !batchDraft.manufacturer.trim()) {
-      setBatchError("Complete all batch detail fields before saving.");
+        !batchDraft.manufacturer.trim()) {
+      setBatchError("Enter the Batch ID, manufacturing and expiry dates, and manufacturer before saving.");
       return;
     }
     setSavingBatch(true);
@@ -1198,7 +1199,7 @@ function Inventory() {
 
               <div>
                 <label htmlFor="inv-batch-location">Location</label>
-                <input id="inv-batch-location" value={batchDraft?.location ?? ""} maxLength={120} disabled={savingBatch || drawerItem.voided} onChange={(e) => setBatchDraft((old) => ({ ...old, location: e.target.value }))} />
+                <input id="inv-batch-location" value={batchDraft?.location ?? ""} placeholder="Not recorded" maxLength={120} disabled={savingBatch || drawerItem.voided} onChange={(e) => setBatchDraft((old) => ({ ...old, location: e.target.value }))} />
               </div>
 
               <div>

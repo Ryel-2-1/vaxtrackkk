@@ -34,8 +34,10 @@ function validateBatchMetadata(payload, now) {
   if (manufacturingDate >= expiryDate) throw new PolicyError("invalid-batch-edit", "Manufacturing date must precede expiry.");
   const location = typeof values.location === "string" ? values.location.trim() : "";
   const manufacturer = typeof values.manufacturer === "string" ? values.manufacturer.trim() : "";
-  if (!location || location.length > 120 || !manufacturer || manufacturer.length > 120) {
-    throw new PolicyError("invalid-batch-edit", "Enter a location and manufacturer (up to 120 characters each).");
+  // Location is optional (2026-11-14): Add Stock never collects one, so
+  // requiring it here blocked adding a Lot Number or Supplier to a batch.
+  if (location.length > 120 || !manufacturer || manufacturer.length > 120) {
+    throw new PolicyError("invalid-batch-edit", "Enter a manufacturer, and keep the location to 120 characters or fewer.");
   }
   const optional = {};
   for (const [key, max] of OPTIONAL_FIELDS) {

@@ -7344,3 +7344,100 @@
   line-height: 1.45 !important;
   margin: 8px 0 !important;
 }
+
+/* ---------- Needs follow-up (2026-11-14) ----------
+   Above the planner, shown only when something needs the Med Rep. Status
+   colour marks urgency; the rows are full-width buttons (≥44px targets). */
+.srd-followup {
+  margin-bottom: var(--mr-section-gap);
+  border-color: var(--warning-border) !important;
+}
+.srd-followup .srd-card-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--warning-text);
+}
+.srd-followup-count {
+  min-width: 22px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+}
+.srd-followup-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.srd-followup-list li + li {
+  border-top: 1px solid var(--gray-100);
+}
+.srd-followup-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px !important;
+  padding: 10px 20px;
+  border: 0;
+  background: transparent !important;
+  text-align: left;
+  cursor: pointer;
+}
+.srd-followup-row:hover {
+  background: var(--gray-50) !important;
+}
+.srd-followup-row:focus-visible {
+  outline: 2px solid var(--warning-text);
+  outline-offset: -2px;
+}
+.srd-followup-main {
+  display: grid;
+  min-width: 0;
+}
+.srd-followup-main strong {
+  font-size: 13.5px;
+  color: var(--gray-900);
+  overflow-wrap: anywhere;
+}
+.srd-followup-main span {
+  font-size: 12.5px;
+  color: var(--gray-600);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.srd-followup-reason {
+  flex: none;
+  max-width: 50%;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: right;
+}
+.srd-followup-more {
+  margin: 0;
+  padding: 8px 20px 12px;
+  font-size: 12.5px;
+  color: var(--gray-600);
+}
+@media (max-width: 560px) {
+  .srd-followup-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 10px 16px;
+  }
+  .srd-followup-reason {
+    max-width: 100%;
+    text-align: left;
+  }
+}
