@@ -13,7 +13,6 @@ export function validateCheckoutSchedule({ requestedDeliveryDate, requestedArriv
     requestedDeliveryDate: date.value,
     now,
     validateFuture: !recovering,
-    enforceOperatingHours: recovering ? false : undefined,
   }) : null;
   return { date, arrival };
 }

@@ -4,6 +4,7 @@ import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/register_screen.dart';
+import 'screens/terms_agreement_screen.dart';
 import 'services/auth_service.dart';
 import 'services/push_service.dart';
 import 'models/app_user.dart';
@@ -154,7 +155,8 @@ class AuthGate extends StatelessWidget {
               return const SkeletonHome();
             }
 
-            return const HomeScreen();
+            // One-time Terms of Use and Data Privacy agreement, then the app.
+            return TermsGate(uid: uid, child: const HomeScreen());
           },
         );
       },

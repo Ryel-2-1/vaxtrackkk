@@ -72,10 +72,12 @@ test("reversed and equal windows are refused, never read as overnight or as exac
   refused({ mode: "window", start: "10:00", end: "10:00" }, "invalid-requested-arrival", /exact time/);
 });
 
-test("noon remains valid; new midnight requests are outside pharmacy hours", () => {
+test("any time of day is accepted: there are no operating hours (removed 2026-11-13)", () => {
   assert.deepEqual(ok({ mode: "exact", time: "12:00" }), { version: 1, mode: "exact", time: "12:00" });
-  refused({ mode: "exact", time: "00:00" }, "invalid-requested-arrival", /operating hours/);
-  refused({ mode: "window", start: "00:00", end: "12:00" }, "invalid-requested-arrival", /operating hours/);
+  assert.deepEqual(ok({ mode: "exact", time: "00:00" }), { version: 1, mode: "exact", time: "00:00" });
+  assert.deepEqual(ok({ mode: "window", start: "00:00", end: "12:00" }).end, "12:00");
+  assert.equal(ok({ mode: "exact", time: "18:30" }).time, "18:30");
+  assert.equal(ok({ mode: "before", time: "06:00" }).time, "06:00");
   // An explicit midnight is not "no time".
   assert.deepEqual(requestedArrivalOf({ requestedArrival: { mode: "exact", time: "00:00" } }), { version: 1, mode: "exact", time: "00:00" });
   // "Before midnight" (the start of the day) leaves no minute at all.
@@ -105,8 +107,8 @@ test("Manila clock and date rollover use a fixed UTC+8, whatever the host timezo
   assert.deepEqual(manilaClock(new Date(Date.UTC(2026, 9, 27, 16, 0))), { date: "2026-10-28", minute: 0 });
   // At 23:59 Manila on the 27th, "today" is still the 27th: 23:59 exact is allowed, 23:58 is past.
   const late = new Date(Date.UTC(2026, 9, 27, 15, 59));
-  assert.throws(() => normalizeRequestedArrival({ mode: "exact", time: "23:59" }, { requestedDeliveryDate: TODAY, now: late }));
-  assert.throws(() => normalizeRequestedArrival({ mode: "exact", time: "23:58" }, { requestedDeliveryDate: TODAY, now: late }));
+  assert.equal(normalizeRequestedArrival({ mode: "exact", time: "23:59" }, { requestedDeliveryDate: TODAY, now: late }).time, "23:59");
+  assert.throws(() => normalizeRequestedArrival({ mode: "exact", time: "23:58" }, { requestedDeliveryDate: TODAY, now: late }), (e) => e.code === "requested-arrival-passed");
   // One minute later it is the 28th: an early time on the 28th is fine again.
   const midnight = new Date(Date.UTC(2026, 9, 27, 16, 0));
   assert.equal(normalizeRequestedArrival({ mode: "exact", time: "07:00" }, { requestedDeliveryDate: LATER, now: midnight }).time, "07:00");

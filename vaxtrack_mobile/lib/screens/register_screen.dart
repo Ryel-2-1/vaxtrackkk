@@ -1,3 +1,5 @@
+import '../utils/terms_agreement.dart';
+import '../widgets/terms_text.dart';
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../theme/app_branding.dart';
@@ -29,6 +31,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscureConfirm = true;
   String? _error;
   bool _submitted = false;
+  // Terms of Use and Data Privacy agreement: must be ticked to apply.
+  bool _agreedToTerms = false;
 
   @override
   void initState() {
@@ -70,6 +74,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       setState(() => _error = 'Check the highlighted fields.');
       return;
     }
+    if (!_agreedToTerms) {
+      setState(() => _error = kTermsRequiredMessage);
+      return;
+    }
 
     setState(() => _loading = true);
     try {
@@ -90,6 +98,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _showTerms() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.8,
+        maxChildSize: 0.95,
+        builder: (context, controller) => SingleChildScrollView(
+          controller: controller,
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(kTermsTitle, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 10),
+              const TermsText(),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -236,6 +269,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                         ),
                       ]),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton(
+                          key: const Key('termsRead'),
+                          onPressed: _showTerms,
+                          child: const Text('Read the Terms of Use and Data Privacy Agreement'),
+                        ),
+                      ),
+                      TermsConsentTile(
+                        value: _agreedToTerms,
+                        enabled: !_loading,
+                        onChanged: (v) => setState(() {
+                          _agreedToTerms = v;
+                          if (_error == kTermsRequiredMessage) _error = null;
+                        }),
+                      ),
                       if (_error != null) ...[
                         const SizedBox(height: 14),
                         Semantics(

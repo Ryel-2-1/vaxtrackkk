@@ -2767,3 +2767,93 @@
     align-self: flex-start;
   }
 }
+
+/* Register Clinic: search existing clinics and doctors before registering
+   (2026-11-13). */
+.clinics-existing-search {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-control);
+  background: var(--gray-50);
+}
+.clinics-existing-search > label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--gray-700);
+  font-size: 13px;
+  font-weight: 600;
+}
+.clinics-existing-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-control);
+  background: #ffffff;
+  color: var(--gray-500);
+}
+.clinics-existing-input:focus-within {
+  border-color: var(--green-700);
+  outline: 2px solid var(--green-100);
+}
+.clinics-existing-input input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 40px !important; /* beats the global 46px input min-height */
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--gray-900);
+  font-size: 14px;
+  outline: none;
+}
+.clinics-existing-results p {
+  margin: 8px 0 0;
+  color: var(--gray-600);
+  font-size: 13px;
+}
+.clinics-existing-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-control);
+  background: #ffffff;
+}
+.clinics-existing-row span {
+  display: grid;
+  min-width: 0;
+}
+.clinics-existing-row strong {
+  color: var(--gray-900);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.clinics-existing-row small {
+  color: var(--gray-600);
+  font-size: 12px;
+}
+.clinics-existing-row button {
+  flex: none;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--green-700);
+  border-radius: var(--radius-control);
+  background: #ffffff;
+  color: var(--green-700);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.clinics-existing-row button:hover:not(:disabled) {
+  background: var(--green-50);
+}
+.clinics-existing-row button:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+}

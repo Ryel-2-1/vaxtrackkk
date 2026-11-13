@@ -265,6 +265,9 @@ function normalizeInventoryItem(raw, todayIso) {
       expiryDate: typeof raw.expiryDate === "string" ? raw.expiryDate : "",
       location: typeof raw.location === "string" ? raw.location : "",
       manufacturer: typeof raw.manufacturer === "string" ? raw.manufacturer : "",
+      // Optional (2026-11-13). Older batches have none and show "Not recorded".
+      lotNumber: typeof raw.lotNumber === "string" ? raw.lotNumber : "",
+      supplier: typeof raw.supplier === "string" ? raw.supplier : "",
     },
     arrivalRaw: typeof raw.arrivalDate === "string" ? raw.arrivalDate : "",
     batchIdLocked: Boolean(raw.firstUsedAt) || raw.usageTracked !== true,
@@ -1201,6 +1204,17 @@ function Inventory() {
               <div>
                 <label htmlFor="inv-batch-manufacturer">Manufacturer</label>
                 <input id="inv-batch-manufacturer" value={batchDraft?.manufacturer ?? ""} maxLength={120} disabled={savingBatch || drawerItem.voided} onChange={(e) => setBatchDraft((old) => ({ ...old, manufacturer: e.target.value }))} />
+              </div>
+
+              <div>
+                <label htmlFor="inv-batch-supplier">Supplier</label>
+                <input id="inv-batch-supplier" value={batchDraft?.supplier ?? ""} placeholder="Not recorded" maxLength={120} disabled={savingBatch || drawerItem.voided} onChange={(e) => setBatchDraft((old) => ({ ...old, supplier: e.target.value }))} />
+              </div>
+
+              <div>
+                <label htmlFor="inv-batch-lot">Lot Number</label>
+                <input id="inv-batch-lot" value={batchDraft?.lotNumber ?? ""} placeholder="Not recorded" maxLength={64} disabled={savingBatch || drawerItem.voided} onChange={(e) => setBatchDraft((old) => ({ ...old, lotNumber: e.target.value }))} aria-describedby="inv-batch-lot-note" />
+                <small id="inv-batch-lot-note">Printed as LN on invoices; blank prints the Batch ID.</small>
               </div>
 
               <BatchPurchaseCost key={drawerItem.id} inventoryId={drawerItem.id} />

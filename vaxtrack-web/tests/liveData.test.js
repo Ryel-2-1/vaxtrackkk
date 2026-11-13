@@ -877,7 +877,7 @@ test("load errors never show raw Firebase text", () => {
 // getDocs in a service must be added here with its justification.
 const RETAINED_ONE_TIME_READS = {
   "areaService.js": ["setAreaActive"], // read inside a write, to validate it
-  "clinicService.js": ["clinicNameExists", "updateClinicLocation"], // submit-time duplicate check; read inside a write
+  "clinicService.js": ["clinicIdExists", "getClinicClientId", "clinicNameExists", "updateClinicLocation"], // submit-time duplicate check; read inside a write
   "invoiceService.js": ["getInvoiceByOrderId", "updateInvoiceDraft"], // identity tests / legacy callers; read inside a write
   "orderHistoryService.js": [
     "fetchOrderHistoryPage", // superseded by the live window; kept for its contract tests

@@ -176,6 +176,8 @@ export async function addStockBatchWithAllocation({
   sellingPriceCentavos,
   priceIsVatInclusive,
   manufacturer,
+  supplier,
+  lotNumber,
   largeQuantityConfirmed,
 }) {
   try {
@@ -189,6 +191,8 @@ export async function addStockBatchWithAllocation({
       sellingPriceCentavos,
       priceIsVatInclusive,
       ...(manufacturer ? { manufacturer } : {}),
+      ...(supplier ? { supplier } : {}),
+      ...(lotNumber ? { lotNumber } : {}),
       ...(largeQuantityConfirmed === true ? { largeQuantityConfirmed: true } : {}),
     });
     return result.data;

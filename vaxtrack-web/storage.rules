@@ -71,9 +71,13 @@ service firebase.storage {
       return firestore.get(/databases/(default)/documents/orders/$(orderId)).data;
     }
 
+    // Photos only: exactly the types the Rider app labels an upload with
+    // (imageContentTypeFor in proof_validation.dart). `image/.*` also let
+    // through SVG, which can carry script, and anything merely named image/*.
     function isImageUnder10MB() {
       return request.resource.size < 10 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
+        && request.resource.contentType in
+          ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
     }
 
     // The one identity test used by BOTH write and read on a piece of evidence:

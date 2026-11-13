@@ -81,6 +81,21 @@ export async function clinicNameExists(name) {
   return !snap.empty;
 }
 
+/** True when a clinic already carries this client ID (stored in `clinicId`). */
+export async function clinicIdExists(clinicId) {
+  const q = query(collection(db, CLINICS), where("clinicId", "==", String(clinicId).trim().toUpperCase()));
+  const snap = await getDocs(q);
+  return !snap.empty;
+}
+
+/** A clinic's client ID (its `clinicId`), read once by document id; "" when none. */
+export async function getClinicClientId(clinicDocId) {
+  if (typeof clinicDocId !== "string" || !clinicDocId || clinicDocId.includes("/")) return "";
+  const snap = await getDoc(doc(db, CLINICS, clinicDocId));
+  const id = snap.exists() ? snap.data().clinicId : "";
+  return typeof id === "string" ? id.trim() : "";
+}
+
 export async function addClinic({
   clinicId,
   name,

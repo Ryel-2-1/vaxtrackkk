@@ -37,7 +37,11 @@ export function zeroRateStep({ hasVatable, approved, pending, denied, answer, re
   if (pending) return ZERO_RATE_STEP.PENDING;
   if (!hasVatable) return ZERO_RATE_STEP.NOT_NEEDED;
   if (answer === "no" || recovering) return ZERO_RATE_STEP.STANDARD;
-  if (answer === "yes") return denied ? ZERO_RATE_STEP.DENIED : ZERO_RATE_STEP.REQUESTING;
+  // A denial is shown whether or not "Yes" was picked in THIS session: after a
+  // refresh or a return to checkout the answer is blank, and the rep must
+  // still learn that Admin denied it (2026-11-13).
+  if (denied) return ZERO_RATE_STEP.DENIED;
+  if (answer === "yes") return ZERO_RATE_STEP.REQUESTING;
   return ZERO_RATE_STEP.UNANSWERED;
 }
 

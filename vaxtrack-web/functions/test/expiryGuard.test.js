@@ -103,7 +103,7 @@ test("wiring: allocation, dispatch, delivery, reschedule and batch edits all app
   assert.match(dispatch, /const reservedBatches = await readReservedBatches\(tx, db, requested\);\s*\/\/[^\n]*\n\s*const \{ view, cur \} = await settle\(/, "batches are read before settle() may write");
   assert.match(dispatch, /assertBatchesCover\(reservedBatches\.get\(id\) \?\? \[\], usableThrough\(o, now\)/);
   assert.match(read("operations.js"), /assertBatchesCover\(\s*perBatch\.map/);
-  assert.match(read("scheduleOperations.js"), /assertBatchesCover\(reserved, usableThrough\(\{ requestedDeliveryDate: date \}, now\)/);
+  assert.match(read("scheduleOperations.js"), /const needBy = usableThrough\(\{ requestedDeliveryDate: date \}, now\);\s*assertBatchesCover\(reserved, needBy,/);
   assert.match(read("batchMetadata.js"), /"batch-expiry-before-reservation"/);
 });
 

@@ -6,12 +6,16 @@ const { statusFromExpiry } = require("./inventoryWorkflow");
 const { usableThrough, reservedInventoryIds } = require("./expiryGuard");
 
 const FIELDS = ["batchId", "manufacturingDate", "expiryDate", "location", "manufacturer"];
+// Optional since 2026-11-13: sent only by a client that shows them. A request
+// without them leaves them unchanged. Blank is allowed (older batches).
+const OPTIONAL_FIELDS = [["lotNumber", 64], ["supplier", 120]];
 // Orders that hold a batch whose expiry is being edited, checked in one transaction.
 const MAX_RESERVATIONS_CHECKED = 100;
 const CLOSED_ORDER_STATUSES = new Set(["delivered", "completed", "cancelled", "canceled"]);
 
 function validateBatchMetadata(payload, now) {
-  if (!payload || Object.keys(payload).some((key) => !["inventoryId", "expected", ...FIELDS].includes(key))) {
+  const optionalKeys = OPTIONAL_FIELDS.map(([key]) => key);
+  if (!payload || Object.keys(payload).some((key) => !["inventoryId", "expected", ...FIELDS, ...optionalKeys].includes(key))) {
     throw new PolicyError("invalid-batch-edit", "Unexpected batch edit field.");
   }
   const inventoryId = validateDocumentId(payload.inventoryId, "Choose a batch.");
@@ -33,7 +37,17 @@ function validateBatchMetadata(payload, now) {
   if (!location || location.length > 120 || !manufacturer || manufacturer.length > 120) {
     throw new PolicyError("invalid-batch-edit", "Enter a location and manufacturer (up to 120 characters each).");
   }
-  return { inventoryId, expected, values: { batchId, manufacturingDate, expiryDate, location, manufacturer } };
+  const optional = {};
+  for (const [key, max] of OPTIONAL_FIELDS) {
+    if (payload[key] === undefined) continue;
+    if (typeof payload[key] !== "string" || typeof expected[key] !== "string") {
+      throw new PolicyError("invalid-batch-edit", "Reload the batch before editing.");
+    }
+    const value = payload[key].trim();
+    if (value.length > max) throw new PolicyError("invalid-batch-edit", `That value can be up to ${max} characters.`);
+    optional[key] = value;
+  }
+  return { inventoryId, expected, values: { batchId, manufacturingDate, expiryDate, location, manufacturer, ...optional } };
 }
 
 async function updateBatchMetadata({ db, FieldValue, uid, email, payload, now }) {
@@ -49,7 +63,8 @@ async function updateBatchMetadata({ db, FieldValue, uid, email, payload, now })
     if (!snap.exists) throw new PolicyError("inventory-not-found", "That batch no longer exists.");
     const current = snap.data();
     if (current.voided === true) throw new PolicyError("batch-voided", "A voided batch cannot be edited.");
-    for (const key of FIELDS) {
+    const keys = [...FIELDS, ...OPTIONAL_FIELDS.map(([key]) => key).filter((key) => key in input.values)];
+    for (const key of keys) {
       if ((current[key] ?? "") !== input.expected[key]) {
         throw new PolicyError("batch-changed", "Batch details changed while you were editing. Review them and try again.");
       }
@@ -94,7 +109,7 @@ async function updateBatchMetadata({ db, FieldValue, uid, email, payload, now })
         }
       }
     }
-    const changed = Object.fromEntries(FIELDS.filter((key) => (current[key] ?? "") !== input.values[key]).map((key) => [key, input.values[key]]));
+    const changed = Object.fromEntries(keys.filter((key) => (current[key] ?? "") !== input.values[key]).map((key) => [key, input.values[key]]));
     if (!Object.keys(changed).length) return { inventoryId: input.inventoryId, changed: false };
     if (changed.expiryDate) changed.status = statusFromExpiry(input.values.expiryDate, manilaDateString(now));
     const auditRef = db.collection("inventoryAuditEvents").doc();
@@ -102,7 +117,7 @@ async function updateBatchMetadata({ db, FieldValue, uid, email, payload, now })
     tx.create(auditRef, {
       schemaVersion: 1, action: "batch_metadata_edited", actorUid: uid, actorEmail: email ?? null,
       actorRole: "admin", at: FieldValue.serverTimestamp(), inventoryId: input.inventoryId,
-      before: Object.fromEntries(FIELDS.map((key) => [key, current[key] ?? ""])),
+      before: Object.fromEntries(keys.map((key) => [key, current[key] ?? ""])),
       after: input.values,
     });
     return { inventoryId: input.inventoryId, changed: true };

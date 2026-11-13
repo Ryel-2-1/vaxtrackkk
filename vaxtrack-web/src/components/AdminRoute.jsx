@@ -5,6 +5,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { ROLES } from "../services/authorization";
 import { ACCESS_LOADING, watchRouteAccess } from "../services/liveRouteAccess";
+import TermsGate from "./terms/TermsGate";
 
 /**
  * The Admin area's gate.
@@ -44,7 +45,8 @@ function AdminRoute() {
   // decision is known, not even for one frame.
   if (state === "loading") return null;
   if (state === "redirect") return <Navigate to={redirectTo} replace />;
-  return <Outlet />;
+  // One-time Terms of Use and Data Privacy agreement (TermsGate.jsx).
+  return <TermsGate><Outlet /></TermsGate>;
 }
 
 export default AdminRoute;

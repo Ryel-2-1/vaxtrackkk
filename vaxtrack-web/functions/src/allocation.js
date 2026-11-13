@@ -54,7 +54,7 @@ const { isUsableStatus, isBatchVoided, isoDateOnly, manilaDateString, isUnconfir
 // Every allocation writes its Stock Allocation History event in the same
 // transaction (orderHistory.js).
 const { allocationEvents, prepareEvents, createPreparedEvents } = require("./orderHistory");
-const { usableThrough, outlastsDate } = require("./expiryGuard");
+const { usableThrough, outlastsDate, arrivesBy } = require("./expiryGuard");
 
 const ALLOCATION_VERSION_BACKORDER = 2;
 const ALLOCATION_STATES = Object.freeze(["awaiting_stock", "partially_reserved", "fully_reserved"]);
@@ -270,6 +270,10 @@ function planAllocation({ productKey, batches, orders, now }) {
         if (need === 0) break;
         if (batch.free === 0) continue;
         if (!outlastsDate(batch.data, needUsableThrough)) continue;
+        // Stock arriving after the delivery day is not reserved for it: the
+        // order keeps waiting (or is rescheduled), never dispatched before
+        // the stock exists (2026-11-13).
+        if (!arrivesBy(batch.data, needUsableThrough)) continue;
         const take = Math.min(need, batch.free);
         batch.free -= take;
         need -= take;

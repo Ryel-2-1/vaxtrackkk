@@ -439,6 +439,17 @@ aside.salesrep-sidebar .salesrep-logout {
 .salesrep-main .zero-rate-checkout-status svg { flex: none; margin-top: 1px; }
 .salesrep-main .zero-rate-checkout-status strong { font-size: 13px; }
 .salesrep-main .zero-rate-checkout-status p { margin: 4px 0 0 !important; color: inherit !important; font-size: 12px !important; line-height: 1.5; }
+/* An open request that no longer matches the edited cart (2026-11-13). */
+.salesrep-main .zero-rate-checkout-stale {
+  margin: 0 0 10px !important;
+  padding: 10px 12px;
+  border: 1px solid var(--warning-border);
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--warning-text) !important;
+  font-size: 12.5px !important;
+  line-height: 1.5;
+}
 .salesrep-main .zero-rate-checkout-denied,
 .salesrep-main .zero-rate-checkout-error { margin: 0 !important; color: #a52b23 !important; font-size: 12px !important; line-height: 1.5; }
 /* Compact delete control on the checkout rows (kept ≥36px target) */
@@ -722,6 +733,36 @@ aside.salesrep-sidebar .salesrep-logout {
   outline: none;
   border-color: var(--green-600, #16a34a);
   box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
+}
+
+/* Cart stock that arrives after the requested date (stockArrival.js). */
+.salesrep-page .place-v2-late-stock {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--warning-border);
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.salesrep-page .place-v2-late-stock button {
+  display: inline-flex;
+  align-items: center;
+  margin: 8px 0 0;
+  padding: 6px 12px;
+  min-height: 36px !important;
+  border: 1px solid var(--warning-border);
+  border-radius: 6px;
+  background: var(--white, #fff) !important;
+  color: var(--warning-text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.salesrep-page .place-v2-late-stock button:focus-visible {
+  outline: 2px solid var(--warning-text);
+  outline-offset: 2px;
 }
 
 /* Requested delivery time (optional arrival at the destination). Same field
@@ -3936,4 +3977,28 @@ body:has(> #root > .salesrep-page),
   #root .salesrep-main .place-v2-items-card {
     overflow-x: auto !important;
   }
+}
+
+/* Order Tracking: the Med Rep changes their order's delivery date (2026-11-13). */
+.salesrep-main .tracking-reschedule-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  min-height: 36px !important;
+  padding: 0 12px;
+  border: 1px solid var(--green-700);
+  border-radius: var(--radius-control);
+  background: #ffffff;
+  color: var(--green-700);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.salesrep-main .tracking-reschedule-btn:hover {
+  background: var(--green-50);
+}
+.salesrep-main .tracking-reschedule-btn:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
 }

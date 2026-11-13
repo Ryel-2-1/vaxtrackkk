@@ -54,7 +54,6 @@ export const PLAN_OBJECTIVE =
 
 export const PLAN_WARNINGS = Object.freeze({
   destinationHours: "Destination opening hours are not recorded in VaxTrack, so they are not checked.",
-  hubHours: "Hub hours are not recorded, so a departure is not checked against them.",
   traffic: "Times are planning estimates from the minutes entered; traffic and delays are not modelled.",
 });
 
@@ -77,14 +76,10 @@ function dateIssueOf(requestedDate, planDate) {
  * One stop's constraint for the plan day.
  * @returns {{bounds: [number, number] | null, dateIssue: null|"passed"|"later"|"missing", spec: object}}
  */
-export function constraintOf(stop, planDate, operatingHours = null) {
+export function constraintOf(stop, planDate) {
   const spec = requestedArrivalOf(stop);
   const dateIssue = dateIssueOf(stop.requestedDeliveryDate, planDate);
-  let bounds = dateIssue ? null : arrivalBounds(spec);
-  if (bounds && operatingHours) {
-    bounds = [Math.max(bounds[0], operatingHours.open), Math.min(bounds[1], operatingHours.close)];
-    if (bounds[0] > bounds[1]) bounds = null;
-  }
+  const bounds = dateIssue ? null : arrivalBounds(spec);
   return { spec, dateIssue, bounds };
 }
 
@@ -205,8 +200,8 @@ function runsOf(minutes) {
  *   requestedArrival?: object, travelMinutes: number|string|null,
  *   serviceMinutes: number|string|null}>} input.stops  in visiting order
  */
-export function planDeparture({ planDate, nowMinute = null, allowWaiting = false, departureMinute = null, longWaitMinutes = null, travelNote = null, slackMinutes = 0, stops = [], operatingHours }) {
-  const constraints = stops.map((s) => constraintOf(s, planDate, operatingHours));
+export function planDeparture({ planDate, nowMinute = null, allowWaiting = false, departureMinute = null, longWaitMinutes = null, travelNote = null, slackMinutes = 0, stops = [] }) {
+  const constraints = stops.map((s) => constraintOf(s, planDate));
   const missing = [];
   stops.forEach((s, i) => {
     if (readMinutes(s.travelMinutes) === null) missing.push({ stopId: s.id, kind: "travel", index: i });
@@ -215,7 +210,7 @@ export function planDeparture({ planDate, nowMinute = null, allowWaiting = false
   });
   const complete = missing.length === 0 && stops.length > 0;
   const dateBlocked = constraints.some((c) => c.dateIssue);
-  const earliestAllowed = Math.max(Number.isInteger(nowMinute) ? nowMinute : 0, operatingHours?.open ?? 0);
+  const earliestAllowed = Number.isInteger(nowMinute) ? nowMinute : 0;
 
   // ---- every departure minute of the day (complete inputs only) ----
   let window = null;
@@ -227,7 +222,7 @@ export function planDeparture({ planDate, nowMinute = null, allowWaiting = false
     const feasibleAll = [];
     let best = null;
     let fallback = null;
-    for (let d = operatingHours?.open ?? 0; d < (operatingHours?.close ?? DAY_MINUTES); d += 1) {
+    for (let d = 0; d < DAY_MINUTES; d += 1) {
       const w = walk(stops, constraints, d, allowWaiting);
       // Date conflicts cannot be fixed by any departure; the search looks for
       // the departure that best serves the other stops.
@@ -293,10 +288,8 @@ export function planDeparture({ planDate, nowMinute = null, allowWaiting = false
   const conflicts = rows.filter((r) => r.outcome === "early" || r.outcome === "late" || r.outcome === "date");
   // A planned departure already behind the clock cannot be followed as entered.
   const departureInPast = planned !== null && Number.isInteger(nowMinute) && planned < nowMinute;
-  // An explicit null means the demo deliberately has no hub hours policy.
-  const warnings = [PLAN_WARNINGS.destinationHours, ...(operatingHours === undefined ? [PLAN_WARNINGS.hubHours] : []), travelNote || PLAN_WARNINGS.traffic];
-  const departureOutsideHours = operatingHours && evaluated !== null && (evaluated < operatingHours.open || evaluated >= operatingHours.close);
-  if (departureOutsideHours) warnings.unshift("The departure is outside pharmacy operating hours, 7:00 AM–4:00 PM (PHT).");
+  // There are no hub operating hours (the 7 AM–4 PM rule was removed on 2026-11-13).
+  const warnings = [PLAN_WARNINGS.destinationHours, travelNote || PLAN_WARNINGS.traffic];
   // A long wait keeps vaccines in the cooler box: shown, never hidden in a total.
   if (Number.isInteger(longWaitMinutes)) {
     rows.forEach((r, i) => {
@@ -324,7 +317,7 @@ export function planDeparture({ planDate, nowMinute = null, allowWaiting = false
   }
 
   let status;
-  if (conflicts.length > 0 || departureInPast || departureOutsideHours) status = "conflict";
+  if (conflicts.length > 0 || departureInPast) status = "conflict";
   else if (!complete || (run && run.unknown > 0)) status = "incomplete";
   else if (run && run.unmet === 0) status = "feasible";
   else status = "conflict";

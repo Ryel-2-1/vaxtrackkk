@@ -40,6 +40,18 @@ function outlastsDate(batchData, isoDate) {
 }
 
 /**
+ * Is the batch at the hub by [isoDate]? (2026-11-13.) Add Stock accepts an
+ * arrival up to 30 days ahead; such stock must not be reserved for an order
+ * delivered before it arrives — the order keeps waiting for stock that does
+ * arrive in time, or is rescheduled. A batch with no arrival date (created
+ * before the field existed) is treated as on hand.
+ */
+function arrivesBy(batchData, isoDate) {
+  const arrival = isoDateOnly(batchData?.arrivalDate);
+  return arrival === null || arrival <= isoDate;
+}
+
+/**
  * Throw when any of [batches] ({ id, data }) is not usable through [isoDate].
  * The message gives both dates; [action] says what to do next. It does not
  * name the batch: batch IDs such as "AB_2026-001" read as identifiers to the
@@ -92,4 +104,4 @@ async function readReservedBatches(tx, db, orderIds) {
   return out;
 }
 
-module.exports = { usableThrough, coversDate, outlastsDate, assertBatchesCover, reservedInventoryIds, readReservedBatches };
+module.exports = { usableThrough, coversDate, outlastsDate, arrivesBy, assertBatchesCover, reservedInventoryIds, readReservedBatches };

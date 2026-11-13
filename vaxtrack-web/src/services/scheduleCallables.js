@@ -36,7 +36,8 @@ function rethrow(error) {
 
 /**
  * Move an order's delivery to a new Manila date and optional 'HH:MM' time.
- * Admin only (enforced on the server).
+ * Admin, or a Med Rep for their own order until the rider leaves (with a
+ * reason). Enforced on the server (functions/src/scheduleOperations.js).
  */
 export async function rescheduleOrderDelivery({ orderId, requestedDeliveryDate, scheduledDeliveryTime, reason }) {
   const payload = { orderId, requestedDeliveryDate };

@@ -14,6 +14,45 @@ export function matchingZeroRateOrderRequests(rows, { items, ...destination }) {
   return matchingZeroRateRequest(rows, destination).filter((row) => sameItems(row.items, items));
 }
 
+/**
+ * The Med Rep's latest OPEN zero-rating request (pending or approved, for a
+ * delivery today or later) that no longer matches the checkout, and what
+ * changed (2026-11-13). An approval applies only to the exact order it was
+ * asked for; when the rep edits the cart afterwards the checkout used to fall
+ * back to the first question with no word about the request, so it looked as
+ * if the request — and the order — had vanished. The cart is never touched;
+ * this only explains. Null when nothing open differs, or one matches exactly.
+ */
+export function zeroRateRequestNoLongerMatching(rows, { items, doctorId, doctorAddressId, requestedDeliveryDate, today }) {
+  const open = (Array.isArray(rows) ? rows : [])
+    .filter((row) => (row.status === "pending" || row.status === "approved") &&
+      (!today || !row.requestedDeliveryDate || row.requestedDeliveryDate >= today))
+    .sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0));
+  if (open.length === 0) return null;
+  const current = { doctorId, doctorAddressId, requestedDeliveryDate, items };
+  if (matchingZeroRateOrderRequests(open, current).length > 0) return null;
+  // Prefer the request for the doctor now chosen; otherwise the latest one.
+  const row = open.find((r) => r.doctorId === doctorId) ?? open[0];
+  const changes = [];
+  if (row.doctorId !== doctorId) changes.push("doctor");
+  else if (row.doctorAddressId !== doctorAddressId) changes.push("delivery address");
+  if (row.requestedDeliveryDate !== requestedDeliveryDate) changes.push("delivery date");
+  const asked = new Map((row.items || []).map((i) => [i.inventoryId, Number(i.quantity)]));
+  const now = new Map((items || []).map((i) => [i.inventoryId, Number(i.quantity)]));
+  const sameSet = asked.size === now.size && [...asked.keys()].every((id) => now.has(id));
+  if (!sameSet) changes.push("items");
+  else if ([...asked].some(([id, q]) => now.get(id) !== q)) changes.push("vial counts");
+  if (changes.length === 0) return null;
+  const list = changes.length === 1 ? changes[0] : `${changes.slice(0, -1).join(", ")} and ${changes.at(-1)}`;
+  const state = row.status === "approved" ? "approved" : "waiting for Admin";
+  return {
+    request: row,
+    changes,
+    text: `Your zero-rating request (${state}) no longer matches this cart: the ${list} changed. `
+      + "Nothing in your cart was removed. Change it back to use that request, or request zero-rating again for these details.",
+  };
+}
+
 /** Pending reviews always wait; saved attempts can recover during a listener outage. */
 export function zeroRateCheckoutBlock({ requests, ready, loadError, sending, recovering = false }) {
   if (sending) return "Sending your zero-rating request. Please wait before finalizing.";

@@ -1407,7 +1407,17 @@ service cloud.firestore {
 
     // ---- a user's own profile edits ("My profile") ----
     function selfProfileFields() {
-      return ['name', 'fullName', 'phone', 'contactNumber', 'updatedAt'];
+      return ['name', 'fullName', 'phone', 'contactNumber', 'updatedAt'].concat(termsUserFields());
+    }
+    // Terms of Use and Data Privacy agreement (2026-11-12): written only by
+    // the account holder, both fields together, with the server's time.
+    function termsUserFields() {
+      return ['termsAcceptedVersion', 'termsAcceptedAt'];
+    }
+    function termsAcceptanceValid(d) {
+      return d.get('termsAcceptedVersion', null) is string
+        && d.termsAcceptedVersion.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.get('termsAcceptedAt', null) == request.time;
     }
     // Written by the Rider app to the rider's own record
     // (vaxtrack_mobile/lib/services/location_service.dart).
@@ -1430,7 +1440,8 @@ service cloud.firestore {
         && (!changed.hasAny(['fullName']) || selfNameValid(d.fullName))
         && (!changed.hasAny(['phone']) || selfPhoneValid(d.phone))
         && (!changed.hasAny(['contactNumber']) || selfPhoneValid(d.contactNumber))
-        && (!changed.hasAny(['updatedAt']) || d.updatedAt == request.time);
+        && (!changed.hasAny(['updatedAt']) || d.updatedAt == request.time)
+        && (!changed.hasAny(termsUserFields()) || termsAcceptanceValid(d));
     }
 
     // The stored status as the access resolver reads it: trimmed, lowercased,
@@ -1513,6 +1524,8 @@ service cloud.firestore {
           && request.resource.data.status == 'pending'
           && request.resource.data.role in ['salesrep', 'dispatcher', 'rider']
           && !request.resource.data.keys().hasAny(territoryUserFields())
+          // An application may carry the applicant's own agreement to the terms.
+          && (!request.resource.data.keys().hasAny(termsUserFields()) || termsAcceptanceValid(request.resource.data))
           // Rider vehicle type must stay identical to kRiderVehicleType in
           // vaxtrack_mobile/lib/utils/rider_registration.dart.
           && (
@@ -1548,6 +1561,8 @@ service cloud.firestore {
       // system without an approved Admin — something rules cannot count.
       allow update: if (isAdmin() && isKnownRole() && isKnownStatus() && adminStatusChangeAllowed()
             && !changedKeys().hasAny(['role'])
+            // Nobody agrees on someone else's behalf, not even an Admin.
+            && !changedKeys().hasAny(termsUserFields())
             && (!changedKeys().hasAny(['status']) || resource.data.get('role', null) == 'rider')
             && (!changedKeys().hasAny(territoryUserFields()) || territoryWriteValid()))
         || (
@@ -1561,7 +1576,11 @@ service cloud.firestore {
           )
         );
 
-      allow delete: if isAdmin();
+      // No client deletes a user record (2026-11-12). Access is removed
+      // through setStaffStatus, which logs the change and keeps an approved
+      // Admin; a direct delete skipped both and let an Admin remove their own
+      // record. The web app never called it.
+      allow delete: if false;
     }
 
     // Who created staff and changed roles or status (staffAccounts.js). Server-written.

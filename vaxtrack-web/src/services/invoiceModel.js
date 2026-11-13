@@ -606,6 +606,31 @@ export function isServerPricedOrder(order) {
 }
 
 /**
+ * The lot text an invoice line prints in its LN cell (2026-11-13). A
+ * server-priced draft carries `lotNumber`: the lots actually reserved or
+ * delivered (functions/src/invoiceLots.js), which can differ from the batch
+ * the line was quoted from. Older invoices and manual lines print their Batch ID.
+ */
+export function invoiceLotText(item) {
+  return typeof item?.lotNumber === "string" ? item.lotNumber : item?.batchId || "";
+}
+
+/**
+ * True while a server-priced invoice cannot yet name the lots that hold the
+ * order's stock: no draft has been saved since lots were recorded, and some of
+ * the order is reserved. The browser cannot read reservations, so saving the
+ * draft (the server reads them) must come before printing or exporting.
+ */
+export function invoiceLotsNeedSave({ order, invoice }) {
+  if (!isServerPricedOrder(order) || invoice?.invoiceStatus === "issued") return false;
+  const reserved = (Array.isArray(order?.items) ? order.items : [])
+    .some((it) => Number.isInteger(it?.reservedQuantity) && it.reservedQuantity > 0);
+  if (!reserved) return false;
+  const lines = Array.isArray(invoice?.items) ? invoice.items : [];
+  return !lines.some((it) => Array.isArray(it?.allocatedLots) && it.allocatedLots.length > 0);
+}
+
+/**
  * An order priced under the agreement model (functions/src/negotiatedPricing.js):
  * its SC/PWD discounts were recorded PER LINE when it was placed, with VAT per
  * line after each discount. Its invoice follows the client's rule — no

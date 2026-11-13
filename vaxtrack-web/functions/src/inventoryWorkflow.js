@@ -90,9 +90,18 @@ function statusFromExpiry(expiryIso, todayIso) {
   return "Stable";
 }
 
+/** An optional free-text batch field: trimmed, "" when blank, refused when too long. */
+function optionalText(value, max, label) {
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string") throw new PolicyError("invalid-stock-batch", `${label} must be text.`);
+  const trimmed = value.trim();
+  if (trimmed.length > max) throw new PolicyError("invalid-stock-batch", `${label} can be up to ${max} characters.`);
+  return trimmed;
+}
+
 /** Server-side Add Stock validation; mirrors src/services/stockBatchDates.js. */
 function validateStockBatchPayload(payload, now) {
-  const allowed = ["vaccineId", "batchId", "manufacturingDate", "arrivalDate", "expiryDate", "quantity", "purchaseCostCentavos", "sellingPriceCentavos", "priceIsVatInclusive", "manufacturer", "largeQuantityConfirmed"];
+  const allowed = ["vaccineId", "batchId", "manufacturingDate", "arrivalDate", "expiryDate", "quantity", "purchaseCostCentavos", "sellingPriceCentavos", "priceIsVatInclusive", "manufacturer", "lotNumber", "supplier", "largeQuantityConfirmed"];
   for (const key of Object.keys(payload ?? {})) {
     if (!allowed.includes(key)) throw new PolicyError("unknown-field", `Unexpected field: ${key}.`);
   }
@@ -134,6 +143,11 @@ function validateStockBatchPayload(payload, now) {
   }
   const manufacturer =
     typeof payload?.manufacturer === "string" ? payload.manufacturer.trim().slice(0, 120) : "";
+  // Optional (2026-11-13). Lot Number: the manufacturer's printed lot, which the
+  // invoice prints in its LN cell (functions/src/invoiceLots.js); blank prints
+  // the Batch ID. Supplier: who the stock was bought from; internal only.
+  const lotNumber = optionalText(payload?.lotNumber, 64, "Lot number");
+  const supplier = optionalText(payload?.supplier, 120, "Supplier");
   return {
     vaccineId,
     batchId,
@@ -145,6 +159,8 @@ function validateStockBatchPayload(payload, now) {
     sellingPriceCentavos: price.value,
     priceIsVatInclusive: payload.priceIsVatInclusive ?? true,
     manufacturer,
+    lotNumber,
+    supplier,
     status: statusFromExpiry(expiry, today),
   };
 }
@@ -180,6 +196,8 @@ async function addStockBatchWithAllocation({ db, FieldValue, uid, payload, now }
       manufacturer: input.manufacturer || (typeof vaccine.manufacturer === "string" ? vaccine.manufacturer : ""),
       internalSku: typeof vaccine.internalSku === "string" ? vaccine.internalSku : "",
       batchId: input.batchId,
+      lotNumber: input.lotNumber,
+      supplier: input.supplier,
       manufacturingDate: input.manufacturingDate,
       arrivalDate: input.arrivalDate,
       expiryDate: input.expiryDate,

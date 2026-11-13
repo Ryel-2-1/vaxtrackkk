@@ -130,8 +130,8 @@ async function loadUser(db, uid) {
  */
 // statutoryDiscountsOffered: tests only (an order placed before SC/PWD was
 // withdrawn). index.js never passes it.
-async function createOrderWithReservation({ db, FieldValue, uid, email = null, payload, now, statutoryDiscountsOffered = false, enforceOperatingHours = true }) {
-  const result = await createOrderTransaction({ db, FieldValue, uid, email, payload, now, statutoryDiscountsOffered, enforceOperatingHours });
+async function createOrderWithReservation({ db, FieldValue, uid, email = null, payload, now, statutoryDiscountsOffered = false }) {
+  const result = await createOrderTransaction({ db, FieldValue, uid, email, payload, now, statutoryDiscountsOffered });
   const { productKeys, ...response } = result;
   // Allocation runs AFTER the order commits, per product, in its own bounded
   // transactions — so a new order competes for stock in priority order instead
@@ -197,7 +197,7 @@ function allocationFromOrder(order) {
   };
 }
 
-async function createOrderTransaction({ db, FieldValue, uid, email = null, payload, now, statutoryDiscountsOffered = false, enforceOperatingHours }) {
+async function createOrderTransaction({ db, FieldValue, uid, email = null, payload, now, statutoryDiscountsOffered = false }) {
   const userData = await loadUser(db, uid);
   requireRole(userData, "salesrep");
 
@@ -217,7 +217,6 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
     requestedDeliveryDate,
     now,
     validateFuture: false,
-    enforceOperatingHours: false, // Parse old retries unchanged; new keys are checked below.
   });
 
   // v3 binds both date and arrival. Older keys retain their original hash;
@@ -279,7 +278,7 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
       }
       const original = priorSnap.data();
       const originalArrival = normalizeRequestedArrival(original.requestedArrival, {
-        requestedDeliveryDate: original.requestedDeliveryDate, now, validateFuture: false, enforceOperatingHours: false,
+        requestedDeliveryDate: original.requestedDeliveryDate, now, validateFuture: false,
       });
       if (original.requestedDeliveryDate !== requestedDeliveryDate ||
           JSON.stringify(originalArrival) !== JSON.stringify(requestedArrival)) {
@@ -301,7 +300,7 @@ async function createOrderTransaction({ db, FieldValue, uid, email = null, paylo
     // No committed order exists under this key: past requests are still
     // refused. The caller cannot opt out of these checks through its payload.
     normalizeRequestedDeliveryDate(requestedDeliveryDate, now);
-    normalizeRequestedArrival(requestedArrival, { requestedDeliveryDate, now, enforceOperatingHours });
+    normalizeRequestedArrival(requestedArrival, { requestedDeliveryDate, now });
 
     const doctorSnap = await tx.get(doctorRef);
     const doctorAddressSnap = await tx.get(doctorAddressRef);

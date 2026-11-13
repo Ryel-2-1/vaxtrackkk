@@ -825,3 +825,38 @@ test("an order that records no price convention is refused, never defaulted", as
   assert.equal(await codeOf(save(ADMIN, { orderId: ORDER, presentation: PRESENTATION })), "order-snapshot-invalid");
   assert.equal(await invoice(ORDER), null, "nothing was written");
 });
+
+test("invoice: a draft names the lots actually reserved, and issuing keeps them (2026-11-13)", async () => {
+  await seed();
+  // Line 0 was quoted from inv1, but allocation filled it from two other batches.
+  await db.collection("inventory").doc("invA").set({ batchId: "BT-A", lotNumber: "LOT-77A", expiryDate: "2027-03-01" });
+  await db.collection("inventory").doc("invB").set({ batchId: "BT-B", expiryDate: "2027-05-01" });
+  await db.collection("inventory").doc("inv2").set({ batchId: "FLU-STG-002", lotNumber: "FL-9", expiryDate: "2027-08-01" });
+  await db.collection("inventoryReservations").doc(ORDER).set({
+    status: "consumed",
+    items: [
+      { lineIndex: 0, inventoryId: "invA", batchId: "BT-A", quantity: 3 },
+      { lineIndex: 0, inventoryId: "invB", batchId: "BT-B", quantity: 1 },
+      { lineIndex: 1, inventoryId: "inv2", batchId: "FLU-STG-002", quantity: 3 },
+    ],
+  });
+  try {
+    await save(ADMIN, { orderId: ORDER, presentation: PRESENTATION });
+    let inv = await invoice(ORDER);
+    assert.equal(inv.items[0].lotNumber, "LOT-77A (3), BT-B (1)");
+    assert.equal(inv.items[0].expiry, "2027-03-01, 2027-05-01");
+    assert.equal(inv.items[0].batchId, "MOD-STG-001", "the quoted batch is kept for traceability");
+    assert.equal(inv.items[0].lineTotalCentavos, 4 * PRICE, "prices untouched");
+    assert.equal(inv.items[1].lotNumber, "FL-9");
+    assert.equal(inv.subtotalCentavos, SUBTOTAL);
+    await issue(ADMIN, { orderId: ORDER });
+    inv = await invoice(ORDER);
+    assert.equal(inv.invoiceStatus, "issued");
+    assert.equal(inv.items[0].lotNumber, "LOT-77A (3), BT-B (1)", "issued as drafted");
+  } finally {
+    for (const c of ["inventory", "inventoryReservations"]) {
+      const snap = await db.collection(c).get();
+      await Promise.all(snap.docs.map((d) => d.ref.delete()));
+    }
+  }
+});

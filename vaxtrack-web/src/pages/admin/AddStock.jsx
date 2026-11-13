@@ -39,6 +39,10 @@ function AddStock() {
   const [vaccines, setVaccines] = useState([]);
   const [selectedVaccineId, setSelectedVaccineId] = useState("");
   const [manufacturer, setManufacturer] = useState("");
+  // Optional (2026-11-13): who supplied the stock, internal only; and the
+  // manufacturer's printed lot, which the invoice prints as LN.
+  const [supplier, setSupplier] = useState("");
+  const [lotNumber, setLotNumber] = useState("");
   const [batchId, setBatchId] = useState("");
   // Date-only 'YYYY-MM-DD' straight from the date input; never a browser Date.
   const [manufacturingDate, setManufacturingDate] = useState("");
@@ -295,6 +299,8 @@ function AddStock() {
       const report = await addStockBatch({
         vaccineId: selectedVaccine.id,
         manufacturer: cleanedManufacturer,
+        supplier: supplier.trim(),
+        lotNumber: lotNumber.trim(),
         batchId: cleanedBatchId,
         manufacturingDate,
         arrivalDate,
@@ -416,6 +422,36 @@ function AddStock() {
                 {fieldMessage("manufacturer")}
                 <small id="stock-manufacturer-note" className="input-helper">
                   Filled in from the selected vaccine when it has one on record.
+                </small>
+              </div>
+
+              <div>
+                <label htmlFor="stock-supplier">Supplier <span className="input-optional">(optional)</span></label>
+                <input
+                  id="stock-supplier"
+                  placeholder="Who the stock was bought from"
+                  maxLength={120}
+                  value={supplier}
+                  onChange={(e) => setSupplier(e.target.value)}
+                  aria-describedby="stock-supplier-note"
+                />
+                <small id="stock-supplier-note" className="input-helper">
+                  For your records. Not printed on invoices.
+                </small>
+              </div>
+
+              <div>
+                <label htmlFor="stock-lot-number">Lot Number <span className="input-optional">(optional)</span></label>
+                <input
+                  id="stock-lot-number"
+                  placeholder="As printed on the box or vial"
+                  maxLength={64}
+                  value={lotNumber}
+                  onChange={(e) => setLotNumber(e.target.value)}
+                  aria-describedby="stock-lot-number-note"
+                />
+                <small id="stock-lot-number-note" className="input-helper">
+                  Printed as LN on invoices. Left blank, the Batch ID is printed.
                 </small>
               </div>
             </div>

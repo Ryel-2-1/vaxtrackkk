@@ -23,7 +23,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const servicesDir = join(here, "..", "src", "services");
-const pharmacyHoursDemoUrl = pathToFileURL(join(here, "..", "functions", "src", "pharmacyHoursDemo.json")).href;
 
 /** Fresh in-memory store. Collections are plain maps of id -> {data, version}. */
 export function createStore(seed = {}) {
@@ -210,7 +209,6 @@ export function httpsCallable(_fns, name) {
       .replaceAll('"firebase/firestore"', '"./__firestore.mjs"')
       .replaceAll('"firebase/functions"', '"./__functions.mjs"')
       .replaceAll('"../firebase"', '"./__firebase.mjs"')
-      .replace('"../../functions/src/pharmacyHoursDemo.json"', JSON.stringify(pharmacyHoursDemoUrl))
       // Sibling imports are written extensionless (`./orderLocation`), which
       // Vite resolves and bare Node does not. Adding the extension keeps the
       // real inter-service wiring intact inside the temp directory.

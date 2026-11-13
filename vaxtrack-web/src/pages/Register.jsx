@@ -26,6 +26,8 @@ import {
   registrationErrorField,
   validateApplication,
 } from "../services/registration";
+import TermsContent from "../components/terms/TermsContent";
+import { TERMS_CONSENT_LABEL, TERMS_REQUIRED_MESSAGE, termsAcceptanceFields } from "../services/termsAgreement";
 import "./Auth.css";
 
 // Each validated field's input id (the message is #register-error).
@@ -35,6 +37,7 @@ const REGISTER_FIELD_IDS = {
   role: "register-role",
   password: "register-password",
   confirmPassword: "register-confirm-password",
+  terms: "register-terms",
 };
 
 // Applying for access creates the visitor's OWN login and a pending profile.
@@ -52,6 +55,8 @@ function Register() {
   const [role, setRole] = useState(APPLICABLE_ROLES[0].value);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  // Terms of Use and Data Privacy agreement: must be ticked to apply.
+  const [agreed, setAgreed] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const strength = passwordStrength(password);
   const [error, setError] = useState("");
@@ -99,6 +104,10 @@ function Register() {
       fail(check.message, check.field ?? null);
       return;
     }
+    if (!agreed) {
+      fail(TERMS_REQUIRED_MESSAGE, "terms");
+      return;
+    }
 
     submittingRef.current = true;
     setSubmitting(true);
@@ -116,6 +125,8 @@ function Register() {
             role,
             phone,
           }),
+          // The applicant agreed on this form; recorded with the server's time.
+          ...termsAcceptanceFields(serverTimestamp()),
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -280,6 +291,27 @@ function Register() {
               autoComplete="new-password"
             />
           </div>
+
+          <details className="terms-signup">
+            <summary>Read the Terms of Use and Data Privacy Agreement</summary>
+            <div className="terms-scroll" tabIndex={0} role="region" aria-label="Agreement text">
+              <TermsContent />
+            </div>
+          </details>
+          <label className="terms-consent" htmlFor={REGISTER_FIELD_IDS.terms}>
+            <input
+              id={REGISTER_FIELD_IDS.terms}
+              type="checkbox"
+              checked={agreed}
+              disabled={submitting}
+              onChange={(e) => {
+                setAgreed(e.target.checked);
+                edited("terms");
+              }}
+              {...a11y("terms")}
+            />
+            <span>{TERMS_CONSENT_LABEL}</span>
+          </label>
 
           {error && (
             <div id="register-error" className="auth-error" role="alert">

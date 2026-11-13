@@ -31,7 +31,6 @@ import { confirmRiderReturnToHub, subscribeRiderDispatchStates } from "../../ser
 import { cargoGroupDispatch, ridersReturningToHub } from "../../services/riderTrip";
 import DispatcherDialogLayer from "./DispatcherDialogLayer";
 import DeparturePlanner from "../../components/dispatch/DeparturePlanner";
-import { ACTIVE_PHARMACY_HOURS, dispatchHoursWarning } from "../../services/pharmacyHours";
 import { subscribeRoutingSettings } from "../../services/routingSettingsService";
 import { routingSettingsOf } from "../../services/routingSettings";
 import { subscribeClinics } from "../../services/clinicService";
@@ -387,11 +386,6 @@ function DispatcherCargoLoading() {
           onCancel={() => setConfirmGroup(null)}
           onConfirm={() => handleFinalize(confirmGroup)}
         >
-          {ACTIVE_PHARMACY_HOURS && <p className="cl-hint">Pharmacy hours: 7:00 AM–4:00 PM every day (PHT). Riders should be back at the hub by 4:00 PM.</p>}
-          {(() => {
-            const warning = dispatchHoursWarning(confirmGroup.returnPlan, new Date(), ACTIVE_PHARMACY_HOURS);
-            return warning ? <p className="m-dialog-warning" role="note">{warning}</p> : null;
-          })()}
           {/* Non-blocking: dispatch stays available without a route ETA.
               "Generate route first" leaves the dialog for Delivery Monitoring,
               on the first order without a route (2026-11-11). */}

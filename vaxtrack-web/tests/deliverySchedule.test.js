@@ -184,7 +184,8 @@ test("Dispatcher calendar looks up visible order owners without reading the staf
   const page = code("src/components/schedule/DeliveryCalendar.jsx");
   const lookup = code("src/services/orderMedRepNames.js");
   assert.match(page, /if \(!isAdmin\) return undefined;\s*return subscribeUsers\(/);
-  assert.match(page, /fetchOrderMedRepNames\(visibleLookupIds\)/);
+  // Only the visible orders not looked up yet this visit (2026-11-13).
+  assert.match(page, /fetchOrderMedRepNames\(missing\)/);
   assert.match(lookup, /httpsCallable\(getFunctions\(app, "asia-southeast1"\), "getOrderMedRepNames"\)/);
 });
 

@@ -188,10 +188,10 @@ test("a flexible-day order still has to arrive on its day", () => {
   assert.equal(row(r, "F").outcome, "late");
 });
 
-test("operating hours are reported unknown, never assumed open", () => {
+test("destination hours are reported unknown, never assumed open; there are no hub hours", () => {
   const r = plan([A]);
   assert.ok(r.warnings.includes(PLAN_WARNINGS.destinationHours));
-  assert.ok(r.warnings.includes(PLAN_WARNINGS.hubHours));
+  assert.equal(PLAN_WARNINGS.hubHours, undefined);
   assert.match(r.objective, /least total waiting, then the earliest/);
   assert.match(r.objective, /not optimised here/);
 });
@@ -215,13 +215,8 @@ test("the planner UI saves only the trip route on 'Use this plan', and never reu
   assert.deepEqual(imports.sort(), [
     "../../services/departurePlanner", "../../services/liveDataErrors", "../../services/orderService",
     "../../services/requestedArrival", "../../services/routeService", "../../services/timeAwareRouting",
-    "../../services/pharmacyHours",
     "lucide-react", "react",
   ].sort());
-  // The hours helper reads only the shared demo configuration and a build-time setting.
-  const hours = readFileSync(new URL("../src/services/pharmacyHours.js", import.meta.url), "utf8");
-  assert.deepEqual([...hours.matchAll(/from "([^"]+)"/g)].map((match) => match[1]), ["../../functions/src/pharmacyHoursDemo.json"]);
-  assert.doesNotMatch(hours, /httpsCallable|setDoc|updateDoc|addDoc|finalizeRiderDispatch|updateOrderStatus|localStorage|sessionStorage/);
   assert.match(ui, /import \{ saveOrderRoute, saveRiderTripRoute \} from "\.\.\/\.\.\/services\/orderService";/);
   assert.match(ui, /import \{ fetchRoute, fetchTravelMatrix, routeThroughStops \} from "\.\.\/\.\.\/services\/routeService";/);
   // One save helper: a trip for several stops, the order's own route for one.

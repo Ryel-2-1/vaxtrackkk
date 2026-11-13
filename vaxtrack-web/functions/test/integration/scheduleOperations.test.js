@@ -28,6 +28,7 @@ const ADMIN = "admin_ok";
 const ADMIN_PENDING = "admin_pending";
 const DISPATCHER = "disp_ok";
 const MEDREP = "rep_ok";
+const OTHER_MEDREP = "rep_other";
 const RIDER = "rider_ok";
 
 // A server-priced, reserved, destination-snapshotted order — every field the
@@ -65,6 +66,7 @@ const usersSeeded = (async () => {
   await db.collection("users").doc(ADMIN_PENDING).set({ role: "admin", status: "pending" });
   await db.collection("users").doc(DISPATCHER).set({ role: "dispatcher", status: "approved" });
   await db.collection("users").doc(MEDREP).set({ role: "salesrep", status: "approved" });
+  await db.collection("users").doc(OTHER_MEDREP).set({ role: "salesrep", status: "approved" });
   await db.collection("users").doc(RIDER).set({ role: "rider", status: "approved" });
 })();
 
@@ -177,7 +179,8 @@ test("refusals leave the order and its history untouched", async (t) => {
   const before = await order(ids.o1);
   const cases = [
     ["dispatcher", DISPATCHER, { orderId: ids.o1, requestedDeliveryDate: "2026-10-12" }, "wrong-role"],
-    ["Med Rep", MEDREP, { orderId: ids.o1, requestedDeliveryDate: "2026-10-12" }, "wrong-role"],
+    ["Med Rep without a reason", MEDREP, { orderId: ids.o1, requestedDeliveryDate: "2026-10-12" }, "reschedule-reason-required"],
+    ["another Med Rep", OTHER_MEDREP, { orderId: ids.o1, requestedDeliveryDate: "2026-10-12", reason: "Doctor asked" }, "order-not-found"],
     ["rider", RIDER, { orderId: ids.o1, requestedDeliveryDate: "2026-10-12" }, "wrong-role"],
     ["pending admin", ADMIN_PENDING, { orderId: ids.o1, requestedDeliveryDate: "2026-10-12" }, "not-approved"],
     ["impossible date", ADMIN, { orderId: ids.o1, requestedDeliveryDate: "2026-02-31" }, "invalid-schedule-date"],
@@ -228,6 +231,66 @@ test("a reschedule past a reserved batch's expiry is refused; a date it still co
     );
     const ok = await reschedule(ADMIN, { orderId: ids.held, requestedDeliveryDate: "2026-10-14", reason: "Clinic asked for the 14th" });
     assert.equal(ok.requestedDeliveryDate, "2026-10-14", "the day before expiry is fine");
+  } finally {
+    await db.collection("inventoryReservations").doc(ids.held).delete();
+    await db.collection("inventory").doc(batchId).delete();
+  }
+});
+
+
+test("a Med Rep moves their own order's date, with a reason, until the rider leaves", async (t) => {
+  const ids = await seed({
+    waiting: baseOrder(),
+    assigned: baseOrder({ status: "assigned", assignedRiderId: RIDER }),
+    loading: baseOrder({ status: "loading", assignedRiderId: RIDER }),
+    transit: baseOrder({ status: "in_transit", assignedRiderId: RIDER }),
+    delayed: baseOrder({ status: "delayed", assignedRiderId: RIDER }),
+  });
+  const reason = "Doctor asked for it a day earlier";
+  for (const name of ["waiting", "assigned", "loading"]) {
+    await t.test(`allowed while ${name}`, async () => {
+      const before = await order(ids[name]);
+      const r = await reschedule(MEDREP, { orderId: ids[name], requestedDeliveryDate: "2026-10-07", reason });
+      assert.equal(r.requestedDeliveryDate, "2026-10-07");
+      const after = await order(ids[name]);
+      assert.equal(after.originalRequestedDeliveryDate, "2026-10-08");
+      assert.equal(after.scheduleUpdatedByUid, MEDREP);
+      assert.equal(after.scheduleChangeReason, reason);
+      assert.deepEqual(withoutSchedule(after), withoutSchedule(before), "only the schedule moves");
+      const [e] = await events(ids[name]);
+      assert.equal(e.changedByRole, "salesrep");
+      assert.equal(e.orderStatus, name === "waiting" ? "pending_dispatch" : name);
+    });
+  }
+  for (const name of ["transit", "delayed"]) {
+    await t.test(`refused once the rider has left (${name}); an Admin still can`, async () => {
+      assert.equal(await codeOf(reschedule(MEDREP, { orderId: ids[name], requestedDeliveryDate: "2026-10-07", reason })), "reschedule-after-departure");
+      assert.equal((await events(ids[name])).length, 0);
+      assert.equal((await reschedule(ADMIN, { orderId: ids[name], requestedDeliveryDate: "2026-10-07" })).requestedDeliveryDate, "2026-10-07");
+    });
+  }
+  await t.test("the same date limits apply: today is fine, the past is not", async () => {
+    assert.equal(await codeOf(reschedule(MEDREP, { orderId: ids.waiting, requestedDeliveryDate: "2026-10-04", reason })), "schedule-date-in-past");
+    assert.equal((await reschedule(MEDREP, { orderId: ids.waiting, requestedDeliveryDate: "2026-10-05", reason })).requestedDeliveryDate, "2026-10-05");
+  });
+});
+
+test("a reschedule to before reserved stock arrives is refused; its arrival day is fine (2026-11-13)", async () => {
+  const ids = await seed({ held: baseOrder({ allocationVersion: 2, requestedDeliveryDate: "2026-10-20" }) });
+  const batchId = `arr_${ids.held}`;
+  await db.collection("inventory").doc(batchId).set({ batchId: "LOT-ARR", quantity: 10, reservedQuantity: 2, arrivalDate: "2026-10-12", expiryDate: "2027-06-01" });
+  await db.collection("inventoryReservations").doc(ids.held).set({
+    orderId: ids.held, status: "reserved", items: [{ lineIndex: 0, inventoryId: batchId, quantity: 2 }], inventoryIds: [batchId],
+  });
+  try {
+    await assert.rejects(
+      reschedule(MEDREP, { orderId: ids.held, requestedDeliveryDate: "2026-10-10", reason: "Doctor asked for it earlier" }),
+      (e) => e.code === "reserved-batch-arrives-later" && /arrives on 2026-10-12, after 2026-10-10\. Choose 2026-10-12 or a later date\./.test(e.message)
+        && !/LOT-ARR/.test(e.message)
+    );
+    assert.equal((await order(ids.held)).requestedDeliveryDate, "2026-10-20", "nothing changed");
+    const ok = await reschedule(MEDREP, { orderId: ids.held, requestedDeliveryDate: "2026-10-12", reason: "Doctor asked for it earlier" });
+    assert.equal(ok.requestedDeliveryDate, "2026-10-12", "the arrival day itself is fine");
   } finally {
     await db.collection("inventoryReservations").doc(ids.held).delete();
     await db.collection("inventory").doc(batchId).delete();

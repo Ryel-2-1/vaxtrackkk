@@ -950,6 +950,24 @@
   color: var(--gray-500);
 }
 
+/* Server-priced draft not yet saved: its lots are filled in on save. */
+.inv-lot-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--warning-border);
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.inv-lot-note svg {
+  flex: none;
+}
+
 /* ===== (Legacy A4 document styles below are retained but unused by the new
    template markup; kept to avoid churn. The shared .inv-input base + the
    .inv-doc--preview rule remain in effect.) ===== */

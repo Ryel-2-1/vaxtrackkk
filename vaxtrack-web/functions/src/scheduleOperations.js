@@ -28,7 +28,7 @@
 const { PolicyError, isoDateOnly, manilaDateString, validateDocumentId, validateReason } = require("./policy");
 const { loadUser, requireRole } = require("./operations");
 const { ALLOCATION_VERSION_BACKORDER, allocationPriorityKey } = require("./allocation");
-const { usableThrough, assertBatchesCover, readReservedBatches } = require("./expiryGuard");
+const { usableThrough, arrivesBy, assertBatchesCover, readReservedBatches } = require("./expiryGuard");
 
 const ORDERS = "orders";
 const SCHEDULE_EVENTS = "scheduleEvents";
@@ -61,9 +61,24 @@ function normalizeScheduleDate(value, now) {
 
 const PAYLOAD_KEYS = ["orderId", "requestedDeliveryDate", "scheduledDeliveryTime", "reason"];
 
+/**
+ * A Med Rep may move the delivery date of THEIR OWN order (2026-11-13), e.g.
+ * when the doctor asks for it a day earlier, but only until the rider leaves:
+ * while it waits for dispatch, is assigned, or is being loaded. A reason is
+ * required. Admin keeps the wider power above (any non-terminal status).
+ */
+const MED_REP_RESCHEDULABLE = new Set(["pending_dispatch", "assigned", "loading"]);
+
+function callerRole(userData) {
+  const role = typeof userData?.role === "string" ? userData.role.trim().toLowerCase() : "";
+  return role === "salesrep" ? "salesrep" : "admin";
+}
+
 async function rescheduleOrderDelivery({ db, FieldValue, uid, payload, now }) {
   const userData = await loadUser(db, uid);
-  requireRole(userData, "admin");
+  // An approved Admin, or an approved Med Rep (checked against the order below).
+  const role = callerRole(userData);
+  requireRole(userData, role);
 
   const input = payload && typeof payload === "object" && !Array.isArray(payload) ? payload : {};
   for (const key of Object.keys(input)) {
@@ -78,6 +93,9 @@ async function rescheduleOrderDelivery({ db, FieldValue, uid, payload, now }) {
     input.reason === undefined || input.reason === null || String(input.reason).trim() === ""
       ? null
       : validateReason(input.reason, "reason for the schedule change");
+  if (role === "salesrep" && reason === null) {
+    throw new PolicyError("reschedule-reason-required", "Give a reason for the new delivery date, e.g. the doctor asked for it earlier.");
+  }
 
   const orderRef = db.collection(ORDERS).doc(orderId);
   return db.runTransaction(async (tx) => {
@@ -90,6 +108,18 @@ async function rescheduleOrderDelivery({ db, FieldValue, uid, payload, now }) {
     if (TERMINAL_STATUSES.has(status)) {
       throw new PolicyError("order-closed", "A delivered or cancelled order cannot be rescheduled.");
     }
+    if (role === "salesrep") {
+      if (order.createdByUid !== uid) {
+        // Same answer as a missing order: a Med Rep learns nothing about others' orders.
+        throw new PolicyError("order-not-found", "That order no longer exists.");
+      }
+      if (!MED_REP_RESCHEDULABLE.has(status)) {
+        throw new PolicyError(
+          "reschedule-after-departure",
+          "This order has already left with the rider. Ask the Dispatcher or an Admin to change its delivery date."
+        );
+      }
+    }
 
     const previousDate = typeof order.requestedDeliveryDate === "string" ? order.requestedDeliveryDate : null;
     const previousTime = typeof order.scheduledDeliveryTime === "string" ? order.scheduledDeliveryTime : null;
@@ -101,11 +131,25 @@ async function rescheduleOrderDelivery({ db, FieldValue, uid, payload, now }) {
     // for dispatch to discover.
     // Read-only (expiryGuard owns the read, so this module never names stock).
     const reserved = (await readReservedBatches(tx, db, [orderId])).get(orderId);
-    assertBatchesCover(reserved, usableThrough({ requestedDeliveryDate: date }, now), {
+    const needBy = usableThrough({ requestedDeliveryDate: date }, now);
+    assertBatchesCover(reserved, needBy, {
       code: "reserved-batch-expires-first",
       outlast: true,
       action: "Choose an earlier date, or cancel the order and place it again so fresh stock is reserved.",
     });
+    // ...and must have ARRIVED by it: an earlier date cannot take stock that
+    // is still on its way (2026-11-13).
+    const lateArrival = reserved
+      .map(({ data }) => isoDateOnly(data?.arrivalDate))
+      .filter((arrival) => arrival && !arrivesBy({ arrivalDate: arrival }, needBy))
+      .sort()
+      .at(-1);
+    if (lateArrival) {
+      throw new PolicyError(
+        "reserved-batch-arrives-later",
+        `Stock reserved for this order arrives on ${lateArrival}, after ${date}. Choose ${lateArrival} or a later date.`
+      );
+    }
 
     const previousRevision = Number.isSafeInteger(order.scheduleRevision) && order.scheduleRevision >= 0
       ? order.scheduleRevision
@@ -144,6 +188,7 @@ async function rescheduleOrderDelivery({ db, FieldValue, uid, payload, now }) {
       reason,
       orderStatus: status || null,
       changedByUid: uid,
+      changedByRole: role,
       changedAt: FieldValue.serverTimestamp(),
     });
 

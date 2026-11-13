@@ -314,8 +314,18 @@ async function main() {
   });
 
   await check("NS10 non-image content is rejected", async () => {
-    for (const contentType of ["application/pdf", "text/plain", "application/octet-stream"]) {
+    // Not a photo type the Rider app sends: SVG (can carry script), GIF, and
+    // anything else that merely starts with image/.
+    for (const contentType of ["application/pdf", "text/plain", "application/octet-stream", "image/svg+xml", "image/gif", "image/x-anything"]) {
       await assertFails(
+        fileFor(riderUid, proofPath(ORDER_A)).put(Buffer.from(imageBytes), { contentType })
+      );
+    }
+  });
+
+  await check("PS10 every photo type the Rider app sends is accepted", async () => {
+    for (const contentType of ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]) {
+      await assertSucceeds(
         fileFor(riderUid, proofPath(ORDER_A)).put(Buffer.from(imageBytes), { contentType })
       );
     }

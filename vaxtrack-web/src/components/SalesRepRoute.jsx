@@ -5,6 +5,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { ROLES } from "../services/authorization";
 import { ACCESS_LOADING, watchRouteAccess } from "../services/liveRouteAccess";
+import TermsGate from "./terms/TermsGate";
 
 /** The Sales Rep area's gate. Mirrors AdminRoute exactly — same decision. */
 function SalesRepRoute() {
@@ -36,7 +37,8 @@ function SalesRepRoute() {
   // and keeps protected content from painting before the decision resolves.
   if (state === "loading") return null;
   if (state === "redirect") return <Navigate to={redirectTo} replace />;
-  return <Outlet />;
+  // One-time Terms of Use and Data Privacy agreement (TermsGate.jsx).
+  return <TermsGate><Outlet /></TermsGate>;
 }
 
 export default SalesRepRoute;

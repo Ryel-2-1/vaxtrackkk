@@ -1153,6 +1153,28 @@ async function main() {
     await assertFails(getDoc(doc(anon, "users", adminUid)));
   });
 
+  await check("N1b no client deletes a user record, not even an Admin (their own or another's)", async () => {
+    // Access is removed through setStaffStatus (logged, keeps an approved Admin).
+    await assertFails(deleteDoc(doc(admin, "users", adminUid)));
+    await assertFails(deleteDoc(doc(admin, "users", salesRepUid)));
+    await assertFails(deleteDoc(doc(salesRep, "users", salesRepUid)));
+  });
+
+  await check("TERMS an account records its own agreement, stamped by the server; nobody else can", async () => {
+    const mine = doc(salesRep, "users", salesRepUid);
+    const agreed = { termsAcceptedVersion: "2026-11-12", termsAcceptedAt: serverTimestamp() };
+    await assertSucceeds(updateDoc(mine, agreed));
+    // A made-up time, a malformed version, or only half the record is refused.
+    await assertFails(updateDoc(mine, { termsAcceptedVersion: "2026-11-12", termsAcceptedAt: Timestamp.fromDate(new Date("2020-01-01T00:00:00Z")) }));
+    await assertFails(updateDoc(mine, { termsAcceptedVersion: "latest", termsAcceptedAt: serverTimestamp() }));
+    await assertFails(updateDoc(mine, { termsAcceptedVersion: 20261112, termsAcceptedAt: serverTimestamp() }));
+    // Nobody agrees for someone else: not an Admin, not another account.
+    await assertFails(updateDoc(doc(admin, "users", salesRepUid), agreed));
+    await assertFails(updateDoc(doc(dispatcher, "users", salesRepUid), agreed));
+    // An Admin records their own.
+    await assertSucceeds(updateDoc(doc(admin, "users", adminUid), agreed));
+  });
+
   await check("N2 sales rep cannot read another sales rep's order", async () => {
     await assertFails(getDoc(doc(salesRep, "orders", "ordSR2")));
   });

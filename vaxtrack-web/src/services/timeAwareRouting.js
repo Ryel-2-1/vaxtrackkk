@@ -24,7 +24,6 @@
 
 import { DAY_MINUTES, constraintOf, minSlackOf, planDeparture, walk, readMinutes } from "./departurePlanner.js";
 import { formatMinute, manilaClock, requestedArrivalLabel, requestedArrivalOf } from "./requestedArrival.js";
-import { hubReturnOf } from "./pharmacyHours.js";
 
 export const EXACT_ORDER_LIMIT = 7;
 // Preferred minutes to spare before each window / "before" deadline. The
@@ -104,10 +103,10 @@ function better(a, b) {
 }
 
 /** The best score of one visiting order, or null when a leg is unreachable. */
-function scoreOrder(stops, minutes, sequence, { planDate, earliest, allowWaiting, slackMinutes = 0, fixedDeparture = null, operatingHours = null }) {
+function scoreOrder(stops, minutes, sequence, { planDate, earliest, allowWaiting, slackMinutes = 0, fixedDeparture = null }) {
   const planStops = plannerStops(stops, minutes, sequence);
   if (planStops.some((s) => s.travelMinutes === null)) return null;
-  const constraints = planStops.map((s) => constraintOf(s, planDate, operatingHours));
+  const constraints = planStops.map((s) => constraintOf(s, planDate));
   const ride = planStops.reduce((sum, s) => sum + s.travelMinutes, 0);
   let best = null;
   const departures = Number.isInteger(fixedDeparture) ? [fixedDeparture] : candidateDepartures(planStops, constraints, earliest, slackMinutes);
@@ -186,14 +185,14 @@ function localSearch(stops, minutes, opts) {
  * @param {number|null} [input.fixedDeparture]  the departure is decided (e.g. the rider is already riding: now)
  * @returns {{order: string[], exact: boolean, score: object} | null}  null when no order is fully reachable
  */
-export function suggestStopOrder({ stops, minutes, planDate, nowMinute = null, allowWaiting = false, slackMinutes = 0, fixedDeparture = null, operatingHours = null }) {
+export function suggestStopOrder({ stops, minutes, planDate, nowMinute = null, allowWaiting = false, slackMinutes = 0, fixedDeparture = null }) {
   if (!Array.isArray(stops) || stops.length === 0) return null;
   // The last stop's service changes no arrival; every other one must be known.
   if (stops.some((s, i) => i < stops.length - 1 && readMinutes(s.serviceMinutes) === null)) {
     // Service times are per stop, not per position: require all of them.
     return null;
   }
-  const opts = { planDate, earliest: Math.max(Number.isInteger(nowMinute) ? nowMinute : 0, operatingHours?.open ?? 0), allowWaiting, slackMinutes, fixedDeparture, operatingHours };
+  const opts = { planDate, earliest: Number.isInteger(nowMinute) ? nowMinute : 0, allowWaiting, slackMinutes, fixedDeparture };
   if (stops.length <= EXACT_ORDER_LIMIT) {
     let best = null;
     let bestOrder = null;
@@ -252,16 +251,15 @@ export function plannedStopEtas(plan) {
 export function planTrip({
   stops, minutes, planDate, nowMinute = null, allowWaiting = true,
   slackMinutes = DEADLINE_SLACK_MINUTES, fixedDeparture = null, longWaitMinutes = null, travelNote = null,
-  operatingHours, hubReturnIndex,
+  hubReturnIndex,
 }) {
-  const suggestion = suggestStopOrder({ stops, minutes, planDate, nowMinute, allowWaiting, slackMinutes, fixedDeparture, operatingHours });
+  const suggestion = suggestStopOrder({ stops, minutes, planDate, nowMinute, allowWaiting, slackMinutes, fixedDeparture });
   if (!suggestion) return null;
   const byId = new Map(stops.map((s) => [s.id, s]));
   const ordered = suggestion.order.map((id) => byId.get(id));
   const legs = legMinutes(minutes, ordered.map((s) => s.matrixIndex));
   const plan = planDeparture({
     planDate,
-    operatingHours,
     nowMinute,
     allowWaiting,
     slackMinutes,
@@ -270,10 +268,9 @@ export function planTrip({
     departureMinute: Number.isInteger(fixedDeparture) ? fixedDeparture : null,
     stops: ordered.map((s, k) => ({ ...s, travelMinutes: legs[k] })),
   });
-  if (operatingHours || hubReturnIndex !== undefined) {
-    const returnIndex = hubReturnIndex === undefined ? 0 : hubReturnIndex;
-    const returnTravel = returnIndex === null ? null : minutes?.[ordered.at(-1)?.matrixIndex]?.[returnIndex];
-    plan.hubReturn = hubReturnOf(plan, returnTravel, operatingHours ?? null);
+  if (hubReturnIndex !== undefined) {
+    const returnTravel = hubReturnIndex === null ? null : minutes?.[ordered.at(-1)?.matrixIndex]?.[hubReturnIndex];
+    plan.hubReturn = hubReturnOf(plan, returnTravel);
     if (plan.hubReturn.warning) plan.warnings.push(plan.hubReturn.warning);
   }
   return {
@@ -304,4 +301,19 @@ export function arrivalCheck(order, arrival) {
   if (clock.minute < c.bounds[0]) return { met: false, early: true, text: `Arrives ${c.bounds[0] - clock.minute} min before ${label} — the rider would wait.` };
   if (clock.minute > c.bounds[1]) return { met: false, text: `${clock.minute - c.bounds[1]} min late for ${label}.` };
   return { met: true, text: `Meets the requested time (${label}).` };
+}
+
+/**
+ * When the Rider is estimated back at the hub: the last stop's departure plus
+ * the ride home. An estimate only; there is no return deadline (the 7 AM–4 PM
+ * rule was removed on 2026-11-13).
+ */
+export function hubReturnOf(plan, travelMinutes) {
+  const last = plan?.stops?.at(-1);
+  if (!Number.isInteger(plan?.evaluatedDeparture) || !Number.isInteger(last?.leave)
+    || !Number.isInteger(travelMinutes) || travelMinutes < 0) {
+    return { minute: null, durationMinutes: null, status: "unknown", warning: "Hub return time is unknown. Check the return route and final stop service time." };
+  }
+  const minute = last.leave + travelMinutes;
+  return { minute, durationMinutes: minute - plan.evaluatedDeparture, status: "estimated", warning: null };
 }

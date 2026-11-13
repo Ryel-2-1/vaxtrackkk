@@ -39,7 +39,6 @@
  */
 
 const { PolicyError, isoDateOnly } = require("./policy");
-const { PHARMACY_HOURS, HOURS_MESSAGE } = require("./pharmacyHours");
 
 const REQUESTED_ARRIVAL_VERSION = 1;
 const ARRIVAL_MODES = Object.freeze(["any_time", "window", "before", "exact"]);
@@ -114,7 +113,7 @@ function arrivalBounds(spec) {
  * PolicyError. `requestedDeliveryDate` is the already-validated order date and
  * `now` the server's clock: a time that has already passed today is refused.
  */
-function normalizeRequestedArrival(value, { requestedDeliveryDate, now, validateFuture = true, enforceOperatingHours = true }) {
+function normalizeRequestedArrival(value, { requestedDeliveryDate, now, validateFuture = true }) {
   if (value === undefined || value === null) value = ANY_TIME;
   if (typeof value !== "object" || Array.isArray(value)) {
     refuse("The requested delivery time was malformed.");
@@ -154,18 +153,13 @@ function normalizeRequestedArrival(value, { requestedDeliveryDate, now, validate
     spec = { version: REQUESTED_ARRIVAL_VERSION, mode, time };
   }
 
-  if (enforceOperatingHours) {
-    const times = spec.mode === "window" ? [minutesOf(spec.start), minutesOf(spec.end)] : spec.mode === "any_time" ? [] : [minutesOf(spec.time)];
-    if (times.some((t) => t < PHARMACY_HOURS.open || t > PHARMACY_HOURS.close) || (spec.mode === "before" && minutesOf(spec.time) <= PHARMACY_HOURS.open)) {
-      refuse(spec.mode === "before" && minutesOf(spec.time) === PHARMACY_HOURS.open ? "Choose a cutoff after 7:00 AM so delivery can occur during pharmacy operating hours." : HOURS_MESSAGE);
-    }
-  }
+  // There are no operating hours (the 7 AM–4 PM rule was removed on
+  // 2026-11-13): any time of day may be requested.
   // A request for today whose latest acceptable minute has already gone by
   // could never be met; it is refused rather than quietly moved.
   const clock = manilaClock(now);
-  if (validateFuture && (spec.mode !== "any_time" || enforceOperatingHours) && requestedDeliveryDate === clock.date) {
+  if (validateFuture && spec.mode !== "any_time" && requestedDeliveryDate === clock.date) {
     const bounds = arrivalBounds(spec);
-    if (enforceOperatingHours && bounds) bounds[1] = Math.min(bounds[1], PHARMACY_HOURS.close);
     if (!bounds || bounds[1] < clock.minute) {
       refuse("That requested time has already passed today. Choose a later time or another day.", "requested-arrival-passed");
     }

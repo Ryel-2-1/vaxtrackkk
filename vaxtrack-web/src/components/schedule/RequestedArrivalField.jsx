@@ -1,6 +1,5 @@
 import { useId } from "react";
 import { Clock3 } from "lucide-react";
-import { ACTIVE_PHARMACY_HOURS, PHARMACY_OPEN, PHARMACY_CLOSE } from "../../services/pharmacyHours";
 import {
   ARRIVAL_MODE_OPTIONS,
   EMPTY_ARRIVAL_FORM,
@@ -33,8 +32,6 @@ function RequestedArrivalField({ value, onChange, problem = null, disabled = fal
         <input
           id={`${id}-${field}`}
           type="time"
-          min={ACTIVE_PHARMACY_HOURS ? PHARMACY_OPEN : undefined}
-          max={ACTIVE_PHARMACY_HOURS ? PHARMACY_CLOSE : undefined}
           step="60"
           value={value?.[field] ?? ""}
           disabled={disabled}
@@ -57,7 +54,6 @@ function RequestedArrivalField({ value, onChange, problem = null, disabled = fal
       <p id={helpId} className="arrival-help">
         When the delivery should arrive at the destination on the requested date, in Philippine time — not
         when the rider leaves the hub. It is a request for planning, not a guaranteed time.
-        {ACTIVE_PHARMACY_HOURS && " Pharmacy operating hours are 7:00 AM–4:00 PM every day (PHT). Any-time requests use these hours. Riders should return to the hub by 4:00 PM; Dispatchers review return-time warnings."}
       </p>
 
       <label className="arrival-mode" htmlFor={`${id}-mode`}>

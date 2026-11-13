@@ -27,6 +27,7 @@ const {
   validatePresentation,
 } = require("./invoicePricing");
 const { loadUser, requireRole, COLLECTIONS } = require("./operations");
+const { readInvoiceLots, withInvoiceLots } = require("./invoiceLots");
 
 const INVOICES = "invoices";
 const COUNTERS = "counters";
@@ -138,6 +139,8 @@ async function saveInvoiceDraftForPricedOrder({ db, FieldValue, uid, payload, no
       throw new PolicyError("order-not-found", "That order no longer exists.");
     }
     const order = orderSnap.data();
+    // The stock actually reserved or delivered, printed as the invoice's lots.
+    const lotsByLine = await readInvoiceLots(tx, db, orderId, order.items);
 
     const existing = invSnap.exists ? invSnap.data() : null;
     if (existing && existing.invoiceStatus === "issued") {
@@ -166,7 +169,7 @@ async function saveInvoiceDraftForPricedOrder({ db, FieldValue, uid, payload, no
     });
 
     const document = buildInvoiceDocument({
-      orderId, order, base, adjustments, totals, presentation,
+      orderId, order, base: { ...base, items: withInvoiceLots(base.items, lotsByLine) }, adjustments, totals, presentation,
     });
 
     // ---- writes ----

@@ -1,3 +1,4 @@
+import '../utils/terms_agreement.dart';
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -195,6 +196,10 @@ class AuthService {
                 phone: phone,
                 vehiclePlate: vehiclePlate,
               ),
+              // The applicant ticked the agreement on the sign-up form
+              // (register_screen.dart refuses to submit without it).
+              'termsAcceptedVersion': kTermsVersion,
+              'termsAcceptedAt': FieldValue.serverTimestamp(),
               'createdAt': FieldValue.serverTimestamp(),
               'updatedAt': FieldValue.serverTimestamp(),
             })

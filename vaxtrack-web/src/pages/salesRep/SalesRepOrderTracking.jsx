@@ -31,6 +31,7 @@ import LiveDeliveryMap from "../../components/LiveDeliveryMap";
 import AllocationSummary from "../../components/ui/AllocationSummary";
 import { describeAllocation } from "../../services/backorder";
 import OrderCancellationAction from "../../components/orders/OrderCancellationAction";
+import MedRepRescheduleAction from "../../components/orders/MedRepRescheduleAction";
 import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 
 function mapTrackingLabel(statusKey) {
@@ -577,6 +578,11 @@ function SalesRepOrderTracking() {
                     <p className="tnum">{scheduleLabel(selectedOrder)}</p>
                     <p>Requested arrival: {requestedArrivalLabel(selectedOrder.requestedArrival)}</p>
                     {originalRequestNote(selectedOrder) && <p>{originalRequestNote(selectedOrder)}</p>}
+                    {/* Until the rider leaves (2026-11-13): e.g. the doctor wants it sooner. */}
+                    <MedRepRescheduleAction
+                      order={selectedOrder}
+                      onDone={(date) => showToast(`Delivery date changed to ${date}.`, "success")}
+                    />
                   </div>
                 </div>
 

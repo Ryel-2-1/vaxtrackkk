@@ -164,7 +164,7 @@ test("the same business request gives the same result from browsers in different
   for (const r of runs) assert.deepEqual(r.slice(0, 5), runs[0].slice(0, 5));
   assert.equal(runs[0][3], "Oct 28, 2026 · Within 12:00 midnight–12:00 noon");
   assert.equal(runs[0][4], "Jan 1, 2026");
-  assert.equal(runs[0][2], "invalid-requested-arrival", "late-night times are outside pharmacy hours in every timezone");
+  assert.equal(runs[0][2], "requested-arrival-passed", "23:58 has passed at 23:59 Manila in every timezone");
 });
 
 test("no local-time Date reading anywhere in the time logic", () => {

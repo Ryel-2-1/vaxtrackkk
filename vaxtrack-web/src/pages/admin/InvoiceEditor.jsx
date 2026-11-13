@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { auth } from "../../firebase";
+import { getClinicClientId } from "../../services/clinicService";
 import { subscribeOrder } from "../../services/orderHistoryService";
 import { getUserProfile } from "../../services/userService";
 import {
@@ -36,6 +37,8 @@ import {
   isServerPricedOrder,
   isLineDiscountOrder,
   invoiceLineAmount,
+  invoiceLotText,
+  invoiceLotsNeedSave,
   isFinalChargedLine,
   NON_EXACT_UNIT_PRICE_NOTE,
   LINE_DISCOUNT_NOTE,
@@ -122,6 +125,24 @@ function InvoiceEditor() {
   const issued = invoice?.invoiceStatus === "issued";
   const readOnly = issued;
 
+  // A NEW invoice starts its customer code from the clinic's client ID
+  // (services/clientId.js). Once per order, only into an empty field, and never
+  // on a saved draft or an issued invoice; the Admin can still change it.
+  const clientCodeTriedFor = useRef(null);
+  const formReady = form !== null;
+  const clinicDocIdForCode = order?.clinicDocId ?? null;
+  useEffect(() => {
+    if (!formReady || invoice || !clinicDocIdForCode || clientCodeTriedFor.current === clinicDocIdForCode) return undefined;
+    clientCodeTriedFor.current = clinicDocIdForCode;
+    let live = true;
+    getClinicClientId(clinicDocIdForCode)
+      .then((id) => {
+        if (live && id) setForm((prev) => (prev && !prev.customerCode ? { ...prev, customerCode: id } : prev));
+      })
+      .catch(() => {}); // the code can always be typed by hand
+    return () => { live = false; };
+  }, [formReady, invoice, clinicDocIdForCode]);
+
   /**
    * Is this order's invoice priced by the server?
    *
@@ -136,6 +157,10 @@ function InvoiceEditor() {
    */
   const serverPriced = isServerPricedOrder(order);
   const baseLocked = readOnly || serverPriced;
+  // The lots holding this order's stock are read by the server when the draft
+  // is saved; until then the invoice cannot name them (invoiceLotsNeedSave).
+  const lotsNeedSave = invoiceLotsNeedSave({ order, invoice });
+  const LOTS_NEED_SAVE_MESSAGE = "Save the draft first. Saving fills in the lot numbers and expiry dates of the stock actually reserved for this order.";
   // No double discount: a negotiated order is invoiced at its agreed prices,
   // and the server refuses an invoice discount on top (discount-not-allowed-negotiated).
   // Agreement-model orders recorded their SC/PWD discounts PER LINE at
@@ -415,6 +440,10 @@ function InvoiceEditor() {
       setMessage({ type: "error", text: "Save the draft before issuing." });
       return;
     }
+    if (lotsNeedSave) {
+      setMessage({ type: "error", text: LOTS_NEED_SAVE_MESSAGE });
+      return;
+    }
     setConfirmIssue(true);
   };
 
@@ -455,6 +484,10 @@ function InvoiceEditor() {
 
   const handleExport = async () => {
     if (exporting || saving || issuing || !totals) return;
+    if (lotsNeedSave) {
+      setMessage({ type: "error", text: LOTS_NEED_SAVE_MESSAGE });
+      return;
+    }
     setExporting(true);
     setMessage(null);
     try {
@@ -670,6 +703,12 @@ function InvoiceEditor() {
           </div>
         )}
 
+        {lotsNeedSave && !readOnly && (
+          <p className="inv-lot-note inv-no-print" role="status">
+            <AlertTriangle size={14} aria-hidden="true" /> {LOTS_NEED_SAVE_MESSAGE}
+          </p>
+        )}
+
         {/* Printable client template (3MGS Pharma landscape sales invoice) */}
         <div className={docClass}>
           {/* ===== Header ===== */}
@@ -880,16 +919,19 @@ function InvoiceEditor() {
                         className="sit-exp-in"
                         value={it.expiry}
                         onChange={(v) => setItem(it.key, "expiry", v)}
-                        readOnly={readOnly}
+                        readOnly={readOnly || serverPriced}
+                        placeholder={serverPriced && lotsNeedSave ? "On save" : undefined}
                         aria-label={`Item ${i + 1} expiry`}
                       />
-                      <span className="sit-bn">BN:</span>
+                      <span className="sit-bn">LN:</span>
                       <TextInput
                         className="sit-bn-in"
-                        value={it.batchId}
+                        value={serverPriced && lotsNeedSave ? "" : invoiceLotText(it)}
                         onChange={(v) => setItem(it.key, "batchId", v)}
-                        readOnly={readOnly}
-                        aria-label={`Item ${i + 1} batch id`}
+                        readOnly={readOnly || serverPriced}
+                        placeholder={serverPriced && lotsNeedSave ? "Filled on save" : undefined}
+                        title={serverPriced ? "The lots actually reserved or delivered for this line" : undefined}
+                        aria-label={`Item ${i + 1} lot number`}
                       />
                       {/* The order item's VAT snapshot — printed with the line. */}
                       <span className="sit-vat">{itemVatLabelForLine(it)}</span>

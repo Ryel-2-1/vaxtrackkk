@@ -140,6 +140,8 @@ export async function batchIdExists(batchId) {
 export async function addStockBatch({
   vaccineId,
   manufacturer,
+  supplier,
+  lotNumber,
   batchId,
   manufacturingDate,
   arrivalDate,
@@ -190,6 +192,8 @@ export async function addStockBatch({
     sellingPriceCentavos,
     priceIsVatInclusive,
     ...(typeof manufacturer === "string" && manufacturer.trim() ? { manufacturer: manufacturer.trim() } : {}),
+    ...(typeof supplier === "string" && supplier.trim() ? { supplier: supplier.trim() } : {}),
+    ...(typeof lotNumber === "string" && lotNumber.trim() ? { lotNumber: lotNumber.trim() } : {}),
     // Above the usual batch size the Admin confirmed the figure (stockQuantityLimit.js).
     ...(largeQuantityConfirmed === true ? { largeQuantityConfirmed: true } : {}),
   });

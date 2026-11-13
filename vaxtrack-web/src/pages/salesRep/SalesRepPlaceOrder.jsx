@@ -53,6 +53,7 @@ import { manilaToday } from "../../services/requestedDate";
 import { validateCheckoutSchedule } from "../../services/checkoutSchedule";
 import {
   arrivalPayloadOf,
+  formatRequestedDate,
   normalizeArrivalForm,
   normalizeRequestedArrival,
   requestedArrivalLabel,
@@ -60,7 +61,7 @@ import {
 } from "../../services/requestedArrival";
 import RequestedArrivalField from "../../components/schedule/RequestedArrivalField";
 import { requestZeroRateApproval, subscribeOwnZeroRateRequests } from "../../services/zeroRateRequests";
-import { approvedZeroRateForOrder, matchingZeroRateOrderRequests, zeroRateCheckoutBlock } from "../../services/zeroRateOrderMatch";
+import { approvedZeroRateForOrder, matchingZeroRateOrderRequests, zeroRateCheckoutBlock, zeroRateRequestNoLongerMatching } from "../../services/zeroRateOrderMatch";
 import {
   ZERO_RATE_STEP,
   answerChangeClearsPrices,
@@ -76,6 +77,7 @@ import useCheckoutPriceReview from "./useCheckoutPriceReview";
 import useCartLiveStock from "./useCartLiveStock";
 import { messageForCallableError } from "../../services/checkoutErrorMessages";
 import { restoreCartItems, takePlannedRequestedDate } from "../../services/checkoutDraftRestore";
+import { lateStockArrival } from "../../services/stockArrival";
 
 // One shared empty list, so "no addresses yet" keeps a stable identity and the
 // destination options are not rebuilt on every render.
@@ -145,6 +147,8 @@ function SalesRepPlaceOrder() {
   const [selectedDoctorId, setSelectedDoctorId] = useState(initialCheckout.doctorId);
   const [selectedDestinationId, setSelectedDestinationId] = useState("");
   const [requestedDate, setRequestedDate] = useState(initialCheckout.requestedDeliveryDate);
+  // Stock in the cart that arrives after the requested date (stockArrival.js).
+  const lateArrival = lateStockArrival(items, liveBatches, requestedDate);
   const [zeroRateRequests, setZeroRateRequests] = useState([]);
   const [zeroRateError, setZeroRateError] = useState("");
   const [zeroRateLoadError, setZeroRateLoadError] = useState(null);
@@ -414,6 +418,14 @@ function SalesRepPlaceOrder() {
     recovering: Boolean(uid && loadPendingAttempt(localStorage, uid)),
   });
   const zeroStepBlock = zeroRateStepBlock(zeroStep);
+  // An open request made for other details (the cart was edited after it was
+  // sent): say so instead of silently asking the question again.
+  const staleZeroRate = zeroRateReady && zeroStep !== ZERO_RATE_STEP.APPROVED && zeroStep !== ZERO_RATE_STEP.PENDING
+    ? zeroRateRequestNoLongerMatching(visibleZeroRateRequests, {
+      items, doctorId: selectedDoctor?.id, doctorAddressId: selectedDestination?.id,
+      requestedDeliveryDate: requestedDate, today: manilaToday(),
+    })
+    : null;
   const vatRemovedLines = reviewLines.filter((line) => line.vatRemoved);
   const vatRemovedTotal = vatRemovedLines.reduce((sum, line) => sum + line.vatRemoved.lineCentavos, 0);
   const chooseZeroRateAnswer = (next) => {
@@ -1008,6 +1020,9 @@ function SalesRepPlaceOrder() {
                 </div>
               ) : (
                 <>
+                  {staleZeroRate && (
+                    <p className="zero-rate-checkout-stale" role="status">{staleZeroRate.text}</p>
+                  )}
                   <p className="zero-rate-checkout-intro">
                     Answer before pricing. Choose Yes only when the customer&apos;s sale may qualify for zero-rating;
                     Admin reviews it before the order can be placed.
@@ -1130,7 +1145,10 @@ function SalesRepPlaceOrder() {
                 <option value="">Choose Home or a linked Clinic</option>
                 {destinationOptions.map((destination) => (
                   <option key={destination.id} value={destination.id}>
-                    {destination.type === "home" ? "Home / Doorstep" : `Clinic — ${destination.name}`}
+                    {/* Client ID first, so typing it in the list jumps to the clinic. */}
+                    {destination.type === "home"
+                      ? "Home / Doorstep"
+                      : `${destination.clientId ? `${destination.clientId} · ` : ""}Clinic — ${destination.name}`}
                   </option>
                 ))}
               </select>
@@ -1178,7 +1196,16 @@ function SalesRepPlaceOrder() {
               min={manilaToday()}
               value={requestedDate}
               onChange={(event) => setRequestedDate(event.target.value)}
+              aria-describedby={lateArrival ? "place-late-stock" : undefined}
             />
+            {lateArrival && (
+              <p id="place-late-stock" className="place-v2-late-stock" role="status">
+                {lateArrival.text}
+                <button type="button" onClick={() => setRequestedDate(lateArrival.latestArrival)}>
+                  Use {formatRequestedDate(lateArrival.latestArrival)}
+                </button>
+              </p>
+            )}
 
             <RequestedArrivalField
               value={arrival}

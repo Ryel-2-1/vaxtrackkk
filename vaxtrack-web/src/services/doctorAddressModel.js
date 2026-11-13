@@ -93,6 +93,8 @@ export function buildDoctorDestinationOptions(addresses = [], clinics = []) {
       longitude: locationCheck.value.longitude,
       geofenceRadiusM: locationCheck.value.geofenceRadiusM,
       clinicDocId,
+      // 3MGS's client ID for this clinic ("" on clinics registered before it).
+      clientId: typeof clinic.clinicId === "string" ? clinic.clinicId.trim() : "",
     }];
   });
 }

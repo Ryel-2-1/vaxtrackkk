@@ -207,7 +207,13 @@ function DeliveryCalendar({ role }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [usersById, setUsersById] = useState(null);
-  const [medRepLookup, setMedRepLookup] = useState({ query: null, names: {}, failed: false });
+  // Dispatcher only: Med Rep names already looked up (orderId → name, or null
+  // when the owner has none), kept while the calendar is open. A live update
+  // to any order used to re-run the lookup for the same visible orders; now an
+  // order is looked up once per visit. Leaving the page drops the cache, so a
+  // renamed Med Rep shows on the next visit (2026-11-13).
+  const [nameCache, setNameCache] = useState(() => new Map());
+  const [failedLookupKey, setFailedLookupKey] = useState(null);
 
   const now = useManilaDayNow();
   const today = manilaToday(now);
@@ -263,24 +269,32 @@ function DeliveryCalendar({ role }) {
   const pageDayOrders = dayOrders.slice((currentDayPage - 1) * PAGE_SIZE, currentDayPage * PAGE_SIZE);
   const currentUnscheduledPage = Math.min(unscheduledPage, Math.max(1, Math.ceil(unscheduled.length / PAGE_SIZE)));
   const pageUnscheduled = unscheduled.slice((currentUnscheduledPage - 1) * PAGE_SIZE, currentUnscheduledPage * PAGE_SIZE);
-  const visibleLookupIds = useMemo(() => [...new Set([
+  // A string, so a new snapshot with the same visible orders is the same key.
+  const visibleLookupKey = useMemo(() => [...new Set([
     ...dayOrders.slice((currentDayPage - 1) * PAGE_SIZE, currentDayPage * PAGE_SIZE),
     ...unscheduled.slice((currentUnscheduledPage - 1) * PAGE_SIZE, currentUnscheduledPage * PAGE_SIZE),
-  ].filter((order) => order.createdByUid && order.id).map((order) => order.id))],
+  ].filter((order) => order.createdByUid && order.id).map((order) => order.id))].join("|"),
   [dayOrders, currentDayPage, unscheduled, currentUnscheduledPage]);
   useEffect(() => {
-    if (isAdmin || visibleLookupIds.length === 0) return undefined;
+    if (isAdmin || !visibleLookupKey) return undefined;
+    const missing = visibleLookupKey.split("|").filter((id) => !nameCache.has(id));
+    if (missing.length === 0) return undefined;
     let cancelled = false;
-    fetchOrderMedRepNames(visibleLookupIds)
+    fetchOrderMedRepNames(missing)
       .then((names) => {
-        if (!cancelled) setMedRepLookup({ query: visibleLookupIds, names, failed: false });
+        if (cancelled) return;
+        setNameCache((current) => {
+          const next = new Map(current);
+          for (const id of missing) next.set(id, names[id] ?? null);
+          return next;
+        });
       })
       .catch((error) => {
         logSafeError("Calendar Med Rep names", error);
-        if (!cancelled) setMedRepLookup({ query: visibleLookupIds, names: {}, failed: true });
+        if (!cancelled) setFailedLookupKey(visibleLookupKey);
       });
     return () => { cancelled = true; };
-  }, [isAdmin, visibleLookupIds]);
+  }, [isAdmin, visibleLookupKey, nameCache]);
   const dayCancelled = dayOrders.filter((o) => o.statusType === "cancelled").length;
   const dayScheduled = dayOrders.length - dayCancelled;
   const dayUrgent = dayOrders.filter((o) => o.statusType !== "cancelled" && isUrgent(o)).length;
@@ -333,12 +347,11 @@ function DeliveryCalendar({ role }) {
   };
 
   const medRepOf = (order) => {
-    const resolvedName = medRepLookup.query === visibleLookupIds ? medRepLookup.names[order.id] : null;
+    const resolvedName = nameCache.get(order.id) ?? null;
     const name = medRepNameFor(order, isAdmin ? usersById : null, resolvedName);
     if (name || isAdmin || !order.createdByUid) return name;
-    return medRepLookup.query !== visibleLookupIds
-      ? "Looking up Med Rep…"
-      : medRepLookup.failed ? "Name unavailable" : null;
+    if (nameCache.has(order.id)) return null;
+    return failedLookupKey === visibleLookupKey ? "Name unavailable" : "Looking up Med Rep…";
   };
 
   return (

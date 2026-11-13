@@ -1,5 +1,5 @@
 import { coerceExportDate } from "./inventoryExport.js";
-import { invoiceLineAmount, isFinalChargedLine } from "./invoiceModel.js";
+import { invoiceLineAmount, invoiceLotText, isFinalChargedLine } from "./invoiceModel.js";
 
 // The A:K invoice area of the client's INVOICE_ sheet. The pricing checks
 // beside it refer to another workbook and are outside the invoice area.
@@ -31,7 +31,9 @@ function money(value, style = {}) {
 function itemRow(item) {
   if (!item) return row(13.5);
   const expiry = item.expiry || "";
-  const lot = item.batchId || "";
+  // The lots actually reserved/delivered when the server recorded them; the
+  // Batch ID otherwise. Same cell (E, 3 columns, wrapping) as always.
+  const lot = invoiceLotText(item);
   const unitPrice = isFinalChargedLine(item) && item.unitPriceCentavos == null ? null : item.unitPrice;
   return row(24, {
     B: { value: item.itemDescription || "", columnSpan: 2, fontWeight: "bold", wrap: true },

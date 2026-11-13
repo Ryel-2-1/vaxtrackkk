@@ -120,9 +120,6 @@ test("each mode is stored canonically on the order and its receipt", async () =>
 test("refused requests leave nothing written at all", async () => {
   await seed();
   const refusals = [
-    [{ mode: "exact", time: "00:00" }, "invalid-requested-arrival"],
-    [{ mode: "exact", time: "16:01" }, "invalid-requested-arrival"],
-    [{ mode: "window", start: "06:59", end: "09:00" }, "invalid-requested-arrival"],
     [{ mode: "evening" }, "invalid-requested-arrival"],
     [{ mode: "window", start: "10:00" }, "invalid-requested-arrival"],
     [{ mode: "window", start: "12:00", end: "10:00" }, "invalid-requested-arrival"],
@@ -146,7 +143,7 @@ test("refused requests leave nothing written at all", async () => {
 test("staging demo accepts an after-hours request but still rejects an elapsed time", async () => {
   await seed();
   const createDemo = (payload) => ops.createOrderWithReservation({
-    db, FieldValue, uid: SR, now: NOW, payload, enforceOperatingHours: false,
+    db, FieldValue, uid: SR, now: NOW, payload,
   });
   const requestedArrival = { mode: "exact", time: "18:30" };
   const result = await createDemo(payloadOf({ requestedDeliveryDate: TODAY, requestedArrival }));

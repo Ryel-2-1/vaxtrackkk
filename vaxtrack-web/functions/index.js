@@ -87,7 +87,10 @@ const { qaResetConfig } = require("./src/riderRecovery");
 
 admin.initializeApp();
 const db = admin.firestore();
-const { FieldValue } = admin.firestore;
+// The modular import is the same FieldValue; the namespaced
+// `admin.firestore.FieldValue` is undefined inside the Functions emulator's
+// wrapped admin SDK, which made every server timestamp fail locally.
+const { FieldValue } = require("firebase-admin/firestore");
 
 setGlobalOptions({
   region: "asia-southeast1",
@@ -272,6 +275,11 @@ function toHttpsError(error, context) {
       "account-rejected": "failed-precondition",
       "status-change-not-allowed": "failed-precondition",
       "role-unchanged": "failed-precondition",
+      // Med Rep rescheduling (scheduleOperations.js).
+      "reschedule-after-departure": "failed-precondition",
+      "reschedule-reason-required": "invalid-argument",
+      // Reserved stock still on its way (expiryGuard.arrivesBy).
+      "reserved-batch-arrives-later": "failed-precondition",
     };
     const httpsCode = map[error.code] ?? "invalid-argument";
     return new HttpsError(httpsCode, error.message, {
@@ -309,8 +317,6 @@ function callable(name, run) {
   });
 }
 
-const { pharmacyHoursEnforced } = require("./src/pharmacyHours");
-
 exports.createOrderWithReservation = callable(
   "createOrderWithReservation",
   // `email` (from the verified token) is snapshotted onto the order's
@@ -318,7 +324,6 @@ exports.createOrderWithReservation = callable(
   ({ db, FieldValue, uid, email, data, now }) =>
     operations.createOrderWithReservation({
       db, FieldValue, uid, email, payload: data, now,
-      enforceOperatingHours: pharmacyHoursEnforced(admin.app().options.projectId || process.env.GCLOUD_PROJECT),
     })
 );
 

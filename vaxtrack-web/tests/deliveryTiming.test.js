@@ -184,7 +184,7 @@ test("wiring the browser cannot run here (no DOM in this suite): the bell and th
   // The Finalize Dispatch dialog shows the warning as a note — the confirm stays enabled.
   const cargo = read("src/pages/dispatcher/DispatcherCargoLoading.jsx");
   assert.match(cargo, /const warning = missingEtaWarning\(confirmGroup\.orders\);/);
-  assert.match(cargo, /<p className="m-dialog-warning" role="note">/);
+  assert.match(cargo, /<div className="m-dialog-warning cl-route-first" role="note">/);
 });
 
 test("the due query and its composite index agree", () => {

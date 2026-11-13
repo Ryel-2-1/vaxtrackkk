@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import {
   subscribeClinics,
+  clinicIdExists,
   clinicNameExists,
   addClinic,
   updateClinicLocation,
@@ -24,6 +25,14 @@ import {
   MAX_GEOFENCE_RADIUS_M,
 } from "../../services/clinicService";
 import {
+  CLIENT_ID_EXAMPLE,
+  CLIENT_ID_REQUIRED_MESSAGE,
+  CLIENT_ID_TAKEN_MESSAGE,
+  findExistingClients,
+  matchingDoctor,
+  validateClientId,
+} from "../../services/clientId";
+import {
   addArea,
   setAreaActive,
   subscribeAreas,
@@ -33,6 +42,7 @@ import {
   setDoctorActive,
   subscribeDoctors,
 } from "../../services/doctorService";
+import { validateDoctorName } from "../../services/doctorModel";
 import { subscribeDoctorAddresses } from "../../services/doctorAddressService";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { lastDeliveryIndex, lastDeliveryMs, lastDeliveryText } from "../../services/clinicDeliveries";
@@ -134,13 +144,16 @@ function normalizeClinic(raw) {
 // Register-clinic validation: required fields, the order they appear on
 // screen (to focus the first problem) and each input's id.
 const CLINIC_REQUIRED_FIELDS = [
+  ["clientId", CLIENT_ID_REQUIRED_MESSAGE],
   ["name", "Enter the clinic or hospital name."],
-  ["contact", "Enter the contact person."],
+  // The clinic's doctor IS its contact person (stored in `contact`).
+  ["contact", "Enter the doctor's name."],
   ["phone", "Enter a phone number."],
   ["location", "Enter the clinic address."],
 ];
-const CLINIC_FIELD_ORDER = ["name", "contact", "phone", "email", "location", "areaId", "latitude", "longitude", "geofenceRadiusM", "entranceConfirmed", "accessNotes"];
+const CLINIC_FIELD_ORDER = ["clientId", "name", "contact", "phone", "email", "location", "areaId", "latitude", "longitude", "geofenceRadiusM", "entranceConfirmed", "accessNotes"];
 const CLINIC_FIELD_IDS = {
+  clientId: "new-clinic-client-id",
   name: "new-clinic-name",
   contact: "new-clinic-contact",
   phone: "new-clinic-phone",
@@ -155,6 +168,8 @@ const CLINIC_FIELD_IDS = {
 };
 
 const EMPTY_CLINIC = {
+  // 3MGS's own code for this client (services/clientId.js); saved as clinicId.
+  clientId: "",
   name: "",
   location: "",
   areaId: "",
@@ -529,6 +544,12 @@ function Clinics() {
       if (!String(newClinic[key] ?? "").trim()) fieldErrors[key] = message;
     }
     if (!selectedArea) fieldErrors.areaId = "Select an active area for this clinic.";
+    const clientIdCheck = validateClientId(newClinic.clientId);
+    if (!clientIdCheck.ok && !fieldErrors.clientId) fieldErrors.clientId = clientIdCheck.error;
+    if (!fieldErrors.contact) {
+      const doctorCheck = validateDoctorName(newClinic.contact);
+      if (!doctorCheck.ok) fieldErrors.contact = doctorCheck.error;
+    }
 
     // Location stays optional, but a PARTIAL or out-of-range entry is caught
     // here so the admin is told, rather than the coordinates being dropped.
@@ -552,6 +573,12 @@ function Clinics() {
     creatingRef.current = true;
     setSaving(true);
     try {
+      if (await clinicIdExists(clientIdCheck.value)) {
+        const duplicate = { clientId: CLIENT_ID_TAKEN_MESSAGE };
+        setNewClinicErrors({ ...duplicate, form: "Nothing was saved." });
+        focusFirstInvalid(CLINIC_FIELD_ORDER, duplicate, (key) => document.getElementById(CLINIC_FIELD_IDS[key]));
+        return;
+      }
       if (await clinicNameExists(newClinic.name)) {
         const duplicate = { name: "A clinic with this name already exists. Use a different name." };
         setNewClinicErrors({ ...duplicate, form: "Nothing was saved." });
@@ -559,7 +586,8 @@ function Clinics() {
         return;
       }
 
-      const clinicId = `CLN-${Math.floor(1000 + Math.random() * 8999)}`;
+      // The client's own ID is the clinic's ID (it used to be a random CLN-1234).
+      const clinicId = clientIdCheck.value;
       const clinicRef = await addClinic({
         clinicId,
         name: newClinic.name,
@@ -583,7 +611,25 @@ function Clinics() {
       // undoes the registration and is reported so it can be retried from
       // Manage access.
       const name = newClinic.name.trim();
-      const wantsLinks = newClinicAccess.repUids.length > 0 || newClinicAccess.doctorIds.length > 0;
+      // The clinic's doctor: the existing active doctor of that name in this
+      // area, else a new doctor record — so Med Reps can order for them without
+      // a separate "add doctor" step. A failure here never undoes the clinic.
+      let clinicDoctor = matchingDoctor(newClinic.contact, selectedArea.id, doctors);
+      let doctorNote = "";
+      if (!clinicDoctor) {
+        try {
+          const doctorRef = await addDoctor({ name: newClinic.contact, areaId: selectedArea.id });
+          clinicDoctor = { id: doctorRef.id, name: newClinic.contact.trim(), areaId: selectedArea.id, area: selectedArea.name, active: true };
+        } catch (doctorError) {
+          logSafeError("Register clinic doctor", doctorError);
+          doctorNote = " The doctor could not be added; add them under Doctors.";
+        }
+      }
+      const doctorPool = clinicDoctor && !doctors.some((d) => d.id === clinicDoctor.id) ? [...doctors, clinicDoctor] : doctors;
+      const doctorIdsToLink = clinicDoctor
+        ? [...new Set([...newClinicAccess.doctorIds, clinicDoctor.id])]
+        : newClinicAccess.doctorIds;
+      const wantsLinks = newClinicAccess.repUids.length > 0 || doctorIdsToLink.length > 0;
       const pinned = String(newClinic.latitude).trim() !== "" && String(newClinic.longitude).trim() !== "";
       let results = [];
       if (wantsLinks && pinned && clinicRef?.id) {
@@ -591,9 +637,9 @@ function Clinics() {
           clinic: { id: clinicRef.id, areaId: selectedArea.id, locationVerified: true },
           medReps,
           selectedRepUids: newClinicAccess.repUids,
-          doctors,
+          doctors: doctorPool,
           addressesByDoctor: {},
-          selectedDoctorIds: newClinicAccess.doctorIds,
+          selectedDoctorIds: doctorIdsToLink,
         });
         results = await applyClinicAccess(clinicRef.id, plan);
       }
@@ -617,7 +663,11 @@ function Clinics() {
       };
       const linkedParts = [count("rep-add", "Med Rep"), count("doctor-link", "doctor")].filter(Boolean);
       const linked = linkedParts.length ? ` Linked ${linkedParts.join(" and ")}.` : "";
-      showToast(`${name} has been registered.${linked}`, "success");
+      // A doctor can only be linked to a clinic that has its map pin.
+      const pinNote = clinicDoctor && !pinned
+        ? ` Add the clinic's location, then link ${clinicDoctor.name} under Manage access.`
+        : "";
+      showToast(`${name} (${clinicId}) has been registered.${linked}${pinNote}${doctorNote}`, "success");
     } catch (error) {
       logSafeError("Register clinic", error);
       // The dialog stays open with everything the admin typed.
@@ -1076,6 +1126,12 @@ function Clinics() {
           access={newClinicAccess}
           onAccessChange={setNewClinicAccess}
           accessResults={newClinicResults}
+          existingClinics={clinics}
+          onOpenExisting={(clinic) => {
+            // Leave registration for the record that already exists.
+            closeNewClinic();
+            setSelectedClinic(clinic);
+          }}
         />
       )}
 
@@ -1156,7 +1212,7 @@ function ClinicCard({ clinic, onDetails, onManageLocation, onManageAccess, reach
           </div>
           <div className="clinic-card-title">
             <h3 id={headingId}>{card.name}</h3>
-            <small>ID: {card.clinicId}</small>
+            <small>Client ID: {card.clinicId}</small>
           </div>
           <span className={`clinic-status-pill ${clinic.status}`}>{card.statusLabel}</span>
         </header>
@@ -2082,6 +2138,8 @@ function NewClinicModal({
   access = { repUids: [], doctorIds: [] },
   onAccessChange = () => {},
   accessResults = null,
+  existingClinics = [],
+  onOpenExisting = () => {},
 }) {
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   // An edited field's message clears as the admin fixes it; the others stay.
@@ -2202,7 +2260,30 @@ function NewClinicModal({
             it, and wheel input over the map is consumed by Leaflet for zooming.
             The action row stays OUTSIDE this element so it remains pinned. */}
         <div className="clinics-modal-body">
+          <ExistingClientSearch
+            clinics={existingClinics}
+            doctors={doctors}
+            disabled={saving}
+            onOpenClinic={onOpenExisting}
+            onUseDoctor={(doctor) => editField("contact", doctor.name)}
+          />
           <div className="clinics-form-grid">
+            <label htmlFor={CLINIC_FIELD_IDS.clientId}>
+              Client ID
+              <input
+                id={CLINIC_FIELD_IDS.clientId}
+                type="text"
+                placeholder={`e.g. ${CLIENT_ID_EXAMPLE}`}
+                value={newClinic.clientId}
+                onChange={(e) => editField("clientId", e.target.value.toUpperCase())}
+                disabled={saving}
+                autoCapitalize="characters"
+                spellCheck={false}
+                {...fieldA11y("new-clinic", "clientId", errors)}
+              />
+              <FieldError form="new-clinic" field="clientId" errors={errors} />
+            </label>
+
             <label htmlFor={CLINIC_FIELD_IDS.name}>
               Clinic Name
               <input
@@ -2218,7 +2299,7 @@ function NewClinicModal({
             </label>
 
             <label htmlFor={CLINIC_FIELD_IDS.contact}>
-              Contact Person
+              Doctor (contact person)
               <input
                 id={CLINIC_FIELD_IDS.contact}
                 type="text"
@@ -2442,6 +2523,59 @@ function NewClinicModal({
 }
 
 /** One field's validation message, tied to its input by id. */
+/**
+ * Register Clinic's search bar: type a client ID, clinic or doctor name to see
+ * whether it is already in VaxTrack before registering it again.
+ */
+function ExistingClientSearch({ clinics, doctors, disabled, onOpenClinic, onUseDoctor }) {
+  const [term, setTerm] = useState("");
+  // The page's clinic rows keep the client ID under `id` (normalizeClinic).
+  const found = useMemo(
+    () => findExistingClients(term, clinics.map((c) => ({ ...c, clinicId: c.id })), doctors),
+    [term, clinics, doctors]
+  );
+  const searched = term.trim().length >= 2;
+  const none = searched && found.clinics.length === 0 && found.doctors.length === 0;
+  return (
+    <div className="clinics-existing-search">
+      <label htmlFor="new-clinic-search">Already registered? Search first</label>
+      <div className="clinics-existing-input">
+        <Search size={15} aria-hidden="true" />
+        <input
+          id="new-clinic-search"
+          type="search"
+          placeholder="Client ID, clinic or doctor name"
+          value={term}
+          onChange={(e) => setTerm(e.target.value)}
+          disabled={disabled}
+          autoComplete="off"
+        />
+      </div>
+      <div className="clinics-existing-results" role="status" aria-live="polite">
+        {none && <p>No match. You can register it below.</p>}
+        {found.clinics.map((clinic) => (
+          <div key={clinic.firestoreId || clinic.id} className="clinics-existing-row">
+            <span>
+              <strong>{clinic.name}</strong>
+              <small>Client ID {clinic.id} · {clinic.contact || "no doctor on record"}</small>
+            </span>
+            <button type="button" onClick={() => onOpenClinic(clinic)} disabled={disabled}>Open clinic</button>
+          </div>
+        ))}
+        {found.doctors.map((doctor) => (
+          <div key={doctor.id} className="clinics-existing-row">
+            <span>
+              <strong>{doctor.name}</strong>
+              <small>Doctor · {doctor.area || "no area"}</small>
+            </span>
+            <button type="button" onClick={() => onUseDoctor(doctor)} disabled={disabled}>Use this doctor</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function FieldError({ form, field, errors }) {
   if (!errors?.[field]) return null;
   return (
