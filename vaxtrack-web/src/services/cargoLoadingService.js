@@ -52,6 +52,19 @@ function assertScheduleReached(order) {
 // Delivered and cancelled orders are intentionally excluded.
 const ACTIVE_LOADING_STATUSES = ["assigned", "loading"];
 
+/**
+ * The stored `status` values the orders query asks for (2026-11-14). It used
+ * to read the WHOLE orders collection — every order ever placed, on every
+ * visit — and filter here. The canonical values plus their old capitalised
+ * spellings are queried; the client filter below still runs, so the screen
+ * shows exactly what it did. An order whose status lives only in a legacy
+ * field (orderStatus, deliveryStatus…) is no longer fetched: nothing writes
+ * those, and an assigned/loading order always carries `status`.
+ */
+export const CARGO_STATUS_QUERY_VALUES = Object.freeze(
+  ACTIVE_LOADING_STATUSES.flatMap((s) => [s, s[0].toUpperCase() + s.slice(1), s.toUpperCase()])
+);
+
 // Reuse the same field fallbacks used across the app for consistency.
 function riderDisplayName(u) {
   return u.fullName || u.name || u.displayName || u.email || "Unknown Rider";
@@ -184,7 +197,7 @@ export function subscribeCargoLoadingGroups(callback, onError) {
   );
 
   const unsubOrders = listenLive(
-    collection(db, ORDERS),
+    query(collection(db, ORDERS), where("status", "in", CARGO_STATUS_QUERY_VALUES)),
     (snap) => {
       ordersRaw = snap.docs.map((d) => {
         const data = d.data();

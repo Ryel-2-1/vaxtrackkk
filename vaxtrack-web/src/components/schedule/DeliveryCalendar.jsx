@@ -3,15 +3,14 @@ import {
   AlertTriangle,
   CalendarDays,
   Loader2,
-  Package,
   X,
 } from "lucide-react";
-import { subscribeDeliveries } from "../../services/deliveryService";
+import { subscribeCalendarDeliveries } from "../../services/deliveryService";
 import { subscribeUsers } from "../../services/userService";
 import { fetchOrderMedRepNames } from "../../services/orderMedRepNames";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { ORDER_STATUSES, STATUS_LABELS } from "../../services/orderWorkflow";
-import { addMonths, isInMonth, manilaToday, monthOf } from "../../services/deliveryCalendar";
+import { addMonths, buildMonthGrid, isInMonth, manilaToday, monthOf } from "../../services/deliveryCalendar";
 import {
   PRIORITY_FILTERS,
   calendarCounts,
@@ -227,8 +226,13 @@ function DeliveryCalendar({ role }) {
   const [notice, setNotice] = useState("");
   const triggerRef = useRef(null);
 
+  // Only the month grid on screen is read, plus open orders (2026-11-14).
+  const grid = buildMonthGrid(view.year, view.month, { today });
+  const gridFrom = grid[0][0].iso;
+  const gridTo = grid.at(-1).at(-1).iso;
   useEffect(() => {
-    const unsubscribe = subscribeDeliveries(
+    const unsubscribe = subscribeCalendarDeliveries(
+      { from: gridFrom, to: gridTo },
       (orders) => {
         setDeliveries(orders);
         setLoading(false);
@@ -240,7 +244,7 @@ function DeliveryCalendar({ role }) {
       }
     );
     return unsubscribe;
-  }, []);
+  }, [gridFrom, gridTo]);
 
   // Admin may read the staff directory. Dispatcher gets only the names of
   // owners for orders visible on the current calendar pages from a callable.
@@ -398,7 +402,7 @@ function DeliveryCalendar({ role }) {
         <div className="dcal-filter-meta">
           {!loading && !error ? (
             <p className="dcal-filter-summary" aria-live="polite">
-              {filtered.length} of {deliveries.length} order{deliveries.length === 1 ? "" : "s"} shown
+              {filtered.length} of {deliveries.length} order{deliveries.length === 1 ? "" : "s"} in this view
             </p>
           ) : null}
           <span className="dcal-legend">
@@ -424,12 +428,6 @@ function DeliveryCalendar({ role }) {
           <AlertTriangle size={22} aria-hidden="true" />
           <strong>Could not load the delivery calendar</strong>
           <p>{error}</p>
-        </div>
-      ) : deliveries.length === 0 ? (
-        <div className="dcal-state">
-          <Package size={22} aria-hidden="true" />
-          <strong>No orders yet</strong>
-          <p>Deliveries appear here as Med Reps place orders.</p>
         </div>
       ) : (
         <div className="dcal-body">

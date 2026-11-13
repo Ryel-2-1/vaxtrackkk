@@ -294,7 +294,11 @@ test("the calendar has loading, error and empty states, and keyboard-operable co
   assert.match(page, /<div className="dcal-state" role="alert">[\s\S]*?Could not load the delivery calendar/);
   // A refused read is worded by the shared mapper ("You do not have permission to view the delivery calendar. …").
   assert.match(page, /setError\(liveErrorMessage\(err, "the delivery calendar"\)\)/);
-  assert.match(page, /<strong>No orders yet<\/strong>/);
+  // The month grid always renders (2026-11-14): with month-scoped reads an empty
+  // month must not replace the calendar, or there would be no way to change month.
+  assert.doesNotMatch(page, /<strong>No orders yet<\/strong>/);
+  assert.match(page, /subscribeCalendarDeliveries\(\s*\{ from: gridFrom, to: gridTo \},/);
+  assert.match(page, /\}, \[gridFrom, gridTo\]\);/);
   assert.match(page, /<strong>Nothing scheduled<\/strong>/);
   assert.match(page, /No order on this day matches the current filters\./);
   assert.match(page, /filtersActive \? "No unscheduled orders match these filters" : "All active orders are dated"/);

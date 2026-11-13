@@ -150,6 +150,67 @@ export function subscribeDeliveries(callback, onError) {
   );
 }
 
+function deliveryFromDoc(d) {
+  const data = d.data();
+  const rawStatus = getOrderStatusValue(data);
+  const statusKey = normalizeStatusKey(rawStatus);
+  // Same shape and id ordering as subscribeDeliveries.
+  return {
+    ...data,
+    id: d.id,
+    rawStatus,
+    statusKey,
+    statusLabel: mapOrderStatusLabel(statusKey),
+    statusType: mapOrderStatusType(statusKey),
+  };
+}
+
+/** Statuses of an order still in the delivery flow (calendar "needs scheduling"). */
+export const OPEN_DELIVERY_STATUSES = Object.freeze([
+  "pending_dispatch", "assigned", "loading", "in_transit", "delayed", "delivery_failed",
+]);
+const withSpellings = (statuses) =>
+  statuses.flatMap((s) => [s, s[0].toUpperCase() + s.slice(1), s.toUpperCase()]);
+
+/**
+ * The Delivery Calendar's orders (2026-11-14): those requested for a day in
+ * [from, to] — the month grid on screen — plus every OPEN order, which is
+ * where an order with no valid date (the "needs scheduling" list) is found.
+ * It used to read the whole orders collection, every order ever placed, on
+ * every visit. Two narrow listeners, merged by document id; the callback
+ * fires once both have reported. Re-subscribe when the visible month changes.
+ *
+ * @param {{from: string, to: string}} range  'YYYY-MM-DD', inclusive
+ */
+export function subscribeCalendarDeliveries({ from, to }, callback, onError) {
+  let inRange = null;
+  let open = null;
+  let failed = false;
+  const emit = () => {
+    if (failed || inRange === null || open === null) return;
+    const byId = new Map();
+    for (const d of [...inRange, ...open]) byId.set(d.id, d);
+    callback([...byId.values()].sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0)));
+  };
+  const fail = (error) => {
+    logSafeError("subscribeCalendarDeliveries", error);
+    if (failed) return;
+    failed = true;
+    if (onError) onError(error);
+  };
+  const unsubRange = listenLive(
+    query(collection(db, ORDERS), where("requestedDeliveryDate", ">=", from), where("requestedDeliveryDate", "<=", to)),
+    (snap) => { inRange = snap.docs.map(deliveryFromDoc); emit(); },
+    fail
+  );
+  const unsubOpen = listenLive(
+    query(collection(db, ORDERS), where("status", "in", withSpellings(OPEN_DELIVERY_STATUSES))),
+    (snap) => { open = snap.docs.map(deliveryFromDoc); emit(); },
+    fail
+  );
+  return () => { unsubRange(); unsubOpen(); };
+}
+
 /** The statuses that mean a delivery stopped and needs a person. */
 export const DELIVERY_EXCEPTION_STATUSES = ["delayed", "delivery_failed"];
 

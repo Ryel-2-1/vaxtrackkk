@@ -101,3 +101,11 @@ test("the Dispatcher calendar looks each order's Med Rep name up once per visit"
   assert.match(cal, /const missing = visibleLookupKey\.split\("\|"\)\.filter\(\(id\) => !nameCache\.has\(id\)\);/);
   assert.match(cal, /fetchOrderMedRepNames\(missing\)/);
 });
+
+test("Cargo Loading asks the server only for assigned and loading orders", async () => {
+  const src = read("src/services/cargoLoadingService.js");
+  assert.match(src, /query\(collection\(db, ORDERS\), where\("status", "in", CARGO_STATUS_QUERY_VALUES\)\)/);
+  assert.doesNotMatch(src, /listenLive\(\s*collection\(db, ORDERS\),/, "no whole-collection orders listener");
+  const values = src.match(/ACTIVE_LOADING_STATUSES = \["assigned", "loading"\]/);
+  assert.ok(values, "the screen's own statuses drive the query");
+});
