@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, Package, Truck } from "lucide-react";
 import AdminLayout from "../../components/admin/AdminLayout";
-import { DELIVERY_EXCEPTION_STATUSES, subscribeDeliveries } from "../../services/deliveryService";
+import { DELIVERY_EXCEPTION_STATUSES, countOrderTotals, subscribeOpenDeliveries, subscribeRecentOrders } from "../../services/deliveryService";
 import { subscribeActiveAlerts } from "../../services/alertService";
 import { subscribeRiders } from "../../services/riderService";
 import { subscribeInventory } from "../../services/inventoryService";
@@ -130,20 +130,56 @@ function AdminDashboard() {
       checkAllLoaded();
     };
 
-    const unsubDeliveries = subscribeDeliveries(
+    // Orders come from three narrow sources (2026-11-14), not every order ever
+    // placed: the OPEN orders live (exceptions, overdue, the open part of the
+    // breakdown), the six newest live (Recent orders), and totals COUNTED on
+    // the server (all, delivered, cancelled), refreshed whenever an open order
+    // changes, which is when a delivery or cancellation can move them.
+    let openBreakdown = {};
+    let totals = null;
+    let cancelled = false;
+    const publishBreakdown = () => {
+      setStatusBreakdown({
+        ...openBreakdown,
+        ...(totals ? { delivered: totals.delivered, cancelled: totals.cancelled } : {}),
+      });
+    };
+    let countTimer = null;
+    const refreshTotals = () => {
+      clearTimeout(countTimer);
+      countTimer = setTimeout(() => {
+        countOrderTotals()
+          .then((next) => {
+            if (cancelled) return;
+            totals = next;
+            setDeliveryCount(next.total);
+            publishBreakdown();
+            loaded.deliveries = true;
+            recover("deliveries");
+            checkAllLoaded();
+          })
+          .catch((error) => { if (!cancelled) failSource("deliveries", "orders")(error); });
+      }, 600);
+    };
+
+    const unsubDeliveries = subscribeOpenDeliveries(
       (orders) => {
-        setDeliveryCount(orders.length);
         setExceptionCount(orders.filter((o) => DELIVERY_EXCEPTION_STATUSES.includes(o.statusKey) || isRunningLate(o)).length);
         setOverdueCount(countOverdueBeforeDispatch(orders, manilaToday(Date.now())));
-        // Derived from the same orders array — no extra Firestore read.
-        const breakdown = {};
+        openBreakdown = {};
         orders.forEach((o) => {
-          const key = o.statusKey === "canceled" ? "cancelled" : o.statusKey;
-          breakdown[key] = (breakdown[key] || 0) + 1;
+          openBreakdown[o.statusKey] = (openBreakdown[o.statusKey] || 0) + 1;
         });
-        setStatusBreakdown(breakdown);
+        publishBreakdown();
+        refreshTotals();
+      },
+      failSource("deliveries", "orders")
+    );
+    const unsubRecent = subscribeRecentOrders(
+      6,
+      (orders) => {
         setRecentOrders(
-          orders.slice(0, 6).map((o) => ({
+          orders.map((o) => ({
             id: o.id,
             orderNumber: o.orderNumber || o.id,
             clinicName: o.clinicName || "—",
@@ -155,9 +191,6 @@ function AdminDashboard() {
             time: formatRelativeTime(o.createdAt),
           }))
         );
-        loaded.deliveries = true;
-        recover("deliveries");
-        checkAllLoaded();
       },
       failSource("deliveries", "orders")
     );
@@ -204,7 +237,10 @@ function AdminDashboard() {
     }
 
     return () => {
+      cancelled = true;
+      clearTimeout(countTimer);
       unsubDeliveries();
+      unsubRecent();
       unsubAlerts();
       unsubRiders();
       unsubInventory();
@@ -407,7 +443,7 @@ function AdminDashboard() {
                 >
                   <span
                     className="adx-alert-dot"
-                    style={{ background: ALERT_DOT[alert.type] || "var(--gray-400,#9ca3af)" }}
+                    style={{ background: ALERT_DOT[alert.type] || "var(--gray-400)" }}
                   />
                   <div>
                     <strong>{alert.title}</strong>

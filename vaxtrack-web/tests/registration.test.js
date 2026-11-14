@@ -218,7 +218,8 @@ test("the account is created pending, then signed out — never left signed in",
 
   const setDocAt = body.indexOf("setDoc(");
   const signOutAt = body.indexOf("signOut(auth)");
-  const navigateAt = body.indexOf('navigate("/pending")');
+  // The pending page is told the email, to say where the verification link went.
+  const navigateAt = body.indexOf('navigate("/pending", { state: { email: check.value.email } })');
   assert.ok(setDocAt !== -1, "profile must be written");
   assert.ok(signOutAt > setDocAt, "must sign out AFTER writing the pending profile");
   assert.ok(navigateAt > signOutAt, "must route to /pending after signing out");

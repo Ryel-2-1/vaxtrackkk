@@ -17,7 +17,7 @@ import {
   User,
   X,
 } from "lucide-react";
-import { subscribeDeliveries } from "../../services/deliveryService";
+import { subscribeActiveTripDeliveries } from "../../services/deliveryService";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import { saveOrderRoute, saveRiderTripRoute } from "../../services/orderService";
 import {
@@ -399,7 +399,7 @@ function DispatcherGeofence() {
   );
 
   useEffect(() => {
-    const unsub = subscribeDeliveries(
+    const unsub = subscribeActiveTripDeliveries(
       (all) => {
         setOrders(all);
         setLoading(false);
@@ -599,7 +599,7 @@ function DispatcherGeofence() {
           : `Re-planned from the rider's position: ${missed} requested arrival${missed === 1 ? "" : "s"} cannot be met from here — this is the order that misses by the least. Tell the clinic${missed === 1 ? "" : "s"} concerned.`)
           + (result.plan.hubReturn?.warning ? ` ${result.plan.hubReturn.warning}` : ""),
       });
-      // subscribeDeliveries refreshes the group's orders with the trip fields,
+      // subscribeActiveTripDeliveries refreshes the group's orders with the trip fields,
       // so the numbered markers + trip line + stop list redraw automatically.
     } catch (err) {
       // RouteServiceError carries its own safe sentence; a failed save of
@@ -633,7 +633,7 @@ function DispatcherGeofence() {
       const route = await fetchRoute(riderLL, clinicLL);
       const etaText = formatEta(new Date(), route.durationSeconds);
       await saveOrderRoute(orderId, { ...route, etaText }, selected.destinationRevision ?? 0);
-      // The subscribeDeliveries snapshot refreshes `selected` with the new
+      // The subscribeActiveTripDeliveries snapshot refreshes `selected` with the new
       // route fields, redrawing the polyline + metrics automatically.
     } catch (err) {
       logSafeError("Generate route", err);

@@ -280,6 +280,8 @@ function toHttpsError(error, context) {
       "reschedule-reason-required": "invalid-argument",
       // Reserved stock still on its way (expiryGuard.arrivesBy).
       "reserved-batch-arrives-later": "failed-precondition",
+      // First approval of an applicant whose email is not verified (staffAccounts.js).
+      "email-not-verified": "failed-precondition",
     };
     const httpsCode = map[error.code] ?? "invalid-argument";
     return new HttpsError(httpsCode, error.message, {
@@ -440,7 +442,8 @@ exports.createStaffSetupLink = callable(
 
 exports.setStaffStatus = callable(
   "setStaffStatus",
-  ({ db, FieldValue, uid, email, data, now }) => staffAccounts.setStaffStatus({ db, FieldValue, uid, email, payload: data, now })
+  ({ db, FieldValue, uid, email, data, now }) =>
+    staffAccounts.setStaffStatus({ db, FieldValue, authAdmin: admin.auth(), uid, email, payload: data, now })
 );
 
 exports.setStaffRole = callable(

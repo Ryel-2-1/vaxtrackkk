@@ -109,8 +109,12 @@ test("no static array, sample row or fixed percentage supplies a metric", () => 
 // ------------------------------------------------ genuine data stays wired
 
 test("all four Firestore subscriptions remain connected", () => {
+  // Orders through narrow sources (2026-11-14): open orders live, the six
+  // newest live, and server-counted totals, never every order ever placed.
+  assert.equal(/subscribeDeliveries\(/.test(CODE), false, "no whole-collection orders listener");
+  assert.match(CODE, /countOrderTotals\(\)/);
   for (const sub of [
-    "subscribeDeliveries", "subscribeActiveAlerts", "subscribeRiders", "subscribeInventory",
+    "subscribeOpenDeliveries", "subscribeRecentOrders", "subscribeActiveAlerts", "subscribeRiders", "subscribeInventory",
   ]) {
     assert.match(CODE, new RegExp(`${sub}\\(`), `${sub} must still feed the page`);
   }
@@ -176,7 +180,7 @@ test("absent data renders a neutral state, never a filled-in one", () => {
   // An alert whose type is unmapped gets the neutral dot, not an invented
   // severity. It used to default to "warning".
   assert.match(SRC, /ALERT_TYPE_MAP\[raw\.type\] \|\| "unknown"/);
-  assert.match(SRC, /ALERT_DOT\[alert\.type\] \|\| "var\(--gray-400,#9ca3af\)"/);
+  assert.match(SRC, /ALERT_DOT\[alert\.type\] \|\| "var\(--gray-400\)"/);
   assert.equal(/\|\| "warning"/.test(CODE), false, "severity may not be assumed");
   // Each section has its own empty state, and the page keeps loading and error
   // handling rather than rendering zeros over missing data.

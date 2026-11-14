@@ -150,6 +150,20 @@ class AuthGate extends StatelessWidget {
             final user = result.user;
             final rejection = AuthService.rejectionMessageFor(user);
             if (rejection != null) {
+              final authUser = FirebaseAuth.instance.currentUser;
+              if (user != null && user.isPending && authUser != null && !authUser.emailVerified) {
+                // Send a fresh verification link while still signed in, then
+                // sign out. Best effort: Firebase rate-limits repeat sends.
+                AuthService.pendingLoginMessage = AuthService.pendingMessage(
+                  emailVerified: false,
+                  email: authUser.email,
+                );
+                authUser
+                    .sendEmailVerification()
+                    .catchError((_) {})
+                    .whenComplete(() => FirebaseAuth.instance.signOut());
+                return const SkeletonHome();
+              }
               AuthService.pendingLoginMessage = rejection;
               FirebaseAuth.instance.signOut();
               return const SkeletonHome();

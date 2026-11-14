@@ -69,8 +69,15 @@ async function world(extra = {}) {
 
 const create = (authAdmin, payload, uid = ADMIN) =>
   S.createStaffAccount({ db, authAdmin, FieldValue, uid, email: "maria@x.ph", payload, now: NOW });
-const setStatus = (targetUid, status, uid = ADMIN) =>
-  S.setStaffStatus({ db, FieldValue, uid, email: "maria@x.ph", payload: { targetUid, status }, now: NOW });
+/** Firebase Auth as setStaffStatus reads it: every applicant's email verified, unless listed. */
+const authWith = ({ unverified = [], missing = [] } = {}) => ({
+  async getUser(uid) {
+    if (missing.includes(uid)) throw Object.assign(new Error("no user"), { code: "auth/user-not-found" });
+    return { uid, emailVerified: !unverified.includes(uid) };
+  },
+});
+const setStatus = (targetUid, status, uid = ADMIN, authAdmin = authWith()) =>
+  S.setStaffStatus({ db, FieldValue, authAdmin, uid, email: "maria@x.ph", payload: { targetUid, status }, now: NOW });
 const reopen = (targetUid, reason, uid = ADMIN) =>
   S.setStaffStatus({ db, FieldValue, uid, payload: { targetUid, status: "pending_approval", reason }, now: NOW });
 const setRole = (targetUid, role, uid = ADMIN) =>
@@ -260,4 +267,26 @@ test("the first-Admin setup ignores disabled or pending Admins, but not approved
   const auth = fakeAuth();
   const r = await S.bootstrapFirstAdmin({ db, authAdmin: auth, FieldValue, name: "Owner Name", email: "o@c.ph", now: NOW });
   assert.ok(r.uid);
+});
+
+test("an applicant is approved only once their email is verified (2026-11-14)", async () => {
+  await world({
+    unverified: { role: "salesrep", status: "pending", email: "u@x.ph" },
+    noauth: { role: "rider", status: "pending_approval", email: "n@x.ph" },
+    verified: { role: "dispatcher", status: "pending", email: "v@x.ph" },
+    paused: { role: "dispatcher", status: "disabled", email: "d@x.ph" },
+  });
+  const auth = authWith({ unverified: ["unverified", "paused"], missing: ["noauth"] });
+  assert.equal(await code(setStatus("unverified", "approved", ADMIN, auth)), "email-not-verified");
+  assert.equal(await code(setStatus("noauth", "approved", ADMIN, auth)), "email-not-verified", "no Auth record fails closed");
+  assert.equal(await code(setStatus("verified", "approved", ADMIN, null)), "email-not-verified", "no Auth client fails closed");
+  assert.equal((await user("unverified")).status, "pending", "nothing changed");
+  await setStatus("verified", "approved", ADMIN, auth);
+  assert.equal((await user("verified")).status, "approved");
+  // Reactivating a disabled account is not a first approval.
+  await setStatus("paused", "approved", ADMIN, auth);
+  assert.equal((await user("paused")).status, "approved");
+  // Rejecting never needs a verified email.
+  await setStatus("unverified", "rejected", ADMIN, auth);
+  assert.equal((await user("unverified")).status, "rejected");
 });

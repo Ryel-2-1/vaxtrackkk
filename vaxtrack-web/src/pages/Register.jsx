@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   createUserWithEmailAndPassword,
   deleteUser,
+  sendEmailVerification,
   signOut,
 } from "firebase/auth";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
@@ -142,10 +143,19 @@ function Register() {
         throw writeError;
       }
 
+      // An Admin can approve only a verified email (2026-11-14), so the
+      // verification link goes out now. Best effort: a failed send never undoes
+      // the application; the applicant can ask for a new link after signing in.
+      try {
+        await sendEmailVerification(credential.user);
+      } catch {
+        // the pending page offers "Send the link again"
+      }
+
       // Applied successfully. The account is pending and may do nothing yet, so
       // sign out and show the pending screen — never a signed-in dashboard.
       await signOut(auth);
-      navigate("/pending");
+      navigate("/pending", { state: { email: check.value.email } });
     } catch (err) {
       // Mapped from the code only — never Firebase's own text. Every value
       // typed stays in the form.

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { subscribePendingDispatchOrders } from "../../services/orderService";
-import { subscribeDeliveries } from "../../services/deliveryService";
+import { subscribeOpenDeliveries } from "../../services/deliveryService";
 import { subscribeRiders } from "../../services/riderService";
 import { subscribeActiveAlerts } from "../../services/alertService";
 import { manilaToday } from "../../services/deliveryCalendar";
@@ -99,7 +99,7 @@ function DispatcherDashboard() {
       checkDone();
     }, fail("pending", "the dispatch queue"));
 
-    const unsubAll = subscribeDeliveries((orders) => {
+    const unsubAll = subscribeOpenDeliveries((orders) => {
       setAllOrders(orders);
       loaded.all = true;
       recover("all");

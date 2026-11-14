@@ -34,6 +34,17 @@ class AuthService {
   /// still in flight, corrupting the registration.
   static bool registrationInProgress = false;
 
+  /// What a pending rider sees at sign-in (2026-11-14). An administrator can
+  /// approve an account only once its email is verified (the server checks
+  /// it), so an unverified rider is told to open the link, and a new one is
+  /// sent (app.dart).
+  static String pendingMessage({required bool emailVerified, String? email}) {
+    if (emailVerified) return 'Your rider account is pending admin approval.';
+    final to = (email == null || email.trim().isEmpty) ? '' : ' to ${email.trim()}';
+    return 'Verify your email first: we sent a new link$to. '
+        'An administrator can approve your account only after that.';
+  }
+
   static String? rejectionMessageFor(AppUser? user) {
     if (user == null) {
       return 'Rider profile not found. Please contact your administrator.';
@@ -221,6 +232,13 @@ class AuthService {
           'Unable to save rider profile. Please try again.',
         );
       }
+
+      // An administrator can approve only a verified email (2026-11-14), so
+      // the link goes out now. Best effort: a failed send never undoes the
+      // application; a new link is sent when the rider next signs in.
+      try {
+        await createdUser.sendEmailVerification();
+      } catch (_) {}
 
       await _auth.signOut();
     } on FirebaseAuthException catch (e) {

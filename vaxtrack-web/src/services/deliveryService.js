@@ -1,4 +1,4 @@
-import { collection, query, Timestamp, where } from "firebase/firestore";
+import { collection, getCountFromServer, limit, orderBy, query, Timestamp, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { ORDER_STATUSES, STATUS_LABELS } from "./orderWorkflow";
 import { logSafeError } from "./liveDataErrors.js";
@@ -171,6 +171,127 @@ export const OPEN_DELIVERY_STATUSES = Object.freeze([
 ]);
 const withSpellings = (statuses) =>
   statuses.flatMap((s) => [s, s[0].toUpperCase() + s.slice(1), s.toUpperCase()]);
+
+const newestFirst = (a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0);
+
+/**
+ * Only the orders still in the delivery flow (2026-11-14): waiting for
+ * dispatch, assigned, loading, in transit, delayed or failed. For screens that
+ * show live work (Live Tracking, the Dispatcher dashboard) and used to read
+ * every order ever placed. Same record shape as subscribeDeliveries.
+ */
+export function subscribeOpenDeliveries(callback, onError) {
+  return listenLive(
+    query(collection(db, ORDERS), where("status", "in", withSpellings(OPEN_DELIVERY_STATUSES))),
+    (snap) => callback(snap.docs.map(deliveryFromDoc).sort(newestFirst)),
+    (error) => {
+      logSafeError("subscribeOpenDeliveries", error);
+      if (onError) onError(error);
+    }
+  );
+}
+
+/**
+ * The newest [count] orders, live (2026-11-14). For "Recent orders" lists that
+ * used to read every order to show six. Orders without createdAt (none are
+ * written today) are not listed.
+ */
+export function subscribeRecentOrders(count, callback, onError) {
+  return listenLive(
+    query(collection(db, ORDERS), orderBy("createdAt", "desc"), limit(count)),
+    (snap) => callback(snap.docs.map(deliveryFromDoc)),
+    (error) => {
+      logSafeError("subscribeRecentOrders", error);
+      if (onError) onError(error);
+    }
+  );
+}
+
+/**
+ * Order totals counted on the server (2026-11-14): all orders, delivered and
+ * cancelled. A count is billed about one read per 1,000 orders counted, where
+ * listening to every order bills one read per order on every visit. Not live:
+ * call it again when the figures may have moved (an open order changed).
+ * @returns {Promise<{total: number, delivered: number, cancelled: number}>}
+ */
+export async function countOrderTotals() {
+  const orders = collection(db, ORDERS);
+  const [total, delivered, cancelled] = await Promise.all([
+    getCountFromServer(orders),
+    getCountFromServer(query(orders, where("status", "in", withSpellings(["delivered"])))),
+    getCountFromServer(query(orders, where("status", "in", [...withSpellings(["cancelled"]), "canceled"]))),
+  ]);
+  return {
+    total: total.data().count,
+    delivered: delivered.data().count,
+    cancelled: cancelled.data().count,
+  };
+}
+
+/** Firestore's limit on values in one `in` filter. */
+const IN_LIMIT = 30;
+
+/**
+ * Open orders, plus every order on the same trips (2026-11-14). A trip's
+ * progress ("stop 2 of 3") counts stops already delivered or cancelled, which
+ * an open-orders query alone would drop. The trip ids come from the open
+ * orders; the trip listener re-subscribes only when that set changes. Same
+ * record shape as subscribeDeliveries; the callback fires once both report.
+ */
+export function subscribeActiveTripDeliveries(callback, onError) {
+  let open = null;
+  let tripOrders = [];
+  let tripKey = null;
+  let unsubTrips = [];
+  let failed = false;
+  const fail = (error) => {
+    logSafeError("subscribeActiveTripDeliveries", error);
+    if (failed) return;
+    failed = true;
+    if (onError) onError(error);
+  };
+  const emit = () => {
+    if (failed || open === null) return;
+    const byId = new Map();
+    for (const d of [...tripOrders, ...open]) byId.set(d.id, d);
+    callback([...byId.values()].sort(newestFirst));
+  };
+  const watchTrips = (tripIds) => {
+    const key = [...tripIds].sort().join("|");
+    if (key === tripKey) return;
+    tripKey = key;
+    unsubTrips.forEach((u) => u());
+    unsubTrips = [];
+    tripOrders = [];
+    const ids = [...tripIds];
+    if (ids.length === 0) return;
+    const groups = [];
+    for (let i = 0; i < ids.length; i += IN_LIMIT) groups.push(ids.slice(i, i + IN_LIMIT));
+    const results = groups.map(() => []);
+    unsubTrips = groups.map((group, index) => listenLive(
+      query(collection(db, ORDERS), where("tripId", "in", group)),
+      (snap) => {
+        results[index] = snap.docs.map(deliveryFromDoc);
+        tripOrders = results.flat();
+        emit();
+      },
+      fail
+    ));
+  };
+  const unsubOpen = listenLive(
+    query(collection(db, ORDERS), where("status", "in", withSpellings(OPEN_DELIVERY_STATUSES))),
+    (snap) => {
+      open = snap.docs.map(deliveryFromDoc);
+      watchTrips(new Set(open.map((o) => o.tripId).filter((id) => typeof id === "string" && id)));
+      emit();
+    },
+    fail
+  );
+  return () => {
+    unsubOpen();
+    unsubTrips.forEach((u) => u());
+  };
+}
 
 /**
  * The Delivery Calendar's orders (2026-11-14): those requested for a day in

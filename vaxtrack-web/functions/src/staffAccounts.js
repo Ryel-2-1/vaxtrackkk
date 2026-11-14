@@ -208,7 +208,21 @@ async function createStaffSetupLink({ db, authAdmin, FieldValue, uid, email: act
 }
 
 /** Change status. Reopening a rejected application also requires a reason. */
-async function setStaffStatus({ db, FieldValue, uid, email: actorEmail = null, payload, now = new Date() }) {
+/**
+ * Is the applicant's email verified in Firebase Auth? (2026-11-14.) Asked by
+ * the server, never the caller. A missing Auth record or no Auth client reads
+ * as "not verified", so the check fails closed.
+ */
+async function emailVerified(authAdmin, targetUid) {
+  if (!authAdmin) return false;
+  try {
+    return (await authAdmin.getUser(targetUid))?.emailVerified === true;
+  } catch {
+    return false;
+  }
+}
+
+async function setStaffStatus({ db, FieldValue, authAdmin, uid, email: actorEmail = null, payload, now = new Date() }) {
   await requireAdmin(db, uid);
   const reopening = payload?.status === "pending_approval";
   const targetUid = targetUidOf(payload, reopening ? ["status", "reason"] : ["status"]);
@@ -241,6 +255,18 @@ async function setStaffStatus({ db, FieldValue, uid, email: actorEmail = null, p
     if (isApprovedAdmin(target) && status !== "approved") {
       const admins = await approvedAdminUids(tx, db);
       if (admins.filter((id) => id !== targetUid).length === 0) throw LAST_ADMIN();
+    }
+    // First approval of someone who signed up themselves needs a verified
+    // email, so an account is never approved for an address its owner does
+    // not control. Reactivating a disabled account is not a first approval.
+    // Staff added by an Admin are approved at creation and prove their email
+    // by opening the setup link, so they never pass through here.
+    const firstApproval = status === "approved" && ["pending", "pending_approval"].includes(normalizeStatus(target.status));
+    if (firstApproval && !(await emailVerified(authAdmin, targetUid))) {
+      throw new PolicyError(
+        "email-not-verified",
+        "This applicant has not verified their email yet. Ask them to open the verification link VaxTrack emailed them (or send a new one from the sign-in page), then approve."
+      );
     }
     tx.update(ref, { status, updatedAt: FieldValue.serverTimestamp(), statusUpdatedByUid: uid });
     tx.create(db.collection(EVENTS).doc(), eventRecord({

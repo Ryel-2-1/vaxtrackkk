@@ -5,7 +5,7 @@ import { useNow } from "../useRiderLiveLocation";
 import FleetMap from "./FleetMap";
 import TrackingStateBadge from "./TrackingStateBadge";
 import useRiderTrackingFeeds from "./useRiderTrackingFeeds";
-import { subscribeDeliveries } from "../../services/deliveryService";
+import { subscribeOpenDeliveries } from "../../services/deliveryService";
 import { manilaTime } from "../../services/deliveryTiming";
 import { subscribeRiders } from "../../services/riderService";
 import {
@@ -163,7 +163,7 @@ function LiveTrackingPanel() {
 
   useEffect(() => {
     const unsubs = [
-      subscribeDeliveries(
+      subscribeOpenDeliveries(
         (list) => {
           setOrders(list);
           setOrdersError(null); // a recovered listener clears its failure

@@ -72,7 +72,15 @@ export const Timestamp = class {
 
 const matches = (data, clauses = []) => clauses
   .filter((c) => c && c.__t === 'where')
-  .every((c) => (c.op === '==' ? data[c.field] === c.value : true));
+  .every((c) => {
+    if (typeof c.field !== 'string') return true; // documentId() and the like: not modelled
+    const v = data[c.field];
+    if (c.op === '==') return v === c.value;
+    if (c.op === 'in') return Array.isArray(c.value) && c.value.includes(v);
+    if (c.op === '>=') return v !== undefined && v >= c.value;
+    if (c.op === '<=') return v !== undefined && v <= c.value;
+    return true; // other operators (array-contains, documentId…) are not modelled
+  });
 
 const docsFor = (ref) => Object.entries(col(ref.__col))
   .filter(([, rec]) => matches(rec.data, ref.__clauses))
@@ -80,6 +88,7 @@ const docsFor = (ref) => Object.entries(col(ref.__col))
 
 export const getDoc = async (ref) => snapOf(ref.__col, ref.__id);
 export const getDocs = async (ref) => { const docs = docsFor(ref); return { docs, empty: docs.length === 0, size: docs.length }; };
+export const getCountFromServer = async (ref) => { const count = docsFor(ref).length; return { data: () => ({ count }) }; };
 
 export const onSnapshot = (ref, next, _err) => {
   const cb = typeof next === 'function' ? next : next.next;

@@ -2405,3 +2405,40 @@ input[type="checkbox"]:focus {
   background: var(--green-50) !important;
   color: var(--gray-900) !important;
 }
+
+/* Pending page: email verification (2026-11-14). */
+.pending-verify {
+  border-color: var(--warning-border) !important;
+  background: var(--warning-bg) !important;
+  color: var(--warning-text) !important;
+}
+.pending-verify.is-verified {
+  border-color: var(--success-border, #bfe3cf) !important;
+  background: var(--success-bg, #ecf8f1) !important;
+  color: var(--success-text, #146c43) !important;
+}
+.pending-verify-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 0;
+}
+.pending-secondary {
+  flex: 1 1 160px;
+  min-height: 44px !important;
+  padding: 10px 14px;
+  border: 1px solid var(--gray-300, #d1d5db);
+  border-radius: 10px;
+  background: var(--white, #fff) !important;
+  color: var(--gray-800, #1f2937);
+  font-weight: 600;
+  cursor: pointer;
+}
+.pending-secondary:disabled { opacity: 0.6; cursor: default; }
+.pending-secondary:focus-visible { outline: 2px solid var(--green-700, #15803d); outline-offset: 2px; }
+.pending-verify-notice {
+  margin: 10px 0 0 !important;
+  font-size: 13px !important;
+  color: var(--gray-700, #374151) !important;
+}
+.pending-verify-notice.is-error { color: var(--danger-text, #b42318) !important; }
