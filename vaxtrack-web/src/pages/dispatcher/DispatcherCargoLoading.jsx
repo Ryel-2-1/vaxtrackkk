@@ -27,6 +27,8 @@ import { missingEtaWarning } from "../../services/deliveryTiming";
 import { ToastRegion } from "../../components/ui/Feedback";
 import { useToast } from "../../components/ui/useToast";
 import { subscribeRiders } from "../../services/riderService";
+import RiderAvatar from "../../components/ui/RiderAvatar";
+import { profilePhotoUrlOf } from "../../services/profileModel";
 import { confirmRiderReturnToHub, subscribeRiderDispatchStates } from "../../services/riderDispatchService";
 import { cargoGroupDispatch, ridersReturningToHub } from "../../services/riderTrip";
 import DispatcherDialogLayer from "./DispatcherDialogLayer";
@@ -58,17 +60,6 @@ function orderClinic(order) {
   return order.clinicName || order.clinic || "Unknown clinic";
 }
 
-function initialsOf(name) {
-  return (
-    (name || "")
-      .split(" ")
-      .filter(Boolean)
-      .map((w) => w[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase() || "?"
-  );
-}
 
 function DispatcherCargoLoading() {
   const navigate = useNavigate();
@@ -150,6 +141,11 @@ function DispatcherCargoLoading() {
   }, []);
 
   const returning = useMemo(() => ridersReturningToHub(tripStates, riders), [tripStates, riders]);
+  // Each rider's profile photo for the avatars, from the riders already read.
+  const photoByUid = useMemo(
+    () => new Map(riders.map((r) => [r.uid, profilePhotoUrlOf(r)]).filter(([, url]) => url)),
+    [riders]
+  );
 
   // Runs from the confirmation; on failure it rethrows so the dialog says why.
   const handleConfirmReturn = async (entry) => {
@@ -315,7 +311,7 @@ function DispatcherCargoLoading() {
             <ul className="cl-return-list">
               {returning.map((r) => (
                 <li key={r.riderUid} className="cl-return-row">
-                  <span className="cl-avatar" aria-hidden="true">{initialsOf(r.name)}</span>
+                  <RiderAvatar className="cl-avatar" name={r.name} photoUrl={photoByUid.get(r.riderUid) || null} />
                   <div className="cl-rider-meta">
                     <strong>{r.name}</strong>
                     <small>
@@ -359,6 +355,7 @@ function DispatcherCargoLoading() {
                   tripHold={cargoGroupDispatch(tripStates.get(group.riderId))}
                   routing={routing}
                   clinicMap={clinicMap}
+                  riderPhotoUrl={photoByUid.get(group.riderId) || null}
                 />
               ))}
             </div>
@@ -450,6 +447,7 @@ function RiderCard({
   tripHold = { canFinalize: true, reason: "" },
   routing = null,
   clinicMap = null,
+  riderPhotoUrl = null,
 }) {
   const [returnPlan, setReturnPlan] = useState(null);
   const badge = loadingBadge(group, dispatched);
@@ -470,9 +468,7 @@ function RiderCard({
   return (
     <section className="cl-card" aria-label={`Cargo for ${group.rider.name}`}>
       <header className="cl-card-head">
-        <span className="cl-avatar" aria-hidden="true">
-          {initialsOf(group.rider.name)}
-        </span>
+        <RiderAvatar className="cl-avatar" name={group.rider.name} photoUrl={riderPhotoUrl} />
 
         <div className="cl-rider-meta">
           <strong>{group.rider.name}</strong>

@@ -1424,8 +1424,31 @@ service cloud.firestore {
     function riderLocationUserFields() {
       return ['lastLocation', 'lastLocationUpdate', 'locationAccuracy', 'heading', 'speed'];
     }
+    // A rider's profile photo (2026-11-15), set from the Rider app's profile
+    // (vaxtrack_mobile/lib/services/profile_photo_service.dart). The image
+    // lives at one fixed Storage path per rider (storage.rules).
+    function riderPhotoUserFields() {
+      return ['photoUrl', 'photoPath', 'photoUpdatedAt'];
+    }
+    function riderPhotoPathOf(uid) {
+      return 'profile_photos/' + uid + '/photo.jpg';
+    }
+    // Set: all three, the rider's own canonical object, an https download URL
+    // and the server's time. Removed: none of the three left. Nothing between.
+    function riderPhotoWriteValid(uid) {
+      let d = request.resource.data;
+      return (
+          d.keys().hasAll(riderPhotoUserFields())
+          && d.photoPath == riderPhotoPathOf(uid)
+          && d.photoUrl is string
+          && d.photoUrl.size() <= 2048
+          && d.photoUrl.matches('https://.+')
+          && d.photoUpdatedAt == request.time
+        )
+        || !d.keys().hasAny(riderPhotoUserFields());
+    }
     function selfEditableUserFields() {
-      return selfProfileFields().concat(riderLocationUserFields());
+      return selfProfileFields().concat(riderLocationUserFields()).concat(riderPhotoUserFields());
     }
     function selfNameValid(value) {
       return value is string && value.trim().size() >= 2 && value.size() <= 80;
@@ -1573,6 +1596,11 @@ service cloud.firestore {
           && (
             !changedKeys().hasAny(riderLocationUserFields())
             || resource.data.role == 'rider'
+          )
+          // Only a rider has a profile photo, and only a well-formed one.
+          && (
+            !changedKeys().hasAny(riderPhotoUserFields())
+            || (resource.data.role == 'rider' && riderPhotoWriteValid(uid))
           )
         );
 

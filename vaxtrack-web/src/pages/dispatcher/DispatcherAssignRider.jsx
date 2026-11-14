@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { assignRiderToOrder, getOrderById, subscribePendingDispatchOrders } from "../../services/orderService";
 import { subscribeRiders } from "../../services/riderService";
+import RiderAvatar from "../../components/ui/RiderAvatar";
+import { profilePhotoUrlOf } from "../../services/profileModel";
 import { recheckRiderTripStatesOnServer, subscribeRiderDispatchStates } from "../../services/riderDispatchService";
 import { describeRecheck, riderTripStatus } from "../../services/riderTrip";
 import DispatcherDialogLayer from "./DispatcherDialogLayer";
@@ -41,17 +43,6 @@ import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote
 import VaccineBreakdown from "../../components/dispatch/VaccineBreakdown";
 import { quantityText } from "../../services/quantityText";
 
-function initialsOf(name) {
-  return (
-    (name || "")
-      .split(" ")
-      .filter(Boolean)
-      .map((w) => w[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase() || "?"
-  );
-}
 
 const getRiderName = (r) => r.fullName || r.name || r.displayName || r.email || "Unknown";
 const getRiderVehicle = (r) => r.vehiclePlate || r.motorcycle || r.motorcycleId || r.vehicle || "Motorcycle";
@@ -524,7 +515,7 @@ function DispatcherAssignRider() {
                       aria-describedby={trip.note ? noteId : undefined}
                       disabled={saving || !trip.assignable}
                     >
-                      <span className="ar-avatar">{initialsOf(name)}</span>
+                      <RiderAvatar className="ar-avatar" name={name} photoUrl={profilePhotoUrlOf(rider)} />
                       <div className="ar-rider-info">
                         <strong>{name}</strong>
                         <small>

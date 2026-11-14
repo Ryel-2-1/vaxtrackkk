@@ -5010,6 +5010,56 @@ async function main() {
     }));
   });
 
+  // A rider's profile photo (2026-11-15): set or removed by that rider only,
+  // always the canonical Storage object, an https URL and the server's time.
+  const photoOf = (uid, over = {}) => ({
+    photoUrl: `https://firebasestorage.googleapis.com/v0/b/x/o/profile_photos%2F${uid}%2Fphoto.jpg?alt=media&token=t`,
+    photoPath: `profile_photos/${uid}/photo.jpg`,
+    photoUpdatedAt: serverTimestamp(),
+    ...over,
+  });
+
+  await check("PHOTO1 a rider sets, replaces and removes their own profile photo", async () => {
+    await seedProfile("photoRider", { role: "rider", status: "approved", fullName: "Photo Rider" });
+    const me = doc(testEnv.authenticatedContext("photoRider").firestore(), "users", "photoRider");
+    await assertSucceeds(updateDoc(me, photoOf("photoRider")));
+    await assertSucceeds(updateDoc(me, photoOf("photoRider", { photoUrl: "https://firebasestorage.googleapis.com/new?token=2" })));
+    await assertSucceeds(updateDoc(me, { photoUrl: deleteField(), photoPath: deleteField(), photoUpdatedAt: deleteField() }));
+  });
+
+  await check("PHOTO2 a malformed or partial photo record is refused", async () => {
+    await seedProfile("photoRider2", { role: "rider", status: "approved", fullName: "Photo Rider" });
+    const me = doc(testEnv.authenticatedContext("photoRider2").firestore(), "users", "photoRider2");
+    for (const [label, data] of [
+      ["another rider's object", photoOf("photoRider2", { photoPath: "profile_photos/someoneElse/photo.jpg" })],
+      ["a non-canonical name", photoOf("photoRider2", { photoPath: "profile_photos/photoRider2/me.png" })],
+      ["a proof photo", photoOf("photoRider2", { photoPath: "proof_of_delivery/o1/proof.jpg" })],
+      ["an http URL", photoOf("photoRider2", { photoUrl: "http://example.com/p.jpg" })],
+      ["a script URL", photoOf("photoRider2", { photoUrl: "javascript:alert(1)" })],
+      ["an oversized URL", photoOf("photoRider2", { photoUrl: "https://x/" + "a".repeat(2050) })],
+      ["a client clock", photoOf("photoRider2", { photoUpdatedAt: Timestamp.fromDate(new Date("2026-01-01T00:00:00Z")) })],
+      ["only the URL", { photoUrl: photoOf("photoRider2").photoUrl }],
+    ]) {
+      await assertFails(updateDoc(me, data)).catch((e) => { throw new Error(`${label}: ${e.message}`); });
+    }
+  });
+
+  await check("PHOTO3 only riders have one, and nobody sets another person's", async () => {
+    await seedProfile("photoRep", { role: "salesrep", status: "approved", name: "A Rep" });
+    const rep = testEnv.authenticatedContext("photoRep").firestore();
+    await assertFails(updateDoc(doc(rep, "users", "photoRep"), photoOf("photoRep")));
+    await seedProfile("photoRider3", { role: "rider", status: "approved", fullName: "Photo Rider" });
+    await assertFails(updateDoc(doc(rider, "users", "photoRider3"), photoOf("photoRider3")));
+    await assertFails(updateDoc(doc(dispatcher, "users", "photoRider3"), photoOf("photoRider3")));
+    // Admins and Dispatchers can read a rider's record, photo included.
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      updateDoc(doc(ctx.firestore(), "users", "photoRider3"), { ...photoOf("photoRider3"), photoUpdatedAt: Timestamp.now() })
+    );
+    await assertSucceeds(getDoc(doc(admin, "users", "photoRider3")));
+    await assertSucceeds(getDoc(doc(dispatcher, "users", "photoRider3")));
+    await assertFails(getDoc(doc(rep, "users", "photoRider3")));
+  });
+
   // ---------------- order status history ----------------
   //
   // orders/{id}/statusEvents is written only by the recordOrderStatusEvent

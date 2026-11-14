@@ -13,6 +13,8 @@ import { fleetOnTime, ordersByRider, riderActivity } from "../../services/riderA
 import { formatRate } from "../../services/deliveryMetrics";
 import useMinuteClock from "../../components/useMinuteClock";
 import KpiCard from "../../components/ui/KpiCard";
+import RiderAvatar from "../../components/ui/RiderAvatar";
+import { profilePhotoUrlOf } from "../../services/profileModel";
 import { kpiValue, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import { useDialogFocus } from "../../components/ui/useDialogFocus";
@@ -49,22 +51,15 @@ function normalizeRider(raw) {
     raw.vehicle ||
     "Not assigned";
 
-  const initials =
-    name
-      .split(" ")
-      .filter(Boolean)
-      .map((w) => w[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase() || "?";
-
   return {
     uid: raw.uid,
     displayId: raw.employeeId || "—",
     name,
     email: raw.email || "—",
     phone: raw.phone || raw.contactNumber || "—",
-    initials,
+    // Shown by RiderAvatar: the photo from the Rider app, else up to three
+    // initials, as for staff.
+    photoUrl: profilePhotoUrlOf(raw),
     vehicle,
     statusRaw,
     status: mapped.uiStatus,
@@ -450,9 +445,7 @@ function RiderRow({ rider, activity, assignment, figuresReady, locationReady, on
       onClick={() => onSelect(rider)}
     >
       <div className="rider-main-info">
-        <div className={`rider-avatar ${rider.status}`}>
-          {rider.initials}
-        </div>
+        <RiderAvatar className={`rider-avatar ${rider.status}`} name={rider.name} photoUrl={rider.photoUrl} />
 
         <div>
           <h3>{rider.name}</h3>
@@ -539,9 +532,7 @@ function RiderDetailsModal({
           <X size={18} />
         </button>
 
-        <div className={`riders-modal-avatar ${rider.status}`}>
-          {rider.initials}
-        </div>
+        <RiderAvatar className={`riders-modal-avatar ${rider.status}`} name={rider.name} photoUrl={rider.photoUrl} />
 
         <h2 id="rider-details-title">{rider.name}</h2>
         <p>

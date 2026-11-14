@@ -833,6 +833,55 @@ async function main() {
     );
   });
 
+  console.log("\n--- Storage rules: rider profile photos ---");
+
+  // profile_photos/{uid}/photo.jpg (2026-11-15): one per rider, written and
+  // removed only by that approved rider; read by them, Admin and Dispatcher.
+  const photoPath = (uid, file = "photo.jpg") => `profile_photos/${uid}/${file}`;
+  const putPhoto = (uid, path, meta = imageMeta, bytes = imageBytes) =>
+    fileFor(uid, path).put(Buffer.from(bytes), meta);
+
+  await check("PP1 a rider uploads, replaces, reads and deletes their own photo", async () => {
+    await assertSucceeds(putPhoto(riderUid, photoPath(riderUid)));
+    await assertSucceeds(putPhoto(riderUid, photoPath(riderUid), { contentType: "image/png" }));
+    await assertSucceeds(fileFor(riderUid, photoPath(riderUid)).getDownloadURL());
+    await assertSucceeds(fileFor(riderUid, photoPath(riderUid)).delete());
+  });
+
+  await check("PP2 Admin and Dispatcher can view it; a Med Rep, another rider and signed-out callers cannot", async () => {
+    await seedObject(photoPath(riderUid));
+    await assertSucceeds(fileFor(adminUid, photoPath(riderUid)).getDownloadURL());
+    await assertSucceeds(fileFor(dispatcherUid, photoPath(riderUid)).getDownloadURL());
+    for (const uid of [salesRepUid, otherRiderUid, null]) {
+      await assertFails(fileFor(uid, photoPath(riderUid)).getDownloadURL());
+    }
+  });
+
+  await check("NP1 nobody writes or deletes another person's photo", async () => {
+    await seedObject(photoPath(riderUid));
+    for (const uid of [otherRiderUid, adminUid, dispatcherUid, salesRepUid, null]) {
+      await assertFails(putPhoto(uid, photoPath(riderUid)));
+      await assertFails(fileFor(uid, photoPath(riderUid)).delete());
+    }
+  });
+
+  await check("NP2 only approved riders have a photo; staff and pending riders cannot upload", async () => {
+    for (const uid of [adminUid, dispatcherUid, salesRepUid, pendingRiderUid]) {
+      await assertFails(putPhoto(uid, photoPath(uid)));
+    }
+  });
+
+  await check("NP3 only the canonical name, an image type and under 5 MB", async () => {
+    for (const name of ["Photo.jpg", "photo.png", "avatar.jpg", "photo.jpg.exe"]) {
+      await assertFails(putPhoto(riderUid, photoPath(riderUid, name)));
+    }
+    await assertFails(putPhoto(riderUid, `profile_photos/${riderUid}/nested/photo.jpg`));
+    await assertFails(putPhoto(riderUid, photoPath(riderUid), { contentType: "image/svg+xml" }));
+    await assertFails(putPhoto(riderUid, photoPath(riderUid), { contentType: "text/plain" }));
+    await assertFails(putPhoto(riderUid, photoPath(riderUid), imageMeta, new Uint8Array(5 * 1024 * 1024)));
+    await assertSucceeds(putPhoto(riderUid, photoPath(riderUid), imageMeta, new Uint8Array(5 * 1024 * 1024 - 1)));
+  });
+
   console.log("\n--- Storage rules: catch-all ---");
 
   await check("NS18 everything not explicitly allowed stays denied", async () => {

@@ -17,6 +17,10 @@ import StatusBadge from "../../components/ui/StatusBadge";
 import TimingIndicator from "../../components/ui/TimingIndicator";
 import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
 import KpiCard from "../../components/ui/KpiCard";
+import RiderAvatar from "../../components/ui/RiderAvatar";
+import { initialsOf, profilePhotoUrlOf } from "../../services/profileModel";
+import { subscribeRiders } from "../../services/riderService";
+import { logSafeError } from "../../services/liveDataErrors";
 import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import OrderCancellationAction from "../../components/orders/OrderCancellationAction";
 import { useDialogFocus } from "../../components/ui/useDialogFocus";
@@ -37,13 +41,8 @@ const PREPARING_STATUSES = new Set(["pending_dispatch", "assigned", "loading"]);
 
 function normalizeDelivery(raw) {
   const riderName = raw.assignedRiderName || "Unassigned";
-  const initials = riderName
-    .split(" ")
-    .filter(Boolean)
-    .map((w) => w[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase() || "?";
+  // Up to three initials, as for staff (profileModel.initialsOf).
+  const initials = initialsOf(riderName);
 
   return {
     uid: raw.id,
@@ -149,7 +148,26 @@ const isLate = (delivery) => isRunningLate({ status: delivery.statusType, timing
 
 function Deliveries() {
 
-  const [deliveryList, setDeliveryList] = useState([]);
+  const [baseDeliveries, setDeliveryList] = useState([]);
+  // Each rider's profile photo, for the avatars. A failed read only leaves the
+  // initials showing; the deliveries themselves are unaffected.
+  const [photoByUid, setPhotoByUid] = useState(() => new Map());
+  useEffect(
+    () =>
+      subscribeRiders(
+        (riders) =>
+          setPhotoByUid(new Map(riders.map((r) => [r.uid, profilePhotoUrlOf(r)]).filter(([, url]) => url))),
+        (error) => logSafeError("Deliveries: rider photos", error)
+      ),
+    []
+  );
+  const deliveryList = useMemo(
+    () =>
+      photoByUid.size === 0
+        ? baseDeliveries
+        : baseDeliveries.map((d) => ({ ...d, riderPhotoUrl: photoByUid.get(d.assignedRiderId) || null })),
+    [baseDeliveries, photoByUid]
+  );
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -424,7 +442,7 @@ function Deliveries() {
 
                     <td>
                       <div className="mdl-rider-cell">
-                        <span className="mdl-avatar">{delivery.initials}</span>
+                        <RiderAvatar className="mdl-avatar" name={delivery.rider} photoUrl={delivery.riderPhotoUrl} />
                         <div>
                           <strong>{delivery.rider}</strong>
                         </div>
@@ -607,7 +625,7 @@ function DeliveryModal({ delivery, tripStops = [], onClose }) {
           <section className="mdl-drawer-section">
             <h3>Rider</h3>
             <div className="mdl-drawer-rider">
-              <span className="mdl-avatar">{delivery.initials}</span>
+              <RiderAvatar className="mdl-avatar" name={delivery.rider} photoUrl={delivery.riderPhotoUrl} />
               <div>
                 <strong>{delivery.rider}</strong>
                 {delivery.riderPhone ? (

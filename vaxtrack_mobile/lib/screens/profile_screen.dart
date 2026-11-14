@@ -1,22 +1,39 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/app_user.dart';
 import '../services/auth_service.dart';
 import '../services/delivery_service.dart';
+import '../services/profile_photo_service.dart';
 import '../models/delivery.dart';
 import '../offline/offline_delivery_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/route_monitoring_card.dart';
 import '../widgets/rider_feed_builder.dart';
+import '../widgets/rider_avatar.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key, this.riderId, this.profileFeed, this.deliveriesFeed});
+  const ProfileScreen({
+    super.key,
+    this.riderId,
+    this.profileFeed,
+    this.deliveriesFeed,
+    this.photoStore,
+    this.pickPhoto,
+  });
 
   /// Test seams. In the app all are null: the Rider is the signed-in user and
   /// both feeds are Firestore. Tests pass a Rider id and controlled streams.
   final String? riderId;
   final Stream<AppUser?> Function(String riderId)? profileFeed;
   final Stream<List<Delivery>> Function(String riderId)? deliveriesFeed;
+
+  /// Profile-photo seams (2026-11-15): null in the app (Firebase + the
+  /// device picker), fakes in tests.
+  final ProfilePhotoStore? photoStore;
+  final ProfilePhotoPicker? pickPhoto;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -26,6 +43,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // Lazy: only created when a Firestore feed is actually opened.
   late final _authService = AuthService();
   late final _deliveryService = DeliveryService();
+  late final ProfilePhotoController _photo =
+      ProfilePhotoController(store: widget.photoStore ?? FirebaseProfilePhotoStore())
+        ..addListener(_onPhotoChanged);
+
+  void _onPhotoChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _photo.removeListener(_onPhotoChanged);
+    _photo.dispose();
+    super.dispose();
+  }
   /// The signed-in Rider, read on every build — never captured once — so a
   /// changed account can only ever open that account's feed.
   String? get _uid => widget.riderId ?? FirebaseAuth.instance.currentUser?.uid;
@@ -131,15 +162,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                color: AppColors.primaryLight,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: const Icon(Icons.two_wheeler, size: 36, color: AppColors.primary),
-            ),
+            _avatarWithEdit(user),
+            if (_photo.busy) ...[
+              const SizedBox(height: 8),
+              const Text('Saving your photo…',
+                  key: ValueKey('profile-photo-progress'),
+                  style: TextStyle(fontSize: 12, color: AppColors.textLight)),
+            ],
             const SizedBox(height: 12),
             Text(user.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
@@ -164,6 +193,93 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       ),
     );
+  }
+
+  /// The avatar — photo or three initials — with a camera button to change it.
+  Widget _avatarWithEdit(AppUser user) {
+    return Semantics(
+      button: true,
+      label: user.displayPhotoUrl == null ? 'Add a profile photo' : 'Change your profile photo',
+      child: InkWell(
+        key: const ValueKey('profile-photo-edit'),
+        borderRadius: BorderRadius.circular(24),
+        onTap: _photo.busy ? null : () => _openPhotoOptions(user),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            RiderAvatar(name: user.name, photoUrl: user.displayPhotoUrl, size: 84),
+            if (_photo.busy)
+              const Positioned.fill(
+                child: Center(child: SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 3))),
+              ),
+            Positioned(
+              right: -4,
+              bottom: -4,
+              child: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 2),
+                ),
+                child: const Icon(Icons.photo_camera, size: 14, color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPhotoOptions(AppUser user) async {
+    final hasPhoto = user.displayPhotoUrl != null;
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              key: const ValueKey('profile-photo-camera'),
+              leading: const Icon(Icons.photo_camera),
+              title: const Text('Take a photo'),
+              onTap: () => Navigator.pop(ctx, 'camera'),
+            ),
+            ListTile(
+              key: const ValueKey('profile-photo-gallery'),
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Choose from gallery'),
+              onTap: () => Navigator.pop(ctx, 'gallery'),
+            ),
+            if (hasPhoto)
+              ListTile(
+                key: const ValueKey('profile-photo-remove'),
+                leading: const Icon(Icons.delete_outline, color: AppColors.urgent),
+                title: const Text('Remove photo', style: TextStyle(color: AppColors.urgent)),
+                onTap: () => Navigator.pop(ctx, 'remove'),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return;
+    final uid = user.uid;
+    bool ok;
+    if (choice == 'remove') {
+      ok = await _photo.remove(uid);
+    } else {
+      final pick = widget.pickPhoto ?? pickProfilePhoto;
+      final File? file = await pick(choice == 'camera' ? ImageSource.camera : ImageSource.gallery);
+      if (file == null || !mounted) return; // the rider cancelled
+      ok = await _photo.replace(uid, file);
+    }
+    if (!mounted) return;
+    // Both are fixed sentences from ProfilePhotoController, never raw errors.
+    final message = (ok ? _photo.noticeMessage : _photo.errorMessage) ?? '';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message),
+      backgroundColor: ok ? AppColors.primary : AppColors.urgent,
+    ));
   }
 
   Widget _statsRow(int total, int completed, int active) {

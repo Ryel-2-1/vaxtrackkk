@@ -197,6 +197,29 @@ service firebase.storage {
         );
     }
 
+    // A rider's profile photo (2026-11-15): exactly one object per rider,
+    // `profile_photos/{uid}/photo.jpg`, written and removed only by that
+    // approved rider. Admin and Dispatcher see riders on their pages, so they
+    // may read it; nobody else may. Must stay identical to
+    // kProfilePhotoFileName / profilePhotoPath() in
+    // vaxtrack_mobile/lib/services/profile_photo_service.dart and to
+    // riderPhotoPathOf() in firestore.rules.
+    match /profile_photos/{uid}/{fileName} {
+      allow create, update: if fileName == 'photo.jpg'
+        && request.auth != null
+        && request.auth.uid == uid
+        && isRider()
+        && request.resource.size < 5 * 1024 * 1024
+        && isImageUnder10MB();
+      allow delete: if fileName == 'photo.jpg'
+        && request.auth != null
+        && request.auth.uid == uid
+        && isRider();
+      allow read: if fileName == 'photo.jpg'
+        && request.auth != null
+        && (request.auth.uid == uid || isAdmin() || isDispatcher());
+    }
+
     // Deny everything else.
     match /{allPaths=**} {
       allow read, write: if false;

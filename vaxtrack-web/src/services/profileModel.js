@@ -63,6 +63,20 @@ export function initialsOf(name) {
 }
 
 /**
+ * A rider's profile photo to show (2026-11-15), or null. Only an https
+ * download URL the rider app stored counts; anything else shows initials.
+ * The photo's update time is added as a version so a replaced photo is not
+ * served from the browser cache under the same URL.
+ */
+export function profilePhotoUrlOf(raw) {
+  const url = typeof raw?.photoUrl === "string" ? raw.photoUrl.trim() : "";
+  if (!/^https:\/\/\S+$/.test(url)) return null;
+  const at = raw.photoUpdatedAt;
+  const ms = typeof at?.toMillis === "function" ? at.toMillis() : typeof at === "number" ? at : null;
+  return ms ? `${url}${url.includes("?") ? "&" : "?"}v=${ms}` : url;
+}
+
+/**
  * The profile as the page shows it, from the raw users/{uid} document. Reads
  * the field spellings the app has actually stored (`fullName` from rider
  * registration, `contactNumber`, `company`/`clinic` for organization).

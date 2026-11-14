@@ -1,0 +1,19 @@
+/* Rider avatar (RiderAvatar.jsx). The page's own avatar class sets the size,
+   shape and colours; this only lets a photo fill that shape. */
+.rav {
+  overflow: hidden;
+  letter-spacing: -0.02em;
+}
+
+.rav.rav-has-photo {
+  padding: 0;
+  background: var(--gray-100);
+}
+
+.rav-photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
