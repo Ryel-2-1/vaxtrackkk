@@ -32,6 +32,7 @@ import AllocationSummary from "../../components/ui/AllocationSummary";
 import { describeAllocation } from "../../services/backorder";
 import OrderCancellationAction from "../../components/orders/OrderCancellationAction";
 import MedRepRescheduleAction from "../../components/orders/MedRepRescheduleAction";
+import DialogLayer from "../../components/ui/DialogLayer";
 import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 
 function mapTrackingLabel(statusKey) {
@@ -534,7 +535,10 @@ function SalesRepOrderTracking() {
                   </section>
                 )}
 
+                {/* Portaled: inside the Med Rep's animated content area a modal
+                    opened below the visible screen (DialogLayer.jsx). */}
                 {pendingDecision && selectedOrder.changeRequest && (
+                  <DialogLayer scope="salesrep-page salesrep-main">
                   <ConfirmDialog
                     title={pendingDecision === "approve" ? "Approve the new destination?" : "Reject the destination request?"}
                     target={`Order ${selectedOrder.orderNumber} · ${
@@ -556,6 +560,7 @@ function SalesRepOrderTracking() {
                     onConfirm={handleDestinationDecision}
                     onCancel={() => setPendingDecision(null)}
                   />
+                  </DialogLayer>
                 )}
 
                 <div className="tracking-v2-info-box">

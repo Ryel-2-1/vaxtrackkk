@@ -13,6 +13,11 @@ import "./pages/dispatcher/dispatcher-polish.css"; /* Dispatcher-only cohesion l
 import "./styles/paged-tables.css";
 import "./styles/dialog-fit.css"; /* Every floating window fits the screen */
 import "./styles/shell-chrome.css"; /* One sidebar + top bar for all three roles (scoped to the role shells); last so it settles shell geometry */
+import { installFloatingWindows } from "./components/ui/floatingWindow.js";
+
+// Every modal window can be moved and resized, with its buttons pinned at the
+// bottom (floatingWindow.js; styles in dialog-fit.css).
+installFloatingWindows();
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>

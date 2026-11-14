@@ -1,6 +1,7 @@
 import { useId, useRef, useState } from "react";
 import { CalendarDays } from "lucide-react";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import DialogLayer from "../ui/DialogLayer";
 import { rescheduleOrderDelivery } from "../../services/scheduleCallables";
 import { manilaToday } from "../../services/requestedDate";
 import { medRepMayReschedule } from "../../services/medRepReschedule";
@@ -68,7 +69,10 @@ export default function MedRepRescheduleAction({ order, onDone }) {
       <button type="button" className="tracking-reschedule-btn" onClick={start}>
         <CalendarDays size={14} aria-hidden="true" /> Change delivery date
       </button>
+      {/* Portaled: inside the Med Rep's animated content area the modal opened
+          below the visible screen (DialogLayer.jsx). */}
       {open && (
+        <DialogLayer scope="salesrep-page salesrep-main">
         <ConfirmDialog
           title="Change the delivery date?"
           target={`Order ${order.orderNumber}${current ? ` · now ${current}` : ""}`}
@@ -112,6 +116,7 @@ export default function MedRepRescheduleAction({ order, onDone }) {
           />
           {fieldError && <p id={`${id}-error`} className="m-field-error" role="alert">{fieldError.text}</p>}
         </ConfirmDialog>
+        </DialogLayer>
       )}
     </>
   );
