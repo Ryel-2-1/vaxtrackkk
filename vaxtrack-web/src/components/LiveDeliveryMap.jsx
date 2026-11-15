@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { MapPin } from "lucide-react";
@@ -23,6 +23,8 @@ import {
 import { arrivalGeofence, geofenceStatus } from "../services/destinationFreshness.js";
 import { useNow, useRiderLiveLocation } from "./useRiderLiveLocation";
 import "./LiveDeliveryMap.css";
+import GoogleRouteMap from "./maps/GoogleRouteMap";
+import useMapProvider from "./maps/useMapProvider";
 
 /**
  * Read-only live delivery map, shared by Admin (Deliveries drawer) and Sales Rep
@@ -99,7 +101,44 @@ function toDate(ts) {
 // Dispatcher map's lifecycle (fit, delayed invalidateSize, resize observer,
 // unmount teardown) so it renders correctly inside a drawer/panel that lays out
 // after mount.
-function MapCanvas({ lat, lng, clinicLat, clinicLng, geofenceRadiusM, routePolyline, stopLabel, stops = [] }) {
+// Same marker markup as the OpenStreetMap icons above, for Google Maps.
+const RIDER_MARKER = Object.freeze({ className: "ldm-rider-marker", html: '<span class="ldm-rider-dot"></span>' });
+const CLINIC_MARKER = Object.freeze({ className: "ldm-clinic-marker", html: '<span class="ldm-clinic-dot"></span>' });
+const numberedMarker = (n) => ({ className: "ldm-clinic-marker", html: `<span class="ldm-stop-dot">${n}</span>` });
+
+// Google Maps is the web map (2026-11-15); the OpenStreetMap canvas below is
+// only the safety net if Google cannot load.
+function MapCanvas(props) {
+  const [useGoogle, onUnavailable] = useMapProvider();
+  const { stops = NO_STOPS, stopLabel } = props;
+  const googleStops = useMemo(
+    () => stops.map((s) => ({ lat: s.lat, lng: s.lng, ...numberedMarker(s.label) })),
+    [stops]
+  );
+  if (!useGoogle) return <OsmMapCanvas {...props} />;
+  const hasStops = stops.length > 0;
+  return (
+    <GoogleRouteMap
+      className="ldm-map"
+      lat={props.lat}
+      lng={props.lng}
+      // Like the OpenStreetMap canvas: the full stop set replaces the single
+      // clinic marker; the circle still tracks this order's own clinic.
+      clinicLat={hasStops ? undefined : props.clinicLat}
+      clinicLng={hasStops ? undefined : props.clinicLng}
+      circleLat={props.clinicLat}
+      circleLng={props.clinicLng}
+      geofenceRadiusM={props.geofenceRadiusM}
+      routePolyline={props.routePolyline}
+      stops={googleStops}
+      riderMarker={RIDER_MARKER}
+      clinicMarker={Number.isFinite(stopLabel) ? numberedMarker(stopLabel) : CLINIC_MARKER}
+      onUnavailable={onUnavailable}
+    />
+  );
+}
+
+function OsmMapCanvas({ lat, lng, clinicLat, clinicLng, geofenceRadiusM, routePolyline, stopLabel, stops = [] }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);

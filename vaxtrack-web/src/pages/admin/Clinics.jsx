@@ -2434,6 +2434,7 @@ function NewClinicModal({
           <ClinicLocationSection
             value={newClinic}
             onChange={(patch) => setNewClinic((prev) => ({ ...prev, ...patch }))}
+            onUseAddress={(address) => editField("location", address)}
             showEntrance
             errors={errors}
             disabled={saving}

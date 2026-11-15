@@ -1,0 +1,9 @@
+/* GoogleRouteMap (Google Maps). A Google marker is anchored at the
+   bottom centre of its content; shifting it down by half its own height puts
+   the centre of each dot on the position, as on the OpenStreetMap maps. The
+   marker's own classes (ldm-*, geo3-live-*) still draw it. */
+.grm-marker {
+  display: block;
+  line-height: 0;
+  transform: translateY(50%);
+}

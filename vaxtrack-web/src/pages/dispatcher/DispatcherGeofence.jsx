@@ -4,6 +4,8 @@ import { useRiderLiveLocation } from "../../components/useRiderLiveLocation";
 import { FRESHNESS, deviationDisplayState, deviationTextForFreshness, locationLatLng, locationTimeMs } from "../../services/riderTracking";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import GoogleRouteMap from "../../components/maps/GoogleRouteMap";
+import useMapProvider from "../../components/maps/useMapProvider";
 import {
   AlertTriangle,
   Clock3,
@@ -86,15 +88,22 @@ const clinicIcon = L.divIcon({
 });
 
 // Numbered destination marker for a multi-stop trip — shows the visiting order.
-function numberedStopIcon(n, state, navigating) {
+function numberedStopHtml(n, state, navigating) {
   const badge = state === "delivered" ? "✓" : navigating ? "➜" : state === "proof" ? "P" : "";
+  return `<span class="geo3-live-stop-dot stop-marker-${state}${navigating ? " stop-marker-navigating" : ""}">${n}${badge ? `<span class="stop-marker-badge">${badge}</span>` : ""}</span>`;
+}
+function numberedStopIcon(n, state, navigating) {
   return L.divIcon({
     className: "geo3-live-clinic-marker",
-    html: `<span class="geo3-live-stop-dot stop-marker-${state}${navigating ? " stop-marker-navigating" : ""}">${n}${badge ? `<span class="stop-marker-badge">${badge}</span>` : ""}</span>`,
+    html: numberedStopHtml(n, state, navigating),
     iconSize: [22, 22],
     iconAnchor: [11, 11],
   });
 }
+
+// The same marker markup for Google Maps (GoogleRouteMap).
+const GOOGLE_RIDER_MARKER = Object.freeze({ className: "geo3-live-rider-marker", html: '<span class="geo3-live-rider-dot"></span>' });
+const GOOGLE_CLINIC_MARKER = Object.freeze({ className: "geo3-live-clinic-marker", html: '<span class="geo3-live-clinic-dot"></span>' });
 
 // Stable empty stops list, so the non-trip case passes the SAME array reference
 // every render — a fresh `[]` literal would change the map effect's deps on
@@ -182,7 +191,41 @@ function distanceMeters([lat1, lng1], [lat2, lng2]) {
 // marker + a geofence circle. No routing, ETA, or automatic alerts.
 // Renders only when a rider lastLocation exists.
 // geofenceRadiusM: the order's own arrival radius (arrivalGeofence).
-function RiderLocationMap({ lat, lng, clinicLat, clinicLng, geofenceRadiusM, routePolyline, stops = [] }) {
+// Google Maps is the web map (2026-11-15); the OpenStreetMap map below is
+// only the safety net if Google cannot load.
+function RiderLocationMap(props) {
+  const [useGoogle, onUnavailable] = useMapProvider();
+  const { stops = NO_STOPS } = props;
+  const googleStops = useMemo(
+    () =>
+      stops.map((s) => ({
+        lat: s.lat,
+        lng: s.lng,
+        title: s.description,
+        className: "geo3-live-clinic-marker",
+        html: numberedStopHtml(s.label, s.state, s.navigating),
+      })),
+    [stops]
+  );
+  if (!useGoogle) return <OsmRiderLocationMap {...props} />;
+  return (
+    <GoogleRouteMap
+      className="geo3-live-map"
+      lat={props.lat}
+      lng={props.lng}
+      clinicLat={props.clinicLat}
+      clinicLng={props.clinicLng}
+      geofenceRadiusM={props.geofenceRadiusM}
+      routePolyline={props.routePolyline}
+      stops={googleStops}
+      riderMarker={GOOGLE_RIDER_MARKER}
+      clinicMarker={GOOGLE_CLINIC_MARKER}
+      onUnavailable={onUnavailable}
+    />
+  );
+}
+
+function OsmRiderLocationMap({ lat, lng, clinicLat, clinicLng, geofenceRadiusM, routePolyline, stops = [] }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);

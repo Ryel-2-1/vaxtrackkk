@@ -1,8 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { MARKER_LABELS, RETURNING_TO_HUB_LABEL } from "../../services/riderTracking";
 import "./LiveTracking.css";
+import { currentMapProvider } from "../../services/mapProvider";
+import GoogleFleetMap from "./GoogleFleetMap";
 
 /**
  * The live rider map, shared by Live Tracking (full page) and the Dispatcher
@@ -35,7 +37,17 @@ function escapeHtml(text) {
  * @param {Function} [onSelect]  called with a rider uid when a marker is clicked
  * @param {string}   [className] sizing class (default "ltp-map")
  */
-function FleetMap({ riders, selectedUid = null, onSelect, className = "ltp-map" }) {
+function FleetMap(props) {
+  // Google Maps is the web map (2026-11-15). OpenStreetMap is drawn only as a
+  // safety net: no key configured, forced off, or Google failed to load.
+  const [provider] = useState(currentMapProvider);
+  const [googleFailed, setGoogleFailed] = useState(false);
+  const onUnavailable = useCallback(() => setGoogleFailed(true), []);
+  if (provider === "google" && !googleFailed) return <GoogleFleetMap {...props} onUnavailable={onUnavailable} />;
+  return <OsmFleetMap {...props} />;
+}
+
+function OsmFleetMap({ riders, selectedUid = null, onSelect, className = "ltp-map" }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef(new Map());

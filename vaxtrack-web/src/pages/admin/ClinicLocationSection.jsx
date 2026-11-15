@@ -1,8 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./ClinicLocationSection.css";
 import { MapPin } from "lucide-react";
+import { currentMapProvider } from "../../services/mapProvider";
+import GooglePinPicker from "./GooglePinPicker";
 import {
   DEFAULT_GEOFENCE_RADIUS_M,
   MAX_GEOFENCE_RADIUS_M,
@@ -54,7 +56,16 @@ function ClinicLocationSection({
   // Clinics: confirm the pin is at the entrance riders use, plus optional
   // rider access notes. Moving the pin clears the confirmation.
   showEntrance = false,
+  // Google Maps only: called with an address found by the search box,
+  // when the admin chooses "Use as the clinic address".
+  onUseAddress,
 }) {
+  // Google Maps (with address search) is the web map (2026-11-15).
+  // OpenStreetMap is drawn only as a safety net if Google cannot load.
+  const [provider] = useState(currentMapProvider);
+  const [googleFailed, setGoogleFailed] = useState(false);
+  const useGoogle = provider === "google" && !googleFailed;
+  const onGoogleUnavailable = useCallback(() => setGoogleFailed(true), []);
   const emit = (patch) =>
     showEntrance && ("latitude" in patch || "longitude" in patch) ? onChange({ ...patch, entranceConfirmed: false }) : onChange(patch);
   const containerRef = useRef(null);
@@ -107,9 +118,9 @@ function ClinicLocationSection({
       : null; // null => no circle drawn
   const radiusPreviewHidden = radiusProvided && !radiusInRange;
 
-  // Create the map once.
+  // Create the map once (OpenStreetMap safety net; Google draws its own).
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
+    if (useGoogle || !containerRef.current || mapRef.current) return;
 
     // This map sits inside a scrolling dialog: the wheel must scroll the form,
     // not zoom the map and trap the mouse. Zoom with + and - or a double-click.
@@ -137,7 +148,7 @@ function ClinicLocationSection({
     // The section is often mounted inside a dialog that sizes after paint.
     const timer = setTimeout(() => map.invalidateSize(), 60);
     return () => clearTimeout(timer);
-  }, []);
+  }, [useGoogle]);
 
   // Tear down on unmount so reopening the dialog never hits
   // "Map container is already initialized".
@@ -213,7 +224,7 @@ function ClinicLocationSection({
       circleRef.current.setLatLng(point);
       circleRef.current.setRadius(radiusForCircle);
     }
-  }, [hasPin, lat, lng, radiusForCircle, disabled]);
+  }, [hasPin, lat, lng, radiusForCircle, disabled, useGoogle]);
 
   const latId = `${idPrefix}-lat`;
   const lngId = `${idPrefix}-lng`;
@@ -234,12 +245,26 @@ function ClinicLocationSection({
         {helpText}
       </p>
 
-      <div
-        ref={containerRef}
-        className="clinic-loc-map"
-        role="application"
-        aria-label={mapAriaLabel}
-      />
+      {useGoogle ? (
+        <GooglePinPicker
+          lat={hasPin ? lat : null}
+          lng={hasPin ? lng : null}
+          radius={hasPin ? radiusForCircle : null}
+          disabled={disabled}
+          onPick={(patch) => onChangeRef.current(patch)}
+          onUseAddress={onUseAddress}
+          onUnavailable={onGoogleUnavailable}
+          ariaLabel={mapAriaLabel}
+          idPrefix={idPrefix}
+        />
+      ) : (
+        <div
+          ref={containerRef}
+          className="clinic-loc-map"
+          role="application"
+          aria-label={mapAriaLabel}
+        />
+      )}
 
       <div className="clinic-loc-fields">
         <label htmlFor={latId}>

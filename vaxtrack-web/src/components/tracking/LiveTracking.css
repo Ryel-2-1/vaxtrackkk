@@ -317,3 +317,12 @@
     overscroll-behavior: contain;
   }
 }
+
+/* Google Maps (GoogleFleetMap): the marker is anchored at its bottom
+   centre, so drop the dot by half its size to centre it on the position. */
+.gfm-marker {
+  display: block;
+  line-height: 0;
+  transform: translateY(11px);
+  cursor: pointer;
+}

@@ -79,7 +79,7 @@ test("Admin Deliveries and Dispatcher Shipments render only verified links", () 
   assert.match(read("src/firebase.js"), /export const storageBucket = firebaseConfig\.storageBucket;/);
 });
 
-test("every CSP lets the stored photos load, and the Maps test page is gone", () => {
+test("every CSP lets the stored photos load, and the old Maps test page is gone", () => {
   const vite = read("vite.config.js");
   const netlify = read("../netlify.toml");
   for (const [name, src, count] of [["vite.config.js", vite, 2], ["netlify.toml", netlify, 1]]) {
@@ -89,9 +89,9 @@ test("every CSP lets the stored photos load, and the Maps test page is gone", ()
       assert.ok(d.split(" ").includes("https://firebasestorage.googleapis.com"), `${name} img-src allows Storage`);
       assert.doesNotMatch(d, /\*\.googleapis\.com|\*\.gstatic\.com/, `${name} img-src has no wildcard hosts`);
     }
-    // The Google Maps feasibility spike's temporary allowances are removed.
-    assert.doesNotMatch(src, /maps\.googleapis\.com|maps\.gstatic\.com/, name);
+    // The Google Maps hosts are back for the 2026-11-15 TRIAL, only as named
+    // hosts (tests/mapProvider.test.js pins them) — never as a wildcard.
   }
   const app = read("src/App.jsx");
-  assert.doesNotMatch(app, /gmaps-feasibility|GoogleMapsFeasibility|VITE_GOOGLE_MAPS/);
+  assert.doesNotMatch(app, /gmaps-feasibility|GoogleMapsFeasibility/);
 });

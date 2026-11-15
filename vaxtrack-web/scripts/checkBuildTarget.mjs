@@ -29,4 +29,12 @@ if (process.argv[1]?.endsWith("checkBuildTarget.mjs")) {
     process.exit(1);
   }
   console.log(`✓ ${mode} build targets ${EXPECTED_PROJECT[mode]}`);
+  // Google Maps is the web map (2026-11-15). Not fatal — the maps fall back to
+  // OpenStreetMap — but almost certainly a forgotten setting.
+  const env = loadEnv(mode, process.cwd(), "VITE_");
+  if (!String(env.VITE_GOOGLE_MAPS_API_KEY ?? "").trim()) {
+    console.warn(`! ${mode} build has no VITE_GOOGLE_MAPS_API_KEY: every map will fall back to OpenStreetMap.`);
+  } else if (!String(env.VITE_GOOGLE_MAPS_MAP_ID ?? "").trim()) {
+    console.warn(`! ${mode} build has no VITE_GOOGLE_MAPS_MAP_ID: Google's development DEMO_MAP_ID will be used.`);
+  }
 }
