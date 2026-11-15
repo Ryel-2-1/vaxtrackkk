@@ -36,3 +36,19 @@ test("shipment details open in a dismissible, keyboard-accessible drawer", () =>
   assert.match(page, /aria-label="Close shipment details" onClick=\{closeDrawer\}/);
   assert.match(page, /<TripProgress[\s\S]*?Shipment overview/);
 });
+
+test("the shipment drawer is portalled above the shell, so nothing covers its header", () => {
+  // Inside `.route-view` (a stacking context while its entrance animation
+  // holds), the sticky top bar and the phone menu toggle painted over the
+  // drawer's header and close button. It now renders in a <body> portal that
+  // keeps the `.dispatcher-main` scope its styles are written against…
+  assert.match(page, /import DispatcherDialogLayer from "\.\/DispatcherDialogLayer";/);
+  assert.match(page, /\{drawerVisible && selected && \(\s*<DispatcherDialogLayer extraScope="dispatcher-main">\s*<div className="geo3-drawer-layer">/);
+  assert.match(page, /<\/DispatcherDialogLayer>\s*\)\}/);
+  const layer = readFileSync(new URL("../src/pages/dispatcher/DispatcherDialogLayer.jsx", import.meta.url), "utf8");
+  assert.match(layer, /scope=\{`\$\{DISPATCHER_DIALOG_SCOPE\} \$\{extraScope\}`\.trim\(\)\}/);
+  // …at the modal level, level with the phone menu toggle (1300) and later in
+  // the document, so it paints over it.
+  const css = readFileSync(new URL("../src/pages/dispatcher/dispatcher-polish.css", import.meta.url), "utf8");
+  assert.match(css, /\.dispatcher-main \.geo3-drawer-layer \{\s*position: fixed;\s*inset: 0;\s*z-index: 1300;\s*\}/);
+});

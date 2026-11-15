@@ -1096,10 +1096,14 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   margin: 0;
 }
 
+/* Portalled to <body> (DispatcherDialogLayer), at the modal level (1300, as
+   DispatcherAssignRider.css): rendered after the shell, it paints over the
+   sticky top bar (500), the off-canvas sidebar (1200) and the phone menu
+   toggle (1300), which covered the drawer's header before. */
 .dispatcher-main .geo3-drawer-layer {
   position: fixed;
   inset: 0;
-  z-index: 1200;
+  z-index: 1300;
 }
 .dispatcher-main .geo3-drawer-backdrop {
   position: absolute;

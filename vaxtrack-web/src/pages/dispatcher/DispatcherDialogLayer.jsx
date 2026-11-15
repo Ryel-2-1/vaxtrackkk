@@ -16,6 +16,10 @@ import DialogLayer from "../../components/ui/DialogLayer";
 
 export const DISPATCHER_DIALOG_SCOPE = "dispatcher-page dispatcher-content";
 
-export default function DispatcherDialogLayer({ children }) {
-  return <DialogLayer scope={DISPATCHER_DIALOG_SCOPE}>{children}</DialogLayer>;
+// `extraScope` adds classes a particular overlay's styles hang off. The
+// Delivery Monitoring drawer passes "dispatcher-main" because its rules are
+// written `.dispatcher-main .geo3-drawer…` (dispatcher-polish.css). The default
+// stays as measured above, so the other dialogs are unchanged.
+export default function DispatcherDialogLayer({ extraScope = "", children }) {
+  return <DialogLayer scope={`${DISPATCHER_DIALOG_SCOPE} ${extraScope}`.trim()}>{children}</DialogLayer>;
 }

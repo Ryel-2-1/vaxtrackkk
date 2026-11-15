@@ -107,7 +107,13 @@ test("the Dispatcher portal carries the shell scope and nothing else", () => {
   const layer = read("src/pages/dispatcher/DispatcherDialogLayer.jsx");
   assert.match(layer, /export const DISPATCHER_DIALOG_SCOPE = "dispatcher-page dispatcher-content";/);
   assert.doesNotMatch(layer, /DISPATCHER_DIALOG_SCOPE = "[^"]*route-view/, "the animated class is never applied");
-  assert.match(layer, /<DialogLayer scope=\{DISPATCHER_DIALOG_SCOPE\}>\{children\}<\/DialogLayer>/);
+  // An overlay may add the classes its own styles hang off (the Delivery
+  // Monitoring drawer adds dispatcher-main); by default it is the shell scope only.
+  assert.match(layer, /function DispatcherDialogLayer\(\{ extraScope = "", children \}\)/);
+  assert.match(layer, /<DialogLayer scope=\{`\$\{DISPATCHER_DIALOG_SCOPE\} \$\{extraScope\}`\.trim\(\)\}>\{children\}<\/DialogLayer>/);
+  for (const file of ["DispatcherGeofence.jsx", "DispatcherCargoLoading.jsx", "DispatcherAssignRider.jsx"]) {
+    assert.doesNotMatch(read(`src/pages/dispatcher/${file}`), /extraScope="[^"]*route-view/, `${file} never adds the animated class`);
+  }
   // The transform that makes the portal necessary is on the content area, not the shell.
   assert.match(read("src/pages/dispatcher/DispatcherLayout.jsx"), /className=\{`dispatcher-content route-view\$\{location\.pathname === "\/dispatcher\/settings" \? " dispatcher-settings-content" : ""\}`\}/);
   assert.match(read("src/styles/shell-transitions.css"), /\.route-view \{\s*animation: routeViewIn 0\.26s ease both;/);

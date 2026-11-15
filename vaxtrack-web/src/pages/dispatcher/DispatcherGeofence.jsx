@@ -41,6 +41,7 @@ import TripProgress, { StopProgressBadge } from "../../components/dispatch/TripP
 import { shipmentProgress, tripProgress } from "../../services/stopProgress";
 import { routingSettingsOf } from "../../services/routingSettings";
 import StatusBadge from "../../components/ui/StatusBadge";
+import DispatcherDialogLayer from "./DispatcherDialogLayer";
 import TimingIndicator from "../../components/ui/TimingIndicator";
 import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import { savedRouteDescription } from "../../services/routeMetadata.js";
@@ -768,7 +769,11 @@ function DispatcherGeofence() {
               <PageNav page={currentListPage} total={activeOrders.length} onPageChange={setListPage} label="Active shipment pages" />
             </div>
 
+            {/* Portalled to <body>: inside `.route-view` (whose entrance
+                animation keeps it a stacking context) the sticky top bar
+                painted over the drawer's header and close button. */}
             {drawerVisible && selected && (
+              <DispatcherDialogLayer extraScope="dispatcher-main">
               <div className="geo3-drawer-layer">
                 <div className="geo3-drawer-backdrop" aria-hidden="true" onClick={closeDrawer} />
                 <div
@@ -1182,6 +1187,7 @@ function DispatcherGeofence() {
               )}
                 </div>
               </div>
+              </DispatcherDialogLayer>
             )}
           </div>
         )}
