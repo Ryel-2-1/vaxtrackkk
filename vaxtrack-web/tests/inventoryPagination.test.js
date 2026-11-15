@@ -36,7 +36,10 @@ test("the table rows scroll inside the desktop viewport while the shared pager s
 });
 
 test("cell content is bounded: the name clamps, figures never wrap or clip", () => {
-  assert.match(css, /\.salesrep-main \.stock-name-trigger \{[^}]*-webkit-line-clamp: 3;[^}]*overflow: hidden;/);
+  // The clamp is on the inner text span, not the button: a button centres its
+  // content, so clamping the button cut off the vaccine name (2026-11-15).
+  assert.match(css, /\.salesrep-main \.stock-name-trigger \.stock-name-text \{[^}]*-webkit-line-clamp: 3;[^}]*overflow: hidden;/);
+  assert.doesNotMatch(css, /\.salesrep-main \.stock-name-trigger \{[^}]*line-clamp/);
   assert.match(css, /\.salesrep-main \.inventory-expiry-cell strong \{\s*display: block;\s*white-space: nowrap;\s*\}/);
   assert.match(css, /\.salesrep-main \.inventory-qty-cell \{\s*white-space: nowrap;\s*\}/);
   // Batch IDs wrap to at most two lines; longer ones are abbreviated in the markup.

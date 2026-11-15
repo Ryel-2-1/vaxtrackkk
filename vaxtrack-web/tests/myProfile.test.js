@@ -151,7 +151,7 @@ test("updateUserProfile drops every administrator-managed field", async () => {
 
 test("the Dispatcher page is no longer a local fake with an editable role", () => {
   const page = code("src/pages/dispatcher/DispatcherSettings.jsx");
-  assert.match(page, /return <MyProfile showEmployeeId=\{false\} \/>;/);
+  assert.match(page, /return <MyProfile \/>;/);
   for (const gone of [
     "localStorage",
     "dispatcherProfile",
@@ -169,26 +169,35 @@ test("the Dispatcher page is no longer a local fake with an editable role", () =
 });
 
 test("every role's settings page renders the same My profile", () => {
-  assert.match(read("src/pages/salesRep/SalesRepSettings.jsx"), /return <MyProfile showEmployeeId=\{false\} \/>;/);
+  assert.match(read("src/pages/salesRep/SalesRepSettings.jsx"), /return <MyProfile \/>;/);
   const admin = read("src/pages/admin/Settings.jsx");
   assert.match(admin, /onClick=\{\(\) => setActiveTab\("profile"\)\}\s*\n\s*>\s*\n\s*My Profile/);
   assert.match(admin, /activeTab === "profile" \? \(\s*\n\s*<MyProfile \/>/);
-  assert.match(read("src/pages/dispatcher/DispatcherSettings.jsx"), /return <MyProfile showEmployeeId=\{false\} \/>;/);
+  assert.match(read("src/pages/dispatcher/DispatcherSettings.jsx"), /return <MyProfile \/>;/);
 });
 
-test("Med Rep and Dispatcher hide Employee ID; Admin retains it", () => {
+test("no role's profile shows Employee ID (2026-11-15)", () => {
   const page = code("src/components/profile/MyProfile.jsx");
-  // Shown unless a page opts out — Admin passes nothing.
-  assert.match(page, /export default function MyProfile\(\{ showEmployeeId = true \}\)/);
-  assert.match(page, /\{showEmployeeId && \(\s*<div>\s*<dt>Employee ID<\/dt>/);
-  // The Med Rep note names exactly what an administrator manages there.
-  assert.ok(page.includes('"Your email, role and status are managed by your administrator."'));
-  assert.ok(page.includes('"Your email, role, status and employee ID are managed by your administrator."'));
+  // One component, no per-role switch: Employee ID is gone for Admin too.
+  assert.match(page, /export default function MyProfile\(\) \{/);
+  assert.doesNotMatch(page, /showEmployeeId|Employee ID|employeeId/);
+  assert.ok(page.includes("Your email, role and status are managed by your administrator."));
   // One company uses VaxTrack, so no role's profile lists an Organization (2026-11-10).
   assert.doesNotMatch(page, /Organization|organization/);
-  // Display only: the stored value is still read, and never written here.
-  assert.match(page, /stored\.employeeId/);
+  // Display only: the stored field is never written here.
   assert.equal(SELF_EDITABLE_FIELDS.includes("employeeId"), false);
+});
+
+test("My profile is one balanced panel: two equal columns, password across the foot", () => {
+  const page = read("src/components/profile/MyProfile.jsx");
+  assert.match(page, /<div className="my-profile-panel">\s*<section className="my-profile-section" aria-labelledby="my-profile-info">/);
+  assert.match(page, /<section className="my-profile-section" aria-labelledby="my-profile-account">/);
+  assert.match(page, /<section className="my-profile-section my-profile-password" aria-labelledby="my-profile-security">/);
+  const css = read("src/components/profile/MyProfile.css");
+  assert.match(css, /\.my-profile-panel \{\s*display: grid;\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+  assert.match(css, /\.my-profile-section\.my-profile-password \{\s*grid-column: 1 \/ -1;/);
+  // The old separate cards are gone, so nothing nests a box in a box.
+  assert.doesNotMatch(page, /my-profile-card|my-profile-side|my-profile-grid/);
 });
 
 test("My profile edits only name and phone, and shows the rest read-only", () => {
@@ -198,7 +207,7 @@ test("My profile edits only name and phone, and shows the rest read-only", () =>
   assert.match(page, /id="my-profile-name"/);
   assert.match(page, /id="my-profile-phone"/);
   // Read-only details are text, not inputs.
-  for (const label of ["Email", "Role", "Account status", "Employee ID"]) {
+  for (const label of ["Email", "Role", "Account status"]) {
     assert.match(page, new RegExp(`<dt>[\\s\\S]{0,40}${label}\\s*</dt>`), label);
   }
   // It writes the user's own record, through the allowlisted service only.

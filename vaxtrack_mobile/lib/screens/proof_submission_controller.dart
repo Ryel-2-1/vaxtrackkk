@@ -662,7 +662,7 @@ class ProofSubmissionController extends ChangeNotifier {
         if (invoicePhoto == null) {
           throw const ProofException(
             'invoice-required',
-            'Choose an invoice photo before submitting.',
+            'Take a photo of the invoice before submitting.',
           );
         }
         _setPhase(ProofPhase.uploadingPhoto);

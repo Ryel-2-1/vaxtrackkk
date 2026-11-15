@@ -62,16 +62,15 @@ test("no save action and no saved confirmation exist for alert delivery", () => 
   assert.doesNotMatch(src, /AlertChannelsModal|showSettings|alerts-blue-btn/, "the redundant channel dialog is removed from Alerts");
 });
 
-test("alert delivery status lives in Admin Settings without a duplicate Alerts dialog", () => {
+test("no page offers alert-delivery controls or a channel panel", () => {
+  // The read-only Alert delivery panel and its summary card were removed from
+  // Admin Settings on 2026-11-15 at the Admin's request: alerts are always on
+  // and nothing about their channels is configured in the portal.
   const alerts = code("src/pages/admin/Alerts.jsx");
   const settings = code("src/pages/admin/Settings.jsx");
   assert.doesNotMatch(alerts, /AlertChannelsModal|showSettings|Alert delivery/);
-  assert.match(settings, /<h2>Alert delivery<\/h2>/);
-  assert.match(settings, /<dt>In-app alerts<\/dt>/);
-  // The channel list states only what exists: rider push (FCM, server-sent)
-  // is on; SMS and email are out of scope (decision, 2026-11-04).
-  assert.match(settings, /<dt>Rider push \(rider app\)<\/dt>/);
-  assert.match(settings, /<dt>SMS and email<\/dt>\s*<dd>\s*<strong>Not used<\/strong>/);
+  assert.doesNotMatch(settings, /Alert delivery|In-app \+ push|SMS and email|Rider push/);
+  // Rider push itself is unchanged: it is server-sent, not a setting.
   assert.match(read("functions/index.js"), /exports\.notifyRiderOnOrderWrite = onDocumentWritten\(/, "rider push really exists");
 });
 

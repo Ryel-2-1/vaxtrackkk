@@ -193,7 +193,7 @@ test("the Med Rep Dashboard has no Quick actions card; its destinations stay in 
 
 test("Med Rep Inventory rows lead with the vaccine name, not an icon", () => {
   const row = inventory.slice(inventory.indexOf('<div className="stock-name">'));
-  assert.match(row, /^<div className="stock-name">\s*<button\s+type="button"\s+className="stock-name-trigger"[\s\S]*?>\s*<strong>\{stock\.name\}<\/strong>\s*<small>\{stock\.manufacturer\} · \{stock\.type\}<\/small>/);
+  assert.match(row, /^<div className="stock-name">\s*<button\s+type="button"\s+className="stock-name-trigger"[\s\S]*?>[\s\S]*?<span className="stock-name-text">\s*<strong>\{stock\.name\}<\/strong>\s*<small>\{stock\.manufacturer\} · \{stock\.type\}<\/small>/);
   assert.equal(/<span><PackageCheck/.test(inventory), false);
 });
 

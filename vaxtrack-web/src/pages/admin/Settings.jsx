@@ -4,7 +4,6 @@ import {
   Globe,
   MoreVertical,
   Search,
-  Settings as SettingsIcon,
   UserPlus,
   UserRound,
   Users,
@@ -225,7 +224,10 @@ function GeneralSettings() {
 
   return (
     <>
-      <section className="settings-summary-grid">
+      {/* Alert delivery (its summary card and channel panel) was removed on
+          2026-11-15 at the Admin's request: it described fixed behaviour that
+          no one configures here. */}
+      <section className="settings-summary-grid settings-summary-grid--three">
         <KpiCard
           label="Time zone"
           value="UTC+8"
@@ -238,13 +240,6 @@ function GeneralSettings() {
           value={sampleDateDisplay}
           context="en-US, used throughout"
           tone="neutral"
-        />
-
-        <KpiCard
-          label="Alert delivery"
-          value="In-app + push"
-          context="Rider push for deliveries; SMS and email not used"
-          tone="info"
         />
 
         <KpiCard
@@ -266,7 +261,6 @@ function GeneralSettings() {
           moved into the database. What is shown instead is what the system
           actually does, and where each value really comes from. */}
       <section className="settings-v3-grid settings-v3-grid--readonly">
-        <div className="settings-v3-left">
           <div className="settings-v3-card">
             <div className="settings-card-title">
               <Building2 size={17} />
@@ -347,64 +341,6 @@ function GeneralSettings() {
               </div>
             </dl>
           </div>
-        </div>
-
-        <aside className="settings-v3-card system-card">
-          <div className="settings-card-title">
-            <SettingsIcon size={17} />
-            <h2>Alert delivery</h2>
-          </div>
-
-          {/* The System Features toggles are gone. Five switches — inventory,
-              low-stock, expiry, route-deviation and delivery-status alerts —
-              had no executable reader: alerts are written to Firestore by the
-              services and rendered from that collection regardless of any
-              toggle. One even opened a confirmation dialog warning that
-              disabling it "may prevent admins from receiving rider route
-              warnings", which it could not do. */}
-          <p className="settings-readonly-lede">
-            Alerts cannot be switched off. The channels below are the ones the
-            system actually uses.
-          </p>
-
-          {/* Channel list (MOD-10). Each entry names its real source; nothing
-              here is a setting. Rider push: functions/src/riderPush.js. */}
-          <dl className="settings-fact-list">
-            <div>
-              <dt>In-app alerts</dt>
-              <dd>
-                <strong>Always on</strong>
-                <span>
-                  Admins and dispatchers read alerts live on the Alerts page,
-                  the dashboard and the bell. Stock and expiry alerts are for
-                  admins only.
-                </span>
-              </dd>
-            </div>
-            <div>
-              <dt>Rider push (rider app)</dt>
-              <dd>
-                <strong>On</strong>
-                <span>
-                  Riders get a phone notification when a delivery is assigned to
-                  them, moved to another rider or cancelled, and when an offline
-                  delivery is approved or rejected. Sent through Firebase Cloud
-                  Messaging to the phones they are signed in on.
-                </span>
-              </dd>
-            </div>
-            <div>
-              <dt>SMS and email</dt>
-              <dd>
-                <strong>Not used</strong>
-                <span>
-                  Out of scope by decision: staff alerts stay in the portal and
-                  riders are notified in the rider app.
-                </span>
-              </dd>
-            </div>
-          </dl>
-        </aside>
       </section>
 
     </>

@@ -115,8 +115,11 @@ class _ProofScreenState extends State<ProofScreen> {
     if (mounted) setState(() => _proofPhoto = File(picked.path));
   }
 
+  /// The invoice is photographed at the clinic, like the proof: tapping opens
+  /// the camera straight away, never the gallery (2026-11-15), so the photo is
+  /// of the paper the rider is holding now, not an older picture on the phone.
   Future<void> _pickInvoicePhoto() async {
-    final picked = await _imageService.pickFromGallery();
+    final picked = await _imageService.pickFromCamera();
     if (picked == null) return;
     _submission.clearPendingInvoiceUpload();
     if (mounted) setState(() => _invoicePhoto = File(picked.path));
@@ -843,26 +846,34 @@ class _ProofScreenState extends State<ProofScreen> {
           if (_invoicePhoto == null && !hasRecovered)
             GestureDetector(
               onTap: _submission.isCommitting ? null : _pickInvoicePhoto,
+              // Same look as the proof photo card: it opens the camera.
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 20),
+                padding: const EdgeInsets.symmetric(vertical: 28),
                 decoration: BoxDecoration(
-                  border: Border.all(color: AppColors.border),
+                  border: Border.all(
+                    color: AppColors.borderLight,
+                    width: 2,
+                    strokeAlign: BorderSide.strokeAlignCenter,
+                  ),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Column(
                   children: [
-                    Icon(
-                      Icons.receipt_long,
-                      size: 24,
-                      color: AppColors.textLight,
-                    ),
-                    SizedBox(height: 6),
+                    Icon(Icons.camera_alt, size: 28, color: AppColors.primary),
+                    SizedBox(height: 8),
                     Text(
-                      'Upload invoice photo',
+                      'Tap to take a photo',
                       style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.textLight,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      'Photograph the invoice or receipt',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textMuted,
                       ),
                     ),
                   ],
@@ -903,7 +914,11 @@ class _ProofScreenState extends State<ProofScreen> {
               child: TextButton.icon(
                 onPressed: _submission.isCommitting ? null : _pickInvoicePhoto,
                 icon: const Icon(Icons.refresh, size: 18),
-                label: const Text('Choose another photo'),
+                label: Text(
+                  _invoicePhoto == null
+                      ? 'Take a different photo'
+                      : 'Retake photo',
+                ),
               ),
             ),
           ],

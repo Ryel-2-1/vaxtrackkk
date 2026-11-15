@@ -33,15 +33,20 @@ import { focusFirstInvalid } from "../../services/formValidation";
  * "My profile" — one page for every web role (Admin, Sales Rep, Dispatcher).
  *
  * Reads and writes the signed-in user's OWN users/{uid} document. The user
- * may change their name and phone; email, role, status, employee ID and
- * organization are shown read-only because an administrator manages them.
- * Nothing here is stored only in the browser, and nothing claims to be saved
- * until Firestore has accepted the write.
+ * may change their name and phone; email, role and status are shown read-only
+ * because an administrator manages them. Nothing here is stored only in the
+ * browser, and nothing claims to be saved until Firestore has accepted the
+ * write.
  *
- * `showEmployeeId={false}` leaves the Employee ID row out of Account details
- * (Med Rep and Dispatcher pages). Display only: the stored field is untouched.
+ * Employee ID is no longer shown on any role's profile (2026-11-15): it was
+ * empty for most accounts and nothing here uses it. Display only — the stored
+ * field is untouched.
+ *
+ * Layout (2026-11-15): one panel, two equal columns (Profile | Account
+ * details) with the password row across the foot, instead of three boxes of
+ * different heights.
  */
-export default function MyProfile({ showEmployeeId = true }) {
+export default function MyProfile() {
   const { uid, profile: raw, loading, error } = useOwnProfile();
   // The editable fields, following the live profile while untouched; once
   // edited, a change made in another session is flagged instead of applied.
@@ -157,8 +162,8 @@ export default function MyProfile({ showEmployeeId = true }) {
         </div>
       )}
 
-      <div className="my-profile-grid">
-        <section className="my-profile-card" aria-labelledby="my-profile-info">
+      <div className="my-profile-panel">
+        <section className="my-profile-section" aria-labelledby="my-profile-info">
           <h3 id="my-profile-info">
             <UserRound size={18} /> Profile
           </h3>
@@ -215,43 +220,33 @@ export default function MyProfile({ showEmployeeId = true }) {
           </button>
         </section>
 
-        <div className="my-profile-side">
-          <section className="my-profile-card" aria-labelledby="my-profile-account">
-            <h3 id="my-profile-account">
-              <Shield size={18} /> Account details
-            </h3>
-            <dl className="my-profile-details">
-              <div>
-                <dt>
-                  <Mail size={14} /> Email
-                </dt>
-                <dd>{stored.email || "—"}</dd>
-              </div>
-              <div>
-                <dt>Role</dt>
-                <dd>{stored.roleLabel}</dd>
-              </div>
-              <div>
-                <dt>Account status</dt>
-                <dd>
-                  <span className={`my-profile-status ${stored.statusKey}`}>{stored.statusLabel}</span>
-                </dd>
-              </div>
-              {showEmployeeId && (
-                <div>
-                  <dt>Employee ID</dt>
-                  <dd>{stored.employeeId || "—"}</dd>
-                </div>
-              )}
-            </dl>
-            <p className="my-profile-note">
-              {showEmployeeId
-                ? "Your email, role, status and employee ID are managed by your administrator."
-                : "Your email, role and status are managed by your administrator."}
-            </p>
-          </section>
+        <section className="my-profile-section" aria-labelledby="my-profile-account">
+          <h3 id="my-profile-account">
+            <Shield size={18} /> Account details
+          </h3>
+          <dl className="my-profile-details">
+            <div>
+              <dt>
+                <Mail size={14} /> Email
+              </dt>
+              <dd>{stored.email || "—"}</dd>
+            </div>
+            <div>
+              <dt>Role</dt>
+              <dd>{stored.roleLabel}</dd>
+            </div>
+            <div>
+              <dt>Account status</dt>
+              <dd>
+                <span className={`my-profile-status ${stored.statusKey}`}>{stored.statusLabel}</span>
+              </dd>
+            </div>
+          </dl>
+          <p className="my-profile-note">Your email, role and status are managed by your administrator.</p>
+        </section>
 
-          <section className="my-profile-card" aria-labelledby="my-profile-security">
+        <section className="my-profile-section my-profile-password" aria-labelledby="my-profile-security">
+          <div>
             <h3 id="my-profile-security">
               <KeyRound size={18} /> Password
             </h3>
@@ -259,17 +254,17 @@ export default function MyProfile({ showEmployeeId = true }) {
               We will email a secure link to {stored.email || "your sign-in address"} so
               you can choose a new password.
             </p>
-            <button
-              type="button"
-              className="my-profile-secondary"
-              onClick={handlePasswordReset}
-              disabled={resetSending || !stored.email}
-            >
-              {resetSending ? <Loader2 size={16} className="spin" /> : <Mail size={16} />}
-              {resetSending ? "Sending…" : "Send password reset email"}
-            </button>
-          </section>
-        </div>
+          </div>
+          <button
+            type="button"
+            className="my-profile-secondary"
+            onClick={handlePasswordReset}
+            disabled={resetSending || !stored.email}
+          >
+            {resetSending ? <Loader2 size={16} className="spin" /> : <Mail size={16} />}
+            {resetSending ? "Sending…" : "Send password reset email"}
+          </button>
+        </section>
       </div>
     </div>
   );

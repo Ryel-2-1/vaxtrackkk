@@ -459,15 +459,22 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
                       child: _pin('${later[i].stopSequence ?? i + 2}', current: false, size: 30),
                     ),
                 if (dest != null)
+                  // The marker box is fixed, but the name chip grows with the
+                  // phone's font size: at 76 px a larger system font pushed
+                  // the pin past the box ("BOTTOM OVERFLOWED"). The box now
+                  // has room for the chip at up to 1.3x text (clamped in
+                  // _mapChip), and the chip is Flexible, so even the largest
+                  // font can only shrink it, never overflow the pin. The pin
+                  // tip stays on the destination (column ends at the bottom).
                   Marker(
                     point: dest,
                     width: 180,
-                    height: 76,
+                    height: 96,
                     alignment: Alignment.topCenter,
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        _mapChip(_destinationName),
+                        Flexible(child: _mapChip(_destinationName)),
                         const SizedBox(height: 2),
                         _pin(d.stopSequence?.toString(), current: true, size: 40),
                       ],
@@ -573,17 +580,24 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
     );
   }
 
-  Widget _mapChip(String text) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.94),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.border),
+  /// A label drawn over the map (the destination name above its pin, and the
+  /// line legend). The destination label sits in a fixed-size map marker, so
+  /// the text follows the phone's font size only up to 1.3x (the marker is
+  /// sized for that); beyond it the label would no longer fit above its pin.
+  Widget _mapChip(String text) => MediaQuery.withClampedTextScaling(
+        maxScaleFactor: 1.3,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.94),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Text(text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textDark)),
         ),
-        child: Text(text,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textDark)),
       );
 
   /// A stop pin: a teardrop with its stop number. The stop being ridden to is

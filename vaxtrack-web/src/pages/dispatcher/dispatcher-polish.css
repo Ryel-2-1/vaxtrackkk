@@ -356,6 +356,16 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   padding: 8px 16px;
   border-top: 1px solid var(--gray-200);
 }
+/* Phones: the table becomes a stack of cards and stops scrolling on its own
+   (shell-chrome.css, "the page is the only thing that scrolls"), so the card
+   must grow with it. Kept at the fixed height above, the card (overflow:
+   hidden) cut off all but the first one or two shipments, with the pager
+   drawn over the next one (2026-11-15). */
+@media (max-width: 768px) {
+  .dispatcher-main .shp-card {
+    height: auto;
+  }
+}
 .dispatcher-main .shp-table { min-width: 1400px; table-layout: fixed; }
 .dispatcher-main .shp-table thead th {
   text-align: left !important;
@@ -1021,15 +1031,7 @@ aside.dispatcher-sidebar ::-webkit-scrollbar-thumb:hover {
   margin-inline: auto;
 }
 
-.dispatcher-page .dispatcher-settings-content .my-profile-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-@media (max-width: 900px) {
-  .dispatcher-page .dispatcher-settings-content .my-profile-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
+/* The profile's two equal columns now come from MyProfile.css itself. */
 
 /* ============================================================
    Geofence — master-detail split (2026-10-31)
