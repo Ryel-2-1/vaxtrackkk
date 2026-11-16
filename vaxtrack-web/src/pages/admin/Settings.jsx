@@ -23,8 +23,7 @@ import AdminDialogLayer from "../../components/admin/AdminDialogLayer";
 import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import { ToastRegion } from "../../components/ui/Feedback";
 import { useToast } from "../../components/ui/useToast";
-import { staffActionsFor, staffStatusOf } from "../../services/staffAccount";
-import { timestampMs } from "../../services/deliveryMetrics";
+import { formatStaffCreatedDate, staffActionsFor, staffStatusOf } from "../../services/staffAccount";
 import { canManageTerritory, readTerritory } from "../../services/territory";
 import MedRepTerritoryDialog from "./MedRepTerritoryDialog";
 import MyProfile from "../../components/profile/MyProfile";
@@ -47,12 +46,10 @@ const ASSIGNABLE_ROLES = [
 ];
 
 const STAFF_STATUS_OPTIONS = ["approved", "pending", "disabled", "rejected"].map(staffStatusOf);
-const accountDateFormat = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeZone: "Asia/Manila" });
 
 function normalizeUser(raw) {
   // Rejected is its own state — never folded into Inactive (staffAccount.js).
   const uiStatus = staffStatusOf(raw.status);
-  const createdAt = timestampMs(raw.createdAt);
   return {
     uid: raw.id,
     id: raw.employeeId || "—",
@@ -62,7 +59,7 @@ function normalizeUser(raw) {
     role: ROLE_DISPLAY[raw.role] || raw.role || "Unassigned",
     status: uiStatus.key,
     statusLabel: uiStatus.label,
-    createdDate: Number.isFinite(createdAt) ? accountDateFormat.format(createdAt) : "—",
+    createdDate: formatStaffCreatedDate(raw.createdAt),
     lastLogin: "—",
     // Made by an Admin or the setup script: may still need its password set.
     canSetUp: raw.createdVia === "admin" || raw.createdVia === "setup-script",

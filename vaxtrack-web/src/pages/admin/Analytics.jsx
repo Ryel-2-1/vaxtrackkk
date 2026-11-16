@@ -559,13 +559,13 @@ function Analytics() {
             </div>
           </section>
 
-          <section className="analytics-card">
+          <section className="analytics-card analytics-heatmap-card" aria-labelledby="analytics-heatmap-title">
             <div className="analytics-card-title-row">
               {/* Was "Peak Order Hours", which promised an hour-level reading
                   the grid does not provide and a "peak" judgement nothing
                   computed. It counts when orders were CREATED, grouped into
                   three broad periods — that is what the title now says. */}
-              <h2>Order activity by day and period</h2>
+              <h2 id="analytics-heatmap-title">Order activity by day and period</h2>
 
               <div className="analytics-heatmap-legend">
                 <span>Fewer</span>
