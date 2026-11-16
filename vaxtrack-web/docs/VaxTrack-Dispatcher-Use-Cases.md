@@ -201,7 +201,7 @@ Same as UC-D04, choosing a rider whose trip is still forming. The order joins th
 
 | | |
 |---|---|
-| **Screen** | Cargo Loading → departure planner (`DeparturePlanner.jsx`; enabled by `VITE_DEPARTURE_PLANNER_ENABLED`, on in staging and production) |
+| **Screen** | Cargo Loading → departure planner (`DeparturePlanner.jsx`; shown for each undispatched rider group) |
 | **Writes** | `saveRiderTripRoute` (several stops) or `saveOrderRoute` (one stop) |
 | **Preconditions** | The rider's trip is forming; hub location and routing settings exist. |
 | **Trigger** | The Dispatcher opens the planner for a rider's group. |

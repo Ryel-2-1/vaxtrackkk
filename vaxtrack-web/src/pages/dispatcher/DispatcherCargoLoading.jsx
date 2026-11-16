@@ -39,11 +39,6 @@ import { subscribeClinics } from "../../services/clinicService";
 import { clinicsById } from "../../services/destinationFreshness";
 import DestinationNotes from "../../components/dispatch/DestinationNotes";
 
-// The departure planner (requested arrivals + motorcycle travel times) is
-// switched on per build with VITE_DEPARTURE_PLANNER_ENABLED=true, and always
-// in the loopback-only motorcycle-QA mode.
-const DEPARTURE_PLANNER_ENABLED =
-  import.meta.env?.VITE_DEPARTURE_PLANNER_ENABLED === "true" || import.meta.env?.MODE === "motorcycle-qa";
 import { requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
 import "./CargoLoading.css";
 import { quantityText } from "../../services/quantityText";
@@ -99,7 +94,6 @@ function DispatcherCargoLoading() {
   );
 
   useEffect(() => {
-    if (!DEPARTURE_PLANNER_ENABLED) return undefined;
     return subscribeRoutingSettings(
       (docData) => setRouting(routingSettingsOf(docData)),
       () => setRouting(routingSettingsOf(null))
@@ -582,7 +576,7 @@ function RiderCard({
         })}
       </div>
 
-      {DEPARTURE_PLANNER_ENABLED && !dispatched && <DeparturePlanner orders={group.orders} riderName={group.rider.name} routing={routing} onReturnPlanChange={setReturnPlan} />}
+      {!dispatched && <DeparturePlanner orders={group.orders} riderName={group.rider.name} routing={routing} onReturnPlanChange={setReturnPlan} />}
 
       {!tripHold.canFinalize && !dispatched ? (
         <p className="cl-hint">{tripHold.reason}</p>
