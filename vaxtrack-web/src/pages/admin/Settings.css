@@ -461,10 +461,6 @@
 
 /* User Management */
 
-.user-management-card {
-  max-width: 1240px;
-}
-
 .staff-card-header {
   display: flex;
   align-items: center;
@@ -512,6 +508,14 @@
   border-collapse: collapse;
 }
 
+.staff-table th:first-child {
+  width: 42%;
+}
+
+.staff-table th:last-child {
+  width: 1%;
+}
+
 .staff-table th {
   text-align: left;
   padding: 14px 12px;
@@ -530,6 +534,16 @@
   color: var(--gray-900);
   font-size: 14px;
   vertical-align: middle;
+}
+
+.staff-created-date {
+  white-space: nowrap;
+}
+
+.staff-email-verification {
+  display: block;
+  margin-top: 4px;
+  color: var(--gray-600);
 }
 
 .staff-table tbody tr {
@@ -922,6 +936,17 @@
   color: var(--danger-text);
 }
 
+.settings-danger-action-solid,
+.staff-action-menu button.settings-danger-action-solid {
+  background: var(--danger-text);
+  color: #ffffff;
+}
+
+.settings-danger-action-solid:hover,
+.staff-action-menu button.settings-danger-action-solid:hover {
+  background: #991b1b;
+}
+
 /* Toast */
 
 .settings-toast {
@@ -958,7 +983,7 @@
   }
 
   .staff-table {
-    min-width: 980px;
+    min-width: 580px;
   }
 
   .staff-table-wrap {

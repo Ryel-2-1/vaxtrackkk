@@ -323,10 +323,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: [
             const Text('Rider Information', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
             const SizedBox(height: 12),
-            _detailRow('Employee ID', user.employeeId ?? 'N/A'),
             _detailRow('Vehicle', user.vehiclePlate ?? 'N/A'),
             _detailRow('Phone', user.phone ?? 'N/A'),
-            _detailRow('Region', user.region ?? 'N/A'),
             _detailRow('Role', 'Rider'),
             _detailRow('Status', user.isApproved ? 'Active' : user.status),
           ],

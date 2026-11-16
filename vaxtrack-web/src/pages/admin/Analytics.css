@@ -487,13 +487,8 @@
 
 .analytics-v2-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.8fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
-}
-
-/* The heatmap spans both columns. */
-.analytics-heatmap-card {
-  grid-column: 1 / -1;
 }
 
 /* Error state banner (AdminLayout content) — token-based, self-contained. */
@@ -601,57 +596,6 @@
 /* The Region section's rules were deleted with the section itself: the list,
    the item, its figure and the progress track. `order.region` is not written by
    the live order-creation path, so there was no current source behind them. */
-
-/* AI Card */
-
-.analytics-ai-card {
-  display: flex;
-  gap: 14px;
-  align-items: flex-start;
-  background: var(--green-50);
-}
-
-.analytics-ai-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
-  background: var(--green-100);
-  color: var(--green-700);
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-}
-
-.analytics-ai-card h2 {
-  margin: 0;
-  color: var(--gray-900);
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.analytics-ai-card p {
-  margin: 8px 0 14px;
-  color: var(--gray-600);
-  font-size: 14px;
-  line-height: 1.55;
-  font-weight: 400;
-}
-
-.analytics-ai-card button {
-  height: 38px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--green-700);
-  color: #ffffff;
-  padding: 0 14px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.analytics-ai-card button:hover {
-  background: var(--green-800);
-}
 
 /* Heatmap */
 
@@ -877,9 +821,6 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .analytics-v2-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 @media (max-width: 760px) {

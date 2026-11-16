@@ -15,7 +15,7 @@ import "./Settings.css";
 import { subscribeUsers } from "../../services/userService";
 // Staff status, role and new accounts change only on the server (staffAccounts.js);
 // the rules refuse those writes from a browser.
-import { createStaffSetupLink, reopenStaffApplication, setStaffRole, setStaffStatus } from "../../services/staffAccountCallables";
+import { createStaffSetupLink, getStaffEmailVerification, reopenStaffApplication, setStaffRole, setStaffStatus } from "../../services/staffAccountCallables";
 import AddStaffDialog, { SetupLinkBox } from "./AddStaffDialog";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
@@ -24,6 +24,7 @@ import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import { ToastRegion } from "../../components/ui/Feedback";
 import { useToast } from "../../components/ui/useToast";
 import { staffActionsFor, staffStatusOf } from "../../services/staffAccount";
+import { timestampMs } from "../../services/deliveryMetrics";
 import { canManageTerritory, readTerritory } from "../../services/territory";
 import MedRepTerritoryDialog from "./MedRepTerritoryDialog";
 import MyProfile from "../../components/profile/MyProfile";
@@ -45,9 +46,13 @@ const ASSIGNABLE_ROLES = [
   { value: "rider", label: "Rider" },
 ];
 
+const STAFF_STATUS_OPTIONS = ["approved", "pending", "disabled", "rejected"].map(staffStatusOf);
+const accountDateFormat = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeZone: "Asia/Manila" });
+
 function normalizeUser(raw) {
   // Rejected is its own state — never folded into Inactive (staffAccount.js).
   const uiStatus = staffStatusOf(raw.status);
+  const createdAt = timestampMs(raw.createdAt);
   return {
     uid: raw.id,
     id: raw.employeeId || "—",
@@ -55,10 +60,9 @@ function normalizeUser(raw) {
     email: raw.email || "—",
     rawRole: raw.role || "",
     role: ROLE_DISPLAY[raw.role] || raw.role || "Unassigned",
-    department: raw.department || "—",
-    branch: raw.branch || "—",
     status: uiStatus.key,
     statusLabel: uiStatus.label,
+    createdDate: Number.isFinite(createdAt) ? accountDateFormat.format(createdAt) : "—",
     lastLogin: "—",
     // Made by an Admin or the setup script: may still need its password set.
     canSetUp: raw.createdVia === "admin" || raw.createdVia === "setup-script",
@@ -124,7 +128,7 @@ function Settings() {
                   ? "Your own account: name, phone and password."
                   : activeTab === "routing"
                     ? "The hub riders depart from, and the defaults for planning departures."
-                  : "Manage personnel, permissions, branches, and registration requests."}
+                  : "Manage personnel, permissions, and registration requests."}
             </p>
           </div>
 
@@ -350,9 +354,8 @@ function GeneralSettings() {
 function UserManagement({ searchTerm, showToast }) {
   const [staff, setStaff] = useState([]);
   const [roleFilter, setRoleFilter] = useState("all");
-  const [departmentFilter, setDepartmentFilter] = useState("all");
-  const [branchFilter, setBranchFilter] = useState("all");
-  const [currentPage, setCurrentPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [requestedPage, setCurrentPage] = useState(1);
   // The open staff record is looked up in the live list by uid, so the dialog
   // shows the account as it is now — approved or disabled by another admin
   // included — and offers only the actions valid for that state.
@@ -395,24 +398,55 @@ function UserManagement({ searchTerm, showToast }) {
   const filteredStaff = useMemo(() => {
     return staff.filter((person) => {
       const searchValue =
-        `${person.name} ${person.email} ${person.role} ${person.department} ${person.branch} ${person.statusLabel}`.toLowerCase();
+        `${person.name} ${person.email} ${person.role} ${person.statusLabel}`.toLowerCase();
 
       const matchesSearch = searchValue.includes(searchTerm.toLowerCase());
       const matchesRole = roleFilter === "all" || person.role === roleFilter;
-      const matchesDepartment =
-        departmentFilter === "all" || person.department === departmentFilter;
-      const matchesBranch = branchFilter === "all" || person.branch === branchFilter;
-
-      return matchesSearch && matchesRole && matchesDepartment && matchesBranch;
+      const matchesStatus = statusFilter === "all" || person.status === statusFilter;
+      return matchesSearch && matchesRole && matchesStatus;
     });
-  }, [staff, searchTerm, roleFilter, departmentFilter, branchFilter]);
+  }, [staff, searchTerm, roleFilter, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredStaff.length / pageSize));
+  const currentPage = Math.min(requestedPage, totalPages);
 
   const paginatedStaff = filteredStaff.slice(
     (currentPage - 1) * pageSize,
     currentPage * pageSize
   );
+
+  const pendingKey = JSON.stringify(paginatedStaff.filter(({ status }) => status === "pending").map(({ uid }) => uid));
+  const [emailVerification, setEmailVerification] = useState(null);
+  useEffect(() => {
+    const uids = JSON.parse(pendingKey);
+    if (uids.length === 0) return;
+
+    let cancelled = false;
+    let loading = false;
+    async function refreshVerification() {
+      if (loading || document.hidden) return;
+      loading = true;
+      try {
+        const { accounts } = await getStaffEmailVerification(uids);
+        if (!cancelled) {
+          setEmailVerification({ key: pendingKey, byUid: new Map(accounts.map(({ uid, emailVerified }) => [uid, emailVerified])) });
+        }
+      } catch {
+        if (!cancelled) setEmailVerification({ key: pendingKey, byUid: new Map() });
+      } finally {
+        loading = false;
+      }
+    }
+
+    refreshVerification();
+    const timer = window.setInterval(refreshVerification, 60_000);
+    window.addEventListener("focus", refreshVerification);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshVerification);
+    };
+  }, [pendingKey]);
 
   const startItem =
     filteredStaff.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
@@ -513,8 +547,6 @@ function UserManagement({ searchTerm, showToast }) {
   };
 
   const roles = Array.from(new Set(staff.map((person) => person.role)));
-  const departments = Array.from(new Set(staff.map((person) => person.department)));
-  const branches = Array.from(new Set(staff.map((person) => person.branch)));
 
   return (
     <>
@@ -561,21 +593,7 @@ function UserManagement({ searchTerm, showToast }) {
               Add staff
             </button>
             <select
-              value={departmentFilter}
-              onChange={(e) => {
-                setDepartmentFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-            >
-              <option value="all">All Departments</option>
-              {departments.map((department) => (
-                <option key={department} value={department}>
-                  {department}
-                </option>
-              ))}
-            </select>
-
-            <select
+              aria-label="Filter staff by role"
               value={roleFilter}
               onChange={(e) => {
                 setRoleFilter(e.target.value);
@@ -589,19 +607,17 @@ function UserManagement({ searchTerm, showToast }) {
                 </option>
               ))}
             </select>
-
             <select
-              value={branchFilter}
+              aria-label="Filter staff by status"
+              value={statusFilter}
               onChange={(e) => {
-                setBranchFilter(e.target.value);
+                setStatusFilter(e.target.value);
                 setCurrentPage(1);
               }}
             >
-              <option value="all">All Branches</option>
-              {branches.map((branch) => (
-                <option key={branch} value={branch}>
-                  {branch}
-                </option>
+              <option value="all">All Statuses</option>
+              {STAFF_STATUS_OPTIONS.map(({ key, label }) => (
+                <option key={key} value={key}>{label}</option>
               ))}
             </select>
           </div>
@@ -613,8 +629,7 @@ function UserManagement({ searchTerm, showToast }) {
               <tr>
                 <th>Employee</th>
                 <th>Role</th>
-                <th>Department</th>
-                <th>Branch</th>
+                <th>Account created</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
@@ -641,13 +656,18 @@ function UserManagement({ searchTerm, showToast }) {
                   </td>
 
                   <td>{person.role}</td>
-                  <td>{person.department}</td>
-                  <td>{person.branch}</td>
+                  <td className="staff-created-date">{person.createdDate}</td>
 
                   <td>
                     <span className={`staff-status ${person.status}`}>
                       {person.statusLabel}
                     </span>
+                    {person.status === "pending" && (
+                      <EmailVerificationNote
+                        checking={emailVerification?.key !== pendingKey}
+                        verified={emailVerification?.byUid.get(person.uid)}
+                      />
+                    )}
                   </td>
 
                   <td onClick={(e) => e.stopPropagation()}>
@@ -697,7 +717,7 @@ function UserManagement({ searchTerm, showToast }) {
                           {actions.includes("reject") && (
                             <button
                               type="button"
-                              className="danger"
+                              className="settings-danger-action-solid"
                               onClick={() => {
                                 setRejectTarget(person);
                                 setActionMenuUid(null);
@@ -786,7 +806,7 @@ function UserManagement({ searchTerm, showToast }) {
             <button
               type="button"
               disabled={currentPage === 1}
-              onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+              onClick={() => setCurrentPage(currentPage - 1)}
             >
               Previous
             </button>
@@ -807,9 +827,7 @@ function UserManagement({ searchTerm, showToast }) {
             <button
               type="button"
               disabled={currentPage === totalPages}
-              onClick={() =>
-                setCurrentPage((prev) => Math.min(prev + 1, totalPages))
-              }
+              onClick={() => setCurrentPage(currentPage + 1)}
             >
               Next
             </button>
@@ -942,6 +960,15 @@ function UserManagement({ searchTerm, showToast }) {
   );
 }
 
+function EmailVerificationNote({ checking, verified }) {
+  let label = "Email status unavailable";
+  if (checking) label = "Checking email status…";
+  else if (verified === true) label = "Email verified";
+  else if (verified === false) label = "Email not verified";
+
+  return <small className="staff-email-verification">{label}</small>;
+}
+
 function StaffDetailsModal({
   person,
   isSelf,
@@ -1005,16 +1032,6 @@ function StaffDetailsModal({
           </div>
 
           <div>
-            <span>Department</span>
-            <strong>{person.department}</strong>
-          </div>
-
-          <div>
-            <span>Branch</span>
-            <strong>{person.branch}</strong>
-          </div>
-
-          <div>
             <span>Last Login</span>
             <strong>{person.lastLogin}</strong>
           </div>
@@ -1057,7 +1074,7 @@ function StaffDetailsModal({
           )}
 
           {actions.includes("reject") && (
-            <button type="button" className="settings-danger-action" onClick={onReject}>
+            <button type="button" className="settings-danger-action settings-danger-action-solid" onClick={onReject}>
               Reject
             </button>
           )}

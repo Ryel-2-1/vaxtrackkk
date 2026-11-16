@@ -440,6 +440,11 @@ exports.createStaffSetupLink = callable(
     staffAccounts.createStaffSetupLink({ db, authAdmin: admin.auth(), FieldValue, uid, email, payload: data, now })
 );
 
+exports.getStaffEmailVerification = callable(
+  "getStaffEmailVerification",
+  ({ db, uid, data }) => staffAccounts.getStaffEmailVerification({ db, authAdmin: admin.auth(), uid, payload: data })
+);
+
 exports.setStaffStatus = callable(
   "setStaffStatus",
   ({ db, FieldValue, uid, email, data, now }) =>
