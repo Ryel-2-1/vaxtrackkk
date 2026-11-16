@@ -93,6 +93,19 @@ async function requireAdmin(db, uid) {
   requireRole(await loadUser(db, uid), "admin");
 }
 
+/** Read email verification for one page of the Staff Directory. */
+async function getStaffEmailVerification({ db, authAdmin, uid, payload }) {
+  await requireAdmin(db, uid);
+  const { uids } = payload ?? {};
+  if (!Array.isArray(uids) || uids.length === 0 || uids.length > 10 ||
+      uids.some((id) => typeof id !== "string" || !id.trim() || id.length > 128)) {
+    throw new PolicyError("invalid-payload", "Select up to 10 staff accounts to check.");
+  }
+  const identifiers = [...new Set(uids)].map((id) => ({ uid: id }));
+  const { users } = await authAdmin.getUsers(identifiers);
+  return { accounts: users.map((user) => ({ uid: user.uid, emailVerified: user.emailVerified === true })) };
+}
+
 function eventRecord({ FieldValue, now, action, actorUid, actorEmail, targetUid, target, extra = {} }) {
   return {
     action,
@@ -372,6 +385,7 @@ module.exports = {
   canChangeStatus,
   createStaffAccount,
   createStaffSetupLink,
+  getStaffEmailVerification,
   setStaffStatus,
   setStaffRole,
   bootstrapFirstAdmin,

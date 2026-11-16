@@ -2,12 +2,11 @@ import MyProfile from "../../components/profile/MyProfile";
 
 /**
  * Sales Rep Settings — the shared "My profile" page (same as Admin and
- * Dispatcher). Name and phone are editable; email, role, status and
- * organization are read-only, managed by an administrator. The Employee ID
- * row is not shown here; the stored field and its other uses are unchanged.
+ * Dispatcher). Name and phone are editable; email, role and status are
+ * read-only, managed by an administrator.
  */
 function SalesRepSettings() {
-  return <MyProfile showEmployeeId={false} />;
+  return <MyProfile />;
 }
 
 export default SalesRepSettings;

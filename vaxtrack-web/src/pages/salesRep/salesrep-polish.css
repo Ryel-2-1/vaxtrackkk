@@ -1532,12 +1532,19 @@ aside.salesrep-sidebar .salesrep-logout {
 .salesrep-main .inventory-v2-table .stock-name {
   display: block;
 }
-.salesrep-main .stock-name-trigger {
+/* The clamp is on the inner .stock-name-text: a <button> centres its content
+   vertically, so clamping the button itself cut the FIRST line (the vaccine
+   name) when the text ran past three lines (2026-11-15). */
+.salesrep-main .stock-name-trigger .stock-name-text {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   line-clamp: 3;
   overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.salesrep-main .stock-name-trigger {
+  display: block;
   overflow-wrap: anywhere;
   width: 100%;
   min-height: 0 !important;

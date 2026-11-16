@@ -11,8 +11,8 @@ import {
   ShieldCheck,
   AlertCircle,
   Info,
-  Snowflake,
 } from "lucide-react";
+import VaxTrackLogo from "../components/brand/VaxTrackLogo";
 import { auth, db } from "../firebase";
 import { PENDING_PATH, resolveLoginDestination } from "../services/authorization";
 import "./Login.css";
@@ -174,10 +174,12 @@ function Login() {
     <div className="vlogin">
       {/* Left visual panel — decorative, hidden from assistive tech */}
       <aside className="vlogin-visual" aria-hidden="true">
-        <Snowflake className="vlogin-motif" size={280} strokeWidth={1} />
+        {/* The VaxTrack logo, not a snowflake: there is no cold-chain
+            (temperature) function, so an ice symbol misdescribed the system. */}
+        <VaxTrackLogo variant="outline" size={300} className="vlogin-motif" />
         <div className="vlogin-brand">
           <span className="vlogin-brand-mark">
-            <Snowflake size={18} />
+            <VaxTrackLogo size={32} />
           </span>
           <span className="vlogin-brand-name">VaxTrack</span>
         </div>
@@ -195,7 +197,7 @@ function Login() {
         <div className="vlogin-card">
           <div className="vlogin-mobile-brand">
             <span className="vlogin-brand-mark">
-              <Snowflake size={18} />
+              <VaxTrackLogo size={32} />
             </span>
             <span className="vlogin-brand-name">VaxTrack</span>
           </div>

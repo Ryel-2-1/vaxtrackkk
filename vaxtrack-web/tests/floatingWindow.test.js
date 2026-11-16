@@ -65,6 +65,10 @@ test("every modal window gets it, from one app-wide watcher; drawers are left al
   assert.match(css, /\.vt-float \[data-vt-footer\] \{\s*position: sticky;\s*bottom: 0;/, "buttons pinned at the bottom");
   // The footer is found inside a wrapping <form>, never the whole form.
   assert.ok(mod.includes(`const FIELDS = "input:not([type='hidden']), select, textarea, .leaflet-container, table";`));
+  // A list of records with a button per row (a doctor's linked clinics) is
+  // content, not the action row: pinning it slid it over the section above.
+  assert.ok(mod.includes(`const CONTENT = "article, li, [role='listitem'], h1, h2, h3, h4, h5, h6";`));
+  assert.match(mod, /if \(child\.matches\(CONTENT\) \|\| child\.querySelector\(CONTENT\)\) return null;\s*return child\.matches\("button"\)/);
   assert.ok(css.includes(`.vt-float[data-vt-zone="resize"] { cursor: nwse-resize; }`));
 });
 

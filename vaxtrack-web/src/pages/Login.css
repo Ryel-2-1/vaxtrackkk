@@ -72,9 +72,11 @@
   justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: 8px;
-  background: var(--green-700);
-  color: #ffffff;
+  /* The logo brings its own green tile (VaxTrackLogo variant="mark"). */
+  flex: none;
+}
+.vlogin-brand-mark svg {
+  display: block;
 }
 .vlogin-brand-name {
   font-size: 18px;

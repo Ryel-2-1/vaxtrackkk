@@ -402,8 +402,14 @@ function StockRow({ stock }) {
             aria-haspopup="dialog"
             onClick={() => detailsRef.current?.showModal()}
           >
-            <strong>{stock.name}</strong>
-            <small>{stock.manufacturer} · {stock.type}</small>
+            {/* The 3-line clamp lives on this inner span, not the button: a
+                button centres its content vertically, so when the text ran
+                past 3 lines the overflow was split top and bottom and the
+                vaccine NAME (first line) was the part cut off. */}
+            <span className="stock-name-text">
+              <strong>{stock.name}</strong>
+              <small>{stock.manufacturer} · {stock.type}</small>
+            </span>
           </button>
           <dialog
             ref={detailsRef}

@@ -22,29 +22,44 @@
   color: var(--gray-600);
 }
 
-.my-profile-grid {
+/* One panel (the only box): Profile | Account details as two equal columns
+   divided by a line, and the password row across the foot. */
+.my-profile-panel {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
-  gap: 18px;
-  align-items: start;
-}
-
-.my-profile-side {
-  display: grid;
-  gap: 18px;
-}
-
-.my-profile-card {
-  display: grid;
-  gap: 14px;
-  padding: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   background: #ffffff;
   border: var(--border-card);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-card);
 }
 
-.my-profile-card h3 {
+.my-profile-section {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 20px 24px;
+  min-width: 0;
+}
+
+.my-profile-section + .my-profile-section {
+  border-left: 1px solid var(--gray-200);
+}
+
+.my-profile-section.my-profile-password {
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 24px;
+  border-left: 0;
+  border-top: 1px solid var(--gray-200);
+}
+
+.my-profile-password > div {
+  display: grid;
+  gap: 6px;
+}
+
+.my-profile-section h3 {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -229,7 +244,17 @@
 }
 
 @media (max-width: 900px) {
-  .my-profile-grid {
+  .my-profile-panel {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .my-profile-section + .my-profile-section {
+    border-left: 0;
+    border-top: 1px solid var(--gray-200);
+  }
+
+  .my-profile-section.my-profile-password {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
   }
 }

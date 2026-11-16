@@ -234,11 +234,11 @@ test("the planner UI saves only the trip route on 'Use this plan', and never reu
   // The plan is recomputed from the live orders on every render.
   assert.match(ui, /const plan = planDeparture\(\{/);
   const cargo = readFileSync(new URL("../src/pages/dispatcher/DispatcherCargoLoading.jsx", import.meta.url), "utf8");
-  // On per build (VITE_DEPARTURE_PLANNER_ENABLED=true), or in the loopback-only QA mode.
-  assert.match(cargo, /const DEPARTURE_PLANNER_ENABLED =\s*import\.meta\.env\?\.VITE_DEPARTURE_PLANNER_ENABLED === "true" \|\| import\.meta\.env\?\.MODE === "motorcycle-qa";/);
-  assert.match(cargo, /\{DEPARTURE_PLANNER_ENABLED && !dispatched && <DeparturePlanner orders=\{group\.orders\} riderName=\{group\.rider\.name\} routing=\{routing\} onReturnPlanChange=\{setReturnPlan\} \/>\}/);
-  // The routing settings are read only when the planner is on.
-  assert.match(cargo, /if \(!DEPARTURE_PLANNER_ENABLED\) return undefined;\s*return subscribeRoutingSettings\(/);
+  // Every undispatched group has the planner, regardless of build mode.
+  assert.match(cargo, /\{!dispatched && <DeparturePlanner orders=\{group\.orders\} riderName=\{group\.rider\.name\} routing=\{routing\} onReturnPlanChange=\{setReturnPlan\} \/>\}/);
+  assert.doesNotMatch(cargo, /VITE_DEPARTURE_PLANNER_ENABLED|DEPARTURE_PLANNER_ENABLED/);
+  // The planner receives live routing settings in every build mode.
+  assert.match(cargo, /useEffect\(\(\) => \{\s*return subscribeRoutingSettings\(/);
 });
 
 test("with a stop for another day, the interval is labelled as covering only the other stops", () => {

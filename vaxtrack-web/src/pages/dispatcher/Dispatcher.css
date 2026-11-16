@@ -8135,7 +8135,8 @@
   margin-top: 1px;
 }
 .shp-muted {
-  color: var(--gray-400, #9ca3af) !important;
+  /* gray-400 measured 2.5:1 on white ("Unassigned"); gray-500 is 4.8:1. */
+  color: var(--gray-500, #6b7280) !important;
   font-weight: 500 !important;
 }
 .shp-td-meta {

@@ -19,6 +19,9 @@ test("Dispatcher Shipments: one toolbar row, a fixed card, the pager at its foot
   assert.match(DISP, /\.dispatcher-main \.shp-filterbar \{\s*display: flex;/);
   assert.match(DISP, /\.dispatcher-main \.shp-card \{[^}]*display: flex;[^}]*height: var\(--shp-card-h\);/);
   assert.match(DISP, /\.dispatcher-main \.shp-table-wrap \{[^}]*flex: 1 1 auto;[^}]*overflow: auto;/);
+  // Phones: the rows become cards and the page scrolls (shell-chrome.css), so
+  // the fixed height would cut all but the first shipment off (2026-11-15).
+  assert.match(DISP, /@media \(max-width: 768px\) \{\s*\.dispatcher-main \.shp-card \{\s*height: auto;\s*\}\s*\}/);
 });
 
 test("Dispatcher Assign Rider: the queue body keeps one height with the shared pager pinned", () => {

@@ -28,6 +28,12 @@ const INTERACTIVE =
 // Content that belongs above the action row, never inside a pinned footer.
 const FIELDS = "input:not([type='hidden']), select, textarea, .leaflet-container, table";
 
+// A list of records or a titled section is content even when every row has its
+// own button (e.g. a doctor's linked clinics, each with Deactivate). Pinning
+// it slid the whole list up over the section above it. An action row never
+// holds list items, articles or headings.
+const CONTENT = "article, li, [role='listitem'], h1, h2, h3, h4, h5, h6";
+
 /** The last child that takes up room (not an overlaid close button). */
 function lastRealChild(node) {
   for (const child of [...node.children].reverse()) {
@@ -49,6 +55,7 @@ function findFooter(dialog) {
     const child = lastRealChild(node);
     if (!child) return null;
     if (!child.matches(FIELDS) && !child.querySelector(FIELDS)) {
+      if (child.matches(CONTENT) || child.querySelector(CONTENT)) return null;
       return child.matches("button") || child.querySelector("button") ? child : null;
     }
     node = child;

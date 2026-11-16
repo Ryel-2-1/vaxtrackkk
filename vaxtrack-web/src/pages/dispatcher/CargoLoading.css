@@ -248,7 +248,8 @@
 .cl-seq {
   font-size: 12px;
   font-weight: 600;
-  color: var(--gray-400, #9ca3af);
+  /* gray-400 measured 2.5:1 on white, too faint for a 12px stop number. */
+  color: var(--gray-500, #6b7280);
   text-align: center;
 }
 .cl-order-info {

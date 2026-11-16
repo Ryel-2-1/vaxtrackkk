@@ -22,6 +22,16 @@
  */
 
 import { normalizeStatus, STATUSES } from "./authorization.js";
+import { timestampMs } from "./deliveryMetrics.js";
+
+const accountDateFormat = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeZone: "Asia/Manila" });
+
+export function formatStaffCreatedDate(value) {
+  const millis = timestampMs(value);
+  if (!Number.isFinite(millis)) return "—";
+  const date = new Date(millis);
+  return Number.isFinite(date.getTime()) ? accountDateFormat.format(date) : "—";
+}
 
 export const STAFF_STATUS = Object.freeze({
   ACTIVE: "active",

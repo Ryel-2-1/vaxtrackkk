@@ -302,7 +302,9 @@
 }
 .adx-alert-time {
   font-size: 11px;
-  color: var(--gray-400, #9ca3af);
+  /* gray-400 measured 2.5:1 on the white card, too faint for 11px text;
+     gray-500 is 4.8:1. */
+  color: var(--gray-500, #6b7280);
   white-space: nowrap;
   flex-shrink: 0;
 }

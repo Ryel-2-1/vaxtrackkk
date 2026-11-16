@@ -43,12 +43,12 @@ class ImageUploadService implements ProofUploader {
   final FirebaseStorage _storage;
   final ImagePicker _picker;
 
+  /// Delivery evidence (the proof photo and the invoice) is always taken with
+  /// the camera at the clinic. There is deliberately no gallery picker here
+  /// (removed 2026-11-15): an older picture from the phone is not evidence of
+  /// this delivery.
   Future<XFile?> pickFromCamera() {
     return _picker.pickImage(source: ImageSource.camera, imageQuality: 80);
-  }
-
-  Future<XFile?> pickFromGallery() {
-    return _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
   }
 
   @override

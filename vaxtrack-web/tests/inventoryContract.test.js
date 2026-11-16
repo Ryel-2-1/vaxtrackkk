@@ -129,7 +129,7 @@ test("the callables are the only inventory-affecting entry points", () => {
     "reconcileRiderDispatchOnOrderWrite",
   ];
   // Staff accounts (functions/src/staffAccounts.js): users and Auth only, never inventory.
-  const STAFF_CALLABLES = ["createStaffAccount", "createStaffSetupLink", "setStaffStatus", "setStaffRole"];
+  const STAFF_CALLABLES = ["createStaffAccount", "createStaffSetupLink", "getStaffEmailVerification", "setStaffStatus", "setStaffRole"];
   assert.equal(
     /inventory|reservedQuantity|Centavos/i.test(read("functions/src/staffAccounts.js").replace(/^\s*(\*|\/\/).*$/gm, "")),
     false,

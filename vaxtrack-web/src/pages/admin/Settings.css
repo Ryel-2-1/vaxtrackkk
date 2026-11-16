@@ -326,10 +326,6 @@
   background: var(--green-800);
 }
 
-.system-card {
-  align-self: start;
-}
-
 .feature-list {
   display: flex;
   flex-direction: column;
@@ -465,10 +461,6 @@
 
 /* User Management */
 
-.user-management-card {
-  max-width: 1240px;
-}
-
 .staff-card-header {
   display: flex;
   align-items: center;
@@ -516,6 +508,14 @@
   border-collapse: collapse;
 }
 
+.staff-table th:first-child {
+  width: 42%;
+}
+
+.staff-table th:last-child {
+  width: 1%;
+}
+
 .staff-table th {
   text-align: left;
   padding: 14px 12px;
@@ -534,6 +534,16 @@
   color: var(--gray-900);
   font-size: 14px;
   vertical-align: middle;
+}
+
+.staff-created-date {
+  white-space: nowrap;
+}
+
+.staff-email-verification {
+  display: block;
+  margin-top: 4px;
+  color: var(--gray-600);
 }
 
 .staff-table tbody tr {
@@ -926,6 +936,17 @@
   color: var(--danger-text);
 }
 
+.settings-danger-action-solid,
+.staff-action-menu button.settings-danger-action-solid {
+  background: var(--danger-text);
+  color: #ffffff;
+}
+
+.settings-danger-action-solid:hover,
+.staff-action-menu button.settings-danger-action-solid:hover {
+  background: #991b1b;
+}
+
 /* Toast */
 
 .settings-toast {
@@ -962,7 +983,7 @@
   }
 
   .staff-table {
-    min-width: 980px;
+    min-width: 580px;
   }
 
   .staff-table-wrap {
@@ -1047,18 +1068,42 @@
   color: var(--gray-500, #6b7280);
 }
 
+/* Two equal sections side by side (2026-11-15). The card is the only box:
+   each fact is a plain row divided by a line, not a box of its own. */
+.settings-v3-grid.settings-v3-grid--readonly {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.settings-summary-grid.settings-summary-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .settings-fact-list {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
 }
 
 .settings-fact-list > div {
-  border: 1px solid var(--gray-200, #e5e7eb);
-  border-radius: 10px;
-  background: var(--gray-50, #f9fafb);
-  padding: 12px 14px;
+  padding: 12px 0;
+  border-top: 1px solid var(--gray-200, #e5e7eb);
+}
+
+.settings-fact-list > div:last-child {
+  padding-bottom: 0;
+}
+
+@media (max-width: 1000px) {
+  .settings-v3-grid.settings-v3-grid--readonly {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .settings-summary-grid.settings-summary-grid--three {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .settings-fact-list dt {

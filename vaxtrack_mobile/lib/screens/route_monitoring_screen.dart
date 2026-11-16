@@ -20,6 +20,7 @@ import '../utils/route_screen_state.dart';
 import '../utils/safe_log.dart';
 import '../utils/saved_route_plan.dart';
 import '../utils/trip_route.dart';
+import '../widgets/route_stop_pin.dart';
 import '../widgets/tracking_status_banner.dart';
 
 /// The VaxTrack route for one delivery, on a free OpenStreetMap map.
@@ -341,7 +342,7 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _pin(d.stopSequence?.toString(), current: true, size: 30),
+            RouteStopPin(number: d.stopSequence?.toString(), color: _arrival, size: 30),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -448,6 +449,7 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
                 ],
               ),
             MarkerLayer(
+              rotate: true,
               markers: [
                 for (var i = later.length - 1; i >= 0; i--)
                   if (later[i].hasClinicCoords)
@@ -456,20 +458,27 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
                       width: 30,
                       height: 38,
                       alignment: Alignment.topCenter,
-                      child: _pin('${later[i].stopSequence ?? i + 2}', current: false, size: 30),
+                      child: RouteStopPin(number: '${later[i].stopSequence ?? i + 2}', color: AppColors.primaryDark, size: 30),
                     ),
                 if (dest != null)
+                  // The marker box is fixed, but the name chip grows with the
+                  // phone's font size: at 76 px a larger system font pushed
+                  // the pin past the box ("BOTTOM OVERFLOWED"). The box now
+                  // has room for the chip at up to 1.3x text (clamped in
+                  // _mapChip), and the chip is Flexible, so even the largest
+                  // font can only shrink it, never overflow the pin. The pin
+                  // tip stays on the destination (column ends at the bottom).
                   Marker(
                     point: dest,
                     width: 180,
-                    height: 76,
+                    height: 96,
                     alignment: Alignment.topCenter,
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        _mapChip(_destinationName),
+                        Flexible(child: _mapChip(_destinationName)),
                         const SizedBox(height: 2),
-                        _pin(d.stopSequence?.toString(), current: true, size: 40),
+                        RouteStopPin(number: d.stopSequence?.toString(), color: _arrival, size: 40),
                       ],
                     ),
                   ),
@@ -573,46 +582,25 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
     );
   }
 
-  Widget _mapChip(String text) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.94),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Text(text,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textDark)),
-      );
-
-  /// A stop pin: a teardrop with its stop number. The stop being ridden to is
-  /// amber and larger; later stops are small and green.
-  Widget _pin(String? number, {required bool current, required double size}) {
-    final color = current ? _arrival : AppColors.primaryDark;
-    return SizedBox(
-      width: size,
-      height: size * 1.25,
-      child: Stack(
-        alignment: Alignment.topCenter,
-        children: [
-          Icon(Icons.location_on, size: size * 1.25, color: color, shadows: const [Shadow(color: Colors.black26, blurRadius: 4)]),
-          Padding(
-            padding: EdgeInsets.only(top: size * 0.22),
-            child: Container(
-              width: size * 0.5,
-              height: size * 0.5,
-              alignment: Alignment.center,
-              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-              child: number == null
-                  ? Icon(Icons.flag, size: size * 0.32, color: color)
-                  : Text(number, style: TextStyle(fontSize: size * 0.3, fontWeight: FontWeight.w800, color: color, height: 1)),
-            ),
+  /// A label drawn over the map (the destination name above its pin, and the
+  /// line legend). The destination label sits in a fixed-size map marker, so
+  /// the text follows the phone's font size only up to 1.3x (the marker is
+  /// sized for that); beyond it the label would no longer fit above its pin.
+  Widget _mapChip(String text) => MediaQuery.withClampedTextScaling(
+        maxScaleFactor: 1.3,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.94),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.border),
           ),
-        ],
-      ),
-    );
-  }
+          child: Text(text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+        ),
+      );
 
   /// The rider: a dot, or an arrow pointing the way they are moving once they
   /// are actually moving (a standing phone's compass heading is noise). Blue

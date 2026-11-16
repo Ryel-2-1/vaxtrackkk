@@ -449,9 +449,7 @@ function RiderRow({ rider, activity, assignment, figuresReady, locationReady, on
 
         <div>
           <h3>{rider.name}</h3>
-          <p>
-            {rider.vehicle} • ID: {rider.displayId}
-          </p>
+          <p>{rider.vehicle}</p>
         </div>
       </div>
 
@@ -535,9 +533,7 @@ function RiderDetailsModal({
         <RiderAvatar className={`riders-modal-avatar ${rider.status}`} name={rider.name} photoUrl={rider.photoUrl} />
 
         <h2 id="rider-details-title">{rider.name}</h2>
-        <p>
-          ID: {rider.displayId} • {rider.vehicle}
-        </p>
+        <p>{rider.vehicle}</p>
 
         <div className="riders-modal-grid">
           <div>
