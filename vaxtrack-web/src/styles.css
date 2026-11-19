@@ -5370,6 +5370,13 @@ textarea:focus-visible {
   outline-offset: 3px;
 }
 
+/* Text fields use their border or wrapper to show focus, without a second box. */
+#root input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]):focus,
+#root textarea:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 /* Tables: larger and easier to scan */
 table {
   font-size: 15px;
