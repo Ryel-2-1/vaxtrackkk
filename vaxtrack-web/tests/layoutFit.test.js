@@ -66,7 +66,7 @@ test("the Med Rep vaccine catalog is a compact table with every field kept", () 
   assert.match(src, /`\$\{\(product\.onHand \?\? 0\)\.toLocaleString\(\)\} on hand · \$\{Math\.max\(\(product\.onHand \?\? 0\) - product\.available, 0\)\.toLocaleString\(\)\} reserved or held`/);
   assert.match(src, /aria-describedby=\{!product\.orderable \? `rq-table-reason-\$\{product\.inventoryId\}` : review\.kind !== "immediate" \? quantityNoteId : undefined\}/);
   // The price convention is said once for the list.
-  assert.match(src, /className="rq-price-convention">Unit prices are per vial · VAT-inclusive for VATable products\./);
+  assert.match(src, /<InfoHint>Unit prices are per vial · VAT-inclusive for VATable products\.<\/InfoHint>/);
   const css = read("src/pages/salesRep/salesrep-polish.css");
   assert.match(css, /\.salesrep-page \.rq-table-wrap \{[\s\S]*?overflow-x: auto;/);
   assert.match(css, /\.salesrep-page \.rq-table \{[\s\S]*?table-layout: fixed;/);

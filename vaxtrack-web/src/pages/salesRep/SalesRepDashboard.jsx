@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -312,8 +313,7 @@ function SalesRepDashboard() {
       <div className="srd">
         <header className="srd-head">
           <div>
-            <h2>Order overview</h2>
-            <p>Track your vaccine orders and stock at a glance.</p>
+            <h2>Order overview <InfoHint>Track your vaccine orders and stock at a glance.</InfoHint></h2>
           </div>
           <button
             type="button"
@@ -359,8 +359,7 @@ function SalesRepDashboard() {
                 <h2 id="srd-followup-title">
                   <AlertTriangle size={16} aria-hidden="true" /> Needs follow-up
                   <span className="srd-followup-count tnum">{followUps.length}</span>
-                </h2>
-                <p>Orders that failed, are running late, or are past the requested date.</p>
+                 <InfoHint>Orders that failed, are running late, or are past the requested date.</InfoHint></h2>
               </div>
               <button type="button" className="srd-link" onClick={() => navigate("/sales-rep/order-tracking")}>
                 Order tracking
@@ -514,8 +513,7 @@ function SalesRepDashboard() {
           <div className="srd-card">
             <div className="srd-card-head">
               <div>
-                <h2>Recent orders</h2>
-                <p>Your most recent orders.</p>
+                <h2>Recent orders <InfoHint>Your most recent orders.</InfoHint></h2>
               </div>
               <button
                 type="button"
@@ -597,8 +595,7 @@ function SalesRepDashboard() {
             <div className="srd-card">
               <div className="srd-card-head">
                 <div>
-                  <h2>Stock to watch</h2>
-                  <p>Low or expiring batches.</p>
+                  <h2>Stock to watch <InfoHint>Low or expiring batches.</InfoHint></h2>
                 </div>
                 <button
                   type="button"

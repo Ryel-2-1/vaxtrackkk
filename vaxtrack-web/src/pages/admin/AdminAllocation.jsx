@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import AdminLayout from "../../components/admin/AdminLayout";
@@ -280,12 +281,11 @@ function AdminAllocation() {
 
       <section className="alloc-card" aria-labelledby="alloc-returns-heading">
         <header>
-          <h2 id="alloc-returns-heading">Returns awaiting confirmation</h2>
-          <p>
+          <h2 id="alloc-returns-heading">Returns awaiting confirmation <InfoHint>
             Vials brought back after a failed delivery, or from an order cancelled after dispatch. Check the
             physical stock, then record its condition — for the whole return, or by quantity for each batch.
             Until then these vials are neither reserved nor available.
-          </p>
+          </InfoHint></h2>
         </header>
         {focusMissing && (
           <p className="alloc-muted" role="status">
@@ -436,11 +436,10 @@ function AdminAllocation() {
 
       <section className="alloc-card" aria-labelledby="alloc-queue-heading">
         <header>
-          <h2 id="alloc-queue-heading">Backorder queue (current)</h2>
-          <p>
+          <h2 id="alloc-queue-heading">Backorder queue (current) <InfoHint>
             In the order stock will be given out: Urgent first, then the earliest requested date and time,
             then the order placed first. Orders are dispatched only once fully reserved.
-          </p>
+          </InfoHint></h2>
         </header>
         {queueLoading ? (
           <p className="alloc-muted">Loading queue…</p>

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/info_help.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/delivery.dart';
 import '../services/delivery_service.dart';
@@ -48,6 +49,7 @@ class _DeliveriesScreenState extends State<DeliveriesScreen> with SingleTickerPr
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Deliveries'),
+        actions: const [InfoHelp(title: 'About your deliveries', message: 'Active shows your unfinished deliveries, Completed shows successful deliveries, and All includes your delivery history. Open a delivery to see its details and available actions.')],
         bottom: TabBar(
           controller: _tabController,
           labelColor: AppColors.primary,

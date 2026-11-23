@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Building2,
@@ -118,7 +119,7 @@ function Settings() {
 
         <header className="settings-v3-header">
           <div>
-            <p>
+            <InfoHint label="About these settings">
               {activeTab === "general"
                 ? "Manage organization details and system-wide logistics rules."
                 : activeTab === "profile"
@@ -126,7 +127,7 @@ function Settings() {
                   : activeTab === "routing"
                     ? "The hub riders depart from, and the defaults for planning departures."
                   : "Manage personnel, permissions, and registration requests."}
-            </p>
+            </InfoHint>
           </div>
 
           {/* The bell, clock and shield buttons that sat here only raised
@@ -268,10 +269,10 @@ function GeneralSettings() {
               <h2>Organization</h2>
             </div>
 
-            <p className="settings-readonly-lede">
+            <InfoHint>
               VaxTrack stores no organization record. These values are fixed in
               the application, not configured here.
-            </p>
+            </InfoHint>
 
             <dl className="settings-fact-list">
               <div>
@@ -303,10 +304,10 @@ function GeneralSettings() {
               <h2>Regional</h2>
             </div>
 
-            <p className="settings-readonly-lede">
+            <InfoHint>
               Fixed configuration. The time zone below is enforced in code on
               both the client and the server; the others are not configurable.
-            </p>
+            </InfoHint>
 
             <dl className="settings-fact-list">
               <div>

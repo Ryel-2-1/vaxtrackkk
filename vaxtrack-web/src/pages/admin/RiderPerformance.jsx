@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Trophy } from "lucide-react";
 import KpiCard from "../../components/ui/KpiCard";
@@ -58,10 +59,9 @@ export default function RiderPerformance({ orders, ordersLoading, ordersError, n
     <section className="analytics-card mrp-card" aria-labelledby="rp-title">
       <div className="mrp-head">
         <div>
-          <h2 id="rp-title">Rider Performance</h2>
-          <p className="mrp-sub">
+          <h2 id="rp-title">Rider Performance <InfoHint>
             Ranked by delivered orders, counted on the day each delivery was completed.
-          </p>
+          </InfoHint></h2>
         </div>
         <div className="mrp-ranges" role="group" aria-label="Rider performance date range">
           {PERFORMANCE_RANGES.map((range) => (

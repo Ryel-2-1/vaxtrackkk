@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import InfoHint from "../../components/ui/InfoHint";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
@@ -223,7 +224,7 @@ function Invoices() {
 
         <header className="inv-header">
           <div>
-            <p>Manage approved customer orders and prioritize sales invoice preparation.</p>
+            <InfoHint label="About invoices">Manage approved customer orders and prioritize sales invoice preparation.</InfoHint>
           </div>
         </header>
 

@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Loader2, Package, Search, X } from "lucide-react";
 import { subscribeDeliveries } from "../../services/deliveryService";
@@ -425,8 +426,7 @@ function DispatcherShipments() {
     <>
       <div className="shp-page">
         <header className="shp-header">
-          <h2 className="disp-section-title">Shipment queue</h2>
-          <p>Track and update the status of assigned shipments.</p>
+          <h2 className="disp-section-title">Shipment queue <InfoHint>Track and update the status of assigned shipments.</InfoHint></h2>
         </header>
 
         <section className="shp-kpis">

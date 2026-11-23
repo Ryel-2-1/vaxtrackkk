@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -440,8 +441,7 @@ function RequestOrderCart({ uid }) {
         <div className="request-catalog">
           <div className="request-header-row request-v2-header">
             <div>
-              <h2>Available vaccines</h2>
-              <p>Stock at the hub, updated live.</p>
+              <h2>Available vaccines <InfoHint>Stock at the hub, updated live.</InfoHint></h2>
             </div>
 
             <div className="request-search request-v2-search">
@@ -464,7 +464,7 @@ function RequestOrderCart({ uid }) {
 
             {/* Said once for the whole list rather than under every price:
                 the convention is the same for every vaccine. */}
-            <p className="rq-price-convention">Unit prices are per vial · VAT-inclusive for VATable products.</p>
+            <InfoHint>Unit prices are per vial · VAT-inclusive for VATable products.</InfoHint>
           </div>
 
           {/* Tablet / small laptop (769–1100px): "View cart" lives in a sticky

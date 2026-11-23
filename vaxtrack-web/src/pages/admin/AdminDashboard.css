@@ -56,11 +56,38 @@
   font-size: 13px;
 }
 
+.inventory-page .adx-hero .m-info-hint .m-info-trigger {
+  color: #ffffff !important;
+}
+.inventory-page .adx-hero .m-info-hint .m-info-trigger:hover,
+.inventory-page .adx-hero .m-info-hint .m-info-trigger:focus-visible {
+  background: #ffffff26 !important;
+}
+
 .inventory-page .adx-ledger {
   border-color: #d3e3d9;
   box-shadow: 0 5px 16px rgba(16, 77, 56, 0.06);
 }
 .inventory-page .adx-ledger-cell { background: #fff; }
+.inventory-page .adx-ledger-target,
+.inventory-page .adx-check-target {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  cursor: pointer;
+  z-index: 1;
+}
+.inventory-page .adx-ledger-cell .m-info-hint {
+  position: relative;
+  z-index: 2;
+}
+.inventory-page .adx-check-row { position: relative; }
+.inventory-page .adx-check-row .m-info-hint { position: relative; z-index: 2; }
 .inventory-page .adx-ledger-cell.is-attention { background: #fffbf1; }
 .inventory-page .adx-ledger-cell.is-exception { background: #fff6f4; }
 .inventory-page .adx-ledger-cell:hover { filter: brightness(0.98); }

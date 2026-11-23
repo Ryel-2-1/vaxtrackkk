@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -271,8 +272,7 @@ function DispatcherAssignRider() {
       <div className="ar-page">
         <header className="ar-header">
           <div>
-            <h2 className="disp-section-title">Rider assignment</h2>
-            <p>Orders waiting for a rider · updates live</p>
+            <h2 className="disp-section-title">Rider assignment <InfoHint>Orders waiting for a rider · updates live</InfoHint></h2>
           </div>
         </header>
 

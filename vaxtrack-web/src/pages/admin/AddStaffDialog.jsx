@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useRef, useState } from "react";
 import { UserPlus, X } from "lucide-react";
 import { useDialogFocus } from "../../components/ui/useDialogFocus";
@@ -129,11 +130,10 @@ export default function AddStaffDialog({ onClose, onCreated }) {
           </>
         ) : (
           <form onSubmit={submit} noValidate>
-            <h2 id="add-staff-title">Add staff</h2>
-            <p>
+            <h2 id="add-staff-title">Add staff <InfoHint>
               Creates a sign-in account. They set their own password from an email or a link you pass on. Riders apply
               in the rider app instead.
-            </p>
+            </InfoHint></h2>
 
             <div className="add-staff-fields">
               <div className="add-staff-field">

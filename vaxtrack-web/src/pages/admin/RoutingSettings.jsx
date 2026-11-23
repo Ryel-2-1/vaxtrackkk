@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useEffect, useState } from "react";
 import { MapPinned, Route } from "lucide-react";
 import ClinicLocationSection from "./ClinicLocationSection";
@@ -107,10 +108,10 @@ function RoutingSettings({ showToast }) {
         <Route size={17} />
         <h2>Routing</h2>
       </div>
-      <p className="settings-readonly-lede">
+      <InfoHint>
         Dispatchers plan each rider&apos;s departure from this hub with motorcycle travel times, then save it as the
         trip. These values are the starting point; a dispatcher can change any number for one plan.
-      </p>
+      </InfoHint>
 
       {!saved.hub && (
         <p className="routing-settings-notice" role="status">

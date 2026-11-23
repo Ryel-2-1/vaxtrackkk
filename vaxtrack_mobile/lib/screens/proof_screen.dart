@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import '../widgets/info_help.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -431,7 +432,9 @@ class _ProofScreenState extends State<ProofScreen> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(title: const Text('Proof of Delivery')),
+        appBar: AppBar(title: const Text('Proof of Delivery'), actions: const [
+          InfoHelp(title: 'About proof of delivery', message: 'Record the recipient and take the proof and invoice photos. Submit Proof & Complete Delivery sends the evidence and asks the server to confirm the delivery.'),
+        ]),
         // Subscribed ONCE (RiderFeedBuilder), never in build(): every
         // keystroke in the recipient field and every progress update calls
         // setState, and a stream created in build() resubscribed each time —
@@ -460,7 +463,7 @@ class _ProofScreenState extends State<ProofScreen> {
                 if (!selection.hasSelection)
                   _Card(
                     title: 'Choose a delivery',
-                    subtitle: 'Deliveries out for delivery that need proof',
+                    help: 'Deliveries out for delivery that need proof',
                     child: ProofOrderSelector(
                       eligible: selection.eligible,
                       selectedId: null,
@@ -580,7 +583,7 @@ class _ProofScreenState extends State<ProofScreen> {
   Widget _saveOfflineCard(Delivery order) {
     return _Card(
       title: 'No signal here?',
-      subtitle: 'Save this delivery on your phone. VaxTrack records where you are now and '
+      help: 'Save this delivery on your phone. VaxTrack records where you are now and '
           'sends everything by itself when you are back online. The server checks your '
           'position against the clinic area before completing it.',
       child: SizedBox(
@@ -718,7 +721,7 @@ class _ProofScreenState extends State<ProofScreen> {
   Widget _recipientCard() {
     return _Card(
       title: 'Received by',
-      subtitle: 'Who accepted this delivery',
+      help: 'Who accepted this delivery',
       child: TextField(
         controller: _recipientController,
         enabled: !_submission.isCommitting,
@@ -746,7 +749,7 @@ class _ProofScreenState extends State<ProofScreen> {
     final hasRecovered = _submission.hasPendingUpload && _proofPhoto == null;
     return _Card(
       title: 'Proof Photo',
-      subtitle: 'Required — take a photo as delivery confirmation',
+      help: 'Required — take a photo as delivery confirmation',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -839,7 +842,7 @@ class _ProofScreenState extends State<ProofScreen> {
         _submission.hasPendingInvoiceUpload && _invoicePhoto == null;
     return _Card(
       title: 'Invoice / Receipt',
-      subtitle: 'Required to complete the delivery',
+      help: 'Required to complete the delivery',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -997,10 +1000,11 @@ class _ProofScreenState extends State<ProofScreen> {
 }
 
 class _Card extends StatelessWidget {
-  const _Card({required this.title, this.subtitle, required this.child});
+  const _Card({required this.title, this.subtitle, this.help, required this.child});
 
   final String title;
   final String? subtitle;
+  final String? help;
   final Widget child;
 
   @override
@@ -1011,10 +1015,10 @@ class _Card extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-            ),
+            if (help != null)
+              InfoHeading(title: title, message: help!)
+            else
+              Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
             if (subtitle != null) ...[
               const SizedBox(height: 4),
               Text(

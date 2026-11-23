@@ -125,6 +125,7 @@
 /* ---------------- KPI card ---------------- */
 
 .m-kpi {
+  position: relative;
   display: flex !important;
   flex-direction: column !important;
   justify-content: center !important;
@@ -144,26 +145,45 @@
   border-top: 3px solid var(--danger-text) !important;
 }
 
-button.m-kpi {
+.m-kpi-clickable {
   cursor: pointer !important;
   transition: border-color 120ms ease, background 120ms ease !important;
 }
 
-button.m-kpi:hover {
+.m-kpi-clickable:hover {
   border-color: var(--gray-300) !important;
   background: var(--gray-50) !important;
 }
 
 /* The selected filter tab among clickable cards. */
-button.m-kpi.m-kpi-active {
+.m-kpi-clickable.m-kpi-active {
   border-color: var(--green-600) !important;
   background: var(--green-50) !important;
   box-shadow: inset 0 0 0 1px var(--green-600) !important;
 }
 
-button.m-kpi:focus-visible {
+.m-kpi-target:focus-visible {
   outline: 2px solid var(--green-100) !important;
   outline-offset: 1px !important;
+}
+
+.m-kpi .m-kpi-target {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  border: 0 !important;
+  border-radius: inherit !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  cursor: pointer;
+}
+
+.m-kpi .m-info-hint {
+  position: relative;
+  z-index: 2;
 }
 
 .m-kpi-label {

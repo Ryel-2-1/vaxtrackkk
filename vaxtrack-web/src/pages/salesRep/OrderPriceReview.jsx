@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useCallback } from "react";
 import { formatCentavos } from "../../services/money";
 import { NEGOTIATED_PRICE_LABEL } from "../../services/negotiatedPricing";
@@ -36,11 +37,10 @@ export function PriceReview({
   return (
     <section className={`place-v2-price-review${locked ? " is-locked" : ""}`} aria-labelledby="price-review-title">
       <div className="place-v2-price-review-head">
-        <h2 id="price-review-title">Final price review</h2>
-        <p>
+        <h2 id="price-review-title">Final price review <InfoHint>
           Confirm each line&apos;s agreed unit price. Prices are VAT-inclusive for VATable products; change
           a price only when it has been agreed with the client, and give the reason.
-        </p>
+        </InfoHint></h2>
         {locked && <p className="place-v2-price-locked" role="status">{lockedReason}</p>}
         {clearedNote && <p className="place-v2-price-cleared" role="status">{clearedNote}</p>}
       </div>

@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Building2,
@@ -636,11 +637,11 @@ function DoctorAddressesPanel({
               {!masterDataLoading &&
                 !clinicMasterDataError &&
                 availableClinics.length === 0 && (
-                  <p className="clinics-field-note">
+                  <InfoHint>
                     {clinicDestinations.length > 0
                       ? "All eligible clinics are already linked to this doctor. Reactivate an inactive destination below instead of adding a duplicate."
                       : "Register a clinic and verify its map location before linking it to this doctor."}
-                  </p>
+                  </InfoHint>
                 )}
 
               {(clinicErrors.form || clinicMasterDataError) && (

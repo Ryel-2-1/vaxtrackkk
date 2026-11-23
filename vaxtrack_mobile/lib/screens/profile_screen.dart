@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import '../widgets/info_help.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/app_user.dart';
@@ -67,7 +68,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (uid == null) return const Center(child: Text('Not logged in.'));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Rider Profile')),
+      appBar: AppBar(title: const Text('Rider Profile'), actions: const [
+        InfoHelp(title: 'About your profile', message: 'View your rider account and delivery totals. Tap your photo to change it. Your administrator manages account approval and assignment details.'),
+      ]),
       // Each feed is subscribed once (see RiderFeedBuilder). Sign Out stays
       // reachable in every state, including a failed profile load.
       body: RiderFeedBuilder<AppUser?>(

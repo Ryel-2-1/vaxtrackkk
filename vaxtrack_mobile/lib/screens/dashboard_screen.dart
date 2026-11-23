@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/info_help.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../offline/offline_delivery_service.dart';
@@ -73,7 +74,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Rider Dashboard')),
+      appBar: AppBar(title: const Text('Rider Dashboard'), actions: const [
+        InfoHelp(title: 'About the dashboard', message: 'See your assigned deliveries, completed orders and next stop. Open a delivery to view its route and record the handoff.'),
+      ]),
       // One subscription for the life of the screen: first-load spinner,
       // safe error + Retry (never the raw error), live updates in place.
       body: RiderFeedBuilder<RiderDeliveriesSnapshot>(
@@ -261,10 +264,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 6),
           // Google keeps the planned stop order but picks its own roads
           // between stops; the hand-off never carries the saved trip route.
-          const Text(
-            'Stops open in the planned order. $googleRouteNote $motorcycleModeNote',
-            style: TextStyle(fontSize: 11, color: AppColors.textLight),
-          ),
+          const InfoHelp(title: 'About Google Maps directions', message: 'Stops open in the planned order. $googleRouteNote $motorcycleModeNote'),
         ],
       ),
     );

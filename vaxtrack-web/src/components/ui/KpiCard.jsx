@@ -1,50 +1,42 @@
-// Meridian shared KPI / summary card. Quiet white card: label, tabular
-// number, one context line with a semantic dot. Renders as a <button>
-// when onClick is provided (e.g. summary cards that set a filter).
+// Shared summary card with optional action and contextual help.
+import { useId } from "react";
 import "./ui.css";
-
-const DOT_COLOR = {
-  neutral: "var(--gray-300)",
-  success: "var(--success-text)",
-  info: "var(--info-text)",
-  warning: "var(--warning-text)",
-  danger: "var(--danger-text)",
-};
+import InfoHint from "./InfoHint";
 
 /**
  * @param {string}  label      sentence-case metric label
  * @param {*}       value      the number/text (rendered with tabular figures)
- * @param {string}  [context]  small line under the value
- * @param {string}  [tone]     neutral | success | info | warning | danger (context dot)
+ * @param {string}  [context]  explanation shown through the information icon
+ * @param {string}  [tone]     neutral | success | info | warning | danger
  * @param {boolean} [attention] red top rule + red value, for delayed/critical
- * @param {func}    [onClick]  renders the card as a button
+ * @param {func}    [onClick]  activates the card independently of its help icon
  * @param {boolean} [active]   the card is the selected filter tab (a clickable
  *                             card only): green tint + border, aria-pressed
  */
 function KpiCard({ label, value, context, tone = "neutral", attention = false, onClick, active }) {
-  const Tag = onClick ? "button" : "div";
-
+  const id = useId();
   return (
-    <Tag
-      type={onClick ? "button" : undefined}
-      onClick={onClick}
-      aria-pressed={onClick && active !== undefined ? Boolean(active) : undefined}
-      className={`m-kpi${attention ? " m-kpi-attention" : ""}${active ? " m-kpi-active" : ""}`}
+    <div
+      data-tone={tone}
+      className={`m-kpi${onClick ? " m-kpi-clickable" : ""}${attention ? " m-kpi-attention" : ""}${active ? " m-kpi-active" : ""}`}
     >
-      <span className="m-kpi-label">{label}</span>
-      <span className={`m-kpi-value${attention ? " m-kpi-value-danger" : ""}`}>
+      {onClick && (
+        <button
+          type="button"
+          className="m-kpi-target"
+          onClick={onClick}
+          aria-labelledby={`${id}-label ${id}-value`}
+          aria-pressed={active !== undefined ? Boolean(active) : undefined}
+        />
+      )}
+      <span className="m-kpi-label">
+        <span id={`${id}-label`}>{label}</span>
+        {context && <InfoHint label={`About ${label}`}>{context}</InfoHint>}
+      </span>
+      <span id={`${id}-value`} className={`m-kpi-value${attention ? " m-kpi-value-danger" : ""}`}>
         {value}
       </span>
-      {context ? (
-        <span className="m-kpi-context">
-          <span
-            className="m-kpi-dot"
-            style={{ background: DOT_COLOR[tone] || DOT_COLOR.neutral }}
-          />
-          {context}
-        </span>
-      ) : null}
-    </Tag>
+    </div>
   );
 }
 

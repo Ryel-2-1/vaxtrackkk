@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import "./Alerts.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -374,8 +375,7 @@ function Alerts() {
           <div className="alerts-list-card">
             <div className="alerts-list-toolbar">
               <div>
-                <h2>Recent Alerts</h2>
-                <p>Latest system-generated admin notifications</p>
+                <h2>Recent Alerts <InfoHint>Latest system-generated admin notifications</InfoHint></h2>
               </div>
 
               <div className="alerts-search">
@@ -505,8 +505,7 @@ function Alerts() {
           <aside className="alerts-side-panel">
             <div className="alerts-panel-card">
               <div className="alerts-panel-header">
-                <h2>Alert Categories</h2>
-                <p>Active system alerts by type</p>
+                <h2>Alert Categories <InfoHint>Active system alerts by type</InfoHint></h2>
               </div>
 
               <div className="alert-category-stack">
@@ -574,8 +573,7 @@ function Alerts() {
             {!loading && !loadError && priorityAlert && (
               <div className="alerts-panel-card">
                 <div className="alerts-panel-header">
-                  <h2>Priority Action</h2>
-                  <p>Most urgent system alert to review</p>
+                  <h2>Priority Action <InfoHint>Most urgent system alert to review</InfoHint></h2>
                 </div>
 
                 <div className={`priority-alert-card ${getAlertClass(priorityAlert)}`}>

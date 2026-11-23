@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import {
   AlertTriangle,
   Bell,
@@ -918,8 +919,7 @@ function SalesRepPlaceOrder() {
           <div className="order-items-card place-v2-items-card">
             <div className="order-items-header">
               <div>
-                <h2>Order Items</h2>
-                <p>Review selected vaccines before finalizing the order.</p>
+                <h2>Order Items <InfoHint>Review selected vaccines before finalizing the order.</InfoHint></h2>
               </div>
               <span>{items.length} {items.length === 1 ? "Item" : "Items"} Selected</span>
             </div>
@@ -1023,10 +1023,10 @@ function SalesRepPlaceOrder() {
                   {staleZeroRate && (
                     <p className="zero-rate-checkout-stale" role="status">{staleZeroRate.text}</p>
                   )}
-                  <p className="zero-rate-checkout-intro">
+                  <InfoHint>
                     Answer before pricing. Choose Yes only when the customer&apos;s sale may qualify for zero-rating;
                     Admin reviews it before the order can be placed.
-                  </p>
+                  </InfoHint>
                   <div className="zero-rate-answer" role="radiogroup" aria-labelledby="zero-rate-step-title">
                     <label className={zeroStep === ZERO_RATE_STEP.STANDARD ? "is-on" : ""}>
                       <input type="radio" name="zero-rate-answer" value="no" checked={zeroStep === ZERO_RATE_STEP.STANDARD}
@@ -1253,9 +1253,9 @@ function SalesRepPlaceOrder() {
                 the VAT-inclusive VATable total (12/112), never added on top;
                 the server records the binding figures. */}
             <VatBreakdown summary={priceSummary} />
-            <p className="place-v2-price-note">
+            <InfoHint>
               Batch prices use the basis set by Admin. {approvedRequest ? "Zero-rating is approved: VAT is removed from the VATable items." : "VATable items include 12% VAT."} Prices are confirmed when the order is placed.
-            </p>
+            </InfoHint>
 
             {mayBackorder && (
               <p className="place-v2-backorder-note" role="status">
