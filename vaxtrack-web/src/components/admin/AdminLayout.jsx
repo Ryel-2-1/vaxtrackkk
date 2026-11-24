@@ -1,4 +1,5 @@
 import "./AdminLayout.css";
+import InfoHint from "../ui/InfoHint";
 
 /// Content region for the AdminLayout-based admin pages (Dashboard, Inventory,
 /// Analytics). It renders ONLY the `<main class="adx-main">` — the persistent
@@ -15,7 +16,9 @@ function AdminLayout({ description, actions, children }) {
     <main className="adx-main">
       {(description || actions) && (
         <header className="adl-topbar adl-page-intro">
-          {description && <p className="adl-topbar-desc">{description}</p>}
+          {description && (description.startsWith("Loading")
+            ? <p role="status">{description}</p>
+            : <InfoHint label="About this page">{description}</InfoHint>)}
           {actions && <div className="adl-topbar-actions">{actions}</div>}
         </header>
       )}

@@ -1,3 +1,4 @@
+import InfoHint from "../ui/InfoHint";
 import { useRef, useState } from "react";
 import { useLiveDraft } from "../useLiveDraft";
 import StaleEditNotice from "../ui/StaleEditNotice";
@@ -151,8 +152,7 @@ export default function MyProfile() {
   return (
     <div className="my-profile">
       <header className="my-profile-header">
-        <h2>My profile</h2>
-        <p>Your name and phone number. Account details are managed by your administrator.</p>
+        <h2>My profile <InfoHint>Your name and phone number. Account details are managed by your administrator.</InfoHint></h2>
       </header>
 
       {notice && (
@@ -242,18 +242,17 @@ export default function MyProfile() {
               </dd>
             </div>
           </dl>
-          <p className="my-profile-note">Your email, role and status are managed by your administrator.</p>
+          <InfoHint>Your email, role and status are managed by your administrator.</InfoHint>
         </section>
 
         <section className="my-profile-section my-profile-password" aria-labelledby="my-profile-security">
           <div>
             <h3 id="my-profile-security">
               <KeyRound size={18} /> Password
-            </h3>
-            <p className="my-profile-note">
+             <InfoHint>
               We will email a secure link to {stored.email || "your sign-in address"} so
               you can choose a new password.
-            </p>
+            </InfoHint></h3>
           </div>
           <button
             type="button"

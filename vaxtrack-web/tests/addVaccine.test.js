@@ -57,7 +57,7 @@ test("the field is described by the panel's helper text", () => {
   assert.match(addVaccine, /\[invalid \? VACCINE_FIELD_ERROR_ID : null, hint\]\.filter\(Boolean\)\.join\(" "\)/);
   assert.match(
     addVaccine,
-    /<p id="add-vaccine-type-help">/,
+    /<InfoHint id="add-vaccine-type-help">/,
     "aria-describedby must resolve to a real element"
   );
 });

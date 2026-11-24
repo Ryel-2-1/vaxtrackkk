@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Trophy } from "lucide-react";
 import KpiCard from "../../components/ui/KpiCard";
@@ -91,10 +92,9 @@ export default function MedRepPerformance({ orders, ordersLoading, ordersError, 
     <section className="analytics-card mrp-card" aria-labelledby="mrp-title">
       <div className="mrp-head">
         <div>
-          <h2 id="mrp-title">Med Rep Performance</h2>
-          <p className="mrp-sub">
+          <h2 id="mrp-title">Med Rep Performance <InfoHint>
             Ranked by delivered orders, counted on the day each delivery was completed.
-          </p>
+          </InfoHint></h2>
         </div>
         <div className="mrp-ranges" role="group" aria-label="Performance date range">
           {PERFORMANCE_RANGES.map((range) => (

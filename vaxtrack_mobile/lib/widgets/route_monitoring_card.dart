@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
+import 'info_help.dart';
 
 /// A neutral note about where route monitoring happens.
 ///
@@ -28,66 +28,13 @@ class RouteMonitoringCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return const Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Semantics(
-              header: true,
-              child: const Text(
-                'Route monitoring',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-              ),
-            ),
-            const SizedBox(height: 12),
-            // Informational blue, not the success green this block used to
-            // wear. The colour is part of the claim: a green tick reads as
-            // "you are compliant" whatever the words next to it say.
-            Semantics(
-              container: true,
-              label:
-                  'Route monitoring information. Monitoring is available during '
-                  'an active delivery.',
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: AppColors.infoBg,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: const Row(
-                  children: [
-                    ExcludeSemantics(
-                      child: Icon(Icons.info_outline, color: AppColors.info, size: 20),
-                    ),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Monitoring is available during an active delivery.',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                          color: AppColors.textMedium,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            // Where it actually is, and that it is a deliberate act. "Open …
-            // AND start" keeps the manual Start button in the sentence: opening
-            // a delivery does not begin monitoring, and wording that implied it
-            // did would be a smaller version of the same false claim this card
-            // was built to remove.
-            const Text(
+        padding: EdgeInsets.all(16),
+        child: InfoHeading(
+          title: 'Route monitoring',
+          message: 'Monitoring is available during an active delivery. '
               'Open an active delivery and start route monitoring for that trip.',
-              style: TextStyle(fontSize: 11, color: AppColors.textMuted),
-            ),
-          ],
         ),
       ),
     );

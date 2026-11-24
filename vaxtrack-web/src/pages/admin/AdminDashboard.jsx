@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import "./AdminDashboard.css";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -305,27 +306,25 @@ function AdminDashboard() {
 
       <section className="adx-hero" aria-label="Dashboard overview">
         <span className="adx-hero-kicker">VAXTRACK OPERATIONS</span>
-        <h2>Keep every handoff in view.</h2>
-        <p>Follow orders, stock, and delivery issues from one place.</p>
+        <h2>Keep every handoff in view. <InfoHint>Follow orders, stock, and delivery issues from one place.</InfoHint></h2>
       </section>
 
       {/* Operational status strip — the same real KPI values presented as one
           connected ledger rather than four floating cards. */}
       <section className="adx-ledger" aria-label="Operational status summary">
         {ledgerCells.map((c) => (
-          <button
-            key={c.label}
-            type="button"
-            className={`adx-ledger-cell${c.tone}`}
-            onClick={() => navigate(c.to)}
-            aria-label={`${c.label}: ${loading ? "loading" : c.value}. Open ${c.label.toLowerCase()}.`}
-          >
-            <span className="adx-ledger-label">{c.label}</span>
+          <div className={`adx-ledger-cell${c.tone}`} key={c.label}>
+            <button
+              type="button"
+              className="adx-ledger-target"
+              onClick={() => navigate(c.to)}
+              aria-label={`${c.label}: ${loading ? "loading" : c.value}. Open ${c.label.toLowerCase()}.`}
+            />
+            <span className="adx-ledger-label">{c.label} <InfoHint label={`About ${c.label}`}>{c.note}</InfoHint></span>
             <span className="adx-ledger-value tnum">
               {loading ? <Skel w="42px" h={20} /> : c.value}
             </span>
-            <span className="adx-ledger-note">{loading ? "Loading…" : c.note}</span>
-          </button>
+          </div>
         ))}
       </section>
 
@@ -333,8 +332,7 @@ function AdminDashboard() {
         <div className="adx-card">
           <div className="adx-card-head">
             <div>
-              <h2>Delivery status breakdown</h2>
-              <p>Live counts across all orders.</p>
+              <h2>Delivery status breakdown <InfoHint>Live counts across all orders.</InfoHint></h2>
             </div>
             <button
               type="button"
@@ -396,8 +394,7 @@ function AdminDashboard() {
         <aside className="adx-card adx-attention-card">
           <div className="adx-card-head">
             <div>
-              <h2>Needs attention</h2>
-              <p>Active system alerts and operational checks.</p>
+              <h2>Needs attention <InfoHint>Active system alerts and operational checks.</InfoHint></h2>
             </div>
             <button
               type="button"
@@ -456,11 +453,12 @@ function AdminDashboard() {
               {operationalChecks.map((check) => {
                 const Icon = check.icon;
                 return (
-                  <button key={check.id} type="button" className="adx-alert-row adx-check-row" onClick={() => navigate(check.to)}>
+                  <div key={check.id} className="adx-alert-row adx-check-row">
+                    <button type="button" className="adx-check-target" aria-label={check.title} onClick={() => navigate(check.to)} />
                     <span className={`adx-check-icon is-${check.tone}`}><Icon size={17} aria-hidden="true" /></span>
-                    <div><strong>{check.title}</strong><small>{check.desc}</small></div>
+                    <div><strong>{check.title}</strong> <InfoHint label={`About ${check.title}`}>{check.desc}</InfoHint></div>
                     <ArrowRight size={15} className="adx-check-arrow" aria-hidden="true" />
-                  </button>
+                  </div>
                 );
               })}
               {(failed.deliveries || failed.inventory) && <p className="adx-attention-unavailable">Some operational checks are unavailable. See the notice above.</p>}
@@ -477,8 +475,7 @@ function AdminDashboard() {
       <section className="adx-card">
         <div className="adx-card-head">
           <div>
-            <h2>Recent orders</h2>
-            <p>Latest orders across all clinics.</p>
+            <h2>Recent orders <InfoHint>Latest orders across all clinics.</InfoHint></h2>
           </div>
           <button
             type="button"

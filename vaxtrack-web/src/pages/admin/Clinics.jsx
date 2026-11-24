@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Building2,
@@ -1761,11 +1762,10 @@ function AreasModal({ areas, loading, loadError, onAdd, onToggle, onClose }) {
           <X size={18} />
         </button>
 
-        <h2 id={headingId}>Manage Areas</h2>
-        <p>
+        <h2 id={headingId}>Manage Areas <InfoHint>
           Areas organize clinics now and will later drive doctor and delivery
           destination choices.
-        </p>
+        </InfoHint></h2>
 
         <form className="clinics-area-create" onSubmit={handleSubmit} noValidate>
           <label htmlFor="new-area-name">Area name</label>
@@ -2249,8 +2249,7 @@ function NewClinicModal({
           <X size={18} />
         </button>
 
-        <h2 id={headingId}>Register New Clinic</h2>
-        <p>Add a healthcare facility to the VaxTrack delivery network.</p>
+        <h2 id={headingId}>Register New Clinic <InfoHint>Add a healthcare facility to the VaxTrack delivery network.</InfoHint></h2>
 
         {/* Scrollable body. Same structure as the Manage-location dialog, and
             needed more here: this modal is taller (registration fields PLUS the

@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -254,8 +255,7 @@ function DispatcherCargoLoading() {
     <>
       <div className="dispatcher-v2-page cl-page">
         <div className="cl-header">
-          <h2 className="disp-section-title">Loading queue</h2>
-          <p>Confirm each order as loaded, then finalize dispatch per rider.</p>
+          <h2 className="disp-section-title">Loading queue <InfoHint>Confirm each order as loaded, then finalize dispatch per rider.</InfoHint></h2>
         </div>
 
         <section className="cl-summary">
@@ -298,8 +298,7 @@ function DispatcherCargoLoading() {
             <div className="cl-return-head">
               <Home size={16} aria-hidden="true" />
               <div>
-                <h3>Returning to hub</h3>
-                <p>Every order on these trips is finished. Confirm each rider once they are physically back at the distribution hub.</p>
+                <h3>Returning to hub <InfoHint>Every order on these trips is finished. Confirm each rider once they are physically back at the distribution hub.</InfoHint></h3>
               </div>
             </div>
             <ul className="cl-return-list">

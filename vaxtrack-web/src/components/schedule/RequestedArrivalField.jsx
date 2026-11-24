@@ -1,3 +1,4 @@
+import InfoHint from "../ui/InfoHint";
 import { useId } from "react";
 import { Clock3 } from "lucide-react";
 import {
@@ -51,10 +52,10 @@ function RequestedArrivalField({ value, onChange, problem = null, disabled = fal
         <Clock3 size={14} aria-hidden="true" />
         Requested delivery time <span className="arrival-optional">(optional)</span>
       </legend>
-      <p id={helpId} className="arrival-help">
+      <InfoHint id={helpId}>
         When the delivery should arrive at the destination on the requested date, in Philippine time — not
         when the rider leaves the hub. It is a request for planning, not a guaranteed time.
-      </p>
+      </InfoHint>
 
       <label className="arrival-mode" htmlFor={`${id}-mode`}>
         <span>Arrival preference</span>

@@ -1,0 +1,71 @@
+.m-info-hint {
+  display: inline-flex !important;
+  align-items: center;
+  vertical-align: middle;
+  margin: 0 !important;
+}
+
+.m-info-hint .m-info-trigger {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--green-700, #205c45) !important;
+  cursor: help;
+}
+
+.m-info-hint .m-info-trigger:hover,
+.m-info-hint .m-info-trigger:focus-visible {
+  background: var(--green-50, #eef7f2) !important;
+}
+
+.m-info-hint .m-info-trigger:focus-visible {
+  outline: 2px solid var(--green-700, #205c45) !important;
+  outline-offset: 2px !important;
+}
+
+.m-info-trigger svg {
+  width: 17px !important;
+  height: 17px !important;
+  flex: none;
+}
+
+.m-info-description {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+}
+
+.m-info-popup {
+  position: fixed;
+  z-index: 2147483647;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(360px, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--gray-200, #dfe3e8);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--gray-900, #182230);
+  box-shadow: 0 8px 28px #10182826;
+  font: 400 13px/1.55 var(--font-ui, sans-serif);
+  text-align: left;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}

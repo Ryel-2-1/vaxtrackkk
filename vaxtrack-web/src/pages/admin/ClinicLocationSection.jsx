@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useCallback, useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -241,9 +242,9 @@ function ClinicLocationSection({
         </span>
       </div>
 
-      <p className="clinic-loc-help">
+      <InfoHint>
         {helpText}
-      </p>
+      </InfoHint>
 
       {useGoogle ? (
         <GooglePinPicker

@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useId, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Users, X, XCircle } from "lucide-react";
 import { useDialogFocus } from "../../components/ui/useDialogFocus";
@@ -48,9 +49,9 @@ export function ClinicAccessFields({
       <h4 id={`${idPrefix}-heading`}>
         <Users size={15} aria-hidden="true" /> Who can order here
       </h4>
-      <p className="clinic-access-help">
+      <InfoHint>
         A clinic appears for ordering only when a Med Rep and a doctor are both linked to it.
-      </p>
+      </InfoHint>
       {disabledReason && (
         <p className="clinic-access-blocked" role="status">
           {disabledReason}

@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CircleHelp,
@@ -236,14 +237,14 @@ function Riders() {
 
         <header className="riders-v2-header">
           <div>
-            <p>Monitor rider assignments and delivery progress.</p>
             {/* Admin does not create rider accounts — riders self-register in
                 the Flutter app and arrive here as pending for approval. Saying
                 so avoids the page implying a capability it does not have. */}
-            <p className="riders-onboarding-note">
+            <InfoHint>
+              Monitor rider assignments and delivery progress.
               Riders register through the VaxTrack mobile app. New accounts
               appear here for approval.
-            </p>
+            </InfoHint>
           </div>
 
           <div className="riders-v2-header-actions">

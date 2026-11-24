@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { INTERNAL_SKU_EXAMPLE, INTERNAL_SKU_FORMAT_MESSAGE, isValidInternalSku } from "../../services/internalSku";
@@ -255,10 +256,10 @@ function AddVaccine() {
             <p>
               Inventory / <span>Register New Vaccine</span>
             </p>
-            <small>
+            <InfoHint label="About registering vaccines">
               Onboard new pharmaceutical assets into the national tracking
               system.
-            </small>
+            </InfoHint>
           </div>
         </header>
 
@@ -338,10 +339,9 @@ function AddVaccine() {
             <div className="add-type-box" id="add-vaccine-type-panel">
               <div className="add-type-header">
                 <div className="add-type-heading">
-                  <h3>Add Vaccine Type</h3>
-                  <p id="add-vaccine-type-help">
+                  <h3>Add Vaccine Type <InfoHint id="add-vaccine-type-help">
                     Create a reusable option for the Vaccine Type list.
-                  </p>
+                  </InfoHint></h3>
                 </div>
                 <button type="button" onClick={() => setShowAddType(false)} aria-label="Cancel new vaccine type">
                   <X size={16} />

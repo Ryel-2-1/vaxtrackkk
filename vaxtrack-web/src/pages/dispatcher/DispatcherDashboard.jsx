@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { subscribePendingDispatchOrders } from "../../services/orderService";
@@ -253,8 +254,7 @@ function DispatcherDashboard() {
           <div className="dispatcher-dash-hero-heading">
             <span className="dispatcher-dash-hero-icon" aria-hidden="true"><Activity size={20} /></span>
             <div>
-              <h2 className="disp-section-title">Dispatch overview</h2>
-              <p>Orders, riders, and delivery progress in one place.</p>
+              <h2 className="disp-section-title">Dispatch overview <InfoHint>Orders, riders, and delivery progress in one place.</InfoHint></h2>
             </div>
           </div>
 
@@ -688,7 +688,7 @@ function OperationItem({ title, value, text, danger, warning }) {
         <strong>{title}</strong>
         <span>{value}</span>
       </div>
-      <p>{text}</p>
+      <InfoHint label={`About ${title}`}>{text}</InfoHint>
     </div>
   );
 }

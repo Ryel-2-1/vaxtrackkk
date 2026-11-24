@@ -227,7 +227,7 @@ test("every action leads somewhere real", () => {
 test("the dashboard uses the shell bell and its attention panel without a second hero alert button", () => {
   assert.doesNotMatch(SRC, /adx-hero-action|BellRing/);
   assert.doesNotMatch(CSS, /adx-hero-action/);
-  assert.match(SRC, /<h2>Needs attention<\/h2>/);
+  assert.match(SRC, /<h2>Needs attention\s*<InfoHint>[\s\S]*?<\/InfoHint><\/h2>/);
   assert.match(SRC, /Alert center\s*<ArrowRight/);
   assert.match(read("src/components/admin/AdminShell.jsx"), /<AdminAlertsBell\s*\/>/);
 });

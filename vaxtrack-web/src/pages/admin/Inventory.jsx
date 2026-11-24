@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Archive, ChevronDown, Download, Filter, Package, Plus, Search, X } from "lucide-react";
@@ -925,10 +926,7 @@ function Inventory() {
               and has not yet DELIVERED. It drops only when a delivery is
               completed, a return is written off as missing, or an Admin
               corrects it — so it includes stock out with riders. */}
-          <details className="inv-onhand-note">
-            <summary>How stock quantities are calculated</summary>
-            <p>On hand counts every unit not yet delivered, including stock reserved for orders, out with riders, returned from a failed delivery and awaiting a decision, or quarantined. Available is what remains for new orders.</p>
-          </details>
+          <InfoHint label="How stock quantities are calculated">On hand counts every unit not yet delivered, including stock reserved for orders, out with riders, returned from a failed delivery and awaiting a decision, or quarantined. Available is what remains for new orders.</InfoHint>
           <div className="v2-table-scroll">
             <table className="v2-vaccine-table">
               <thead>
@@ -1601,8 +1599,7 @@ function StockOverviewCard({ summary, loading, unavailable }) {
   return (
     <div className="v2-hub-card vaccine-overview">
       <div className="v2-card-head">
-        <h2>Stock availability at a glance</h2>
-        <p>Vaccine products with visible batch records</p>
+        <h2>Stock availability at a glance <InfoHint>Vaccine products with visible batch records</InfoHint></h2>
       </div>
 
       {loading ? (
@@ -1696,8 +1693,7 @@ function ExpiryWatchCard({ batches, expired, critical, warning, loading, unavail
   return (
     <div className="v2-hub-card inventory-watch-card">
       <div className="v2-card-head">
-        <h2>Expiry watch</h2>
-        <p>Batches with stock that still needs an expiry review</p>
+        <h2>Expiry watch <InfoHint>Batches with stock that still needs an expiry review</InfoHint></h2>
       </div>
       <div className="inventory-watch-body">
         <div className="inventory-watch-summary" aria-label="Expiry status filters">

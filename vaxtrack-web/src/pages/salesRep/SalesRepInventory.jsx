@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -239,8 +240,7 @@ function SalesRepInventory() {
     <>
       <section className="salesrep-page-title inventory-v2-title">
         <div>
-          <h2>Stock overview</h2>
-          <p>Real-time stock availability and expiry tracking.</p>
+          <h2>Stock overview <InfoHint>Real-time stock availability and expiry tracking.</InfoHint></h2>
         </div>
       </section>
 
@@ -248,8 +248,7 @@ function SalesRepInventory() {
         <div className="salesrep-card inventory-stock-chart-card">
           <div className="inventory-card-head">
             <div>
-              <h2>Available Stock by Vaccine Type</h2>
-              <p>Vials available now, most stock first</p>
+              <h2>Available Stock by Vaccine Type <InfoHint>Vials available now, most stock first</InfoHint></h2>
             </div>
           </div>
 
@@ -481,9 +480,8 @@ function SmallMetric({ icon, label, value, sub, tone }) {
     <div className="small-metric-card">
       <div className={`metric-icon ${tone}`}>{icon}</div>
       <div>
-        <span>{label}</span>
+        <span>{label} <InfoHint label={`About ${label}`}>{sub}</InfoHint></span>
         <h2>{value}</h2>
-        <p>{sub}</p>
       </div>
     </div>
   );

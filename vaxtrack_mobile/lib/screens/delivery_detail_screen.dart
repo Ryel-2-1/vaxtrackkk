@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../widgets/info_help.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -668,12 +669,13 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
               ),
               Padding(
                 padding: const EdgeInsets.only(top: 6),
-                child: Text(
+                child: InfoHelp(
+                  title: 'About the VaxTrack route',
+                  message:
                   nav.canMonitorRoute
                       ? 'The route dispatch planned. Start it there to share your '
                           'location; VaxTrack checks your position against this plan.'
                       : 'Needs the destination pin from dispatch.',
-                  style: const TextStyle(fontSize: 11, color: AppColors.textLight),
                 ),
               ),
               const SizedBox(height: 14),
@@ -693,10 +695,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
               if (nav.canOpenExternalMaps)
                 const Padding(
                   padding: EdgeInsets.only(top: 6),
-                  child: Text(
-                    '$googleRouteNote $motorcycleModeNote',
-                    style: TextStyle(fontSize: 11, color: AppColors.textLight),
-                  ),
+                  child: InfoHelp(title: 'About Google Maps directions', message: '$googleRouteNote $motorcycleModeNote'),
                 ),
               if (nav.usesAddressSearch)
                 const Padding(

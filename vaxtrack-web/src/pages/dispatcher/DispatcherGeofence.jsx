@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useRiderLiveLocation } from "../../components/useRiderLiveLocation";
@@ -826,9 +827,9 @@ function DispatcherGeofence() {
                     routePolyline={hasTrip ? selected.tripPolyline : selected.routePolyline}
                     stops={hasTrip ? tripStopMarkers : NO_STOPS}
                   />
-                  {hasTrip && <p className="stop-progress-note">Stop markers: ✓ Delivered · P Proof recorded · ➜ Navigation target. The Rider’s position is the separate GPS dot.</p>}
+                  {hasTrip && <InfoHint>Stop markers: ✓ Delivered · P Proof recorded · ➜ Navigation target. The Rider’s position is the separate GPS dot.</InfoHint>}
                   {geofence ? (
-                    <p className="geo3-live-map-note">
+                    <InfoHint>
                       <span className={`geo3-geofence-${geofence.tone}`}>{geofence.label}</span>{" "}
                       — rider {stale ? "was" : "is"} {Math.round(distM)} m from the destination
                       (geofence radius {arrival.radiusM} m{arrival.defaultRadius ? ", default" : ""})
@@ -836,16 +837,16 @@ function DispatcherGeofence() {
                         ? `; last update ${formatRelativeTime(selected.lastLocationUpdate) || "unknown"}`
                         : ""}
                       .
-                    </p>
+                    </InfoHint>
                   ) : (
-                    <p className="geo3-live-map-note">
+                    <InfoHint>
                       Rider position only
                       {isLocationStale(selected.lastLocationUpdate)
                         ? " — last update is stale"
                         : ""}
                       . Add clinic coordinates in Admin → Clinics to show a
                       destination marker + geofence.
-                    </p>
+                    </InfoHint>
                   )}
 
                   {(() => {

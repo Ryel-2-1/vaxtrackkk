@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useEffect, useState } from "react";
 import { AlertCircle, CheckCircle2, RefreshCw } from "lucide-react";
 import { reviewZeroRateApproval, subscribePendingZeroRateRequests } from "../../services/zeroRateRequests";
@@ -40,8 +41,7 @@ export default function ZeroRateReviews() {
       <div className="zero-rate-reviews-head">
         <div>
           <span className="zero-rate-reviews-eyebrow">ADMIN REVIEW</span>
-          <h2>Zero-rating requests</h2>
-          <p>Check the Med Rep’s reason and order details before deciding.</p>
+          <h2>Zero-rating requests <InfoHint>Check the Med Rep’s reason and order details before deciding.</InfoHint></h2>
         </div>
         <span className={`zero-rate-reviews-count${loadError ? " is-error" : ""}`}>
           {loadError ? "Unavailable" : loading ? "Loading" : `${requests.length} pending`}

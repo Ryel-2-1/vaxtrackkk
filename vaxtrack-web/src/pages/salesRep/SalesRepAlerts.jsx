@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import {
@@ -124,8 +125,7 @@ function SalesRepAlerts() {
       <div className="alerts-v2-sticky-head">
         <section className="sales-alerts-header alerts-v2-header no-filter-icon">
           <div>
-            <h2>Order updates</h2>
-            <p>Current status of your orders.</p>
+            <h2>Order updates <InfoHint>Current status of your orders.</InfoHint></h2>
           </div>
         </section>
 

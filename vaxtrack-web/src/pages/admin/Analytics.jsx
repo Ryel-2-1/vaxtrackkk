@@ -1,3 +1,4 @@
+import InfoHint from "../../components/ui/InfoHint";
 import "./Analytics.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -574,11 +575,11 @@ function Analytics() {
               </div>
             </div>
 
-            <p className="analytics-heatmap-note">
+            <InfoHint>
               Counts orders by their creation time, {rangeLabel.toLowerCase()}.
               Shading is relative to the busiest cell in this range, so it shows
               distribution rather than volume — select a cell for its order count.
-            </p>
+            </InfoHint>
 
             <div className="analytics-heatmap-labels">
               <span className="analytics-heatmap-period" aria-hidden="true"></span>

@@ -41,8 +41,11 @@ void main() {
     await _pump(tester);
 
     expect(find.text('Route monitoring'), findsOneWidget);
+    expect(find.textContaining('Monitoring is available'), findsNothing);
+    await tester.tap(find.byIcon(Icons.info_outline));
+    await tester.pumpAndSettle();
     expect(
-      find.text('Monitoring is available during an active delivery.'),
+      find.textContaining('Monitoring is available during an active delivery.'),
       findsOneWidget,
     );
   });
@@ -100,7 +103,8 @@ void main() {
     // a different (or more confident) story than a sighted one.
     final blockLabel = tester
         .getSemantics(find.byType(RouteMonitoringCard))
-        .toStringDeep();
+        .toStringDeep()
+        .replaceAll(RegExp(r'\s+'), ' ');
     expect(blockLabel, contains('Monitoring is available during an active delivery.'));
     for (final claim in _forbiddenClaims) {
       expect(blockLabel, isNot(contains(claim)));
@@ -123,8 +127,10 @@ void main() {
 
     // Exactly the neutral pair, and nothing that reads as a status readout.
     expect(find.text('Route monitoring'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.info_outline));
+    await tester.pumpAndSettle();
     expect(
-      find.text('Monitoring is available during an active delivery.'),
+      find.textContaining('Monitoring is available during an active delivery.'),
       findsOneWidget,
     );
 
@@ -145,8 +151,10 @@ void main() {
     // false claim.
     await _pump(tester);
 
+    await tester.tap(find.byIcon(Icons.info_outline));
+    await tester.pumpAndSettle();
     expect(
-      find.text('Open an active delivery and start route monitoring for that trip.'),
+      find.textContaining('Open an active delivery and start route monitoring for that trip.'),
       findsOneWidget,
     );
     // Phrasings that would imply merely opening the screen activates it.

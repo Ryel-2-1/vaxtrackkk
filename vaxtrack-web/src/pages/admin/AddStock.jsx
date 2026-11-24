@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import InfoHint from "../../components/ui/InfoHint";
 import { useNavigate } from "react-router-dom";
 import { ClipboardList, Tag, Truck } from "lucide-react";
 import {
@@ -347,10 +348,10 @@ function AddStock() {
             <p>
               Inventory / <span>Add New Stock</span>
             </p>
-            <small>
+            <InfoHint label="About adding stock">
               Enter vaccine batch details accurately to maintain supply chain
               integrity.
-            </small>
+            </InfoHint>
           </div>
         </header>
 
