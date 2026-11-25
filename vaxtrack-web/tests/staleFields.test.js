@@ -177,6 +177,21 @@ test("a clinic's last delivery is its newest delivered order, by clinic id or (l
   assert.equal(lastDeliveryText(null), NO_DELIVERY_TEXT);
 });
 
+test("renaming a clinic keeps legacy deliveries when the former name identifies one clinic", () => {
+  const deliveredAt = Date.parse("2026-10-15T02:00:00Z");
+  const legacyOrder = { statusKey: "delivered", clinicName: "Old Clinic", deliveredAt: ts(deliveredAt) };
+  const renamed = { firestoreId: "c1", name: "New Clinic", previousNames: ["Old Clinic"] };
+  const other = { firestoreId: "c2", name: "Old clinic" };
+
+  assert.equal(lastDeliveryMs(lastDeliveryIndex([legacyOrder], [renamed]), renamed), deliveredAt);
+  const ambiguous = lastDeliveryIndex([legacyOrder], [renamed, other]);
+  assert.equal(lastDeliveryMs(ambiguous, renamed), null);
+  assert.equal(lastDeliveryMs(ambiguous, other), null);
+
+  const byId = lastDeliveryIndex([{ ...legacyOrder, clinicDocId: "c1" }], [renamed, other]);
+  assert.equal(lastDeliveryMs(byId, renamed), deliveredAt);
+});
+
 // ------------------------------------------------------------ ids in stored alert text
 
 test("stored alert text never shows a document id or uid", () => {

@@ -213,6 +213,7 @@ class _ProofScreenState extends State<ProofScreen> {
     final sheetOpenedAt = DateTime.now().millisecondsSinceEpoch;
     final completed = await showModalBottomSheet<bool>(
       context: context,
+      showDragHandle: true,
       isScrollControlled: true,
       isDismissible: true,
       backgroundColor: AppColors.surface,

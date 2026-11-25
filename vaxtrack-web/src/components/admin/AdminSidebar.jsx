@@ -75,6 +75,10 @@ export function AdminSidebar({ active: activeProp, onLogout }) {
   const asideRef = useRef(null);
 
   const close = useCallback(() => setOpen(false), []);
+  const requestLogout = () => {
+    close();
+    onLogout?.();
+  };
 
   // Selecting a destination closes the drawer. Syncing UI to a route change is
   // a legitimate effect; the setState only fires when the pathname changes.
@@ -286,7 +290,7 @@ export function AdminSidebar({ active: activeProp, onLogout }) {
           </Link>
         </nav>
 
-        <button type="button" className="sidebar-logout" onClick={onLogout}>
+        <button type="button" className="sidebar-logout" onClick={requestLogout}>
           <LogOut size={16} aria-hidden="true" />
           <span>Logout</span>
         </button>

@@ -582,19 +582,25 @@ aside.salesrep-sidebar .salesrep-logout {
    never "on track" green, and the indeterminate (no-stage) delayed case
    shows a paused striped bar instead of a fabricated percentage. */
 .salesrep-page .track-progress.is-delayed span {
-  background: var(--warning-text) !important;
+  background: var(--danger-text) !important;
 }
 .salesrep-page .track-progress.is-indeterminate {
-  background: var(--warning-bg) !important;
+  background: var(--danger-bg) !important;
 }
 .salesrep-page .track-progress.is-indeterminate span {
   background: repeating-linear-gradient(
     45deg,
-    var(--warning-text),
-    var(--warning-text) 4px,
+    var(--danger-text),
+    var(--danger-text) 4px,
     transparent 4px,
     transparent 8px
   ) !important;
+}
+
+.salesrep-page .tracking-v2-table .track-timing-note {
+  display: block;
+  margin-top: 3px;
+  color: var(--danger-text);
 }
 
 /* Progress-bar size: the base rule (`SalesRep.css:289`) drew the track at

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { signOut } from "firebase/auth";
 import {
   Bell,
   CalendarClock,
@@ -26,6 +25,7 @@ import { buildDispatcherNotificationFeed } from "../../services/dispatcherNotifi
 import useMinuteClock from "../../components/useMinuteClock";
 import SidebarProfile from "../../components/shell/SidebarProfile";
 import OfflineNotice from "../../components/shell/OfflineNotice";
+import LogoutConfirmation from "../../components/shell/LogoutConfirmation";
 import useNotificationReadState from "../../components/useNotificationReadState";
 import useNotificationPanelState from "../../components/useNotificationPanelState";
 import NotificationPanelItem, { NotificationPanelFooter } from "../../components/shell/NotificationPanelItem";
@@ -265,13 +265,10 @@ function DispatcherLayout() {
     };
   }, [navOpen, applyNav]);
 
-  const handleLogout = async () => {
+  const [confirmLogout, setConfirmLogout] = useState(false);
+  const requestLogout = () => {
     closeNav();
-    try {
-      await signOut(auth);
-    } finally {
-      navigate("/");
-    }
+    setConfirmLogout(true);
   };
 
   const handleNotificationClick = (notification) => {
@@ -409,7 +406,7 @@ function DispatcherLayout() {
           </NavLink>
         </nav>
 
-        <button type="button" className="dispatcher-logout" onClick={handleLogout}>
+        <button type="button" className="dispatcher-logout" onClick={requestLogout}>
           <LogOut size={16} />
           Logout
         </button>
@@ -572,6 +569,12 @@ function DispatcherLayout() {
         </Suspense>
         <OfflineNotice />
       </main>
+      {confirmLogout && (
+        <LogoutConfirmation
+          onCancel={() => setConfirmLogout(false)}
+          onSignedOut={() => navigate("/", { replace: true })}
+        />
+      )}
     </div>
   );
 }

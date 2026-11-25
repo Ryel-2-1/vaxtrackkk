@@ -7,8 +7,8 @@
  * orders are the record: an order delivered to a clinic carries the clinic's
  * document id as `clinicDocId` (the order's destination snapshot). Orders from
  * before destination snapshots carry only the clinic NAME; those are matched
- * by exact name (registration refuses duplicate clinic names), and only when
- * the order has no `clinicDocId` and is not a home delivery.
+ * by current or former name when the name identifies a single clinic. Only
+ * orders without a `clinicDocId` and outside the home delivery flow qualify.
  */
 
 import { timestampMs } from "./deliveryMetrics.js";
@@ -17,14 +17,26 @@ export const NO_DELIVERY_TEXT = "No delivery recorded yet";
 
 const norm = (v) => (typeof v === "string" ? v.trim().toLowerCase() : "");
 const isDelivered = (o) => o?.statusKey === "delivered" || o?.statusKey === "completed";
+const namesOf = (clinic) => [
+  clinic?.name,
+  ...(Array.isArray(clinic?.previousNames) ? clinic.previousNames : []),
+].map(norm).filter(Boolean);
 
 /**
  * @param {object[]} orders  live orders (with statusKey)
- * @returns {{ byId: Map<string, number>, byName: Map<string, number> }} newest deliveredAt ms
+ * @param {object[]} [clinics] directory, used to rule out ambiguous names
  */
-export function lastDeliveryIndex(orders) {
+export function lastDeliveryIndex(orders, clinics) {
   const byId = new Map();
   const byName = new Map();
+  const nameOwners = clinics && new Map();
+  for (const clinic of clinics ?? []) {
+    if (!clinic.firestoreId) continue;
+    for (const name of namesOf(clinic)) {
+      const owner = nameOwners.get(name);
+      nameOwners.set(name, owner === undefined || owner === clinic.firestoreId ? clinic.firestoreId : null);
+    }
+  }
   const keep = (map, key, ms) => {
     if (key && (!map.has(key) || map.get(key) < ms)) map.set(key, ms);
   };
@@ -38,16 +50,18 @@ export function lastDeliveryIndex(orders) {
       keep(byName, norm(order.clinicName), ms);
     }
   }
-  return { byId, byName };
+  return { byId, byName, nameOwners };
 }
 
 /** Newest delivery time (ms) for a clinic, or null. */
 export function lastDeliveryMs(index, clinic) {
-  const a = index?.byId.get(clinic?.firestoreId) ?? null;
-  const b = index?.byName.get(norm(clinic?.name)) ?? null;
-  if (a === null) return b;
-  if (b === null) return a;
-  return Math.max(a, b);
+  let newest = index?.byId.get(clinic?.firestoreId) ?? null;
+  for (const name of namesOf(clinic)) {
+    if (index?.nameOwners && index.nameOwners.get(name) !== clinic?.firestoreId) continue;
+    const deliveredAt = index?.byName.get(name);
+    if (deliveredAt !== undefined && (newest === null || deliveredAt > newest)) newest = deliveredAt;
+  }
+  return newest;
 }
 
 /** "Oct 21, 2026" in Manila time, or the no-delivery wording. */

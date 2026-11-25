@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   averageDeliveryTime,
+  deliveryHandoffMs,
   formatDuration,
   formatRate,
   onTimeStats,
@@ -47,4 +48,24 @@ test("on time means delivered on or before the requested MANILA date", () => {
   assert.deepEqual(s, { measured: 3, onTime: 2, late: 1, rate: 2 / 3 });
   assert.equal(formatRate(s.rate), "67%");
   assert.equal(formatRate(onTimeStats([]).rate), "—");
+});
+
+test("accepted offline handoffs count on the day they took place even after a midnight sync", () => {
+  const order = {
+    statusKey: "delivered",
+    requestedDeliveryDate: "2026-10-04",
+    firstDispatchedAt: ts("2026-10-04T22:50:00+08:00"),
+    deliveredAt: ts("2026-10-05T00:05:00+08:00"),
+    offlineEvidence: { capturedAtMs: Date.parse("2026-10-04T23:50:00+08:00") },
+  };
+  for (const completionMode of ["offline", "offline_approved"]) {
+    const accepted = { ...order, completionMode };
+    assert.equal(onTimeStats([accepted]).onTime, 1);
+    assert.equal(averageDeliveryTime([accepted]).averageMinutes, 60);
+  }
+  assert.equal(onTimeStats([order]).onTime, 0, "ordinary completion uses the server timestamp");
+  for (const capturedAtMs of [undefined, Date.parse("2026-10-04T21:00:00+08:00"), Date.parse("2026-10-05T00:06:00+08:00")]) {
+    const invalid = { ...order, completionMode: "offline_approved", offlineEvidence: { capturedAtMs } };
+    assert.equal(deliveryHandoffMs(invalid), order.deliveredAt.toMillis());
+  }
 });

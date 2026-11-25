@@ -8,14 +8,15 @@ function profileDb(role, status) {
   };
 }
 
-test("approved admins get verification flags for existing Auth accounts only", async () => {
+test("approved admins get verification and last sign-in for existing Auth accounts only", async () => {
+  const lastSignInTime = "Wed, 25 Nov 2026 12:58:00 GMT";
   const authAdmin = {
     async getUsers(identifiers) {
       assert.deepEqual(identifiers, [{ uid: "verified" }, { uid: "unverified" }, { uid: "missing" }]);
       return {
         users: [
           { uid: "unverified", emailVerified: false, email: "example@example.com" },
-          { uid: "verified", emailVerified: true },
+          { uid: "verified", emailVerified: true, metadata: { lastSignInTime } },
         ],
         notFound: [{ uid: "missing" }],
       };
@@ -27,8 +28,8 @@ test("approved admins get verification flags for existing Auth accounts only", a
     payload: { uids: ["verified", "unverified", "missing", "verified"] },
   });
   assert.deepEqual(result.accounts, [
-    { uid: "unverified", emailVerified: false },
-    { uid: "verified", emailVerified: true },
+    { uid: "unverified", emailVerified: false, lastSignInMs: null },
+    { uid: "verified", emailVerified: true, lastSignInMs: Date.parse(lastSignInTime) },
   ]);
 });
 

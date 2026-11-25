@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../utils/terms_agreement.dart';
 import '../widgets/skeleton.dart';
+import '../widgets/sign_out_confirmation.dart';
 import '../widgets/terms_text.dart';
 
 /// Lets [child] through once this rider has agreed to the current Terms of
@@ -140,7 +141,12 @@ class _TermsAgreementScreenState extends State<TermsAgreementScreen> {
                 ),
               ),
               TextButton(
-                onPressed: _saving ? null : () => FirebaseAuth.instance.signOut(),
+                onPressed: _saving
+                    ? null
+                    : () async {
+                        final confirm = await confirmSignOut(context);
+                        if (mounted && confirm) await FirebaseAuth.instance.signOut();
+                      },
                 child: const Text('Sign out'),
               ),
             ],

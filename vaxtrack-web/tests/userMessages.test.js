@@ -34,7 +34,7 @@ import {
 import { UserMessageError, isUserMessageError } from "../src/services/userMessageError.js";
 import { createSingleFlight } from "../src/services/singleFlight.js";
 import { errorIdFor, fieldA11y, firstInvalidField, focusFirstInvalid, hasErrors } from "../src/services/formValidation.js";
-import { dialogKeyAction, nextFocusIndex } from "../src/components/ui/dialogFocus.js";
+import { dialogKeyAction, infoHintOwnsEscape, nextFocusIndex } from "../src/components/ui/dialogFocus.js";
 import { TOAST_DURATION_MS, liveRoleFor, normalizeTone } from "../src/components/ui/feedbackModel.js";
 import { RouteServiceError } from "../src/services/routeService.js";
 import { OrderDraftError } from "../src/services/orderDraftRequest.js";
@@ -440,6 +440,12 @@ test("destructive and hard-to-reverse actions confirm, naming the target and the
 // ======================================================================
 
 test("dialog keyboard: Escape closes unless busy; Tab wraps inside", () => {
+  const tipOpen = { querySelector: () => ({}) };
+  const tipClosed = { querySelector: () => null };
+  assert.equal(infoHintOwnsEscape({ key: "Escape" }, tipOpen), true, "dismiss the tip first");
+  assert.equal(infoHintOwnsEscape({ key: "Escape" }, tipClosed), false, "the next Escape reaches the dialog");
+  assert.equal(infoHintOwnsEscape({ key: "Escape", defaultPrevented: true }, tipClosed), true, "a handled Escape stays handled");
+  assert.equal(infoHintOwnsEscape({ key: "Tab" }, tipOpen), false, "the dialog still traps Tab");
   assert.equal(dialogKeyAction({ key: "Escape" }), "dismiss");
   assert.equal(dialogKeyAction({ key: "Escape", busy: true }), null, "never abandons a running write");
   assert.equal(dialogKeyAction({ key: "Escape", dismissible: false }), null);

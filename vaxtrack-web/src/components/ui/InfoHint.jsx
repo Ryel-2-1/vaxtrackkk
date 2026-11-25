@@ -44,6 +44,7 @@ export default function InfoHint({ children, label = "More information", classNa
     };
     const escape = (event) => {
       if (event.key === "Escape") {
+        event.preventDefault();
         event.stopPropagation();
         setOpen(false);
       }

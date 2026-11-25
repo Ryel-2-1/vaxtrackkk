@@ -49,7 +49,7 @@ export const createStaffAccount = ({ name, email, role }) => run("createStaffAcc
 /** A new one-time password-setup link, for an account that has never signed in. */
 export const createStaffSetupLink = (targetUid) => run("createStaffSetupLink", { targetUid });
 
-export const getStaffEmailVerification = (uids) => run("getStaffEmailVerification", { uids });
+export const getStaffAuthDetails = (uids) => run("getStaffEmailVerification", { uids });
 
 /** approved | rejected | disabled. */
 export const setStaffStatus = (targetUid, status) => run("setStaffStatus", { targetUid, status });

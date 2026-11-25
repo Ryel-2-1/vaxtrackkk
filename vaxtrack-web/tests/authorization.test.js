@@ -385,15 +385,21 @@ test("every protected route sits inside a guard", () => {
   }
 });
 
-test("logout ends the Firebase session rather than only navigating", () => {
-  // A logout that just navigates leaves the session alive, so back/forward or a
-  // direct URL walks straight back in. Logout now lives in the persistent
-  // AdminShell (the parent layout route that owns the one shared sidebar), so
-  // there is a single implementation instead of one per page.
+test("web role logout waits for confirmation and ends the Firebase session before navigating", () => {
+  const confirm = read("src/components/shell/LogoutConfirmation.jsx");
+  assert.match(confirm, /onConfirm=\{async \(\) => \{\s*await signOut\(auth\);[\s\S]*?onSignedOut\?\.\(\)/);
+  assert.match(confirm, /onCancel=\{onCancel\}/);
+  for (const file of [
+    "src/components/admin/AdminShell.jsx",
+    "src/pages/dispatcher/DispatcherLayout.jsx",
+    "src/pages/salesRep/SalesRepShell.jsx",
+  ]) {
+    const source = read(file);
+    assert.match(source, /confirmLogout && \(\s*<LogoutConfirmation/);
+    assert.doesNotMatch(source, /signOut\(auth\)/);
+  }
   const shell = read("src/components/admin/AdminShell.jsx");
-  assert.match(shell, /signOut\(auth\)/);
-  assert.match(shell, /navigate\("\/login"\)|navigate\("\/"\)/);
-  // The shell renders the sidebar whose Logout button calls that handler.
+  assert.match(shell, /onSignedOut=\{\(\) => navigate\("\/login", \{ replace: true \}\)\}/);
   assert.match(shell, /<AdminSidebar onLogout=\{handleLogout\}/);
 });
 

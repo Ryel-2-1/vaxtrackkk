@@ -58,7 +58,7 @@ test("no delivery-draft storage operation remains on the page", () => {
   );
 });
 
-test("the details modal no longer takes a delivery callback", () => {
+test("clinic details opens an editor and does not offer to create a delivery", () => {
   const start = clinicsPage.indexOf("function ClinicDetailsModal(");
   assert.notEqual(start, -1, "ClinicDetailsModal not found");
   // Slice from `start`, not start + 1 — the latter chops the leading `f` and
@@ -67,14 +67,10 @@ test("the details modal no longer takes a delivery callback", () => {
   const next = rest.search(/\nfunction [A-Z]/);
   const modal = next === -1 ? rest : rest.slice(0, next);
 
-  assert.match(
-    modal,
-    /^function ClinicDetailsModal\(\{ clinic, onClose \}\)/,
-    "the onCreateDelivery (and toast-only onEdit) props must be removed from the signature"
-  );
-  // Editing is not built, so the dialog has no misleading edit action.
-  assert.doesNotMatch(modal, /Edit Clinic|clinic-edit-unavailable/);
-  assert.ok(!modal.includes("onEdit"));
+  assert.match(modal, /onClick=\{onEdit\}>\s*Edit details/);
+  assert.match(clinicsPage, /<EditClinicDetailsModal\s+key=\{editingClinicId\}/);
+  const editor = src("pages", "admin", "EditClinicDetailsModal.jsx");
+  assert.match(editor, /updateClinicDetails\(clinic\.firestoreId, draft, latest\)/);
   assert.ok(!modal.includes("Create Delivery"));
   assert.ok(!modal.includes("onCreateDelivery"));
 });

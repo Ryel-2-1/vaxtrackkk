@@ -61,10 +61,12 @@ export function clinicViewAnnouncement(view) {
  * fields, the same status filter, the subscription's own order kept.
  */
 export function selectVisibleClinics(clinics, { searchTerm = "", statusFilter = "all" } = {}) {
-  const needle = String(searchTerm).toLowerCase();
+  const needle = String(searchTerm).trim().toLowerCase();
   return (Array.isArray(clinics) ? clinics : []).filter((clinic) => {
-    const haystack =
-      `${clinic.name} ${clinic.id} ${clinic.location} ${clinic.contact} ${clinic.phone} ${clinic.note} ${clinic.statusLabel}`.toLowerCase();
+    const haystack = [
+      clinic.name, clinic.id, clinic.location, clinic.area, clinic.contact,
+      clinic.phone, clinic.email, clinic.note, clinic.statusLabel,
+    ].join(" ").toLowerCase();
     return haystack.includes(needle) && (statusFilter === "all" || clinic.status === statusFilter);
   });
 }

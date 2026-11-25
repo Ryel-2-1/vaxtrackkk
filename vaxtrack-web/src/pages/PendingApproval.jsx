@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { CheckCircle2, Clock, LogOut, Mail, ShieldCheck } from "lucide-react";
-import { sendEmailVerification, signOut } from "firebase/auth";
+import { sendEmailVerification } from "firebase/auth";
 import { auth } from "../firebase";
+import LogoutConfirmation from "../components/shell/LogoutConfirmation";
 import { verificationSendMessage } from "../services/emailVerification";
 
 function PendingApproval() {
@@ -16,11 +17,7 @@ function PendingApproval() {
   const [verified, setVerified] = useState(Boolean(user?.emailVerified));
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
-
-  const handleLogout = async () => {
-    await signOut(auth);
-    navigate("/");
-  };
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   const resend = async () => {
     if (!user || busy) return;
@@ -100,11 +97,17 @@ function PendingApproval() {
           </span>
         </div>
 
-        <button className="primary-button" onClick={handleLogout}>
+        <button type="button" className="primary-button" onClick={() => user ? setConfirmLogout(true) : navigate("/")}>
           <LogOut size={16} />
           Back to Login
         </button>
       </div>
+      {confirmLogout && (
+        <LogoutConfirmation
+          onCancel={() => setConfirmLogout(false)}
+          onSignedOut={() => navigate("/", { replace: true })}
+        />
+      )}
     </div>
   );
 }

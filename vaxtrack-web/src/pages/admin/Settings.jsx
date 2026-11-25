@@ -16,7 +16,7 @@ import "./Settings.css";
 import { subscribeUsers } from "../../services/userService";
 // Staff status, role and new accounts change only on the server (staffAccounts.js);
 // the rules refuse those writes from a browser.
-import { createStaffSetupLink, getStaffEmailVerification, reopenStaffApplication, setStaffRole, setStaffStatus } from "../../services/staffAccountCallables";
+import { createStaffSetupLink, getStaffAuthDetails, reopenStaffApplication, setStaffRole, setStaffStatus } from "../../services/staffAccountCallables";
 import AddStaffDialog, { SetupLinkBox } from "./AddStaffDialog";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
@@ -24,7 +24,7 @@ import AdminDialogLayer from "../../components/admin/AdminDialogLayer";
 import { useDialogFocus } from "../../components/ui/useDialogFocus";
 import { ToastRegion } from "../../components/ui/Feedback";
 import { useToast } from "../../components/ui/useToast";
-import { formatStaffCreatedDate, staffActionsFor, staffStatusOf } from "../../services/staffAccount";
+import { formatStaffCreatedDate, formatStaffLastSignIn, staffActionsFor, staffStatusOf } from "../../services/staffAccount";
 import { canManageTerritory, readTerritory } from "../../services/territory";
 import MedRepTerritoryDialog from "./MedRepTerritoryDialog";
 import MyProfile from "../../components/profile/MyProfile";
@@ -61,7 +61,6 @@ function normalizeUser(raw) {
     status: uiStatus.key,
     statusLabel: uiStatus.label,
     createdDate: formatStaffCreatedDate(raw.createdAt),
-    lastLogin: "—",
     // Made by an Admin or the setup script: may still need its password set.
     canSetUp: raw.createdVia === "admin" || raw.createdVia === "setup-script",
     // The stored assignment, passed to Manage territory unchanged.
@@ -425,7 +424,7 @@ function UserManagement({ searchTerm, showToast }) {
       if (loading || document.hidden) return;
       loading = true;
       try {
-        const { accounts } = await getStaffEmailVerification(uids);
+        const { accounts } = await getStaffAuthDetails(uids);
         if (!cancelled) {
           setEmailVerification({ key: pendingKey, byUid: new Map(accounts.map(({ uid, emailVerified }) => [uid, emailVerified])) });
         }
@@ -892,6 +891,7 @@ function UserManagement({ searchTerm, showToast }) {
       {selectedStaff && (
         <AdminDialogLayer pageClass="settings-v3-main">
         <StaffDetailsModal
+          key={selectedStaff.uid}
           person={selectedStaff}
           isSelf={selectedStaff.uid === currentAdminUid}
           busy={statusBusy === selectedStaff.uid}
@@ -983,6 +983,22 @@ function StaffDetailsModal({
   const actions = staffActionsFor(person.status, { isSelf });
   const dialogRef = useRef(null);
   useDialogFocus({ dialogRef, onDismiss: onClose, busy });
+  const [lastLogin, setLastLogin] = useState("Loading…");
+  const uid = person.uid;
+  useEffect(() => {
+    let cancelled = false;
+    getStaffAuthDetails([uid])
+      .then(({ accounts }) => {
+        if (!cancelled) {
+          const account = accounts.find((item) => item.uid === uid);
+          setLastLogin(formatStaffLastSignIn(account?.lastSignInMs));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLastLogin("Unavailable");
+      });
+    return () => { cancelled = true; };
+  }, [uid]);
   // A one-time password-setup link, for an account that has never signed in
   // (the server refuses otherwise and says why).
   const [setup, setSetup] = useState({ busy: false, link: "", error: "" });
@@ -1031,7 +1047,7 @@ function StaffDetailsModal({
 
           <div>
             <span>Last Login</span>
-            <strong>{person.lastLogin}</strong>
+            <strong aria-live="polite">{lastLogin}</strong>
           </div>
 
           <div>

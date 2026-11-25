@@ -17,6 +17,7 @@ import MedRepPerformance from "./MedRepPerformance";
 import RiderPerformance from "./RiderPerformance";
 import {
   averageDeliveryTime,
+  deliveryHandoffMs,
   formatDuration,
   formatRate,
   onTimeStats,
@@ -47,8 +48,7 @@ function timestampMs(value) {
   return null;
 }
 
-// Average LATEST-TRANSIT-SEGMENT duration in minutes over the given orders:
-// startedAt -> deliveredAt.
+// Average LATEST-TRANSIT-SEGMENT duration in minutes: latest startedAt → handoff.
 //
 // `startedAt` is not the original dispatch. Every transition into in_transit
 // stamps it, and `resumeTransit` fires that transition again when a delayed
@@ -69,7 +69,7 @@ function computeAvgDeliveryMinutes(orders) {
       order.statusKey === "delivered" || order.statusKey === "completed";
     if (!isDelivered) continue;
     const start = timestampMs(order.startedAt);
-    const end = timestampMs(order.deliveredAt);
+    const end = deliveryHandoffMs(order);
     if (start == null || end == null || end <= start) continue;
     sum += end - start;
     count++;
@@ -403,7 +403,7 @@ function Analytics() {
               openModal({
                 title: "Average delivery time",
                 description:
-                  "From each order's first dispatch (firstDispatchedAt, stamped once by the server's status history) to deliveredAt. Delays and resumed legs are included.",
+                  "From the first dispatch to the handoff, including delays and resumed legs. Accepted offline deliveries use the recorded handoff time when valid.",
                 rows: [
                   ["Current average", formatDuration(fullDelivery.averageMinutes)],
                   ["Orders measured", fullDelivery.count],
@@ -426,16 +426,16 @@ function Analytics() {
               openModal({
                 title: "Average latest transit segment",
                 description:
-                  "Calculated from each delivered order's latest startedAt timestamp to deliveredAt. Resumed deliveries exclude earlier transit and delayed time.",
+                  "From the latest transit start to the handoff. Resumed deliveries exclude earlier transit and delayed time.",
                 rows:
                   avgDeliveryMinutes == null
                     ? [
                         ["Current average", "Not available"],
-                        ["Reason", "No completed order has both a startedAt and a deliveredAt timestamp yet"],
+                        ["Reason", "No completed order has a handoff time after its latest transit start"],
                       ]
                     : [
                         ["Current average", avgDeliveryText],
-                        ["Measured from", "startedAt (latest transit start) → deliveredAt"],
+                        ["Measured from", "Latest transit start → handoff"],
                         ["Scope", "Completed orders in the selected range/filters"],
                       ],
               })
@@ -475,7 +475,7 @@ function Analytics() {
               openModal({
                 title: "On-time rate",
                 description:
-                  "A delivered order is on time when its Manila delivery date is on or before the requested delivery date chosen at checkout.",
+                  "A delivery is on time if the handoff took place on or before the requested Manila date. Accepted offline deliveries use the recorded handoff time when valid.",
                 rows: [
                   ["On time", onTime.onTime],
                   ["Late", onTime.late],

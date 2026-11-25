@@ -259,7 +259,7 @@ test("all nine destinations and Logout survive, with their active styling", () =
   }
   assert.match(sidebarJsx, /aria-current=\{active === "dashboard" \? "page" : undefined\}/);
   assert.match(sidebarJsx, /className=\{active === "inventory" \? "active" : ""\}/);
-  assert.match(sidebarJsx, /className="sidebar-logout" onClick=\{onLogout\}/);
+  assert.match(sidebarJsx, /className="sidebar-logout" onClick=\{requestLogout\}/);
 });
 
 test("the persistent AdminShell owns the one sidebar; no page renders its own", () => {

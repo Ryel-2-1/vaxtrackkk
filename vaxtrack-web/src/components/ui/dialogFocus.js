@@ -10,6 +10,14 @@ export const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(", ");
 
+/** Let an open information tip inside the dialog consume Escape first. */
+export function infoHintOwnsEscape(event, dialog) {
+  return event.key === "Escape" && (
+    event.defaultPrevented ||
+    Boolean(dialog?.querySelector('.m-info-trigger[aria-expanded="true"]'))
+  );
+}
+
 /**
  * What a key press inside an open dialog should do:
  *   "dismiss" — Escape, and the dialog may close now (not while it is saving)
