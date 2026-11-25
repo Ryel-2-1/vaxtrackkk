@@ -3,7 +3,7 @@
  *
  * Two figures the order history now makes honest:
  *
- *  - Average delivery time: FIRST dispatch → delivered. `firstDispatchedAt` is
+ *  - Average delivery time: FIRST dispatch → handoff. `firstDispatchedAt` is
  *    stamped once, server-side, by the status-history trigger
  *    (functions/src/statusEvents.js) the first time an order enters
  *    in_transit, and never moved again — so delays and resumed legs are inside
@@ -30,14 +30,29 @@ export function timestampMs(value) {
 
 const isDelivered = (order) => order.statusKey === "delivered" || order.statusKey === "completed";
 
-/** First dispatch → delivered, over delivered orders whose dispatch was recorded. */
+/** Use the accepted offline handoff when it fits between departure and completion. */
+export function deliveryHandoffMs(order) {
+  const recorded = timestampMs(order.deliveredAt);
+  if (!Number.isFinite(recorded)) return null;
+  if (order.completionMode === "offline" || order.completionMode === "offline_approved") {
+    const captured = order.offlineEvidence?.capturedAtMs;
+    const departed = timestampMs(order.dispatchedAt) ?? timestampMs(order.firstDispatchedAt);
+    if (Number.isSafeInteger(captured) && captured > 0 && captured <= recorded &&
+        (departed === null || captured >= departed)) {
+      return captured;
+    }
+  }
+  return recorded;
+}
+
+/** First dispatch → handoff, over delivered orders whose dispatch was recorded. */
 export function averageDeliveryTime(orders) {
   let sum = 0;
   let count = 0;
   for (const order of orders) {
     if (!isDelivered(order)) continue;
     const start = timestampMs(order.firstDispatchedAt);
-    const end = timestampMs(order.deliveredAt);
+    const end = deliveryHandoffMs(order);
     if (start == null || end == null || end <= start) continue;
     sum += end - start;
     count += 1;
@@ -52,7 +67,7 @@ export function onTimeStats(orders) {
   for (const order of orders) {
     if (!isDelivered(order)) continue;
     const due = isoDateOnly(order.requestedDeliveryDate);
-    const end = timestampMs(order.deliveredAt);
+    const end = deliveryHandoffMs(order);
     if (!due || end == null) continue;
     measured += 1;
     if (manilaToday(new Date(end)) <= due) onTime += 1;

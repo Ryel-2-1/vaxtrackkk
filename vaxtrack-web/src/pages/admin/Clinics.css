@@ -1794,7 +1794,8 @@
 }
 
 .clinics-doctor-create input,
-.clinics-doctor-create select {
+.clinics-doctor-create select,
+.clinics-doctor-filters select {
   min-width: 0;
   width: 100%;
   height: 44px;
@@ -1810,7 +1811,8 @@
 }
 
 .clinics-doctor-create input:focus,
-.clinics-doctor-create select:focus {
+.clinics-doctor-create select:focus,
+.clinics-doctor-filters select:focus {
   border-color: var(--green-700);
   box-shadow: 0 0 0 3px var(--green-100);
 }
@@ -1840,6 +1842,25 @@
   overflow-y: auto;
   margin: 0 -8px 16px;
   padding: 0 8px;
+}
+
+.clinics-doctor-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.clinics-doctor-filters .clinics-v2-search {
+  flex: 1 1 240px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.clinics-doctor-filters select {
+  width: auto;
+  max-width: 100%;
 }
 
 .clinics-doctor-row {
@@ -2498,8 +2519,9 @@
    `.clinics-form-modal`, so the rules apply only where the structure
    actually exists (each dialog carries a `.clinics-modal-body`).
    `ClinicDetailsModal` uses plain `.clinics-modal` and is untouched.
-   Both are listed on one rule set so the two dialogs cannot drift apart.
+   The details editor shares this structure with registration and location.
    ============================================================ */
+.clinics-edit-modal,
 .clinics-location-modal,
 .clinics-register-modal {
   display: flex;
@@ -2514,6 +2536,7 @@
 
 /* Headings stay above the scroll area (flex items default to shrinking,
    which would squash them as the body grows). */
+.clinics-edit-modal > h2,
 .clinics-location-modal > h3,
 .clinics-location-modal > .clinics-modal-sub,
 .clinics-register-modal > h2,
@@ -2527,6 +2550,7 @@
    and reinstate the bug. The negative margin lets the scrollbar sit
    against the card edge while the padding keeps content aligned with the
    dialog's 28px gutter and leaves room for focus rings. */
+.clinics-edit-modal .clinics-modal-body,
 .clinics-location-modal .clinics-modal-body,
 .clinics-register-modal .clinics-modal-body {
   flex: 1 1 auto;
@@ -2538,6 +2562,7 @@
 }
 
 /* Pinned footer. */
+.clinics-edit-modal .clinics-modal-actions,
 .clinics-location-modal .clinics-modal-actions,
 .clinics-register-modal .clinics-modal-actions {
   flex: 0 0 auto;
@@ -2562,6 +2587,7 @@
 }
 
 
+.clinics-edit-modal .clinics-primary-action:disabled,
 .clinics-light-action:disabled {
   opacity: 0.55;
   cursor: not-allowed;

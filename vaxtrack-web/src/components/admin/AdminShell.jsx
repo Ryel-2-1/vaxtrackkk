@@ -1,9 +1,8 @@
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import { signOut } from "firebase/auth";
-import { auth } from "../../firebase";
 import { AdminSidebar } from "./AdminSidebar";
 import OfflineNotice from "../shell/OfflineNotice";
+import LogoutConfirmation from "../shell/LogoutConfirmation";
 import AdminAlertsBell from "./AdminAlertsBell";
 import { adminWrapperClassFor } from "./adminShellClasses";
 import "./AdminLayout.css";
@@ -55,13 +54,8 @@ function AdminShell() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-    } finally {
-      navigate("/login");
-    }
-  };
+  const [confirmLogout, setConfirmLogout] = useState(false);
+  const handleLogout = () => setConfirmLogout(true);
 
   return (
     <div className={adminWrapperClassFor(location.pathname)}>
@@ -95,6 +89,12 @@ function AdminShell() {
       >
         <Outlet />
       </Suspense>
+      {confirmLogout && (
+        <LogoutConfirmation
+          onCancel={() => setConfirmLogout(false)}
+          onSignedOut={() => navigate("/login", { replace: true })}
+        />
+      )}
     </div>
   );
 }

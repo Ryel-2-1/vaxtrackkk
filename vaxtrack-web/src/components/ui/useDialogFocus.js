@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { FOCUSABLE_SELECTOR, dialogKeyAction, nextFocusIndex } from "./dialogFocus.js";
+import { FOCUSABLE_SELECTOR, dialogKeyAction, infoHintOwnsEscape, nextFocusIndex } from "./dialogFocus.js";
 
 /**
  * Modal focus handling: focus moves into the dialog on open (to `initialRef`
@@ -94,6 +94,7 @@ export function useDialogFocus({ dialogRef, initialRef, onDismiss, busy = false,
 
     const onKeyDown = (event) => {
       if (!isTopDialog(token)) return;
+      if (infoHintOwnsEscape(event, dialogRef.current)) return;
       const action = dialogKeyAction({ key: event.key, busy: busyRef.current, dismissible });
       if (action === "dismiss" || action === "trap" || event.key === "Escape") event.stopPropagation();
       if (action === "dismiss") {

@@ -18,6 +18,7 @@ import {
   assertSucceeds,
   assertFails,
 } from "@firebase/rules-unit-testing";
+import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import {
@@ -2069,6 +2070,20 @@ async function main() {
     await assertSucceeds(getDoc(doc(dispatcher, "clinics", "cl1")));
     await assertSucceeds(getDoc(doc(salesRep, "clinics", "cl1")));
     await assertSucceeds(getDoc(doc(rider, "clinics", "cl1")));
+  });
+
+  await check("Pclin3 only an admin can edit details on an existing clinic", async () => {
+    const details = { contact: "Dr. Sample", phone: "09171234567", updatedAt: serverTimestamp() };
+    for (const db of [dispatcher, salesRep, rider]) {
+      await assertFails(updateDoc(doc(db, "clinics", "cl1"), details));
+    }
+    const ref = doc(admin, "clinics", "cl1");
+    const before = (await getDoc(ref)).data();
+    await assertSucceeds(updateDoc(ref, details));
+    const after = (await getDoc(ref)).data();
+    assert.equal(after.phone, "09171234567");
+    assert.equal(after.latitude, before.latitude);
+    assert.equal(after.longitude, before.longitude);
   });
 
   await check("Nclin1 non-admin roles cannot write clinic master location", async () => {

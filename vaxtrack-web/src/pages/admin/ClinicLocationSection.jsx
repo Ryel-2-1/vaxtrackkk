@@ -259,12 +259,17 @@ function ClinicLocationSection({
           idPrefix={idPrefix}
         />
       ) : (
-        <div
-          ref={containerRef}
-          className="clinic-loc-map"
-          role="application"
-          aria-label={mapAriaLabel}
-        />
+        <>
+          <p className="clinic-loc-hint" role="status">
+            Address search is unavailable. Click the map to place the pin or enter the coordinates below.
+          </p>
+          <div
+            ref={containerRef}
+            className="clinic-loc-map"
+            role="application"
+            aria-label={mapAriaLabel}
+          />
+        </>
       )}
 
       <div className="clinic-loc-fields">

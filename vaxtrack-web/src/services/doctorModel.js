@@ -7,6 +7,17 @@ export function normalizeDoctorName(value) {
   return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+/** Search the names and primary areas shown in the doctor directory. */
+export function filterDoctors(doctors, searchTerm, status) {
+  const query = normalizeDoctorName(searchTerm);
+  return doctors.filter((doctor) => {
+    const active = doctor.active === true;
+    if (status === "active" && !active) return false;
+    if (status === "archived" && active) return false;
+    return !query || [doctor.name, doctor.area].some((value) => normalizeDoctorName(value).includes(query));
+  });
+}
+
 /** Validate a doctor's display name without pretending that names are unique. */
 export function validateDoctorName(value) {
   const name =

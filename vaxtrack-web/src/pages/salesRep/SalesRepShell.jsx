@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { signOut } from "firebase/auth";
 import {
   AlertTriangle,
   Bell,
@@ -21,6 +20,7 @@ import { auth } from "../../firebase";
 import SidebarProfile from "../../components/shell/SidebarProfile";
 import { nextNavState, toggleLabel } from "../dispatcher/navDrawer";
 import OfflineNotice from "../../components/shell/OfflineNotice";
+import LogoutConfirmation from "../../components/shell/LogoutConfirmation";
 import { subscribeSalesRepOrders } from "../../services/orderService";
 import { deriveSalesRepOrderAlert } from "../../services/salesRepOrderAlert";
 import useNotificationReadState from "../../components/useNotificationReadState";
@@ -114,11 +114,11 @@ function SalesRepShell() {
     (notification) => notification.tone === "critical" && !readNotifications.includes(notification.readId)
   ).length;
 
-  // Logging out is one request at a time; a failure is shown beside the
-  // button (never a browser alert) and the Med Rep stays signed in.
-  const [logoutError, setLogoutError] = useState("");
-  const [loggingOut, setLoggingOut] = useState(false);
-  const logoutRef = useRef(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
+  const requestLogout = () => {
+    applyNav({ type: "dismiss" });
+    setConfirmLogout(true);
+  };
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -162,22 +162,6 @@ function SalesRepShell() {
       if (toggle && toggle.isConnected && toggle.getClientRects().length > 0) toggle.focus();
     };
   }, [navOpen, applyNav]);
-
-  const handleLogout = async () => {
-    if (logoutRef.current) return;
-    logoutRef.current = true;
-    setLoggingOut(true);
-    setLogoutError("");
-    try {
-      await signOut(auth);
-      navigate("/");
-    } catch {
-      setLogoutError("You're still signed in — we couldn't log you out. Check your connection and try again.");
-    } finally {
-      logoutRef.current = false;
-      setLoggingOut(false);
-    }
-  };
 
   const markAllRead = () => {
     markNotificationsRead(panelNotifications.map((notification) => notification.readId));
@@ -267,19 +251,11 @@ function SalesRepShell() {
         <button
           type="button"
           className="salesrep-logout"
-          onClick={handleLogout}
-          disabled={loggingOut}
-          aria-busy={loggingOut}
-          aria-describedby={logoutError ? "salesrep-logout-error" : undefined}
+          onClick={requestLogout}
         >
           <LogOut size={17} aria-hidden="true" />
-          <span>{loggingOut ? "Logging out…" : "Logout"}</span>
+          <span>Logout</span>
         </button>
-        {logoutError && (
-          <p id="salesrep-logout-error" className="salesrep-logout-error" role="alert">
-            {logoutError}
-          </p>
-        )}
       </aside>
 
       <main className="salesrep-main" inert={navOpen || undefined}>
@@ -371,6 +347,12 @@ function SalesRepShell() {
         </Suspense>
         <OfflineNotice />
       </main>
+      {confirmLogout && (
+        <LogoutConfirmation
+          onCancel={() => setConfirmLogout(false)}
+          onSignedOut={() => navigate("/", { replace: true })}
+        />
+      )}
     </div>
   );
 }

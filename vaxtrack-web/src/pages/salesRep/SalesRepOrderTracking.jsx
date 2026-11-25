@@ -16,6 +16,7 @@ import {
 import { auth } from "../../firebase";
 import { originalRequestNote, scheduleLabel } from "../../services/deliverySchedule";
 import { requestedArrivalLabel, requestedArrivalOf } from "../../services/requestedArrival";
+import { isRunningLate, lateNotice, PAST_REQUESTED_LABEL } from "../../services/deliveryTiming";
 import RequestedArrivalNote from "../../components/schedule/RequestedArrivalNote";
 import {
   reviewOrderDestinationChange,
@@ -666,7 +667,10 @@ function SalesRepOrderTracking() {
 }
 
 function TrackingRow({ selected, order, onSelect }) {
-  const isDanger = order.statusKey === "delayed" || order.statusKey === "delivery_failed";
+  const notice = lateNotice(order);
+  const timingNote = notice === "running_late" ? "Running late"
+    : notice === "past_requested" ? PAST_REQUESTED_LABEL : null;
+  const isLate = isRunningLate(order) || notice === "past_requested";
 
   return (
     <tr
@@ -701,21 +705,19 @@ function TrackingRow({ selected, order, onSelect }) {
 
       <td data-label="Status">
         <StatusBadge statusKey={order.statusKey} label={order.status} />
-        <div>
-          <TimingIndicator order={order} detail={false} />
-        </div>
+        {timingNote && <small className="track-timing-note">{timingNote}</small>}
       </td>
 
       <td data-label="Progress">
         <div
-          className={`track-progress${isDanger ? " is-delayed" : ""}${
+          className={`track-progress${isLate ? " is-delayed" : ""}${
             order.progressIndeterminate ? " is-indeterminate" : ""
           }`}
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={order.progressIndeterminate ? undefined : order.progress}
-          aria-label={`${order.status} — ${order.progressText}`}
+          aria-label={[order.status, timingNote, order.progressText].filter(Boolean).join(" — ")}
         >
           <span
             style={{

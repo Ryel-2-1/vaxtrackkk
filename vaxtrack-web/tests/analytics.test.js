@@ -176,10 +176,10 @@ test("analytics omits hub ranking until hub metrics exist", () => {
 // ------------------------------------------------- honest derivations
 
 test("the transit-segment average uses authoritative timestamps only", () => {
-  // startedAt -> deliveredAt, both server-stamped. updatedAt is never a
+  // Latest transit start → live completion or accepted offline handoff. updatedAt is never a
   // substitute: it moves on any write, including ones unrelated to delivery.
   assert.match(SRC, /timestampMs\(order\.startedAt\)/);
-  assert.match(SRC, /timestampMs\(order\.deliveredAt\)/);
+  assert.match(SRC, /deliveryHandoffMs\(order\)/);
   assert.equal(
     /updatedAt/.test(CODE),
     false,
@@ -201,7 +201,7 @@ test("the metric is labelled as the segment it measures, not the whole journey",
   assert.match(SRC, /title: "Average latest transit segment"/);
   assert.match(
     SRC,
-    /"Calculated from each delivered order's latest startedAt timestamp to deliveredAt\. Resumed deliveries exclude earlier transit and delayed time\."/,
+    /Resumed deliveries exclude earlier transit and delayed time\./,
     "the modal must state what the window excludes"
   );
 

@@ -1,10 +1,12 @@
 import {
   addDoc,
+  arrayUnion,
   collection,
   doc,
   getDoc,
   getDocs,
   query,
+  runTransaction,
   serverTimestamp,
   updateDoc,
   where,
@@ -14,6 +16,8 @@ import { validateClinicLocation, validateEntranceDetails } from "./clinicLocatio
 import { UserMessageError } from "./userMessageError.js";
 import { logSafeError } from "./liveDataErrors.js";
 import { listenLive } from "./liveSnapshot.js";
+import { clinicDetailsDraft, clinicDetailsPatch } from "./clinicDetails.js";
+import { CLIENT_ID_TAKEN_MESSAGE } from "./clientId.js";
 
 const CLINICS = "clinics";
 
@@ -75,17 +79,60 @@ export function subscribeClinics(callback, onError) {
   );
 }
 
-export async function clinicNameExists(name) {
+export async function clinicNameExists(name, exceptId = null) {
   const q = query(collection(db, CLINICS), where("name", "==", name.trim()));
   const snap = await getDocs(q);
-  return !snap.empty;
+  return snap.docs.some((clinic) => clinic.id !== exceptId);
 }
 
 /** True when a clinic already carries this client ID (stored in `clinicId`). */
-export async function clinicIdExists(clinicId) {
+export async function clinicIdExists(clinicId, exceptId = null) {
   const q = query(collection(db, CLINICS), where("clinicId", "==", String(clinicId).trim().toUpperCase()));
   const snap = await getDocs(q);
-  return !snap.empty;
+  return snap.docs.some((clinic) => clinic.id !== exceptId);
+}
+
+/** Update only changed details on the existing clinic. */
+export async function updateClinicDetails(id, draft, expected) {
+  if (typeof id !== "string" || !id || id.includes("/")) {
+    throw new UserMessageError("A clinic reference is required to save its details.");
+  }
+  const baseline = clinicDetailsDraft(expected);
+  const { patch, errors } = clinicDetailsPatch(draft, baseline);
+  if (Object.keys(errors).length) throw new UserMessageError(Object.values(errors)[0]);
+  const keys = Object.keys(patch);
+  if (keys.length === 0) return;
+  const [nameTaken, idTaken] = await Promise.all([
+    patch.name && clinicNameExists(patch.name, id),
+    patch.clinicId && clinicIdExists(patch.clinicId, id),
+  ]);
+  if (nameTaken) throw new UserMessageError("Another clinic already uses this name.");
+  if (idTaken) throw new UserMessageError(CLIENT_ID_TAKEN_MESSAGE);
+
+  const ref = doc(db, CLINICS, id);
+  await runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(ref);
+    if (!snapshot.exists()) throw new UserMessageError("That clinic no longer exists.");
+    const current = clinicDetailsDraft(snapshot.data());
+    if (keys.some((key) => current[key] !== baseline[key])) {
+      throw new UserMessageError("This clinic changed while you were saving. Review the latest details and try again.");
+    }
+
+    const update = { ...patch, updatedAt: serverTimestamp() };
+    if (patch.name && current.name.trim()) {
+      // Older orders identify clinics by name alone.
+      update.previousNames = arrayUnion(current.name.trim());
+    }
+    if (patch.areaId) {
+      const area = await transaction.get(doc(db, "areas", patch.areaId));
+      const stored = area.data();
+      if (stored?.active !== true || typeof stored.name !== "string" || !stored.name.trim()) {
+        throw new UserMessageError("Select an active area for this clinic.");
+      }
+      update.area = stored.name;
+    }
+    transaction.update(ref, update);
+  });
 }
 
 /** A clinic's client ID (its `clinicId`), read once by document id; "" when none. */

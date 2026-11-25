@@ -43,14 +43,18 @@ import {
   setDoctorActive,
   subscribeDoctors,
 } from "../../services/doctorService";
-import { validateDoctorName } from "../../services/doctorModel";
+import { filterDoctors, validateDoctorName } from "../../services/doctorModel";
 import { subscribeDoctorAddresses } from "../../services/doctorAddressService";
 import { subscribeDeliveries } from "../../services/deliveryService";
 import { lastDeliveryIndex, lastDeliveryMs, lastDeliveryText } from "../../services/clinicDeliveries";
 import KpiCard from "../../components/ui/KpiCard";
 import { Notice, ToastRegion } from "../../components/ui/Feedback";
+import ConfirmDialog from "../../components/ui/ConfirmDialog";
+import DialogLayer from "../../components/ui/DialogLayer";
+import { UserMessageError } from "../../services/userMessageError";
 import StaleEditNotice from "../../components/ui/StaleEditNotice";
 import { useDialogFocus } from "../../components/ui/useDialogFocus";
+import { infoHintOwnsEscape } from "../../components/ui/dialogFocus";
 import { useLiveDraft } from "../../components/useLiveDraft";
 import { useToast } from "../../components/ui/useToast";
 import { errorIdFor, fieldA11y, focusFirstInvalid, hasErrors } from "../../services/formValidation";
@@ -61,6 +65,8 @@ import useDoctorAddressLinks from "./useDoctorAddressLinks";
 import { subscribeUsers } from "../../services/userService";
 import { activeDoctorLinks, approvedMedReps, clinicReach, planClinicAccess, reachLabel } from "../../services/clinicAccess";
 import { applyClinicAccess } from "../../services/clinicAccessService";
+import { CLINIC_STATUS_LABELS, clinicDetailsDraft, limitClinicPhone } from "../../services/clinicDetails";
+import EditClinicDetailsModal from "./EditClinicDetailsModal";
 import { friendlyErrorMessage, kpiValue, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import {
   CLINIC_VIEWS,
@@ -73,11 +79,7 @@ import {
 } from "../../services/clinicsView";
 import "./Clinics.css";
 
-const STATUS_LABEL = {
-  active: "Active",
-  pending: "Pending Resupply",
-  overdue: "Overdue",
-};
+const STATUS_LABEL = CLINIC_STATUS_LABELS;
 
 const STATUS_NOTE = {
   active: "Ready for Delivery",
@@ -105,6 +107,8 @@ function normalizeClinic(raw) {
   return {
     id: raw.clinicId || raw.id || "—",
     firestoreId: raw.id || "",
+    detailFields: clinicDetailsDraft(raw),
+    previousNames: Array.isArray(raw.previousNames) ? raw.previousNames : [],
     name: raw.name || "—",
     location: raw.location || "—",
     areaId: raw.areaId || "",
@@ -291,7 +295,7 @@ function Clinics() {
   }, []);
   const clinics = useMemo(() => {
     if (deliveredOrders === null) return baseClinics;
-    const index = lastDeliveryIndex(deliveredOrders);
+    const index = lastDeliveryIndex(deliveredOrders, baseClinics);
     return baseClinics.map((c) => ({ ...c, lastDelivery: lastDeliveryText(lastDeliveryMs(index, c)) }));
   }, [baseClinics, deliveredOrders]);
   const [loading, setLoading] = useState(true);
@@ -308,6 +312,9 @@ function Clinics() {
   // a new one rather than only clearing the message.
   const [retryKey, setRetryKey] = useState(0);
   const [selectedClinic, setSelectedClinic] = useState(null);
+  const [editingClinicId, setEditingClinicId] = useState("");
+  const selectedClinicLive = selectedClinic && clinics.find((clinic) => clinic.firestoreId === selectedClinic.firestoreId);
+  const editingClinic = editingClinicId && clinics.find((clinic) => clinic.firestoreId === editingClinicId);
   const [showNewClinicModal, setShowNewClinicModal] = useState(false);
   const [showAreasModal, setShowAreasModal] = useState(false);
   const [showDoctorsModal, setShowDoctorsModal] = useState(false);
@@ -717,11 +724,11 @@ function Clinics() {
     }
   };
 
-  const handleDoctorStatus = async (doctor) => {
+  const handleDoctorStatus = async (doctor, active) => {
     try {
-      await setDoctorActive(doctor.id, !doctor.active);
+      await setDoctorActive(doctor.id, active);
       showToast(
-        `${doctor.name} is now ${doctor.active ? "inactive" : "active"}.`,
+        active ? `${doctor.name} restored.` : `${doctor.name} archived.`,
         "success"
       );
       return "";
@@ -1099,12 +1106,28 @@ function Clinics() {
       {selectedClinic && (
         <ClinicDetailsModal
           clinic={{
-            ...selectedClinic,
+            ...(selectedClinicLive ?? selectedClinic),
             linkedDoctors: linkedDoctors.doctors,
             linkedDoctorsLoading: linkedDoctors.loading,
             linkedDoctorsError: linkedDoctors.error,
           }}
           onClose={() => setSelectedClinic(null)}
+          onEdit={selectedClinicLive ? () => setEditingClinicId(selectedClinicLive.firestoreId) : undefined}
+        />
+      )}
+
+      {editingClinicId && (
+        <EditClinicDetailsModal
+          key={editingClinicId}
+          clinic={editingClinic || null}
+          areas={areas}
+          areasLoading={areasLoading}
+          areaLoadError={areaLoadError}
+          onClose={() => setEditingClinicId("")}
+          onSaved={() => {
+            setEditingClinicId("");
+            showToast("Clinic details saved.", "success");
+          }}
         />
       )}
 
@@ -1171,7 +1194,7 @@ function Clinics() {
           areasLoading={areasLoading}
           areaLoadError={areaLoadError}
           onAdd={handleAddDoctor}
-          onToggle={handleDoctorStatus}
+          onSetActive={handleDoctorStatus}
           onToast={showToast}
           onClose={closeDoctors}
         />
@@ -1356,6 +1379,7 @@ function ManageLocationModal({ clinic, live, onClose, onSave }) {
   useEffect(() => {
     const onKeyDown = (e) => {
       if (e.key === "Escape") {
+        if (infoHintOwnsEscape(e, dialogRef.current)) return;
         e.stopPropagation();
         requestClose();
         return;
@@ -1542,7 +1566,7 @@ function ManageLocationModal({ clinic, live, onClose, onSave }) {
   );
 }
 
-function ClinicDetailsModal({ clinic, onClose }) {
+function ClinicDetailsModal({ clinic, onClose, onEdit }) {
   const linkedDoctors = clinic.linkedDoctors || [];
   const linkedDoctorsLoading = clinic.linkedDoctorsLoading === true;
   const linkedDoctorsError = clinic.linkedDoctorsError || "";
@@ -1651,9 +1675,13 @@ function ClinicDetailsModal({ clinic, onClose }) {
 
         {/* Deliveries are not started from Admin Clinics. They originate in the
             normal order workflow: Sales Rep order → Dispatcher assignment →
-            Rider delivery. The former delivery-draft action here only showed a
-            toast and drafted nothing, so it was removed rather than replaced. */}
+            Rider delivery. */}
         <div className="clinics-modal-actions">
+          {onEdit && (
+            <button type="button" className="clinics-primary-action" onClick={onEdit}>
+              Edit details
+            </button>
+          )}
           <button
             type="button"
             className="clinics-light-action"
@@ -1684,6 +1712,7 @@ function AreasModal({ areas, loading, loadError, onAdd, onToggle, onClose }) {
   useEffect(() => {
     const onKeyDown = (event) => {
       if (event.key === "Escape") {
+        if (infoHintOwnsEscape(event, dialogRef.current)) return;
         event.stopPropagation();
         if (!busy) onClose();
         return;
@@ -1851,7 +1880,7 @@ function DoctorsModal({
   areasLoading,
   areaLoadError,
   onAdd,
-  onToggle,
+  onSetActive,
   onToast,
   onClose,
 }) {
@@ -1859,14 +1888,18 @@ function DoctorsModal({
   const [chosenAreaId, setChosenAreaId] = useState("");
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
-  const [updatingId, setUpdatingId] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("active");
+  const [doctorAction, setDoctorAction] = useState(null);
   const [managedDoctorId, setManagedDoctorId] = useState("");
   const [addressBusy, setAddressBusy] = useState(false);
   const dialogRef = useRef(null);
   const nameInputRef = useRef(null);
   const addressReturnIdRef = useRef("");
   const headingId = "manage-doctors-heading";
-  const busy = adding || Boolean(updatingId) || addressBusy;
+  const busy = adding || addressBusy;
+  const visibleDoctors = filterDoctors(doctors, searchTerm, statusFilter);
+  useDialogFocus({ dialogRef, initialRef: nameInputRef, onDismiss: onClose, busy });
   const activeAreas = useMemo(
     () => areas.filter((area) => area.active === true),
     [areas]
@@ -1880,46 +1913,6 @@ function DoctorsModal({
   const managedDoctor = doctors.find(
     (doctor) => doctor.id === managedDoctorId
   );
-
-  useEffect(() => {
-    nameInputRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    const onKeyDown = (event) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        if (!busy) onClose();
-        return;
-      }
-      if (event.key !== "Tab") return;
-
-      const root = dialogRef.current;
-      if (!root) return;
-      const items = [
-        ...root.querySelectorAll(
-          'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])'
-        ),
-      ].filter((element) => !element.disabled && element.getClientRects().length > 0);
-      if (items.length === 0) return;
-
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (!root.contains(document.activeElement)) {
-        event.preventDefault();
-        first.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      } else if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      }
-    };
-
-    document.addEventListener("keydown", onKeyDown, true);
-    return () => document.removeEventListener("keydown", onKeyDown, true);
-  }, [busy, onClose]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -1936,16 +1929,6 @@ function DoctorsModal({
       nameInputRef.current?.focus();
     }
     setAdding(false);
-  };
-
-  const handleToggle = async (doctor) => {
-    if (busy) return;
-
-    setUpdatingId(doctor.id);
-    setError("");
-    const message = await onToggle(doctor);
-    if (message) setError(message);
-    setUpdatingId("");
   };
 
   const openAddresses = (doctor) => {
@@ -2061,6 +2044,28 @@ function DoctorsModal({
               </p>
             )}
 
+            <div className="clinics-doctor-filters">
+              <div className="clinics-v2-search">
+                <Search size={15} aria-hidden="true" />
+                <input
+                  type="search"
+                  aria-label="Search doctors by name or primary area"
+                  placeholder="Search by name or area"
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                />
+              </div>
+              <select
+                aria-label="Doctor status"
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+              >
+                <option value="active">Active doctors</option>
+                <option value="archived">Archived doctors</option>
+                <option value="all">All doctors</option>
+              </select>
+            </div>
+
             <div className="clinics-doctor-list" aria-live="polite">
           {loading && <p>Loading doctors...</p>}
           {!loading && !loadError && doctors.length === 0 && (
@@ -2070,14 +2075,21 @@ function DoctorsModal({
               <span>Add the first doctor above.</span>
             </div>
           )}
+          {!loading && !loadError && doctors.length > 0 && visibleDoctors.length === 0 && (
+            <div className="clinics-area-empty">
+              <UserRound size={22} aria-hidden="true" />
+              <strong>No matching doctors</strong>
+              <span>Try another search or change the status filter.</span>
+            </div>
+          )}
           {!loading &&
-            doctors.map((doctor) => (
+            visibleDoctors.map((doctor) => (
               <div className="clinics-doctor-row" key={doctor.id}>
                 <div className="clinics-doctor-summary">
                   <strong>{doctor.name || "Unnamed doctor"}</strong>
                   <small>{doctor.area || "Unassigned area"}</small>
                   <span className={doctor.active ? "active" : "inactive"}>
-                    {doctor.active ? "Active" : "Inactive"}
+                    {doctor.active ? "Active" : "Archived"}
                   </span>
                 </div>
                 <div className="clinics-doctor-row-actions">
@@ -2091,14 +2103,10 @@ function DoctorsModal({
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleToggle(doctor)}
+                    onClick={() => setDoctorAction({ doctor, active: doctor.active !== true })}
                     disabled={busy}
                   >
-                    {updatingId === doctor.id
-                      ? "Saving..."
-                      : doctor.active
-                        ? "Deactivate"
-                        : "Activate"}
+                    {doctor.active ? "Archive" : "Restore"}
                   </button>
                 </div>
               </div>
@@ -2118,6 +2126,25 @@ function DoctorsModal({
           </>
         )}
       </section>
+      {doctorAction && (
+        <DialogLayer>
+          <ConfirmDialog
+            title={doctorAction.active ? "Restore this doctor?" : "Archive this doctor?"}
+            target={doctorAction.doctor.name || "Unnamed doctor"}
+            consequence={doctorAction.active
+              ? "This doctor can be selected for new orders where their addresses are eligible."
+              : "This doctor will be hidden from new orders. Existing orders and linked addresses will be kept."}
+            tone={doctorAction.active ? "primary" : "danger"}
+            confirmLabel={doctorAction.active ? "Restore doctor" : "Archive doctor"}
+            onCancel={() => setDoctorAction(null)}
+            onConfirm={async () => {
+              const message = await onSetActive(doctorAction.doctor, doctorAction.active);
+              if (message) throw new UserMessageError(message);
+              setDoctorAction(null);
+            }}
+          />
+        </DialogLayer>
+      )}
     </div>
   );
 }
@@ -2182,6 +2209,7 @@ function NewClinicModal({
   useEffect(() => {
     const onKeyDown = (e) => {
       if (e.key === "Escape") {
+        if (infoHintOwnsEscape(e, dialogRef.current)) return;
         e.stopPropagation();
         requestClose();
         return;
@@ -2315,10 +2343,12 @@ function NewClinicModal({
               Phone Number
               <input
                 id={CLINIC_FIELD_IDS.phone}
-                type="text"
-                placeholder="0917-000-0000"
+                type="tel"
+                inputMode="numeric"
+                autoComplete="tel-national"
+                placeholder="09170000000"
                 value={newClinic.phone}
-                onChange={(e) => editField("phone", e.target.value)}
+                onChange={(e) => editField("phone", limitClinicPhone(e.target.value))}
                 disabled={saving}
                 {...fieldA11y("new-clinic", "phone", errors)}
               />

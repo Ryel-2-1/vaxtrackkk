@@ -93,7 +93,7 @@ async function requireAdmin(db, uid) {
   requireRole(await loadUser(db, uid), "admin");
 }
 
-/** Read email verification for one page of the Staff Directory. */
+/** Read limited Auth metadata for up to one page of the Staff Directory. */
 async function getStaffEmailVerification({ db, authAdmin, uid, payload }) {
   await requireAdmin(db, uid);
   const { uids } = payload ?? {};
@@ -103,7 +103,17 @@ async function getStaffEmailVerification({ db, authAdmin, uid, payload }) {
   }
   const identifiers = [...new Set(uids)].map((id) => ({ uid: id }));
   const { users } = await authAdmin.getUsers(identifiers);
-  return { accounts: users.map((user) => ({ uid: user.uid, emailVerified: user.emailVerified === true })) };
+  return {
+    accounts: users.map((user) => {
+      const lastSignIn = user.metadata?.lastSignInTime;
+      const millis = Date.parse(lastSignIn);
+      return {
+        uid: user.uid,
+        emailVerified: user.emailVerified === true,
+        lastSignInMs: Number.isFinite(millis) ? millis : null,
+      };
+    }),
+  };
 }
 
 function eventRecord({ FieldValue, now, action, actorUid, actorEmail, targetUid, target, extra = {} }) {

@@ -141,6 +141,16 @@ test("search, filter and order produce identical results for both views", () => 
   assert.match(CODE, /const paging = paginateClinics\(filteredClinics, currentPage\);/);
 });
 
+test("search ignores surrounding spaces and matches the displayed area and email", () => {
+  const list = [
+    clinic({ id: "CLN-1", name: "Alpha Clinic", area: "North District", email: "alpha@example.test" }),
+    clinic({ id: "CLN-2", name: "Bravo Medical", area: "South District", email: "bravo@example.test" }),
+  ];
+  for (const searchTerm of ["  Alpha Clinic  ", "north district", "ALPHA@example.test"]) {
+    assert.deepEqual(selectVisibleClinics(list, { searchTerm }).map((c) => c.id), ["CLN-1"]);
+  }
+});
+
 test("switching views opens no second subscription and resets nothing", () => {
   // One listener, re-opened only by Retry — never by the view.
   assert.equal((CODE.match(/subscribeClinics\(/g) || []).length, 1);

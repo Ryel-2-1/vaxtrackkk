@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
+  filterDoctors,
   normalizeDoctorName,
   validateDoctorName,
 } from "../src/services/doctorModel.js";
@@ -12,6 +13,17 @@ test("doctor names normalize spacing, case and Unicode consistently", () => {
   assert.equal(normalizeDoctorName("  Dr.  MARIA Santos "), "dr. maria santos");
   assert.equal(normalizeDoctorName("Ｄｒ． Ana Cruz"), "dr. ana cruz");
   assert.equal(normalizeDoctorName(null), "");
+});
+
+test("doctor search matches name and area within the selected archive filter", () => {
+  const doctors = [
+    { id: "a", name: "Dr. Maria Santos", area: "North District", active: true },
+    { id: "b", name: "Dr. Maria Santos", area: "South District", active: false },
+  ];
+  assert.deepEqual(filterDoctors(doctors, "  MARIA   Santos ", "active").map((d) => d.id), ["a"]);
+  assert.deepEqual(filterDoctors(doctors, "south", "all").map((d) => d.id), ["b"]);
+  assert.deepEqual(filterDoctors(doctors, "maria", "archived").map((d) => d.id), ["b"]);
+  assert.deepEqual(filterDoctors(doctors, "south", "active"), []);
 });
 
 test("doctor validation preserves a clean display name", () => {

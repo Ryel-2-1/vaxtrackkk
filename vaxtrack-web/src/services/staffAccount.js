@@ -25,12 +25,20 @@ import { normalizeStatus, STATUSES } from "./authorization.js";
 import { timestampMs } from "./deliveryMetrics.js";
 
 const accountDateFormat = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeZone: "Asia/Manila" });
+const lastSignInFormat = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila" });
 
 export function formatStaffCreatedDate(value) {
   const millis = timestampMs(value);
   if (!Number.isFinite(millis)) return "—";
   const date = new Date(millis);
   return Number.isFinite(date.getTime()) ? accountDateFormat.format(date) : "—";
+}
+
+export function formatStaffLastSignIn(value) {
+  if (value === null) return "Never signed in";
+  if (!Number.isFinite(value)) return "Unavailable";
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? lastSignInFormat.format(date) : "Unavailable";
 }
 
 export const STAFF_STATUS = Object.freeze({

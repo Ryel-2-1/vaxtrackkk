@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { signOut } from "firebase/auth";
 import { doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
 import { auth, db } from "../../firebase";
 import { friendlyErrorMessage, logSafeError } from "../../services/liveDataErrors";
@@ -11,6 +10,7 @@ import {
   termsAcceptanceFields,
 } from "../../services/termsAgreement";
 import TermsContent from "./TermsContent";
+import LogoutConfirmation from "../shell/LogoutConfirmation";
 import "./terms.css";
 
 /**
@@ -33,6 +33,7 @@ export default function TermsGate({ children }) {
   const [ticked, setTicked] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [confirmLogout, setConfirmLogout] = useState(false);
   const savingRef = useRef(false);
   const titleRef = useRef(null);
 
@@ -101,7 +102,7 @@ export default function TermsGate({ children }) {
         </label>
         {error && <p id="terms-gate-error" className="terms-error" role="alert">{error}</p>}
         <div className="terms-gate-actions">
-          <button type="button" className="terms-btn terms-btn-quiet" disabled={saving} onClick={() => signOut(auth)}>
+          <button type="button" className="terms-btn terms-btn-quiet" disabled={saving} onClick={() => setConfirmLogout(true)}>
             Sign out
           </button>
           <button type="submit" className="terms-btn terms-btn-primary" disabled={saving}>
@@ -109,6 +110,7 @@ export default function TermsGate({ children }) {
           </button>
         </div>
       </form>
+      {confirmLogout && <LogoutConfirmation onCancel={() => setConfirmLogout(false)} />}
     </main>
   );
 }

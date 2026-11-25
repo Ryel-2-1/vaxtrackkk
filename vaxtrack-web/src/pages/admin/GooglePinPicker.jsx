@@ -150,7 +150,11 @@ function GooglePinPicker({ lat, lng, radius, disabled, onPick, onUseAddress, onU
     lib.maps
       .importLibrary("places")
       .then(({ PlaceAutocompleteElement }) => {
-        if (cancelled || !searchRef.current || !PlaceAutocompleteElement) return;
+        if (cancelled || !searchRef.current) return;
+        if (!PlaceAutocompleteElement) {
+          setSearchState("unavailable");
+          return;
+        }
         element = new PlaceAutocompleteElement({ includedRegionCodes: ["ph"] });
         element.id = `${idPrefix}-place-search`;
         element.setAttribute("placeholder", "Search the clinic name or address");
