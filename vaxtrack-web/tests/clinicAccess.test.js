@@ -121,7 +121,9 @@ test("the dialog starts from who reaches the clinic now, including an inactive d
 
 test("wiring: writes only through the existing transactional services; the page shows reach and offers Manage access", () => {
   const svc = read("src/services/clinicAccessService.js");
-  assert.match(svc, /import \{ updateMedRepTerritory \} from "\.\/userService";/);
+  assert.match(svc, /import \{ updateMedRepClinicAccess \} from "\.\/userService";/);
+  assert.match(svc, /updateMedRepClinicAccess\(rep\.uid, clinicDocId, true\)/);
+  assert.match(svc, /updateMedRepClinicAccess\(rep\.uid, clinicDocId, false\)/);
   assert.match(svc, /import \{ addDoctorAddress, setDoctorAddressActive \} from "\.\/doctorAddressService";/);
   assert.equal(/\b(setDoc|updateDoc|addDoc|writeBatch|runTransaction)\(|firebase\/firestore/.test(svc), false, "no direct Firestore writes");
   const pure = read("src/services/clinicAccess.js");
