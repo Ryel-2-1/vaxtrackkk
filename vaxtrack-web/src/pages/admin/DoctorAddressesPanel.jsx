@@ -86,6 +86,7 @@ function DoctorAddressesPanel({
   const busy = Boolean(savingTarget || updatingId);
   const masterDataLoading = clinicsLoading || areasLoading;
   const clinicMasterDataError = clinicLoadError || areaLoadError;
+  const homeSaveError = homeErrors.form || Object.values(homeErrors).join(" ") || areaLoadError;
 
   const activeAreas = useMemo(
     () => areas.filter((area) => area.active === true),
@@ -466,9 +467,9 @@ function DoctorAddressesPanel({
                   emptyMessage="No pin placed yet. A verified map location is required before the Home address can be saved."
                 />
 
-                {(homeErrors.form || areaLoadError) && (
+                {homeSaveError && (
                   <p className="clinics-area-error" role="alert">
-                    {homeErrors.form || areaLoadError}
+                    {homeSaveError}
                   </p>
                 )}
 

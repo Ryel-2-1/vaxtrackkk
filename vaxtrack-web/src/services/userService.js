@@ -9,7 +9,7 @@ import {
 import { auth, db } from "../firebase";
 import { canChangeStaffStatus, statusChangeRefusal } from "./staffAccount";
 import { SELF_EDITABLE_FIELDS } from "./profileModel";
-import { validateTerritoryAssignment } from "./territory";
+import { readTerritory, uniqueIds, validateTerritoryAssignment } from "./territory";
 import { UserMessageError } from "./userMessageError.js";
 import { logSafeError } from "./liveDataErrors.js";
 import { listenLive } from "./liveSnapshot.js";
@@ -149,6 +149,15 @@ export class TerritoryAssignmentError extends UserMessageError {
  * re-checks the territory itself.
  */
 export async function updateMedRepTerritory(uid, { areaIds, clinicIds }) {
+  return saveMedRepTerritory(uid, { areaIds, clinicIds });
+}
+
+/** Apply one clinic link to the territory saved at the time of the transaction. */
+export async function updateMedRepClinicAccess(uid, clinicId, linked) {
+  return saveMedRepTerritory(uid, null, { clinicId, linked });
+}
+
+async function saveMedRepTerritory(uid, assignment, clinicAccess) {
   const adminUid = auth.currentUser?.uid;
   if (!adminUid) throw new TerritoryAssignmentError(["Your session has expired. Please sign in again."]);
   const userRef = doc(db, USERS_COLLECTION, uid);
@@ -161,17 +170,43 @@ export async function updateMedRepTerritory(uid, { areaIds, clinicIds }) {
       throw new TerritoryAssignmentError(["Territory can only be assigned to a Med Rep."]);
     }
 
-    const wantedAreas = [...new Set((areaIds || []).filter((id) => typeof id === "string" && id.trim()))];
-    const wantedClinics = [...new Set((clinicIds || []).filter((id) => typeof id === "string" && id.trim()))];
-    const areas = [];
-    for (const id of wantedAreas) {
-      const snap = await transaction.get(doc(db, "areas", id));
-      if (snap.exists()) areas.push({ ...snap.data(), id: snap.id });
+    const current = readTerritory(user);
+    let wantedAreas = uniqueIds(assignment?.areaIds);
+    let wantedClinics = uniqueIds(assignment?.clinicIds);
+    if (clinicAccess) {
+      wantedAreas = current.areaIds;
+      wantedClinics = clinicAccess.linked
+        ? uniqueIds([...current.clinicIds, clinicAccess.clinicId])
+        : current.clinicIds.filter((id) => id !== clinicAccess.clinicId);
     }
-    const clinics = [];
-    for (const id of wantedClinics) {
-      const snap = await transaction.get(doc(db, "clinics", id));
-      if (snap.exists()) clinics.push({ ...snap.data(), id: snap.id });
+
+    const readRecords = async (path, ids) => {
+      const snapshots = await Promise.all(ids.map((id) => transaction.get(doc(db, path, id))));
+      return snapshots.filter((snap) => snap.exists()).map((snap) => ({ ...snap.data(), id: snap.id }));
+    };
+    const clinics = await readRecords("clinics", wantedClinics);
+    const linkedClinic = clinicAccess?.linked ? clinics.find((c) => c.id === clinicAccess.clinicId) : null;
+    if (clinicAccess?.linked) {
+      if (user.status !== "approved") throw new TerritoryAssignmentError(["Only approved Med Reps can be linked to clinics."]);
+      if (!linkedClinic) throw new TerritoryAssignmentError(["The selected clinic no longer exists."]);
+      if (linkedClinic.locationVerified !== true) {
+        throw new TerritoryAssignmentError(["Save the clinic's verified map pin before linking it."]);
+      }
+      wantedAreas = uniqueIds([...wantedAreas, linkedClinic.areaId]);
+    }
+
+    const areas = await readRecords("areas", wantedAreas);
+    if (clinicAccess) {
+      const existingAreaIds = new Set(areas.map((area) => area.id));
+      if (linkedClinic && !areas.some((area) => area.id === linkedClinic.areaId && area.active === true)) {
+        throw new TerritoryAssignmentError(["The selected clinic must belong to an active area."]);
+      }
+
+      // A deleted document cannot grant access. Clean up those stale links,
+      // including any clinic left behind in a deleted assigned area.
+      const deletedAreaIds = new Set(wantedAreas.filter((id) => !existingAreaIds.has(id)));
+      wantedAreas = wantedAreas.filter((id) => existingAreaIds.has(id));
+      wantedClinics = clinics.filter((clinic) => !deletedAreaIds.has(clinic.areaId)).map((clinic) => clinic.id);
     }
 
     const check = validateTerritoryAssignment({

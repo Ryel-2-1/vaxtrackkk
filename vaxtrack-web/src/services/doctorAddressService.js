@@ -295,10 +295,8 @@ export async function saveDoctorHomeAddress(doctorId, input) {
 
   await runTransaction(db, async (transaction) => {
     const existingSnapshot = await transaction.get(homeRef);
-    if (
-      existingSnapshot.exists() &&
-      existingSnapshot.data().kind !== HOME_ADDRESS_ID
-    ) {
+    const existing = existingSnapshot.data();
+    if (existingSnapshot.exists() && existing.kind !== HOME_ADDRESS_ID) {
       throw new UserMessageError("The reserved Home destination contains legacy data.");
     }
 
@@ -311,17 +309,19 @@ export async function saveDoctorHomeAddress(doctorId, input) {
       kind: HOME_ADDRESS_ID,
       ...check.value,
       area: areaName,
-      updatedAt: serverTimestamp(),
     };
 
     if (existingSnapshot.exists()) {
+      // The rules require a changed address field, so unchanged saves need no write.
+      if (Object.entries(values).every(([key, value]) => existing[key] === value)) return;
       // Editing never changes the current Active/Inactive choice or createdAt.
-      transaction.update(homeRef, values);
+      transaction.update(homeRef, { ...values, updatedAt: serverTimestamp() });
     } else {
       transaction.set(homeRef, {
         ...values,
         active: true,
         createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
     }
   });
