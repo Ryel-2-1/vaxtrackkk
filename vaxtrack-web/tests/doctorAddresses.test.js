@@ -181,7 +181,7 @@ test("Home is one editable record that preserves status and creation time", () =
   const service = read("src/services/doctorAddressService.js");
   assert.match(service, /export async function saveDoctorHomeAddress/);
   assert.match(service, /kind: HOME_ADDRESS_ID/);
-  assert.match(service, /if \(existingSnapshot\.exists\(\)\)[\s\S]*?transaction\.update\(homeRef, values\)/);
+  assert.match(service, /if \(existingSnapshot\.exists\(\)\)[\s\S]*?transaction\.update\(homeRef, \{ \.\.\.values, updatedAt: serverTimestamp\(\) \}\)/);
   assert.match(service, /active: true,[\s\S]*?createdAt: serverTimestamp\(\)/);
   assert.match(service, /setDoctorHomeAddressActive/);
   assert.match(service, /Home destination can be deactivated but not deleted/);

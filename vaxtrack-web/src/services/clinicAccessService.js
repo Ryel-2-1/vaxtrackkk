@@ -1,12 +1,11 @@
-import { updateMedRepTerritory } from "./userService";
+import { updateMedRepClinicAccess } from "./userService";
 import { addDoctorAddress, setDoctorAddressActive } from "./doctorAddressService";
 import { friendlyErrorMessage, logSafeError } from "./liveDataErrors.js";
 
 /**
  * Apply a planClinicAccess() result. Each link is its own transaction in the
- * service the rest of the app already uses (the Territory dialog's
- * updateMedRepTerritory, Delivery addresses' doctor link writes), so every
- * check is unchanged. They are applied one after another and never rolled
+ * services that validate Med Rep territory and doctor addresses.
+ * They are applied one after another and never rolled
  * back: one failure does not undo or block the others, and each result says
  * exactly what happened, so a retry touches only what is still missing.
  *
@@ -25,11 +24,11 @@ export async function applyClinicAccess(clinicDocId, plan) {
   };
 
   for (const rep of plan.repAdds) {
-    await run("rep-add", rep.name, () => updateMedRepTerritory(rep.uid, rep.territory),
+    await run("rep-add", rep.name, () => updateMedRepClinicAccess(rep.uid, clinicDocId, true),
       rep.addsArea ? "Can now order here (the clinic's area was added to their territory)." : "Can now order here.");
   }
   for (const rep of plan.repRemovals) {
-    await run("rep-remove", rep.name, () => updateMedRepTerritory(rep.uid, rep.territory), "Can no longer order here.");
+    await run("rep-remove", rep.name, () => updateMedRepClinicAccess(rep.uid, clinicDocId, false), "Can no longer order here.");
   }
   for (const link of plan.doctorLinks) {
     await run(
