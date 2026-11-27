@@ -222,11 +222,12 @@ test("the planner UI saves only the trip route on 'Use this plan', and never reu
   // One save helper: a trip for several stops, the order's own route for one.
   assert.equal((ui.match(/saveRiderTripRoute\(/g) || []).length, 1, "one trip save call site");
   assert.equal((ui.match(/saveOrderRoute\(/g) || []).length, 1, "one single-route save call site");
-  assert.match(ui, /async function saveRoute\(ordered, plannedEtas\) \{/);
+  assert.match(ui, /async function saveRoute\(ordered, plannedEtas, verifiedRoute\) \{/);
   assert.match(ui, /await saveRiderTripRoute\(\{ \.\.\.route, stops: plannedEtas \}\);/);
   assert.match(ui, /async function usePlan\(\) \{[\s\S]*?await saveRoute\(sequenced, etas\);/);
   // Plan trip saves on its own only when every requested arrival is met; otherwise it waits for "Save anyway".
-  assert.match(ui, /if \(!result\.allMet && !force\) \{\s*setAutoResult\(\{ \.\.\.result, saved: false \}\);\s*return;\s*\}\s*await saveRoute\(ordered, result\.etas\);/);
+  assert.match(ui, /const result = await planVerifiedTrip\(/);
+  assert.match(ui, /if \(!result\.allMet && !force\) \{\s*setAutoResult\(\{ \.\.\.result, saved: false \}\);\s*return;\s*\}\s*await saveRoute\(ordered, result\.etas, result\.route\);/);
   assert.equal(/setDoc|updateDoc|addDoc|httpsCallable|finalizeRiderDispatch|updateOrderLoadedState|updateOrderStatus|localStorage|sessionStorage/.test(ui), false);
   // Entries are keyed by order AND destination revision; legs by both ends.
   assert.match(ui, /const keyOf = \(order\) => `\$\{order\.id\}@\$\{Number\.isInteger\(order\.destinationRevision\)/);

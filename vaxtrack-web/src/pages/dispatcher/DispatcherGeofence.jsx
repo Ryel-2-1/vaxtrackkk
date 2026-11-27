@@ -33,7 +33,7 @@ import {
   isRouteServiceConfigured,
   routeThroughStops,
 } from "../../services/routeService";
-import { DEADLINE_SLACK_MINUTES, arrivalCheck, bufferedMinutes, matrixMinutes, planTrip } from "../../services/timeAwareRouting";
+import { DEADLINE_SLACK_MINUTES, arrivalCheck, bufferedMinutes, planVerifiedTrip } from "../../services/timeAwareRouting";
 import { subscribeRoutingSettings } from "../../services/routingSettingsService";
 import { subscribeClinics } from "../../services/clinicService";
 import { arrivalGeofence, clinicsById, geofenceStatus } from "../../services/destinationFreshness";
@@ -60,7 +60,7 @@ function millisOf(value) {
 // Computed once — whether a valid motorcycle routing endpoint is configured.
 const ROUTE_CONFIGURED = isRouteServiceConfigured();
 // Geofence plans from the rider's live position, now. Re-optimize orders the
-// stops to meet requested arrival times (timeAwareRouting.planTrip, the same
+// stops to meet requested arrival times (the same
 // logic as Cargo Loading's Plan trip, with the departure fixed at now) and
 // replaces the saved trip. A single route reports whether its arrival meets
 // the request — one stop has no order to choose.
@@ -608,7 +608,8 @@ function DispatcherGeofence() {
       if (routing.hub) points.push(routing.hub.latLng);
       const seconds = await fetchTravelMatrix(points);
       const clock = manilaClock(new Date());
-      const result = planTrip({
+      const byId = new Map(riderStops.map((s) => [s.order.id, s]));
+      const result = await planVerifiedTrip({
         hubReturnIndex,
         stops: riderStops.map((s, i) => ({
           id: s.order.id,
@@ -618,7 +619,12 @@ function DispatcherGeofence() {
           requestedArrival: s.order.requestedArrival,
           serviceMinutes: routing.serviceMinutes,
         })),
-        minutes: matrixMinutes(seconds, routing.trafficBufferPercent),
+        seconds,
+        bufferPercent: routing.trafficBufferPercent,
+        resolveRoute: (orderIds) => routeThroughStops(riderLL, orderIds.map((id) => ({
+          orderId: id,
+          latLng: byId.get(id).latLng,
+        }))),
         planDate: clock.date,
         nowMinute: clock.minute,
         fixedDeparture: clock.minute,
@@ -629,12 +635,7 @@ function DispatcherGeofence() {
       if (!result || !result.etas) {
         throw new Error("No reachable visiting order for these stops.");
       }
-      const byId = new Map(riderStops.map((s) => [s.order.id, s]));
-      const route = await routeThroughStops(
-        riderLL,
-        result.order.map((id) => ({ orderId: id, latLng: byId.get(id).latLng }))
-      );
-      await saveRiderTripRoute({ ...route, stops: result.etas });
+      await saveRiderTripRoute({ ...result.route, stops: result.etas });
       const missed = result.plan.stops.filter((r) => r.outcome !== "ok").length;
       setTripNotice({
         riderId,

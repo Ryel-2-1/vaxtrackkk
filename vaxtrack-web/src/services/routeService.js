@@ -4,6 +4,10 @@ import { UserMessageError } from "./userMessageError.js";
 import { ROUTE_PROVIDER, ROUTE_PROFILE } from "./routeMetadata.js";
 export { ROUTE_PROVIDER, ROUTE_PROFILE } from "./routeMetadata.js";
 const ROUTING_URL = import.meta.env?.VITE_MOTORCYCLE_ROUTING_URL ?? "https://valhalla1.openstreetmap.de";
+const MAX_MATRIX_LOCATION_PAIRS = 100;
+// Keep room for at least two source rows per full batch on large trips.
+const MAX_MATRIX_TARGETS = MAX_MATRIX_LOCATION_PAIRS / 2;
+const MAX_ROUTE_LOCATIONS = 10;
 export class RouteServiceError extends UserMessageError {
   constructor(code, message) {
     super(message);
@@ -17,7 +21,7 @@ const MESSAGES = Object.freeze({
   "route-provider-error": "The routing service couldn't plan this route right now. Nothing was saved — try again in a moment.",
   "route-rate-limited": "The routing service is busy. Nothing was saved — wait a minute and try again.",
   "route-not-found": "No usable motorcycle route was found. Nothing was saved — check the locations and try again.",
-  "route-restricted": "The returned route includes a highway, toll road or ferry. It was not saved because this fleet uses motorcycles below 400 cc. Check the locations before trying again.",
+  "route-restricted": "No verified motorcycle route was found that avoids highways, toll roads and ferries. Check the stop pins and try again.",
   "route-unverified": "The service could not verify the motorcycle route restrictions. Nothing was saved — try again later.",
   "route-invalid-stops": "Check the stop locations and order references before planning this route.",
   "route-too-few-stops": "Optimizing a trip needs at least two stops with locations."
@@ -175,14 +179,24 @@ function providerShape(encoded) {
   if (points.length < 2 || !points.every(validLocation)) throw fail("route-not-found");
   return points;
 }
-export function parseMotorcycleRoute(data, legCount) {
+function shapesConnect(previous, next) {
+  return !previous.length || (Math.abs(previous.at(-1)[0] - next[0][0]) <= 0.00002 &&
+    Math.abs(previous.at(-1)[1] - next[0][1]) <= 0.00002);
+}
+
+function appendShape(points, shape) {
+  if (!shapesConnect(points, shape)) throw fail("route-not-found");
+  for (let i = points.length ? 1 : 0; i < shape.length; i++) points.push(shape[i]);
+}
+
+function readMotorcycleRoute(data, legCount) {
   noWarnings(data);
   const t = data?.trip;
   if (t?.status !== 0 || t.units !== "kilometers" || !Array.isArray(t.legs) || t.legs.length !== legCount) throw fail("route-not-found");
   checkedSummary(t.summary);
-  const points = [],
-    arrivals = [];
+  const points = [], arrivals = [];
   let elapsed = 0;
+  let length = 0;
   for (const leg of t.legs) {
     checkedSummary(leg.summary);
     if (!Array.isArray(leg.maneuvers) || !leg.maneuvers.length) throw fail("route-unverified");
@@ -190,32 +204,59 @@ export function parseMotorcycleRoute(data, legCount) {
       if (m.highway === true || m.toll === true || m.ferry === true) throw fail("route-restricted");
       if (m.travel_mode !== "drive" || m.travel_type !== "motorcycle") throw fail("route-unverified");
     }
-    const shape = providerShape(leg.shape);
-    if (points.length) {
-      const a = points.at(-1),
-        b = shape[0];
-      if (Math.abs(a[0] - b[0]) > 0.00002 || Math.abs(a[1] - b[1]) > 0.00002) throw fail("route-not-found");
-      shape.shift();
-    }
-    for (const point of shape) points.push(point);
+    appendShape(points, providerShape(leg.shape));
     elapsed += leg.summary.time;
-    arrivals.push(Math.round(elapsed));
+    length += leg.summary.length;
+    arrivals.push(elapsed);
   }
-  const length = t.legs.reduce((sum, leg) => sum + leg.summary.length, 0);
   if (Math.abs(elapsed - t.summary.time) > Math.max(1, legCount * 0.01) || Math.abs(length - t.summary.length) > Math.max(0.01, legCount * 0.002)) throw fail("route-not-found");
+  return { points, arrivals, legDuration: elapsed, distanceKm: t.summary.length, durationSeconds: t.summary.time };
+}
+
+function appendMotorcycleRoute(result, next) {
+  appendShape(result.points, next.points);
+  for (const arrival of next.arrivals) result.arrivals.push(result.legDuration + arrival);
+  result.legDuration += next.legDuration;
+  result.distanceKm += next.distanceKm;
+  result.durationSeconds += next.durationSeconds;
+}
+
+function formatMotorcycleRoute(result) {
   return {
-    polyline: encodePolyline(points),
-    distanceMeters: Math.round(t.summary.length * 1000),
-    durationSeconds: Math.round(t.summary.time),
+    polyline: encodePolyline(result.points),
+    distanceMeters: Math.round(result.distanceKm * 1000),
+    durationSeconds: Math.round(result.durationSeconds),
     provider: ROUTE_PROVIDER,
     profile: ROUTE_PROFILE,
-    arrivals
+    arrivals: result.arrivals.map(Math.round)
   };
 }
-export function parseMotorcycleMatrix(data, size) {
+
+export function parseMotorcycleRoute(data, legCount) {
+  return formatMotorcycleRoute(readMotorcycleRoute(data, legCount));
+}
+
+function fastestVerifiedLeg(data, previousShape) {
+  noWarnings({ warnings: data?.warnings });
+  const alternates = Array.isArray(data?.alternates) ? data.alternates : [];
+  let best = null, reason = null;
+  for (const trip of [data?.trip, ...alternates.map((candidate) => candidate?.trip)]) {
+    try {
+      const candidate = readMotorcycleRoute({ trip }, 1);
+      if (!shapesConnect(previousShape, candidate.points)) throw fail("route-not-found");
+      if (!best || candidate.durationSeconds < best.durationSeconds) best = candidate;
+    } catch (error) {
+      if (!(error instanceof RouteServiceError)) throw error;
+      reason ??= error;
+    }
+  }
+  if (!best) throw reason;
+  return best;
+}
+export function parseMotorcycleMatrix(data, sourceCount, targetCount = sourceCount) {
   noWarnings(data);
   const rows = data?.sources_to_targets;
-  if (!Array.isArray(rows) || rows.length !== size || rows.some(r => !Array.isArray(r) || r.length !== size)) throw fail("route-not-found");
+  if (!Array.isArray(rows) || rows.length !== sourceCount || rows.some(r => !Array.isArray(r) || r.length !== targetCount)) throw fail("route-not-found");
   return rows.map((row, i) => row.map((c, j) => {
     if (!c || c.from_index !== i || c.to_index !== j) throw fail("route-not-found");
     if (c.time === null) return Infinity;
@@ -316,7 +357,13 @@ export function createMotorcycleRouteService({
       } catch {
         throw fail("route-unreachable");
       }
-      if (!res.ok) throw fail(res.status === 429 ? "route-rate-limited" : "route-provider-error");
+      if (!res.ok) {
+        if (action === "route" && res.status === 400) {
+          const details = await res.json().catch(() => null);
+          if ([170, 171, 441, 442].includes(details?.error_code)) throw fail("route-not-found");
+        }
+        throw fail(res.status === 429 ? "route-rate-limited" : "route-provider-error");
+      }
       try {
         return await res.json();
       } catch {
@@ -328,24 +375,56 @@ export function createMotorcycleRouteService({
   }
   async function routeThrough(points) {
     if (!points.every(validLocation)) throw fail("route-invalid-stops");
-    return parseMotorcycleRoute(await request("route", {
-      ...motorcycleRequest(),
-      locations: points.map(location)
-    }), points.length - 1);
+    const result = { points: [], arrivals: [], legDuration: 0, distanceKm: 0, durationSeconds: 0 };
+    // Each section begins at the previous section's final stop. The route
+    // parser checks that the returned shapes meet before joining them.
+    for (let start = 0; start < points.length - 1; start += MAX_ROUTE_LOCATIONS - 1) {
+      const locations = points.slice(start, start + MAX_ROUTE_LOCATIONS).map(location);
+      if (locations.length > 2) {
+        try {
+          const data = await request("route", { ...motorcycleRequest(), locations });
+          appendMotorcycleRoute(result, readMotorcycleRoute(data, locations.length - 1));
+          continue;
+        } catch (error) {
+          if (error.code !== "route-restricted" && error.code !== "route-not-found") throw error;
+        }
+      }
+      // Valhalla only offers alternatives for a two-point request. When a
+      // multi-stop route contains a restricted road, try its legs separately.
+      for (let i = 0; i < locations.length - 1; i++) {
+        try {
+          const data = await request("route", { ...motorcycleRequest(), locations: locations.slice(i, i + 2), alternates: 2 });
+          appendMotorcycleRoute(result, fastestVerifiedLeg(data, result.points));
+        } catch (error) {
+          if (["route-restricted", "route-not-found", "route-unverified"].includes(error.code)) error.legIndex = start + i;
+          throw error;
+        }
+      }
+    }
+    return formatMotorcycleRoute(result);
+  }
+  // Matrix indices restart within each request. Append target batches to the
+  // original source rows so the planner still sees every directed pair.
+  async function travelMatrix(points) {
+    if (!Array.isArray(points) || points.length < 2 || !points.every(validLocation)) throw fail("route-invalid-stops");
+    const locations = points.map(location);
+    const seconds = locations.map(() => []);
+    for (let targetStart = 0; targetStart < locations.length; targetStart += MAX_MATRIX_TARGETS) {
+      const targets = locations.slice(targetStart, targetStart + MAX_MATRIX_TARGETS);
+      const sourceLimit = Math.floor(MAX_MATRIX_LOCATION_PAIRS / targets.length);
+      for (let sourceStart = 0; sourceStart < locations.length; sourceStart += sourceLimit) {
+        const sources = locations.slice(sourceStart, sourceStart + sourceLimit);
+        const data = await request("sources_to_targets", { ...motorcycleRequest(), sources, targets });
+        const rows = parseMotorcycleMatrix(data, sources.length, targets.length);
+        rows.forEach((row, index) => seconds[sourceStart + index].push(...row));
+      }
+    }
+    return seconds;
   }
   return {
     // Motorcycle travel seconds between every pair of points (Infinity when a
-    // pair is unreachable). One request; reordering stops reuses it.
-    async travelMatrix(points) {
-      if (!Array.isArray(points) || points.length < 2 || !points.every(validLocation)) throw fail("route-invalid-stops");
-      const locations = points.map(location);
-      const data = await request("sources_to_targets", {
-        ...motorcycleRequest(),
-        sources: locations,
-        targets: locations
-      });
-      return parseMotorcycleMatrix(data, points.length);
-    },
+    // pair is unreachable). Reordering stops reuses the complete result.
+    travelMatrix,
     // The route through stops in the order given (the Dispatcher's plan), not
     // reordered. `legArrivals` are cumulative riding seconds to each stop.
     async routeThroughStops(start, stops) {
@@ -373,14 +452,8 @@ export function createMotorcycleRouteService({
     async optimizeTrip(start, stops) {
       if (!Array.isArray(stops) || stops.length < 2) throw fail("route-too-few-stops");
       if (!validLocation(start) || stops.some(s => typeof s?.orderId !== "string" || !s.orderId.trim() || !validLocation(s.latLng)) || new Set(stops.map(s => s.orderId)).size !== stops.length) throw fail("route-invalid-stops");
-      const points = [start, ...stops.map(s => s.latLng)],
-        locations = points.map(location);
-      const data = await request("sources_to_targets", {
-        ...motorcycleRequest(),
-        sources: locations,
-        targets: locations
-      });
-      const order = motorcycleStopOrder(parseMotorcycleMatrix(data, points.length));
+      const points = [start, ...stops.map(s => s.latLng)];
+      const order = motorcycleStopOrder(await travelMatrix(points));
       const route = await routeThrough([start, ...order.map(i => points[i])]);
       return {
         polyline: route.polyline,
