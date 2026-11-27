@@ -8,6 +8,10 @@ const MAX_MATRIX_LOCATION_PAIRS = 100;
 // Keep room for at least two source rows per full batch on large trips.
 const MAX_MATRIX_TARGETS = MAX_MATRIX_LOCATION_PAIRS / 2;
 const MAX_ROUTE_LOCATIONS = 10;
+const MAX_DETOUR_ATTEMPTS = 2;
+const MAX_EXCLUDED_LOCATIONS = 48;
+const EXCLUSIONS_PER_ATTEMPT = 32;
+const RESTRICTED_EDGE_ATTRIBUTES = ["shape", "edge.begin_shape_index", "edge.end_shape_index", "edge.road_class", "edge.use", "edge.toll"];
 export class RouteServiceError extends UserMessageError {
   constructor(code, message) {
     super(message);
@@ -21,7 +25,7 @@ const MESSAGES = Object.freeze({
   "route-provider-error": "The routing service couldn't plan this route right now. Nothing was saved — try again in a moment.",
   "route-rate-limited": "The routing service is busy. Nothing was saved — wait a minute and try again.",
   "route-not-found": "No usable motorcycle route was found. Nothing was saved — check the locations and try again.",
-  "route-restricted": "No verified motorcycle route was found that avoids highways, toll roads and ferries. Check the stop pins and try again.",
+  "route-restricted": "No verified motorcycle detour was found. Check that the rider's location and the destination entrance are reachable from a road this fleet can use.",
   "route-unverified": "The service could not verify the motorcycle route restrictions. Nothing was saved — try again later.",
   "route-invalid-stops": "Check the stop locations and order references before planning this route.",
   "route-too-few-stops": "Optimizing a trip needs at least two stops with locations."
@@ -239,7 +243,7 @@ export function parseMotorcycleRoute(data, legCount) {
 function fastestVerifiedLeg(data, previousShape) {
   noWarnings({ warnings: data?.warnings });
   const alternates = Array.isArray(data?.alternates) ? data.alternates : [];
-  let best = null, reason = null;
+  let best = null, reason = null, restricted = null;
   for (const trip of [data?.trip, ...alternates.map((candidate) => candidate?.trip)]) {
     try {
       const candidate = readMotorcycleRoute({ trip }, 1);
@@ -248,10 +252,45 @@ function fastestVerifiedLeg(data, previousShape) {
     } catch (error) {
       if (!(error instanceof RouteServiceError)) throw error;
       reason ??= error;
+      const shape = trip?.legs?.[0]?.shape;
+      if (error.code === "route-restricted" && typeof shape === "string" && shape) {
+        error.restrictedShape = shape;
+        restricted ??= error;
+      }
     }
   }
-  if (!best) throw reason;
+  if (!best) throw restricted ?? reason;
   return best;
+}
+
+function exclusionKey({ lat, lon }) {
+  return `${lat.toFixed(6)},${lon.toFixed(6)}`;
+}
+
+function exclusionPoints(trace, excluded) {
+  noWarnings(trace);
+  if (!Array.isArray(trace?.edges) || !trace.shape) return [];
+  const shape = providerShape(trace.shape);
+  const existing = new Set(excluded.map(exclusionKey));
+  const candidates = [];
+  for (const edge of trace.edges) {
+    const { toll, road_class: roadClass, use, begin_shape_index: start, end_shape_index: end } = edge || {};
+    if (toll !== true && roadClass !== "motorway" && use !== "ferry" && use !== "rail_ferry" && use !== "rail-ferry") continue;
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start || end >= shape.length) continue;
+    // Use a point inside a mapped edge rather than a junction shared with
+    // other roads. A narrow search radius avoids picking adjacent streets.
+    const index = Math.floor((start + end - 1) / 2);
+    const [a, b] = [shape[index], shape[index + 1]];
+    if (a[0] === b[0] && a[1] === b[1]) continue;
+    const point = { lat: (a[0] + b[0]) / 2, lon: (a[1] + b[1]) / 2, radius: 2 };
+    const key = exclusionKey(point);
+    if (existing.has(key)) continue;
+    existing.add(key);
+    candidates.push(point);
+  }
+  const count = Math.min(candidates.length, EXCLUSIONS_PER_ATTEMPT, MAX_EXCLUDED_LOCATIONS - excluded.length);
+  // Spread the exclusions across the rejected route, including its far end.
+  return Array.from({ length: count }, (_, i) => candidates[count === 1 ? 0 : Math.round(i * (candidates.length - 1) / (count - 1))]);
 }
 export function parseMotorcycleMatrix(data, sourceCount, targetCount = sourceCount) {
   noWarnings(data);
@@ -373,6 +412,36 @@ export function createMotorcycleRouteService({
       clearTimeout(timer);
     }
   }
+
+  async function verifiedLeg(locations, previousShape) {
+    const options = { ...motorcycleRequest(), locations, alternates: 2 };
+    let data = await request("route", options);
+    const excluded = [];
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return fastestVerifiedLeg(data, previousShape);
+      } catch (error) {
+        if (!error.restrictedShape || attempt >= MAX_DETOUR_ATTEMPTS) throw error;
+        let additional;
+        try {
+          const trace = await request("trace_attributes", {
+            ...motorcycleRequest(),
+            encoded_polyline: error.restrictedShape,
+            shape_match: "edge_walk",
+            filters: { action: "include", attributes: RESTRICTED_EDGE_ATTRIBUTES },
+          });
+          additional = exclusionPoints(trace, excluded);
+        } catch (traceError) {
+          if (traceError.code === "route-unreachable" || traceError.code === "route-rate-limited") throw traceError;
+          throw error;
+        }
+        if (additional.length === 0) throw error;
+        excluded.push(...additional);
+        data = await request("route", { ...options, exclude_locations: excluded });
+      }
+    }
+  }
+
   async function routeThrough(points) {
     if (!points.every(validLocation)) throw fail("route-invalid-stops");
     const result = { points: [], arrivals: [], legDuration: 0, distanceKm: 0, durationSeconds: 0 };
@@ -393,8 +462,7 @@ export function createMotorcycleRouteService({
       // multi-stop route contains a restricted road, try its legs separately.
       for (let i = 0; i < locations.length - 1; i++) {
         try {
-          const data = await request("route", { ...motorcycleRequest(), locations: locations.slice(i, i + 2), alternates: 2 });
-          appendMotorcycleRoute(result, fastestVerifiedLeg(data, result.points));
+          appendMotorcycleRoute(result, await verifiedLeg(locations.slice(i, i + 2), result.points));
         } catch (error) {
           if (["route-restricted", "route-not-found", "route-unverified"].includes(error.code)) error.legIndex = start + i;
           throw error;
