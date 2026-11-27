@@ -162,7 +162,8 @@ test("a restricted optimized route rejects the entire result when its legs have 
   const c = client([matrix([[0, 1, 2], [1, 0, 1], [2, 1, 0]]), bad, route([A, B]), blocked]);
   await assert.rejects(() => c.optimizeTrip(A, [{ orderId: "b", latLng: B }, { orderId: "c", latLng: C }]),
     (error) => error.code === "route-restricted" && error.legIndex === 1);
-  assert.equal(c.calls.length, 4);
+  assert.equal(c.calls.length, 5);
+  assert.match(c.calls.at(-1).url, /trace_attributes$/);
   assert.ok(c.calls.every(({ body }) => body.costing === "motorcycle"));
 });
 test("invalid locations, duplicate IDs and too few stops make no request", async () => {
@@ -286,6 +287,36 @@ test("single route selects the fastest verified alternative instead of a toll sh
   const c = client([toll]);
   assert.equal((await c.fetchRoute(A, B)).durationSeconds, 80);
   assert.equal(c.calls[0].body.alternates, 2);
+});
+
+test("when every candidate uses a restricted road, retry around the mapped segments", async () => {
+  const toll = route([A, B], [30]);
+  toll.trip.summary.has_toll = true;
+  const trace = {
+    shape: encodePolyline([A, [14.334, 121.083], [14.335, 121.086], B], 6),
+    edges: [
+      { toll: false, road_class: "secondary", begin_shape_index: 0, end_shape_index: 1 },
+      { toll: true, road_class: "secondary", begin_shape_index: 1, end_shape_index: 2 },
+      { toll: false, road_class: "motorway", begin_shape_index: 2, end_shape_index: 3 },
+      { toll: true, road_class: "motorway", begin_shape_index: 2, end_shape_index: 99 },
+    ],
+  };
+  const c = client([toll, trace, route([A, B], [90])]);
+  const legal = await c.fetchRoute(A, B);
+  assert.equal(legal.durationSeconds, 90);
+  assert.deepEqual(c.calls.map(({ url }) => url.split("/").at(-1)), ["route", "trace_attributes", "route"]);
+  assert.equal(c.calls[1].body.shape_match, "edge_walk");
+  assert.equal(c.calls[1].body.encoded_polyline, toll.trip.legs[0].shape);
+  assert.deepEqual(c.calls[2].body.locations, c.calls[0].body.locations);
+  assert.equal(c.calls[2].body.costing, "motorcycle");
+  assert.deepEqual(c.calls[2].body.exclude_locations, [
+    { lat: (14.334 + 14.335) / 2, lon: (121.083 + 121.086) / 2, radius: 2 },
+    { lat: (14.335 + B[0]) / 2, lon: (121.086 + B[1]) / 2, radius: 2 },
+  ]);
+
+  const stillBlocked = client([toll, trace, toll, trace]);
+  await rejectsCode(() => stillBlocked.fetchRoute(A, B), "route-restricted");
+  assert.equal(stillBlocked.calls.length, 4, "the same rejected segments never trigger another identical request");
 });
 
 test("ten stops join overlapping route sections and keep the cumulative arrival times", async () => {
