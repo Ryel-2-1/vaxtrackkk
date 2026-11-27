@@ -308,13 +308,22 @@ function SalesRepPlaceOrder() {
   const { profile: ownProfile, loading: profileLoading } = useOwnProfile();
   const territory = useMemo(() => readTerritory(ownProfile), [ownProfile]);
 
-  // Fetch the reachable destinations again whenever the active-doctor list
-  // changes. The effect only fetches; state changes come from its callbacks.
-  const activeDoctorKey = doctors
+  // Fetch the reachable destinations again whenever the active-doctor list,
+  // the clinics or this Med Rep's territory change: the server list is not
+  // live, so a clinic registered or linked while this page is open would
+  // otherwise stay missing until a reload. The effect only fetches; state
+  // changes come from its callbacks.
+  const activeDoctorIds = doctors
     .filter((doctor) => doctor.active === true)
     .map((doctor) => doctor.id)
     .sort()
     .join("|");
+  const clinicsKey = clinics
+    .map((clinic) => `${clinic.id}:${clinic.locationVerified === true}:${clinic.areaId ?? ""}`)
+    .sort()
+    .join("|");
+  const territoryKey = `${[...territory.areaIds].sort().join(",")}/${[...territory.clinicIds].sort().join(",")}`;
+  const activeDoctorKey = activeDoctorIds ? `${activeDoctorIds}#${clinicsKey}#${territoryKey}` : "";
   useEffect(() => {
     if (!activeDoctorKey) return undefined;
     let current = true;
