@@ -1,5 +1,5 @@
 /**
- * Time-aware trip planning — pure and dependency-free (no Firebase, no fetch).
+ * Time-aware trip planning and scoring, independent of Firebase and HTTP.
  *
  * Joins the two halves the app already had:
  *   - Valhalla motorcycle travel times (routeService.travelMatrix), and
@@ -31,6 +31,7 @@ export const EXACT_ORDER_LIMIT = 7;
 // finding the doctor). A fixed default, not yet an Admin setting.
 export const DEADLINE_SLACK_MINUTES = 10;
 const GRID_MINUTES = 15;
+const MAX_VERIFIED_ORDERS = 3;
 
 /**
  * [lat, lng] the Rider rides to, or null. Same precedence as the server
@@ -248,13 +249,11 @@ export function plannedStopEtas(plan) {
  *   allMet: boolean,       // every requested arrival for today is met
  * }}  null when no order is fully reachable or a service time is missing
  */
-export function planTrip({
+function planStopOrder({
   stops, minutes, planDate, nowMinute = null, allowWaiting = true,
   slackMinutes = DEADLINE_SLACK_MINUTES, fixedDeparture = null, longWaitMinutes = null, travelNote = null,
   hubReturnIndex,
-}) {
-  const suggestion = suggestStopOrder({ stops, minutes, planDate, nowMinute, allowWaiting, slackMinutes, fixedDeparture });
-  if (!suggestion) return null;
+}, suggestion) {
   const byId = new Map(stops.map((s) => [s.id, s]));
   const ordered = suggestion.order.map((id) => byId.get(id));
   const legs = legMinutes(minutes, ordered.map((s) => s.matrixIndex));
@@ -280,6 +279,65 @@ export function planTrip({
     etas: plannedStopEtas(plan),
     allMet: plan.status === "feasible",
   };
+}
+
+export function planTrip(input) {
+  const { allowWaiting = true, slackMinutes = DEADLINE_SLACK_MINUTES } = input;
+  const suggestion = suggestStopOrder({ ...input, allowWaiting, slackMinutes });
+  return suggestion ? planStopOrder(input, suggestion) : null;
+}
+
+/** Verify a limited number of candidate orders against the provider's actual
+ * routes. A rejected leg informs the next search; only verified routes and
+ * the arrival times calculated from those routes can be returned for saving.
+ */
+export async function planVerifiedTrip({ seconds, bufferPercent, resolveRoute, ...input }) {
+  const options = { allowWaiting: true, slackMinutes: DEADLINE_SLACK_MINUTES, ...input };
+  const minutes = matrixMinutes(seconds, bufferPercent);
+  const indices = new Map(input.stops.map((stop, index) => [stop.id, index]));
+  const tried = new Set();
+  let best = null, bestScore = null, lastRouteError = null;
+
+  for (let attempt = 0; attempt < MAX_VERIFIED_ORDERS; attempt++) {
+    const suggestion = suggestStopOrder({ ...options, minutes });
+    if (!suggestion) break;
+    const key = JSON.stringify(suggestion.order);
+    if (tried.has(key)) break;
+    tried.add(key);
+
+    const stopIndices = suggestion.order.map((id) => indices.get(id));
+    const path = [0, ...stopIndices.map((index) => input.stops[index].matrixIndex)];
+    let route;
+    try {
+      route = await resolveRoute(suggestion.order);
+    } catch (error) {
+      const leg = error.legIndex;
+      if (!Number.isInteger(leg) || leg < 0 || leg >= stopIndices.length) throw error;
+      minutes[path[leg]][path[leg + 1]] = null;
+      lastRouteError = error;
+      continue;
+    }
+
+    const verifiedSeconds = seconds.map((row) => [...row]);
+    let previous = 0;
+    route.legArrivals.forEach((arrival, index) => {
+      const ride = arrival - previous;
+      const [from, to] = [path[index], path[index + 1]];
+      verifiedSeconds[from][to] = ride;
+      minutes[from][to] = bufferedMinutes(ride, bufferPercent);
+      previous = arrival;
+    });
+    const verifiedMinutes = matrixMinutes(verifiedSeconds, bufferPercent);
+    const candidate = planStopOrder({ ...options, minutes: verifiedMinutes }, { ...suggestion, exact: false });
+    if (!candidate.etas) continue;
+    const score = scoreOrder(input.stops, verifiedMinutes, stopIndices, { ...options, fixedDeparture: candidate.plan.evaluatedDeparture });
+    if (score && better(score, bestScore)) {
+      best = { ...candidate, route, seconds: verifiedSeconds };
+      bestScore = score;
+    }
+  }
+  if (!best && lastRouteError) throw lastRouteError;
+  return best;
 }
 
 /**
