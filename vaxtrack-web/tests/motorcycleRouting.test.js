@@ -154,12 +154,16 @@ test("larger groups preserve every stop exactly once without a forced return", (
   const times = Array.from({ length: 15 }, (_, i) => Array.from({ length: 15 }, (_, j) => Math.abs(i - j)));
   assert.deepEqual(motorcycleStopOrder(times), Array.from({ length: 14 }, (_, i) => i + 1));
 });
-test("a restricted optimized route rejects the entire result with no car retry", async () => {
+test("a restricted optimized route rejects the entire result when its legs have no legal alternate", async () => {
   const bad = route([A, B, C], [60, 70], [1, 2]);
   bad.trip.legs[1].summary.has_highway = true;
-  const c = client([matrix([[0, 1, 2], [1, 0, 1], [2, 1, 0]]), bad]);
-  await rejectsCode(() => c.optimizeTrip(A, [{ orderId: "b", latLng: B }, { orderId: "c", latLng: C }]), "route-restricted");
-  assert.equal(c.calls.length, 2);
+  const blocked = route([B, C]);
+  blocked.trip.summary.has_toll = true;
+  const c = client([matrix([[0, 1, 2], [1, 0, 1], [2, 1, 0]]), bad, route([A, B]), blocked]);
+  await assert.rejects(() => c.optimizeTrip(A, [{ orderId: "b", latLng: B }, { orderId: "c", latLng: C }]),
+    (error) => error.code === "route-restricted" && error.legIndex === 1);
+  assert.equal(c.calls.length, 4);
+  assert.ok(c.calls.every(({ body }) => body.costing === "motorcycle"));
 });
 test("invalid locations, duplicate IDs and too few stops make no request", async () => {
   const c = client([]);
@@ -224,6 +228,33 @@ test("travel matrix: one motorcycle request, every pair, unreachable kept as Inf
   await rejectsCode(() => client([]).travelMatrix([A, [99, 0]]), "route-invalid-stops");
 });
 
+test("large trips stay within Valhalla's pair limit and keep every directed travel time", async () => {
+  for (const size of [11, 51]) {
+    const points = Array.from({ length: size }, (_, index) => [14 + index / 1000, 121]);
+    const pointIndices = new Map(points.map(([lat], index) => [lat, index]));
+    const timeFromTo = (from, to) => from === size - 1 && to === 0 ? null : from * size + to;
+    let calls = 0;
+    const service = createMotorcycleRouteService({
+      waitForSlot: async () => {},
+      fetchImpl: async (_url, init) => {
+        const { sources, targets, costing } = JSON.parse(init.body);
+        assert.equal(costing, "motorcycle");
+        assert.ok(sources.length * targets.length <= 100);
+        calls++;
+        return {
+          ok: true,
+          json: async () => matrix(sources.map(({ lat: from }) => targets.map(({ lat: to }) =>
+            timeFromTo(pointIndices.get(from), pointIndices.get(to))))),
+        };
+      },
+    });
+    const expected = points.map((_, from) => points.map((_, to) => timeFromTo(from, to) ?? Infinity));
+    assert.deepEqual(await service.travelMatrix(points), expected);
+    if (size === 11) assert.equal(calls, 2, "the hub plus ten stops only needs two requests");
+    else assert.ok(calls > 2, "larger trips batch both sources and targets");
+  }
+});
+
 test("a planned trip is routed in the Dispatcher's order — never reordered — with the motorcycle checks", async () => {
   const c = client([route([A, C, B], [30, 40], [1, 2])]);
   const r = await c.routeThroughStops(A, [{ orderId: "c", latLng: C }, { orderId: "b", latLng: B }]);
@@ -235,6 +266,46 @@ test("a planned trip is routed in the Dispatcher's order — never reordered —
   assert.deepEqual(motorcycleRouteMetadata(r, true).tripRouteProfile, ROUTE_PROFILE, "saveable as a motorcycle trip");
   const restricted = route([A, C, B], [30, 40], [1, 2]);
   restricted.trip.legs[1].summary.has_highway = true;
-  await rejectsCode(() => client([restricted]).routeThroughStops(A, [{ orderId: "c", latLng: C }, { orderId: "b", latLng: B }]), "route-restricted");
+  const toll = route([C, B], [40]);
+  toll.trip.summary.has_toll = true;
+  toll.alternates = [route([C, B], [120]), route([C, B], [100])];
+  const fallback = client([restricted, route([A, C], [30]), toll]);
+  const legal = await fallback.routeThroughStops(A, [{ orderId: "c", latLng: C }, { orderId: "b", latLng: B }]);
+  assert.deepEqual(fallback.calls.map(({ body }) => body.alternates), [undefined, 2, 2]);
+  assert.deepEqual(legal.legArrivals, [30, 130]);
+  assert.deepEqual(decodePolyline(legal.polyline), [A, C, B]);
   await rejectsCode(() => client([]).routeThroughStops(A, [{ orderId: "c", latLng: C }, { orderId: "c", latLng: B }]), "route-invalid-stops");
+});
+
+test("single route selects the fastest verified alternative instead of a toll shortcut", async () => {
+  const toll = route([A, B], [25]);
+  toll.trip.summary.has_toll = true;
+  const ferry = route([A, B], [35]);
+  ferry.trip.legs[0].summary.has_ferry = true;
+  toll.alternates = [ferry, route([A, B], [80])];
+  const c = client([toll]);
+  assert.equal((await c.fetchRoute(A, B)).durationSeconds, 80);
+  assert.equal(c.calls[0].body.alternates, 2);
+});
+
+test("ten stops join overlapping route sections and keep the cumulative arrival times", async () => {
+  const points = Array.from({ length: 11 }, (_, index) => [14 + index / 1000, 121]);
+  const stops = points.slice(1).map((latLng, index) => ({ orderId: `stop-${index + 1}`, latLng }));
+  const firstSection = route(points.slice(0, 10), Array(9).fill(60.6), Array(9).fill(0.1004));
+  const lastSection = route(points.slice(9), [60.6], [0.1004]);
+  const c = client([firstSection, lastSection]);
+  const result = await c.routeThroughStops(points[0], stops);
+
+  assert.deepEqual(c.calls.map(({ body }) => body.locations.length), [10, 2]);
+  assert.deepEqual(c.calls[0].body.locations.at(-1), c.calls[1].body.locations[0]);
+  assert.deepEqual(decodePolyline(result.polyline), points);
+  assert.deepEqual(result.legArrivals, stops.map((_, index) => Math.round((index + 1) * 60.6)));
+  assert.equal(result.distanceMeters, 1004);
+  assert.equal(result.durationSeconds, 606);
+
+  const disconnected = route([points[8], points[10]], [60.6], [0.1004]);
+  await rejectsCode(() => client([firstSection, disconnected]).routeThroughStops(points[0], stops), "route-not-found");
+  const restricted = structuredClone(lastSection);
+  restricted.trip.summary.has_toll = true;
+  await rejectsCode(() => client([firstSection, restricted]).routeThroughStops(points[0], stops), "route-restricted");
 });
