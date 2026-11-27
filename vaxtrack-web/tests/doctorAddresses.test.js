@@ -278,6 +278,12 @@ test("changing the checkout doctor clears its destination without an effect rese
   assert.match(checkout, /addressesByDoctor\[selectedDoctorId\] \?\? EMPTY_ADDRESSES/);
   assert.match(checkout, /const addressesLoading = !!selectedDoctorId && !addressesReady;/);
 
+  // 4. The server list is not live: a clinic registered or linked, or a
+  //    territory change, while Place Order is open must trigger a re-fetch.
+  assert.match(checkout, /const activeDoctorKey = activeDoctorIds \? `\$\{activeDoctorIds\}#\$\{clinicsKey\}#\$\{territoryKey\}` : "";/);
+  assert.match(checkout, /const clinicsKey = clinics\s*\n\s*\.map\(\(clinic\) => `\$\{clinic\.id\}:\$\{clinic\.locationVerified === true\}:\$\{clinic\.areaId \?\? ""\}`\)/);
+  assert.match(checkout, /const territoryKey = `\$\{\[\.\.\.territory\.areaIds\]\.sort\(\)\.join\(","\)\}\/\$\{\[\.\.\.territory\.clinicIds\]\.sort\(\)\.join\(","\)\}`;/);
+
   // 4. The doctor changes in ONE place, which also clears the old destination
   //    and drops any destination still waiting to be restored.
   const handler = /const handleDoctorChange = \(doctorId\) => \{([\s\S]*?)\n {2}\};/.exec(checkout);
