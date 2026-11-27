@@ -32,6 +32,7 @@ function client(responses, options = {}) {
       calls.push({ url, ...init, body: JSON.parse(init.body) });
       const response = responses.shift();
       if (response instanceof Error) throw response;
+      if (response instanceof Response) return response;
       return { ok: true, json: async () => response };
     },
     ...options,
@@ -49,8 +50,11 @@ test("single route requests motorcycle costing, safe snapping and identified pub
   assert.equal(c.calls[0].method, "POST");
   assert.equal(c.calls[0].headers["X-Client-Id"], "vaxtrack-capstone");
   assert.equal(c.calls[0].body.costing, "motorcycle");
+  // Below 400 cc: national highways allowed; expressways, tolls and ferries
+  // are hard-excluded from the search.
   assert.deepEqual(c.calls[0].body.costing_options.motorcycle, {
-    use_highways: 0, use_tolls: 0, use_ferry: 0, use_trails: 0,
+    use_highways: 1, use_tolls: 0, use_ferry: 0, use_trails: 0,
+    exclude_tolls: true, exclude_highways: true, exclude_ferries: true,
   });
   assert.deepEqual(c.calls[0].body.locations[0], {
     lat: A[0], lon: A[1], search_filter: { max_road_class: "trunk", exclude_toll: true, exclude_ferry: true },
@@ -96,13 +100,20 @@ test("maneuver restrictions and non-motorcycle fallback responses are rejected",
 });
 test("warnings, missing restriction evidence and malformed outputs fail closed", () => {
   for (const mutate of [
-    d => { d.trip.warnings = [{ code: 208 }]; },
+    d => { d.trip.warnings = [{ code: 208 }, { code: 100 }]; },
     d => { d.warnings = [{ code: 1 }]; },
+    d => { d.trip.warnings = "208"; },
     d => { d.trip.legs[0].maneuvers = []; },
   ]) {
     const d = route(); mutate(d);
     throwsCode(() => parseMotorcycleRoute(d, 1), "route-unverified");
   }
+  // 208 = the server downgraded our exclude_* options. The path is still
+  // checked, so a toll-free route is accepted and a toll route is not.
+  const downgraded = route(); downgraded.trip.warnings = [{ code: 208, text: "ignoring hard excludes" }];
+  assert.equal(parseMotorcycleRoute(downgraded, 1).durationSeconds, 60);
+  const tollAnyway = route(); tollAnyway.trip.warnings = [{ code: 208 }]; tollAnyway.trip.summary.has_toll = true;
+  throwsCode(() => parseMotorcycleRoute(tollAnyway, 1), "route-restricted");
   for (const mutate of [
     d => { d.trip.units = "miles"; },
     d => { d.trip.summary.time = NaN; },
@@ -165,6 +176,22 @@ test("a restricted optimized route rejects the entire result when its legs have 
   assert.equal(c.calls.length, 5);
   assert.match(c.calls.at(-1).url, /trace_attributes$/);
   assert.ok(c.calls.every(({ body }) => body.costing === "motorcycle"));
+});
+test("a trip that cannot reach a stop without a toll road names that stop and saves nothing", async () => {
+  const bad = route([A, B, C], [60, 70], [1, 2]);
+  bad.trip.legs[1].summary.has_toll = true;
+  bad.trip.summary.has_toll = true;
+  const blocked = route([B, C]);
+  blocked.trip.summary.has_toll = true;
+  const c = client([bad, route([A, B]), blocked, new Response("{}", { status: 500 })]);
+  await assert.rejects(
+    () => c.routeThroughStops(A, [
+      { orderId: "b", latLng: B, label: "Clinic Bravo" },
+      { orderId: "c", latLng: C, label: "Clinic Charlie" },
+    ]),
+    (error) => error.code === "route-restricted" && error.legIndex === 1 && error.stopOrderId === "c"
+      && error.message.startsWith("Clinic Charlie: "),
+  );
 });
 test("invalid locations, duplicate IDs and too few stops make no request", async () => {
   const c = client([]);
@@ -306,6 +333,11 @@ test("when every candidate uses a restricted road, retry around the mapped segme
   assert.equal(legal.durationSeconds, 90);
   assert.deepEqual(c.calls.map(({ url }) => url.split("/").at(-1)), ["route", "trace_attributes", "route"]);
   assert.equal(c.calls[1].body.shape_match, "edge_walk");
+  // Matching the rejected route must be allowed onto its restricted roads.
+  assert.deepEqual(c.calls[1].body.costing_options.motorcycle, {
+    use_highways: 1, use_tolls: 0, use_ferry: 0, use_trails: 0,
+  });
+  assert.equal(c.calls[2].body.costing_options.motorcycle.exclude_tolls, true);
   assert.equal(c.calls[1].body.encoded_polyline, toll.trip.legs[0].shape);
   assert.deepEqual(c.calls[2].body.locations, c.calls[0].body.locations);
   assert.equal(c.calls[2].body.costing, "motorcycle");
@@ -317,6 +349,32 @@ test("when every candidate uses a restricted road, retry around the mapped segme
   const stillBlocked = client([toll, trace, toll, trace]);
   await rejectsCode(() => stillBlocked.fetchRoute(A, B), "route-restricted");
   assert.equal(stillBlocked.calls.length, 4, "the same rejected segments never trigger another identical request");
+});
+
+test("Valhalla 442 on the detour triggers smaller exclusion sets and keeps road restrictions", async () => {
+  const toll = route([A, B], [30]);
+  toll.trip.summary.has_toll = true;
+  const points = Array.from({ length: 14 }, (_, index) => A.map((value, axis) => value + (B[axis] - value) * index / 13));
+  const trace = {
+    shape: encodePolyline(points, 6),
+    edges: points.slice(1).map((_, index) => ({ toll: true, begin_shape_index: index, end_shape_index: index + 1 })),
+  };
+  const disconnected = () => new Response(JSON.stringify({ error_code: 442 }), { status: 400 });
+  const c = client([toll, trace, disconnected(), toll, route([A, B], [90])]);
+  assert.equal((await c.fetchRoute(A, B)).durationSeconds, 90);
+  assert.deepEqual(c.calls.slice(2).map(({ body }) => body.exclude_locations.length), [13, 7, 6]);
+  assert.ok(c.calls.slice(2).every(({ body }) => body.costing === "motorcycle" && body.locations.length === 2));
+
+  const fastest = client([toll, trace, disconnected(), route([A, B], [120]), route([A, B], [90])]);
+  assert.equal((await fastest.fetchRoute(A, B)).durationSeconds, 90);
+
+  const blocked = client([toll, trace, disconnected(), disconnected(), disconnected()]);
+  await assert.rejects(() => blocked.fetchRoute(A, B), (error) => error.code === "route-destination-toll" && error.providerCode === 442);
+  assert.equal(blocked.calls.length, 5);
+
+  const intermediateToll = { ...trace, edges: trace.edges.slice(0, -1) };
+  const unreachable = client([toll, intermediateToll, disconnected(), disconnected(), disconnected()]);
+  await assert.rejects(() => unreachable.fetchRoute(A, B), (error) => error.code === "route-not-found" && error.providerCode === 442);
 });
 
 test("ten stops join overlapping route sections and keep the cumulative arrival times", async () => {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/delivery.dart';
 import '../theme/app_theme.dart';
+import '../utils/delivery_timing.dart';
 import 'order_number_text.dart';
 import 'requested_arrival_text.dart';
 
@@ -100,8 +101,13 @@ class DashboardDeliveryCard extends StatelessWidget {
     final label = (total != null && total > 0)
         ? 'Stop ${d.stopSequence} of $total'
         : 'Stop ${d.stopSequence}';
-    final eta =
-        (d.stopEtaText ?? '').isNotEmpty ? ' · ETA ${d.stopEtaText}' : '';
+    final planned = (d.stopEtaText ?? '').trim();
+    final dispatch = dispatchEtaText(d.status, d.expectedArrivalAt);
+    final text = [
+      label,
+      if (dispatch != null) 'ETA at dispatch $dispatch',
+      if (planned.isNotEmpty && planned != dispatch) 'Planned $planned',
+    ].join(' · ');
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
@@ -117,7 +123,7 @@ class DashboardDeliveryCard extends StatelessWidget {
           // overflowing it on a narrow phone.
           Flexible(
             child: Text(
-              '$label$eta',
+              text,
               style: const TextStyle(
                   fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.info),
             ),

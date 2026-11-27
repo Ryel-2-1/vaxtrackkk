@@ -356,7 +356,7 @@ function DeparturePlanner({ orders, riderName, routing = null, onReturnPlanChang
     }
     const route = verifiedRoute ?? await routeThroughStops(
       hub.latLng,
-      ordered.map((order) => ({ orderId: order.id, latLng: stopLatLng(order) }))
+      ordered.map((order) => ({ orderId: order.id, latLng: stopLatLng(order), label: stopName(order) }))
     );
     await saveRiderTripRoute({ ...route, stops: plannedEtas });
   }
@@ -417,6 +417,7 @@ function DeparturePlanner({ orders, riderName, routing = null, onReturnPlanChang
         resolveRoute: (orderIds) => routeThroughStops(hub.latLng, orderIds.map((id) => ({
           orderId: id,
           latLng: stopLatLng(ordersById.get(id)),
+          label: stopName(ordersById.get(id)),
         }))),
         planDate: clock.date,
         nowMinute: clock.minute,
@@ -616,6 +617,13 @@ function DeparturePlanner({ orders, riderName, routing = null, onReturnPlanChang
               Sort by requested time
             </button>
           </div>
+
+          {Number.isInteger(plan.stops[0]?.arrival) && (
+            <p className="dp-hint" role="status">
+              First stop ETA {formatMinute(plan.stops[0].arrival) || "after midnight"}
+              {plan.stops[0].wait > 0 && ` · Handoff at ${formatMinute(plan.stops[0].serviceStart)}`}
+            </p>
+          )}
 
           <div className="dp-table-wrap">
             <table className="dp-table">

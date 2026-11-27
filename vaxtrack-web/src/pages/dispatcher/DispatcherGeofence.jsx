@@ -32,6 +32,7 @@ import {
   formatEta,
   isRouteServiceConfigured,
   routeThroughStops,
+  savedOrderRouteEta,
 } from "../../services/routeService";
 import { DEADLINE_SLACK_MINUTES, arrivalCheck, bufferedMinutes, planVerifiedTrip } from "../../services/timeAwareRouting";
 import { subscribeRoutingSettings } from "../../services/routingSettingsService";
@@ -46,7 +47,7 @@ import DispatcherDialogLayer from "./DispatcherDialogLayer";
 import TimingIndicator from "../../components/ui/TimingIndicator";
 import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import { savedRouteDescription } from "../../services/routeMetadata.js";
-import { isRunningLate, manilaTime } from "../../services/deliveryTiming";
+import { dispatchArrivalTime, isRunningLate, manilaTime } from "../../services/deliveryTiming";
 import { manilaClock, requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
 
 /** Epoch ms of a Firestore Timestamp / Date / number, or null. */
@@ -526,6 +527,8 @@ function DispatcherGeofence() {
     };
   }, [selectedOrder, live.location]);
   const routeMonitoring = deviationDisplayState(live.deviation);
+  const dispatchEta = dispatchArrivalTime(selected);
+  const savedEta = selected?.tripPolyline ? selected.stopEtaText : savedOrderRouteEta(selected);
 
   const routeBusy = !!selected && busyOrderId === selected.id;
   const activeRouteError =
@@ -624,6 +627,7 @@ function DispatcherGeofence() {
         resolveRoute: (orderIds) => routeThroughStops(riderLL, orderIds.map((id) => ({
           orderId: id,
           latLng: byId.get(id).latLng,
+          label: byId.get(id).order.clinicName || byId.get(id).order.orderNumber || "Destination",
         }))),
         planDate: clock.date,
         nowMinute: clock.minute,
@@ -857,9 +861,7 @@ function DispatcherGeofence() {
                     const genAt = selected.routeGeneratedAt?.toDate
                       ? selected.routeGeneratedAt.toDate()
                       : null;
-                    const liveEta = genAt
-                      ? formatEta(genAt, selected.routeDurationSeconds)
-                      : selected.routeEtaText || "—";
+                    const plannedEta = savedOrderRouteEta(selected);
                     const canGenerate = !!clinicLL && fixIsFresh; // rider location present here
                     return (
                       <div className="geo3-live-route">
@@ -883,8 +885,11 @@ function DispatcherGeofence() {
                               </strong>
                             </div>
                             <div>
-                              <small>ETA</small>
-                              <strong className="tnum">{liveEta}</strong>
+                              <small>{dispatchEta ? "ETA at dispatch" : "Saved ETA"}</small>
+                              <strong className="tnum">{dispatchEta || plannedEta}</strong>
+                              {dispatchEta && plannedEta !== "—" && plannedEta !== dispatchEta && (
+                                <small>Saved ETA {plannedEta}</small>
+                              )}
                             </div>
                           </div>
                         )}
@@ -898,7 +903,7 @@ function DispatcherGeofence() {
                           return check ? (
                             <p className={check.met || check.early ? "geo3-live-route-sub" : "geo3-live-route-error"} role="status">
                               {check.met ? "✓ " : check.early ? "" : "✗ "}
-                              {check.text} With a {routing.trafficBufferPercent}% traffic buffer.
+                              {check.text} Based on leaving when the route was generated, with a {routing.trafficBufferPercent}% traffic buffer.
                             </p>
                           ) : null;
                         })()}
@@ -1110,9 +1115,8 @@ function DispatcherGeofence() {
                         <div>
                           <span>Requested arrival</span>
                           <strong>{requestedScheduleLabel(selected.requestedDeliveryDate, requestedArrivalOf(selected))}</strong>
-                          {millisOf(selected.expectedArrivalAt) !== null && (
-                            <p>Estimated arrival at dispatch: {manilaTime(millisOf(selected.expectedArrivalAt))}</p>
-                          )}
+                          {dispatchEta && <p>Estimated arrival at dispatch: {dispatchEta}</p>}
+                          {savedEta && savedEta !== "—" && savedEta !== dispatchEta && <p>Saved ETA {savedEta}</p>}
                           {millisOf(selected.dispatchedAt) !== null && (
                             <p>Left the hub: {manilaTime(millisOf(selected.dispatchedAt))}</p>
                           )}

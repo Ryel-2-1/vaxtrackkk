@@ -24,6 +24,7 @@ Delivery delivery({
   int? stopSequence,
   int? tripStopCount,
   String? stopEtaText,
+  DateTime? expectedArrivalAt,
 }) =>
     Delivery(
       id: 'doc1',
@@ -40,6 +41,7 @@ Delivery delivery({
       stopSequence: stopSequence,
       tripStopCount: tripStopCount,
       stopEtaText: stopEtaText,
+      expectedArrivalAt: expectedArrivalAt,
     );
 
 /// Pump [card] in a phone of logical [width], under the app theme and the
@@ -235,6 +237,28 @@ void main() {
       expect(find.textContaining('Stop 3 of 12'), findsOneWidget);
       // "Delivered" appears twice: the status badge and the delivered row.
       expect(find.text('Delivered'), findsNWidgets(2));
+    });
+
+    testWidgets('trip stop shows its dispatch ETA alongside the saved plan',
+        (tester) async {
+      await pumpCard(
+        tester,
+        DashboardDeliveryCard(
+          delivery: delivery(
+            status: 'in_transit',
+            statusLabel: 'In Transit',
+            tripId: 't1',
+            stopSequence: 1,
+            tripStopCount: 2,
+            stopEtaText: '7:10 PM',
+            expectedArrivalAt: DateTime.utc(2026, 11, 25, 10, 40),
+          ),
+        ),
+        width: 320,
+      );
+
+      expect(find.text('Stop 1 of 2 · ETA at dispatch 6:40 PM · Planned 7:10 PM'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
   });
 

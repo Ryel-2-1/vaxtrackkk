@@ -1,4 +1,5 @@
 import { Camera, CheckCircle2, Circle, CircleAlert, Navigation, XCircle } from "lucide-react";
+import { dispatchArrivalTime } from "../../services/deliveryTiming";
 import { requestedArrivalLabel, requestedArrivalOf } from "../../services/requestedArrival";
 
 const ICONS = { delivered: CheckCircle2, proof: Camera, attention: CircleAlert, cancelled: XCircle };
@@ -32,20 +33,28 @@ export default function TripProgress({ progress, riderName, selectedId }) {
       </div>
       <p className="stop-progress-note">The navigation target is reported by the Rider. When unavailable, the next unfinished stop follows the saved plan. Use GPS to check the reported position.</p>
       <ol className="stop-progress-list">
-        {stops.map((stop) => (
-          <li key={stop.order.id} className={`stop-progress-item is-${stop.state}${stop.navigating ? " is-navigating" : ""}`}>
-            <span className="stop-progress-number" aria-label={`Stop ${stop.order.stopSequence}`}>{stop.delivered ? <CheckCircle2 size={20} aria-hidden="true" /> : stop.order.stopSequence}</span>
-            <div className="stop-progress-details">
-              <strong>Stop {stop.order.stopSequence} · {stop.order.clinicName || "Destination"}</strong>
-              <small>{stop.order.orderNumber || "Order without a number"}{stop.order.id === selectedId ? " · Details selected" : ""}</small>
-              <div className="stop-progress-badges">
-                <StopProgressBadge progress={stop} />
-                {stop.navigating && <span className="stop-progress-nav"><Navigation size={13} aria-hidden="true" />Navigation target</span>}
+        {stops.map((stop) => {
+          const dispatchEta = dispatchArrivalTime(stop.order);
+          return (
+            <li key={stop.order.id} className={`stop-progress-item is-${stop.state}${stop.navigating ? " is-navigating" : ""}`}>
+              <span className="stop-progress-number" aria-label={`Stop ${stop.order.stopSequence}`}>{stop.delivered ? <CheckCircle2 size={20} aria-hidden="true" /> : stop.order.stopSequence}</span>
+              <div className="stop-progress-details">
+                <strong>Stop {stop.order.stopSequence} · {stop.order.clinicName || "Destination"}</strong>
+                <small>{stop.order.orderNumber || "Order without a number"}{stop.order.id === selectedId ? " · Details selected" : ""}</small>
+                <div className="stop-progress-badges">
+                  <StopProgressBadge progress={stop} />
+                  {stop.navigating && <span className="stop-progress-nav"><Navigation size={13} aria-hidden="true" />Navigation target</span>}
+                </div>
+                {stop.unfinished && (
+                  <>
+                    {dispatchEta && <small>ETA at dispatch {dispatchEta}</small>}
+                    <small>Planned arrival {stop.order.stopEtaText || "—"} · Requested: {requestedArrivalLabel(requestedArrivalOf(stop.order))}</small>
+                  </>
+                )}
               </div>
-              {stop.unfinished && <small>Planned arrival {stop.order.stopEtaText || "—"} · Requested: {requestedArrivalLabel(requestedArrivalOf(stop.order))}</small>}
-            </div>
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ol>
     </section>
   );
