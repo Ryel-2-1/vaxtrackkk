@@ -110,7 +110,8 @@ test("Geofence routing is time-aware and says what it does with requested arriva
   assert.match(page, /arrivalCheck\(selected, new Date\(genAt\.getTime\(\) \+ buffered \* 60000\)\)/);
   // Re-optimize: the shared time-aware planner, from the live position, departure = now.
   assert.match(page, /Re-optimize plans from the rider's live position now, ordering stops to meet requested arrival times, and replaces the saved trip/);
-  assert.match(page, /const result = planTrip\(\{[\s\S]*fixedDeparture: clock\.minute,[\s\S]*slackMinutes: DEADLINE_SLACK_MINUTES,/);
+  assert.match(page, /const result = await planVerifiedTrip\(\{[\s\S]*fixedDeparture: clock\.minute,[\s\S]*slackMinutes: DEADLINE_SLACK_MINUTES,/);
+  assert.match(page, /await saveRiderTripRoute\(\{ \.\.\.result\.route, stops: result\.etas \}\)/);
   assert.equal(/optimizeTrip\(/.test(page), false, "the shortest-ride-only optimizer is no longer used here");
   assert.equal((page.match(/\{ROUTE_TIMING_NOTICE\}/g) ?? []).length, 1);
   assert.equal((page.match(/\{TRIP_TIMING_NOTICE\}/g) ?? []).length, 1);

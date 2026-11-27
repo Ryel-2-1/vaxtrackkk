@@ -65,13 +65,18 @@ String formatDuration(int? seconds) {
   return rem > 0 ? '$hours h $rem min' : '$hours h';
 }
 
-/// Live arrival ETA = generatedAt + durationSeconds, formatted as a clock time
-/// (e.g. "3:45 PM"). Falls back to the stored [etaText] snapshot when the
-/// generation time isn't available.
+/// Show the saved ETA. Older routes without it use generation time plus travel.
 String formatEta(DateTime? generatedAt, int? durationSeconds, String? etaText) {
+  final saved = etaText?.trim() ?? '';
+  if (RegExp(r'^(?:[1-9]|1[0-2]):[0-5]\d\s+(?:am|pm|noon|midnight)$',
+          caseSensitive: false)
+      .hasMatch(saved)) {
+    return saved;
+  }
   if (generatedAt != null && durationSeconds != null && durationSeconds > 0) {
-    final eta = generatedAt.add(Duration(seconds: durationSeconds));
+    final eta =
+        generatedAt.toUtc().add(Duration(hours: 8, seconds: durationSeconds));
     return DateFormat('h:mm a').format(eta);
   }
-  return (etaText != null && etaText.isNotEmpty) ? etaText : '—';
+  return saved.isEmpty ? '—' : saved;
 }

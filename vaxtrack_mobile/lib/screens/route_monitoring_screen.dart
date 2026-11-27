@@ -12,11 +12,13 @@ import '../theme/app_theme.dart';
 import '../tracking/tracking_contract.dart';
 import '../tracking/location_write_policy.dart';
 import '../tracking/tracking_lifecycle.dart';
+import '../utils/delivery_timing.dart';
 import '../utils/deviation_utils.dart';
 import '../utils/google_maps_url.dart';
 import '../utils/map_fit.dart';
 import '../utils/route_progress.dart';
 import '../utils/route_screen_state.dart';
+import '../utils/route_utils.dart' show formatEta;
 import '../utils/safe_log.dart';
 import '../utils/saved_route_plan.dart';
 import '../utils/trip_route.dart';
@@ -324,12 +326,19 @@ class _RouteMonitoringScreenState extends State<RouteMonitoringScreen> {
   // comes after it.
   Widget _nextStopCard() {
     final next = nextStopFor(d, _deliveries ?? const []);
-    final eta = (d.stopEtaText ?? '').trim();
+    final planned = _plan.isTrip
+        ? (d.stopEtaText ?? '').trim()
+        : formatEta(d.routeGeneratedAt, d.routeDurationSeconds, d.routeEtaText);
+    final dispatch = dispatchEtaText(d.status, d.expectedArrivalAt);
     final notes = (d.destinationAccessNotes ?? '').trim();
     final rider = _riderPoint;
     final dest = _destinationPoint;
     final away = rider != null && dest != null ? '${shortDistance(straightLineMeters(rider, dest))} away' : null;
-    final top = [next.position ?? 'Destination', if (d.isOnTrip && eta.isNotEmpty) 'planned $eta'].join(' · ');
+    final top = [
+      next.position ?? 'Destination',
+      if (dispatch != null) 'ETA at dispatch $dispatch',
+      if (planned.isNotEmpty && planned != '—' && planned != dispatch) 'Planned $planned',
+    ].join(' · ');
     final sub = [?away, if (d.clinicAddress.trim().isNotEmpty) d.clinicAddress.trim()].join(' · ');
     return Material(
       key: ValueKey('next-stop-${d.id}'),

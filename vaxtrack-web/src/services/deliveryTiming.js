@@ -55,6 +55,14 @@ const minutesText = (m) => {
 const normalized = (order) =>
   String(order?.statusKey ?? order?.status ?? "").trim().toLowerCase().replace(/[-\s]+/g, "_");
 
+/** The server's arrival estimate for the dispatch underway. */
+export function dispatchArrivalTime(order) {
+  const status = normalized(order);
+  if (status !== "in_transit" && status !== "delayed") return null;
+  const expected = millisOf(order?.expectedArrivalAt);
+  return Number.isFinite(expected) ? manilaTime(expected) : null;
+}
+
 /**
  * The combined lifecycle + timing wording:
  *   in transit:  "In Transit" · "In Transit — At Risk" · "In Transit — Automatically delayed"

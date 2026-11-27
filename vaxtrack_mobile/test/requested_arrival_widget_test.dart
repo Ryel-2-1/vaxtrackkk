@@ -83,7 +83,9 @@ void main() {
           expect(rect.right, lessThanOrEqualTo(width));
           expect(find.text('In Transit'), findsOneWidget);
           if (entry.key == 'dashboard') {
-            expect(find.textContaining('ETA 10:45 AM'), findsOneWidget);
+            // No server dispatch estimate in this fixture, so the saved
+            // stop time shows as the planned arrival.
+            expect(find.textContaining('Planned 10:45 AM'), findsOneWidget);
           }
         });
       }

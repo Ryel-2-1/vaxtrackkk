@@ -6,6 +6,7 @@ import {
   bufferedMinutes,
   legMinutes,
   matrixMinutes,
+  planVerifiedTrip,
   plannedStopEtas,
   suggestStopOrder,
 } from "../src/services/timeAwareRouting.js";
@@ -289,4 +290,42 @@ test("arrival check: met, early, late, another day, and no date", async () => {
   assert.equal(arrivalCheck({ ...order, requestedDeliveryDate: "2026-10-30" }, at(10, 30)).met, false);
   assert.equal(arrivalCheck({ requestedArrival: any }, at(10, 30)).met, false, "no date is never 'met'");
   assert.equal(arrivalCheck(order, new Date(NaN)), null);
+});
+
+test("a verified detour can change the stop order and its saved arrival times", async () => {
+  const proposed = [];
+  const seconds = [[0, 60, 120], [60, 0, 60], [120, 120, 0]];
+  const result = await planVerifiedTrip({
+    stops: [stop("A", 1), stop("B", 2, before("10:15"))],
+    seconds, planDate: DAY, nowMinute: 600, fixedDeparture: 600, slackMinutes: 0,
+    resolveRoute: async (order) => {
+      proposed.push(order);
+      return { legArrivals: order[0] === "A" ? [60, 720] : [120, 240] };
+    },
+  });
+  assert.deepEqual(proposed, [["A", "B"], ["B", "A"]]);
+  assert.deepEqual(result.order, ["B", "A"]);
+  assert.equal(result.allMet, true);
+  assert.deepEqual(result.etas.map(({ etaSeconds }) => etaSeconds), [120, 840]);
+  assert.equal(seconds[1][2], 60);
+});
+
+test("the planner tries another sequence when a directed leg has no verified route", async () => {
+  const blocked = Object.assign(new Error("No verified motorcycle route"), { legIndex: 1 });
+  const options = {
+    stops: [stop("A", 1), stop("B", 2)],
+    seconds: [[0, 60, 120], [60, 0, 60], [120, 120, 0]],
+    planDate: DAY, nowMinute: 600, fixedDeparture: 600,
+  };
+  let attempts = 0;
+  const result = await planVerifiedTrip({ ...options, resolveRoute: async (order) => {
+    attempts++;
+    if (order[0] === "A") throw blocked;
+    return { legArrivals: [120, 300] };
+  } });
+  assert.equal(attempts, 2);
+  assert.deepEqual(result.order, ["B", "A"]);
+  assert.equal(result.seconds[2][1], 180);
+  assert.deepEqual(result.etas.map(({ etaSeconds }) => etaSeconds), [120, 900]);
+  await assert.rejects(() => planVerifiedTrip({ ...options, resolveRoute: async () => { throw blocked; } }), blocked);
 });

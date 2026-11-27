@@ -7,8 +7,9 @@ import {
   decodePolyline,
   formatDistance,
   formatDuration,
-  formatEta,
+  savedOrderRouteEta,
 } from "../services/routeService";
+import { dispatchArrivalTime } from "../services/deliveryTiming";
 import {
   MARKER_LABELS,
   deviationDisplayState,
@@ -88,12 +89,6 @@ function distanceMeters([lat1, lng1], [lat2, lng2]) {
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(a));
-}
-
-function toDate(ts) {
-  if (!ts) return null;
-  const d = ts.toDate ? ts.toDate() : new Date(ts);
-  return isNaN(d.getTime()) ? null : d;
 }
 
 // The Leaflet canvas. Rider marker always; clinic marker + geofence circle when
@@ -377,11 +372,8 @@ function LiveDeliveryMap({ order, tripStops = NO_STOPS, showDeviation = false })
 
   const hasRoute =
     typeof order?.routePolyline === "string" && order.routePolyline.length > 0;
-  const genDate = toDate(order?.routeGeneratedAt);
-  const eta =
-    hasRoute && genDate && Number.isFinite(order?.routeDurationSeconds)
-      ? formatEta(genDate, order.routeDurationSeconds)
-      : order?.routeEtaText || null;
+  const dispatchEta = dispatchArrivalTime(order);
+  const savedEta = (hasTrip ? order.stopEtaText : savedOrderRouteEta(order)) || "—";
 
   return (
     <div className="ldm">
@@ -434,7 +426,7 @@ function LiveDeliveryMap({ order, tripStops = NO_STOPS, showDeviation = false })
               <strong className="tnum">{formatDuration(order.tripDurationSeconds)}</strong>
             </span>
             <span>
-              ETA <strong className="tnum">{order.stopEtaText || "—"}</strong>
+              {dispatchEta ? "ETA at dispatch" : "Saved ETA"} <strong className="tnum">{dispatchEta || savedEta}</strong>
             </span>
           </div>
         ) : hasRoute ? (
@@ -447,10 +439,13 @@ function LiveDeliveryMap({ order, tripStops = NO_STOPS, showDeviation = false })
               <strong className="tnum">{formatDuration(order.routeDurationSeconds)}</strong>
             </span>
             <span>
-              ETA <strong className="tnum">{eta || "—"}</strong>
+              {dispatchEta ? "ETA at dispatch" : "Saved ETA"} <strong className="tnum">{dispatchEta || savedEta}</strong>
             </span>
           </div>
         ) : null}
+        {(hasTrip || hasRoute) && dispatchEta && savedEta !== "—" && savedEta !== dispatchEta && (
+          <p className="ldm-muted">Saved ETA {savedEta}</p>
+        )}
       </div>
 
       <p className="ldm-caption">

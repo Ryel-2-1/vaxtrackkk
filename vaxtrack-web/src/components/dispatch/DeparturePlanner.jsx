@@ -8,7 +8,7 @@ import {
   DEADLINE_SLACK_MINUTES,
   hubReturnOf,
   matrixMinutes,
-  planTrip,
+  planVerifiedTrip,
   plannedStopEtas,
   stopLatLng,
   suggestStopOrder,
@@ -156,7 +156,7 @@ function TripResult({ result, hubName, ordersById, busy, onSaveAnyway }) {
           ))}
         </ul>
       )}
-      {!exact && <p className="dp-hint">With this many stops the order is a best effort, not every possibility.</p>}
+      {!exact && <p className="dp-hint">Suggested from the motorcycle routes that could be verified.</p>}
       {!saved && result.etas && (
         <div className="dp-result-confirm">
           <p>This is the closest plan. Nothing is saved unless you confirm.</p>
@@ -343,10 +343,10 @@ function DeparturePlanner({ orders, riderName, routing = null, onReturnPlanChang
    * order's route from the hub. Throws on failure; nothing is half-saved
    * (the trip is one batch, the single route one update).
    */
-  async function saveRoute(ordered, plannedEtas) {
+  async function saveRoute(ordered, plannedEtas, verifiedRoute) {
     if (ordered.length === 1) {
       const order = ordered[0];
-      const route = await fetchRoute(hub.latLng, stopLatLng(order));
+      const route = verifiedRoute ?? await fetchRoute(hub.latLng, stopLatLng(order));
       await saveOrderRoute(
         order.id,
         { ...route, etaText: plannedEtas[0]?.etaText || "" },
@@ -354,9 +354,9 @@ function DeparturePlanner({ orders, riderName, routing = null, onReturnPlanChang
       );
       return;
     }
-    const route = await routeThroughStops(
+    const route = verifiedRoute ?? await routeThroughStops(
       hub.latLng,
-      ordered.map((order) => ({ orderId: order.id, latLng: stopLatLng(order) }))
+      ordered.map((order) => ({ orderId: order.id, latLng: stopLatLng(order), label: stopName(order) }))
     );
     await saveRiderTripRoute({ ...route, stops: plannedEtas });
   }
@@ -402,7 +402,7 @@ function DeparturePlanner({ orders, riderName, routing = null, onReturnPlanChang
         current = { hubKey: hubKeyOf(hub), keys, seconds };
         setMatrix(current);
       }
-      const result = planTrip({
+      const result = await planVerifiedTrip({
         hubReturnIndex: 0,
         stops: sequenced.map((order) => ({
           id: order.id,
@@ -412,7 +412,13 @@ function DeparturePlanner({ orders, riderName, routing = null, onReturnPlanChang
           requestedArrival: order.requestedArrival,
           serviceMinutes: serviceValue(order),
         })),
-        minutes: matrixMinutes(current.seconds, bufferPercent),
+        seconds: current.seconds,
+        bufferPercent,
+        resolveRoute: (orderIds) => routeThroughStops(hub.latLng, orderIds.map((id) => ({
+          orderId: id,
+          latLng: stopLatLng(ordersById.get(id)),
+          label: stopName(ordersById.get(id)),
+        }))),
         planDate: clock.date,
         nowMinute: clock.minute,
         allowWaiting: true,
@@ -422,10 +428,11 @@ function DeparturePlanner({ orders, riderName, routing = null, onReturnPlanChang
       });
       if (!result) {
         setAutoResult(null);
-        setMessage({ tone: "error", text: "No trip could be planned: a stop has no motorcycle route from the others. Nothing was saved." });
+        setMessage({ tone: "error", text: "No complete motorcycle trip could be planned. Check the stop pins and service times." });
         return;
       }
       // The manual view mirrors the plan, so "Adjust manually" starts from it.
+      setMatrix({ ...current, seconds: result.seconds });
       setSavedSequence(result.order);
       setTravel({});
       setAllowWaiting(true);
@@ -440,7 +447,7 @@ function DeparturePlanner({ orders, riderName, routing = null, onReturnPlanChang
         setAutoResult({ ...result, saved: false });
         return;
       }
-      await saveRoute(ordered, result.etas);
+      await saveRoute(ordered, result.etas, result.route);
       setAutoResult({ ...result, saved: true });
     } catch (err) {
       logSafeError("Departure planner automatic plan", err);
@@ -610,6 +617,13 @@ function DeparturePlanner({ orders, riderName, routing = null, onReturnPlanChang
               Sort by requested time
             </button>
           </div>
+
+          {Number.isInteger(plan.stops[0]?.arrival) && (
+            <p className="dp-hint" role="status">
+              First stop ETA {formatMinute(plan.stops[0].arrival) || "after midnight"}
+              {plan.stops[0].wait > 0 && ` · Handoff at ${formatMinute(plan.stops[0].serviceStart)}`}
+            </p>
+          )}
 
           <div className="dp-table-wrap">
             <table className="dp-table">

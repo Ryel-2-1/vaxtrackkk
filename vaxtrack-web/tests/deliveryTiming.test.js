@@ -3,9 +3,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import {
-  deliveryTiming, dispatchEtaCheck, HOLD_LABEL, lateAlertLiveText, manilaTime, missingEtaWarning, NO_ETA_DETAIL, TIMING_LABELS,
+  deliveryTiming, dispatchArrivalTime, dispatchEtaCheck, HOLD_LABEL, lateAlertLiveText, manilaTime, missingEtaWarning, NO_ETA_DETAIL, TIMING_LABELS,
 } from "../src/services/deliveryTiming.js";
+import { planDeparture } from "../src/services/departurePlanner.js";
 import { EVENT_LABELS, SOURCE_LABELS } from "../src/services/orderHistory.js";
+import { savedOrderRouteEta } from "../src/services/routeService.js";
+import { plannedStopEtas } from "../src/services/timeAwareRouting.js";
 
 /**
  * The web's display of the server's automatic delivery timing. The server
@@ -34,6 +37,34 @@ const order = (over = {}) => ({
 
 test("the status names match the server's", () => {
   assert.deepEqual(Object.keys(TIMING_LABELS).sort(), [...server.TIMING_STATUSES].sort());
+});
+
+test("the saved route ETA uses the entered departure and remains separate from the dispatch ETA", () => {
+  const planDate = "2026-10-17";
+  const plan = planDeparture({
+    planDate,
+    nowMinute: 18 * 60,
+    departureMinute: 19 * 60,
+    stops: [{ id: "a", travelMinutes: 10, serviceMinutes: 5, requestedDeliveryDate: planDate }],
+  });
+  const [stop] = plannedStopEtas(plan);
+  const generated = new Date(T0);
+  const route = { routeGeneratedAt: generated, routeDurationSeconds: 600, routeEtaText: stop.etaText };
+  assert.equal(savedOrderRouteEta(route), "7:10 PM");
+  assert.equal(savedOrderRouteEta({ ...route, routeEtaText: "" }), "6:10 PM");
+  assert.equal(savedOrderRouteEta({ ...route, routeEtaText: "10 min" }), "6:10 PM");
+  const actualDispatch = T0 + 30 * MIN;
+  const timing = server.timingBaseline({
+    order: { ...route, stopEtaSeconds: stop.etaSeconds },
+    dispatchedAtMs: actualDispatch,
+    routeForOrder: () => ({ available: true, source: "trip" }),
+  });
+  const expectedArrivalAt = ts(timing.expectedArrivalMs);
+  assert.equal(dispatchArrivalTime(order({ statusKey: "loading", expectedArrivalAt })), null);
+  assert.equal(dispatchArrivalTime(order({ expectedArrivalAt })), "6:40 PM");
+  assert.equal(dispatchArrivalTime(order({ statusKey: "delayed", expectedArrivalAt })), "6:40 PM");
+  assert.equal(dispatchArrivalTime(order({ expectedArrivalAt: null })), null);
+  assert.equal(savedOrderRouteEta(route), "7:10 PM");
 });
 
 test("a delay of an hour or more reads in hours", () => {

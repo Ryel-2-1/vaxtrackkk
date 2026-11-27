@@ -32,8 +32,9 @@ import {
   formatEta,
   isRouteServiceConfigured,
   routeThroughStops,
+  savedOrderRouteEta,
 } from "../../services/routeService";
-import { DEADLINE_SLACK_MINUTES, arrivalCheck, bufferedMinutes, matrixMinutes, planTrip } from "../../services/timeAwareRouting";
+import { DEADLINE_SLACK_MINUTES, arrivalCheck, bufferedMinutes, planVerifiedTrip } from "../../services/timeAwareRouting";
 import { subscribeRoutingSettings } from "../../services/routingSettingsService";
 import { subscribeClinics } from "../../services/clinicService";
 import { arrivalGeofence, clinicsById, geofenceStatus } from "../../services/destinationFreshness";
@@ -46,7 +47,7 @@ import DispatcherDialogLayer from "./DispatcherDialogLayer";
 import TimingIndicator from "../../components/ui/TimingIndicator";
 import PageNav, { PAGE_SIZE } from "../../components/ui/PageNav";
 import { savedRouteDescription } from "../../services/routeMetadata.js";
-import { isRunningLate, manilaTime } from "../../services/deliveryTiming";
+import { dispatchArrivalTime, isRunningLate, manilaTime } from "../../services/deliveryTiming";
 import { manilaClock, requestedArrivalOf, requestedScheduleLabel } from "../../services/requestedArrival";
 
 /** Epoch ms of a Firestore Timestamp / Date / number, or null. */
@@ -60,7 +61,7 @@ function millisOf(value) {
 // Computed once — whether a valid motorcycle routing endpoint is configured.
 const ROUTE_CONFIGURED = isRouteServiceConfigured();
 // Geofence plans from the rider's live position, now. Re-optimize orders the
-// stops to meet requested arrival times (timeAwareRouting.planTrip, the same
+// stops to meet requested arrival times (the same
 // logic as Cargo Loading's Plan trip, with the departure fixed at now) and
 // replaces the saved trip. A single route reports whether its arrival meets
 // the request — one stop has no order to choose.
@@ -526,6 +527,8 @@ function DispatcherGeofence() {
     };
   }, [selectedOrder, live.location]);
   const routeMonitoring = deviationDisplayState(live.deviation);
+  const dispatchEta = dispatchArrivalTime(selected);
+  const savedEta = selected?.tripPolyline ? selected.stopEtaText : savedOrderRouteEta(selected);
 
   const routeBusy = !!selected && busyOrderId === selected.id;
   const activeRouteError =
@@ -608,7 +611,8 @@ function DispatcherGeofence() {
       if (routing.hub) points.push(routing.hub.latLng);
       const seconds = await fetchTravelMatrix(points);
       const clock = manilaClock(new Date());
-      const result = planTrip({
+      const byId = new Map(riderStops.map((s) => [s.order.id, s]));
+      const result = await planVerifiedTrip({
         hubReturnIndex,
         stops: riderStops.map((s, i) => ({
           id: s.order.id,
@@ -618,7 +622,13 @@ function DispatcherGeofence() {
           requestedArrival: s.order.requestedArrival,
           serviceMinutes: routing.serviceMinutes,
         })),
-        minutes: matrixMinutes(seconds, routing.trafficBufferPercent),
+        seconds,
+        bufferPercent: routing.trafficBufferPercent,
+        resolveRoute: (orderIds) => routeThroughStops(riderLL, orderIds.map((id) => ({
+          orderId: id,
+          latLng: byId.get(id).latLng,
+          label: byId.get(id).order.clinicName || byId.get(id).order.orderNumber || "Destination",
+        }))),
         planDate: clock.date,
         nowMinute: clock.minute,
         fixedDeparture: clock.minute,
@@ -629,12 +639,7 @@ function DispatcherGeofence() {
       if (!result || !result.etas) {
         throw new Error("No reachable visiting order for these stops.");
       }
-      const byId = new Map(riderStops.map((s) => [s.order.id, s]));
-      const route = await routeThroughStops(
-        riderLL,
-        result.order.map((id) => ({ orderId: id, latLng: byId.get(id).latLng }))
-      );
-      await saveRiderTripRoute({ ...route, stops: result.etas });
+      await saveRiderTripRoute({ ...result.route, stops: result.etas });
       const missed = result.plan.stops.filter((r) => r.outcome !== "ok").length;
       setTripNotice({
         riderId,
@@ -856,9 +861,7 @@ function DispatcherGeofence() {
                     const genAt = selected.routeGeneratedAt?.toDate
                       ? selected.routeGeneratedAt.toDate()
                       : null;
-                    const liveEta = genAt
-                      ? formatEta(genAt, selected.routeDurationSeconds)
-                      : selected.routeEtaText || "—";
+                    const plannedEta = savedOrderRouteEta(selected);
                     const canGenerate = !!clinicLL && fixIsFresh; // rider location present here
                     return (
                       <div className="geo3-live-route">
@@ -882,8 +885,11 @@ function DispatcherGeofence() {
                               </strong>
                             </div>
                             <div>
-                              <small>ETA</small>
-                              <strong className="tnum">{liveEta}</strong>
+                              <small>{dispatchEta ? "ETA at dispatch" : "Saved ETA"}</small>
+                              <strong className="tnum">{dispatchEta || plannedEta}</strong>
+                              {dispatchEta && plannedEta !== "—" && plannedEta !== dispatchEta && (
+                                <small>Saved ETA {plannedEta}</small>
+                              )}
                             </div>
                           </div>
                         )}
@@ -897,7 +903,7 @@ function DispatcherGeofence() {
                           return check ? (
                             <p className={check.met || check.early ? "geo3-live-route-sub" : "geo3-live-route-error"} role="status">
                               {check.met ? "✓ " : check.early ? "" : "✗ "}
-                              {check.text} With a {routing.trafficBufferPercent}% traffic buffer.
+                              {check.text} Based on leaving when the route was generated, with a {routing.trafficBufferPercent}% traffic buffer.
                             </p>
                           ) : null;
                         })()}
@@ -1109,9 +1115,8 @@ function DispatcherGeofence() {
                         <div>
                           <span>Requested arrival</span>
                           <strong>{requestedScheduleLabel(selected.requestedDeliveryDate, requestedArrivalOf(selected))}</strong>
-                          {millisOf(selected.expectedArrivalAt) !== null && (
-                            <p>Estimated arrival at dispatch: {manilaTime(millisOf(selected.expectedArrivalAt))}</p>
-                          )}
+                          {dispatchEta && <p>Estimated arrival at dispatch: {dispatchEta}</p>}
+                          {savedEta && savedEta !== "—" && savedEta !== dispatchEta && <p>Saved ETA {savedEta}</p>}
                           {millisOf(selected.dispatchedAt) !== null && (
                             <p>Left the hub: {manilaTime(millisOf(selected.dispatchedAt))}</p>
                           )}

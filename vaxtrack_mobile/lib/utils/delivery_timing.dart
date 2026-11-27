@@ -51,6 +51,15 @@ const Map<String, String> kTimingLabels = {
 String _time(DateTime t) => DateFormat('h:mm a').format(t.toLocal());
 String _minutes(int m) => '$m minute${m == 1 ? '' : 's'}';
 
+/// The server's estimate for this dispatch, using the same Manila clock as
+/// the saved plan.
+String? dispatchEtaText(String status, DateTime? expectedArrivalAt) {
+  if (status != 'in_transit' && status != 'delayed') return null;
+  if (expectedArrivalAt == null) return null;
+  final manila = expectedArrivalAt.toUtc().add(const Duration(hours: 8));
+  return DateFormat('h:mm a').format(manila);
+}
+
 String _combined(String lifecycle, String status) {
   if (lifecycle == 'delayed') {
     return status == 'delayed' ? 'Delayed — $kHoldLabel · also behind schedule' : 'Delayed — $kHoldLabel';

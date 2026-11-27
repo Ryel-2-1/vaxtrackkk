@@ -763,8 +763,12 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
   }
 
   // Distance and time of the plan being shown. A trip plan shows the whole
-  // trip and THIS stop's planned arrival; a single-delivery plan shows its leg.
+  // trip and this stop's arrival estimates; a single delivery shows its leg.
   Widget _etaCard(SavedRoutePlan plan) {
+    final plannedEta = plan.isTrip
+        ? (d.stopEtaText ?? '').trim()
+        : formatEta(d.routeGeneratedAt, d.routeDurationSeconds, d.routeEtaText);
+    final dispatchEta = dispatchEtaText(d.status, d.expectedArrivalAt);
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
       decoration: BoxDecoration(
@@ -787,21 +791,19 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
           _etaDivider(),
           _etaMetric(
             Icons.access_time,
-            plan.isTrip ? 'This stop' : 'ETA',
-            plan.isTrip
-                ? ((d.stopEtaText ?? '').trim().isEmpty ? '—' : d.stopEtaText!.trim())
-                : formatEta(
-                    d.routeGeneratedAt,
-                    d.routeDurationSeconds,
-                    d.routeEtaText,
-                  ),
+            dispatchEta != null ? 'ETA at dispatch' : 'Planned arrival',
+            dispatchEta ?? (plannedEta.isEmpty ? '—' : plannedEta),
+            note: dispatchEta != null && plannedEta.isNotEmpty &&
+                    plannedEta != '—' && plannedEta != dispatchEta
+                ? 'Planned $plannedEta'
+                : null,
           ),
         ],
       ),
     );
   }
 
-  Widget _etaMetric(IconData icon, String label, String value) {
+  Widget _etaMetric(IconData icon, String label, String value, {String? note}) {
     return Expanded(
       child: Column(
         children: [
@@ -809,17 +811,25 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
           const SizedBox(height: 4),
           Text(
             label,
+            textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 11, color: AppColors.textLight),
           ),
           const SizedBox(height: 2),
           Text(
             value,
+            textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
               color: AppColors.textDark,
             ),
           ),
+          if (note != null)
+            Text(
+              note,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 11, color: AppColors.textLight),
+            ),
         ],
       ),
     );
