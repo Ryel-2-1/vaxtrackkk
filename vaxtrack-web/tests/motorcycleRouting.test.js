@@ -161,6 +161,26 @@ test("directed roads and unreachable pairs do not invent arrival times", () => {
   bad.sources_to_targets[0][1].to_index = 0;
   throwsCode(() => parseMotorcycleMatrix(bad, 2), "route-not-found");
 });
+test("travel times accept the destination-only second pass, routes do not", () => {
+  // A clinic inside a subdivision: the public server answers with 208 + 400.
+  const gated = matrix([[0, 9], [8, 0]]);
+  gated.warnings = [{ code: 208 }, { code: 400, text: "CostMatrix turned off destination-only on a second pass for connections: 1" }];
+  assert.deepEqual(parseMotorcycleMatrix(gated, 2), [[0, 9], [8, 0]]);
+  const other = matrix([[0, 9], [8, 0]]);
+  other.warnings = [{ code: 208 }, { code: 100 }];
+  throwsCode(() => parseMotorcycleMatrix(other, 2), "route-unverified");
+  const trip = route(); trip.trip.warnings = [{ code: 400 }];
+  throwsCode(() => parseMotorcycleRoute(trip, 1), "route-unverified");
+});
+test("a route found on the relaxed second pass is accepted only if its roads pass", () => {
+  // Pin reached through local-access streets: 208 + 401 (seen 2026-11-28).
+  const relaxed = route(); relaxed.trip.warnings = [{ code: 208 }, { code: 401, text: "Routing failed on first pass, retrying with relaxed restrictions" }];
+  assert.equal(parseMotorcycleRoute(relaxed, 1).durationSeconds, 60);
+  const relaxedToll = route(); relaxedToll.trip.warnings = [{ code: 401 }]; relaxedToll.trip.summary.has_toll = true;
+  throwsCode(() => parseMotorcycleRoute(relaxedToll, 1), "route-restricted");
+  const unknown = route(); unknown.trip.warnings = [{ code: 401 }, { code: 999 }];
+  throwsCode(() => parseMotorcycleRoute(unknown, 1), "route-unverified");
+});
 test("larger groups preserve every stop exactly once without a forced return", () => {
   const times = Array.from({ length: 15 }, (_, i) => Array.from({ length: 15 }, (_, j) => Math.abs(i - j)));
   assert.deepEqual(motorcycleStopOrder(times), Array.from({ length: 14 }, (_, i) => i + 1));
