@@ -195,10 +195,24 @@ function motorcycleTraceRequest() {
 // for highway/toll/ferry flags anyway, so this one warning is not a reason to
 // refuse. Any other warning still fails closed.
 const EXCLUSIONS_DOWNGRADED = 208;
-function noWarnings(data) {
+// Valhalla 400 (travel-time matrix only): "CostMatrix turned off destination-only
+// on a second pass". A stop reached only through local-access roads (a clinic
+// inside a subdivision or gated village) gets its time from a second search
+// that may enter those roads, as a delivery must. Matrix times are estimates
+// for ordering stops; the route actually saved is still checked for
+// highway/toll/ferry flags. Refusing it blocked Plan trip (2026-11-28).
+const MATRIX_DESTINATION_ONLY_RETRY = 400;
+// Valhalla 401 (routes): "Routing failed on first pass, retrying with relaxed
+// restrictions". Same situation for a single route: the pin is reached through
+// local-access streets. The returned path keeps its own highway/toll/ferry
+// flags and per-maneuver motorcycle checks, so a relaxed path that used a
+// restricted road is still refused (2026-11-28).
+const ROUTE_RELAXED_RETRY = 401;
+const ROUTE_WARNINGS = [EXCLUSIONS_DOWNGRADED, ROUTE_RELAXED_RETRY];
+function noWarnings(data, accepted = ROUTE_WARNINGS) {
   for (const w of [data?.warnings, data?.trip?.warnings]) {
     if (w == null) continue;
-    if (!Array.isArray(w) || w.some(item => item?.code !== EXCLUSIONS_DOWNGRADED)) throw fail("route-unverified");
+    if (!Array.isArray(w) || w.some(item => !accepted.includes(item?.code))) throw fail("route-unverified");
   }
 }
 function checkedSummary(s) {
@@ -340,7 +354,7 @@ function detourExclusions(trace, excluded, destination) {
   return { points, destinationToll };
 }
 export function parseMotorcycleMatrix(data, sourceCount, targetCount = sourceCount) {
-  noWarnings(data);
+  noWarnings(data, [...ROUTE_WARNINGS, MATRIX_DESTINATION_ONLY_RETRY]);
   const rows = data?.sources_to_targets;
   if (!Array.isArray(rows) || rows.length !== sourceCount || rows.some(r => !Array.isArray(r) || r.length !== targetCount)) throw fail("route-not-found");
   return rows.map((row, i) => row.map((c, j) => {
