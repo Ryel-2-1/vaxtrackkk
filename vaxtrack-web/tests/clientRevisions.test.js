@@ -157,3 +157,10 @@ test("Batch details saves without a Location", () => {
   assert.doesNotMatch(inv, /!batchDraft\.location\.trim\(\)/);
   assert.match(inv, /id="inv-batch-location" value=\{batchDraft\?\.location \?\? ""\} placeholder="Not recorded"/);
 });
+
+test("after its own save the invoice editor follows the saved draft immediately", () => {
+  const editor = read("src/pages/admin/InvoiceEditor.jsx");
+  const settle = editor.slice(editor.indexOf("const settleAfterOwnWrite"), editor.indexOf("const loadLatest"));
+  assert.ok(settle.indexOf("busyRef.current = false;") > -1, "the saving flag is cleared before re-seeding");
+  assert.ok(settle.indexOf("busyRef.current = false;") < settle.indexOf("if (liveRef.current.invoice !== invoiceBefore) applyServer();"), "…and before applyServer runs");
+});

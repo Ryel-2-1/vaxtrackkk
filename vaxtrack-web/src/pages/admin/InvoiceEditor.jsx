@@ -295,6 +295,12 @@ function InvoiceEditor() {
   // version replaces it as soon as the listener has it — now, if the snapshot
   // carrying the write already arrived during the save, otherwise on arrival.
   const settleAfterOwnWrite = (invoiceBefore) => {
+    // The write is done: the form may follow the server again. Cleared HERE,
+    // not only in the caller's finally — applyServer() below would otherwise
+    // see "busy" and defer, and if the listener delivered the saved invoice
+    // during the save no later snapshot re-seeds the form, so the screen kept
+    // the order's own lines (no lot expiry) until a reload (2026-11-28).
+    busyRef.current = false;
     dirtyRef.current = false;
     setDirty(false);
     setStale(false);

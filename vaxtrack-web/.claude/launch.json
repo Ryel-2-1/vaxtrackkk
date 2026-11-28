@@ -4,21 +4,49 @@
     {
       "name": "vaxtrack-web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "--port", "5176"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5176"
+      ],
       "port": 5176
     },
     {
       "name": "vaxtrack-web-staging",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "--mode", "staging", "--port", "5176"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--mode",
+        "staging",
+        "--port",
+        "5176"
+      ],
       "port": 5176
     },
     {
       "name": "vaxtrack-web-motorcycle-qa",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:motorcycle-qa"],
+      "runtimeArgs": [
+        "run",
+        "dev:motorcycle-qa"
+      ],
       "port": 5191,
       "url": "http://127.0.0.1:5191"
+    },
+    {
+      "name": "vaxtrack-system-explorer",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--config",
+        "vite.system-explorer.config.mjs"
+      ],
+      "port": 5193,
+      "url": "http://127.0.0.1:5193"
     }
   ]
 }
