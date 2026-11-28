@@ -223,6 +223,7 @@ export default function MyProfile() {
         <section className="my-profile-section" aria-labelledby="my-profile-account">
           <h3 id="my-profile-account">
             <Shield size={18} /> Account details
+            <InfoHint>Your email, role and status are managed by your administrator.</InfoHint>
           </h3>
           <dl className="my-profile-details">
             <div>
@@ -242,7 +243,6 @@ export default function MyProfile() {
               </dd>
             </div>
           </dl>
-          <InfoHint>Your email, role and status are managed by your administrator.</InfoHint>
         </section>
 
         <section className="my-profile-section my-profile-password" aria-labelledby="my-profile-security">

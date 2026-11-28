@@ -1002,7 +1002,18 @@ function SalesRepPlaceOrder() {
           {zeroStep !== ZERO_RATE_STEP.NOT_NEEDED && items.length > 0 && (
             <section className="destination-card zero-rate-checkout-card zero-rate-step" aria-labelledby="zero-rate-step-title">
               <div className="zero-rate-checkout-heading">
-                <h2 id="zero-rate-step-title">Is this a zero-rated sale?</h2>
+                <h2 id="zero-rate-step-title">
+                  Is this a zero-rated sale?
+                  {zeroStep !== ZERO_RATE_STEP.APPROVED && zeroStep !== ZERO_RATE_STEP.PENDING && (
+                    <>
+                      {" "}
+                      <InfoHint>
+                        Answer before pricing. Choose Yes only when the customer&apos;s sale may qualify for zero-rating;
+                        Admin reviews it before the order can be placed.
+                      </InfoHint>
+                    </>
+                  )}
+                </h2>
                 <span>
                   {zeroStep === ZERO_RATE_STEP.APPROVED ? "Approved" : zeroStep === ZERO_RATE_STEP.PENDING ? "Waiting for Admin" : "Required"}
                 </span>
@@ -1032,10 +1043,6 @@ function SalesRepPlaceOrder() {
                   {staleZeroRate && (
                     <p className="zero-rate-checkout-stale" role="status">{staleZeroRate.text}</p>
                   )}
-                  <InfoHint>
-                    Answer before pricing. Choose Yes only when the customer&apos;s sale may qualify for zero-rating;
-                    Admin reviews it before the order can be placed.
-                  </InfoHint>
                   <div className="zero-rate-answer" role="radiogroup" aria-labelledby="zero-rate-step-title">
                     <label className={zeroStep === ZERO_RATE_STEP.STANDARD ? "is-on" : ""}>
                       <input type="radio" name="zero-rate-answer" value="no" checked={zeroStep === ZERO_RATE_STEP.STANDARD}
@@ -1261,10 +1268,14 @@ function SalesRepPlaceOrder() {
             {/* The VAT breakdown of the AGREED prices. VAT is extracted from
                 the VAT-inclusive VATable total (12/112), never added on top;
                 the server records the binding figures. */}
-            <VatBreakdown summary={priceSummary} />
-            <InfoHint>
-              Batch prices use the basis set by Admin. {approvedRequest ? "Zero-rating is approved: VAT is removed from the VATable items." : "VATable items include 12% VAT."} Prices are confirmed when the order is placed.
-            </InfoHint>
+            <VatBreakdown
+              summary={priceSummary}
+              hint={(
+                <InfoHint>
+                  Batch prices use the basis set by Admin. {approvedRequest ? "Zero-rating is approved: VAT is removed from the VATable items." : "VATable items include 12% VAT."} Prices are confirmed when the order is placed.
+                </InfoHint>
+              )}
+            />
 
             {mayBackorder && (
               <p className="place-v2-backorder-note" role="status">

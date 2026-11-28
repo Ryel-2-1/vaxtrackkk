@@ -164,3 +164,23 @@ test("after its own save the invoice editor follows the saved draft immediately"
   assert.ok(settle.indexOf("busyRef.current = false;") > -1, "the saving flag is cleared before re-seeding");
   assert.ok(settle.indexOf("busyRef.current = false;") < settle.indexOf("if (liveRef.current.invoice !== invoiceBefore) applyServer();"), "…and before applyServer runs");
 });
+
+test("an info hint's hidden description is anchored to its own icon, never to the page", () => {
+  const css = read("src/components/ui/InfoHint.css");
+  const rule = css.slice(css.indexOf(".m-info-hint {"), css.indexOf("}", css.indexOf(".m-info-hint {")));
+  assert.match(rule, /position: relative;/, "the wrapper is the containing block");
+  assert.match(css, /\.m-info-description \{\s*position: absolute !important;/);
+});
+
+test("info hints sit with the text they explain and never take a page's span styles", () => {
+  const css = read("src/components/ui/InfoHint.css");
+  for (const decl of ["flex: none !important;", "justify-self: start !important;", "padding: 0 !important;", "background: none !important;"]) {
+    assert.ok(css.includes(decl), decl);
+  }
+  const page = read("src/pages/salesRep/SalesRepPlaceOrder.jsx");
+  assert.match(page, /<h2 id="zero-rate-step-title">[\s\S]*?<InfoHint>[\s\S]*?<\/h2>/, "zero-rating hint in its heading");
+  assert.match(page, /<VatBreakdown\s+summary=\{priceSummary\}\s+hint=\{\(/, "price hint passed into the final total");
+  assert.match(read("src/components/schedule/RequestedArrivalField.jsx"), /<InfoHint id=\{helpId\}>[\s\S]*?<\/InfoHint>\s*<\/legend>/, "arrival hint inside its title");
+  assert.match(read("src/components/profile/MyProfile.jsx"), /Account details\s*<InfoHint>/);
+  assert.match(read("src/pages/salesRep/SalesRep.css"), /\.place-v2-pricing-card button:not\(\.m-info-trigger\) \{/);
+});

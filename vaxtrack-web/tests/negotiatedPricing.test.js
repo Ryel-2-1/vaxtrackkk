@@ -313,9 +313,14 @@ test("with no discount entry, a checkout line is reviewed and sent at its agreed
 });
 
 test("the summary shows the agreed-price subtotal, VAT and the final total", () => {
-  for (const label of ["Subtotal (agreed prices)", "VATable sales (net of VAT)", "VAT-exempt sales", "Zero-rated sales", "VAT (12%)", "Final total (VAT-inclusive)"]) {
+  for (const label of ["Subtotal (agreed prices)", "VATable sales (net of VAT)", "VAT-exempt sales", "Zero-rated sales", "VAT (12%)"]) {
     assert.match(PRICE_REVIEW, new RegExp(`<dt>${label.replace(/[()/]/g, "\\$&")}</dt>`), label);
   }
+  // The final total keeps "(VAT-inclusive)" and its info hint together (2026-11-28).
+  assert.ok(
+    PRICE_REVIEW.includes('<dt>Final total <span className="place-v2-keep-together">(VAT-inclusive){hint ? <> {hint}</> : null}</span></dt>'),
+    "Final total (VAT-inclusive), with the hint kept beside it"
+  );
   assert.equal((PAGE + PRICE_REVIEW).includes("Less: SC/PWD discounts"), false);
 });
 
@@ -455,7 +460,7 @@ test("a negotiated price shows in the tally as its own signed row (2026-11-11)",
   // Standard total, then what the negotiation changed, then the agreed subtotal
   // (= standard + change, by definition in negotiatedPricing.js).
   const breakdown = PRICE_REVIEW.slice(PRICE_REVIEW.indexOf("export function VatBreakdown"), PRICE_REVIEW.indexOf("export function ReconfirmDialog"));
-  const order = ["<dt>Standard prices with VAT</dt>", "<dt>VAT removed (zero-rating approved)</dt>", "<dt>Standard total", "<dt>Negotiated price changes</dt>", "<dt>Subtotal (agreed prices)</dt>", "<dt>Final total (VAT-inclusive)</dt>"].map((t) => breakdown.indexOf(t));
+  const order = ["<dt>Standard prices with VAT</dt>", "<dt>VAT removed (zero-rating approved)</dt>", "<dt>Standard total", "<dt>Negotiated price changes</dt>", "<dt>Subtotal (agreed prices)</dt>", "<dt>Final total <span"].map((t) => breakdown.indexOf(t));
   assert.ok(order.every((i, k) => i > 0 && (k === 0 || i > order[k - 1])), "rows in tally order");
   assert.ok(breakdown.includes('{adjustment > 0 ? "+" : "−"}{formatAmount(Math.abs(adjustment))}'), "signed change");
   assert.ok(breakdown.includes("{adjustment !== 0 && ("), "shown only when a price was negotiated");

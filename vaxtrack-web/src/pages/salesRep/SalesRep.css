@@ -5533,7 +5533,7 @@
   color: #ffffff !important;
 }
 
-.place-v2-pricing-card button {
+.place-v2-pricing-card button:not(.m-info-trigger) {
   width: 100% !important;
   height: 50px !important;
   border: 0 !important;
@@ -5548,11 +5548,11 @@
   pointer-events: auto !important;
 }
 
-.place-v2-pricing-card button:hover:not(:disabled) {
+.place-v2-pricing-card button:not(.m-info-trigger):hover:not(:disabled) {
   background: var(--green-50) !important;
 }
 
-.place-v2-pricing-card button:disabled {
+.place-v2-pricing-card button:not(.m-info-trigger):disabled {
   opacity: 0.65 !important;
   cursor: not-allowed !important;
 }

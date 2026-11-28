@@ -154,11 +154,13 @@ export function PriceReview({
  * The order's figures: negotiated subtotal, the VAT breakdown and the final
  * total. They reconcile: negotiated subtotal = final total = the VAT parts.
  */
-export function VatBreakdown({ summary }) {
+// [hint]: an optional InfoHint, shown beside the label it explains (the
+// final total) rather than as a loose line under the breakdown.
+export function VatBreakdown({ summary, hint = null }) {
   if (!summary) {
     return (
       <p className="place-v2-price-note" role="status">
-        The totals appear once every line has a valid agreed price and VAT classification.
+        The totals appear once every line has a valid agreed price and VAT classification. {hint}
       </p>
     );
   }
@@ -218,7 +220,8 @@ export function VatBreakdown({ summary }) {
         <dd className="tnum">{formatAmount(summary.vatAmountCentavos)}</dd>
       </div>
       <div className="place-v2-final-total">
-        <dt>Final total (VAT-inclusive)</dt>
+        {/* "(VAT-inclusive)" and the hint wrap together, never the hint alone. */}
+        <dt>Final total <span className="place-v2-keep-together">(VAT-inclusive){hint ? <> {hint}</> : null}</span></dt>
         <dd className="tnum">{formatAmount(summary.totalCentavos)}</dd>
       </div>
     </dl>
