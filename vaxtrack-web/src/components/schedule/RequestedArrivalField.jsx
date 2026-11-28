@@ -51,11 +51,11 @@ function RequestedArrivalField({ value, onChange, problem = null, disabled = fal
       <legend>
         <Clock3 size={14} aria-hidden="true" />
         Requested delivery time <span className="arrival-optional">(optional)</span>
+        <InfoHint id={helpId}>
+          When the delivery should arrive at the destination on the requested date, in Philippine time — not
+          when the rider leaves the hub. It is a request for planning, not a guaranteed time.
+        </InfoHint>
       </legend>
-      <InfoHint id={helpId}>
-        When the delivery should arrive at the destination on the requested date, in Philippine time — not
-        when the rider leaves the hub. It is a request for planning, not a guaranteed time.
-      </InfoHint>
 
       <label className="arrival-mode" htmlFor={`${id}-mode`}>
         <span>Arrival preference</span>

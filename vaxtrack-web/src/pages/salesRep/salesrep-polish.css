@@ -350,12 +350,12 @@ aside.salesrep-sidebar .salesrep-logout {
 .salesrep-main .place-v2-pricing-card p strong {
   color: var(--gray-900) !important;
 }
-.salesrep-main .place-v2-pricing-card button {
+.salesrep-main .place-v2-pricing-card button:not(.m-info-trigger) {
   background: var(--green-700) !important;   /* primary action stays green */
   color: #ffffff !important;
   height: 46px !important;
 }
-.salesrep-main .place-v2-pricing-card button:hover:not(:disabled) {
+.salesrep-main .place-v2-pricing-card button:not(.m-info-trigger):hover:not(:disabled) {
   background: var(--green-800) !important;
 }
 .salesrep-main .place-v2-pricing-card small {
@@ -377,7 +377,7 @@ aside.salesrep-sidebar .salesrep-logout {
   color: var(--gray-900) !important;
   font-size: 16px !important;
 }
-.salesrep-main .zero-rate-checkout-heading span {
+.salesrep-main .zero-rate-checkout-heading > span {
   border-radius: 999px;
   background: var(--gray-100);
   color: var(--gray-600);
@@ -781,14 +781,22 @@ aside.salesrep-sidebar .salesrep-logout {
   border-radius: 8px;
   min-width: 0;
 }
+/* The title flows as one sentence (icon, text, "(optional)", ⓘ) and wraps
+   like text in the narrow side column; as a flex row its text node was
+   squeezed into a separate column with the ⓘ pushed to the edge. */
 .salesrep-page .arrival-field legend {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  display: block;
   padding: 0 4px;
   font-size: 13px;
   font-weight: 600;
   color: var(--gray-700, #374151);
+}
+.salesrep-main .place-v2-keep-together {
+  white-space: nowrap;
+}
+.salesrep-page .arrival-field legend > svg {
+  vertical-align: -2px;
+  margin-right: 4px;
 }
 .salesrep-page .arrival-optional {
   font-weight: 400;
