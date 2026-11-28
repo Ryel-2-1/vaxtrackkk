@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:system-explorer": "vite --config vite.system-explorer.config.mjs --open /system-explorer.html",
+    "emulators:system-explorer": "firebase emulators:start --only firestore --project demo-vaxtrack-explorer --config firebase.system-explorer.json",
+    "test:system-explorer": "node scripts/system-explorer/smoke.mjs",
     "dev:motorcycle-qa": "vite --mode motorcycle-qa --host 127.0.0.1 --port 5191 --strictPort",
     "qa:motorcycle:emulators": "firebase emulators:start --only auth,firestore --project demo-vaxtrack-motorcycle --config firebase.motorcycle-qa.json",
     "qa:motorcycle:seed": "node scripts/seedMotorcycleQa.mjs",
