@@ -184,3 +184,12 @@ test("info hints sit with the text they explain and never take a page's span sty
   assert.match(read("src/components/profile/MyProfile.jsx"), /Account details\s*<InfoHint>/);
   assert.match(read("src/pages/salesRep/SalesRep.css"), /\.place-v2-pricing-card button:not\(\.m-info-trigger\) \{/);
 });
+
+test("a new arrival radius starts at 300 m and the mouse wheel cannot change it", () => {
+  // A blank number field showing a "300" placeholder stepped to its 50 m
+  // minimum on the first wheel tick or arrow (2026-11-28).
+  for (const page of ["src/pages/admin/Clinics.jsx", "src/pages/admin/DoctorAddressesPanel.jsx"]) {
+    assert.match(read(page), /geofenceRadiusM: String\(DEFAULT_GEOFENCE_RADIUS_M\),/, page);
+  }
+  assert.match(read("src/pages/admin/ClinicLocationSection.jsx"), /onWheel=\{\(e\) => e\.currentTarget\.blur\(\)\}/);
+});

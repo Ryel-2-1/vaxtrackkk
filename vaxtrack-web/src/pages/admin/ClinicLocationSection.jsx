@@ -328,6 +328,9 @@ function ClinicLocationSection({
             placeholder={String(DEFAULT_GEOFENCE_RADIUS_M)}
             value={value.geofenceRadiusM ?? ""}
             onChange={(e) => onChange({ geofenceRadiusM: e.target.value })}
+            // Scrolling the dialog over a focused number field changed the
+            // radius (down to 50 m). Typing and the arrow keys still work.
+            onWheel={(e) => e.currentTarget.blur()}
             disabled={disabled}
             aria-invalid={errors.geofenceRadiusM ? "true" : undefined}
             aria-describedby={

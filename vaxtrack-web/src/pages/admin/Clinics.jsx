@@ -59,6 +59,7 @@ import { useLiveDraft } from "../../components/useLiveDraft";
 import { useToast } from "../../components/ui/useToast";
 import { errorIdFor, fieldA11y, focusFirstInvalid, hasErrors } from "../../services/formValidation";
 import ClinicLocationSection from "./ClinicLocationSection";
+import { DEFAULT_GEOFENCE_RADIUS_M } from "../../services/clinicLocation";
 import DoctorAddressesPanel from "./DoctorAddressesPanel";
 import { ClinicAccessFields, ClinicAccessResults, ManageAccessModal } from "./ClinicAccess";
 import useDoctorAddressLinks from "./useDoctorAddressLinks";
@@ -186,7 +187,9 @@ const EMPTY_CLINIC = {
   status: "active",
   latitude: "",
   longitude: "",
-  geofenceRadiusM: "",
+  // Start at the real default, not a blank field showing a "300" placeholder:
+  // the browser steps a blank number field to its minimum (50 m) (2026-11-28).
+  geofenceRadiusM: String(DEFAULT_GEOFENCE_RADIUS_M),
   entranceConfirmed: false,
   accessNotes: "",
 };

@@ -22,6 +22,7 @@ import {
   validateDoctorHomeAddress,
 } from "../../services/doctorAddressModel";
 import ClinicLocationSection from "./ClinicLocationSection";
+import { DEFAULT_GEOFENCE_RADIUS_M } from "../../services/clinicLocation";
 import { friendlyErrorMessage, liveErrorMessage, logSafeError } from "../../services/liveDataErrors";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
 
@@ -31,7 +32,9 @@ const EMPTY_HOME_ADDRESS = {
   areaId: "",
   latitude: "",
   longitude: "",
-  geofenceRadiusM: "",
+  // Start at the real default, not a blank field showing a "300" placeholder:
+  // the browser steps a blank number field to its minimum (50 m) (2026-11-28).
+  geofenceRadiusM: String(DEFAULT_GEOFENCE_RADIUS_M),
 };
 
 function hasUsableClinicDestination(clinic, activeAreaById) {
